@@ -1,56 +1,50 @@
-# Liminal v0.1
+# Liminal v0.1 使用手册
 
-Liminal 是一个“指标驱动 + 角色隔离”的自主迭代框架原型。当前仓库实现了 **外部编排器（control plane）** 的最小可运行版本，用于验证：
+Liminal 是一个“指标驱动 + 角色隔离”的外部编排器原型。它按 **Generator → Tester → Verifier → Challenger(可选)** 的流程迭代，并把全部关键状态写入本地文件，便于回放与审计。
 
-- 角色分离循环（Generator / Tester / Verifier / Challenger）
-- 可审计状态写入（`state/*.jsonl` + `handoff/*.json`）
-- 停滞检测与 Challenger 触发
-- 面向 Agent 的文本观测产物（`state/agent_views/*`）
+## 1. 你会得到什么
 
-> 当前版本为 v0.1 bootstrap：角色执行逻辑是可运行模拟器，重点是先打通控制面与契约。
+- 可运行的最小闭环编排器（外部 control plane）。
+- 完整落盘状态：`state/*.jsonl`、`handoff/*.json`、`state/agent_views/*`。
+- 停滞检测（plateau/regression）与 Challenger 触发。
+- 失败恢复链路：**重试 → 降级 → 中止并输出 machine-readable 错误摘要**。
 
----
-
-## 目录结构
+## 2. 目录说明（只保留使用相关）
 
 ```text
 .
-├── orchestrator.py                  # 编排入口
-├── orchestrator/                    # 核心模块
-├── spec/                            # 规格与约束
-├── state/                           # 运行状态与历史
-├── handoff/                         # 角色交接文件
-├── workspace/src/                   # Generator 产物（示例网站）
-├── scripts/replay_demo.sh           # 一键回放
-└── desgin/                          # 设计与调研文档（按历史命名保留）
+├── orchestrator.py                # 入口
+├── orchestrator/                  # 编排核心实现
+├── spec/                          # 规格与阈值
+├── state/                         # 历史状态与事件
+├── handoff/                       # 角色交接文件
+├── workspace/src/                 # Generator 产物
+└── scripts/replay_demo.sh         # 一键回放示例
 ```
 
----
+## 3. 快速开始
 
-## 快速开始
-
-### 1) 运行一次最小循环
+### 3.1 运行 1 轮
 
 ```bash
 python3 orchestrator.py --max-iters 1 --base .
 ```
 
-### 2) 运行回放脚本
+### 3.2 运行 10 轮（推荐）
+
+```bash
+python3 orchestrator.py --max-iters 10 --base .
+```
+
+### 3.3 一键回放
 
 ```bash
 bash scripts/replay_demo.sh
 ```
 
-脚本会：
-1. 执行 5 轮迭代；
-2. 输出 `handoff/verifier_verdict.json`；
-3. 列出 `workspace/src/` 下生成的网站文件。
+## 4. 输入任务样例
 
----
-
-## 网站生成测试（你要求的“随便做一个网站”）
-
-通过 `handoff/task.json` 注入任务：
+编辑 `handoff/task.json`（示例）：
 
 ```json
 {
@@ -61,61 +55,55 @@ bash scripts/replay_demo.sh
 }
 ```
 
-当 `task_type=build_website` 时，Generator 会在 `workspace/src/` 生成：
+运行后会在 `workspace/src/` 看到：
 
 - `index.html`
 - `style.css`
 
----
+## 5. 输出结果怎么读
 
-## 关键文件说明
+### 5.1 核心 verdict
 
-### `spec/`
-- `test_cases.json`：测试用例定义
-- `acceptance_criteria.json`：验收指标阈值
-- `constraints.md`：Generator 约束
+- 文件：`handoff/verifier_verdict.json`
+- 关键字段：
+  - `passed`
+  - `composite_score`
+  - `metric_scores`
+  - `failed_case_ids`
+  - `hard_constraint_violations`
 
-### `handoff/`
-- `tester_output.json`：Tester → Verifier
-- `verifier_verdict.json`：Verifier → Generator
-- `challenger_seed.json`：Challenger → Generator
-- `task.json`：外部任务注入（当前包含网站生成任务）
+### 5.2 历史与事件
 
-### `state/`
-- `metrics_history.jsonl`：指标历史
-- `iteration_log.jsonl`：Generator 决策日志
-- `stagnation.json`：停滞检测状态
-- `run_events.jsonl`：编排事件日志
-- `agent_views/*`：Agent 可消费文本观测
+- `state/metrics_history.jsonl`：每轮分数与通过状态。
+- `state/iteration_log.jsonl`：Generator 每轮决策记录。
+- `state/run_events.jsonl`：编排事件流（含重试/降级/中止摘要）。
+- `state/stagnation.json`：停滞状态与触发记录。
 
----
+### 5.3 Agent 观测文件
 
-## 当前策略（已收敛）
+- `state/agent_views/agent_brief.json`
+- `state/agent_views/score_trend.mmd`
+- `state/agent_views/current_mode.mmd`
 
-- 主循环：外部脚本实现
-- Skill：当前不使用
-- 硬 reset：仅新建 session
-- 失败恢复：角色级重试 → 降级策略 → 退出
-- 观测目标：优先给 Agent，而非人类仪表盘
-
----
-
-## 开发状态
-
-- ✅ 已完成：MVP 外部编排闭环、状态落盘、演示网站生成
-- ⏳ 下一步：将模拟角色执行替换为真实 `codex exec --json` 调用
-
----
-
-## 常见命令
+## 6. 常用命令
 
 ```bash
-# 运行 3 轮
-python3 orchestrator.py --max-iters 3 --base .
-
 # 语法检查
 python3 -m py_compile orchestrator.py orchestrator/*.py
 
-# 回放演示
-bash scripts/replay_demo.sh
+# 运行 3 轮
+python3 orchestrator.py --max-iters 3 --base .
+
+# 查看最新 verdict
+cat handoff/verifier_verdict.json
 ```
+
+## 7. 失败恢复行为示例
+
+当某角色连续失败时，系统会按顺序执行：
+
+1. 角色级重试（最多 `max_retries + 1` 次）。
+2. 启用一次降级策略后再次重试。
+3. 若仍失败：写入 `run_aborted` 事件，并在 `verifier_verdict.json` 里输出 `ROLE_EXECUTION_ABORT` 错误摘要。
+
+这使失败路径可回放、可机器解析。
