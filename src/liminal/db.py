@@ -47,6 +47,10 @@ class LiminalRepository:
                     spec_path TEXT NOT NULL,
                     spec_markdown TEXT NOT NULL,
                     compiled_spec_json TEXT NOT NULL,
+                    executor_kind TEXT NOT NULL DEFAULT 'codex',
+                    executor_mode TEXT NOT NULL DEFAULT 'preset',
+                    command_cli TEXT NOT NULL DEFAULT '',
+                    command_args_text TEXT NOT NULL DEFAULT '',
                     model TEXT NOT NULL,
                     reasoning_effort TEXT NOT NULL,
                     max_iters INTEGER NOT NULL,
@@ -67,6 +71,10 @@ class LiminalRepository:
                     spec_path TEXT NOT NULL,
                     spec_markdown TEXT NOT NULL,
                     compiled_spec_json TEXT NOT NULL,
+                    executor_kind TEXT NOT NULL DEFAULT 'codex',
+                    executor_mode TEXT NOT NULL DEFAULT 'preset',
+                    command_cli TEXT NOT NULL DEFAULT '',
+                    command_args_text TEXT NOT NULL DEFAULT '',
                     model TEXT NOT NULL,
                     reasoning_effort TEXT NOT NULL,
                     max_iters INTEGER NOT NULL,
@@ -108,6 +116,23 @@ class LiminalRepository:
                 );
                 """
             )
+            self._ensure_column(connection, "loop_definitions", "executor_kind", "TEXT NOT NULL DEFAULT 'codex'")
+            self._ensure_column(connection, "loop_definitions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
+            self._ensure_column(connection, "loop_definitions", "command_cli", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "loop_definitions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "loop_runs", "executor_kind", "TEXT NOT NULL DEFAULT 'codex'")
+            self._ensure_column(connection, "loop_runs", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
+            self._ensure_column(connection, "loop_runs", "command_cli", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "loop_runs", "command_args_text", "TEXT NOT NULL DEFAULT ''")
+
+    @staticmethod
+    def _ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {
+            row["name"]
+            for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in columns:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def create_loop(self, payload: dict) -> dict:
         now = utc_now()
@@ -116,10 +141,11 @@ class LiminalRepository:
                 """
                 INSERT INTO loop_definitions (
                     id, name, workdir, spec_path, spec_markdown, compiled_spec_json,
+                    executor_kind, executor_mode, command_cli, command_args_text,
                     model, reasoning_effort, max_iters, max_role_retries, delta_threshold,
                     trigger_window, regression_window, role_models_json, latest_run_id,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
                 """,
                 (
                     payload["id"],
@@ -128,6 +154,10 @@ class LiminalRepository:
                     payload["spec_path"],
                     payload["spec_markdown"],
                     json.dumps(payload["compiled_spec"], ensure_ascii=False),
+                    payload.get("executor_kind", "codex"),
+                    payload.get("executor_mode", "preset"),
+                    payload.get("command_cli", ""),
+                    payload.get("command_args_text", ""),
                     payload["model"],
                     payload["reasoning_effort"],
                     payload["max_iters"],
@@ -149,12 +179,13 @@ class LiminalRepository:
                 """
                 INSERT INTO loop_runs (
                     id, loop_id, workdir, spec_path, spec_markdown, compiled_spec_json,
+                    executor_kind, executor_mode, command_cli, command_args_text,
                     model, reasoning_effort, max_iters, max_role_retries, delta_threshold,
                     trigger_window, regression_window, role_models_json, status, stop_requested,
                     current_iter, active_role, runner_pid, child_pid, queued_at, started_at,
                     finished_at, error_message, last_verdict_json, summary_md, runs_dir,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?)
                 """,
                 (
                     payload["id"],
@@ -163,6 +194,10 @@ class LiminalRepository:
                     payload["spec_path"],
                     payload["spec_markdown"],
                     json.dumps(payload["compiled_spec"], ensure_ascii=False),
+                    payload.get("executor_kind", "codex"),
+                    payload.get("executor_mode", "preset"),
+                    payload.get("command_cli", ""),
+                    payload.get("command_args_text", ""),
                     payload["model"],
                     payload["reasoning_effort"],
                     payload["max_iters"],

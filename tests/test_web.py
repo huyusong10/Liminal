@@ -8,7 +8,12 @@ from fastapi.testclient import TestClient
 from liminal.web import build_app
 
 
-def test_api_loop_creation_run_preview_and_stream(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
+def test_api_loop_creation_run_preview_and_stream(
+    service_factory,
+    sample_spec_file: Path,
+    sample_spec_text: str,
+    sample_workdir: Path,
+) -> None:
     service = service_factory(scenario="success")
     client = TestClient(build_app(service=service))
 
@@ -51,7 +56,13 @@ def test_api_loop_creation_run_preview_and_stream(service_factory, sample_spec_f
     artifacts = client.get(f"/api/runs/{run_id}/artifacts")
     assert artifacts.status_code == 200
     artifact_payload = artifacts.json()
+    assert any(item["id"] == "original-spec" and item["available"] for item in artifact_payload)
     assert any(item["id"] == "summary" and item["available"] for item in artifact_payload)
+
+    original_spec_artifact = client.get(f"/api/runs/{run_id}/artifacts/original-spec")
+    assert original_spec_artifact.status_code == 200
+    assert original_spec_artifact.json()["kind"] == "file"
+    assert original_spec_artifact.json()["content"] == sample_spec_text
 
     summary_artifact = client.get(f"/api/runs/{run_id}/artifacts/summary")
     assert summary_artifact.status_code == 200
@@ -87,6 +98,111 @@ def test_api_loop_creation_run_preview_and_stream(service_factory, sample_spec_f
         assert stream_response.status_code == 200
         delta_body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in stream_response.iter_text())
     assert "run_started" not in delta_body
+
+
+def test_api_loop_creation_supports_provider_specific_defaults(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    claude_response = client.post(
+        "/api/loops",
+        json={
+            "name": "Claude Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "executor_kind": "claude",
+            "model": "",
+            "reasoning_effort": "xhigh",
+            "max_iters": 3,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+            "start_immediately": False,
+        },
+    )
+    assert claude_response.status_code == 201
+    claude_loop = claude_response.json()["loop"]
+    assert claude_loop["executor_kind"] == "claude"
+    assert claude_loop["model"] == "sonnet"
+    assert claude_loop["reasoning_effort"] == "max"
+
+    opencode_response = client.post(
+        "/api/loops",
+        json={
+            "name": "OpenCode Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "executor_kind": "opencode",
+            "model": "",
+            "reasoning_effort": "default",
+            "max_iters": 3,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+            "start_immediately": False,
+        },
+    )
+    assert opencode_response.status_code == 201
+    opencode_loop = opencode_response.json()["loop"]
+    assert opencode_loop["executor_kind"] == "opencode"
+    assert opencode_loop["model"] == ""
+    assert opencode_loop["reasoning_effort"] == ""
+
+
+def test_api_loop_creation_supports_command_mode(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/loops",
+        json={
+            "name": "Command Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "executor_kind": "codex",
+            "executor_mode": "command",
+            "command_cli": "codex",
+            "command_args_text": "\n".join(
+                [
+                    "exec",
+                    "--json",
+                    "--cd",
+                    "{workdir}",
+                    "--sandbox",
+                    "{sandbox}",
+                    "--output-schema",
+                    "{schema_path}",
+                    "--output-last-message",
+                    "{output_path}",
+                    "{prompt}",
+                ]
+            ),
+            "model": "",
+            "reasoning_effort": "",
+            "max_iters": 3,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+            "start_immediately": False,
+        },
+    )
+
+    assert response.status_code == 201
+    loop = response.json()["loop"]
+    assert loop["executor_mode"] == "command"
+    assert loop["command_cli"] == "codex"
+    assert "{schema_path}" in loop["command_args_text"]
 
 
 def test_api_spec_init_validate_and_delete_loop(service_factory, tmp_path: Path, sample_workdir: Path) -> None:

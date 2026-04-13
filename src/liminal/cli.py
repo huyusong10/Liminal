@@ -27,8 +27,9 @@ def _handle_error(exc: Exception) -> None:
 def run(
     spec: Path = typer.Option(..., exists=True, help="Path to the Markdown spec."),
     workdir: Path = typer.Option(..., exists=True, file_okay=False, dir_okay=True, help="Target workdir."),
-    model: str = typer.Option("gpt-5.4", help="Model for Codex."),
-    reasoning_effort: str = typer.Option("medium", help="Reasoning effort label stored with the run."),
+    executor_kind: str = typer.Option("codex", "--executor", help="Execution tool: codex, claude, or opencode."),
+    model: str = typer.Option("", help="Default model or alias for the selected execution tool."),
+    reasoning_effort: str = typer.Option("", help="Reasoning effort or variant for the selected execution tool."),
     max_iters: int = typer.Option(8, min=1, help="Maximum orchestration iterations."),
     max_role_retries: int = typer.Option(2, min=0, help="Retries per role before aborting."),
     delta_threshold: float = typer.Option(0.005, min=0.0, help="Plateau threshold."),
@@ -44,6 +45,7 @@ def run(
             name=name or workdir.resolve().name,
             spec_path=spec,
             workdir=workdir,
+            executor_kind=executor_kind,
             model=model,
             reasoning_effort=reasoning_effort,
             max_iters=max_iters,
@@ -98,7 +100,7 @@ def list_loops() -> None:
             status = loop.get("latest_status") or "draft"
             typer.echo(
                 f"{loop['id']}  {loop['name']}  [{status}]  "
-                f"{loop['workdir']}  model={loop['model']}"
+                f"{loop['workdir']}  executor={loop.get('executor_kind', 'codex')}  model={loop['model'] or '-'}"
             )
     except LiminalError as exc:
         _handle_error(exc)

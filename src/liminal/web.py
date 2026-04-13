@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -10,6 +11,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from liminal.providers import executor_profile, list_executor_profiles
 from liminal.skills import install_spec_skill, list_spec_skill_targets
 from liminal.service import LiminalError, create_service
 from liminal.specs import SpecError, init_spec_file, read_and_compile
@@ -19,6 +21,10 @@ DEFAULT_LOOP_FORM = {
     "name": "",
     "workdir": "",
     "spec_path": "",
+    "executor_kind": "codex",
+    "executor_mode": "preset",
+    "command_cli": "codex",
+    "command_args_text": "",
     "model": "gpt-5.4",
     "reasoning_effort": "medium",
     "max_iters": 8,
@@ -41,6 +47,14 @@ TIMELINE_EVENT_TYPES = {
 }
 
 RUN_ARTIFACT_SPECS = (
+    {
+        "id": "original-spec",
+        "filename": "spec.md",
+        "label_zh": "原始 Spec",
+        "label_en": "Original spec",
+        "description_zh": "这次 run 开始时冻结保存的原始 Markdown spec。",
+        "description_en": "The original Markdown spec snapshot frozen at the start of this run.",
+    },
     {
         "id": "summary",
         "filename": "summary.md",
@@ -119,6 +133,7 @@ def build_app(service=None) -> FastAPI:
                 "request": request,
                 "form_values": _normalize_loop_form(values),
                 "form_error": form_error,
+                "executor_profiles": list_executor_profiles(),
             },
         )
 
@@ -146,7 +161,7 @@ def build_app(service=None) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
-        loops = svc().list_loops()
+        loops = [_decorate_loop_overview(loop) for loop in svc().list_loops()]
         return templates.TemplateResponse(request, "index.html", {"request": request, "loops": loops})
 
     @app.get("/loops/new", response_class=HTMLResponse)
@@ -160,11 +175,17 @@ def build_app(service=None) -> FastAPI:
     @app.get("/loops/{loop_id}", response_class=HTMLResponse)
     async def loop_detail(request: Request, loop_id: str) -> HTMLResponse:
         loop = svc().get_loop(loop_id)
-        latest_run = loop["runs"][0] if loop["runs"] else None
+        runs = [_decorate_run_overview(run) for run in loop["runs"]]
+        latest_run = runs[0] if runs else None
         return templates.TemplateResponse(
             request,
             "loop_detail.html",
-            {"request": request, "loop": loop, "latest_run": latest_run},
+            {
+                "request": request,
+                "loop": {**loop, "runs": runs, "executor_label": executor_profile(loop.get("executor_kind", "codex")).label},
+                "latest_run": latest_run,
+                "summary_snapshot": _build_run_summary_snapshot(latest_run) if latest_run else None,
+            },
         )
 
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
@@ -390,6 +411,16 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
     name = str(payload.get("name", "")).strip()
     workdir = str(payload.get("workdir", "")).strip()
     spec_path = str(payload.get("spec_path", "")).strip()
+    executor_kind = str(payload.get("executor_kind", "codex")).strip() or "codex"
+    executor_mode = str(payload.get("executor_mode", "preset")).strip() or "preset"
+    try:
+        profile = executor_profile(executor_kind)
+    except ValueError as exc:
+        raise LiminalError(str(exc)) from exc
+    model = str(payload.get("model", "")).strip()
+    reasoning_effort = str(payload.get("reasoning_effort", "")).strip()
+    command_cli = str(payload.get("command_cli", "")).strip()
+    command_args_text = str(payload.get("command_args_text", ""))
     if not name:
         raise LiminalError("name is required")
     if not workdir:
@@ -401,8 +432,12 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
         "name": name,
         "spec_path": Path(spec_path),
         "workdir": Path(workdir),
-        "model": str(payload.get("model", "gpt-5.4")).strip() or "gpt-5.4",
-        "reasoning_effort": str(payload.get("reasoning_effort", "medium")).strip() or "medium",
+        "executor_kind": executor_kind,
+        "executor_mode": executor_mode,
+        "command_cli": command_cli if command_cli else profile.cli_name,
+        "command_args_text": command_args_text,
+        "model": model if model or profile.default_model == "" else profile.default_model,
+        "reasoning_effort": reasoning_effort if reasoning_effort or profile.effort_default == "" else profile.effort_default,
         "max_iters": int(payload.get("max_iters", 8)),
         "max_role_retries": int(payload.get("max_role_retries", 2)),
         "delta_threshold": float(payload.get("delta_threshold", 0.005)),
@@ -461,7 +496,8 @@ def _format_timeline_event(event: dict) -> dict:
         if reason:
             detail = reason
         elif iter_id is not None:
-            detail = f"iter={iter_id}"
+            display_iter = _display_iter(iter_id)
+            detail = f"iter={display_iter}" if display_iter is not None else ""
 
     return {
         "id": event["id"],
@@ -481,6 +517,11 @@ def _normalize_loop_form(values: Mapping[str, object] | None) -> dict[str, objec
     for key in normalized:
         if key in values:
             normalized[key] = values[key]
+    if not str(normalized.get("command_cli", "")).strip():
+        try:
+            normalized["command_cli"] = executor_profile(str(normalized.get("executor_kind", "codex"))).cli_name
+        except ValueError:
+            normalized["command_cli"] = "codex"
     normalized["start_immediately"] = _coerce_bool(normalized.get("start_immediately", True))
     return normalized
 
@@ -513,3 +554,116 @@ def _artifact_spec_or_404(artifact_id: str) -> dict:
         if artifact["id"] == artifact_id:
             return artifact
     raise HTTPException(status_code=404, detail="unknown artifact")
+
+
+def _display_iter(iter_value: object | None) -> int | None:
+    if iter_value is None:
+        return None
+    try:
+        return max(int(iter_value), 0) + 1
+    except (TypeError, ValueError):
+        return None
+
+
+def _strip_markdown(value: str | None) -> str:
+    text = str(value or "")
+    text = re.sub(r"```.*?```", " ", text, flags=re.S)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"\[(.*?)\]\((.*?)\)", r"\1", text)
+    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.M)
+    text = re.sub(r"^\s*[-*+]\s*", "", text, flags=re.M)
+    text = re.sub(r"^\s*\d+\.\s*", "", text, flags=re.M)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _truncate_text(value: str, max_length: int = 140) -> str:
+    if len(value) <= max_length:
+        return value
+    return value[: max_length - 1].rstrip() + "…"
+
+
+def _summary_excerpt(summary_md: str | None) -> str:
+    text = _strip_markdown(summary_md)
+    text = text.removeprefix("Liminal Run Summary").strip()
+    return _truncate_text(text, max_length=170) if text else ""
+
+
+def _decorate_loop_overview(loop: dict) -> dict:
+    latest_run_id = loop.get("latest_run_id")
+    latest_status = loop.get("latest_status") or "draft"
+    summary_excerpt = _summary_excerpt(loop.get("latest_summary_md"))
+    hints = {
+        "draft": ("还没有运行，先检查 spec 和工作目录。", "No run yet. Start by checking the spec and workdir."),
+        "queued": ("已经进入队列，点进去看最新状态。", "Queued up. Open it to see the current state."),
+        "running": ("正在推进中，点进去看实时进展。", "Actively progressing. Open it for live updates."),
+        "succeeded": ("最近一次运行已经通过。", "The latest run passed."),
+        "failed": ("最近一次运行失败，建议先看验证结论。", "The latest run failed. Start with the verdict."),
+        "stopped": ("最近一次运行已停止。", "The latest run was stopped."),
+    }
+    hint_zh, hint_en = hints.get(latest_status, hints["draft"])
+    return {
+        **loop,
+        "executor_label": executor_profile(loop.get("executor_kind", "codex")).label,
+        "executor_mode": loop.get("executor_mode", "preset"),
+        "display_iter": _display_iter(loop.get("latest_current_iter")),
+        "card_href": f"/runs/{latest_run_id}" if latest_run_id else f"/loops/{loop['id']}",
+        "card_hint_zh": hint_zh,
+        "card_hint_en": hint_en,
+        "card_excerpt": summary_excerpt,
+    }
+
+
+def _decorate_run_overview(run: dict) -> dict:
+    return {
+        **run,
+        "executor_label": executor_profile(run.get("executor_kind", "codex")).label,
+        "executor_mode": run.get("executor_mode", "preset"),
+        "display_iter": _display_iter(run.get("current_iter")),
+        "summary_excerpt": _summary_excerpt(run.get("summary_md")),
+    }
+
+
+def _build_run_summary_snapshot(run: dict) -> dict:
+    verdict = run.get("last_verdict_json") or {}
+    failed_count = len(verdict.get("failed_check_ids") or [])
+    composite_score = verdict.get("composite_score")
+    passed = verdict.get("passed")
+    if passed is True:
+        verdict_title = ("最新结论：已通过", "Latest verdict: passed")
+        verdict_note = ("关键 checks 都已通过，可以继续扩展目标。", "All key checks are passing. You can safely expand the target.")
+    elif passed is False:
+        verdict_title = ("最新结论：未通过", "Latest verdict: not passed")
+        verdict_note = (
+            f"还有 {failed_count} 条 checks 没过，优先看失败点。",
+            f"{failed_count} check(s) are still failing. Start with the misses.",
+        )
+    else:
+        verdict_title = ("还没有结论", "No verdict yet")
+        verdict_note = ("Verifier 产出后这里会更新。", "This updates once the Verifier produces a verdict.")
+
+    status_notes = {
+        "queued": ("运行已创建，正在等待执行。", "The run is created and waiting to start."),
+        "running": ("当前 run 正在推进，下面的摘要会持续更新。", "This run is in progress and the summary will keep updating."),
+        "succeeded": ("这次 run 已顺利结束。", "This run finished successfully."),
+        "failed": ("这次 run 已失败结束。", "This run finished with a failure."),
+        "stopped": ("这次 run 已被手动停止。", "This run was stopped manually."),
+        "draft": ("运行还没有真正开始。", "The run has not started yet."),
+    }
+    status = run.get("status") or "draft"
+    status_note = status_notes.get(status, status_notes["draft"])
+
+    return {
+        "display_iter": _display_iter(run.get("current_iter")),
+        "summary_excerpt": _summary_excerpt(run.get("summary_md")),
+        "summary_empty_zh": "还没有稳定输出。",
+        "summary_empty_en": "No substantial output yet.",
+        "status_note_zh": status_note[0],
+        "status_note_en": status_note[1],
+        "verdict_title_zh": verdict_title[0],
+        "verdict_title_en": verdict_title[1],
+        "verdict_note_zh": verdict_note[0],
+        "verdict_note_en": verdict_note[1],
+        "failed_count": failed_count,
+        "composite_score": composite_score,
+    }

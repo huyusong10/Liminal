@@ -20,7 +20,9 @@ from liminal.executor import (
     coerce_reasoning_effort,
     executor_from_environment,
     normalize_reasoning_effort,
+    validate_command_args_text,
 )
+from liminal.providers import executor_profile, normalize_executor_kind, normalize_executor_mode
 from liminal.recovery import RecoveryResult, RetryConfig, execute_with_recovery
 from liminal.settings import AppSettings, app_home, db_path, load_settings
 from liminal.specs import SpecError, compile_markdown_spec, read_and_compile
@@ -70,6 +72,10 @@ class LiminalService:
         delta_threshold: float,
         trigger_window: int,
         regression_window: int,
+        executor_kind: str = "codex",
+        executor_mode: str = "preset",
+        command_cli: str = "",
+        command_args_text: str = "",
         role_models: dict | None = None,
     ) -> dict:
         workdir = workdir.expanduser().resolve()
@@ -90,7 +96,19 @@ class LiminalService:
             raise LiminalError("regression_window must be >= 1")
 
         try:
-            reasoning_effort = normalize_reasoning_effort(reasoning_effort)
+            executor_kind = normalize_executor_kind(executor_kind)
+            executor_mode = normalize_executor_mode(executor_mode)
+            profile = executor_profile(executor_kind)
+            if executor_mode == "preset":
+                command_cli = ""
+                command_args_text = ""
+                model = model.strip() if model.strip() else profile.default_model
+                reasoning_effort = normalize_reasoning_effort(reasoning_effort, executor_kind)
+            else:
+                command_cli = command_cli.strip() or profile.cli_name
+                validate_command_args_text(command_args_text, executor_kind=executor_kind)
+                model = model.strip()
+                reasoning_effort = reasoning_effort.strip()
         except ValueError as exc:
             raise LiminalError(str(exc)) from exc
 
@@ -108,6 +126,10 @@ class LiminalService:
             "spec_path": str(spec_path.resolve()),
             "spec_markdown": spec_markdown,
             "compiled_spec": compiled_spec,
+            "executor_kind": executor_kind,
+            "executor_mode": executor_mode,
+            "command_cli": command_cli,
+            "command_args_text": command_args_text,
             "model": model,
             "reasoning_effort": reasoning_effort,
             "max_iters": max_iters,
@@ -147,8 +169,12 @@ class LiminalService:
                 "spec_path": loop["spec_path"],
                 "spec_markdown": loop["spec_markdown"],
                 "compiled_spec": loop["compiled_spec_json"],
+                "executor_kind": loop.get("executor_kind", "codex"),
+                "executor_mode": loop.get("executor_mode", "preset"),
+                "command_cli": loop.get("command_cli", ""),
+                "command_args_text": loop.get("command_args_text", ""),
                 "model": loop["model"],
-                "reasoning_effort": coerce_reasoning_effort(loop["reasoning_effort"]),
+                "reasoning_effort": coerce_reasoning_effort(loop["reasoning_effort"], loop.get("executor_kind", "codex")),
                 "max_iters": loop["max_iters"],
                 "max_role_retries": loop["max_role_retries"],
                 "delta_threshold": loop["delta_threshold"],
@@ -656,6 +682,10 @@ class LiminalService:
             role="generator",
             prompt=self._generator_prompt(compiled_spec, Path(run["workdir"]), iter_id, mode),
             workdir=Path(run["workdir"]),
+            executor_kind=run.get("executor_kind", "codex"),
+            executor_mode=run.get("executor_mode", "preset"),
+            command_cli=run.get("command_cli", ""),
+            command_args_text=run.get("command_args_text", ""),
             model=run["role_models_json"].get("generator", run["model"]),
             reasoning_effort=run["reasoning_effort"],
             output_schema=GENERATOR_SCHEMA,
@@ -685,6 +715,10 @@ class LiminalService:
             role="check_planner",
             prompt=self._check_planner_prompt(compiled_spec),
             workdir=Path(run["workdir"]),
+            executor_kind=run.get("executor_kind", "codex"),
+            executor_mode=run.get("executor_mode", "preset"),
+            command_cli=run.get("command_cli", ""),
+            command_args_text=run.get("command_args_text", ""),
             model=run["model"],
             reasoning_effort=run["reasoning_effort"],
             output_schema=CHECK_PLANNER_SCHEMA,
@@ -716,6 +750,10 @@ class LiminalService:
             role="tester",
             prompt=self._tester_prompt(compiled_spec, iter_id, mode),
             workdir=Path(run["workdir"]),
+            executor_kind=run.get("executor_kind", "codex"),
+            executor_mode=run.get("executor_mode", "preset"),
+            command_cli=run.get("command_cli", ""),
+            command_args_text=run.get("command_args_text", ""),
             model=run["role_models_json"].get("tester", run["model"]),
             reasoning_effort=run["reasoning_effort"],
             output_schema=TESTER_SCHEMA,
@@ -748,6 +786,10 @@ class LiminalService:
             role="verifier",
             prompt=self._verifier_prompt(compiled_spec, tester_output, iter_id, mode),
             workdir=Path(run["workdir"]),
+            executor_kind=run.get("executor_kind", "codex"),
+            executor_mode=run.get("executor_mode", "preset"),
+            command_cli=run.get("command_cli", ""),
+            command_args_text=run.get("command_args_text", ""),
             model=run["role_models_json"].get("verifier", run["model"]),
             reasoning_effort=run["reasoning_effort"],
             output_schema=VERIFIER_SCHEMA,
@@ -779,6 +821,10 @@ class LiminalService:
             role="challenger",
             prompt=self._challenger_prompt(compiled_spec, stagnation, iter_id),
             workdir=Path(run["workdir"]),
+            executor_kind=run.get("executor_kind", "codex"),
+            executor_mode=run.get("executor_mode", "preset"),
+            command_cli=run.get("command_cli", ""),
+            command_args_text=run.get("command_args_text", ""),
             model=run["role_models_json"].get("challenger", run["model"]),
             reasoning_effort=run["reasoning_effort"],
             output_schema=CHALLENGER_SCHEMA,
@@ -833,7 +879,7 @@ class LiminalService:
         return (
             "# Liminal Run Summary\n\n"
             f"- Workdir: `{run['workdir']}`\n"
-            f"- Iteration: `{iter_id}`\n"
+            f"- Iteration: `{iter_id + 1}`\n"
             f"- Check mode: `{check_mode}`\n"
             f"- Check count: `{len(compiled_spec.get('checks', []))}`\n"
             f"- Composite score: `{verifier_result['composite_score']}`\n"

@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  Liminal 是一个面向 Codex 风格构建循环的本地优先编排工具。
+  Liminal 是一个面向 agentic 构建循环的本地优先编排工具。
   你给它一个 Markdown 版 <code>spec</code> 和一个工作目录，它会运行
   <strong>Generator → Tester → Verifier → Challenger</strong>
   的循环，并提供实时 Web 控制台。
@@ -30,6 +30,7 @@
 - 同时支持显式 checks 和探索模式下的自动生成 checks。
 - 把运行产物写进 `.liminal/`，方便回放、排查和比较。
 - 用本地 Web 控制台统一查看进度、控制台输出、时间线和关键产物。
+- 同一套 loop 定义可以切换由 Codex、Claude Code 或 OpenCode 执行，并自动适配各自的模型/推理选项。
 
 ## 它是怎么工作的
 
@@ -51,7 +52,11 @@
 python3 -m pip install -e .
 ```
 
-如果要走真实执行链路，请确保环境里已经能使用 `codex` CLI。
+如果要走真实执行链路，请确保你要使用的 CLI 已经在环境里可用：
+
+- `codex`
+- `claude`
+- `opencode`
 
 ## 快速开始
 
@@ -86,9 +91,12 @@ liminal spec init ./demo-spec.md
 liminal run \
   --spec ./demo-spec.md \
   --workdir /absolute/path/to/project \
+  --executor codex \
   --model gpt-5.4 \
   --max-iters 8
 ```
+
+如果你想换工具，可以用 `--executor claude` 或 `--executor opencode`。其中 Claude Code 的 effort 是 `low/medium/high/max`，OpenCode 则使用 provider-specific variant。
 
 4. 启动本地 Web 控制台：
 

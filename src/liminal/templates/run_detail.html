@@ -57,19 +57,19 @@
       <div class="stage-chip" data-stage="finished" tabindex="0"><span data-lang="zh">完成</span><span data-lang="en">Done</span></div>
     </div>
     <div class="highlight-grid">
-      <article class="highlight-card">
+      <article class="highlight-card" id="focus-card">
         <span class="highlight-label"><span data-lang="zh">当前焦点</span><span data-lang="en">Current focus</span></span>
         <strong id="focus-title">-</strong>
         <p id="focus-detail">-</p>
         <span class="highlight-meta" id="focus-meta">-</span>
       </article>
-      <article class="highlight-card">
+      <article class="highlight-card" id="output-card">
         <span class="highlight-label"><span data-lang="zh">最近关键输出</span><span data-lang="en">Latest output</span></span>
         <strong id="output-title">-</strong>
         <p id="output-detail">-</p>
         <span class="highlight-meta" id="output-meta">-</span>
       </article>
-      <article class="highlight-card">
+      <article class="highlight-card" id="event-card">
         <span class="highlight-label"><span data-lang="zh">最近事件</span><span data-lang="en">Latest event</span></span>
         <strong id="event-title">-</strong>
         <p id="event-detail">-</p>
@@ -89,8 +89,8 @@
       </div>
       <div class="console-meta">
         <span class="status-pill progress-status-pill status-running" id="console-live-badge">
-          <span data-lang="zh">直播中</span>
-          <span data-lang="en">Live</span>
+          <span data-lang="zh">实时输出</span>
+          <span data-lang="en">Streaming</span>
         </span>
         <span id="console-line-count">0 lines</span>
       </div>
@@ -475,6 +475,14 @@
     return window.LiminalUI.currentLocale() === "zh" ? `${count} 行` : `${count} lines`;
   }
 
+  function displayIter(value, fallback = 1) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return fallback;
+    }
+    return Math.floor(parsed) + 1;
+  }
+
   function syncConsoleMeta() {
     const output = document.getElementById("console-output");
     document.getElementById("console-line-count").textContent = lineCountLabel(output.children.length);
@@ -483,7 +491,7 @@
     const status = currentRun?.status || "{{ run.status }}";
     liveBadge.className = `status-pill progress-status-pill status-${status}`;
     if (status === "running" || status === "queued") {
-      liveBadge.innerHTML = `<span data-lang="zh">直播中</span><span data-lang="en">Live</span>`;
+      liveBadge.innerHTML = `<span data-lang="zh">实时输出</span><span data-lang="en">Streaming</span>`;
     } else {
       liveBadge.dataset.statusLabel = status;
       liveBadge.textContent = window.LiminalUI.translateStatus(status);
@@ -525,7 +533,7 @@
       return [{tone: "system", text: `${prefix} · ${localeText("Checks 已就绪", "Checks resolved")} (${payload.count || 0})`}];
     }
     if (event.event_type === "role_started") {
-      const iterLabel = payload.iter !== undefined ? ` · ${localeText("迭代", "iter")} ${payload.iter}` : "";
+      const iterLabel = payload.iter !== undefined ? ` · ${localeText("迭代", "iter")} ${displayIter(payload.iter)}` : "";
       return [{tone: "system", text: `${prefix} · ${localeText("开始执行", "started")}${iterLabel}`}];
     }
     if (event.event_type === "role_degraded") {
@@ -554,6 +562,9 @@
 
     if (payload.type === "stdout" && payload.message) {
       return String(payload.message).split("\n").filter(Boolean).map((line) => ({tone: "stdout", text: `${prefix} | ${line}`}));
+    }
+    if (payload.type === "command" && payload.message) {
+      return [{tone: "command", text: `${prefix} $ ${String(payload.message).trim()}`}];
     }
     if (payload.type === "error") {
       return [{tone: "error", text: `${prefix} | ${String(payload.message || payload.error?.message || localeText("发生错误", "Error")).trim()}`}];
@@ -674,7 +685,7 @@
     if (event.event_type === "run_finished") {
       return {
         title: `${localeText("运行结束", "Run finished")} · ${window.LiminalUI.translateStatus(payload.status || "succeeded")}`,
-        detail: payload.reason ? String(payload.reason) : (payload.iter !== undefined ? `iter=${payload.iter}` : ""),
+        detail: payload.reason ? String(payload.reason) : (payload.iter !== undefined ? `${localeText("迭代", "Iter")} ${displayIter(payload.iter)}` : ""),
       };
     }
     return {title: event.event_type, detail: ""};
@@ -792,8 +803,8 @@
     document.getElementById("progress-value").textContent = finite ? `${Math.round(percent)}%` : localeText("进行中", "Live");
     document.getElementById("progress-stage-label").textContent = `${localeText("当前阶段", "Stage")}: ${run?.active_role ? window.LiminalUI.translateRole(run.active_role) : stageDisplayName(stage)}`;
     document.getElementById("progress-meta").textContent = finite
-      ? `${localeText("迭代", "Iter")} ${run?.current_iter ?? 0} / ${run?.max_iters ?? "-"}`
-      : `${localeText("迭代", "Iter")} ${run?.current_iter ?? 0}`;
+      ? `${localeText("迭代", "Iter")} ${displayIter(run?.current_iter)} / ${run?.max_iters ?? "-"}`
+      : `${localeText("迭代", "Iter")} ${displayIter(run?.current_iter)}`;
     document.getElementById("progress-caption").textContent = status === "running"
       ? localeText("当前运行正在推进，下面会持续刷新关键输出和最新事件。", "This run is actively progressing. Key outputs and milestones update below.")
       : localeText("这里汇总当前运行所处阶段、最近输出和最新里程碑。", "This summarizes the current stage, latest output, and newest milestone.");
@@ -819,20 +830,23 @@
     const focusDetail = status === "running"
       ? localeText("系统会随着阶段推进持续刷新下方摘要。", "The summaries below keep updating as the run advances.")
       : localeText("当前没有活跃角色在执行。", "There is no active role executing right now.");
-    const focusMeta = `${localeText("迭代", "Iter")} ${run?.current_iter ?? 0} · ${localeText("耗时", "Duration")} ${formatDuration(run?.started_at, run?.finished_at)}`;
+    const focusMeta = `${localeText("迭代", "Iter")} ${displayIter(run?.current_iter)} · ${localeText("耗时", "Duration")} ${formatDuration(run?.started_at, run?.finished_at)}`;
     document.getElementById("focus-title").textContent = focusTitle;
     document.getElementById("focus-detail").textContent = focusDetail;
     document.getElementById("focus-meta").textContent = focusMeta;
+    document.getElementById("focus-card").className = `highlight-card ${status === "running" ? "tone-active" : "tone-neutral"}`;
 
     const verdict = summarizeVerdict(run?.last_verdict_json);
     document.getElementById("output-title").textContent = verdict.title;
     document.getElementById("output-detail").textContent = verdict.detail;
     document.getElementById("output-meta").textContent = verdict.meta || truncateText(stripMarkdown(run?.summary_md), 120) || localeText("等待首轮输出。", "Waiting for the first substantive output.");
+    document.getElementById("output-card").className = `highlight-card ${run?.last_verdict_json?.passed === true ? "tone-success" : (run?.last_verdict_json?.passed === false ? "tone-warning" : "tone-neutral")}`;
 
     const latestEvent = summarizeLatestEvent();
     document.getElementById("event-title").textContent = latestEvent.title;
     document.getElementById("event-detail").textContent = latestEvent.detail;
     document.getElementById("event-meta").textContent = latestEvent.meta;
+    document.getElementById("event-card").className = "highlight-card tone-neutral";
   }
 
   async function fetchRun() {

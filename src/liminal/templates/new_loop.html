@@ -8,12 +8,12 @@
       <span data-lang="en">New loop</span>
     </span>
     <h1>
-      <span data-lang="zh">创建一个本地 Codex loop。</span>
-      <span data-lang="en">Create a local Codex loop.</span>
+      <span data-lang="zh">创建一个本地执行 loop。</span>
+      <span data-lang="en">Create a local execution loop.</span>
     </h1>
     <p>
-      <span data-lang="zh">CLI 和这个页面使用同一套 loop 定义模型，所以你在这里保存的配置之后也能直接从终端重跑。</span>
-      <span data-lang="en">The CLI and this page use the same loop definition model, so anything you save here can be rerun from the terminal later.</span>
+      <span data-lang="zh">CLI 和这个页面使用同一套 loop 定义模型。你可以选择 Codex、Claude Code 或 OpenCode 作为实际执行工具。</span>
+      <span data-lang="en">The CLI and this page share the same loop definition model. You can run the loop with Codex, Claude Code, or OpenCode.</span>
     </p>
   </div>
 </section>
@@ -108,34 +108,130 @@
 
     <label>
       <span class="label-row">
-        <span><span data-lang="zh">模型</span><span data-lang="en">Model</span></span>
+        <span><span data-lang="zh">执行工具</span><span data-lang="en">Execution tool</span></span>
         <button
           class="help-dot"
           type="button"
-          data-title-zh="默认用哪个 Codex 模型执行 generator、tester、verifier 和 challenger。"
-          data-title-en="Which Codex model to use by default for generator, tester, verifier, and challenger."
+          data-title-zh="选择实际驱动 loop 的本机工具。不同工具的模型名和推理/variant 选项不同。"
+          data-title-en="Choose the local tool that will actually drive the loop. Model names and reasoning or variant options differ by tool."
         >?</button>
       </span>
-      <input name="model" value="{{ form_values.model }}" />
+      <select id="executor-kind-input" name="executor_kind">
+        {% for profile in executor_profiles %}
+        <option value="{{ profile.key }}" {% if form_values.executor_kind == profile.key %}selected{% endif %}>{{ profile.label }}</option>
+        {% endfor %}
+      </select>
     </label>
 
     <label>
       <span class="label-row">
-        <span><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning effort</span></span>
+        <span><span data-lang="zh">配置方式</span><span data-lang="en">Configuration mode</span></span>
         <button
           class="help-dot"
           type="button"
-          data-title-zh="与本机 Codex 的 gpt-5.4 配置对齐：low、medium、high、xhigh。"
-          data-title-en="Aligned with the local Codex gpt-5.4 settings: low, medium, high, and xhigh."
+          data-title-zh="预设模式适合常规使用；直接命令模式允许你自己给出完整 CLI 参数，用来跟上工具未来的变动。"
+          data-title-en="Preset mode is for normal use. Command mode lets you provide the full CLI arguments yourself so you can keep up with future tool changes."
         >?</button>
       </span>
-      <select name="reasoning_effort">
-        <option value="low" {% if form_values.reasoning_effort == "low" %}selected{% endif %}>low</option>
-        <option value="medium" {% if form_values.reasoning_effort == "medium" %}selected{% endif %}>medium</option>
-        <option value="high" {% if form_values.reasoning_effort == "high" %}selected{% endif %}>high</option>
-        <option value="xhigh" {% if form_values.reasoning_effort == "xhigh" %}selected{% endif %}>xhigh</option>
+      <select id="executor-mode-input" name="executor_mode">
+        <option value="preset" {% if form_values.executor_mode == "preset" %}selected{% endif %}>Preset options / 预设选项</option>
+        <option value="command" {% if form_values.executor_mode == "command" %}selected{% endif %}>Command params / 直接命令</option>
       </select>
     </label>
+
+    <label id="preset-model-field">
+      <span class="label-row">
+        <span id="model-field-label"><span data-lang="zh">模型</span><span data-lang="en">Model</span></span>
+        <button
+          id="model-help-trigger"
+          class="help-dot"
+          type="button"
+          data-title-zh="默认用哪个模型执行 generator、tester、verifier 和 challenger。"
+          data-title-en="Which model to use by default for generator, tester, verifier, and challenger."
+        >?</button>
+      </span>
+      <input id="model-input" name="model" value="{{ form_values.model }}" />
+      <small class="field-note" id="model-field-note"></small>
+    </label>
+
+    <label id="preset-effort-field">
+      <span class="label-row">
+        <span id="effort-field-label"><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning effort</span></span>
+        <button
+          id="effort-help-trigger"
+          class="help-dot"
+          type="button"
+          data-title-zh="不同工具支持的推理强度或 variant 不一样。"
+          data-title-en="Supported reasoning or variant values differ across tools."
+        >?</button>
+      </span>
+      <input
+        id="reasoning-input"
+        name="reasoning_effort"
+        value="{{ form_values.reasoning_effort }}"
+        list="reasoning-effort-suggestions"
+      />
+      <datalist id="reasoning-effort-suggestions"></datalist>
+      <small class="field-note" id="effort-field-note"></small>
+    </label>
+
+    <label class="wide" id="command-cli-field" hidden>
+      <span class="label-row">
+        <span><span data-lang="zh">命令可执行文件</span><span data-lang="en">Command executable</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="通常是 codex、claude 或 opencode。这里也可以改成你本机上的其他包装命令。"
+          data-title-en="Usually codex, claude, or opencode. You can also point it at your own local wrapper command."
+        >?</button>
+      </span>
+      <input
+        id="command-cli-input"
+        name="command_cli"
+        value="{{ form_values.command_cli }}"
+        data-placeholder-zh="例如：codex"
+        data-placeholder-en="For example: codex"
+        placeholder="codex"
+      />
+    </label>
+
+    <label class="wide" id="command-args-field" hidden>
+      <span class="label-row">
+        <span><span data-lang="zh">命令参数</span><span data-lang="en">Command arguments</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="每行一个参数，比直接写整串 shell 更稳。支持占位符：{workdir} {schema_path} {output_path} {json_schema} {sandbox} {prompt}。"
+          data-title-en="Use one argument per line for safer editing than a full shell string. Supported placeholders: {workdir} {schema_path} {output_path} {json_schema} {sandbox} {prompt}."
+        >?</button>
+      </span>
+      <textarea
+        id="command-args-input"
+        name="command_args_text"
+        rows="9"
+        data-placeholder-zh="每行一个参数"
+        data-placeholder-en="One argument per line"
+        placeholder="One argument per line"
+      >{{- form_values.command_args_text -}}</textarea>
+      <small class="field-note">
+        <span data-lang="zh">建议把运行时变量写成占位符，而不是写死路径。三者都需要 {prompt}；Codex 至少需要 {output_path} 才能把结构化结果交回 Liminal。{schema_path}、{json_schema} 和 {sandbox} 是否使用，取决于你想怎样调用底层 CLI。</span>
+        <span data-lang="en">Prefer runtime placeholders over hard-coded paths. All tools need {prompt}; Codex needs at least {output_path} so Liminal can recover the structured result. Whether you use {schema_path}, {json_schema}, or {sandbox} depends on how you want to invoke the underlying CLI.</span>
+      </small>
+    </label>
+
+    <div class="wide command-preview-panel">
+      <span class="label-row">
+        <span><span data-lang="zh">实际命令预览</span><span data-lang="en">Resolved command preview</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="这里会显示 Liminal 真正会调用的命令。运行时动态值会以尖括号示意。"
+          data-title-en="This shows the command Liminal will actually invoke. Runtime-only values are shown as angle-bracket placeholders."
+        >?</button>
+      </span>
+      <pre class="preview-box command-preview-box" id="command-preview"></pre>
+      <small class="field-note" id="command-preview-note"></small>
+    </div>
 
     <label>
       <span class="label-row">
@@ -235,5 +331,6 @@
     </a>
   </div>
 </form>
+<script id="executor-profiles-json" type="application/json">{{ executor_profiles|tojson }}</script>
 <script src="/static/pages/new_loop.js" defer></script>
 {% endblock %}

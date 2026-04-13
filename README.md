@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  Liminal is a local-first orchestration tool for Codex-style build loops.
+  Liminal is a local-first orchestration tool for agentic build loops.
   You give it a Markdown spec and a workdir, and it runs a
   <strong>Generator → Tester → Verifier → Challenger</strong> cycle with a live web console.
 </p>
@@ -29,6 +29,7 @@
 - Support both explicit checks and exploratory runs with auto-generated frozen checks.
 - Persist run artifacts under `.liminal/` so every iteration is inspectable and reproducible.
 - Expose the same run state in a local web console with progress, console logs, timeline, and key artifacts.
+- Run the same loop definition with Codex, Claude Code, or OpenCode, with provider-aware model and effort settings.
 
 ## How It Works
 
@@ -50,7 +51,11 @@ Each run compiles the Markdown spec into a frozen snapshot, updates the workspac
 python3 -m pip install -e .
 ```
 
-For real execution, make sure the `codex` CLI is available in your environment.
+For real execution, make sure the CLI you want to use is available in your environment:
+
+- `codex`
+- `claude`
+- `opencode`
 
 ## Quick Start
 
@@ -85,9 +90,12 @@ Build a useful landing page for an English learning site.
 liminal run \
   --spec ./demo-spec.md \
   --workdir /absolute/path/to/project \
+  --executor codex \
   --model gpt-5.4 \
   --max-iters 8
 ```
+
+You can switch tools with `--executor claude` or `--executor opencode`. Claude Code uses `low/medium/high/max`, while OpenCode uses provider-specific variants.
 
 4. Start the local web console:
 

@@ -205,12 +205,47 @@
     });
   }
 
+  function bindOpenCards() {
+    document.querySelectorAll("[data-open-card]").forEach((card) => {
+      if (card.dataset.boundCard === "1") {
+        return;
+      }
+      card.dataset.boundCard = "1";
+      const openUrl = card.dataset.openCard;
+      if (!openUrl) {
+        return;
+      }
+
+      const isInteractive = (target) => target instanceof Element
+        && Boolean(target.closest("a, button, input, select, textarea, summary, [role='button']"));
+
+      card.addEventListener("click", (event) => {
+        if (isInteractive(event.target)) {
+          return;
+        }
+        window.location.href = openUrl;
+      });
+
+      card.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+          return;
+        }
+        if (isInteractive(event.target)) {
+          return;
+        }
+        event.preventDefault();
+        window.location.href = openUrl;
+      });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     setLocale(initialLocale(), {persist: false});
     document.querySelectorAll("[data-set-locale]").forEach((button) => {
       button.addEventListener("click", () => setLocale(button.dataset.setLocale));
     });
     bindDeleteLoopButtons();
+    bindOpenCards();
   });
 
   window.LiminalUI = {
@@ -222,5 +257,6 @@
     translateRole,
     applyLocalizedAttributes,
     bindDeleteLoopButtons,
+    bindOpenCards,
   };
 })();

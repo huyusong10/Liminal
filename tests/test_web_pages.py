@@ -38,6 +38,7 @@ def test_index_page_renders_with_saved_loops(
     assert "/logo/logo-with-text-horizontal.svg" in response.text
     assert "/logo/logo.svg" in response.text
     assert response.text.index("/loops/new") < response.text.index("/tools")
+    assert "data-open-card=" in response.text
 
 
 def test_run_detail_places_run_files_and_console_before_timeline(
@@ -69,6 +70,41 @@ def test_run_detail_places_run_files_and_console_before_timeline(
     assert response.text.index("Console") < response.text.index("Run files")
     assert response.text.index("Console") < response.text.index("Timeline")
     assert "stage-explainer" not in response.text
+    assert "直播中" not in response.text
+    assert "实时输出" in response.text
+    assert "Original spec" in response.text
+
+
+def test_loop_detail_uses_summary_cards_for_latest_run(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Summary Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    service.rerun(loop["id"])
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/loops/{loop['id']}")
+
+    assert response.status_code == 200
+    assert "Original spec" in response.text
+    assert "Ship the requested behavior." in response.text
+    assert "summary-grid" in response.text
+    assert "一句话摘要" in response.text
+    assert "Latest verdict" in response.text
 
 
 def test_tools_page_renders_skill_install_cards(service_factory) -> None:
@@ -93,3 +129,8 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
 
     assert response.status_code == 200
     assert "/static/pages/new_loop.js" in response.text
+    assert "name=\"executor_kind\"" in response.text
+    assert "name=\"executor_mode\"" in response.text
+    assert "id=\"command-preview\"" in response.text
+    assert "Claude Code" in response.text
+    assert "OpenCode" in response.text

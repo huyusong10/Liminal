@@ -25,7 +25,11 @@
   {% if loops %}
     <div class="loop-grid">
       {% for loop_item in loops %}
-      <article class="loop-card loop-card--{{ loop_item.latest_status or 'draft' }}">
+      <article
+        class="loop-card loop-card--{{ loop_item.latest_status or 'draft' }} is-clickable"
+        data-open-card="{{ loop_item.card_href }}"
+        tabindex="0"
+      >
         <div class="loop-card-head">
           <div class="loop-card-copy">
             <h3>{{ loop_item.name }}</h3>
@@ -42,18 +46,29 @@
             <dd>{{ loop_item.id }}</dd>
           </div>
           <div>
+            <dt><span data-lang="zh">执行工具</span><span data-lang="en">Executor</span></dt>
+            <dd>{{ loop_item.executor_label }}</dd>
+          </div>
+          <div>
             <dt><span data-lang="zh">模型</span><span data-lang="en">Model</span></dt>
-            <dd>{{ loop_item.model }}</dd>
+            <dd>{{ loop_item.model or "-" }}</dd>
           </div>
           <div>
             <dt><span data-lang="zh">当前迭代</span><span data-lang="en">Current iter</span></dt>
-            <dd>{{ loop_item.latest_current_iter if loop_item.latest_current_iter is not none else "-" }}</dd>
+            <dd>{{ loop_item.display_iter if loop_item.display_iter is not none else "-" }}</dd>
           </div>
           <div>
             <dt><span data-lang="zh">最近更新</span><span data-lang="en">Updated</span></dt>
             <dd>{{ loop_item.latest_run_updated_at or loop_item.updated_at }}</dd>
           </div>
         </dl>
+        <div class="loop-card-glance">
+          <strong>
+            <span data-lang="zh">{{ loop_item.card_hint_zh }}</span>
+            <span data-lang="en">{{ loop_item.card_hint_en }}</span>
+          </strong>
+          <p>{{ loop_item.card_excerpt or "-" }}</p>
+        </div>
         <div class="card-actions">
           <a class="secondary-button" href="/loops/{{ loop_item.id }}">
             <span data-lang="zh">查看循环</span>
@@ -74,6 +89,18 @@
             <span data-lang="zh">删除</span>
             <span data-lang="en">Delete</span>
           </button>
+        </div>
+        <div class="loop-card-footer">
+          <span>
+            {% if loop_item.latest_run_id %}
+            <span data-lang="zh">点击卡片可直接进入最近运行</span>
+            <span data-lang="en">Click the card to jump straight to the latest run</span>
+            {% else %}
+            <span data-lang="zh">点击卡片可查看循环详情</span>
+            <span data-lang="en">Click the card to open loop details</span>
+            {% endif %}
+          </span>
+          <span class="loop-card-arrow" aria-hidden="true">↗</span>
         </div>
       </article>
       {% endfor %}
