@@ -1,0 +1,8 @@
+{"iter": 0, "timestamp": "2026-04-13T04:18:10.191812+00:00", "scores": {"f1_score": 0.5, "latency_p99_ms": 360, "edge_case_coverage": 0.714}, "composite": 0.499, "passed": false, "challenger_triggered": false}
+{"iter": 1, "timestamp": "2026-04-13T04:18:10.194195+00:00", "scores": {"f1_score": 0.56, "latency_p99_ms": 338, "edge_case_coverage": 0.75}, "composite": 0.551, "passed": false, "challenger_triggered": false}
+{"iter": 2, "timestamp": "2026-04-13T04:18:10.197453+00:00", "scores": {"f1_score": 0.62, "latency_p99_ms": 316, "edge_case_coverage": 0.786}, "composite": 0.603, "passed": false, "challenger_triggered": false}
+{"iter": 0, "timestamp": "2026-04-13T04:18:11.654087+00:00", "scores": {"f1_score": 0.5, "latency_p99_ms": 360, "edge_case_coverage": 0.714}, "composite": 0.499, "passed": false, "challenger_triggered": false}
+{"iter": 1, "timestamp": "2026-04-13T04:18:11.656851+00:00", "scores": {"f1_score": 0.56, "latency_p99_ms": 338, "edge_case_coverage": 0.75}, "composite": 0.551, "passed": false, "challenger_triggered": false}
+{"iter": 2, "timestamp": "2026-04-13T04:18:11.659609+00:00", "scores": {"f1_score": 0.62, "latency_p99_ms": 316, "edge_case_coverage": 0.786}, "composite": 0.603, "passed": false, "challenger_triggered": false}
+{"iter": 3, "timestamp": "2026-04-13T04:18:11.661975+00:00", "scores": {"f1_score": 0.68, "latency_p99_ms": 294, "edge_case_coverage": 0.821}, "composite": 0.655, "passed": false, "challenger_triggered": false}
+{"iter": 4, "timestamp": "2026-04-13T04:18:11.664623+00:00", "scores": {"f1_score": 0.74, "latency_p99_ms": 272, "edge_case_coverage": 0.857}, "composite": 0.707, "passed": false, "challenger_triggered": false}
