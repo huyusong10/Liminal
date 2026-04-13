@@ -1,0 +1,77 @@
+<svg width="1280" height="560" viewBox="0 0 1280 560" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="flowbg" x1="84" y1="44" x2="1188" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7ED"/>
+      <stop offset="1" stop-color="#F6FAF7"/>
+    </linearGradient>
+    <filter id="flowshadow" x="42" y="72" width="1196" height="216" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="14"/>
+      <feGaussianBlur stdDeviation="14"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.192157 0 0 0 0 0.133333 0 0 0 0 0.0823529 0 0 0 0.1 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_0_2"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_0_2" result="shape"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="560" rx="36" fill="url(#flowbg)"/>
+  <text x="96" y="108" fill="#1E1813" font-family="Georgia, 'Times New Roman', serif" font-size="46" font-weight="700">How a loop moves</text>
+  <text x="96" y="148" fill="#6E6256" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22">Liminal keeps the spec stable, iterates in the workspace, and records each run under <tspan font-weight="700">.liminal/</tspan>.</text>
+
+  <g filter="url(#flowshadow)">
+    <rect x="72" y="190" width="164" height="116" rx="24" fill="#FFFFFF"/>
+    <rect x="266" y="190" width="164" height="116" rx="24" fill="#FFFFFF"/>
+    <rect x="460" y="190" width="164" height="116" rx="24" fill="#FFFFFF"/>
+    <rect x="654" y="190" width="164" height="116" rx="24" fill="#FFFFFF"/>
+    <rect x="848" y="190" width="164" height="116" rx="24" fill="#FFFFFF"/>
+    <rect x="1042" y="190" width="164" height="116" rx="24" fill="#FFFFFF"/>
+  </g>
+
+  <g fill="#1E1813" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="112" y="232" font-size="18" font-weight="700">Goal + Spec</text>
+    <text x="92" y="260" font-size="14" fill="#6E6256">Goal, optional Checks,</text>
+    <text x="92" y="282" font-size="14" fill="#6E6256">optional Constraints.</text>
+
+    <text x="316" y="232" font-size="18" font-weight="700">Checks</text>
+    <text x="286" y="260" font-size="14" fill="#6E6256">Use explicit checks or</text>
+    <text x="286" y="282" font-size="14" fill="#6E6256">generate frozen ones.</text>
+
+    <text x="496" y="232" font-size="18" font-weight="700">Generator</text>
+    <text x="480" y="260" font-size="14" fill="#6E6256">Edits the workspace</text>
+    <text x="480" y="282" font-size="14" fill="#6E6256">to move the product.</text>
+
+    <text x="702" y="232" font-size="18" font-weight="700">Tester</text>
+    <text x="674" y="260" font-size="14" fill="#6E6256">Collects evidence with</text>
+    <text x="674" y="282" font-size="14" fill="#6E6256">commands and interactions.</text>
+
+    <text x="886" y="232" font-size="18" font-weight="700">Verifier</text>
+    <text x="868" y="260" font-size="14" fill="#6E6256">Judges pass/fail against</text>
+    <text x="868" y="282" font-size="14" fill="#6E6256">the spec and evidence.</text>
+
+    <text x="1070" y="232" font-size="18" font-weight="700">Challenger</text>
+    <text x="1062" y="260" font-size="14" fill="#6E6256">Only on plateau or</text>
+    <text x="1062" y="282" font-size="14" fill="#6E6256">regression.</text>
+  </g>
+
+  <g stroke="#D66A36" stroke-width="6" stroke-linecap="round">
+    <path d="M238 248H254"/>
+    <path d="M432 248H448"/>
+    <path d="M626 248H642"/>
+    <path d="M820 248H836"/>
+    <path d="M1014 248H1030"/>
+  </g>
+  <g fill="#D66A36">
+    <path d="M254 240L270 248L254 256V240Z"/>
+    <path d="M448 240L464 248L448 256V240Z"/>
+    <path d="M642 240L658 248L642 256V240Z"/>
+    <path d="M836 240L852 248L836 256V240Z"/>
+    <path d="M1030 240L1046 248L1030 256V240Z"/>
+  </g>
+
+  <g>
+    <rect x="96" y="380" width="1088" height="102" rx="24" fill="#1F1A15"/>
+    <text x="126" y="418" fill="#FFF8EF" font-family="'SFMono-Regular', ui-monospace, Menlo, monospace" font-size="18">.liminal/loops/&lt;loop_id&gt;/compiled_spec.json</text>
+    <text x="126" y="448" fill="#D7F0E8" font-family="'SFMono-Regular', ui-monospace, Menlo, monospace" font-size="18">.liminal/runs/&lt;run_id&gt;/events.jsonl · tester_output.json · verifier_verdict.json · summary.md</text>
+  </g>
+</svg>

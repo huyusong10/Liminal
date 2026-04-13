@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Liminal Tools{% endblock %}
+{% block content %}
+<section class="hero hero-tight">
+  <div>
+    <span class="eyebrow">
+      <span data-lang="zh">工具</span>
+      <span data-lang="en">Tools</span>
+    </span>
+    <h1>
+      <span data-lang="zh">工具</span>
+      <span data-lang="en">Tools</span>
+    </h1>
+    <p>
+      <span data-lang="zh">这里放和 loop 本身无关、但能提升使用体验的辅助能力。</span>
+      <span data-lang="en">Use this page for helpers that improve the workflow but are not part of a specific loop.</span>
+    </p>
+  </div>
+</section>
+
+<section class="panel">
+  <header class="panel-header">
+    <div>
+      <h2><span data-lang="zh">Spec Skill 安装</span><span data-lang="en">Spec skill install</span></h2>
+      <p class="tools-copy">
+        <span data-lang="zh"><code>liminal-spec</code> 会帮你把模糊想法整理成符合 Liminal 的 <code>spec.md</code>。如果信息不够，它会先追问，再输出结构化 spec。</span>
+        <span data-lang="en"><code>liminal-spec</code> turns rough ideas into Liminal-ready <code>spec.md</code> files. When details are missing, it asks focused follow-up questions before drafting.</span>
+      </p>
+    </div>
+  </header>
+  <div class="skill-install-grid" id="skill-install-grid">
+    {% for target in skill_targets %}
+    <article class="skill-target-card" data-skill-target-card="{{ target.target }}">
+      <div class="skill-target-head">
+        <strong>{{ target.label }}</strong>
+        <span class="skill-target-state {% if target.installed %}is-installed{% else %}is-missing{% endif %}" id="skill-state-{{ target.target }}">
+          {% if target.installed %}
+            <span data-lang="zh">已安装</span><span data-lang="en">Installed</span>
+          {% else %}
+            <span data-lang="zh">未安装</span><span data-lang="en">Not installed</span>
+          {% endif %}
+        </span>
+      </div>
+      <p class="skill-target-path" id="skill-path-{{ target.target }}">{{ target.install_paths|join(" · ") }}</p>
+      <div class="card-actions">
+        <a class="ghost-button" href="{{ target.docs_url }}" target="_blank" rel="noreferrer">
+          <span data-lang="zh">文档</span>
+          <span data-lang="en">Docs</span>
+        </a>
+        <button class="secondary-button" type="button" data-install-skill="{{ target.target }}">
+          <span data-lang="zh">安装</span>
+          <span data-lang="en">Install</span>
+        </button>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  <div class="field-status" id="skill-install-status" hidden></div>
+</section>
+
+<script src="/static/pages/tools.js" defer></script>
+{% endblock %}

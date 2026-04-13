@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ loop.name }}{% endblock %}
+{% block content %}
+<section class="hero hero-tight">
+  <div>
+    <span class="eyebrow">
+      <span data-lang="zh">循环定义</span>
+      <span data-lang="en">Loop definition</span>
+    </span>
+    <h1>{{ loop.name }}</h1>
+    <p>{{ loop.workdir }}</p>
+    {% if latest_run %}
+    <div class="card-actions">
+      <span class="status-pill status-{{ latest_run.status }}" data-status-label="{{ latest_run.status }}"></span>
+      <span class="highlight-meta">
+        <span data-lang="zh">最近运行迭代</span><span data-lang="en">Latest iter</span> {{ latest_run.current_iter }}
+      </span>
+    </div>
+    {% endif %}
+  </div>
+  <form method="post" action="/api/loops/{{ loop.id }}/runs" onsubmit="event.preventDefault(); fetch(this.action, {method: 'POST'}).then(async (response) => { const data = await response.json(); if (!response.ok) { alert(data.error || window.LiminalUI.pickText({zh: '无法启动运行。', en: 'Unable to start the run.'})); return; } window.location.href = '/runs/' + data.id; });">
+    <button class="primary-button" type="submit">
+      <span data-lang="zh">开始新运行</span>
+      <span data-lang="en">Start new run</span>
+    </button>
+  </form>
+</section>
+
+<section class="panel">
+  <header class="panel-header">
+    <h2><span data-lang="zh">配置</span><span data-lang="en">Configuration</span></h2>
+  </header>
+  <dl class="meta-grid">
+    <div><dt><span data-lang="zh">Loop ID</span><span data-lang="en">Loop ID</span></dt><dd>{{ loop.id }}</dd></div>
+    <div><dt><span data-lang="zh">模型</span><span data-lang="en">Model</span></dt><dd>{{ loop.model }}</dd></div>
+    <div><dt><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning</span></dt><dd>{{ loop.reasoning_effort }}</dd></div>
+    <div><dt><span data-lang="zh">最大迭代</span><span data-lang="en">Max iters</span></dt><dd>{{ loop.max_iters if loop.max_iters else "infinite" }}</dd></div>
+    <div><dt><span data-lang="zh">重试次数</span><span data-lang="en">Retries</span></dt><dd>{{ loop.max_role_retries if loop.max_role_retries else "infinite" }}</dd></div>
+    <div><dt><span data-lang="zh">Spec 路径</span><span data-lang="en">Spec path</span></dt><dd>{{ loop.spec_path }}</dd></div>
+  </dl>
+</section>
+
+<section class="panel">
+  <header class="panel-header">
+    <h2><span data-lang="zh">运行历史</span><span data-lang="en">Run history</span></h2>
+    <span>{{ loop.runs|length }} <span data-lang="zh">条</span><span data-lang="en">stored</span></span>
+  </header>
+  {% if loop.runs %}
+    <div class="timeline">
+      {% for run_item in loop.runs %}
+      <a class="timeline-item run-history-item run-history-item--{{ run_item.status }}" href="/runs/{{ run_item.id }}">
+        <div>
+          <strong>{{ run_item.id }}</strong>
+          <p><span data-status-label="{{ run_item.status }}"></span> · <span data-lang="zh">迭代</span><span data-lang="en">iter</span> {{ run_item.current_iter }}</p>
+        </div>
+        <span>{{ run_item.updated_at }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <h3><span data-lang="zh">还没有运行</span><span data-lang="en">No runs yet</span></h3>
+      <p><span data-lang="zh">开始第一次运行后，这里会显示时间线。</span><span data-lang="en">Start the first run to populate the timeline.</span></p>
+    </div>
+  {% endif %}
+</section>
+
+{% if latest_run %}
+<section class="panel">
+  <header class="panel-header">
+    <h2><span data-lang="zh">最近摘要</span><span data-lang="en">Latest summary</span></h2>
+    <a class="ghost-button" href="/runs/{{ latest_run.id }}">
+      <span data-lang="zh">打开运行</span>
+      <span data-lang="en">Open run</span>
+    </a>
+  </header>
+  <pre class="preview-box">{{ latest_run.summary_md or "No summary yet." }}</pre>
+</section>
+{% endif %}
+{% endblock %}

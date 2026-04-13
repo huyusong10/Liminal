@@ -1,23 +1,48 @@
-# Liminal
+[简体中文](./README.zh-CN.md) | **English**
 
-Liminal is a CLI-first local orchestration tool for Codex loops.
+<p align="center">
+  <img src="./src/liminal/assets/logo/logo-with-text-horizontal.svg" alt="Liminal" width="560" />
+</p>
 
-You give it:
+<p align="center">
+  <a href="https://www.python.org/">
+    <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
+  </a>
+  <a href="https://fastapi.tiangolo.com/">
+    <img alt="FastAPI" src="https://img.shields.io/badge/web-FastAPI-009688?logo=fastapi&logoColor=white">
+  </a>
+  <img alt="Local first" src="https://img.shields.io/badge/local--first-loop%20orchestration-0D7C66">
+  <img alt="Status" src="https://img.shields.io/badge/status-experimental-D66A36">
+</p>
 
-1. A Markdown spec with natural-language cases and expected results
-2. A workdir
-3. Runtime parameters like model, retry policy, and max iterations
+<p align="center">
+  Liminal is a local-first orchestration tool for Codex-style build loops.
+  You give it a Markdown spec and a workdir, and it runs a
+  <strong>Generator → Tester → Verifier → Challenger</strong> cycle with a live web console.
+</p>
 
-Liminal then runs a Generator -> Tester -> Verifier -> Challenger loop, stores the run under the project’s `.liminal/` folder, and exposes the same data through a local web console.
+![Liminal overview](./.github/assets/readme-overview.svg)
 
-## What ships in this repo
+## Why Liminal
 
-- `liminal/`: the product code
-- `tests/`: parser, runner, stop, web, and explorer coverage
-- `desgin/`: earlier design notes kept as reference
-- `orchestrator/`: legacy prototype modules kept for historical context
+- Keep the goal stable while each run iterates against concrete checks.
+- Support both explicit checks and exploratory runs with auto-generated frozen checks.
+- Persist run artifacts under `.liminal/` so every iteration is inspectable and reproducible.
+- Expose the same run state in a local web console with progress, console logs, timeline, and key artifacts.
 
-The new source of truth is the `liminal` package.
+## How It Works
+
+![Liminal flow](./.github/assets/readme-flow.svg)
+
+Each run compiles the Markdown spec into a frozen snapshot, updates the workspace, collects evidence, judges pass/fail, and only invokes the Challenger when the loop stalls or regresses.
+
+## Features
+
+- CLI commands for `run`, `serve`, `loops list`, `loops status`, `loops stop`, `loops rerun`, and `spec init`
+- Local FastAPI console for loop creation, run monitoring, artifact inspection, and skill installation
+- Structured run outputs such as `compiled_spec.json`, `tester_output.json`, `verifier_verdict.json`, `events.jsonl`, and `summary.md`
+- Optional fake executor mode for smoke tests and demos
+- Bundled `liminal-spec` skill that helps draft valid `spec.md` files
 
 ## Install
 
@@ -25,15 +50,36 @@ The new source of truth is the `liminal` package.
 python3 -m pip install -e .
 ```
 
-## Quick start
+For real execution, make sure the `codex` CLI is available in your environment.
 
-Create a spec:
+## Quick Start
+
+1. Create a starter spec:
 
 ```bash
 liminal spec init ./demo-spec.md
 ```
 
-Run a loop:
+2. Edit it into something concrete:
+
+```md
+# Goal
+
+Build a useful landing page for an English learning site.
+
+# Checks
+
+### Main path is clear
+- When: A new user opens the page and tries to start learning
+- Expect: The main action is obvious and the first step is easy to begin
+- Fail if: The page feels ambiguous or the user cannot tell what to do next
+
+# Constraints
+
+- Start with a front-end prototype
+```
+
+3. Run a loop:
 
 ```bash
 liminal run \
@@ -43,7 +89,7 @@ liminal run \
   --max-iters 8
 ```
 
-Start the local web console:
+4. Start the local web console:
 
 ```bash
 liminal serve --host 127.0.0.1 --port 8742
@@ -51,40 +97,33 @@ liminal serve --host 127.0.0.1 --port 8742
 
 Then open [http://127.0.0.1:8742](http://127.0.0.1:8742).
 
-## CLI
+## Spec Model
 
-```bash
-liminal run --spec <path> --workdir <path> --model <id> --max-iters <n>
-liminal serve --host 127.0.0.1 --port 8742
-liminal loops list
-liminal loops status <loop-or-run-id>
-liminal loops stop <run-id>
-liminal loops rerun <loop-id>
-liminal spec init <path>
-```
+Liminal uses a Markdown spec with these top-level sections:
 
-## Spec format
+- `# Goal` required
+- `# Checks` optional
+- `# Constraints` optional
 
-The Markdown spec must include these top-level sections:
+When `# Checks` is omitted, Liminal generates a frozen exploratory check set at run start. When checks are provided explicitly, each check should use a `###` heading and include `When`, `Expect`, and `Fail if`.
 
-- `# Goal`
-- `# Cases`
-- `# Expected Results`
-- `# Acceptance`
-- `# Constraints`
+## Web Console
 
-Inside `# Cases` and `# Expected Results`, each case should use a `###` heading.
+The local console includes:
 
-Liminal compiles that Markdown into an internal `compiled_spec.json` snapshot for each loop and run.
+- Saved loop list with status, model, latest run, and direct actions
+- Loop creation page with spec validation and helper tooling
+- Run detail page with live progress, stage explanations, console streaming, timeline, and fixed artifact tabs
+- Tool page for installing the bundled `liminal-spec` skill
 
-## Storage model
+## Storage
 
 Global state lives under `~/.liminal/`:
 
-- `app.db`: SQLite metadata
-- `settings.json`: local settings
-- `logs/service.log`: web service logs
-- `recent_workdirs.json`: recent workdirs
+- `app.db`
+- `settings.json`
+- `logs/service.log`
+- `recent_workdirs.json`
 
 Per-project state lives under `<workdir>/.liminal/`:
 
@@ -97,20 +136,9 @@ Per-project state lives under `<workdir>/.liminal/`:
 - `runs/<run_id>/stagnation.json`
 - `runs/<run_id>/summary.md`
 
-## Web console
+## Fake Executor
 
-The local FastAPI console includes:
-
-- Loop list with status, model, current iteration, and latest run
-- Loop creation form
-- Run detail page with overview, timeline, key outputs, and a read-only resource explorer
-- SSE-backed live updates for active runs
-
-## Real Codex vs fake executor
-
-By default, Liminal uses the real `codex exec --json` CLI.
-
-For local smoke tests or demos, you can switch to the fake executor:
+For smoke tests or demos, you can switch to the fake executor:
 
 ```bash
 LIMINAL_FAKE_EXECUTOR=success liminal run --spec ./demo-spec.md --workdir /tmp/project
@@ -128,7 +156,15 @@ Optional delay per role:
 LIMINAL_FAKE_EXECUTOR=success LIMINAL_FAKE_DELAY=0.5 liminal serve
 ```
 
-## Tests
+## Project Layout
+
+- `src/liminal/`: product package, templates, static files, bundled skills, and logo assets
+- `tests/`: parser, runner, recovery, web, and browser coverage
+- `pyproject.toml`: packaging, CLI entry point, and test configuration
+
+## Development
+
+Run the test suite:
 
 ```bash
 python3 -m pytest -q

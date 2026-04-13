@@ -1,0 +1,1015 @@
+{% extends "base.html" %}
+{% block title %}{{ run.id }}{% endblock %}
+{% block content %}
+<section class="hero hero-tight">
+  <div>
+    <span class="eyebrow">
+      <span data-lang="zh">运行详情</span>
+      <span data-lang="en">Run detail</span>
+    </span>
+    <h1>{{ run.id }}</h1>
+    <p>{{ run.workdir }}</p>
+  </div>
+  <div class="card-actions">
+    <a class="secondary-button" href="/loops/{{ run.loop_id }}">
+      <span data-lang="zh">返回循环</span>
+      <span data-lang="en">Back to loop</span>
+    </a>
+    {% if run.status in ["queued", "running"] %}
+    <button class="ghost-button" id="stop-run">
+      <span data-lang="zh">停止运行</span>
+      <span data-lang="en">Stop run</span>
+    </button>
+    {% endif %}
+  </div>
+</section>
+
+<section class="dashboard-grid">
+  <article class="panel progress-panel">
+    <header class="panel-header progress-panel-header">
+      <div>
+        <h2><span data-lang="zh">运行进度</span><span data-lang="en">Progress</span></h2>
+        <p class="progress-panel-copy" id="progress-caption">
+          <span data-lang="zh">正在整理当前运行状态。</span>
+          <span data-lang="en">Preparing the latest run state.</span>
+        </p>
+      </div>
+      <div class="progress-status-cluster">
+        <span class="status-pill progress-status-pill" id="progress-status-badge" data-status-label="{{ run.status }}"></span>
+        <strong class="progress-percent" id="progress-value">0%</strong>
+      </div>
+    </header>
+    <div class="progress-track-shell">
+      <div class="progress-track">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <div class="progress-meta-row">
+        <span id="progress-stage-label">-</span>
+        <span id="progress-meta">-</span>
+      </div>
+    </div>
+    <div class="stage-strip" id="stage-strip">
+      <div class="stage-chip" data-stage="checks" tabindex="0"><span data-lang="zh">Checks</span><span data-lang="en">Checks</span></div>
+      <div class="stage-chip" data-stage="generator" tabindex="0"><span data-lang="zh">生成</span><span data-lang="en">Generator</span></div>
+      <div class="stage-chip" data-stage="tester" tabindex="0"><span data-lang="zh">测试</span><span data-lang="en">Tester</span></div>
+      <div class="stage-chip" data-stage="verifier" tabindex="0"><span data-lang="zh">验证</span><span data-lang="en">Verifier</span></div>
+      <div class="stage-chip" data-stage="challenger" tabindex="0"><span data-lang="zh">挑战</span><span data-lang="en">Challenger</span></div>
+      <div class="stage-chip" data-stage="finished" tabindex="0"><span data-lang="zh">完成</span><span data-lang="en">Done</span></div>
+    </div>
+    <div class="highlight-grid">
+      <article class="highlight-card">
+        <span class="highlight-label"><span data-lang="zh">当前焦点</span><span data-lang="en">Current focus</span></span>
+        <strong id="focus-title">-</strong>
+        <p id="focus-detail">-</p>
+        <span class="highlight-meta" id="focus-meta">-</span>
+      </article>
+      <article class="highlight-card">
+        <span class="highlight-label"><span data-lang="zh">最近关键输出</span><span data-lang="en">Latest output</span></span>
+        <strong id="output-title">-</strong>
+        <p id="output-detail">-</p>
+        <span class="highlight-meta" id="output-meta">-</span>
+      </article>
+      <article class="highlight-card">
+        <span class="highlight-label"><span data-lang="zh">最近事件</span><span data-lang="en">Latest event</span></span>
+        <strong id="event-title">-</strong>
+        <p id="event-detail">-</p>
+        <span class="highlight-meta" id="event-meta">-</span>
+      </article>
+    </div>
+  </article>
+
+  <article class="panel console-panel">
+    <header class="panel-header console-panel-header">
+      <div>
+        <h2><span data-lang="zh">控制台</span><span data-lang="en">Console</span></h2>
+        <p class="console-copy">
+          <span data-lang="zh">这里会实时显示角色输出、命令执行和关键错误。</span>
+          <span data-lang="en">Role output, commands, and key errors stream here in real time.</span>
+        </p>
+      </div>
+      <div class="console-meta">
+        <span class="status-pill progress-status-pill status-running" id="console-live-badge">
+          <span data-lang="zh">直播中</span>
+          <span data-lang="en">Live</span>
+        </span>
+        <span id="console-line-count">0 lines</span>
+      </div>
+    </header>
+    <div class="console-shell" id="console-shell">
+      <div class="console-output" id="console-output"></div>
+    </div>
+  </article>
+
+  <article class="panel artifact-panel">
+    <header class="panel-header artifact-panel-header">
+      <div>
+        <h2><span data-lang="zh">关键产物</span><span data-lang="en">Run files</span></h2>
+        <p class="artifact-copy">
+          <span data-lang="zh">直接切换这次 run 的几个固定输出文件，不再浏览整棵目录。</span>
+          <span data-lang="en">Switch directly between the fixed run outputs instead of browsing the whole directory tree.</span>
+        </p>
+      </div>
+      <div class="artifact-meta" id="artifact-meta">-</div>
+    </header>
+    <div class="artifact-tabs" id="artifact-tabs"></div>
+    <div class="artifact-preview-shell">
+      <div class="preview-toolbar artifact-toolbar">
+        <span id="artifact-path">-</span>
+        <a class="ghost-button" id="artifact-download-link" href="#" target="_blank">
+          <span data-lang="zh">下载</span>
+          <span data-lang="en">Download</span>
+        </a>
+      </div>
+      <div class="preview-box artifact-preview-box" id="artifact-preview">
+        <span data-lang="zh">正在准备关键产物预览。</span>
+        <span data-lang="en">Preparing the run file preview.</span>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel timeline-panel">
+    <header class="panel-header"><h2><span data-lang="zh">时间线</span><span data-lang="en">Timeline</span></h2></header>
+    <div class="timeline" id="timeline"></div>
+    <div class="timeline-empty" id="timeline-empty" {% if timeline_events %}hidden{% endif %}>
+      <span data-lang="zh">还没有里程碑事件，更多信息会在运行推进后出现。</span>
+      <span data-lang="en">No milestone events yet. More details will appear as the run progresses.</span>
+    </div>
+  </article>
+</section>
+
+<script>
+  const runId = {{ run.id|tojson }};
+  const initialRun = {{ run|tojson }};
+  const initialTimelineRecords = {{ timeline_events|tojson }};
+  const initialConsoleEvents = {{ console_events|tojson }};
+  const initialArtifacts = {{ run_artifacts|tojson }};
+  const roleStageMap = {
+    check_planner: "checks",
+    generator: "generator",
+    tester: "tester",
+    verifier: "verifier",
+    challenger: "challenger",
+  };
+  let currentRun = initialRun;
+  let timelineRecords = initialTimelineRecords.slice();
+  let consoleEventRecords = initialConsoleEvents.slice();
+  let artifactRecords = initialArtifacts.slice();
+  let currentArtifactId = null;
+  let lastEventId = {{ latest_event_id | tojson }};
+  let refreshTimer = null;
+  let refreshInFlight = false;
+  let refreshQueued = false;
+  let autoScrollConsole = true;
+  let pollTimer = null;
+  let heartbeatTimer = null;
+  const MAX_CONSOLE_LINES = 280;
+
+  function localeText(zh, en) {
+    return window.LiminalUI.pickText({zh, en});
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+  }
+
+  function formatClock(value) {
+    if (!value) {
+      return "--:--:--";
+    }
+    return new Date(value).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  }
+
+  function scheduleRunRefresh({immediate = false} = {}) {
+    if (refreshTimer) {
+      return;
+    }
+    refreshTimer = window.setTimeout(async () => {
+      refreshTimer = null;
+      if (refreshInFlight) {
+        refreshQueued = true;
+        return;
+      }
+      refreshInFlight = true;
+      try {
+        await fetchRun();
+      } finally {
+        refreshInFlight = false;
+        if (refreshQueued) {
+          refreshQueued = false;
+          scheduleRunRefresh({immediate: true});
+        }
+      }
+    }, immediate ? 0 : 140);
+  }
+
+  function stripMarkdown(value) {
+    return String(value || "")
+      .replace(/^#.*$/gm, "")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function truncateText(value, maxLength = 140) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return "";
+    }
+    return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+  }
+
+  function getStageDefinition(stage) {
+    const definitions = {
+      checks: {
+        title: localeText("Checks", "Checks"),
+        detail: localeText(
+          "决定这次 run 用哪些检查点。显式 Checks 会直接采用；否则会自动生成一组并在本次运行内冻结。",
+          "Decides which checks this run uses. Explicit Checks are adopted directly; otherwise a frozen set is auto-generated."
+        ),
+      },
+      generator: {
+        title: localeText("生成", "Generator"),
+        detail: localeText(
+          "真正修改工作区，朝 Goal 和 Checks 推进实现。",
+          "Actually changes the workspace to move the implementation toward the Goal and Checks."
+        ),
+      },
+      tester: {
+        title: localeText("测试", "Tester"),
+        detail: localeText(
+          "运行命令、页面交互或源码检查来收集证据，回答“发生了什么”。",
+          "Runs commands, page interactions, or source inspection to collect evidence and answer 'what happened?'"
+        ),
+      },
+      verifier: {
+        title: localeText("验证", "Verifier"),
+        detail: localeText(
+          "根据 Goal、Checks、Constraints 和 tester 证据做裁决，回答“算不算通过”。",
+          "Judges the tester evidence against the Goal, Checks, and Constraints to answer 'does this count as passing?'"
+        ),
+      },
+      challenger: {
+        title: localeText("挑战", "Challenger"),
+        detail: localeText(
+          "只有在停滞或回退时才触发，用来提出新的方向，不是每轮必跑。",
+          "Only triggers on plateau or regression to suggest a new direction; it does not run on every iteration."
+        ),
+      },
+      finished: {
+        title: localeText("完成", "Done"),
+        detail: localeText(
+          "这次 run 已经结束，可能是成功、失败或手动停止。",
+          "The run has ended, whether by success, failure, or manual stop."
+        ),
+      },
+    };
+    return definitions[stage] || definitions.checks;
+  }
+
+  function formatDurationMs(value) {
+    if (value === undefined || value === null || Number.isNaN(Number(value))) {
+      return "";
+    }
+    const ms = Number(value);
+    if (ms < 1000) {
+      return `${Math.round(ms)}ms`;
+    }
+    const seconds = ms / 1000;
+    return seconds >= 10 ? `${seconds.toFixed(1)}s` : `${seconds.toFixed(2)}s`;
+  }
+
+  function latestRoleSummary(role) {
+    for (let index = timelineRecords.length - 1; index >= 0; index -= 1) {
+      const event = timelineRecords[index];
+      if (event.event_type === "role_execution_summary" && (event.payload?.role || event.role) === role) {
+        return event;
+      }
+    }
+    return null;
+  }
+
+  function hasTimelineEvent(type) {
+    return timelineRecords.some((event) => event.event_type === type);
+  }
+
+  function getStageSnapshots(run) {
+    const runFinished = ["succeeded", "failed", "stopped"].includes(run?.status || "");
+    const currentStage = getCurrentStage(run);
+    const snapshots = {};
+    const liveDuration = runIsActive(run)
+      ? formatDuration(run?.started_at, null)
+      : "";
+
+    snapshots.checks = {
+      state: hasTimelineEvent("checks_resolved") ? "complete" : (run?.status === "queued" ? "current" : "pending"),
+      meta: hasTimelineEvent("checks_resolved")
+        ? localeText("本次运行的 checks 已冻结。", "This run's checks have been frozen.")
+        : localeText("等待检查集就绪。", "Waiting for checks to resolve."),
+    };
+
+    ["generator", "tester", "verifier", "challenger"].forEach((role) => {
+      const summary = latestRoleSummary(role);
+      if (summary) {
+        const durationText = formatDurationMs(summary.payload?.duration_ms);
+        snapshots[role] = {
+          state: summary.payload?.ok ? "complete" : "failed",
+          meta: summary.payload?.ok
+            ? `${localeText("已执行", "Executed")}${durationText ? ` · ${durationText}` : ""}`
+            : `${localeText("执行失败", "Failed")}${durationText ? ` · ${durationText}` : ""}`,
+        };
+        return;
+      }
+      if (run?.active_role === role && run?.status === "running") {
+        snapshots[role] = {
+          state: "current",
+          meta: liveDuration
+            ? `${localeText("当前正在执行", "Running right now")} · ${liveDuration}`
+            : localeText("当前正在执行。", "Running right now."),
+        };
+        return;
+      }
+      if (role === "challenger" && runFinished) {
+        snapshots[role] = {
+          state: "skipped",
+          meta: localeText("未触发。只有停滞或回退时才会运行。", "Not triggered. It only runs on plateau or regression."),
+        };
+        return;
+      }
+      snapshots[role] = {
+        state: currentStage === role && run?.status === "running" ? "current" : "pending",
+        meta: localeText("尚未执行。", "Not executed yet."),
+      };
+    });
+
+    snapshots.finished = {
+      state: runFinished ? "complete" : "pending",
+      meta: runFinished
+        ? `${localeText("最终状态", "Final status")}: ${window.LiminalUI.translateStatus(run?.status || "draft")}`
+        : localeText("运行尚未结束。", "The run is not finished yet."),
+    };
+
+    return snapshots;
+  }
+
+  function stageTooltipText(stage, run = currentRun, snapshots = getStageSnapshots(run || currentRun)) {
+    const definition = getStageDefinition(stage);
+    const snapshot = snapshots[stage] || {meta: "-"};
+    return [definition.title, definition.detail, snapshot.meta].filter(Boolean).join(" · ");
+  }
+
+  function renderArtifactTabs() {
+    const tabs = document.getElementById("artifact-tabs");
+    tabs.innerHTML = artifactRecords.map((artifact) => `
+      <button
+        class="artifact-tab ${artifact.id === currentArtifactId ? "active" : ""}"
+        data-artifact-id="${artifact.id}"
+        type="button"
+      >
+        <span class="artifact-tab-label">${escapeHtml(window.LiminalUI.currentLocale() === "zh" ? artifact.label_zh : artifact.label_en)}</span>
+        <span class="artifact-tab-state ${artifact.available ? "is-ready" : "is-missing"}">
+          ${artifact.available ? localeText("可用", "Ready") : localeText("未生成", "Missing")}
+        </span>
+      </button>
+    `).join("");
+    tabs.querySelectorAll(".artifact-tab").forEach((button) => {
+      button.addEventListener("click", () => openArtifact(button.dataset.artifactId));
+    });
+  }
+
+  async function refreshArtifacts({preserveSelection = true} = {}) {
+    const response = await fetch(`/api/runs/${runId}/artifacts`);
+    artifactRecords = await response.json();
+    const availableIds = artifactRecords.filter((artifact) => artifact.available).map((artifact) => artifact.id);
+    if (!preserveSelection || !currentArtifactId || !artifactRecords.some((artifact) => artifact.id === currentArtifactId)) {
+      currentArtifactId = availableIds[0] || artifactRecords[0]?.id || null;
+    }
+    renderArtifactTabs();
+  }
+
+  function renderMissingArtifact(artifact) {
+    const preview = document.getElementById("artifact-preview");
+    const downloadLink = document.getElementById("artifact-download-link");
+    document.getElementById("artifact-path").textContent = artifact.path || artifact.filename || "-";
+    document.getElementById("artifact-meta").textContent = localeText("这个文件在当前阶段还没有生成。", "This file has not been generated at the current stage.");
+    preview.innerHTML = `
+      <div class="artifact-missing">
+        <strong>${localeText("当前还没有这个文件。", "This file does not exist yet.")}</strong>
+        <p>${escapeHtml(window.LiminalUI.currentLocale() === "zh" ? artifact.description_zh : artifact.description_en)}</p>
+      </div>
+    `;
+    downloadLink.style.visibility = "hidden";
+    downloadLink.removeAttribute("href");
+  }
+
+  async function openArtifact(artifactId) {
+    if (!artifactId) {
+      return;
+    }
+    currentArtifactId = artifactId;
+    renderArtifactTabs();
+    const response = await fetch(`/api/runs/${runId}/artifacts/${encodeURIComponent(artifactId)}`);
+    const payload = await response.json();
+    const preview = document.getElementById("artifact-preview");
+    const downloadLink = document.getElementById("artifact-download-link");
+    const artifact = payload.artifact || artifactRecords.find((entry) => entry.id === artifactId) || {};
+
+    if (payload.kind === "missing") {
+      renderMissingArtifact(artifact);
+      return;
+    }
+
+    document.getElementById("artifact-path").textContent = artifact.path || payload.path || "-";
+    document.getElementById("artifact-meta").textContent = window.LiminalUI.currentLocale() === "zh"
+      ? artifact.description_zh
+      : artifact.description_en;
+    if (payload.is_binary) {
+      preview.innerHTML = `
+        <div class="binary-preview">
+          <strong>${localeText("二进制文件，无法直接预览。", "Binary file cannot be previewed directly.")}</strong>
+          <p>${localeText("可以下载后查看原文件。", "Download the file to inspect it directly.")}</p>
+        </div>
+      `;
+    } else if (payload.rendered_html) {
+      preview.innerHTML = payload.rendered_html;
+    } else {
+      preview.textContent = payload.content || "";
+    }
+    downloadLink.style.visibility = "visible";
+    downloadLink.href = `/api/runs/${runId}/artifacts/${encodeURIComponent(artifactId)}/download`;
+  }
+
+  function renderTimelineItem(event) {
+    const detail = event.detail ? `<p>${escapeHtml(event.detail)}</p>` : "";
+    return `<div><strong>${escapeHtml(event.title)}</strong>${detail}</div><span>${escapeHtml(event.created_at)}</span>`;
+  }
+
+  function renderTimeline() {
+    const timeline = document.getElementById("timeline");
+    const visible = timelineRecords.slice(-12).reverse();
+    timeline.innerHTML = visible.map((event) => {
+      const formatted = formatTimelineEvent(event);
+      return `<div class="timeline-item">${renderTimelineItem({...event, ...formatted})}</div>`;
+    }).join("");
+    syncTimelineState();
+  }
+
+  function syncTimelineState() {
+    const timeline = document.getElementById("timeline");
+    const empty = document.getElementById("timeline-empty");
+    empty.hidden = timeline.children.length > 0;
+  }
+
+  function lineCountLabel(count) {
+    return window.LiminalUI.currentLocale() === "zh" ? `${count} 行` : `${count} lines`;
+  }
+
+  function syncConsoleMeta() {
+    const output = document.getElementById("console-output");
+    document.getElementById("console-line-count").textContent = lineCountLabel(output.children.length);
+
+    const liveBadge = document.getElementById("console-live-badge");
+    const status = currentRun?.status || "{{ run.status }}";
+    liveBadge.className = `status-pill progress-status-pill status-${status}`;
+    if (status === "running" || status === "queued") {
+      liveBadge.innerHTML = `<span data-lang="zh">直播中</span><span data-lang="en">Live</span>`;
+    } else {
+      liveBadge.dataset.statusLabel = status;
+      liveBadge.textContent = window.LiminalUI.translateStatus(status);
+    }
+  }
+
+  function appendConsoleLines(lines) {
+    if (!lines.length) {
+      return;
+    }
+    const shell = document.getElementById("console-shell");
+    const output = document.getElementById("console-output");
+    const shouldStick = autoScrollConsole || shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 24;
+    for (const line of lines) {
+      const row = document.createElement("div");
+      row.className = `console-line console-line-${line.tone || "info"}`;
+      row.textContent = line.text;
+      output.appendChild(row);
+    }
+    while (output.children.length > MAX_CONSOLE_LINES) {
+      output.removeChild(output.firstChild);
+    }
+    syncConsoleMeta();
+    if (shouldStick) {
+      shell.scrollTop = shell.scrollHeight;
+    }
+  }
+
+  function buildConsoleLines(event) {
+    const payload = event.payload || {};
+    const role = window.LiminalUI.translateRole(event.role || payload.role || "system");
+    const prefix = `[${formatClock(event.created_at)}] ${role}`;
+    const lines = [];
+
+    if (event.event_type === "run_started") {
+      return [{tone: "system", text: `${prefix} · ${localeText("运行开始", "Run started")}`}];
+    }
+    if (event.event_type === "checks_resolved") {
+      return [{tone: "system", text: `${prefix} · ${localeText("Checks 已就绪", "Checks resolved")} (${payload.count || 0})`}];
+    }
+    if (event.event_type === "role_started") {
+      const iterLabel = payload.iter !== undefined ? ` · ${localeText("迭代", "iter")} ${payload.iter}` : "";
+      return [{tone: "system", text: `${prefix} · ${localeText("开始执行", "started")}${iterLabel}`}];
+    }
+    if (event.event_type === "role_degraded") {
+      return [{tone: "warning", text: `${prefix} · ${localeText("降级到", "degraded to")} ${payload.mode || "-"}`}];
+    }
+    if (event.event_type === "role_execution_summary") {
+      const tone = payload.ok ? "success" : "error";
+      const durationText = formatDurationMs(payload.duration_ms);
+      const detail = payload.ok
+        ? `${localeText("完成", "completed")} · ${localeText("尝试", "attempts")}=${payload.attempts || 1}${durationText ? ` · ${durationText}` : ""}`
+        : `${localeText("失败", "failed")} · ${payload.error || "-"}${durationText ? ` · ${durationText}` : ""}`;
+      return [{tone, text: `${prefix} · ${detail}`}];
+    }
+    if (event.event_type === "run_aborted") {
+      return [{tone: "error", text: `${prefix} · ${localeText("运行中止", "Run aborted")} · ${payload.error || payload.role || "-"}`}];
+    }
+    if (event.event_type === "stop_requested") {
+      return [{tone: "warning", text: `${prefix} · ${localeText("已请求停止", "Stop requested")}`}];
+    }
+    if (event.event_type === "run_finished") {
+      return [{tone: payload.status === "succeeded" ? "success" : "warning", text: `${prefix} · ${localeText("运行结束", "Run finished")} · ${window.LiminalUI.translateStatus(payload.status || "succeeded")}`}];
+    }
+    if (event.event_type !== "codex_event") {
+      return [];
+    }
+
+    if (payload.type === "stdout" && payload.message) {
+      return String(payload.message).split("\n").filter(Boolean).map((line) => ({tone: "stdout", text: `${prefix} | ${line}`}));
+    }
+    if (payload.type === "error") {
+      return [{tone: "error", text: `${prefix} | ${String(payload.message || payload.error?.message || localeText("发生错误", "Error")).trim()}`}];
+    }
+    if (payload.type === "turn.failed") {
+      return [{tone: "error", text: `${prefix} | ${String(payload.error?.message || localeText("本轮失败", "Turn failed")).trim()}`}];
+    }
+
+    const item = payload.item || {};
+    if (!item.type) {
+      return [];
+    }
+
+    if (payload.type === "item.started" && item.type === "command_execution") {
+      return [{tone: "command", text: `${prefix} $ ${item.command || ""}`}];
+    }
+    if (payload.type === "item.completed" && item.type === "command_execution") {
+      if (item.aggregated_output) {
+        return String(item.aggregated_output).split("\n").filter(Boolean).map((line) => ({tone: "stdout", text: `${prefix} | ${line}`}));
+      }
+      return item.exit_code && item.exit_code !== 0
+        ? [{tone: "error", text: `${prefix} | ${localeText("命令退出码", "Command exit code")} ${item.exit_code}`}]
+        : [];
+    }
+    if (payload.type === "item.completed" && item.type === "file_change") {
+      const changed = (item.changes || []).map((change) => change.path?.split("/").pop()).filter(Boolean).join(", ");
+      return [{tone: "success", text: `${prefix} | ${localeText("文件变更", "Files changed")}: ${changed || "-"}`}];
+    }
+    if ((payload.type === "item.started" || payload.type === "item.updated") && item.type === "todo_list") {
+      const total = (item.items || []).length;
+      const completed = (item.items || []).filter((entry) => entry.completed).length;
+      return [{tone: "info", text: `${prefix} | ${localeText("待办进度", "Todo progress")}: ${completed}/${total}`}];
+    }
+    if (payload.type === "item.completed" && item.type === "agent_message" && item.text) {
+      return String(item.text).split("\n").filter(Boolean).map((line) => ({tone: "info", text: `${prefix} | ${line}`}));
+    }
+    return lines;
+  }
+
+  function renderConsole() {
+    const output = document.getElementById("console-output");
+    output.innerHTML = "";
+    for (const event of consoleEventRecords) {
+      appendConsoleLines(buildConsoleLines(event));
+    }
+    syncConsoleMeta();
+  }
+
+  function pushConsoleEvent(event) {
+    consoleEventRecords.push(event);
+    if (consoleEventRecords.length > MAX_CONSOLE_LINES) {
+      consoleEventRecords = consoleEventRecords.slice(-MAX_CONSOLE_LINES);
+      renderConsole();
+      return;
+    }
+    appendConsoleLines(buildConsoleLines(event));
+  }
+
+  function formatTimelineEvent(event) {
+    const payload = event.payload || {};
+    const role = payload.role || event.role || "role";
+    if (event.event_type === "run_started") {
+      return {title: localeText("运行已开始", "Run started"), detail: ""};
+    }
+    if (event.event_type === "checks_resolved") {
+      const source = payload.source === "auto_generated"
+        ? localeText("自动生成", "auto-generated")
+        : localeText("显式提供", "specified");
+      return {
+        title: localeText("Checks 已就绪", "Checks resolved"),
+        detail: `${payload.count || 0} ${localeText("条", "")} checks, ${source}`,
+      };
+    }
+    if (event.event_type === "role_execution_summary") {
+      const durationText = formatDurationMs(payload.duration_ms);
+      if (payload.ok) {
+        const parts = [];
+        if ((payload.attempts || 1) > 1) {
+          parts.push(`${localeText("重试", "attempts")}=${payload.attempts}`);
+        }
+        if (payload.degraded) {
+          parts.push(localeText("已降级", "degraded"));
+        }
+        if (durationText) {
+          parts.push(durationText);
+        }
+        return {
+          title: `${window.LiminalUI.translateRole(role)} ${localeText("完成", "completed")}`,
+          detail: parts.join(" · ") || localeText("正常完成", "ok"),
+        };
+      }
+      return {
+        title: `${window.LiminalUI.translateRole(role)} ${localeText("失败", "failed")}`,
+        detail: [String(payload.error || ""), durationText].filter(Boolean).join(" · "),
+      };
+    }
+    if (event.event_type === "role_degraded") {
+      return {
+        title: `${window.LiminalUI.translateRole(role)} ${localeText("降级执行", "degraded")}`,
+        detail: String(payload.mode || ""),
+      };
+    }
+    if (event.event_type === "challenger_done") {
+      return {
+        title: localeText("Challenger 给出新方向", "Challenger suggested a new direction"),
+        detail: String(payload.mode || ""),
+      };
+    }
+    if (event.event_type === "stop_requested") {
+      return {title: localeText("已请求停止", "Stop requested"), detail: ""};
+    }
+    if (event.event_type === "run_aborted") {
+      return {
+        title: localeText("运行中止", "Run aborted"),
+        detail: `${window.LiminalUI.translateRole(payload.role || "role")} · ${localeText("尝试次数", "attempts")}=${payload.attempts || 0}`,
+      };
+    }
+    if (event.event_type === "run_finished") {
+      return {
+        title: `${localeText("运行结束", "Run finished")} · ${window.LiminalUI.translateStatus(payload.status || "succeeded")}`,
+        detail: payload.reason ? String(payload.reason) : (payload.iter !== undefined ? `iter=${payload.iter}` : ""),
+      };
+    }
+    return {title: event.event_type, detail: ""};
+  }
+
+  function getCurrentStage(run) {
+    if (!run) {
+      return "checks";
+    }
+    if (run.status === "succeeded") {
+      return "finished";
+    }
+    if (run.status === "queued") {
+      return "checks";
+    }
+    if (run.active_role && roleStageMap[run.active_role]) {
+      return roleStageMap[run.active_role];
+    }
+    const latestEvent = timelineRecords[timelineRecords.length - 1];
+    if (latestEvent && latestEvent.payload && latestEvent.payload.role && roleStageMap[latestEvent.payload.role]) {
+      return roleStageMap[latestEvent.payload.role];
+    }
+    if (run.status === "failed" || run.status === "stopped") {
+      return "verifier";
+    }
+    return "checks";
+  }
+
+  function calculateProgress(run) {
+    const stage = getCurrentStage(run);
+    const stageFraction = {
+      checks: 0.12,
+      generator: 0.3,
+      tester: 0.52,
+      verifier: 0.74,
+      challenger: 0.88,
+      finished: 1,
+    };
+    if (!run) {
+      return {stage, percent: 0};
+    }
+    if (run.status === "succeeded") {
+      return {stage: "finished", percent: 100};
+    }
+    if (run.max_iters && run.max_iters > 0) {
+      const iter = Math.max(Number(run.current_iter || 0), 0);
+      const percent = Math.min(((iter + stageFraction[stage]) / run.max_iters) * 100, run.status === "running" ? 96 : 99);
+      return {stage, percent: Math.max(percent, run.status === "queued" ? 4 : 8)};
+    }
+    return {stage, percent: Math.round(stageFraction[stage] * 100)};
+  }
+
+  function stageDisplayName(stage) {
+    const labels = {
+      checks: localeText("Checks", "Checks"),
+      generator: localeText("生成", "Generator"),
+      tester: localeText("测试", "Tester"),
+      verifier: localeText("验证", "Verifier"),
+      challenger: localeText("挑战", "Challenger"),
+      finished: localeText("完成", "Done"),
+    };
+    return labels[stage] || stage;
+  }
+
+  function summarizeVerdict(verdict) {
+    if (!verdict) {
+      return {
+        title: localeText("还没有 verdict", "No verdict yet"),
+        detail: localeText("运行会在 verifier 产出后更新这里。", "This updates once the verifier produces a verdict."),
+        meta: "",
+      };
+    }
+    const failedCount = Array.isArray(verdict.failed_check_ids) ? verdict.failed_check_ids.length : 0;
+    const title = verdict.passed
+      ? localeText("最新 verdict：通过", "Latest verdict: passed")
+      : localeText("最新 verdict：未通过", "Latest verdict: not passed");
+    const detail = verdict.passed
+      ? localeText("所有关键 checks 都已通过。", "All key checks are passing.")
+      : `${failedCount} ${localeText("条 checks 仍未通过。", "check(s) still failing.")}`;
+    const meta = `${localeText("综合分", "Composite")} ${verdict.composite_score ?? "-"}`;
+    return {title, detail, meta};
+  }
+
+  function summarizeLatestEvent() {
+    const latestEvent = timelineRecords[timelineRecords.length - 1];
+    if (!latestEvent) {
+      return {
+        title: localeText("还没有关键事件", "No key event yet"),
+        detail: localeText("运行推进后会在这里显示最新里程碑。", "Recent milestones will appear here once the run advances."),
+        meta: "",
+      };
+    }
+    const formatted = formatTimelineEvent(latestEvent);
+    return {
+      title: formatted.title,
+      detail: formatted.detail || localeText("无附加说明。", "No extra detail."),
+      meta: latestEvent.created_at,
+    };
+  }
+
+  function updateProgressPanel(run) {
+    const {stage, percent} = calculateProgress(run);
+    const snapshots = getStageSnapshots(run);
+    const finite = run && run.max_iters && run.max_iters > 0;
+    const fill = document.getElementById("progress-fill");
+    const statusBadge = document.getElementById("progress-status-badge");
+    const status = run?.status || "draft";
+
+    statusBadge.dataset.statusLabel = status;
+    statusBadge.textContent = window.LiminalUI.translateStatus(status);
+    statusBadge.className = `status-pill progress-status-pill status-${status}`;
+
+    fill.style.width = `${percent}%`;
+    fill.className = `progress-fill status-${status} ${status === "running" ? "is-live" : ""}`;
+    document.getElementById("progress-value").textContent = finite ? `${Math.round(percent)}%` : localeText("进行中", "Live");
+    document.getElementById("progress-stage-label").textContent = `${localeText("当前阶段", "Stage")}: ${run?.active_role ? window.LiminalUI.translateRole(run.active_role) : stageDisplayName(stage)}`;
+    document.getElementById("progress-meta").textContent = finite
+      ? `${localeText("迭代", "Iter")} ${run?.current_iter ?? 0} / ${run?.max_iters ?? "-"}`
+      : `${localeText("迭代", "Iter")} ${run?.current_iter ?? 0}`;
+    document.getElementById("progress-caption").textContent = status === "running"
+      ? localeText("当前运行正在推进，下面会持续刷新关键输出和最新事件。", "This run is actively progressing. Key outputs and milestones update below.")
+      : localeText("这里汇总当前运行所处阶段、最近输出和最新里程碑。", "This summarizes the current stage, latest output, and newest milestone.");
+
+    document.querySelectorAll(".stage-chip").forEach((chip) => {
+      const snapshot = snapshots[chip.dataset.stage] || {state: "pending"};
+      chip.classList.remove("current", "complete", "pending", "failed", "skipped");
+      chip.classList.add(snapshot.state);
+      const tooltip = stageTooltipText(chip.dataset.stage, run, snapshots);
+      chip.dataset.tooltip = tooltip;
+      chip.setAttribute("aria-label", tooltip);
+    });
+    syncLiveRefreshers();
+  }
+
+  function updateHighlights(run) {
+    const status = run?.status || "draft";
+    const stage = getCurrentStage(run);
+    const focusName = run?.active_role ? window.LiminalUI.translateRole(run.active_role) : stageDisplayName(stage);
+    const focusTitle = status === "running"
+      ? `${focusName} ${localeText("处理中", "in progress")}`
+      : `${window.LiminalUI.translateStatus(status)} · ${focusName}`;
+    const focusDetail = status === "running"
+      ? localeText("系统会随着阶段推进持续刷新下方摘要。", "The summaries below keep updating as the run advances.")
+      : localeText("当前没有活跃角色在执行。", "There is no active role executing right now.");
+    const focusMeta = `${localeText("迭代", "Iter")} ${run?.current_iter ?? 0} · ${localeText("耗时", "Duration")} ${formatDuration(run?.started_at, run?.finished_at)}`;
+    document.getElementById("focus-title").textContent = focusTitle;
+    document.getElementById("focus-detail").textContent = focusDetail;
+    document.getElementById("focus-meta").textContent = focusMeta;
+
+    const verdict = summarizeVerdict(run?.last_verdict_json);
+    document.getElementById("output-title").textContent = verdict.title;
+    document.getElementById("output-detail").textContent = verdict.detail;
+    document.getElementById("output-meta").textContent = verdict.meta || truncateText(stripMarkdown(run?.summary_md), 120) || localeText("等待首轮输出。", "Waiting for the first substantive output.");
+
+    const latestEvent = summarizeLatestEvent();
+    document.getElementById("event-title").textContent = latestEvent.title;
+    document.getElementById("event-detail").textContent = latestEvent.detail;
+    document.getElementById("event-meta").textContent = latestEvent.meta;
+  }
+
+  async function fetchRun() {
+    const response = await fetch(`/api/runs/${runId}`);
+    const payload = await response.json();
+    currentRun = payload;
+    updateProgressPanel(payload);
+    updateHighlights(payload);
+    syncConsoleMeta();
+    refreshArtifacts({preserveSelection: true}).then(() => {
+      if (currentArtifactId) {
+        return openArtifact(currentArtifactId);
+      }
+      return null;
+    }).catch(() => {});
+  }
+
+  function pushTimelineEvent(event) {
+    timelineRecords.push(event);
+    renderTimeline();
+    if (currentRun) {
+      updateProgressPanel(currentRun);
+      updateHighlights(currentRun);
+    }
+  }
+
+  document.getElementById("console-shell").addEventListener("scroll", (event) => {
+    const shell = event.currentTarget;
+    autoScrollConsole = shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 24;
+  });
+
+  document.getElementById("stop-run")?.addEventListener("click", async () => {
+    const response = await fetch(`/api/runs/${runId}/stop`, {method: "POST"});
+    const payload = await response.json();
+    if (!response.ok) {
+      alert(payload.error || localeText("无法停止运行。", "Unable to stop the run."));
+      return;
+    }
+    await fetchRun();
+  });
+
+  function formatDuration(startedAt, finishedAt) {
+    if (!startedAt) return "-";
+    const start = new Date(startedAt);
+    const end = finishedAt ? new Date(finishedAt) : new Date();
+    const seconds = Math.max(0, Math.floor((end - start) / 1000));
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    return minutes ? `${minutes}m ${remainder}s` : `${remainder}s`;
+  }
+
+  function runIsActive(run) {
+    return ["queued", "running"].includes(run?.status || "");
+  }
+
+  function syncLiveRefreshers() {
+    const active = runIsActive(currentRun);
+    if (active && !pollTimer) {
+      pollTimer = window.setInterval(() => {
+        if (document.visibilityState === "hidden") {
+          return;
+        }
+        scheduleRunRefresh({immediate: true});
+      }, 2500);
+    } else if (!active && pollTimer) {
+      window.clearInterval(pollTimer);
+      pollTimer = null;
+    }
+
+    if (active && !heartbeatTimer) {
+      heartbeatTimer = window.setInterval(() => {
+        updateProgressPanel(currentRun);
+        updateHighlights(currentRun);
+        syncConsoleMeta();
+      }, 1000);
+    } else if (!active && heartbeatTimer) {
+      window.clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  }
+
+  const eventSource = new EventSource(`/api/runs/${runId}/stream?after_id=${encodeURIComponent(lastEventId)}`);
+  eventSource.onmessage = () => {};
+  function handleStreamEvent(message, options = {}) {
+    const payload = JSON.parse(message.data);
+    if (payload.id <= lastEventId) {
+      return null;
+    }
+    lastEventId = payload.id;
+    if (options.console !== false) {
+      pushConsoleEvent(payload);
+    }
+    if (currentRun && payload.event_type === "role_started") {
+      currentRun = {
+        ...currentRun,
+        status: "running",
+        active_role: payload.payload?.role || currentRun.active_role,
+        current_iter: payload.payload?.iter ?? currentRun.current_iter,
+      };
+      updateProgressPanel(currentRun);
+      updateHighlights(currentRun);
+      syncConsoleMeta();
+    }
+    if (currentRun && payload.event_type === "run_finished") {
+      currentRun = {
+        ...currentRun,
+        status: payload.payload?.status || currentRun.status,
+        active_role: null,
+        current_iter: payload.payload?.iter ?? currentRun.current_iter,
+        finished_at: payload.created_at || currentRun.finished_at,
+      };
+      updateProgressPanel(currentRun);
+      updateHighlights(currentRun);
+      syncConsoleMeta();
+    }
+    if (currentRun && payload.event_type === "run_aborted") {
+      currentRun = {
+        ...currentRun,
+        status: "failed",
+        active_role: null,
+      };
+      updateProgressPanel(currentRun);
+      updateHighlights(currentRun);
+      syncConsoleMeta();
+    }
+    if (options.timeline) {
+      pushTimelineEvent(payload);
+    }
+    if (options.refresh) {
+      scheduleRunRefresh({immediate: options.immediate === true});
+    }
+    return payload;
+  }
+
+  eventSource.addEventListener("codex_event", (message) => {
+    handleStreamEvent(message, {console: true, timeline: false, refresh: false});
+  });
+  eventSource.addEventListener("role_started", (message) => {
+    handleStreamEvent(message, {console: true, timeline: false, refresh: true});
+  });
+  eventSource.addEventListener("run_finished", (message) => {
+    const payload = handleStreamEvent(message, {console: true, timeline: true, refresh: true, immediate: true});
+    if (!payload) {
+      return;
+    }
+    eventSource.close();
+  });
+  ["run_started", "checks_resolved", "role_execution_summary", "role_degraded", "challenger_done", "stop_requested", "run_aborted"].forEach((eventName) => {
+    eventSource.addEventListener(eventName, (message) => {
+      handleStreamEvent(message, {console: true, timeline: true, refresh: true});
+    });
+  });
+
+  document.addEventListener("liminal:localechange", () => {
+    window.LiminalUI.applyLocalizedAttributes(document);
+    renderArtifactTabs();
+    if (currentRun) {
+      updateProgressPanel(currentRun);
+      updateHighlights(currentRun);
+    }
+    renderTimeline();
+    renderConsole();
+    if (currentArtifactId) {
+      openArtifact(currentArtifactId);
+    }
+  });
+
+  renderTimeline();
+  renderConsole();
+  updateProgressPanel(currentRun);
+  updateHighlights(currentRun);
+  syncConsoleMeta();
+  renderArtifactTabs();
+  currentArtifactId = artifactRecords.find((artifact) => artifact.available)?.id || artifactRecords[0]?.id || null;
+  if (currentArtifactId) {
+    openArtifact(currentArtifactId);
+  }
+  fetchRun();
+</script>
+{% endblock %}

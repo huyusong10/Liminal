@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 from liminal.db import LiminalRepository
 from liminal.executor import FakeCodexExecutor
@@ -16,29 +22,19 @@ def sample_spec_text() -> str:
 
 Ship the requested behavior.
 
-# Cases
+# Checks
 
-### Case 1: Main flow
+### Main flow works
 
-- Scenario: The main path should work.
+- When: The user follows the main path.
+- Expect: The primary experience completes successfully.
+- Fail if: The main path breaks or becomes unclear.
 
-### Case 2: Edge case
+### Edge case stays safe
 
-- Scenario: The loop should handle an edge case.
-
-# Expected Results
-
-### Case 1: Main flow
-
-- The primary output is correct.
-
-### Case 2: Edge case
-
-- The edge path stays safe.
-
-# Acceptance
-
-- Both cases should pass.
+- When: The workflow hits an edge case.
+- Expect: The edge path stays safe and understandable.
+- Fail if: The system crashes or leaves the user stuck.
 
 # Constraints
 
@@ -50,6 +46,26 @@ Ship the requested behavior.
 def sample_spec_file(tmp_path: Path, sample_spec_text: str) -> Path:
     path = tmp_path / "spec.md"
     path.write_text(sample_spec_text, encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def exploratory_spec_text() -> str:
+    return """# Goal
+
+Build a rough prototype that proves the main interaction is promising.
+
+# Constraints
+
+- Stay inside the existing workspace.
+- Prefer small, visible improvements over broad rewrites.
+"""
+
+
+@pytest.fixture()
+def exploratory_spec_file(tmp_path: Path, exploratory_spec_text: str) -> Path:
+    path = tmp_path / "exploratory-spec.md"
+    path.write_text(exploratory_spec_text, encoding="utf-8")
     return path
 
 

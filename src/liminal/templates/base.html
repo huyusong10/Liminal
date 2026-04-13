@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN" data-locale="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Liminal{% endblock %}</title>
+  <link rel="icon" href="/logo/logo.svg" sizes="any" type="image/svg+xml" />
+  <link rel="shortcut icon" href="/logo/logo.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/static/app.css" />
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="site-shell">
+    <aside class="site-sidebar">
+      <a class="brand" href="/">
+        <img class="brand-logo" src="/logo/logo-with-text-horizontal.svg" alt="Liminal" />
+      </a>
+      <nav class="site-nav">
+        <a href="/">
+          <span data-lang="zh">循环</span>
+          <span data-lang="en">Loops</span>
+        </a>
+        <a href="/loops/new">
+          <span data-lang="zh">创建循环</span>
+          <span data-lang="en">Create Loop</span>
+        </a>
+        <a href="/tools">
+          <span data-lang="zh">工具</span>
+          <span data-lang="en">Tools</span>
+        </a>
+      </nav>
+    </aside>
+    <main class="site-main">
+      <div class="site-topbar">
+        <div class="locale-switch" role="group" aria-label="Language switch">
+          <button class="ghost-button locale-button" type="button" data-set-locale="zh">中文</button>
+          <button class="ghost-button locale-button" type="button" data-set-locale="en">EN</button>
+        </div>
+      </div>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

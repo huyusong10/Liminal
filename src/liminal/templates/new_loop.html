@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block title %}Create Loop{% endblock %}
+{% block content %}
+<section class="hero hero-tight">
+  <div>
+    <span class="eyebrow">
+      <span data-lang="zh">新建循环</span>
+      <span data-lang="en">New loop</span>
+    </span>
+    <h1>
+      <span data-lang="zh">创建一个本地 Codex loop。</span>
+      <span data-lang="en">Create a local Codex loop.</span>
+    </h1>
+    <p>
+      <span data-lang="zh">CLI 和这个页面使用同一套 loop 定义模型，所以你在这里保存的配置之后也能直接从终端重跑。</span>
+      <span data-lang="en">The CLI and this page use the same loop definition model, so anything you save here can be rerun from the terminal later.</span>
+    </p>
+  </div>
+</section>
+
+<form class="panel form-panel" method="post" action="/loops/new" id="new-loop-form">
+  <div
+    class="field-status is-error"
+    id="form-error"
+    aria-live="polite"
+    {% if not form_error %}hidden{% endif %}
+  >{{ form_error or "" }}</div>
+
+  <div class="form-grid">
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">名称</span><span data-lang="en">Name</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="便于在列表里识别这个 loop。"
+          data-title-en="A friendly name to identify this loop in the list."
+        >?</button>
+      </span>
+      <input
+        name="name"
+        value="{{ form_values.name }}"
+        data-placeholder-zh="例如：Landing page hardening"
+        data-placeholder-en="For example: Landing page hardening"
+        placeholder="Landing page hardening"
+        required
+      />
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">Workdir</span><span data-lang="en">Workdir</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="Codex 会在这个目录里读取和修改项目文件。"
+          data-title-en="Codex will inspect and edit project files inside this directory."
+        >?</button>
+      </span>
+      <div class="input-with-action">
+        <input
+          id="workdir-input"
+          name="workdir"
+          value="{{ form_values.workdir }}"
+          data-placeholder-zh="/absolute/path/to/project"
+          data-placeholder-en="/absolute/path/to/project"
+          placeholder="/absolute/path/to/project"
+          required
+        />
+        <button class="ghost-button" type="button" id="browse-workdir">
+          <span data-lang="zh">浏览</span>
+          <span data-lang="en">Browse</span>
+        </button>
+      </div>
+    </label>
+
+    <label class="wide">
+      <span class="label-row">
+        <span><span data-lang="zh">Spec 路径</span><span data-lang="en">Spec path</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="指向你的 Markdown spec。页面会校验是否包含 Goal；Checks 和 Constraints 都是可选的。"
+          data-title-en="Point to your Markdown spec. The page validates that it includes Goal; Checks and Constraints are optional."
+        >?</button>
+      </span>
+      <div class="input-with-action input-with-multi-actions">
+        <input
+          id="spec-path-input"
+          name="spec_path"
+          value="{{ form_values.spec_path }}"
+          data-placeholder-zh="/absolute/path/to/spec.md"
+          data-placeholder-en="/absolute/path/to/spec.md"
+          placeholder="/absolute/path/to/spec.md"
+          required
+        />
+        <button class="ghost-button" type="button" id="browse-spec">
+          <span data-lang="zh">浏览</span>
+          <span data-lang="en">Browse</span>
+        </button>
+        <button class="secondary-button" type="button" id="create-spec-template">
+          <span data-lang="zh">创建模版</span>
+          <span data-lang="en">Create template</span>
+        </button>
+      </div>
+      <div class="field-status" id="spec-validation" aria-live="polite" hidden></div>
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">模型</span><span data-lang="en">Model</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="默认用哪个 Codex 模型执行 generator、tester、verifier 和 challenger。"
+          data-title-en="Which Codex model to use by default for generator, tester, verifier, and challenger."
+        >?</button>
+      </span>
+      <input name="model" value="{{ form_values.model }}" />
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning effort</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="与本机 Codex 的 gpt-5.4 配置对齐：low、medium、high、xhigh。"
+          data-title-en="Aligned with the local Codex gpt-5.4 settings: low, medium, high, and xhigh."
+        >?</button>
+      </span>
+      <select name="reasoning_effort">
+        <option value="low" {% if form_values.reasoning_effort == "low" %}selected{% endif %}>low</option>
+        <option value="medium" {% if form_values.reasoning_effort == "medium" %}selected{% endif %}>medium</option>
+        <option value="high" {% if form_values.reasoning_effort == "high" %}selected{% endif %}>high</option>
+        <option value="xhigh" {% if form_values.reasoning_effort == "xhigh" %}selected{% endif %}>xhigh</option>
+      </select>
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">最大迭代次数</span><span data-lang="en">Max iterations</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="限制整个 loop 最多跑多少轮。填 0 表示无限，直到通过或手动停止。"
+          data-title-en="Cap how many full loop iterations may run. Use 0 for unlimited until it passes or you stop it."
+        >?</button>
+      </span>
+      <input name="max_iters" type="number" min="0" value="{{ form_values.max_iters }}" />
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">每个角色的重试次数</span><span data-lang="en">Retries per role</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="单个角色失败后最多自动重试多少次。填 0 表示无限重试，直到成功或手动停止。"
+          data-title-en="How many times a failing role should retry automatically. Use 0 for unlimited retries until success or manual stop."
+        >?</button>
+      </span>
+      <input name="max_role_retries" type="number" min="0" value="{{ form_values.max_role_retries }}" />
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">停滞阈值</span><span data-lang="en">Delta threshold</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="连续多轮提升幅度低于这个值时，会触发停滞检测。"
+          data-title-en="If progress gains stay below this value across multiple iterations, plateau detection can trigger."
+        >?</button>
+      </span>
+      <input name="delta_threshold" type="number" min="0" step="0.001" value="{{ form_values.delta_threshold }}" />
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">触发窗口</span><span data-lang="en">Trigger window</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="看多少轮历史来判断是否进入 plateau。"
+          data-title-en="How many recent iterations to inspect before declaring a plateau."
+        >?</button>
+      </span>
+      <input name="trigger_window" type="number" min="1" value="{{ form_values.trigger_window }}" />
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">回退窗口</span><span data-lang="en">Regression window</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="看多少轮历史来判断质量是否在倒退。"
+          data-title-en="How many recent iterations to inspect before flagging regression."
+        >?</button>
+      </span>
+      <input name="regression_window" type="number" min="1" value="{{ form_values.regression_window }}" />
+    </label>
+  </div>
+
+  <label class="checkbox-row">
+    <input type="checkbox" name="start_immediately" value="1" {% if form_values.start_immediately %}checked{% endif %} />
+    <span><span data-lang="zh">创建后立即开始运行</span><span data-lang="en">Create and start immediately</span></span>
+  </label>
+
+  <div class="callout">
+    <strong><span data-lang="zh">Spec 提醒</span><span data-lang="en">Spec reminder</span></strong>
+    <p>
+      <span data-lang="zh">Markdown spec 至少需要 <code># Goal</code>。你可以额外提供 <code># Checks</code> 和 <code># Constraints</code>；如果没有显式 checks，Liminal 会在每次 run 开始时自动生成一组并只在本次运行内冻结。</span>
+      <span data-lang="en">Your Markdown spec must include <code># Goal</code>. You can optionally add <code># Checks</code> and <code># Constraints</code>; when checks are omitted, Liminal will generate a frozen set for that run.</span>
+    </p>
+  </div>
+
+  <div class="callout">
+    <strong><span data-lang="zh">额外工具</span><span data-lang="en">Extra tools</span></strong>
+    <p>
+      <span data-lang="zh">如果你想安装 <code>liminal-spec</code> skill，请到侧边栏里的“工具”页操作。</span>
+      <span data-lang="en">If you want to install the <code>liminal-spec</code> skill, use the dedicated Tools page from the sidebar.</span>
+    </p>
+  </div>
+
+  <div class="card-actions">
+    <button class="primary-button" type="submit" id="save-loop-button">
+      <span data-lang="zh">保存循环</span>
+      <span data-lang="en">Save loop</span>
+    </button>
+    <a class="ghost-button" href="/">
+      <span data-lang="zh">取消</span>
+      <span data-lang="en">Cancel</span>
+    </a>
+  </div>
+</form>
+<script src="/static/pages/new_loop.js" defer></script>
+{% endblock %}

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Liminal Loops{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <h1>
+      <span data-lang="zh">循环</span>
+      <span data-lang="en">Loops</span>
+    </h1>
+  </div>
+  <a class="primary-button" href="/loops/new">
+    <span data-lang="zh">创建循环</span>
+    <span data-lang="en">Create a loop</span>
+  </a>
+</section>
+
+<section class="panel">
+  <header class="panel-header">
+    <h2>
+      <span data-lang="zh">已保存的循环</span>
+      <span data-lang="en">Saved loops</span>
+    </h2>
+    <span>{{ loops|length }} <span data-lang="zh">个</span><span data-lang="en">total</span></span>
+  </header>
+  {% if loops %}
+    <div class="loop-grid">
+      {% for loop_item in loops %}
+      <article class="loop-card loop-card--{{ loop_item.latest_status or 'draft' }}">
+        <div class="loop-card-head">
+          <div class="loop-card-copy">
+            <h3>{{ loop_item.name }}</h3>
+            <p>{{ loop_item.workdir }}</p>
+          </div>
+          <span
+            class="status-pill status-{{ loop_item.latest_status or 'draft' }}"
+            data-status-label="{{ loop_item.latest_status or 'draft' }}"
+          ></span>
+        </div>
+        <dl class="meta-grid">
+          <div>
+            <dt><span data-lang="zh">Loop ID</span><span data-lang="en">Loop ID</span></dt>
+            <dd>{{ loop_item.id }}</dd>
+          </div>
+          <div>
+            <dt><span data-lang="zh">模型</span><span data-lang="en">Model</span></dt>
+            <dd>{{ loop_item.model }}</dd>
+          </div>
+          <div>
+            <dt><span data-lang="zh">当前迭代</span><span data-lang="en">Current iter</span></dt>
+            <dd>{{ loop_item.latest_current_iter if loop_item.latest_current_iter is not none else "-" }}</dd>
+          </div>
+          <div>
+            <dt><span data-lang="zh">最近更新</span><span data-lang="en">Updated</span></dt>
+            <dd>{{ loop_item.latest_run_updated_at or loop_item.updated_at }}</dd>
+          </div>
+        </dl>
+        <div class="card-actions">
+          <a class="secondary-button" href="/loops/{{ loop_item.id }}">
+            <span data-lang="zh">查看循环</span>
+            <span data-lang="en">View loop</span>
+          </a>
+          {% if loop_item.latest_run_id %}
+          <a class="ghost-button" href="/runs/{{ loop_item.latest_run_id }}">
+            <span data-lang="zh">打开最近运行</span>
+            <span data-lang="en">Open latest run</span>
+          </a>
+          {% endif %}
+          <button
+            class="ghost-button danger-button"
+            type="button"
+            data-delete-loop="{{ loop_item.id }}"
+            data-loop-name="{{ loop_item.name }}"
+          >
+            <span data-lang="zh">删除</span>
+            <span data-lang="en">Delete</span>
+          </button>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <img class="empty-state-logo" src="/logo/logo.svg" alt="Liminal logo" />
+      <h3>
+        <span data-lang="zh">还没有 loop</span>
+        <span data-lang="en">No loops yet</span>
+      </h3>
+      <p>
+        <span data-lang="zh">从一个 Markdown spec 和 workdir 开始创建你的第一个 loop。</span>
+        <span data-lang="en">Create your first loop from a Markdown spec and a workdir.</span>
+      </p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

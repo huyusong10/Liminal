@@ -1,9 +1,0 @@
-{
-  "current_iter": 4,
-  "top_failures": [
-    "case_002"
-  ],
-  "delta_3_iter": 0.156,
-  "seed_adoption_rate": 0,
-  "recommended_next_action": "优先修复失败核心 case，并提升 edge 覆盖率。"
-}

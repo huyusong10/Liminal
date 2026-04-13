@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "playwright>=1.55.0",
   "pytest>=8.3.0",
 ]
 
@@ -27,8 +28,23 @@ liminal = "liminal.cli:app"
 [tool.setuptools]
 include-package-data = true
 
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["liminal*"]
+
 [tool.setuptools.package-data]
-liminal = ["templates/*.html", "static/*.css"]
+liminal = [
+  "templates/*.html",
+  "static/*.css",
+  "static/*.js",
+  "static/pages/*.js",
+  "assets/logo/*.svg",
+  "skills/assets/*/SKILL.md",
+  "skills/assets/*/references/*.md",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
