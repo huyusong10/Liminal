@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Create Loop{% endblock %}
+{% block content %}
+<section class="hero hero-tight">
+  <div>
+    <span class="eyebrow">New loop</span>
+    <h1>Create a local Codex loop.</h1>
+    <p>The CLI and this page use the same loop definition model, so anything you save here can be rerun from the terminal later.</p>
+  </div>
+</section>
+
+<form class="panel form-panel" method="post" action="/loops/new">
+  <div class="form-grid">
+    <label>
+      <span>Name</span>
+      <input name="name" placeholder="Landing page hardening" required />
+    </label>
+    <label>
+      <span>Workdir</span>
+      <input name="workdir" placeholder="/absolute/path/to/project" required />
+    </label>
+    <label class="wide">
+      <span>Spec path</span>
+      <input name="spec_path" placeholder="/absolute/path/to/spec.md" required />
+    </label>
+    <label>
+      <span>Model</span>
+      <input name="model" value="gpt-5.4" />
+    </label>
+    <label>
+      <span>Reasoning effort</span>
+      <select name="reasoning_effort">
+        <option value="minimal">minimal</option>
+        <option value="low">low</option>
+        <option value="medium" selected>medium</option>
+        <option value="high">high</option>
+      </select>
+    </label>
+    <label>
+      <span>Max iterations</span>
+      <input name="max_iters" type="number" min="1" value="8" />
+    </label>
+    <label>
+      <span>Retries per role</span>
+      <input name="max_role_retries" type="number" min="0" value="2" />
+    </label>
+    <label>
+      <span>Delta threshold</span>
+      <input name="delta_threshold" type="number" min="0" step="0.001" value="0.005" />
+    </label>
+    <label>
+      <span>Trigger window</span>
+      <input name="trigger_window" type="number" min="1" value="4" />
+    </label>
+    <label>
+      <span>Regression window</span>
+      <input name="regression_window" type="number" min="1" value="2" />
+    </label>
+  </div>
+  <label class="checkbox-row">
+    <input type="checkbox" name="start_immediately" value="1" checked />
+    <span>Create and start immediately</span>
+  </label>
+  <div class="callout">
+    <strong>Spec reminder</strong>
+    <p>The Markdown spec must include <code># Goal</code>, <code># Cases</code>, <code># Expected Results</code>, <code># Acceptance</code>, and <code># Constraints</code>.</p>
+  </div>
+  <div class="card-actions">
+    <button class="primary-button" type="submit">Save loop</button>
+    <a class="ghost-button" href="/">Cancel</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ loop.name }}{% endblock %}
+{% block content %}
+<section class="hero hero-tight">
+  <div>
+    <span class="eyebrow">Loop definition</span>
+    <h1>{{ loop.name }}</h1>
+    <p>{{ loop.workdir }}</p>
+  </div>
+  <form method="post" action="/api/loops/{{ loop.id }}/runs" onsubmit="event.preventDefault(); fetch(this.action, {method: 'POST'}).then(async (response) => { const data = await response.json(); if (!response.ok) { alert(data.error || 'Unable to start run'); return; } window.location.href = '/runs/' + data.id; });">
+    <button class="primary-button" type="submit">Start new run</button>
+  </form>
+</section>
+
+<section class="panel">
+  <header class="panel-header">
+    <h2>Configuration</h2>
+  </header>
+  <dl class="meta-grid">
+    <div><dt>Loop ID</dt><dd>{{ loop.id }}</dd></div>
+    <div><dt>Model</dt><dd>{{ loop.model }}</dd></div>
+    <div><dt>Reasoning</dt><dd>{{ loop.reasoning_effort }}</dd></div>
+    <div><dt>Max iters</dt><dd>{{ loop.max_iters }}</dd></div>
+    <div><dt>Retries</dt><dd>{{ loop.max_role_retries }}</dd></div>
+    <div><dt>Spec path</dt><dd>{{ loop.spec_path }}</dd></div>
+  </dl>
+</section>
+
+<section class="panel">
+  <header class="panel-header">
+    <h2>Run history</h2>
+    <span>{{ loop.runs|length }} stored</span>
+  </header>
+  {% if loop.runs %}
+    <div class="timeline">
+      {% for run in loop.runs %}
+      <a class="timeline-item" href="/runs/{{ run.id }}">
+        <div>
+          <strong>{{ run.id }}</strong>
+          <p>{{ run.status }} · iter {{ run.current_iter }}</p>
+        </div>
+        <span>{{ run.updated_at }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <h3>No runs yet</h3>
+      <p>Start the first run to populate the loop timeline.</p>
+    </div>
+  {% endif %}
+</section>
+
+{% if latest_run %}
+<section class="panel">
+  <header class="panel-header">
+    <h2>Latest summary</h2>
+    <a class="ghost-button" href="/runs/{{ latest_run.id }}">Open run</a>
+  </header>
+  <pre class="preview-box">{{ latest_run.summary_md or "No summary yet." }}</pre>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,109 +1,135 @@
-# Liminal v0.1 使用手册
+# Liminal
 
-Liminal 是一个“指标驱动 + 角色隔离”的外部编排器原型。它按 **Generator → Tester → Verifier → Challenger(可选)** 的流程迭代，并把全部关键状态写入本地文件，便于回放与审计。
+Liminal is a CLI-first local orchestration tool for Codex loops.
 
-## 1. 你会得到什么
+You give it:
 
-- 可运行的最小闭环编排器（外部 control plane）。
-- 完整落盘状态：`state/*.jsonl`、`handoff/*.json`、`state/agent_views/*`。
-- 停滞检测（plateau/regression）与 Challenger 触发。
-- 失败恢复链路：**重试 → 降级 → 中止并输出 machine-readable 错误摘要**。
+1. A Markdown spec with natural-language cases and expected results
+2. A workdir
+3. Runtime parameters like model, retry policy, and max iterations
 
-## 2. 目录说明（只保留使用相关）
+Liminal then runs a Generator -> Tester -> Verifier -> Challenger loop, stores the run under the project’s `.liminal/` folder, and exposes the same data through a local web console.
 
-```text
-.
-├── orchestrator.py                # 入口
-├── orchestrator/                  # 编排核心实现
-├── spec/                          # 规格与阈值
-├── state/                         # 历史状态与事件
-├── handoff/                       # 角色交接文件
-├── workspace/src/                 # Generator 产物
-└── scripts/replay_demo.sh         # 一键回放示例
-```
+## What ships in this repo
 
-## 3. 快速开始
+- `liminal/`: the product code
+- `tests/`: parser, runner, stop, web, and explorer coverage
+- `desgin/`: earlier design notes kept as reference
+- `orchestrator/`: legacy prototype modules kept for historical context
 
-### 3.1 运行 1 轮
+The new source of truth is the `liminal` package.
+
+## Install
 
 ```bash
-python3 orchestrator.py --max-iters 1 --base .
+python3 -m pip install -e .
 ```
 
-### 3.2 运行 10 轮（推荐）
+## Quick start
+
+Create a spec:
 
 ```bash
-python3 orchestrator.py --max-iters 10 --base .
+liminal spec init ./demo-spec.md
 ```
 
-### 3.3 一键回放
+Run a loop:
 
 ```bash
-bash scripts/replay_demo.sh
+liminal run \
+  --spec ./demo-spec.md \
+  --workdir /absolute/path/to/project \
+  --model gpt-5.4 \
+  --max-iters 8
 ```
 
-## 4. 输入任务样例
-
-编辑 `handoff/task.json`（示例）：
-
-```json
-{
-  "task_type": "build_website",
-  "title": "Liminal Demo Site",
-  "theme": "dark",
-  "prompt": "做一个简单的单页介绍网站"
-}
-```
-
-运行后会在 `workspace/src/` 看到：
-
-- `index.html`
-- `style.css`
-
-## 5. 输出结果怎么读
-
-### 5.1 核心 verdict
-
-- 文件：`handoff/verifier_verdict.json`
-- 关键字段：
-  - `passed`
-  - `composite_score`
-  - `metric_scores`
-  - `failed_case_ids`
-  - `hard_constraint_violations`
-
-### 5.2 历史与事件
-
-- `state/metrics_history.jsonl`：每轮分数与通过状态。
-- `state/iteration_log.jsonl`：Generator 每轮决策记录。
-- `state/run_events.jsonl`：编排事件流（含重试/降级/中止摘要）。
-- `state/stagnation.json`：停滞状态与触发记录。
-
-### 5.3 Agent 观测文件
-
-- `state/agent_views/agent_brief.json`
-- `state/agent_views/score_trend.mmd`
-- `state/agent_views/current_mode.mmd`
-
-## 6. 常用命令
+Start the local web console:
 
 ```bash
-# 语法检查
-python3 -m py_compile orchestrator.py orchestrator/*.py
-
-# 运行 3 轮
-python3 orchestrator.py --max-iters 3 --base .
-
-# 查看最新 verdict
-cat handoff/verifier_verdict.json
+liminal serve --host 127.0.0.1 --port 8742
 ```
 
-## 7. 失败恢复行为示例
+Then open [http://127.0.0.1:8742](http://127.0.0.1:8742).
 
-当某角色连续失败时，系统会按顺序执行：
+## CLI
 
-1. 角色级重试（最多 `max_retries + 1` 次）。
-2. 启用一次降级策略后再次重试。
-3. 若仍失败：写入 `run_aborted` 事件，并在 `verifier_verdict.json` 里输出 `ROLE_EXECUTION_ABORT` 错误摘要。
+```bash
+liminal run --spec <path> --workdir <path> --model <id> --max-iters <n>
+liminal serve --host 127.0.0.1 --port 8742
+liminal loops list
+liminal loops status <loop-or-run-id>
+liminal loops stop <run-id>
+liminal loops rerun <loop-id>
+liminal spec init <path>
+```
 
-这使失败路径可回放、可机器解析。
+## Spec format
+
+The Markdown spec must include these top-level sections:
+
+- `# Goal`
+- `# Cases`
+- `# Expected Results`
+- `# Acceptance`
+- `# Constraints`
+
+Inside `# Cases` and `# Expected Results`, each case should use a `###` heading.
+
+Liminal compiles that Markdown into an internal `compiled_spec.json` snapshot for each loop and run.
+
+## Storage model
+
+Global state lives under `~/.liminal/`:
+
+- `app.db`: SQLite metadata
+- `settings.json`: local settings
+- `logs/service.log`: web service logs
+- `recent_workdirs.json`: recent workdirs
+
+Per-project state lives under `<workdir>/.liminal/`:
+
+- `loops/<loop_id>/spec.md`
+- `loops/<loop_id>/compiled_spec.json`
+- `runs/<run_id>/events.jsonl`
+- `runs/<run_id>/tester_output.json`
+- `runs/<run_id>/verifier_verdict.json`
+- `runs/<run_id>/iteration_log.jsonl`
+- `runs/<run_id>/stagnation.json`
+- `runs/<run_id>/summary.md`
+
+## Web console
+
+The local FastAPI console includes:
+
+- Loop list with status, model, current iteration, and latest run
+- Loop creation form
+- Run detail page with overview, timeline, key outputs, and a read-only resource explorer
+- SSE-backed live updates for active runs
+
+## Real Codex vs fake executor
+
+By default, Liminal uses the real `codex exec --json` CLI.
+
+For local smoke tests or demos, you can switch to the fake executor:
+
+```bash
+LIMINAL_FAKE_EXECUTOR=success liminal run --spec ./demo-spec.md --workdir /tmp/project
+```
+
+Supported fake scenarios:
+
+- `success`
+- `plateau`
+- `role_failure`
+
+Optional delay per role:
+
+```bash
+LIMINAL_FAKE_EXECUTOR=success LIMINAL_FAKE_DELAY=0.5 liminal serve
+```
+
+## Tests
+
+```bash
+python3 -m pytest -q
+```
