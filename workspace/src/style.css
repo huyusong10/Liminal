@@ -1,0 +1,22 @@
+body {
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  background: #0b1020;
+  color: #e7ebff;
+}
+.container {
+  max-width: 720px;
+  margin: 72px auto;
+  padding: 24px;
+  border-radius: 16px;
+  background: #141b34;
+  box-shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+button {
+  background: #6d7bff;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+}
