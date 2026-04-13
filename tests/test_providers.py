@@ -15,6 +15,7 @@ from liminal.executor import (
     validate_command_args_text,
 )
 from liminal.providers import normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
+from liminal.providers import executor_profile
 
 
 def _request(tmp_path: Path, *, executor_kind: str, model: str, reasoning_effort: str) -> RoleRequest:
@@ -50,6 +51,7 @@ def test_reasoning_setting_is_provider_specific() -> None:
     assert normalize_reasoning_setting("xhigh", executor_kind="claude") == "max"
     assert normalize_reasoning_setting("", executor_kind="opencode") == ""
     assert normalize_reasoning_setting("default", executor_kind="opencode") == ""
+    assert executor_profile("opencode").preset_effort_visible is False
 
 
 def test_codex_exec_args_include_output_schema_and_reasoning(tmp_path: Path) -> None:
@@ -90,6 +92,11 @@ def test_custom_exec_args_require_runtime_placeholders() -> None:
         validate_command_args_text("--model\ngpt-5.4\n{prompt}\n", executor_kind="codex")
 
 
+def test_claude_command_args_require_json_schema_placeholder() -> None:
+    with pytest.raises(ValueError, match="\\{json_schema\\}"):
+        validate_command_args_text("-p\n--output-format\nstream-json\n{prompt}\n", executor_kind="claude")
+
+
 def test_custom_exec_args_resolve_runtime_values(tmp_path: Path) -> None:
     request = _request(tmp_path, executor_kind="claude", model="sonnet", reasoning_effort="medium")
     request.executor_mode = "command"
@@ -112,6 +119,46 @@ def test_custom_exec_args_resolve_runtime_values(tmp_path: Path) -> None:
     assert "Return JSON only." in args
     schema_arg = args[args.index("--json-schema") + 1]
     assert schema_arg.startswith("{")
+
+
+def test_custom_exec_args_drop_empty_placeholder_lines(tmp_path: Path) -> None:
+    request = _request(tmp_path, executor_kind="opencode", model="", reasoning_effort="")
+    request.executor_mode = "command"
+    request.command_cli = "opencode"
+    request.command_args_text = "\n".join(
+        [
+            "run",
+            "--model",
+            "{model}",
+            "{prompt}",
+        ]
+    )
+
+    args = build_custom_exec_args(request, request.run_dir / "schema.json")
+
+    assert args == ["opencode", "run", "Return JSON only."]
+
+
+def test_custom_exec_args_do_not_expand_placeholders_inside_prompt_value(tmp_path: Path) -> None:
+    request = _request(tmp_path, executor_kind="codex", model="gpt-5.4", reasoning_effort="medium")
+    request.prompt = "Keep the literal token {workdir} in the final prompt."
+    request.executor_mode = "command"
+    request.command_cli = "codex"
+    request.command_args_text = "\n".join(
+        [
+            "exec",
+            "--json",
+            "--output-schema",
+            "{schema_path}",
+            "--output-last-message",
+            "{output_path}",
+            "{prompt}",
+        ]
+    )
+
+    args = build_custom_exec_args(request, request.run_dir / "schema.json")
+
+    assert args[-1] == "Keep the literal token {workdir} in the final prompt."
 
 
 def test_claude_stream_parser_extracts_structured_output(tmp_path: Path) -> None:

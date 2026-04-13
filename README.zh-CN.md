@@ -40,9 +40,9 @@
 
 ## 功能特性
 
-- CLI 支持 `run`、`serve`、`loops list`、`loops status`、`loops stop`、`loops rerun`、`spec init`
 - 本地 FastAPI 控制台支持创建循环、监控运行、查看关键产物、安装 skill
 - 每次 run 都会产出结构化文件，例如 `compiled_spec.json`、`tester_output.json`、`verifier_verdict.json`、`events.jsonl`、`summary.md`
+- CLI 支持 `run`、`serve`、`loops list`、`loops status`、`loops stop`、`loops rerun`、`spec init`
 - 支持 fake executor，方便本地 smoke test 和演示
 - 内置 `liminal-spec` skill，帮助你生成符合要求的 `spec.md`
 
@@ -58,15 +58,37 @@ python3 -m pip install -e .
 - `claude`
 - `opencode`
 
-## 快速开始
+## 推荐入口：Web UI
 
-1. 先创建一个 spec 模板：
+1. 如果你还没安装项目：
+
+```bash
+python3 -m pip install -e .
+```
+
+2. 启动本地 Web 控制台：
+
+```bash
+liminal serve --host 127.0.0.1 --port 8742
+```
+
+然后打开 [http://127.0.0.1:8742](http://127.0.0.1:8742)。
+
+如果你想把 Web UI 暴露到局域网里，可以绑定公网地址，并顺手加上访问令牌：
+
+```bash
+liminal serve --host 0.0.0.0 --port 8742 --auth-token your-secret
+```
+
+然后先用 `http://<server-ip>:8742/?token=your-secret` 打开一次页面，浏览器后面就会记住这个会话。网络模式下请直接填写服务端机器上的绝对路径，因为原生文件选择弹窗会被故意禁用，避免远程操作时搞混。
+
+3. 创建一个 spec 模板：
 
 ```bash
 liminal spec init ./demo-spec.md
 ```
 
-2. 把它改成具体需求：
+4. 把它改成具体需求：
 
 ```md
 # Goal
@@ -83,9 +105,16 @@ liminal spec init ./demo-spec.md
 # Constraints
 
 - 先做前端原型
+- 保留现有项目文件，优先原地小改
 ```
 
-3. 启动一个循环：
+5. 在 Web UI 里创建 loop，选择工作目录和 `spec.md`，配置执行工具，然后直接启动 run。
+
+推荐优先使用 Web UI，因为它会把实时进度、控制台输出、时间线和关键产物放在同一个界面里，排查和理解都更顺手。
+
+## CLI 补充
+
+如果你更习惯直接从终端启动 run，也可以继续这样用：
 
 ```bash
 liminal run \
@@ -96,15 +125,7 @@ liminal run \
   --max-iters 8
 ```
 
-如果你想换工具，可以用 `--executor claude` 或 `--executor opencode`。其中 Claude Code 的 effort 是 `low/medium/high/max`，OpenCode 则使用 provider-specific variant。
-
-4. 启动本地 Web 控制台：
-
-```bash
-liminal serve --host 127.0.0.1 --port 8742
-```
-
-然后打开 [http://127.0.0.1:8742](http://127.0.0.1:8742)。
+如果你想换工具，可以用 `--executor claude` 或 `--executor opencode`。其中 Claude Code 的 effort 是 `low/medium/high/max`。如果底层 CLI 参数变化更快，也可以直接在 Web UI 里切到“直接命令”模式。
 
 ## Spec 模型
 
@@ -116,6 +137,7 @@ Liminal 使用 Markdown spec，顶层结构如下：
 
 如果省略 `# Checks`，Liminal 会在 run 开始时自动生成一组冻结 checks。  
 如果显式提供 checks，则每条 check 应该使用 `###` 标题，并包含 `When`、`Expect`、`Fail if`。
+如果目标是现有项目，建议在 `# Constraints` 里明确写出哪些内容不能动，并说明需要保留现有用户文件。
 
 ## Web 控制台
 

@@ -2,7 +2,7 @@
 {% block title %}Liminal Tools{% endblock %}
 {% block content %}
 <section class="hero hero-tight">
-  <div>
+  <div class="hero-copy-stack">
     <span class="eyebrow">
       <span data-lang="zh">工具</span>
       <span data-lang="en">Tools</span>
@@ -12,8 +12,8 @@
       <span data-lang="en">Tools</span>
     </h1>
     <p>
-      <span data-lang="zh">这里放和 loop 本身无关、但能提升使用体验的辅助能力。</span>
-      <span data-lang="en">Use this page for helpers that improve the workflow but are not part of a specific loop.</span>
+      <span data-lang="zh">这里放一些顺手的小外挂，让主流程少绕弯、少憋气。</span>
+      <span data-lang="en">This is where the handy sidekicks live, so the main workflow can stay out of its own way.</span>
     </p>
   </div>
 </section>
@@ -33,9 +33,11 @@
     <article class="skill-target-card" data-skill-target-card="{{ target.target }}">
       <div class="skill-target-head">
         <strong>{{ target.label }}</strong>
-        <span class="skill-target-state {% if target.installed %}is-installed{% else %}is-missing{% endif %}" id="skill-state-{{ target.target }}">
-          {% if target.installed %}
-            <span data-lang="zh">已安装</span><span data-lang="en">Installed</span>
+        <span class="skill-target-state skill-target-state--{{ target.install_state }} {% if target.install_state == 'installed' %}is-installed{% elif target.install_state == 'stale' %}is-stale{% else %}is-missing{% endif %}" id="skill-state-{{ target.target }}">
+          {% if target.install_state == "installed" %}
+            <span data-lang="zh">已同步</span><span data-lang="en">Up to date</span>
+          {% elif target.install_state == "stale" %}
+            <span data-lang="zh">需覆盖更新</span><span data-lang="en">Needs refresh</span>
           {% else %}
             <span data-lang="zh">未安装</span><span data-lang="en">Not installed</span>
           {% endif %}
@@ -48,8 +50,16 @@
           <span data-lang="en">Docs</span>
         </a>
         <button class="secondary-button" type="button" data-install-skill="{{ target.target }}">
+          {% if target.install_state == "missing" %}
           <span data-lang="zh">安装</span>
           <span data-lang="en">Install</span>
+          {% elif target.install_state == "stale" %}
+          <span data-lang="zh">覆盖更新</span>
+          <span data-lang="en">Overwrite</span>
+          {% else %}
+          <span data-lang="zh">重新安装</span>
+          <span data-lang="en">Reinstall</span>
+          {% endif %}
         </button>
       </div>
     </article>

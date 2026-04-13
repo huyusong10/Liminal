@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from liminal.service import LiminalError
+from liminal.service import LiminalError, LiminalService
 
 
 def _create_loop(service, sample_spec_file: Path, sample_workdir: Path, name: str = "Demo Loop") -> dict:
@@ -40,6 +40,55 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     assert (run_dir / "stagnation.json").exists()
     assert (sample_workdir / ".liminal" / "loops" / loop["id"] / "compiled_spec.json").exists()
     assert "All checks passed in this iteration." in (run_dir / "summary.md").read_text(encoding="utf-8")
+
+
+def test_destructive_generator_is_blocked_by_workspace_guard(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    (sample_workdir / "notes.txt").write_text("keep me\n", encoding="utf-8")
+    (sample_workdir / "src").mkdir()
+    (sample_workdir / "src" / "app.js").write_text("console.log('hi')\n", encoding="utf-8")
+
+    service = service_factory(scenario="destructive_generator")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Guarded Loop")
+
+    run = service.rerun(loop["id"])
+
+    run_dir = Path(run["runs_dir"])
+    guard = json.loads((run_dir / "workspace_guard.json").read_text(encoding="utf-8"))
+
+    assert run["status"] == "failed"
+    assert "workspace safety guard" in (run["error_message"] or "")
+    assert guard["baseline_file_count"] == 3
+    assert guard["remaining_original_file_count"] == 0
+    assert guard["deleted_original_count"] == 3
+    assert "progress.md" in guard["deleted_original_paths"]
+    assert "Execution stopped by the workspace safety guard." in (run_dir / "summary.md").read_text(encoding="utf-8")
+
+
+def test_destructive_tester_is_blocked_by_workspace_guard(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    (sample_workdir / "notes.txt").write_text("keep me\n", encoding="utf-8")
+    (sample_workdir / "src").mkdir()
+    (sample_workdir / "src" / "app.js").write_text("console.log('hi')\n", encoding="utf-8")
+
+    service = service_factory(scenario="destructive_tester")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Guarded Tester Loop")
+
+    run = service.rerun(loop["id"])
+
+    run_dir = Path(run["runs_dir"])
+    guard = json.loads((run_dir / "workspace_guard.json").read_text(encoding="utf-8"))
+
+    assert run["status"] == "failed"
+    assert "workspace safety guard" in (run["error_message"] or "")
+    assert guard["role"] == "tester"
+    assert guard["deleted_original_count"] == 3
 
 
 def test_exploratory_run_generates_and_freezes_checks(
@@ -147,6 +196,36 @@ def test_zero_max_iters_runs_until_stopped(service_factory, sample_spec_file: Pa
     assert stopped["status"] == "stopped"
 
 
+def test_async_run_cleans_up_thread_bookkeeping(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success", role_delay=0.01)
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Async Loop")
+    run = service.start_run(loop["id"])
+    service.start_run_async(run["id"])
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        current = service.get_run(run["id"])
+        if current["status"] in {"succeeded", "failed", "stopped"}:
+            break
+        time.sleep(0.05)
+
+    finished = service.get_run(run["id"])
+    assert finished["status"] == "succeeded"
+    assert run["id"] not in service._threads
+
+
+def test_stop_run_rejects_finished_runs(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Finished Loop")
+    run = service.rerun(loop["id"])
+
+    with pytest.raises(LiminalError, match="cannot stop run in status"):
+        service.stop_run(run["id"])
+
+    events = service.repository.list_events(run["id"], after_id=0, limit=1000)
+    assert all(event["event_type"] != "stop_requested" for event in events)
+
+
 def test_plateau_run_records_challenger_execution_summary(
     service_factory,
     sample_spec_file: Path,
@@ -170,3 +249,43 @@ def test_plateau_run_records_challenger_execution_summary(
     assert challenger_summaries
     assert verifier_summaries
     assert all(event["payload"]["duration_ms"] >= 0 for event in challenger_summaries + verifier_summaries)
+
+
+def test_service_startup_marks_stale_active_runs_stopped(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Stale Loop")
+    run = service.start_run(loop["id"])
+    service.repository.update_run(
+        run["id"],
+        status="running",
+        runner_pid=999999,
+        active_role="tester",
+        started_at="2026-04-13T08:00:00+00:00",
+    )
+
+    restarted = LiminalService(
+        repository=service.repository,
+        settings=service.settings,
+        executor_factory=service.executor_factory,
+    )
+    recovered = restarted.get_run(run["id"])
+
+    assert recovered["status"] == "stopped"
+    assert recovered["finished_at"] is not None
+    assert recovered["runner_pid"] is None
+    assert recovered["child_pid"] is None
+    assert "Recovered stale run" in (recovered["error_message"] or "")
+
+    events = restarted.repository.list_events(run["id"], after_id=0, limit=1000)
+    assert any(
+        event["event_type"] == "run_finished"
+        and event["payload"].get("reason") == "Recovered stale run after service startup."
+        for event in events
+    )
+
+    fresh_run = restarted.rerun(loop["id"])
+    assert fresh_run["status"] == "succeeded"

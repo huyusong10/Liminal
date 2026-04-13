@@ -1,14 +1,18 @@
 {% extends "base.html" %}
-{% block title %}{{ run.id }}{% endblock %}
+{% block title %}{{ run.loop_name or run.id }}{% endblock %}
 {% block content %}
 <section class="hero hero-tight">
-  <div>
+  <div class="hero-copy-stack">
     <span class="eyebrow">
       <span data-lang="zh">运行详情</span>
       <span data-lang="en">Run detail</span>
     </span>
-    <h1>{{ run.id }}</h1>
-    <p>{{ run.workdir }}</p>
+    <h1>{{ run.loop_name or run.id }}</h1>
+    <p>
+      <span data-lang="zh">先看看它这一轮正在忙什么，再决定要不要插手。</span>
+      <span data-lang="en">See what this run is busy with right now before deciding whether to step in.</span>
+    </p>
+    <p class="hero-path">{{ run.id }} · {{ run.workdir }}</p>
   </div>
   <div class="card-actions">
     <a class="secondary-button" href="/loops/{{ run.loop_id }}">
@@ -43,13 +47,23 @@
       <div class="progress-track">
         <div class="progress-fill" id="progress-fill"></div>
       </div>
-      <div class="progress-meta-row">
+    </div>
+    <article class="progress-live-card" id="progress-live-card">
+      <div class="progress-live-head">
+        <div class="progress-live-title-row">
+          <span class="progress-live-dot" aria-hidden="true"></span>
+          <strong id="progress-live-title">-</strong>
+        </div>
+        <span class="progress-live-duration" id="progress-live-duration">-</span>
+      </div>
+      <p id="progress-live-detail">-</p>
+      <div class="progress-meta-row progress-meta-row-rich">
         <span id="progress-stage-label">-</span>
         <span id="progress-meta">-</span>
       </div>
-    </div>
+    </article>
     <div class="stage-strip" id="stage-strip">
-      <div class="stage-chip" data-stage="checks" tabindex="0"><span data-lang="zh">Checks</span><span data-lang="en">Checks</span></div>
+      <div class="stage-chip" data-stage="checks" tabindex="0"><span data-lang="zh">检查项</span><span data-lang="en">Checks</span></div>
       <div class="stage-chip" data-stage="generator" tabindex="0"><span data-lang="zh">生成</span><span data-lang="en">Generator</span></div>
       <div class="stage-chip" data-stage="tester" tabindex="0"><span data-lang="zh">测试</span><span data-lang="en">Tester</span></div>
       <div class="stage-chip" data-stage="verifier" tabindex="0"><span data-lang="zh">验证</span><span data-lang="en">Verifier</span></div>
@@ -105,7 +119,7 @@
       <div>
         <h2><span data-lang="zh">关键产物</span><span data-lang="en">Run files</span></h2>
         <p class="artifact-copy">
-          <span data-lang="zh">直接切换这次 run 的几个固定输出文件，不再浏览整棵目录。</span>
+          <span data-lang="zh">直接切换这次运行的几个固定输出文件，不再浏览整棵目录。</span>
           <span data-lang="en">Switch directly between the fixed run outputs instead of browsing the whole directory tree.</span>
         </p>
       </div>
@@ -128,7 +142,16 @@
   </article>
 
   <article class="panel timeline-panel">
-    <header class="panel-header"><h2><span data-lang="zh">时间线</span><span data-lang="en">Timeline</span></h2></header>
+    <header class="panel-header timeline-panel-header">
+      <div>
+        <h2><span data-lang="zh">时间线</span><span data-lang="en">Timeline</span></h2>
+        <p class="timeline-copy">
+          <span data-lang="zh">只保留关键节点，让这一轮是怎么走到现在的能一眼看明白。</span>
+          <span data-lang="en">Only the key milestones stay here, so you can understand this run's path at a glance.</span>
+        </p>
+      </div>
+      <span class="timeline-count" id="timeline-count">-</span>
+    </header>
     <div class="timeline" id="timeline"></div>
     <div class="timeline-empty" id="timeline-empty" {% if timeline_events %}hidden{% endif %}>
       <span data-lang="zh">还没有里程碑事件，更多信息会在运行推进后出现。</span>
@@ -188,6 +211,52 @@
     });
   }
 
+  function parseTimestamp(value) {
+    const timestamp = Date.parse(value || "");
+    return Number.isFinite(timestamp) ? timestamp : null;
+  }
+
+  function formatAbsoluteDate(value) {
+    const timestamp = parseTimestamp(value);
+    if (timestamp === null) {
+      return "-";
+    }
+    return new Date(timestamp).toLocaleString([], {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  }
+
+  function formatRelativeAge(value) {
+    const timestamp = parseTimestamp(value);
+    if (timestamp === null) {
+      return "";
+    }
+    const deltaSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    if (deltaSeconds < 5) {
+      return localeText("刚刚", "just now");
+    }
+    if (deltaSeconds < 60) {
+      return localeText(`${deltaSeconds} 秒前`, `${deltaSeconds}s ago`);
+    }
+    if (deltaSeconds < 3600) {
+      const minutes = Math.floor(deltaSeconds / 60);
+      const seconds = deltaSeconds % 60;
+      return seconds
+        ? localeText(`${minutes} 分 ${seconds} 秒前`, `${minutes}m ${seconds}s ago`)
+        : localeText(`${minutes} 分钟前`, `${minutes}m ago`);
+    }
+    const hours = Math.floor(deltaSeconds / 3600);
+    const minutes = Math.floor((deltaSeconds % 3600) / 60);
+    return minutes
+      ? localeText(`${hours} 小时 ${minutes} 分钟前`, `${hours}h ${minutes}m ago`)
+      : localeText(`${hours} 小时前`, `${hours}h ago`);
+  }
+
   function scheduleRunRefresh({immediate = false} = {}) {
     if (refreshTimer) {
       return;
@@ -233,16 +302,16 @@
   function getStageDefinition(stage) {
     const definitions = {
       checks: {
-        title: localeText("Checks", "Checks"),
+        title: localeText("检查项", "Checks"),
         detail: localeText(
-          "决定这次 run 用哪些检查点。显式 Checks 会直接采用；否则会自动生成一组并在本次运行内冻结。",
+          "决定这次运行到底用哪些检查项。显式检查项会直接采用；否则会自动生成一组并在本次运行内冻结。",
           "Decides which checks this run uses. Explicit Checks are adopted directly; otherwise a frozen set is auto-generated."
         ),
       },
       generator: {
         title: localeText("生成", "Generator"),
         detail: localeText(
-          "真正修改工作区，朝 Goal 和 Checks 推进实现。",
+          "真正修改工作区，朝 Goal 和检查项推进实现。",
           "Actually changes the workspace to move the implementation toward the Goal and Checks."
         ),
       },
@@ -256,7 +325,7 @@
       verifier: {
         title: localeText("验证", "Verifier"),
         detail: localeText(
-          "根据 Goal、Checks、Constraints 和 tester 证据做裁决，回答“算不算通过”。",
+          "根据 Goal、检查项、Constraints 和测试证据做裁决，回答“算不算通过”。",
           "Judges the tester evidence against the Goal, Checks, and Constraints to answer 'does this count as passing?'"
         ),
       },
@@ -315,7 +384,7 @@
     snapshots.checks = {
       state: hasTimelineEvent("checks_resolved") ? "complete" : (run?.status === "queued" ? "current" : "pending"),
       meta: hasTimelineEvent("checks_resolved")
-        ? localeText("本次运行的 checks 已冻结。", "This run's checks have been frozen.")
+        ? localeText("本次运行的检查项已经冻结。", "This run's checks have been frozen.")
         : localeText("等待检查集就绪。", "Waiting for checks to resolve."),
     };
 
@@ -369,6 +438,330 @@
     return [definition.title, definition.detail, snapshot.meta].filter(Boolean).join(" · ");
   }
 
+  function currentIterValue(run) {
+    const parsed = Number(run?.current_iter);
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
+  }
+
+  function findLatestEvent(records, predicate) {
+    for (let index = records.length - 1; index >= 0; index -= 1) {
+      const event = records[index];
+      if (predicate(event)) {
+        return event;
+      }
+    }
+    return null;
+  }
+
+  function currentRoleStartEvent(run) {
+    const role = run?.active_role;
+    if (!role) {
+      return null;
+    }
+    const iter = currentIterValue(run);
+    return findLatestEvent(consoleEventRecords, (event) => (
+      event.event_type === "role_started"
+      && (event.payload?.role || event.role) === role
+      && Number(event.payload?.iter ?? iter) === iter
+    ));
+  }
+
+  function latestRoleActivityEvent(run) {
+    const role = run?.active_role;
+    if (!role) {
+      return null;
+    }
+    const stageStart = currentRoleStartEvent(run);
+    const stageStartTs = parseTimestamp(stageStart?.created_at);
+    return findLatestEvent(consoleEventRecords, (event) => {
+      const eventRole = event.role || event.payload?.role;
+      if (eventRole !== role || event.event_type === "role_started") {
+        return false;
+      }
+      if (stageStartTs === null) {
+        return true;
+      }
+      const eventTs = parseTimestamp(event.created_at);
+      return eventTs !== null && eventTs >= stageStartTs;
+    });
+  }
+
+  function stageRange(stage) {
+    const ranges = {
+      checks: [8, 24],
+      generator: [24, 46],
+      tester: [46, 68],
+      verifier: [68, 88],
+      challenger: [88, 97],
+      finished: [100, 100],
+    };
+    return ranges[stage] || ranges.checks;
+  }
+
+  function fallbackActivitySummary(stage) {
+    const hints = {
+      checks: {
+        title: localeText("正在整理检查项", "Shaping the check list"),
+        detail: localeText(
+          "它正在把 Goal、约束和当前工作区收拢成一组可判定的检查项；清单冻结后，这里会立刻换成更具体的细节。",
+          "It is turning the Goal, constraints, and current workspace into a set of checkable checks. As soon as that list freezes, this card will switch to something more concrete."
+        ),
+      },
+      generator: {
+        title: localeText("正在筹划这轮改动", "Planning this round of changes"),
+        detail: localeText(
+          "它多半在读代码、决定要改哪些文件；一旦开始落盘或跑命令，这里就会马上显示具体动作。",
+          "It is likely reading code and deciding which files to touch. As soon as it writes files or runs commands, the concrete action will appear here."
+        ),
+      },
+      tester: {
+        title: localeText("正在收集测试证据", "Collecting test evidence"),
+        detail: localeText(
+          "它可能在跑命令、看页面，或者对照源码核对行为；第一条命令、输出或结论一出现，这里就会跟着刷新。",
+          "It may be running commands, checking the page, or comparing behavior against the source. The first command, output, or conclusion will show up here as soon as it lands."
+        ),
+      },
+      verifier: {
+        title: localeText("正在整理验证结论", "Preparing the verification verdict"),
+        detail: localeText(
+          "它在消化检查项和测试证据，准备判断这一轮到底算不算通过。",
+          "It is digesting the checks and test evidence to decide whether this round really passes."
+        ),
+      },
+      challenger: {
+        title: localeText("正在寻找新方向", "Looking for a new direction"),
+        detail: localeText(
+          "它在分析为什么会停住，并尝试提出一条更有希望的下一步路线。",
+          "It is analyzing why progress stalled and trying to suggest a more promising next move."
+        ),
+      },
+      finished: {
+        title: localeText("这一轮已经结束", "This run has finished"),
+        detail: localeText(
+          "这张卡现在只保留最后的关键信号，下面的时间线会给你完整经过。",
+          "This card now keeps only the final signal; the timeline below shows the full path."
+        ),
+      },
+    };
+    return hints[stage] || {
+      title: localeText("正在继续推进", "Still moving forward"),
+      detail: localeText(
+        "当前阶段已经开始，只是还没吐出足够具体的新信号。",
+        "This stage has started, but it has not emitted a concrete enough signal yet."
+      ),
+    };
+  }
+
+  function commandProgressHint(command, stage) {
+    const text = String(command || "").trim();
+    const normalized = text.toLowerCase();
+    const generic = {
+      title: localeText("正在执行命令", "Running a command"),
+      detail: localeText(
+        "这条命令还在跑，控制台一冒出新行就会立刻显示在下面；长一点的静默通常只是它还没来得及吐日志。",
+        "This command is still running. As soon as a new line appears, it will show up below. A quiet stretch often just means it has not emitted logs yet."
+      ),
+    };
+    if (!text) {
+      return generic;
+    }
+
+    if (
+      /(^|\s)(npm|pnpm|yarn|bun)\s+(install|add)\b/.test(normalized)
+      || /\bpip\s+install\b/.test(normalized)
+      || /\buv\s+(sync|pip install)\b/.test(normalized)
+    ) {
+      return {
+        title: localeText("正在安装依赖", "Installing dependencies"),
+        detail: localeText(
+          "首次拉依赖、编译原生模块，或者顺手下载浏览器时都会比较慢；先别急，等下一条安装日志冒出来。",
+          "First-time installs, native module builds, or bundled browser downloads can take a while. Give it a moment for the next install log to appear."
+        ),
+      };
+    }
+
+    if (/\b(playwright|chromium|webkit|firefox)\s+install\b/.test(normalized)) {
+      return {
+        title: localeText("正在准备浏览器环境", "Preparing browser binaries"),
+        detail: localeText(
+          "这一步通常在下载浏览器二进制，网络和磁盘速度都会影响时长；装好后测试才会继续往下跑。",
+          "This usually downloads browser binaries, so both network and disk speed affect the duration. Testing will continue once the browsers are ready."
+        ),
+      };
+    }
+
+    if (
+      /\b(pytest|playwright test|npx playwright test|vitest|jest|mocha|cypress|npm test|pnpm test|yarn test|bun test)\b/.test(normalized)
+    ) {
+      return {
+        title: localeText("正在跑测试", "Running tests"),
+        detail: localeText(
+          "测试阶段可能会先等待浏览器启动、端口就绪或快照生成；下一条通过或失败信号一出来，这里就会更新。",
+          "The test step may wait for browsers to boot, ports to open, or snapshots to generate. This card updates as soon as the next pass or fail signal appears."
+        ),
+      };
+    }
+
+    if (
+      /\b(npm run build|pnpm build|yarn build|bun run build|vite build|next build|cargo build|go build)\b/.test(normalized)
+    ) {
+      return {
+        title: localeText("正在构建项目", "Building the project"),
+        detail: localeText(
+          "构建常常会先安静一阵子，等 bundler 或编译器把结果整合好才一起吐出来。",
+          "Builds often stay quiet for a bit before the bundler or compiler flushes the next batch of output."
+        ),
+      };
+    }
+
+    if (
+      /\b(npm run dev|pnpm dev|yarn dev|bun run dev|vite|next dev|uvicorn|flask run|python -m http\.server|serve\b)\b/.test(normalized)
+    ) {
+      return {
+        title: localeText("正在启动本地服务", "Starting a local server"),
+        detail: localeText(
+          "服务通常会先抢端口、热身依赖，再打印访问地址；看到 ready、listening 或 localhost 之前都算正常。",
+          "Servers often need to claim a port and warm dependencies before printing the access URL. It is normal to wait until you see ready, listening, or localhost."
+        ),
+      };
+    }
+
+    if (/\b(git clone|git fetch|git submodule)\b/.test(normalized)) {
+      return {
+        title: localeText("正在拉取代码", "Fetching code"),
+        detail: localeText(
+          "这一步可能在同步远端仓库或子模块，网络稍慢时会安静一会儿。",
+          "This may be syncing a remote repo or submodules, so a quiet pause is normal when the network is slow."
+        ),
+      };
+    }
+
+    if (/\b(rg|ripgrep|find|fd)\b/.test(normalized)) {
+      return {
+        title: localeText("正在扫描工作区", "Scanning the workspace"),
+        detail: localeText(
+          "它在搜文件或全文检索，项目越大越容易先安静一下；搜到结果会马上在控制台里冒出来。",
+          "It is searching files or text across the workspace. Bigger projects can be quiet for a moment before results start appearing."
+        ),
+      };
+    }
+
+    const stageSpecific = {
+      generator: localeText("它现在多半在落地改动，命令跑完后会继续写文件或整理下一步。", "It is likely applying changes right now; once the command ends, it will continue writing files or planning the next step."),
+      tester: localeText("它现在在收集测试证据，命令跑完后通常会给出通过、失败或下一条验证动作。", "It is gathering test evidence right now; once the command ends, it will usually produce a pass/fail signal or the next verification action."),
+      verifier: localeText("它现在在补验证证据，这条命令结束后会更接近最终结论。", "It is filling in verification evidence; once this command ends, it will be closer to the final verdict."),
+      checks: localeText("它在补足检查项上下文，命令跑完后会更快冻结本轮检查集。", "It is collecting context for the checks; once the command ends, it can freeze this run's check set."),
+      challenger: localeText("它在为下一步寻找突破口，命令跑完后会更容易给出新方向。", "It is probing for a better next move; once the command ends, it can suggest a clearer new direction."),
+    };
+
+    return {
+      title: generic.title,
+      detail: stageSpecific[stage] || generic.detail,
+    };
+  }
+
+  function extractActivitySummary(event, stage) {
+    if (!event) {
+      return fallbackActivitySummary(stage);
+    }
+    const payload = event.payload || {};
+    const item = payload.item || {};
+
+    if (event.event_type === "codex_event") {
+      if (payload.type === "command" && payload.message) {
+        const hint = commandProgressHint(payload.message, stage);
+        return {
+          title: hint.title,
+          detail: truncateText(`${String(payload.message).trim()} · ${hint.detail}`, 180),
+        };
+      }
+      if (payload.type === "stdout" && payload.message) {
+        const firstLine = String(payload.message).split("\n").find((line) => line.trim());
+        if (firstLine) {
+          return {
+            title: localeText("刚刚有新输出", "Fresh output just arrived"),
+            detail: truncateText(firstLine.trim(), 140),
+          };
+        }
+      }
+      if ((payload.type === "item.started" || payload.type === "item.updated") && item.type === "todo_list") {
+        const total = (item.items || []).length;
+        const completed = (item.items || []).filter((entry) => entry.completed).length;
+        return {
+          title: localeText("正在推进待办", "Working through the todo list"),
+          detail: localeText(`当前完成 ${completed}/${total} 项。`, `Currently ${completed}/${total} tasks complete.`),
+        };
+      }
+      if (payload.type === "item.completed" && item.type === "file_change") {
+        const changed = (item.changes || []).map((change) => change.path?.split("/").pop()).filter(Boolean).join("、");
+        return {
+          title: localeText("刚刚写入了文件", "Files were just updated"),
+          detail: changed ? truncateText(changed, 140) : localeText("已经有文件变更落地。", "The latest step wrote file changes."),
+        };
+      }
+      if (payload.type === "item.completed" && item.type === "agent_message" && item.text) {
+        return {
+          title: localeText("模型刚给出一段结论", "The model just produced a conclusion"),
+          detail: truncateText(stripMarkdown(item.text), 140),
+        };
+      }
+      if (payload.type === "error") {
+        return {
+          title: localeText("当前阶段遇到了错误", "This stage hit an error"),
+          detail: truncateText(String(payload.message || payload.error?.message || localeText("发生错误", "Error")).trim(), 140),
+        };
+      }
+    }
+
+    if (event.event_type === "role_execution_summary") {
+      return {
+        title: payload.ok ? localeText("这个阶段刚刚完成", "This stage just completed") : localeText("这个阶段刚刚失败", "This stage just failed"),
+        detail: truncateText(String(payload.error || localeText("执行摘要已写入时间线。", "Execution summary was written to the timeline.")).trim(), 140),
+      };
+    }
+
+    return fallbackActivitySummary(stage);
+  }
+
+  function describeLiveWork(run) {
+    const status = run?.status || "draft";
+    if (status === "queued") {
+      return {
+        title: localeText("正在排队，马上轮到它", "Queued up and waiting for its turn"),
+        detail: localeText("还没真正进入执行器，队列一空就会开跑。", "It has not entered the executor yet; it will start as soon as a slot opens."),
+        duration: formatDuration(run?.queued_at || run?.created_at, null),
+        metaLeft: localeText("当前轮次 · 准备阶段", "Current round · Preparing"),
+        metaRight: formatRelativeAge(run?.updated_at),
+      };
+    }
+
+    if (status === "running") {
+      const stage = getCurrentStage(run);
+      const stageStart = currentRoleStartEvent(run);
+      const latestActivity = latestRoleActivityEvent(run);
+      const activity = extractActivitySummary(latestActivity, stage);
+      const latestSignal = latestActivity?.created_at
+        ? localeText(`上次有新动静 ${formatRelativeAge(latestActivity.created_at)}`, `Last signal ${formatRelativeAge(latestActivity.created_at)}`)
+        : localeText("还没冒出第一条具体输出", "Waiting for the first concrete signal");
+      return {
+        title: activity.title,
+        detail: activity.detail,
+        duration: stageStart ? formatDuration(stageStart.created_at, null) : formatDuration(run?.started_at, null),
+        metaLeft: localeText(`第 ${displayIter(run?.current_iter)} 轮 · ${stageDisplayName(stage)}阶段`, `Round ${displayIter(run?.current_iter)} · ${stageDisplayName(stage)} stage`),
+        metaRight: latestSignal,
+      };
+    }
+
+    const latestEvent = summarizeLatestEvent();
+    return {
+      title: latestEvent.title,
+      detail: latestEvent.detail,
+      duration: formatDuration(run?.started_at, run?.finished_at),
+      metaLeft: localeText(`第 ${displayIter(run?.current_iter)} 轮`, `Round ${displayIter(run?.current_iter)}`),
+      metaRight: latestEvent.meta ? formatAbsoluteDate(latestEvent.meta) : localeText("没有更多时间点。", "No additional timestamp."),
+    };
+  }
+
   function renderArtifactTabs() {
     const tabs = document.getElementById("artifact-tabs");
     tabs.innerHTML = artifactRecords.map((artifact) => `
@@ -401,6 +794,7 @@
   function renderMissingArtifact(artifact) {
     const preview = document.getElementById("artifact-preview");
     const downloadLink = document.getElementById("artifact-download-link");
+    preview.classList.remove("markdown-preview");
     document.getElementById("artifact-path").textContent = artifact.path || artifact.filename || "-";
     document.getElementById("artifact-meta").textContent = localeText("这个文件在当前阶段还没有生成。", "This file has not been generated at the current stage.");
     preview.innerHTML = `
@@ -435,6 +829,7 @@
       ? artifact.description_zh
       : artifact.description_en;
     if (payload.is_binary) {
+      preview.classList.remove("markdown-preview");
       preview.innerHTML = `
         <div class="binary-preview">
           <strong>${localeText("二进制文件，无法直接预览。", "Binary file cannot be previewed directly.")}</strong>
@@ -442,33 +837,102 @@
         </div>
       `;
     } else if (payload.rendered_html) {
+      preview.classList.add("markdown-preview");
       preview.innerHTML = payload.rendered_html;
     } else {
+      preview.classList.remove("markdown-preview");
       preview.textContent = payload.content || "";
     }
     downloadLink.style.visibility = "visible";
     downloadLink.href = `/api/runs/${runId}/artifacts/${encodeURIComponent(artifactId)}/download`;
   }
 
+  function timelineTone(event) {
+    const payload = event.payload || {};
+    if (event.event_type === "run_finished") {
+      return payload.status === "succeeded" ? "success" : (payload.status === "failed" ? "danger" : "warning");
+    }
+    if (event.event_type === "role_execution_summary") {
+      return payload.ok ? "success" : "danger";
+    }
+    if (event.event_type === "checks_resolved") {
+      return "accent";
+    }
+    if (event.event_type === "run_aborted" || event.event_type === "stop_requested") {
+      return "warning";
+    }
+    if (event.event_type === "workspace_guard_triggered") {
+      return "danger";
+    }
+    if (event.event_type === "challenger_done") {
+      return "accent";
+    }
+    return "neutral";
+  }
+
+  function timelineMetaPills(event, formatted) {
+    const payload = event.payload || {};
+    const pills = [];
+    if (payload.role) {
+      pills.push(window.LiminalUI.translateRole(payload.role));
+    }
+    if (payload.iter !== undefined) {
+      pills.push(localeText(`第 ${displayIter(payload.iter)} 轮`, `Round ${displayIter(payload.iter)}`));
+    }
+    if (event.event_type === "checks_resolved") {
+      pills.push(payload.source === "auto_generated" ? localeText("自动生成", "Auto-generated") : localeText("显式提供", "Specified"));
+    }
+    if (event.event_type === "workspace_guard_triggered") {
+      pills.push(localeText(`删掉 ${payload.deleted_original_count || 0} 个原始文件`, `Deleted ${payload.deleted_original_count || 0} original files`));
+    }
+    if (payload.duration_ms) {
+      pills.push(formatDurationMs(payload.duration_ms));
+    }
+    if (!pills.length && formatted.detail) {
+      pills.push(formatted.detail);
+    }
+    return pills.slice(0, 3);
+  }
+
   function renderTimelineItem(event) {
-    const detail = event.detail ? `<p>${escapeHtml(event.detail)}</p>` : "";
-    return `<div><strong>${escapeHtml(event.title)}</strong>${detail}</div><span>${escapeHtml(event.created_at)}</span>`;
+    const formatted = formatTimelineEvent(event);
+    const pills = timelineMetaPills(event, formatted);
+    const detail = formatted.detail ? `<p>${escapeHtml(formatted.detail)}</p>` : "";
+    const pillsHtml = pills.length
+      ? `<div class="timeline-event-meta">${pills.map((pill) => `<span class="timeline-meta-pill">${escapeHtml(pill)}</span>`).join("")}</div>`
+      : "";
+    return `
+      <article class="timeline-event timeline-event--${timelineTone(event)}">
+        <div class="timeline-event-rail"><span class="timeline-event-dot"></span></div>
+        <div class="timeline-event-body">
+          <div class="timeline-event-top">
+            <strong>${escapeHtml(formatted.title)}</strong>
+            <span class="timeline-event-time">${escapeHtml(formatClock(event.created_at))}</span>
+          </div>
+          ${detail}
+          ${pillsHtml}
+          <span class="timeline-event-stamp">${escapeHtml(formatAbsoluteDate(event.created_at))}</span>
+        </div>
+      </article>
+    `;
   }
 
   function renderTimeline() {
     const timeline = document.getElementById("timeline");
-    const visible = timelineRecords.slice(-12).reverse();
-    timeline.innerHTML = visible.map((event) => {
-      const formatted = formatTimelineEvent(event);
-      return `<div class="timeline-item">${renderTimelineItem({...event, ...formatted})}</div>`;
-    }).join("");
+    const visible = timelineRecords.slice(-14).reverse();
+    timeline.innerHTML = visible.map((event) => renderTimelineItem(event)).join("");
+    document.getElementById("timeline-count").textContent = localeText(`最近 ${visible.length} 条`, `Latest ${visible.length}`);
     syncTimelineState();
   }
 
   function syncTimelineState() {
     const timeline = document.getElementById("timeline");
     const empty = document.getElementById("timeline-empty");
+    const count = document.getElementById("timeline-count");
     empty.hidden = timeline.children.length > 0;
+    if (!timeline.children.length && count) {
+      count.textContent = localeText("还没冒出节点", "Waiting for milestones");
+    }
   }
 
   function lineCountLabel(count) {
@@ -530,7 +994,7 @@
       return [{tone: "system", text: `${prefix} · ${localeText("运行开始", "Run started")}`}];
     }
     if (event.event_type === "checks_resolved") {
-      return [{tone: "system", text: `${prefix} · ${localeText("Checks 已就绪", "Checks resolved")} (${payload.count || 0})`}];
+      return [{tone: "system", text: `${prefix} · ${localeText("检查项已就绪", "Checks resolved")} (${payload.count || 0})`}];
     }
     if (event.event_type === "role_started") {
       const iterLabel = payload.iter !== undefined ? ` · ${localeText("迭代", "iter")} ${displayIter(payload.iter)}` : "";
@@ -549,6 +1013,12 @@
     }
     if (event.event_type === "run_aborted") {
       return [{tone: "error", text: `${prefix} · ${localeText("运行中止", "Run aborted")} · ${payload.error || payload.role || "-"}`}];
+    }
+    if (event.event_type === "workspace_guard_triggered") {
+      return [{
+        tone: "error",
+        text: `${prefix} · ${localeText("工作区安全守卫触发", "Workspace safety guard triggered")} · ${localeText("删掉原始文件", "Deleted original files")}=${payload.deleted_original_count || 0}`,
+      }];
     }
     if (event.event_type === "stop_requested") {
       return [{tone: "warning", text: `${prefix} · ${localeText("已请求停止", "Stop requested")}`}];
@@ -630,12 +1100,9 @@
       return {title: localeText("运行已开始", "Run started"), detail: ""};
     }
     if (event.event_type === "checks_resolved") {
-      const source = payload.source === "auto_generated"
-        ? localeText("自动生成", "auto-generated")
-        : localeText("显式提供", "specified");
       return {
-        title: localeText("Checks 已就绪", "Checks resolved"),
-        detail: `${payload.count || 0} ${localeText("条", "")} checks, ${source}`,
+        title: localeText("检查项已就绪", "Checks resolved"),
+        detail: localeText(`共 ${payload.count || 0} 条检查项`, `${payload.count || 0} checks ready`),
       };
     }
     if (event.event_type === "role_execution_summary") {
@@ -669,7 +1136,7 @@
     }
     if (event.event_type === "challenger_done") {
       return {
-        title: localeText("Challenger 给出新方向", "Challenger suggested a new direction"),
+        title: localeText("挑战阶段给出新方向", "Challenger suggested a new direction"),
         detail: String(payload.mode || ""),
       };
     }
@@ -680,6 +1147,15 @@
       return {
         title: localeText("运行中止", "Run aborted"),
         detail: `${window.LiminalUI.translateRole(payload.role || "role")} · ${localeText("尝试次数", "attempts")}=${payload.attempts || 0}`,
+      };
+    }
+    if (event.event_type === "workspace_guard_triggered") {
+      return {
+        title: localeText("工作区安全守卫触发", "Workspace safety guard triggered"),
+        detail: localeText(
+          `检测到删掉了 ${payload.deleted_original_count || 0} 个原始文件，已立即拦下这次运行。`,
+          `Detected ${payload.deleted_original_count || 0} deleted original files and stopped the run immediately.`
+        ),
       };
     }
     if (event.event_type === "run_finished") {
@@ -716,31 +1192,30 @@
 
   function calculateProgress(run) {
     const stage = getCurrentStage(run);
-    const stageFraction = {
-      checks: 0.12,
-      generator: 0.3,
-      tester: 0.52,
-      verifier: 0.74,
-      challenger: 0.88,
-      finished: 1,
-    };
     if (!run) {
       return {stage, percent: 0};
     }
     if (run.status === "succeeded") {
       return {stage: "finished", percent: 100};
     }
-    if (run.max_iters && run.max_iters > 0) {
-      const iter = Math.max(Number(run.current_iter || 0), 0);
-      const percent = Math.min(((iter + stageFraction[stage]) / run.max_iters) * 100, run.status === "running" ? 96 : 99);
-      return {stage, percent: Math.max(percent, run.status === "queued" ? 4 : 8)};
+    const [stageStartPercent, stageEndPercent] = stageRange(stage);
+    if (run.status === "queued") {
+      return {stage: "checks", percent: stageStartPercent};
     }
-    return {stage, percent: Math.round(stageFraction[stage] * 100)};
+    if (run.status === "failed" || run.status === "stopped") {
+      return {stage, percent: stageEndPercent};
+    }
+    const stageStartEvent = currentRoleStartEvent(run);
+    const stageStartTimestamp = parseTimestamp(stageStartEvent?.created_at || run?.started_at);
+    const elapsedSeconds = stageStartTimestamp === null ? 0 : Math.max(0, (Date.now() - stageStartTimestamp) / 1000);
+    const easedGrowth = 1 - Math.exp(-elapsedSeconds / 18);
+    const livePercent = stageStartPercent + ((stageEndPercent - stageStartPercent) * (0.18 + easedGrowth * 0.62));
+    return {stage, percent: Math.min(stageEndPercent - 1, Math.max(stageStartPercent, livePercent))};
   }
 
   function stageDisplayName(stage) {
     const labels = {
-      checks: localeText("Checks", "Checks"),
+      checks: localeText("检查项", "Checks"),
       generator: localeText("生成", "Generator"),
       tester: localeText("测试", "Tester"),
       verifier: localeText("验证", "Verifier"),
@@ -753,18 +1228,18 @@
   function summarizeVerdict(verdict) {
     if (!verdict) {
       return {
-        title: localeText("还没有 verdict", "No verdict yet"),
-        detail: localeText("运行会在 verifier 产出后更新这里。", "This updates once the verifier produces a verdict."),
+        title: localeText("还没有结论", "No verdict yet"),
+        detail: localeText("等验证阶段产出后，这里会马上更新。", "This updates once the verifier produces a verdict."),
         meta: "",
       };
     }
     const failedCount = Array.isArray(verdict.failed_check_ids) ? verdict.failed_check_ids.length : 0;
     const title = verdict.passed
-      ? localeText("最新 verdict：通过", "Latest verdict: passed")
-      : localeText("最新 verdict：未通过", "Latest verdict: not passed");
+      ? localeText("最新结论：通过", "Latest verdict: passed")
+      : localeText("最新结论：未通过", "Latest verdict: not passed");
     const detail = verdict.passed
-      ? localeText("所有关键 checks 都已通过。", "All key checks are passing.")
-      : `${failedCount} ${localeText("条 checks 仍未通过。", "check(s) still failing.")}`;
+      ? localeText("所有关键检查项都已经通过。", "All key checks are passing.")
+      : localeText(`还有 ${failedCount} 条检查项没过。`, `${failedCount} check(s) still failing.`);
     const meta = `${localeText("综合分", "Composite")} ${verdict.composite_score ?? "-"}`;
     return {title, detail, meta};
   }
@@ -782,17 +1257,17 @@
     return {
       title: formatted.title,
       detail: formatted.detail || localeText("无附加说明。", "No extra detail."),
-      meta: latestEvent.created_at,
+      meta: formatAbsoluteDate(latestEvent.created_at),
     };
   }
 
   function updateProgressPanel(run) {
     const {stage, percent} = calculateProgress(run);
     const snapshots = getStageSnapshots(run);
-    const finite = run && run.max_iters && run.max_iters > 0;
     const fill = document.getElementById("progress-fill");
     const statusBadge = document.getElementById("progress-status-badge");
     const status = run?.status || "draft";
+    const liveWork = describeLiveWork(run);
 
     statusBadge.dataset.statusLabel = status;
     statusBadge.textContent = window.LiminalUI.translateStatus(status);
@@ -800,14 +1275,17 @@
 
     fill.style.width = `${percent}%`;
     fill.className = `progress-fill status-${status} ${status === "running" ? "is-live" : ""}`;
-    document.getElementById("progress-value").textContent = finite ? `${Math.round(percent)}%` : localeText("进行中", "Live");
-    document.getElementById("progress-stage-label").textContent = `${localeText("当前阶段", "Stage")}: ${run?.active_role ? window.LiminalUI.translateRole(run.active_role) : stageDisplayName(stage)}`;
-    document.getElementById("progress-meta").textContent = finite
-      ? `${localeText("迭代", "Iter")} ${displayIter(run?.current_iter)} / ${run?.max_iters ?? "-"}`
-      : `${localeText("迭代", "Iter")} ${displayIter(run?.current_iter)}`;
+    document.getElementById("progress-value").textContent = `${Math.round(percent)}%`;
+    document.getElementById("progress-live-title").textContent = liveWork.title;
+    document.getElementById("progress-live-detail").textContent = liveWork.detail;
+    document.getElementById("progress-live-duration").textContent = liveWork.duration
+      ? localeText(`已持续 ${liveWork.duration}`, `${liveWork.duration} elapsed`)
+      : localeText("刚刚开始", "Just started");
+    document.getElementById("progress-stage-label").textContent = liveWork.metaLeft;
+    document.getElementById("progress-meta").textContent = liveWork.metaRight;
     document.getElementById("progress-caption").textContent = status === "running"
-      ? localeText("当前运行正在推进，下面会持续刷新关键输出和最新事件。", "This run is actively progressing. Key outputs and milestones update below.")
-      : localeText("这里汇总当前运行所处阶段、最近输出和最新里程碑。", "This summarizes the current stage, latest output, and newest milestone.");
+      ? localeText("这条进度会跟着当前轮次的最新动作一起呼吸式刷新，不会再拿最大迭代数硬算。", "This progress bar follows the current round's live activity instead of pretending to know the whole run in advance.")
+      : localeText("这一轮已经收尾，下面保留最后的关键动作和里程碑。", "This round has settled, and the key actions and milestones below now show the final shape.");
 
     document.querySelectorAll(".stage-chip").forEach((chip) => {
       const snapshot = snapshots[chip.dataset.stage] || {state: "pending"};
@@ -994,7 +1472,7 @@
     }
     eventSource.close();
   });
-  ["run_started", "checks_resolved", "role_execution_summary", "role_degraded", "challenger_done", "stop_requested", "run_aborted"].forEach((eventName) => {
+  ["run_started", "checks_resolved", "role_execution_summary", "role_degraded", "challenger_done", "stop_requested", "run_aborted", "workspace_guard_triggered"].forEach((eventName) => {
     eventSource.addEventListener(eventName, (message) => {
       handleStreamEvent(message, {console: true, timeline: true, refresh: true});
     });

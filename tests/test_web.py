@@ -83,6 +83,19 @@ def test_api_loop_creation_run_preview_and_stream(
     bad_path = client.get(f"/api/files?run_id={run_id}&root=workdir&path=../secret.txt")
     assert bad_path.status_code == 400
 
+    sibling_dir = sample_workdir.parent / "workdir-shadow"
+    sibling_dir.mkdir()
+    (sibling_dir / "secret.txt").write_text("nope", encoding="utf-8")
+    sneaky_path = client.get(f"/api/files?run_id={run_id}&root=workdir&path=../workdir-shadow/secret.txt")
+    assert sneaky_path.status_code == 400
+
+    unsafe_md = sample_workdir / "unsafe.md"
+    unsafe_md.write_text("# Title\n\n<script>alert('xss')</script>\n", encoding="utf-8")
+    unsafe_preview = client.get(f"/api/files?run_id={run_id}&root=workdir&path=unsafe.md")
+    assert unsafe_preview.status_code == 200
+    assert "<script>" not in unsafe_preview.json()["rendered_html"]
+    assert "&lt;script&gt;alert" in unsafe_preview.json()["rendered_html"]
+
     events = client.get(f"/api/runs/{run_id}/events")
     assert events.status_code == 200
     event_payload = events.json()
@@ -98,6 +111,58 @@ def test_api_loop_creation_run_preview_and_stream(
         assert stream_response.status_code == 200
         delta_body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in stream_response.iter_text())
     assert "run_started" not in delta_body
+
+    reconnect_from = event_payload[0]["id"]
+    with client.stream(
+        "GET",
+        f"/api/runs/{run_id}/stream",
+        headers={"Last-Event-ID": str(reconnect_from)},
+    ) as stream_response:
+        assert stream_response.status_code == 200
+        reconnect_body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in stream_response.iter_text())
+    assert f"id: {reconnect_from}\n" not in reconnect_body
+    assert f"id: {event_payload[-1]['id']}\n" in reconnect_body
+
+
+def test_api_run_events_and_stream_require_a_real_run(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    events_response = client.get("/api/runs/missing-run/events")
+    assert events_response.status_code == 400
+    assert "unknown run" in events_response.json()["error"]
+
+    stream_response = client.get("/api/runs/missing-run/stream")
+    assert stream_response.status_code == 400
+    assert "unknown run" in stream_response.json()["error"]
+
+
+def test_api_stop_run_rejects_finished_runs(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Finished Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    client = TestClient(build_app(service=service))
+
+    response = client.post(f"/api/runs/{run['id']}/stop")
+
+    assert response.status_code == 400
+    assert "cannot stop run in status" in response.json()["error"]
 
 
 def test_api_loop_creation_supports_provider_specific_defaults(
@@ -153,6 +218,28 @@ def test_api_loop_creation_supports_provider_specific_defaults(
     assert opencode_loop["executor_kind"] == "opencode"
     assert opencode_loop["model"] == ""
     assert opencode_loop["reasoning_effort"] == ""
+
+
+def test_api_loop_creation_rejects_invalid_numeric_settings(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/loops",
+        json={
+            "name": "Broken Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "max_iters": "abc",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "numeric loop settings" in response.json()["error"]
 
 
 def test_api_loop_creation_supports_command_mode(
@@ -213,6 +300,12 @@ def test_api_spec_init_validate_and_delete_loop(service_factory, tmp_path: Path,
     init_response = client.post("/api/specs/init", json={"path": str(spec_path), "locale": "en"})
     assert init_response.status_code == 201
     assert spec_path.exists()
+    created_text = spec_path.read_text(encoding="utf-8")
+    assert "Delete the whole `# Checks` section" in created_text
+    assert "preserve existing user files" in created_text
+    assert "# Goal" in created_text
+    assert "# Checks" in created_text
+    assert "# Constraints" in created_text
 
     validate_response = client.get("/api/specs/validate", params={"path": str(spec_path)})
     assert validate_response.status_code == 200
@@ -253,7 +346,7 @@ def test_api_spec_validate_reports_auto_generated_check_mode(tmp_path: Path, ser
     assert validate_response.status_code == 200
     payload = validate_response.json()
     assert payload["ok"] is True
-    assert payload["check_mode"] == "auto_generate"
+    assert payload["check_mode"] == "auto_generated"
     assert payload["check_count"] == 0
 
 
@@ -267,6 +360,7 @@ def test_api_spec_skill_install_targets_and_install(tmp_path: Path, monkeypatch)
     assert targets_response.status_code == 200
     targets = {item["target"]: item for item in targets_response.json()["targets"]}
     assert targets["codex"]["installed"] is False
+    assert targets["codex"]["install_state"] == "missing"
     assert targets["claude"]["installed"] is False
     assert targets["opencode"]["installed"] is False
     assert targets["codex"]["install_paths"] == [str(tmp_path / ".codex" / "skills" / "liminal-spec" / "SKILL.md")]
@@ -274,12 +368,39 @@ def test_api_spec_skill_install_targets_and_install(tmp_path: Path, monkeypatch)
     install_response = client.post("/api/skills/liminal-spec/install", json={"target": "codex"})
     assert install_response.status_code == 201
     install_payload = install_response.json()
+    assert install_payload["result"]["action"] == "installed"
     codex_targets = {item["target"]: item for item in install_payload["targets"]}
     assert codex_targets["codex"]["installed"] is True
+    assert codex_targets["codex"]["install_state"] == "installed"
 
-    assert (tmp_path / ".codex" / "skills" / "liminal-spec" / "SKILL.md").exists()
-    assert (tmp_path / ".codex" / "skills" / "liminal-spec" / "references" / "liminal-spec-format.md").exists()
+    skill_dir = tmp_path / ".codex" / "skills" / "liminal-spec"
+    skill_path = skill_dir / "SKILL.md"
+    reference_path = skill_dir / "references" / "liminal-spec-format.md"
+    original_skill_text = skill_path.read_text(encoding="utf-8")
+
+    assert skill_path.exists()
+    assert reference_path.exists()
     assert not (tmp_path / ".agents" / "skills" / "liminal-spec" / "SKILL.md").exists()
+
+    skill_path.write_text("tampered", encoding="utf-8")
+    stale_file = skill_dir / "stale-note.txt"
+    stale_file.write_text("old", encoding="utf-8")
+
+    stale_targets_response = client.get("/api/skills/liminal-spec")
+    assert stale_targets_response.status_code == 200
+    stale_targets = {item["target"]: item for item in stale_targets_response.json()["targets"]}
+    assert stale_targets["codex"]["installed"] is False
+    assert stale_targets["codex"]["install_state"] == "stale"
+
+    reinstall_response = client.post("/api/skills/liminal-spec/install", json={"target": "codex"})
+    assert reinstall_response.status_code == 201
+    reinstall_payload = reinstall_response.json()
+    assert reinstall_payload["result"]["action"] == "reinstalled"
+    refreshed_targets = {item["target"]: item for item in reinstall_payload["targets"]}
+    assert refreshed_targets["codex"]["installed"] is True
+    assert refreshed_targets["codex"]["install_state"] == "installed"
+    assert skill_path.read_text(encoding="utf-8") == original_skill_text
+    assert not stale_file.exists()
 
 
 def test_logo_assets_are_served(service_factory) -> None:
@@ -289,3 +410,28 @@ def test_logo_assets_are_served(service_factory) -> None:
     response = client.get("/logo/logo.svg")
     assert response.status_code == 200
     assert "image/svg+xml" in response.headers["content-type"]
+
+
+def test_network_mode_requires_auth_token_and_sets_cookie(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service, bind_host="0.0.0.0", auth_token="secret-token"))
+
+    unauthorized = client.get("/")
+    assert unauthorized.status_code == 401
+    assert "Auth token required" in unauthorized.text
+
+    authorized = client.get("/?token=secret-token")
+    assert authorized.status_code == 200
+    assert client.cookies.get("liminal_auth") == "secret-token"
+
+    api_response = client.get("/api/loops")
+    assert api_response.status_code == 200
+
+
+def test_network_mode_disables_native_dialog_endpoints(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service, bind_host="0.0.0.0", auth_token="secret-token"))
+
+    response = client.get("/api/system/pick-directory?token=secret-token")
+    assert response.status_code == 400
+    assert "native dialogs are disabled in network mode" in response.json()["error"]

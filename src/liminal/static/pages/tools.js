@@ -24,17 +24,44 @@ document.addEventListener("DOMContentLoaded", () => {
     statusBox.className = `field-status${kind ? ` is-${kind}` : ""}`;
   }
 
+  function stateMeta(installState) {
+    if (installState === "installed") {
+      return {
+        className: "is-installed",
+        label: localeText("已同步", "Up to date"),
+        buttonZh: "重新安装",
+        buttonEn: "Reinstall",
+      };
+    }
+    if (installState === "stale") {
+      return {
+        className: "is-stale",
+        label: localeText("需覆盖更新", "Needs refresh"),
+        buttonZh: "覆盖更新",
+        buttonEn: "Overwrite",
+      };
+    }
+    return {
+      className: "is-missing",
+      label: localeText("未安装", "Not installed"),
+      buttonZh: "安装",
+      buttonEn: "Install",
+    };
+  }
+
   function updateSkillCard(target) {
     const state = document.getElementById(`skill-state-${target.target}`);
     const path = document.getElementById(`skill-path-${target.target}`);
-    if (!state || !path) {
+    const button = document.querySelector(`[data-install-skill="${target.target}"]`);
+    if (!state || !path || !button) {
       return;
     }
-    state.className = `skill-target-state ${target.installed ? "is-installed" : "is-missing"}`;
-    state.textContent = target.installed
-      ? localeText("已安装", "Installed")
-      : localeText("未安装", "Not installed");
+    const meta = stateMeta(target.install_state);
+    state.className = `skill-target-state skill-target-state--${target.install_state} ${meta.className}`;
+    state.textContent = meta.label;
     path.textContent = (target.install_paths || []).join(" · ");
+    button.innerHTML = `<span data-lang="zh">${meta.buttonZh}</span><span data-lang="en">${meta.buttonEn}</span>`;
+    window.LiminalUI.applyLocalizedAttributes(button);
   }
 
   async function fetchJson(url, options = {}) {
@@ -75,10 +102,13 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       (payload.targets || []).forEach(updateSkillCard);
+      const actionText = payload.result?.action === "reinstalled"
+        ? localeText("已覆盖安装。", "Reinstalled and replaced the existing files.")
+        : localeText("安装完成。", "Installed successfully.");
       showStatus(
         localeText(
-          `${payload.result.label} 安装完成。重新启动对应工具后会更稳妥地识别到新 skill。`,
-          `${payload.result.label} install completed. Restarting that tool is the safest way to pick up the new skill.`
+          `${payload.result.label} ${actionText} 重新启动对应工具后会更稳妥地识别到新 skill。`,
+          `${payload.result.label}: ${actionText} Restarting that tool is the safest way to pick up the new skill.`
         ),
         "success",
       );

@@ -35,6 +35,7 @@ class ExecutorProfile:
     effort_options: tuple[str, ...]
     effort_default: str
     effort_optional: bool = False
+    preset_effort_visible: bool = True
     command_args_template: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
@@ -127,6 +128,7 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
         effort_options=("", "high", "max", "minimal", "low", "medium", "xhigh", "none"),
         effort_default="",
         effort_optional=True,
+        preset_effort_visible=False,
         command_args_template=(
             "run",
             "--format",

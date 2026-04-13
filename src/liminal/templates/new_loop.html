@@ -2,21 +2,31 @@
 {% block title %}Create Loop{% endblock %}
 {% block content %}
 <section class="hero hero-tight">
-  <div>
+  <div class="hero-copy-stack">
     <span class="eyebrow">
       <span data-lang="zh">新建循环</span>
       <span data-lang="en">New loop</span>
     </span>
     <h1>
-      <span data-lang="zh">创建一个本地执行 loop。</span>
-      <span data-lang="en">Create a local execution loop.</span>
+      <span data-lang="zh">把一个想法拎进来，让它开始自己跑。</span>
+      <span data-lang="en">Drop in an idea and let it start running on its own.</span>
     </h1>
     <p>
-      <span data-lang="zh">CLI 和这个页面使用同一套 loop 定义模型。你可以选择 Codex、Claude Code 或 OpenCode 作为实际执行工具。</span>
-      <span data-lang="en">The CLI and this page share the same loop definition model. You can run the loop with Codex, Claude Code, or OpenCode.</span>
+      <span data-lang="zh">填好 workdir、spec 和执行工具，剩下的脏活累活就交给 loop 慢慢折腾。</span>
+      <span data-lang="en">Point it at a workdir, a spec, and an execution tool, then let the loop do the messy part.</span>
     </p>
   </div>
 </section>
+
+{% if access_state.remote_access_enabled %}
+<div class="callout">
+  <strong><span data-lang="zh">当前是网络访问模式</span><span data-lang="en">Network access mode is on</span></strong>
+  <p>
+    <span data-lang="zh">现在填的路径都指向服务端那台机器，不是你手里这台浏览器。为了避免误会，原生“浏览”按钮已经收起来了，请直接粘贴服务端的绝对路径。</span>
+    <span data-lang="en">Every path here points to the server machine, not the browser in your hand. To avoid confusion, the native browse buttons are disabled, so paste absolute paths from the server instead.</span>
+  </p>
+</div>
+{% endif %}
 
 <form class="panel form-panel" method="post" action="/loops/new" id="new-loop-form">
   <div
@@ -53,8 +63,8 @@
         <button
           class="help-dot"
           type="button"
-          data-title-zh="Codex 会在这个目录里读取和修改项目文件。"
-          data-title-en="Codex will inspect and edit project files inside this directory."
+          data-title-zh="Liminal 会在这个目录里读取并原地修改项目文件。默认应该保留现有用户文件，额外状态只会写进 `.liminal/`。"
+          data-title-en="Liminal will inspect and edit project files in place inside this directory. It should preserve existing user-owned files by default; extra state only goes into `.liminal/`."
         >?</button>
       </span>
       <div class="input-with-action">
@@ -67,7 +77,7 @@
           placeholder="/absolute/path/to/project"
           required
         />
-        <button class="ghost-button" type="button" id="browse-workdir">
+        <button class="ghost-button" type="button" id="browse-workdir" {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}>
           <span data-lang="zh">浏览</span>
           <span data-lang="en">Browse</span>
         </button>
@@ -94,11 +104,11 @@
           placeholder="/absolute/path/to/spec.md"
           required
         />
-        <button class="ghost-button" type="button" id="browse-spec">
+        <button class="ghost-button" type="button" id="browse-spec" {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}>
           <span data-lang="zh">浏览</span>
           <span data-lang="en">Browse</span>
         </button>
-        <button class="secondary-button" type="button" id="create-spec-template">
+        <button class="secondary-button" type="button" id="create-spec-template" data-native-dialogs-enabled="{{ 'true' if access_state.native_dialogs_enabled else 'false' }}">
           <span data-lang="zh">创建模版</span>
           <span data-lang="en">Create template</span>
         </button>
@@ -139,85 +149,118 @@
       </select>
     </label>
 
-    <label id="preset-model-field">
-      <span class="label-row">
-        <span id="model-field-label"><span data-lang="zh">模型</span><span data-lang="en">Model</span></span>
-        <button
-          id="model-help-trigger"
-          class="help-dot"
-          type="button"
-          data-title-zh="默认用哪个模型执行 generator、tester、verifier 和 challenger。"
-          data-title-en="Which model to use by default for generator, tester, verifier, and challenger."
-        >?</button>
-      </span>
-      <input id="model-input" name="model" value="{{ form_values.model }}" />
-      <small class="field-note" id="model-field-note"></small>
-    </label>
+    <div class="wide executor-config-grid">
+      <section class="executor-config-card" id="preset-config-card">
+        <header class="executor-config-head">
+          <div>
+            <strong><span data-lang="zh">预设配置</span><span data-lang="en">Preset config</span></strong>
+            <p>
+              <span data-lang="zh">适合日常使用。你只需要选工具、模型和稳定的预设参数，下面的命令参数会自动同步。</span>
+              <span data-lang="en">Best for everyday use. Choose the tool, model, and stable preset settings, and the command arguments below stay in sync automatically.</span>
+            </p>
+          </div>
+          <span class="executor-config-state" id="preset-config-state">
+            <span data-lang="zh">当前生效</span>
+            <span data-lang="en">Active</span>
+          </span>
+        </header>
+        <div class="executor-config-body">
+          <label id="preset-model-field">
+            <span class="label-row">
+              <span id="model-field-label"><span data-lang="zh">模型</span><span data-lang="en">Model</span></span>
+              <button
+                id="model-help-trigger"
+                class="help-dot"
+                type="button"
+                data-title-zh="默认用哪个模型执行 generator、tester、verifier 和 challenger。"
+                data-title-en="Which model to use by default for generator, tester, verifier, and challenger."
+              >?</button>
+            </span>
+            <input id="model-input" name="model" value="{{ form_values.model }}" />
+            <small class="field-note" id="model-field-note"></small>
+          </label>
 
-    <label id="preset-effort-field">
-      <span class="label-row">
-        <span id="effort-field-label"><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning effort</span></span>
-        <button
-          id="effort-help-trigger"
-          class="help-dot"
-          type="button"
-          data-title-zh="不同工具支持的推理强度或 variant 不一样。"
-          data-title-en="Supported reasoning or variant values differ across tools."
-        >?</button>
-      </span>
-      <input
-        id="reasoning-input"
-        name="reasoning_effort"
-        value="{{ form_values.reasoning_effort }}"
-        list="reasoning-effort-suggestions"
-      />
-      <datalist id="reasoning-effort-suggestions"></datalist>
-      <small class="field-note" id="effort-field-note"></small>
-    </label>
+          <label id="preset-effort-field">
+            <span class="label-row">
+              <span id="effort-field-label"><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning effort</span></span>
+              <button
+                id="effort-help-trigger"
+                class="help-dot"
+                type="button"
+                data-title-zh="不同工具支持的推理强度或 variant 不一样。"
+                data-title-en="Supported reasoning or variant values differ across tools."
+              >?</button>
+            </span>
+            <select
+              id="reasoning-input"
+              name="reasoning_effort"
+            ></select>
+            <small class="field-note" id="effort-field-note"></small>
+          </label>
+        </div>
+      </section>
 
-    <label class="wide" id="command-cli-field" hidden>
-      <span class="label-row">
-        <span><span data-lang="zh">命令可执行文件</span><span data-lang="en">Command executable</span></span>
-        <button
-          class="help-dot"
-          type="button"
-          data-title-zh="通常是 codex、claude 或 opencode。这里也可以改成你本机上的其他包装命令。"
-          data-title-en="Usually codex, claude, or opencode. You can also point it at your own local wrapper command."
-        >?</button>
-      </span>
-      <input
-        id="command-cli-input"
-        name="command_cli"
-        value="{{ form_values.command_cli }}"
-        data-placeholder-zh="例如：codex"
-        data-placeholder-en="For example: codex"
-        placeholder="codex"
-      />
-    </label>
+      <section class="executor-config-card" id="command-config-card">
+        <header class="executor-config-head">
+          <div>
+            <strong><span data-lang="zh">直接命令</span><span data-lang="en">Direct command</span></strong>
+            <p>
+              <span data-lang="zh">适合跟随底层 CLI 的快速变化。你可以直接编辑可执行文件和每行一个参数的 argv 模板。</span>
+              <span data-lang="en">Use this when the underlying CLI moves faster than the presets. Edit the executable and a one-argument-per-line argv template directly.</span>
+            </p>
+          </div>
+          <span class="executor-config-state" id="command-config-state">
+            <span data-lang="zh">当前生效</span>
+            <span data-lang="en">Active</span>
+          </span>
+        </header>
+        <div class="executor-config-body">
+          <label class="wide" id="command-cli-field">
+            <span class="label-row">
+              <span><span data-lang="zh">命令可执行文件</span><span data-lang="en">Command executable</span></span>
+              <button
+                class="help-dot"
+                type="button"
+                data-title-zh="通常是 codex、claude 或 opencode。这里也可以改成你本机上的其他包装命令。"
+                data-title-en="Usually codex, claude, or opencode. You can also point it at your own local wrapper command."
+              >?</button>
+            </span>
+            <input
+              id="command-cli-input"
+              name="command_cli"
+              value="{{ form_values.command_cli }}"
+              data-placeholder-zh="例如：codex"
+              data-placeholder-en="For example: codex"
+              placeholder="codex"
+            />
+          </label>
 
-    <label class="wide" id="command-args-field" hidden>
-      <span class="label-row">
-        <span><span data-lang="zh">命令参数</span><span data-lang="en">Command arguments</span></span>
-        <button
-          class="help-dot"
-          type="button"
-          data-title-zh="每行一个参数，比直接写整串 shell 更稳。支持占位符：{workdir} {schema_path} {output_path} {json_schema} {sandbox} {prompt}。"
-          data-title-en="Use one argument per line for safer editing than a full shell string. Supported placeholders: {workdir} {schema_path} {output_path} {json_schema} {sandbox} {prompt}."
-        >?</button>
-      </span>
-      <textarea
-        id="command-args-input"
-        name="command_args_text"
-        rows="9"
-        data-placeholder-zh="每行一个参数"
-        data-placeholder-en="One argument per line"
-        placeholder="One argument per line"
-      >{{- form_values.command_args_text -}}</textarea>
-      <small class="field-note">
-        <span data-lang="zh">建议把运行时变量写成占位符，而不是写死路径。三者都需要 {prompt}；Codex 至少需要 {output_path} 才能把结构化结果交回 Liminal。{schema_path}、{json_schema} 和 {sandbox} 是否使用，取决于你想怎样调用底层 CLI。</span>
-        <span data-lang="en">Prefer runtime placeholders over hard-coded paths. All tools need {prompt}; Codex needs at least {output_path} so Liminal can recover the structured result. Whether you use {schema_path}, {json_schema}, or {sandbox} depends on how you want to invoke the underlying CLI.</span>
-      </small>
-    </label>
+          <label class="wide" id="command-args-field">
+            <span class="label-row">
+              <span><span data-lang="zh">命令参数</span><span data-lang="en">Command arguments</span></span>
+              <button
+                class="help-dot"
+                type="button"
+                data-title-zh="每行一个参数，比直接写整串 shell 更稳。支持占位符：{workdir} {schema_path} {output_path} {json_schema} {sandbox} {prompt}。"
+                data-title-en="Use one argument per line for safer editing than a full shell string. Supported placeholders: {workdir} {schema_path} {output_path} {json_schema} {sandbox} {prompt}."
+              >?</button>
+            </span>
+            <textarea
+              id="command-args-input"
+              name="command_args_text"
+              rows="9"
+              data-placeholder-zh="每行一个参数"
+              data-placeholder-en="One argument per line"
+              placeholder="One argument per line"
+            >{{- form_values.command_args_text -}}</textarea>
+            <small class="field-note">
+              <span data-lang="zh">建议把运行时变量写成占位符，而不是写死路径。三者都需要 {prompt}；Codex 至少需要 {output_path} 才能把结构化结果交回 Liminal。{schema_path}、{json_schema} 和 {sandbox} 是否使用，取决于你想怎样调用底层 CLI。</span>
+              <span data-lang="en">Prefer runtime placeholders over hard-coded paths. All tools need {prompt}; Codex needs at least {output_path} so Liminal can recover the structured result. Whether you use {schema_path}, {json_schema}, or {sandbox} depends on how you want to invoke the underlying CLI.</span>
+            </small>
+          </label>
+        </div>
+      </section>
+    </div>
 
     <div class="wide command-preview-panel">
       <span class="label-row">

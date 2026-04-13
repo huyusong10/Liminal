@@ -17,6 +17,7 @@ Describe the end state the loop should reach.
 # Constraints
 
 - List only real constraints.
+- If this is an existing project, say whether current files must be preserved and which directories are off-limits.
 ```
 
 Guidelines:
@@ -26,3 +27,4 @@ Guidelines:
 - Prefer 3-5 checks.
 - Each check should be independently judgeable.
 - Use `When`, `Expect`, and `Fail if` together.
+- For existing projects, prefer constraints that keep user-owned files in place and narrow the editable area.

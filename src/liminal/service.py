@@ -7,6 +7,7 @@ import os
 import shutil
 import threading
 import time
+from html import escape as escape_html
 from pathlib import Path
 from typing import Callable
 
@@ -43,6 +44,20 @@ class RoleExecutionError(LiminalError):
         super().__init__(f"role={role} failed after {result.attempts} attempts")
 
 
+class WorkspaceSafetyError(LiminalError):
+    def __init__(self, *, role: str, deleted_paths: list[str], baseline_count: int, current_count: int) -> None:
+        self.role = role
+        self.deleted_paths = deleted_paths
+        self.baseline_count = baseline_count
+        self.current_count = current_count
+        preview = ", ".join(deleted_paths[:5])
+        super().__init__(
+            "workspace safety guard blocked a destructive rewrite: "
+            f"{len(deleted_paths)} of {baseline_count} original files disappeared"
+            + (f" ({preview})" if preview else "")
+        )
+
+
 class StopRequested(LiminalError):
     """Raised when a user asked to stop a running loop."""
 
@@ -58,6 +73,7 @@ class LiminalService:
         self.settings = settings
         self.executor_factory = executor_factory or executor_from_environment
         self._threads: dict[str, threading.Thread] = {}
+        self._reconcile_stale_runs()
 
     def create_loop(
         self,
@@ -155,6 +171,7 @@ class LiminalService:
         (run_dir / "events.jsonl").touch()
         (run_dir / "iteration_log.jsonl").touch()
         (run_dir / "summary.md").write_text("# Liminal Run Summary\n\nQueued.\n", encoding="utf-8")
+        write_json(run_dir / "workspace_baseline.json", self._capture_workspace_manifest(Path(loop["workdir"])))
         (run_dir / "compiled_spec.json").write_text(
             json.dumps(loop["compiled_spec_json"], ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
@@ -255,6 +272,7 @@ class LiminalService:
                         "mode": generator_mode["value"],
                     },
                 )
+                self._enforce_workspace_safety(run, run_dir, iter_id, role="generator")
 
                 tester_result = self._execute_role(
                     run_id,
@@ -272,6 +290,7 @@ class LiminalService:
                     degrade_once=lambda: self._set_mode(run_id, iter_id, "tester", tester_mode, "skip_dynamic_checks"),
                 )
                 write_json(run_dir / "tester_output.json", tester_result)
+                self._enforce_workspace_safety(run, run_dir, iter_id, role="tester")
 
                 verifier_result = self._execute_role(
                     run_id,
@@ -353,6 +372,7 @@ class LiminalService:
                         last_verdict=verifier_result,
                         summary_md=summary,
                     )
+                    self._persist_summary_file(run_dir, summary)
                     self.repository.append_event(run_id, "run_finished", {"status": "succeeded", "iter": iter_id})
                     return finished
 
@@ -371,6 +391,7 @@ class LiminalService:
                     finished_at=utc_now(),
                     summary_md=summary,
                 )
+                self._persist_summary_file(run_dir, summary)
                 self.repository.append_event(
                     run_id,
                     "run_finished",
@@ -386,6 +407,7 @@ class LiminalService:
                 finished_at=utc_now(),
                 summary_md=summary,
             )
+            self._persist_summary_file(run_dir, summary)
             self.repository.append_event(run_id, "run_finished", {"status": "stopped"})
             return stopped
         except RoleExecutionError as exc:
@@ -421,6 +443,7 @@ class LiminalService:
                 last_verdict=verdict,
                 summary_md=summary,
             )
+            self._persist_summary_file(run_dir, summary)
             self.repository.append_event(
                 run_id,
                 "run_aborted",
@@ -432,10 +455,66 @@ class LiminalService:
                 },
             )
             return failed
+        except WorkspaceSafetyError as exc:
+            error_text = str(exc)
+            verdict = {
+                "passed": False,
+                "composite_score": 0.0,
+                "metric_scores": {},
+                "hard_constraint_violations": ["workspace_safety_guard"],
+                "failed_check_ids": [],
+                "priority_failures": [
+                    {
+                        "error_code": "WORKSPACE_SAFETY_GUARD",
+                        "summary": "The run deleted too many original workspace files and was stopped.",
+                    }
+                ],
+                "feedback_to_generator": (
+                    "Do not bulk-delete existing user files. Keep original files in place and prefer targeted edits."
+                ),
+                "verifier_confidence": "high",
+            }
+            write_json(run_dir / "verifier_verdict.json", verdict)
+            deleted_preview = ", ".join(exc.deleted_paths[:5]) if exc.deleted_paths else "none"
+            summary = (
+                "# Liminal Run Summary\n\n"
+                "Execution stopped by the workspace safety guard.\n\n"
+                f"- Original files tracked: `{exc.baseline_count}`\n"
+                f"- Original files still present: `{exc.current_count}`\n"
+                f"- Deleted original files: `{len(exc.deleted_paths)}`\n"
+                f"- Sample deleted paths: `{deleted_preview}`\n"
+            )
+            failed = self.repository.update_run(
+                run_id,
+                status="failed",
+                finished_at=utc_now(),
+                error_message=error_text,
+                last_verdict=verdict,
+                summary_md=summary,
+            )
+            self._persist_summary_file(run_dir, summary)
+            self.repository.append_event(
+                run_id,
+                "run_aborted",
+                {
+                    "role": exc.role,
+                    "attempts": 1,
+                    "degraded": False,
+                    "error": error_text,
+                },
+            )
+            return failed
         finally:
             self.repository.release_run_slot(run_id)
+            self._threads.pop(run_id, None)
 
     def stop_run(self, run_id: str) -> dict:
+        current = self.repository.get_run(run_id)
+        if not current:
+            raise LiminalError(f"unknown run: {run_id}")
+        if current["status"] not in {"queued", "running"}:
+            raise LiminalError(f"cannot stop run in status {current['status']}")
+
         run = self.repository.request_stop(run_id)
         if not run:
             raise LiminalError(f"unknown run: {run_id}")
@@ -457,6 +536,9 @@ class LiminalService:
         run = self.repository.get_run(run_id)
         if not run:
             raise LiminalError(f"unknown run: {run_id}")
+        loop = self.repository.get_loop(run["loop_id"])
+        if loop:
+            run["loop_name"] = loop["name"]
         return run
 
     def get_status(self, identifier: str) -> tuple[str, dict]:
@@ -490,14 +572,58 @@ class LiminalService:
         self._write_recent_workdirs()
         return {"id": loop_id, "deleted_runs": len(loop["runs"]), "workdir": loop["workdir"]}
 
+    def _reconcile_stale_runs(self) -> None:
+        for run in self.repository.list_active_runs():
+            if self._run_process_may_still_be_alive(run):
+                continue
+            summary = (
+                "# Liminal Run Summary\n\n"
+                "This run was marked stopped when Liminal restarted because its previous worker process was no longer alive.\n"
+            )
+            run_dir = Path(run["runs_dir"])
+            run_dir.mkdir(parents=True, exist_ok=True)
+            (run_dir / "summary.md").write_text(summary, encoding="utf-8")
+            self.repository.update_run(
+                run["id"],
+                status="stopped",
+                finished_at=utc_now(),
+                error_message="Recovered stale run after service startup.",
+                summary_md=summary,
+            )
+            self.repository.release_run_slot(run["id"])
+            self.repository.append_event(
+                run["id"],
+                "run_finished",
+                {"status": "stopped", "reason": "Recovered stale run after service startup."},
+            )
+
+    def _run_process_may_still_be_alive(self, run: dict) -> bool:
+        pid = run.get("runner_pid")
+        if run.get("status") == "queued":
+            return bool(pid and self._pid_exists(pid))
+        return bool(pid and self._pid_exists(pid))
+
+    @staticmethod
+    def _pid_exists(pid: int | None) -> bool:
+        if not pid:
+            return False
+        try:
+            os.kill(int(pid), 0)
+        except (ProcessLookupError, OSError):
+            return False
+        except PermissionError:
+            return True
+        return True
+
     def preview_file(self, run_id: str, root: str, relative_path: str = "") -> dict:
         run = self.get_run(run_id)
         workdir = Path(run["workdir"])
         base = workdir / ".liminal" if root == "liminal" else workdir
         if root == "liminal":
             base.mkdir(parents=True, exist_ok=True)
-        resolved = (base / relative_path).resolve()
-        if not str(resolved).startswith(str(base.resolve())):
+        base_resolved = base.resolve()
+        resolved = (base_resolved / relative_path).resolve()
+        if not resolved.is_relative_to(base_resolved):
             raise LiminalError("requested path is outside the allowed root")
         if not resolved.exists():
             raise LiminalError(f"path does not exist: {resolved}")
@@ -545,7 +671,7 @@ class LiminalService:
             "size_bytes": len(raw_bytes),
         }
         if suffix in {".md", ".markdown"}:
-            payload["rendered_html"] = markdown_lib.markdown(text, extensions=["fenced_code"])
+            payload["rendered_html"] = markdown_lib.markdown(escape_html(text), extensions=["fenced_code"])
         return payload
 
     def _looks_binary(self, data: bytes) -> bool:
@@ -856,8 +982,11 @@ class LiminalService:
     def _write_summary(self, run_id: str, status: str, body: str) -> None:
         run = self.get_run(run_id)
         summary = body if body.startswith("#") else f"# Liminal Run Summary\n\nStatus: {status}\n\n{body}\n"
-        Path(run["runs_dir"], "summary.md").write_text(summary, encoding="utf-8")
+        self._persist_summary_file(Path(run["runs_dir"]), summary)
         self.repository.update_run(run_id, summary_md=summary)
+
+    def _persist_summary_file(self, run_dir: Path, summary: str) -> None:
+        (run_dir / "summary.md").write_text(summary, encoding="utf-8")
 
     def _build_summary(
         self,
@@ -910,7 +1039,8 @@ class LiminalService:
             bootstrap_guidance = (
                 "Workspace state:\n"
                 "Only the spec is present right now, so this iteration should bootstrap the first implementation.\n"
-                "Create the smallest runnable prototype from scratch in this round instead of spending the whole turn on planning.\n"
+                "Create the smallest runnable prototype in this round instead of spending the whole turn on planning.\n"
+                "Because the workspace is essentially empty, it is safe to add the first app files now; this is not permission to wipe or reset a non-empty project.\n"
                 "Prefer a minimal static entry point plus tiny supporting files when needed.\n\n"
             )
         return (
@@ -920,6 +1050,8 @@ class LiminalService:
             f"Mode: {mode}\n"
             f"Check mode: {compiled_spec.get('check_mode', 'specified')}\n"
             "You may edit files inside the workdir. Do not write into .liminal except for explicitly requested outputs.\n"
+            "Treat existing non-.liminal files as user-owned. Never wipe the whole workdir, bulk-delete existing files, or reset the project from scratch.\n"
+            "Prefer targeted in-place edits and additive changes. Delete a file only when that deletion is narrowly necessary to your change.\n"
             f"{bootstrap_guidance}"
             f"Spec goal:\n{compiled_spec['goal']}\n\n"
             f"Checks:\n{self._render_checks(compiled_spec['checks'])}\n\n"
@@ -1020,6 +1152,72 @@ class LiminalService:
                     continue
                 return False
         return True
+
+    def _capture_workspace_manifest(self, workdir: Path) -> dict:
+        files = list(self._iter_user_workspace_files(workdir))
+        return {
+            "captured_at": utc_now(),
+            "file_count": len(files),
+            "files": files,
+        }
+
+    def _iter_user_workspace_files(self, workdir: Path):
+        ignored_dirs = {".git", ".liminal", ".venv", "venv", "node_modules", "dist", "build", "__pycache__"}
+        ignored_files = {".DS_Store"}
+        for root, dirs, files in os.walk(workdir):
+            dirs[:] = [name for name in dirs if name not in ignored_dirs]
+            for filename in sorted(files):
+                if filename in ignored_files:
+                    continue
+                yield (Path(root) / filename).relative_to(workdir).as_posix()
+
+    def _enforce_workspace_safety(self, run: dict, run_dir: Path, iter_id: int, *, role: str) -> None:
+        baseline = read_json(run_dir / "workspace_baseline.json")
+        baseline_files = set((baseline or {}).get("files") or [])
+        if not baseline_files:
+            return
+        current_files = set(self._iter_user_workspace_files(Path(run["workdir"])))
+        deleted_original = sorted(path for path in baseline_files if path not in current_files)
+        if not deleted_original:
+            return
+
+        deleted_count = len(deleted_original)
+        baseline_count = len(baseline_files)
+        remaining_original = baseline_count - deleted_count
+        deleted_ratio = deleted_count / baseline_count if baseline_count else 0.0
+        destructive = False
+        if remaining_original == 0:
+            destructive = True
+        elif deleted_count >= 3 and deleted_ratio >= 0.8:
+            destructive = True
+        elif deleted_count >= 20 and deleted_ratio >= 0.5:
+            destructive = True
+
+        if not destructive:
+            return
+
+        payload = {
+            "iter": iter_id,
+            "role": role,
+            "baseline_file_count": baseline_count,
+            "remaining_original_file_count": remaining_original,
+            "deleted_original_count": deleted_count,
+            "deleted_original_paths": deleted_original,
+            "deleted_ratio": round(deleted_ratio, 4),
+        }
+        write_json(run_dir / "workspace_guard.json", payload)
+        self.repository.append_event(
+            run["id"],
+            "workspace_guard_triggered",
+            payload,
+            role=role,
+        )
+        raise WorkspaceSafetyError(
+            role=role,
+            deleted_paths=deleted_original,
+            baseline_count=baseline_count,
+            current_count=remaining_original,
+        )
 
     def _ensure_loop_dir(self, workdir: Path, loop_id: str) -> Path:
         path = workdir / ".liminal" / "loops" / loop_id

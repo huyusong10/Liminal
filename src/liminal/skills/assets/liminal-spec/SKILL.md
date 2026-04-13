@@ -18,6 +18,7 @@ Workflow:
    - What is the main user path or core interaction?
    - Should this run use explicit `Checks`, or should Liminal auto-generate checks for exploration?
    - What hard constraints or non-goals must the loop respect?
+   - If this points at an existing project, which files or directories must be preserved or left untouched?
 4. Do not silently invent product commitments, acceptance criteria, or constraints.
 5. Once enough information exists, output the spec as Markdown with no extra wrapper text unless the user asked for commentary.
 
@@ -30,6 +31,8 @@ Authoring rules:
 - Prefer describing the target end state in `Goal`, not the first implementation step.
 - If the request is intentionally exploratory, omit `# Checks` so Liminal can auto-generate and freeze them at run start.
 - Avoid giant umbrella checks like "everything works" or vague timing like "after completion".
+- When the user is targeting an existing workdir or codebase, actively surface preservation constraints such as "keep existing user files" or "only edit these directories" if the user has provided that intent.
+- Never phrase the spec in a way that implies wiping the project, resetting from scratch, or broad destructive rewrites unless the user explicitly asked for that.
 
 Before finalizing:
 - Sanity-check that the spec would help Generator, Tester, and Verifier stay aligned.

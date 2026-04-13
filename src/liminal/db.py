@@ -264,6 +264,13 @@ class LiminalRepository:
             ).fetchall()
         return [self._decode_row(row) for row in rows]
 
+    def list_active_runs(self) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM loop_runs WHERE status IN ('queued', 'running') ORDER BY created_at DESC"
+            ).fetchall()
+        return [self._decode_row(row) for row in rows]
+
     def delete_loop(self, loop_id: str) -> bool:
         with self.transaction() as connection:
             row = connection.execute("SELECT 1 FROM loop_definitions WHERE id = ?", (loop_id,)).fetchone()

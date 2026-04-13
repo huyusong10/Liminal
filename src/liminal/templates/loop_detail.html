@@ -2,13 +2,17 @@
 {% block title %}{{ loop.name }}{% endblock %}
 {% block content %}
 <section class="hero hero-tight">
-  <div>
+  <div class="hero-copy-stack">
     <span class="eyebrow">
       <span data-lang="zh">循环定义</span>
       <span data-lang="en">Loop definition</span>
     </span>
     <h1>{{ loop.name }}</h1>
-    <p>{{ loop.workdir }}</p>
+    <p>
+      <span data-lang="zh">目标、Checks 和运行历史都住在这里，算是这条 loop 的小基地。</span>
+      <span data-lang="en">Goals, checks, and run history all live here. Think of it as this loop's tiny base camp.</span>
+    </p>
+    <p class="hero-path">{{ loop.workdir }}</p>
     {% if latest_run %}
     <div class="card-actions">
       <span class="status-pill status-{{ latest_run.status }}" data-status-label="{{ latest_run.status }}"></span>
@@ -35,8 +39,8 @@
     <div><dt><span data-lang="zh">执行工具</span><span data-lang="en">Executor</span></dt><dd>{{ latest_run.executor_label if latest_run else loop.executor_label }}</dd></div>
     <div><dt><span data-lang="zh">模型</span><span data-lang="en">Model</span></dt><dd>{{ loop.model or "-" }}</dd></div>
     <div><dt><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning</span></dt><dd>{{ loop.reasoning_effort }}</dd></div>
-    <div><dt><span data-lang="zh">最大迭代</span><span data-lang="en">Max iters</span></dt><dd>{{ loop.max_iters if loop.max_iters else "infinite" }}</dd></div>
-    <div><dt><span data-lang="zh">重试次数</span><span data-lang="en">Retries</span></dt><dd>{{ loop.max_role_retries if loop.max_role_retries else "infinite" }}</dd></div>
+    <div><dt><span data-lang="zh">最大迭代</span><span data-lang="en">Max iters</span></dt><dd>{% if loop.max_iters %}{{ loop.max_iters }}{% else %}<span data-lang="zh">无限</span><span data-lang="en">infinite</span>{% endif %}</dd></div>
+    <div><dt><span data-lang="zh">重试次数</span><span data-lang="en">Retries</span></dt><dd>{% if loop.max_role_retries %}{{ loop.max_role_retries }}{% else %}<span data-lang="zh">无限</span><span data-lang="en">infinite</span>{% endif %}</dd></div>
     <div><dt><span data-lang="zh">Spec 路径</span><span data-lang="en">Spec path</span></dt><dd>{{ loop.spec_path }}</dd></div>
   </dl>
 </section>

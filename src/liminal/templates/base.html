@@ -40,5 +40,31 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  <div class="confirm-modal" id="confirm-modal" hidden aria-hidden="true">
+    <div class="confirm-modal-backdrop" data-close-confirm-modal="1"></div>
+    <div class="confirm-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+      <div class="confirm-modal-copy">
+        <span class="eyebrow">
+          <span data-lang="zh">确认操作</span>
+          <span data-lang="en">Confirm action</span>
+        </span>
+        <h2 id="confirm-modal-title">
+          <span data-lang="zh">要删除这条 loop 吗？</span>
+          <span data-lang="en">Delete this loop?</span>
+        </h2>
+        <p id="confirm-modal-detail"></p>
+      </div>
+      <div class="card-actions confirm-modal-actions">
+        <button class="ghost-button" type="button" id="confirm-modal-cancel">
+          <span data-lang="zh">先不删</span>
+          <span data-lang="en">Keep it</span>
+        </button>
+        <button class="ghost-button danger-button" type="button" id="confirm-modal-confirm">
+          <span data-lang="zh">确认删除</span>
+          <span data-lang="en">Delete</span>
+        </button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

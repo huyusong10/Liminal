@@ -1,12 +1,20 @@
 {% extends "base.html" %}
 {% block title %}Liminal Loops{% endblock %}
 {% block content %}
-<section class="hero">
-  <div>
+<section class="hero hero-tight">
+  <div class="hero-copy-stack">
+    <span class="eyebrow">
+      <span data-lang="zh">循环总览</span>
+      <span data-lang="en">Loop overview</span>
+    </span>
     <h1>
       <span data-lang="zh">循环</span>
       <span data-lang="en">Loops</span>
     </h1>
+    <p>
+      <span data-lang="zh">挑一条 loop 看看它最近又忙出了什么新动静。</span>
+      <span data-lang="en">Pick a loop and see what kind of fresh trouble it has been busy making.</span>
+    </p>
   </div>
   <a class="primary-button" href="/loops/new">
     <span data-lang="zh">创建循环</span>
@@ -20,10 +28,10 @@
       <span data-lang="zh">已保存的循环</span>
       <span data-lang="en">Saved loops</span>
     </h2>
-    <span>{{ loops|length }} <span data-lang="zh">个</span><span data-lang="en">total</span></span>
+    <span><span id="loop-count">{{ loops|length }}</span> <span data-lang="zh">个</span><span data-lang="en">total</span></span>
   </header>
   {% if loops %}
-    <div class="loop-grid">
+    <div class="loop-grid" id="loop-grid">
       {% for loop_item in loops %}
       <article
         class="loop-card loop-card--{{ loop_item.latest_status or 'draft' }} is-clickable"
@@ -56,10 +64,6 @@
           <div>
             <dt><span data-lang="zh">当前迭代</span><span data-lang="en">Current iter</span></dt>
             <dd>{{ loop_item.display_iter if loop_item.display_iter is not none else "-" }}</dd>
-          </div>
-          <div>
-            <dt><span data-lang="zh">最近更新</span><span data-lang="en">Updated</span></dt>
-            <dd>{{ loop_item.latest_run_updated_at or loop_item.updated_at }}</dd>
           </div>
         </dl>
         <div class="loop-card-glance">
@@ -105,8 +109,20 @@
       </article>
       {% endfor %}
     </div>
+    <div class="empty-state" id="loops-empty-state" hidden>
+      <img class="empty-state-logo" src="/logo/logo.svg" alt="Liminal logo" />
+      <h3>
+        <span data-lang="zh">还没有 loop</span>
+        <span data-lang="en">No loops yet</span>
+      </h3>
+      <p>
+        <span data-lang="zh">从一个 Markdown spec 和 workdir 开始创建你的第一个 loop。</span>
+        <span data-lang="en">Create your first loop from a Markdown spec and a workdir.</span>
+      </p>
+    </div>
   {% else %}
-    <div class="empty-state">
+    <div class="loop-grid" id="loop-grid" hidden></div>
+    <div class="empty-state" id="loops-empty-state">
       <img class="empty-state-logo" src="/logo/logo.svg" alt="Liminal logo" />
       <h3>
         <span data-lang="zh">还没有 loop</span>

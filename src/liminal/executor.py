@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import shlex
 import signal
 import subprocess
@@ -143,8 +144,8 @@ def validate_command_args_text(command_args_text: str | None, *, executor_kind: 
         raise ValueError("custom command arguments are required in command mode")
     joined = "\n".join(args)
     required_placeholders = {
-        "codex": ("{prompt}", "{output_path}"),
-        "claude": ("{prompt}",),
+        "codex": ("{prompt}", "{output_path}", "{schema_path}"),
+        "claude": ("{prompt}", "{json_schema}"),
         "opencode": ("{prompt}",),
     }[normalize_executor_kind(executor_kind)]
     missing = [placeholder for placeholder in required_placeholders if placeholder not in joined]
@@ -169,11 +170,14 @@ def build_custom_exec_args(request: RoleRequest, schema_path: Path) -> list[str]
         "{model}": request.model,
         "{reasoning_effort}": request.reasoning_effort,
     }
+    placeholder_pattern = re.compile("|".join(re.escape(placeholder) for placeholder in replacements))
     resolved_args = []
     for template_arg in template_args:
-        value = template_arg
-        for placeholder, replacement in replacements.items():
-            value = value.replace(placeholder, replacement)
+        value = placeholder_pattern.sub(lambda match: replacements[match.group(0)], template_arg)
+        if not value:
+            if resolved_args and resolved_args[-1].startswith("-"):
+                resolved_args.pop()
+            continue
         resolved_args.append(value)
     return [cli_name, *resolved_args]
 
@@ -539,6 +543,23 @@ class FakeCodexExecutor(CodexExecutor):
 
         if self.scenario == "role_failure" and request.role == "tester":
             raise ExecutorError("simulated tester failure")
+
+        if (
+            (self.scenario == "destructive_generator" and request.role == "generator")
+            or (self.scenario == "destructive_tester" and request.role == "tester")
+        ):
+            for child in request.workdir.iterdir():
+                if child.name == ".liminal":
+                    continue
+                if child.is_dir():
+                    for nested in sorted(child.rglob("*"), key=lambda path: len(path.parts), reverse=True):
+                        if nested.is_file():
+                            nested.unlink()
+                        elif nested.is_dir():
+                            nested.rmdir()
+                    child.rmdir()
+                else:
+                    child.unlink()
 
         if request.role == "generator":
             return {

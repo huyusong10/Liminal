@@ -20,11 +20,11 @@
 
   const ROLE_LABELS = {
     zh: {
-      generator: "generator",
+      generator: "生成",
       check_planner: "检查规划",
-      tester: "tester",
-      verifier: "verifier",
-      challenger: "challenger",
+      tester: "测试",
+      verifier: "验证",
+      challenger: "挑战",
       system: "系统",
     },
     en: {
@@ -173,6 +173,98 @@
   }
 
   function bindDeleteLoopButtons() {
+    const modal = document.getElementById("confirm-modal");
+    const modalDetail = document.getElementById("confirm-modal-detail");
+    const modalCancel = document.getElementById("confirm-modal-cancel");
+    const modalConfirm = document.getElementById("confirm-modal-confirm");
+    const modalBackdrop = modal?.querySelector("[data-close-confirm-modal]");
+    const loopCount = document.getElementById("loop-count");
+    const loopGrid = document.getElementById("loop-grid");
+    const emptyState = document.getElementById("loops-empty-state");
+    if (!modal || !modalDetail || !modalCancel || !modalConfirm) {
+      return;
+    }
+
+    let pendingDelete = null;
+    let lastFocusedElement = null;
+
+    function closeDeleteModal() {
+      modal.hidden = true;
+      modal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("modal-open");
+      pendingDelete = null;
+      modalConfirm.disabled = false;
+      lastFocusedElement?.focus?.();
+    }
+
+    function openDeleteModal(button, loopId, loopName) {
+      pendingDelete = {button, loopId, loopName};
+      lastFocusedElement = button;
+      modalDetail.textContent = pickText({
+        zh: `“${loopName}” 和它保存下来的运行记录都会一起消失，这次就真的不回头了。`,
+        en: `"${loopName}" and its stored run history will disappear together. This one really does not come back.`,
+      });
+      modal.hidden = false;
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("modal-open");
+      modalConfirm.focus();
+    }
+
+    function removeLoopCard(button) {
+      const card = button.closest(".loop-card");
+      if (!card) {
+        window.location.reload();
+        return;
+      }
+      card.remove();
+      const remainingCards = document.querySelectorAll(".loop-card").length;
+      if (loopCount) {
+        loopCount.textContent = String(remainingCards);
+      }
+      if (remainingCards === 0) {
+        if (loopGrid) {
+          loopGrid.hidden = true;
+        }
+        if (emptyState) {
+          emptyState.hidden = false;
+        } else {
+          window.location.reload();
+        }
+      }
+    }
+
+    modalCancel.addEventListener("click", closeDeleteModal);
+    modalBackdrop?.addEventListener("click", closeDeleteModal);
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) {
+        closeDeleteModal();
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !modal.hidden) {
+        closeDeleteModal();
+      }
+    });
+    modalConfirm.addEventListener("click", async () => {
+      if (!pendingDelete) {
+        return;
+      }
+      modalConfirm.disabled = true;
+      const {button, loopId} = pendingDelete;
+      const response = await fetch(`/api/loops/${encodeURIComponent(loopId)}`, {method: "DELETE"});
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        modalConfirm.disabled = false;
+        window.alert(payload.error || pickText({
+          zh: "删除失败。",
+          en: "Unable to delete the loop.",
+        }));
+        return;
+      }
+      closeDeleteModal();
+      removeLoopCard(button);
+    });
+
     document.querySelectorAll("[data-delete-loop]").forEach((button) => {
       if (button.dataset.bound === "1") {
         return;
@@ -181,26 +273,7 @@
       button.addEventListener("click", async () => {
         const loopId = button.dataset.deleteLoop;
         const loopName = button.dataset.loopName || loopId;
-        const confirmed = window.confirm(
-          pickText({
-            zh: `删除 loop "${loopName}"？这也会移除它保存的运行记录。`,
-            en: `Delete loop "${loopName}"? This also removes its stored runs.`,
-          }),
-        );
-        if (!confirmed) {
-          return;
-        }
-
-        const response = await fetch(`/api/loops/${encodeURIComponent(loopId)}`, {method: "DELETE"});
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          window.alert(payload.error || pickText({
-            zh: "删除失败。",
-            en: "Unable to delete the loop.",
-          }));
-          return;
-        }
-        window.location.reload();
+        openDeleteModal(button, loopId, loopName);
       });
     });
   }

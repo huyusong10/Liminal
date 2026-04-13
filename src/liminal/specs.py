@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 REQUIRED_SECTIONS = ["Goal"]
+HTML_COMMENT_PATTERN = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
 class SpecError(ValueError):
@@ -12,7 +13,24 @@ class SpecError(ValueError):
 
 def spec_template(locale: str = "zh") -> str:
     if locale.lower().startswith("en"):
-        return """# Goal
+        return """<!--
+Delete this note whenever you want.
+
+Required:
+- Keep `# Goal`. If you delete it, spec validation fails.
+
+Optional:
+- Delete the whole `# Checks` section if you want Liminal to auto-generate and freeze exploratory checks for each run.
+- Delete the whole `# Constraints` section if you have no extra constraints.
+
+One gotcha:
+- If you keep `# Checks`, it must contain at least one `###` check heading.
+
+Good default safety rule:
+- If this loop points at an existing project, say so in `# Constraints`: preserve existing user files and prefer focused in-place edits over rewrites.
+-->
+
+# Goal
 
 Describe, in natural language, the outcome this loop should achieve.
 
@@ -34,12 +52,28 @@ Describe, in natural language, the outcome this loop should achieve.
 
 - What must not be changed
 - Which directories may be edited, and which are off-limits
+- Preserve existing user-owned files; prefer in-place edits over large rewrites
 - Tool, resource, or compatibility limits
-
-<!-- Optional: omit # Checks when you want Liminal to auto-generate a frozen set of exploratory checks for each run. -->
 """
 
-    return """# Goal
+    return """<!--
+这段提示看完就可以删。
+
+必填：
+- 保留 `# Goal`。如果删掉，spec 校验会直接失败。
+
+可选：
+- 如果想让 Liminal 在每次 run 开始时自动生成并冻结 exploratory checks，就把整个 `# Checks` 章节删掉。
+- 如果没有额外约束，就把整个 `# Constraints` 章节删掉。
+
+一个小坑：
+- 如果保留 `# Checks`，里面至少要有一个 `###` check 标题。
+
+一个默认安全建议：
+- 如果这个 loop 指向的是现有项目，最好在 `# Constraints` 里写明：保留现有用户文件，优先原地小改，不要大改大删。
+-->
+
+# Goal
 
 用自然语言描述这个循环最终要达成的目标。
 
@@ -61,9 +95,8 @@ Describe, in natural language, the outcome this loop should achieve.
 
 - 不允许做什么
 - 允许改哪些目录，禁止改哪些目录
+- 保留现有用户文件，优先原地修改，不要大范围重写
 - 资源限制、工具限制、兼容性限制
-
-<!-- 可选：如果不写 # Checks，Liminal 会在每次 run 开始时自动生成一组只在本次运行内冻结的 exploratory checks。 -->
 """
 
 
@@ -76,7 +109,8 @@ def init_spec_file(path: Path, *, locale: str = "zh") -> Path:
 
 
 def compile_markdown_spec(markdown_text: str) -> dict:
-    sections = _split_sections(markdown_text)
+    cleaned_markdown = _strip_html_comments(markdown_text)
+    sections = _split_sections(cleaned_markdown)
     missing = [section for section in REQUIRED_SECTIONS if not sections.get(section)]
     if missing:
         raise SpecError(f"missing top-level sections: {', '.join(missing)}")
@@ -103,7 +137,7 @@ def compile_markdown_spec(markdown_text: str) -> dict:
         "goal": sections["Goal"].strip(),
         "constraints": sections.get("Constraints", "").strip(),
         "checks": compiled_checks,
-        "check_mode": "specified" if compiled_checks else "auto_generate",
+        "check_mode": "specified" if compiled_checks else "auto_generated",
         "raw_sections": {key: value.strip() for key, value in sections.items()},
     }
 
@@ -123,6 +157,10 @@ def _split_sections(markdown_text: str) -> dict[str, str]:
         end = matches[index + 1].start() if index + 1 < len(matches) else len(markdown_text)
         sections[name] = markdown_text[start:end].strip()
     return sections
+
+
+def _strip_html_comments(markdown_text: str) -> str:
+    return HTML_COMMENT_PATTERN.sub("", markdown_text)
 
 
 def _extract_checks(section_text: str) -> list[dict[str, object]]:

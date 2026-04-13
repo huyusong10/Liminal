@@ -12,13 +12,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const effortFieldLabel = document.getElementById("effort-field-label");
   const modelInput = document.getElementById("model-input");
   const reasoningInput = document.getElementById("reasoning-input");
-  const reasoningSuggestions = document.getElementById("reasoning-effort-suggestions");
   const modelHelpTrigger = document.getElementById("model-help-trigger");
   const effortHelpTrigger = document.getElementById("effort-help-trigger");
   const modelFieldNote = document.getElementById("model-field-note");
   const effortFieldNote = document.getElementById("effort-field-note");
   const presetModelField = document.getElementById("preset-model-field");
   const presetEffortField = document.getElementById("preset-effort-field");
+  const presetConfigCard = document.getElementById("preset-config-card");
+  const commandConfigCard = document.getElementById("command-config-card");
+  const presetConfigState = document.getElementById("preset-config-state");
+  const commandConfigState = document.getElementById("command-config-state");
   const commandCliField = document.getElementById("command-cli-field");
   const commandArgsField = document.getElementById("command-args-field");
   const commandCliInput = document.getElementById("command-cli-input");
@@ -32,6 +35,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const formError = document.getElementById("form-error");
   const specValidation = document.getElementById("spec-validation");
   const executorProfiles = JSON.parse(document.getElementById("executor-profiles-json")?.textContent || "[]");
+  const commandDrafts = new Map();
+  let lastExecutorKind = executorKindInput.value;
 
   function localeText(zh, en) {
     return window.LiminalUI.pickText({zh, en});
@@ -150,53 +155,110 @@ document.addEventListener("DOMContentLoaded", () => {
     return args;
   }
 
+  function buildPresetCommandSnapshot(profile) {
+    const args = presetPreviewArgs(profile);
+    return {
+      cli: args[0] || profile.cli_name,
+      argsText: args.slice(1).join("\n"),
+    };
+  }
+
   function renderCommandPreview() {
     const profile = selectedExecutorProfile();
     const isCommandMode = executorModeInput.value === "command";
-    const argv = isCommandMode
-      ? [
-          commandCliInput.value.trim() || profile.cli_name,
-          ...parseCommandArgsText(commandArgsInput.value).map(replacePreviewPlaceholders),
-        ]
-      : presetPreviewArgs(profile).map(replacePreviewPlaceholders);
+    const argv = [
+      commandCliInput.value.trim() || profile.cli_name,
+      ...parseCommandArgsText(commandArgsInput.value).map(replacePreviewPlaceholders),
+    ];
     commandPreview.textContent = argv.map(shellQuote).join(" ");
     setBilingualHtml(
       commandPreviewNote,
       isCommandMode
         ? "这里展示 raw command 模式下会执行的参数。尖括号内容表示运行时才会替换的动态值。"
-        : "这里展示预设模式下会调用的一条示例命令。尖括号内容表示运行时动态值，不同角色的 prompt、schema 和 sandbox 会自动替换。",
+        : "这里展示预设模式下自动拼出来的命令参数。你改动模型或推理强度时，下面的命令区会同步刷新，但保持只读。",
       isCommandMode
         ? "This shows the argv used in command mode. Angle-bracket values are filled in only at runtime."
-        : "This shows an example command for preset mode. Angle-bracket values are runtime substitutions such as the role prompt, schema, and sandbox."
+        : "This shows the command assembled from the preset settings. When you change the model or reasoning option, the command block below updates automatically but stays read-only."
     );
   }
 
-  function updateCommandDefaults(profile, options = {}) {
-    const preserveUserCommandCli = options.preserveUserCommandCli !== false;
-    const preserveUserCommandArgs = options.preserveUserCommandArgs !== false;
-    const previousDefaultCli = commandCliInput.dataset.defaultCli || "";
-    const previousTemplate = commandArgsInput.dataset.defaultTemplate || "";
-    const cliWasDefault = !commandCliInput.value.trim() || commandCliInput.value.trim() === previousDefaultCli;
-    const argsWereDefault = !commandArgsInput.value.trim() || commandArgsInput.value.trim() === previousTemplate.trim();
-    const nextTemplate = defaultCommandArgsText(profile);
-
-    if (!preserveUserCommandCli || cliWasDefault) {
-      commandCliInput.value = profile.cli_name || "";
+  function saveCommandDraft(profileKey = lastExecutorKind) {
+    if (!profileKey) {
+      return;
     }
-    if (!preserveUserCommandArgs || argsWereDefault) {
-      commandArgsInput.value = nextTemplate;
-    }
+    commandDrafts.set(profileKey, {
+      cli: commandCliInput.value,
+      args: commandArgsInput.value,
+    });
+  }
 
-    commandCliInput.dataset.defaultCli = profile.cli_name || "";
-    commandArgsInput.dataset.defaultTemplate = nextTemplate;
+  function loadCommandDraft(profile) {
+    const saved = commandDrafts.get(profile.key);
+    if (saved) {
+      commandCliInput.value = saved.cli || profile.cli_name || "";
+      commandArgsInput.value = saved.args || defaultCommandArgsText(profile);
+      return;
+    }
+    commandCliInput.value = profile.cli_name || "";
+    commandArgsInput.value = defaultCommandArgsText(profile);
+  }
+
+  function renderEffortOptions(profile, currentValue = "") {
+    reasoningInput.innerHTML = "";
+    const options = profile.preset_effort_visible ? profile.effort_options : [];
+    options.forEach((option) => {
+      const item = document.createElement("option");
+      item.value = option;
+      if (!option && profile.effort_optional) {
+        item.textContent = localeText("默认", "Default");
+      } else {
+        item.textContent = option;
+      }
+      reasoningInput.appendChild(item);
+    });
+    const fallback = profile.effort_default || "";
+    const nextValue = options.includes(currentValue) ? currentValue : fallback;
+    if (options.length) {
+      reasoningInput.value = nextValue;
+    } else {
+      reasoningInput.value = fallback;
+    }
+  }
+
+  function syncCommandBlock(profile) {
+    const isCommandMode = executorModeInput.value === "command";
+    const presetSnapshot = buildPresetCommandSnapshot(profile);
+    if (isCommandMode) {
+      loadCommandDraft(profile);
+      commandCliInput.readOnly = false;
+      commandArgsInput.readOnly = false;
+    } else {
+      commandCliInput.value = presetSnapshot.cli;
+      commandArgsInput.value = presetSnapshot.argsText;
+      commandCliInput.readOnly = true;
+      commandArgsInput.readOnly = true;
+    }
   }
 
   function syncExecutorModeUI() {
     const isCommandMode = executorModeInput.value === "command";
-    presetModelField.hidden = isCommandMode;
-    presetEffortField.hidden = isCommandMode;
-    commandCliField.hidden = !isCommandMode;
-    commandArgsField.hidden = !isCommandMode;
+    const profile = selectedExecutorProfile();
+    presetConfigCard.classList.toggle("is-active", !isCommandMode);
+    presetConfigCard.classList.toggle("is-inactive", isCommandMode);
+    commandConfigCard.classList.toggle("is-active", isCommandMode);
+    commandConfigCard.classList.toggle("is-inactive", !isCommandMode);
+    presetConfigCard.setAttribute("aria-disabled", String(isCommandMode));
+    commandConfigCard.setAttribute("aria-disabled", String(!isCommandMode));
+    presetConfigState.hidden = isCommandMode;
+    commandConfigState.hidden = !isCommandMode;
+
+    presetModelField.hidden = false;
+    presetEffortField.hidden = !profile.preset_effort_visible;
+    commandCliField.hidden = false;
+    commandArgsField.hidden = false;
+    modelInput.readOnly = isCommandMode;
+    reasoningInput.disabled = isCommandMode || !profile.preset_effort_visible;
+    syncCommandBlock(profile);
     renderCommandPreview();
   }
 
@@ -221,37 +283,18 @@ document.addEventListener("DOMContentLoaded", () => {
     setBilingualHtml(effortFieldLabel, profile.effort_label_zh, profile.effort_label_en);
     effortHelpTrigger.dataset.titleZh = profile.effort_help_zh;
     effortHelpTrigger.dataset.titleEn = profile.effort_help_en;
-    reasoningInput.dataset.placeholderZh = profile.effort_optional
-      ? "留空使用默认 variant"
-      : profile.effort_default;
-    reasoningInput.dataset.placeholderEn = profile.effort_optional
-      ? "Leave blank for the default variant"
-      : profile.effort_default;
     window.LiminalUI.applyLocalizedAttributes(form);
 
     setBilingualHtml(modelFieldNote, profile.model_help_zh, profile.model_help_en);
     setBilingualHtml(effortFieldNote, profile.effort_help_zh, profile.effort_help_en);
 
-    reasoningSuggestions.innerHTML = "";
-    profile.effort_options.forEach((option) => {
-      if (!option) {
-        return;
-      }
-      const item = document.createElement("option");
-      item.value = option;
-      reasoningSuggestions.appendChild(item);
-    });
-
+    const nextEffort = (!preserveUserEffort || effortWasDefault) ? (profile.effort_default || "") : reasoningInput.value;
+    renderEffortOptions(profile, nextEffort);
     if ((!preserveUserModel || modelWasDefault) && profile.default_model !== undefined) {
       modelInput.value = profile.default_model;
     }
-    if (!preserveUserEffort || effortWasDefault) {
-      reasoningInput.value = profile.effort_default || "";
-    }
     modelInput.dataset.defaultModel = profile.default_model || "";
     reasoningInput.dataset.defaultEffort = profile.effort_default || "";
-
-    updateCommandDefaults(profile, options);
     syncExecutorModeUI();
   }
 
@@ -290,7 +333,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const {payload} = await fetchJson(`/api/specs/validate?path=${encodeURIComponent(path)}`);
     if (payload.ok) {
-      const modeMessage = payload.check_mode === "auto_generate"
+      const modeMessage = payload.check_mode === "auto_generated"
         ? localeText("未提供显式 checks，run 开始时会自动生成并冻结。", "No explicit checks provided. Liminal will generate and freeze them at run start.")
         : localeText(`识别到 ${payload.check_count} 个显式 checks。`, `Detected ${payload.check_count} explicit check(s).`);
       showStatus(
@@ -329,6 +372,14 @@ document.addEventListener("DOMContentLoaded", () => {
   async function createSpecTemplate() {
     let targetPath = specPathInput.value.trim();
     if (!targetPath) {
+      if (createSpecTemplateButton.dataset.nativeDialogsEnabled === "false") {
+        showStatus(
+          specValidation,
+          localeText("网络模式下请先手动填好服务端上的 spec 路径，再创建模版。", "In network mode, enter a server-side spec path first and then create the template."),
+          "error",
+        );
+        return;
+      }
       const startPath = workdirInput.value.trim();
       const selection = await fetchJson(`/api/system/pick-spec-save-path?start_path=${encodeURIComponent(startPath)}`);
       if (!selection.payload.path) {
@@ -400,36 +451,57 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  browseWorkdirButton.addEventListener("click", browseWorkdir);
-  browseSpecButton.addEventListener("click", browseSpec);
-  createSpecTemplateButton.addEventListener("click", createSpecTemplate);
-  executorKindInput.addEventListener("change", () => refreshExecutorFields({
-    preserveUserModel: true,
-    preserveUserEffort: true,
-    preserveUserCommandCli: true,
-    preserveUserCommandArgs: true,
-  }));
-  executorModeInput.addEventListener("change", syncExecutorModeUI);
+  if (browseWorkdirButton && !browseWorkdirButton.disabled) {
+    browseWorkdirButton.addEventListener("click", browseWorkdir);
+  }
+  if (browseSpecButton && !browseSpecButton.disabled) {
+    browseSpecButton.addEventListener("click", browseSpec);
+  }
+  if (createSpecTemplateButton) {
+    createSpecTemplateButton.addEventListener("click", createSpecTemplate);
+  }
+  executorKindInput.addEventListener("change", () => {
+    if (executorModeInput.value === "command") {
+      saveCommandDraft(lastExecutorKind);
+    }
+    lastExecutorKind = executorKindInput.value;
+    refreshExecutorFields({
+      preserveUserModel: true,
+      preserveUserEffort: true,
+    });
+  });
+  executorModeInput.addEventListener("change", () => {
+    if (executorModeInput.value === "preset") {
+      saveCommandDraft(selectedExecutorProfile().key);
+    }
+    syncExecutorModeUI();
+  });
   specPathInput.addEventListener("change", () => validateSpec({quiet: false}));
   specPathInput.addEventListener("blur", () => validateSpec({quiet: true}));
-  workdirInput.addEventListener("input", renderCommandPreview);
-  modelInput.addEventListener("input", renderCommandPreview);
-  reasoningInput.addEventListener("input", renderCommandPreview);
-  commandCliInput.addEventListener("input", renderCommandPreview);
-  commandArgsInput.addEventListener("input", renderCommandPreview);
+  workdirInput.addEventListener("input", syncExecutorModeUI);
+  modelInput.addEventListener("input", () => syncExecutorModeUI());
+  reasoningInput.addEventListener("change", () => syncExecutorModeUI());
+  commandCliInput.addEventListener("input", () => {
+    if (executorModeInput.value === "command") {
+      saveCommandDraft(selectedExecutorProfile().key);
+    }
+    renderCommandPreview();
+  });
+  commandArgsInput.addEventListener("input", () => {
+    if (executorModeInput.value === "command") {
+      saveCommandDraft(selectedExecutorProfile().key);
+    }
+    renderCommandPreview();
+  });
   form.addEventListener("submit", submitForm);
   document.addEventListener("liminal:localechange", () => refreshExecutorFields({
     preserveUserModel: true,
     preserveUserEffort: true,
-    preserveUserCommandCli: true,
-    preserveUserCommandArgs: true,
   }));
 
   refreshExecutorFields({
     preserveUserModel: true,
     preserveUserEffort: true,
-    preserveUserCommandCli: true,
-    preserveUserCommandArgs: true,
   });
 
   if (specPathInput.value.trim()) {

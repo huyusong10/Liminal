@@ -66,6 +66,9 @@ def test_generator_prompt_uses_bootstrap_guidance_for_spec_only_workspace(
 
     prompt = service._generator_prompt(compiled_spec, workdir, 0, "default")
     assert "this iteration should bootstrap the first implementation" in prompt
+    assert "Create the smallest runnable prototype from scratch" not in prompt
+    assert "Never wipe the whole workdir" in prompt
+    assert "safe to add the first app files now" in prompt
 
     (workdir / "index.html").write_text("<!doctype html><title>Prototype</title>", encoding="utf-8")
     prompt_with_app = service._generator_prompt(compiled_spec, workdir, 0, "default")

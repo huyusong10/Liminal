@@ -9,7 +9,7 @@ import uvicorn
 from liminal.service import LiminalError, create_service
 from liminal.settings import configure_logging
 from liminal.specs import SpecError, init_spec_file
-from liminal.web import build_app
+from liminal.web import _is_loopback_host, build_app
 
 app = typer.Typer(help="Liminal CLI")
 loops_app = typer.Typer(help="Inspect and control saved loops")
@@ -30,7 +30,7 @@ def run(
     executor_kind: str = typer.Option("codex", "--executor", help="Execution tool: codex, claude, or opencode."),
     model: str = typer.Option("", help="Default model or alias for the selected execution tool."),
     reasoning_effort: str = typer.Option("", help="Reasoning effort or variant for the selected execution tool."),
-    max_iters: int = typer.Option(8, min=1, help="Maximum orchestration iterations."),
+    max_iters: int = typer.Option(8, min=0, help="Maximum orchestration iterations. Use 0 to keep iterating until you stop it."),
     max_role_retries: int = typer.Option(2, min=0, help="Retries per role before aborting."),
     delta_threshold: float = typer.Option(0.005, min=0.0, help="Plateau threshold."),
     trigger_window: int = typer.Option(4, min=1, help="Plateau trigger window."),
@@ -71,10 +71,34 @@ def run(
 def serve(
     host: str = typer.Option("127.0.0.1", help="Bind host."),
     port: int = typer.Option(8742, min=1, max=65535, help="Bind port."),
+    auth_token: str = typer.Option("", "--auth-token", envvar="LIMINAL_AUTH_TOKEN", help="Optional token required for all web and API requests."),
+    allow_unsafe_open: bool = typer.Option(False, "--allow-unsafe-open", help="Allow non-loopback hosts without an auth token. Dangerous on shared networks."),
 ) -> None:
     """Run the local web console."""
     configure_logging()
-    uvicorn.run(build_app(), host=host, port=port, log_level="info", access_log=False)
+    if not _is_loopback_host(host) and not auth_token and not allow_unsafe_open:
+        _handle_error(
+            LiminalError(
+                "refusing to bind a non-loopback host without protection; use --auth-token <token> or explicitly pass --allow-unsafe-open"
+            )
+        )
+    if not _is_loopback_host(host):
+        typer.secho(
+            "Network mode enabled. Use absolute paths from the server machine in the Web UI; native file dialogs are disabled.",
+            fg=typer.colors.YELLOW,
+        )
+        if auth_token:
+            typer.secho(
+                f"Open the UI once with ?token={auth_token} appended to the URL, or send it as Authorization: Bearer.",
+                fg=typer.colors.YELLOW,
+            )
+    uvicorn.run(
+        build_app(bind_host=host, bind_port=port, auth_token=auth_token or None),
+        host=host,
+        port=port,
+        log_level="info",
+        access_log=False,
+    )
 
 
 @spec_app.command("init")
@@ -144,8 +168,10 @@ def rerun_loop(loop_id: str = typer.Argument(..., help="Loop definition ID.")) -
         _handle_error(exc)
 
 
-def _parse_role_models(values: list[str]) -> dict[str, str]:
+def _parse_role_models(values: list[str] | None) -> dict[str, str]:
     parsed: dict[str, str] = {}
+    if not values:
+        return parsed
     for item in values:
         if "=" not in item:
             raise LiminalError(f"invalid --role-model value: {item}")

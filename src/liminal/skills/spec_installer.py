@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 from dataclasses import dataclass
@@ -18,6 +19,8 @@ TARGET_LABELS = {
     "claude": "Claude Code",
     "opencode": "OpenCode",
 }
+
+IGNORED_SKILL_ARTIFACTS = {".DS_Store", "__pycache__"}
 
 
 @dataclass(frozen=True)
@@ -95,12 +98,54 @@ def _copy_bundle(source_dir: Path, target_dir: Path) -> None:
         shutil.copy2(source, destination)
 
 
+def _remove_target_dir(target_dir: Path) -> None:
+    if not target_dir.exists():
+        return
+    if target_dir.is_dir():
+        shutil.rmtree(target_dir)
+        return
+    target_dir.unlink()
+
+
+def _bundle_digest(root: Path) -> str | None:
+    if not root.exists():
+        return None
+    digest = hashlib.sha256()
+    file_count = 0
+    for file_path in sorted(path for path in root.rglob("*") if path.is_file()):
+        if any(part in IGNORED_SKILL_ARTIFACTS for part in file_path.parts):
+            continue
+        relative = file_path.relative_to(root).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(file_path.read_bytes())
+        digest.update(b"\0")
+        file_count += 1
+    if file_count == 0:
+        return None
+    return digest.hexdigest()
+
+
+def _install_state(bundle: SkillBundle, install_path: Path) -> str:
+    skill_file = install_path / "SKILL.md"
+    if not skill_file.exists():
+        return "missing"
+    source_digest = _bundle_digest(bundle.source_dir)
+    installed_digest = _bundle_digest(install_path)
+    if source_digest and installed_digest and source_digest == installed_digest:
+        return "installed"
+    return "stale"
+
+
 def list_spec_skill_targets() -> list[dict]:
     bundle = _load_spec_skill_bundle()
     targets = []
     for target in ("codex", "claude", "opencode"):
         install_paths = _target_paths(target, bundle)
-        installed_paths = [path / "SKILL.md" for path in install_paths if (path / "SKILL.md").exists()]
+        install_state = "missing"
+        existing_paths = [path / "SKILL.md" for path in install_paths if (path / "SKILL.md").exists()]
+        if install_paths:
+            install_state = _install_state(bundle, install_paths[0])
         targets.append(
             {
                 "target": target,
@@ -109,8 +154,9 @@ def list_spec_skill_targets() -> list[dict]:
                 "skill_name": bundle.name,
                 "skill_description": bundle.description,
                 "install_paths": [str(path / "SKILL.md") for path in install_paths],
-                "installed_paths": [str(path) for path in installed_paths],
-                "installed": bool(installed_paths),
+                "installed_paths": [str(path) for path in existing_paths],
+                "installed": install_state == "installed",
+                "install_state": install_state,
             }
         )
     return targets
@@ -120,7 +166,11 @@ def install_spec_skill(target: str) -> dict:
     bundle = _load_spec_skill_bundle()
     install_paths = _target_paths(target, bundle)
     written_paths: list[str] = []
+    replaced_existing = False
     for path in install_paths:
+        if path.exists():
+            replaced_existing = True
+            _remove_target_dir(path)
         _copy_bundle(bundle.source_dir, path)
         written_paths.append(str(path / "SKILL.md"))
     return {
@@ -129,5 +179,6 @@ def install_spec_skill(target: str) -> dict:
         "docs_url": TARGET_DOCS[target],
         "skill_name": bundle.name,
         "written_paths": written_paths,
+        "action": "reinstalled" if replaced_existing else "installed",
         "requires_restart": True,
     }

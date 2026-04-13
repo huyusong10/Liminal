@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+import ipaddress
 import json
 import re
 import time
@@ -16,6 +18,8 @@ from liminal.skills import install_spec_skill, list_spec_skill_targets
 from liminal.service import LiminalError, create_service
 from liminal.specs import SpecError, init_spec_file, read_and_compile
 from liminal.system_dialogs import SystemDialogError, pick_directory, pick_file, pick_save_file
+
+AUTH_COOKIE_NAME = "liminal_auth"
 
 DEFAULT_LOOP_FORM = {
     "name": "",
@@ -41,6 +45,7 @@ TIMELINE_EVENT_TYPES = {
     "role_execution_summary",
     "role_degraded",
     "challenger_done",
+    "workspace_guard_triggered",
     "stop_requested",
     "run_aborted",
     "run_finished",
@@ -106,9 +111,11 @@ RUN_ARTIFACT_SPECS = (
 )
 
 
-def build_app(service=None) -> FastAPI:
+def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 8742, auth_token: str | None = None) -> FastAPI:
     app = FastAPI(title="Liminal")
     app.state.service = service or create_service()
+    access_state = _build_access_state(bind_host=bind_host, bind_port=bind_port, auth_token=auth_token)
+    app.state.access_state = access_state
     package_root = Path(__file__).parent
     templates = Jinja2Templates(directory=str(package_root / "templates"))
     app.mount("/static", StaticFiles(directory=str(package_root / "static")), name="static")
@@ -119,6 +126,21 @@ def build_app(service=None) -> FastAPI:
 
     def json_error(message: str, status_code: int = 400) -> JSONResponse:
         return JSONResponse({"error": message}, status_code=status_code)
+
+    @app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        expected_token = access_state["auth_token"]
+        if not expected_token:
+            return await call_next(request)
+
+        provided_token = _extract_request_token(request)
+        if provided_token != expected_token:
+            return _auth_required_response(request)
+
+        response = await call_next(request)
+        if request.cookies.get(AUTH_COOKIE_NAME) != expected_token:
+            response.set_cookie(AUTH_COOKIE_NAME, expected_token, httponly=True, samesite="lax")
+        return response
 
     def render_new_loop(
         request: Request,
@@ -134,6 +156,7 @@ def build_app(service=None) -> FastAPI:
                 "form_values": _normalize_loop_form(values),
                 "form_error": form_error,
                 "executor_profiles": list_executor_profiles(),
+                "access_state": access_state,
             },
         )
 
@@ -144,8 +167,76 @@ def build_app(service=None) -> FastAPI:
             {
                 "request": request,
                 "skill_targets": list_spec_skill_targets(),
+                "access_state": access_state,
             },
         )
+
+    def render_auth_required(request: Request) -> HTMLResponse:
+        url_path = html.escape(request.url.path)
+        return HTMLResponse(
+            f"""
+            <!doctype html>
+            <html lang="zh-CN">
+            <head>
+              <meta charset="utf-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1" />
+              <title>Liminal · Auth required</title>
+              <style>
+                body {{
+                  margin: 0;
+                  min-height: 100vh;
+                  display: grid;
+                  place-items: center;
+                  padding: 24px;
+                  background: linear-gradient(180deg, #fffaf2 0%, #fff4e8 100%);
+                  color: #2d2215;
+                  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                }}
+                main {{
+                  width: min(640px, 100%);
+                  padding: 28px;
+                  border-radius: 24px;
+                  background: rgba(255, 255, 255, 0.82);
+                  border: 1px solid rgba(93, 76, 62, 0.12);
+                  box-shadow: 0 18px 45px rgba(45, 34, 21, 0.12);
+                }}
+                h1 {{ margin: 0 0 12px; font-size: 2rem; }}
+                p {{ margin: 0 0 10px; line-height: 1.7; }}
+                code {{
+                  display: inline-block;
+                  padding: 2px 8px;
+                  border-radius: 999px;
+                  background: rgba(214, 106, 54, 0.12);
+                }}
+              </style>
+            </head>
+            <body>
+              <main>
+                <h1>需要访问令牌 / Auth token required</h1>
+                <p>这个 Liminal 实例正在网络模式下运行，所以先带上令牌再进来比较稳妥。</p>
+                <p>This Liminal instance is exposed over the network, so it expects an auth token before letting requests through.</p>
+                <p>把令牌加到地址后面访问一次即可，例如：<code>{url_path}?token=&lt;your-token&gt;</code></p>
+                <p>You can also send it as <code>Authorization: Bearer &lt;your-token&gt;</code> or <code>X-Liminal-Token</code>.</p>
+              </main>
+            </body>
+            </html>
+            """,
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    def _auth_required_response(request: Request):
+        accept_header = request.headers.get("accept", "")
+        if request.url.path.startswith("/api/") or "application/json" in accept_header:
+            return JSONResponse(
+                {
+                    "error": "auth token required",
+                    "hint": "append ?token=<your-token> once or send Authorization: Bearer <your-token>",
+                },
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return render_auth_required(request)
 
     @app.exception_handler(LiminalError)
     async def liminal_error_handler(_: Request, exc: LiminalError) -> JSONResponse:
@@ -162,7 +253,7 @@ def build_app(service=None) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
         loops = [_decorate_loop_overview(loop) for loop in svc().list_loops()]
-        return templates.TemplateResponse(request, "index.html", {"request": request, "loops": loops})
+        return templates.TemplateResponse(request, "index.html", {"request": request, "loops": loops, "access_state": access_state})
 
     @app.get("/loops/new", response_class=HTMLResponse)
     async def new_loop(request: Request) -> HTMLResponse:
@@ -185,6 +276,7 @@ def build_app(service=None) -> FastAPI:
                 "loop": {**loop, "runs": runs, "executor_label": executor_profile(loop.get("executor_kind", "codex")).label},
                 "latest_run": latest_run,
                 "summary_snapshot": _build_run_summary_snapshot(latest_run) if latest_run else None,
+                "access_state": access_state,
             },
         )
 
@@ -204,6 +296,7 @@ def build_app(service=None) -> FastAPI:
                 "console_events": seed_events[-160:],
                 "latest_event_id": latest_event_id,
                 "run_artifacts": _list_run_artifacts(run),
+                "access_state": access_state,
             },
         )
 
@@ -249,6 +342,7 @@ def build_app(service=None) -> FastAPI:
 
     @app.get("/api/runs/{run_id}/events")
     async def api_run_events(run_id: str, after_id: int = 0, limit: int = 200) -> JSONResponse:
+        svc().get_run(run_id)
         return JSONResponse(svc().repository.list_events(run_id, after_id=after_id, limit=limit))
 
     @app.get("/api/runs/{run_id}/artifacts")
@@ -290,13 +384,22 @@ def build_app(service=None) -> FastAPI:
         return FileResponse(artifact_path.resolve())
 
     @app.get("/api/runs/{run_id}/stream")
-    async def api_run_stream(run_id: str, after_id: int = 0) -> StreamingResponse:
+    async def api_run_stream(request: Request, run_id: str, after_id: int = 0) -> StreamingResponse:
+        svc().get_run(run_id)
+        last_event_header = str(request.headers.get("last-event-id", "")).strip()
+        if last_event_header:
+            try:
+                after_id = max(after_id, int(last_event_header))
+            except ValueError:
+                pass
+
         def event_stream():
             last_id = after_id
             while True:
                 events = svc().stream_events(run_id, after_id=last_id)
                 for event in events:
                     last_id = event["id"]
+                    yield f"id: {event['id']}\n"
                     yield f"event: {event['event_type']}\n"
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 run = svc().get_run(run_id)
@@ -376,16 +479,22 @@ def build_app(service=None) -> FastAPI:
 
     @app.get("/api/system/pick-directory")
     async def api_pick_directory(start_path: str = "") -> JSONResponse:
+        if not access_state["native_dialogs_enabled"]:
+            return json_error("native dialogs are disabled in network mode; paste a server-side absolute path instead")
         selected = pick_directory(start_path or None)
         return JSONResponse({"path": selected or "", "cancelled": not selected})
 
     @app.get("/api/system/pick-spec-file")
     async def api_pick_spec_file(start_path: str = "") -> JSONResponse:
+        if not access_state["native_dialogs_enabled"]:
+            return json_error("native dialogs are disabled in network mode; paste a server-side absolute path instead")
         selected = pick_file(start_path or None)
         return JSONResponse({"path": selected or "", "cancelled": not selected})
 
     @app.get("/api/system/pick-spec-save-path")
     async def api_pick_spec_save_path(start_path: str = "") -> JSONResponse:
+        if not access_state["native_dialogs_enabled"]:
+            return json_error("native dialogs are disabled in network mode; paste a server-side absolute path instead")
         selected = pick_save_file(start_path or None, default_name="spec.md")
         return JSONResponse({"path": selected or "", "cancelled": not selected})
 
@@ -428,6 +537,15 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
     if not spec_path:
         raise LiminalError("spec path is required")
 
+    try:
+        max_iters = int(payload.get("max_iters", 8))
+        max_role_retries = int(payload.get("max_role_retries", 2))
+        delta_threshold = float(payload.get("delta_threshold", 0.005))
+        trigger_window = int(payload.get("trigger_window", 4))
+        regression_window = int(payload.get("regression_window", 2))
+    except (TypeError, ValueError) as exc:
+        raise LiminalError("numeric loop settings must use valid numbers") from exc
+
     loop_kwargs = {
         "name": name,
         "spec_path": Path(spec_path),
@@ -438,11 +556,11 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
         "command_args_text": command_args_text,
         "model": model if model or profile.default_model == "" else profile.default_model,
         "reasoning_effort": reasoning_effort if reasoning_effort or profile.effort_default == "" else profile.effort_default,
-        "max_iters": int(payload.get("max_iters", 8)),
-        "max_role_retries": int(payload.get("max_role_retries", 2)),
-        "delta_threshold": float(payload.get("delta_threshold", 0.005)),
-        "trigger_window": int(payload.get("trigger_window", 4)),
-        "regression_window": int(payload.get("regression_window", 2)),
+        "max_iters": max_iters,
+        "max_role_retries": max_role_retries,
+        "delta_threshold": delta_threshold,
+        "trigger_window": trigger_window,
+        "regression_window": regression_window,
         "role_models": payload.get("role_models") or {},
     }
     return loop_kwargs, _coerce_bool(payload.get("start_immediately"))
@@ -489,6 +607,9 @@ def _format_timeline_event(event: dict) -> dict:
     elif event["event_type"] == "run_aborted":
         title = f"Run aborted in {payload.get('role', 'role')}"
         detail = str(payload.get("attempts", "")).strip()
+    elif event["event_type"] == "workspace_guard_triggered":
+        title = "Workspace safety guard triggered"
+        detail = f"deleted={payload.get('deleted_original_count', 0)}"
     elif event["event_type"] == "run_finished":
         title = f"Run {payload.get('status', 'finished')}"
         reason = str(payload.get("reason", "")).strip()
@@ -524,6 +645,50 @@ def _normalize_loop_form(values: Mapping[str, object] | None) -> dict[str, objec
             normalized["command_cli"] = "codex"
     normalized["start_immediately"] = _coerce_bool(normalized.get("start_immediately", True))
     return normalized
+
+
+def _build_access_state(*, bind_host: str, bind_port: int, auth_token: str | None) -> dict[str, object]:
+    normalized_auth = (auth_token or "").strip() or None
+    remote_access_enabled = not _is_loopback_host(bind_host)
+    return {
+        "bind_host": bind_host,
+        "bind_port": bind_port,
+        "auth_token": normalized_auth,
+        "auth_enabled": bool(normalized_auth),
+        "remote_access_enabled": remote_access_enabled,
+        "native_dialogs_enabled": not remote_access_enabled,
+    }
+
+
+def _extract_request_token(request: Request) -> str | None:
+    bearer = request.headers.get("authorization", "")
+    if bearer.lower().startswith("bearer "):
+        token = bearer.split(" ", 1)[1].strip()
+        if token:
+            return token
+
+    header_token = request.headers.get("x-liminal-token", "").strip()
+    if header_token:
+        return header_token
+
+    query_token = request.query_params.get("token", "").strip()
+    if query_token:
+        return query_token
+
+    cookie_token = request.cookies.get(AUTH_COOKIE_NAME, "").strip()
+    if cookie_token:
+        return cookie_token
+    return None
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = (host or "").strip().lower()
+    if normalized in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
 
 
 def _coerce_bool(value: object) -> bool:

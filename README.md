@@ -39,9 +39,9 @@ Each run compiles the Markdown spec into a frozen snapshot, updates the workspac
 
 ## Features
 
-- CLI commands for `run`, `serve`, `loops list`, `loops status`, `loops stop`, `loops rerun`, and `spec init`
 - Local FastAPI console for loop creation, run monitoring, artifact inspection, and skill installation
 - Structured run outputs such as `compiled_spec.json`, `tester_output.json`, `verifier_verdict.json`, `events.jsonl`, and `summary.md`
+- CLI commands for `run`, `serve`, `loops list`, `loops status`, `loops stop`, `loops rerun`, and `spec init`
 - Optional fake executor mode for smoke tests and demos
 - Bundled `liminal-spec` skill that helps draft valid `spec.md` files
 
@@ -57,15 +57,37 @@ For real execution, make sure the CLI you want to use is available in your envir
 - `claude`
 - `opencode`
 
-## Quick Start
+## Recommended Start: Web UI
 
-1. Create a starter spec:
+1. If you have not installed it yet:
+
+```bash
+python3 -m pip install -e .
+```
+
+2. Start the local web console:
+
+```bash
+liminal serve --host 127.0.0.1 --port 8742
+```
+
+Then open [http://127.0.0.1:8742](http://127.0.0.1:8742).
+
+If you want to expose the Web UI on your LAN, bind a public host and protect it with a token:
+
+```bash
+liminal serve --host 0.0.0.0 --port 8742 --auth-token your-secret
+```
+
+Then open `http://<server-ip>:8742/?token=your-secret` once in the browser. After that, the browser keeps a session cookie. In network mode, paste absolute paths from the server machine directly into the form because native file dialogs are intentionally disabled.
+
+3. Create a starter spec:
 
 ```bash
 liminal spec init ./demo-spec.md
 ```
 
-2. Edit it into something concrete:
+4. Edit it into something concrete:
 
 ```md
 # Goal
@@ -82,9 +104,16 @@ Build a useful landing page for an English learning site.
 # Constraints
 
 - Start with a front-end prototype
+- Preserve the existing project files and prefer focused in-place edits
 ```
 
-3. Run a loop:
+5. In the Web UI, create a loop, point it at your `workdir` and `spec.md`, choose an execution tool, and start the run.
+
+The Web UI is the recommended workflow because it gives you live progress, console streaming, timeline milestones, and fixed artifact tabs in one place.
+
+## CLI Supplement
+
+If you want to start a run directly from the terminal, you can still do that:
 
 ```bash
 liminal run \
@@ -95,15 +124,7 @@ liminal run \
   --max-iters 8
 ```
 
-You can switch tools with `--executor claude` or `--executor opencode`. Claude Code uses `low/medium/high/max`, while OpenCode uses provider-specific variants.
-
-4. Start the local web console:
-
-```bash
-liminal serve --host 127.0.0.1 --port 8742
-```
-
-Then open [http://127.0.0.1:8742](http://127.0.0.1:8742).
+You can switch tools with `--executor claude` or `--executor opencode`. Claude Code uses `low/medium/high/max`. For more tool-specific or fast-moving CLI flags, the Web UI now also supports direct command parameters.
 
 ## Spec Model
 
@@ -114,6 +135,7 @@ Liminal uses a Markdown spec with these top-level sections:
 - `# Constraints` optional
 
 When `# Checks` is omitted, Liminal generates a frozen exploratory check set at run start. When checks are provided explicitly, each check should use a `###` heading and include `When`, `Expect`, and `Fail if`.
+For existing projects, it is a good idea to use `# Constraints` to say what must stay untouched and to make it explicit that existing user files should be preserved.
 
 ## Web Console
 
