@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}{{ run.id }}{% endblock %}
+{% block content %}
+<section class="hero hero-tight">
+  <div>
+    <span class="eyebrow">Run detail</span>
+    <h1>{{ run.id }}</h1>
+    <p>{{ run.workdir }}</p>
+  </div>
+  <div class="card-actions">
+    <a class="secondary-button" href="/loops/{{ run.loop_id }}">Back to loop</a>
+    {% if run.status in ["queued", "running"] %}
+    <button class="ghost-button" id="stop-run">Stop run</button>
+    {% endif %}
+  </div>
+</section>
+
+<section class="dashboard-grid">
+  <article class="panel">
+    <header class="panel-header"><h2>Overview</h2></header>
+    <dl class="meta-grid" id="overview-grid">
+      <div><dt>Status</dt><dd id="run-status">{{ run.status }}</dd></div>
+      <div><dt>Model</dt><dd>{{ run.model }}</dd></div>
+      <div><dt>Iteration</dt><dd id="run-iter">{{ run.current_iter }}</dd></div>
+      <div><dt>Active role</dt><dd id="run-role">{{ run.active_role or "-" }}</dd></div>
+      <div><dt>Duration</dt><dd id="run-duration">-</dd></div>
+      <div><dt>Started</dt><dd>{{ run.started_at or "-" }}</dd></div>
+      <div><dt>Finished</dt><dd id="run-finished">{{ run.finished_at or "-" }}</dd></div>
+    </dl>
+  </article>
+
+  <article class="panel">
+    <header class="panel-header"><h2>Key output</h2></header>
+    <div class="output-cards">
+      <div class="output-card">
+        <h3>Latest verdict</h3>
+        <pre class="preview-box" id="verdict-box">{{ run.last_verdict_json | tojson(indent=2) if run.last_verdict_json else "No verdict yet." }}</pre>
+      </div>
+      <div class="output-card">
+        <h3>Summary</h3>
+        <pre class="preview-box" id="summary-box">{{ run.summary_md or "No summary yet." }}</pre>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <header class="panel-header"><h2>Timeline</h2></header>
+    <div class="timeline" id="timeline">
+      {% for event in events %}
+      <div class="timeline-item">
+        <div>
+          <strong>{{ event.event_type }}</strong>
+          <p>{{ event.role or "system" }}</p>
+        </div>
+        <span>{{ event.created_at }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </article>
+
+  <article class="panel explorer-panel">
+    <header class="panel-header">
+      <h2>Resource explorer</h2>
+      <div class="explorer-toggle">
+        <button class="ghost-button active" data-root="workdir">Workdir</button>
+        <button class="ghost-button" data-root="liminal">.liminal</button>
+      </div>
+    </header>
+    <div class="explorer-layout">
+      <div class="explorer-tree" id="explorer-tree"></div>
+      <div class="explorer-preview">
+        <div class="preview-toolbar">
+          <span id="preview-path">/</span>
+          <a class="ghost-button" id="download-link" href="#" target="_blank">Download</a>
+        </div>
+        <div class="preview-box" id="explorer-preview">Select a file or folder.</div>
+      </div>
+    </div>
+  </article>
+</section>
+
+<script>
+  const runId = {{ run.id|tojson }};
+  let explorerRoot = "workdir";
+  let lastEventId = {{ (events[-1].id if events else 0) | tojson }};
+
+  async function fetchRun() {
+    const response = await fetch(`/api/runs/${runId}`);
+    const payload = await response.json();
+    document.getElementById("run-status").textContent = payload.status;
+    document.getElementById("run-iter").textContent = payload.current_iter;
+    document.getElementById("run-role").textContent = payload.active_role || "-";
+    document.getElementById("run-finished").textContent = payload.finished_at || "-";
+    document.getElementById("run-duration").textContent = formatDuration(payload.started_at, payload.finished_at);
+    document.getElementById("summary-box").textContent = payload.summary_md || "No summary yet.";
+    document.getElementById("verdict-box").textContent = payload.last_verdict_json ? JSON.stringify(payload.last_verdict_json, null, 2) : "No verdict yet.";
+  }
+
+  async function openPath(path = "") {
+    const response = await fetch(`/api/files?run_id=${encodeURIComponent(runId)}&root=${encodeURIComponent(explorerRoot)}&path=${encodeURIComponent(path)}`);
+    const payload = await response.json();
+    const tree = document.getElementById("explorer-tree");
+    const preview = document.getElementById("explorer-preview");
+    const previewPath = document.getElementById("preview-path");
+    const downloadLink = document.getElementById("download-link");
+    previewPath.textContent = payload.path || "/";
+
+    if (payload.kind === "directory") {
+      tree.innerHTML = payload.entries.map((entry) => `
+        <button class="tree-item ${entry.is_dir ? "dir" : "file"}" data-path="${entry.path}">
+          ${entry.is_dir ? "▸" : "•"} ${entry.name}
+        </button>
+      `).join("");
+      preview.textContent = `Directory: ${payload.path || "/"}`;
+      downloadLink.style.visibility = "hidden";
+      tree.querySelectorAll(".tree-item").forEach((button) => {
+        button.addEventListener("click", () => openPath(button.dataset.path));
+      });
+      return;
+    }
+
+    if (payload.rendered_html) {
+      preview.innerHTML = payload.rendered_html;
+    } else {
+      preview.textContent = payload.content;
+    }
+    downloadLink.style.visibility = "visible";
+    downloadLink.href = `/api/files/download?run_id=${encodeURIComponent(runId)}&root=${encodeURIComponent(explorerRoot)}&path=${encodeURIComponent(path)}`;
+  }
+
+  function prependEvent(event) {
+    const timeline = document.getElementById("timeline");
+    const item = document.createElement("div");
+    item.className = "timeline-item";
+    item.innerHTML = `<div><strong>${event.event_type}</strong><p>${event.role || "system"}</p></div><span>${event.created_at}</span>`;
+    timeline.prepend(item);
+  }
+
+  document.querySelectorAll(".explorer-toggle button").forEach((button) => {
+    button.addEventListener("click", () => {
+      explorerRoot = button.dataset.root;
+      document.querySelectorAll(".explorer-toggle button").forEach((candidate) => candidate.classList.remove("active"));
+      button.classList.add("active");
+      openPath("");
+    });
+  });
+
+  document.getElementById("stop-run")?.addEventListener("click", async () => {
+    const response = await fetch(`/api/runs/${runId}/stop`, {method: "POST"});
+    const payload = await response.json();
+    if (!response.ok) {
+      alert(payload.error || "Unable to stop run.");
+      return;
+    }
+    await fetchRun();
+  });
+
+  function formatDuration(startedAt, finishedAt) {
+    if (!startedAt) return "-";
+    const start = new Date(startedAt);
+    const end = finishedAt ? new Date(finishedAt) : new Date();
+    const seconds = Math.max(0, Math.floor((end - start) / 1000));
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    return minutes ? `${minutes}m ${remainder}s` : `${remainder}s`;
+  }
+
+  const eventSource = new EventSource(`/api/runs/${runId}/stream`);
+  eventSource.onmessage = () => {};
+  eventSource.addEventListener("run_finished", async (message) => {
+    const payload = JSON.parse(message.data);
+    prependEvent(payload);
+    lastEventId = payload.id;
+    await fetchRun();
+    eventSource.close();
+  });
+  ["run_registered", "run_started", "role_started", "role_execution_summary", "role_degraded", "challenger_done", "stop_requested", "codex_event", "run_aborted"].forEach((eventName) => {
+    eventSource.addEventListener(eventName, async (message) => {
+      const payload = JSON.parse(message.data);
+      if (payload.id <= lastEventId) return;
+      lastEventId = payload.id;
+      prependEvent(payload);
+      await fetchRun();
+    });
+  });
+
+  openPath("");
+  fetchRun();
+</script>
+{% endblock %}
