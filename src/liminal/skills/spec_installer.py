@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import shutil
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -74,6 +76,10 @@ def _load_spec_skill_bundle() -> SkillBundle:
         description=description,
         source_dir=source_dir,
     )
+
+
+def load_spec_skill_bundle() -> SkillBundle:
+    return _load_spec_skill_bundle()
 
 
 def _target_paths(target: str, bundle: SkillBundle) -> list[Path]:
@@ -182,3 +188,19 @@ def install_spec_skill(target: str) -> dict:
         "action": "reinstalled" if replaced_existing else "installed",
         "requires_restart": True,
     }
+
+
+def build_spec_skill_bundle_archive() -> tuple[str, bytes]:
+    bundle = _load_spec_skill_bundle()
+    archive_name = f"{bundle.slug}.zip"
+    buffer = io.BytesIO()
+
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for source in sorted(bundle.source_dir.rglob("*")):
+            if source.is_dir():
+                continue
+            if any(part in IGNORED_SKILL_ARTIFACTS for part in source.parts):
+                continue
+            archive.write(source, arcname=(Path(bundle.slug) / source.relative_to(bundle.source_dir)).as_posix())
+
+    return archive_name, buffer.getvalue()

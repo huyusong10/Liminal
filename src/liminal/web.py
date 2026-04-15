@@ -10,12 +10,12 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from liminal.providers import executor_profile, list_executor_profiles
-from liminal.skills import install_spec_skill, list_spec_skill_targets
+from liminal.skills import build_spec_skill_bundle_archive, install_spec_skill, list_spec_skill_targets, load_spec_skill_bundle
 from liminal.service import LiminalError, create_service, normalize_role_models
 from liminal.specs import SpecError, init_spec_file, read_and_compile
 from liminal.system_dialogs import SystemDialogError, pick_directory, pick_file, pick_save_file
@@ -186,61 +186,19 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             "tools.html",
             {
                 "request": request,
+                "skill_bundle": load_spec_skill_bundle(),
                 "skill_targets": list_spec_skill_targets(),
                 "access_state": access_state,
             },
         )
 
     def render_auth_required(request: Request) -> HTMLResponse:
-        url_path = html.escape(request.url.path)
         return HTMLResponse(
-            f"""
-            <!doctype html>
-            <html lang="zh-CN">
-            <head>
-              <meta charset="utf-8" />
-              <meta name="viewport" content="width=device-width, initial-scale=1" />
-              <title>Liminal · Auth required</title>
-              <style>
-                body {{
-                  margin: 0;
-                  min-height: 100vh;
-                  display: grid;
-                  place-items: center;
-                  padding: 24px;
-                  background: linear-gradient(180deg, #fffaf2 0%, #fff4e8 100%);
-                  color: #2d2215;
-                  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-                }}
-                main {{
-                  width: min(640px, 100%);
-                  padding: 28px;
-                  border-radius: 24px;
-                  background: rgba(255, 255, 255, 0.82);
-                  border: 1px solid rgba(93, 76, 62, 0.12);
-                  box-shadow: 0 18px 45px rgba(45, 34, 21, 0.12);
-                }}
-                h1 {{ margin: 0 0 12px; font-size: 2rem; }}
-                p {{ margin: 0 0 10px; line-height: 1.7; }}
-                code {{
-                  display: inline-block;
-                  padding: 2px 8px;
-                  border-radius: 999px;
-                  background: rgba(214, 106, 54, 0.12);
-                }}
-              </style>
-            </head>
-            <body>
-              <main>
-                <h1>需要访问令牌 / Auth token required</h1>
-                <p>这个 Liminal 实例正在网络模式下运行，所以先带上令牌再进来比较稳妥。</p>
-                <p>This Liminal instance is exposed over the network, so it expects an auth token before letting requests through.</p>
-                <p>把令牌加到地址后面访问一次即可，例如：<code>{url_path}?token=&lt;your-token&gt;</code></p>
-                <p>You can also send it as <code>Authorization: Bearer &lt;your-token&gt;</code> or <code>X-Liminal-Token</code>.</p>
-              </main>
-            </body>
-            </html>
-            """,
+            templates.TemplateResponse(
+                request,
+                "auth.html",
+                {"request": request, "url_path": html.escape(request.url.path)},
+            ).body.decode(),
             status_code=401,
             headers={"WWW-Authenticate": "Bearer"},
         )
@@ -524,6 +482,15 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         except ValueError as exc:
             return json_error(str(exc))
         return JSONResponse({"result": result, "targets": list_spec_skill_targets()}, status_code=201)
+
+    @app.get("/api/skills/liminal-spec/download")
+    async def api_download_spec_skill_bundle() -> Response:
+        filename, archive_bytes = build_spec_skill_bundle_archive()
+        return Response(
+            content=archive_bytes,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @app.get("/api/system/pick-directory")
     async def api_pick_directory(start_path: str = "") -> JSONResponse:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -32,11 +33,13 @@ def test_index_page_renders_with_saved_loops(
 
     assert response.status_code == 200
     assert "Homepage Loop" in response.text
-    assert "<span data-lang=\"zh\">循环</span>" in response.text
+    assert "<span data-lang=\"zh\">已创建</span>" in response.text
     assert "别只盯着最新一次运行" not in response.text
     assert "本地优先" not in response.text
-    assert "/logo/logo-with-text-horizontal.svg" in response.text
-    assert "/logo/logo.svg" in response.text
+    assert "/logo/logo-with-text-horizontal-light.svg" in response.text
+    assert "page-stack" in response.text
+    assert "loop-grid-note" in response.text
+    assert "循环总览" not in response.text
     assert "/static/app.css?v=" in response.text
     assert "/static/app.js?v=" in response.text
     assert response.text.index("/loops/new") < response.text.index("/tools")
@@ -208,6 +211,9 @@ def test_tools_page_renders_skill_install_cards(service_factory) -> None:
     assert "顺手的小外挂" in response.text
     assert "wake-lock-toggle" in response.text
     assert "Prevent sleep while running" in response.text
+    assert "help-dot--tips" in response.text
+    assert "/api/skills/liminal-spec/download" in response.text
+    assert "下载 Skill 包" in response.text
 
 
 def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
@@ -227,6 +233,8 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "Claude Code" in response.text
     assert "OpenCode" in response.text
     assert "把一个想法拎进来" in response.text
+    assert "inline-hint-link" in response.text
+    assert "Spec Skill" in response.text
 
 
 def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -> None:
@@ -239,3 +247,29 @@ def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -
     assert "当前是网络访问模式" in response.text
     assert "服务端那台机器" in response.text
     assert "id=\"browse-workdir\" disabled" in response.text
+
+
+def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/static/app.css")
+
+    assert response.status_code == 200
+    css = response.text
+    assert ".preview-box {" in css
+    assert "white-space: pre-wrap;" in css
+    assert ".timeline-event {" in css
+    assert ".timeline-empty {" in css
+    assert ".summary-card-head {" in css
+    assert ".console-focus-panel {" in css
+    assert ".top-nav-brand-lockup {" in css
+    assert ".page-stack {" in css
+    assert ".card-actions--loop {" in css
+    assert ".help-dot--tips {" in css
+    assert ".inline-hint-link {" in css
+    assert ".skill-download-card {" in css
+    assert re.search(r"@media \(max-width: 640px\)\s*{[\s\S]*?\.top-nav\s*{[\s\S]*?flex-wrap:\s*wrap;", css)
+    assert re.search(r"@media \(max-width: 640px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?overflow-x:\s*auto;", css)
+    assert re.search(r"@media \(max-width: 640px\)\s*{[\s\S]*?\.card-actions--loop,\s*\.card-actions--loop-compact\s*{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);", css)
+    assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.form-grid,\s*\.executor-config-grid\s*{[\s\S]*?grid-template-columns:\s*1fr;", css)

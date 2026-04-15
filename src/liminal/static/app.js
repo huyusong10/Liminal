@@ -181,6 +181,7 @@
     const loopCount = document.getElementById("loop-count");
     const loopGrid = document.getElementById("loop-grid");
     const emptyState = document.getElementById("loops-empty-state");
+    const loopGridNote = document.querySelector(".loop-grid-note");
     if (!modal || !modalDetail || !modalCancel || !modalConfirm) {
       return;
     }
@@ -224,6 +225,9 @@
       if (remainingCards === 0) {
         if (loopGrid) {
           loopGrid.hidden = true;
+        }
+        if (loopGridNote) {
+          loopGridNote.hidden = true;
         }
         if (emptyState) {
           emptyState.hidden = false;

@@ -10,33 +10,33 @@
   <script src="{{ static_asset_url('app.js') }}" defer></script>
 </head>
 <body>
-  <div class="site-shell">
-    <aside class="site-sidebar">
-      <a class="brand" href="/">
-        <img class="brand-logo" src="/logo/logo-with-text-horizontal.svg" alt="Liminal" />
+  <div class="page-shell">
+    <nav class="top-nav">
+      <a class="top-nav-brand" href="/" aria-label="Liminal home">
+        <img class="top-nav-brand-lockup" src="/logo/logo-with-text-horizontal-light.svg" alt="" aria-hidden="true" />
       </a>
-      <nav class="site-nav">
-        <a href="/">
-          <span data-lang="zh">循环</span>
-          <span data-lang="en">Loops</span>
+      <div class="top-nav-links">
+        <a class="top-nav-link {% if request.url.path == '/' %}active{% endif %}" href="/">
+          <span data-lang="zh">已创建</span>
+          <span data-lang="en">Created</span>
         </a>
-        <a href="/loops/new">
+        <a class="top-nav-link {% if request.url.path == '/loops/new' %}active{% endif %}" href="/loops/new">
           <span data-lang="zh">创建循环</span>
           <span data-lang="en">Create Loop</span>
         </a>
-        <a href="/tools">
+        <a class="top-nav-link {% if request.url.path == '/tools' %}active{% endif %}" href="/tools">
           <span data-lang="zh">工具</span>
           <span data-lang="en">Tools</span>
         </a>
-      </nav>
-    </aside>
-    <main class="site-main">
-      <div class="site-topbar">
+      </div>
+      <div class="top-nav-trailing">
         <div class="locale-switch" role="group" aria-label="Language switch">
           <button class="ghost-button locale-button" type="button" data-set-locale="zh">中文</button>
           <button class="ghost-button locale-button" type="button" data-set-locale="en">EN</button>
         </div>
       </div>
+    </nav>
+    <main class="site-main">
       {% block content %}{% endblock %}
     </main>
   </div>

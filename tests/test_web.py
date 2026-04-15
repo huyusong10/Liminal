@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import io
 import time
+import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -498,6 +500,23 @@ def test_api_spec_skill_install_targets_and_install(tmp_path: Path, monkeypatch)
     assert refreshed_targets["codex"]["install_state"] == "installed"
     assert skill_path.read_text(encoding="utf-8") == original_skill_text
     assert not stale_file.exists()
+
+
+def test_api_spec_skill_bundle_download_returns_zip(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
+
+    client = TestClient(build_app())
+    response = client.get("/api/skills/liminal-spec/download")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert response.headers["content-disposition"] == 'attachment; filename="liminal-spec.zip"'
+
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    names = set(archive.namelist())
+    assert "liminal-spec/SKILL.md" in names
+    assert "liminal-spec/references/liminal-spec-format.md" in names
 
 
 def test_logo_assets_are_served(service_factory) -> None:

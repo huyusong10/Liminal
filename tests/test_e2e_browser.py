@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import socket
 import textwrap
 import threading
+import time
+import urllib.request
 from contextlib import contextmanager
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+import uvicorn
 
 from liminal.db import LiminalRepository
 from liminal.executor import FakeCodexExecutor, RoleRequest
 from liminal.service import LiminalService
 from liminal.settings import AppSettings
+from liminal.web import build_app
 
 playwright = pytest.importorskip("playwright.sync_api")
 
@@ -167,6 +172,40 @@ def serve_directory(path: Path):
         thread.join(timeout=2)
 
 
+@contextmanager
+def serve_app(app):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        host, port = sock.getsockname()
+
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    base_url = f"http://{host}:{port}"
+    deadline = time.time() + 5
+    last_error = None
+
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(f"{base_url}/", timeout=0.5) as response:
+                if response.status == 200:
+                    break
+        except Exception as exc:  # pragma: no cover - startup timing dependent
+            last_error = exc
+            time.sleep(0.05)
+    else:  # pragma: no cover - environment dependent
+        server.should_exit = True
+        thread.join(timeout=5)
+        raise RuntimeError(f"app server did not start: {last_error}")
+
+    try:
+        yield base_url
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+
+
 def test_e2e_calculator_loop_runs_and_works_in_browser(tmp_path: Path) -> None:
     spec_path = tmp_path / "spec.md"
     spec_path.write_text(
@@ -239,3 +278,136 @@ def test_e2e_calculator_loop_runs_and_works_in_browser(tmp_path: Path) -> None:
                 browser.close()
         except Exception as exc:  # pragma: no cover - environment dependent
             pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+
+
+def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(
+    service_factory,
+    sample_spec_file: Path,
+    tmp_path: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    created_loop_ids: list[str] = []
+
+    for index in range(3):
+        workdir = tmp_path / f"layout-workdir-{index}"
+        workdir.mkdir()
+        (workdir / "README.md").write_text(f"# Layout fixture {index}\n", encoding="utf-8")
+        loop = service.create_loop(
+            name=f"Layout Loop {index + 1}",
+            spec_path=sample_spec_file,
+            workdir=workdir,
+            model="gpt-5.4",
+            reasoning_effort="medium",
+            max_iters=1,
+            max_role_retries=1,
+            delta_threshold=0.005,
+            trigger_window=2,
+            regression_window=2,
+            role_models={},
+        )
+        created_loop_ids.append(loop["id"])
+
+    try:
+        with serve_app(build_app(service=service)) as base_url:
+            try:
+                with playwright.sync_playwright() as p:
+                    browser = p.chromium.launch(headless=True)
+                    page = browser.new_page(viewport={"width": 375, "height": 844})
+
+                    page.goto(f"{base_url}/", wait_until="networkidle")
+                    assert page.locator(".top-nav-brand-lockup").get_attribute("src") == "/logo/logo-with-text-horizontal-light.svg"
+
+                    index_mobile = page.evaluate(
+                        """() => ({
+                          docW: document.documentElement.scrollWidth,
+                          clientW: document.documentElement.clientWidth,
+                          navW: document.querySelector(".top-nav").scrollWidth,
+                          cardCount: document.querySelectorAll(".loop-card").length,
+                          pageStackWidth: document.querySelector(".page-stack").getBoundingClientRect().width,
+                          noteCount: document.querySelectorAll(".loop-grid-note").length,
+                          actionWidths: Array.from(document.querySelectorAll(".loop-card:first-of-type .card-actions > *")).map((node) => Math.round(node.getBoundingClientRect().width))
+                        })"""
+                    )
+                    assert index_mobile["docW"] == index_mobile["clientW"]
+                    assert index_mobile["navW"] == index_mobile["clientW"]
+                    assert index_mobile["cardCount"] == len(created_loop_ids)
+                    assert index_mobile["noteCount"] == 1
+                    assert len(set(index_mobile["actionWidths"])) == 1
+
+                    page.set_viewport_size({"width": 1440, "height": 1200})
+                    page.goto(f"{base_url}/", wait_until="networkidle")
+                    index_desktop = page.evaluate(
+                        """() => ({
+                          pageStackWidth: document.querySelector(".page-stack").getBoundingClientRect().width,
+                          actionWidths: Array.from(document.querySelectorAll(".loop-card:first-of-type .card-actions > *")).map((node) => Math.round(node.getBoundingClientRect().width))
+                        })"""
+                    )
+                    assert len(set(index_desktop["actionWidths"])) == 1
+
+                    page.goto(f"{base_url}/loops/new", wait_until="networkidle")
+                    desktop_form = page.evaluate(
+                        """() => {
+                          const form = document.getElementById("new-loop-form").getBoundingClientRect();
+                          const hero = document.querySelector(".hero-form").getBoundingClientRect();
+                          const stack = document.querySelector(".page-stack").getBoundingClientRect();
+                          return {
+                            docW: document.documentElement.scrollWidth,
+                            clientW: document.documentElement.clientWidth,
+                            formWidth: form.width,
+                            heroWidth: hero.width,
+                            formLeft: form.left,
+                            formRight: form.right,
+                            pageStackWidth: stack.width
+                          };
+                        }"""
+                    )
+                    assert desktop_form["docW"] == desktop_form["clientW"]
+                    assert desktop_form["formWidth"] >= 1180
+                    assert desktop_form["heroWidth"] >= 1180
+                    assert abs(desktop_form["pageStackWidth"] - index_desktop["pageStackWidth"]) <= 2
+                    left_gutter = desktop_form["formLeft"]
+                    right_gutter = desktop_form["clientW"] - desktop_form["formRight"]
+                    assert abs(left_gutter - right_gutter) <= 24
+
+                    page.goto(f"{base_url}/tools", wait_until="networkidle")
+                    tools_desktop = page.evaluate(
+                        """() => ({
+                          pageStackWidth: document.querySelector(".page-stack").getBoundingClientRect().width,
+                          hasTipsButton: Boolean(document.querySelector(".help-dot--tips"))
+                        })"""
+                    )
+                    assert abs(tools_desktop["pageStackWidth"] - index_desktop["pageStackWidth"]) <= 2
+                    assert tools_desktop["hasTipsButton"] is True
+
+                    page.set_viewport_size({"width": 390, "height": 844})
+                    page.goto(f"{base_url}/loops/new", wait_until="networkidle")
+                    mobile_form = page.evaluate(
+                        """() => {
+                          const form = document.getElementById("new-loop-form").getBoundingClientRect();
+                          const stack = document.querySelector(".page-stack").getBoundingClientRect();
+                          return {
+                            docW: document.documentElement.scrollWidth,
+                            clientW: document.documentElement.clientWidth,
+                            formWidth: form.width,
+                            formLeft: form.left,
+                            formRight: form.right,
+                            pageStackWidth: stack.width
+                          };
+                        }"""
+                    )
+                    assert mobile_form["docW"] == mobile_form["clientW"]
+                    assert 320 <= mobile_form["formWidth"] <= mobile_form["clientW"]
+                    assert mobile_form["formLeft"] >= 0
+                    assert mobile_form["formRight"] <= mobile_form["clientW"] + 1
+                    assert mobile_form["pageStackWidth"] <= mobile_form["clientW"]
+
+                    browser.close()
+            except Exception as exc:  # pragma: no cover - environment dependent
+                pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+    finally:
+        for loop_id in list(created_loop_ids):
+            try:
+                service.delete_loop(loop_id)
+            except Exception:
+                continue
+        assert service.list_loops() == []

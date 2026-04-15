@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN" data-locale="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Liminal · Auth required</title>
+  <link rel="icon" href="/logo/logo.svg" sizes="any" type="image/svg+xml" />
+  <link rel="shortcut icon" href="/logo/logo.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="{{ static_asset_url('app.css') }}" />
+  <style>
+    .auth-shell {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        radial-gradient(circle at top right, rgba(214, 106, 54, 0.18), transparent 28%),
+        radial-gradient(circle at bottom left, rgba(13, 124, 102, 0.12), transparent 26%),
+        linear-gradient(180deg, #f5ede1 0%, #faf6f0 50%, #f0e6d6 100%);
+    }
+    .auth-card {
+      width: min(640px, 100%);
+      padding: 32px;
+      border-radius: 28px;
+      border: 1px solid rgba(139, 109, 74, 0.12);
+      background: rgba(255, 252, 246, 0.92);
+      box-shadow: 0 28px 70px rgba(31, 26, 20, 0.18);
+      backdrop-filter: blur(16px);
+    }
+    .auth-card h1 {
+      margin: 0 0 16px;
+      font-size: 2rem;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+    .auth-card p {
+      margin: 0 0 10px;
+      line-height: 1.7;
+      color: #8a7d6f;
+    }
+    .auth-card code {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(214, 106, 54, 0.12);
+      font-family: "SFMono-Regular", "IBM Plex Mono", monospace;
+      font-size: 0.86rem;
+    }
+    .auth-card-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .auth-card-brand img {
+      height: 32px;
+      width: auto;
+    }
+    .auth-card-brand-line {
+      flex: 1;
+      height: 1px;
+      background: rgba(139, 109, 74, 0.16);
+    }
+  </style>
+</head>
+<body>
+  <div class="auth-shell">
+    <div class="auth-card">
+      <div class="auth-card-brand">
+        <img src="/logo/logo-with-text-horizontal.svg" alt="Liminal" />
+        <span class="auth-card-brand-line" />
+      </div>
+      <h1>需要访问令牌 / Auth token required</h1>
+      <p>这个 Liminal 实例正在网络模式下运行，所以先带上令牌再进来比较稳妥。</p>
+      <p>This Liminal instance is exposed over the network, so it expects an auth token before letting requests through.</p>
+      <p>把令牌加到地址后面访问一次即可，例如：<code>{{ url_path }}?token=&lt;your-token&gt;</code></p>
+      <p>You can also send it as <code>Authorization: Bearer &lt;your-token&gt;</code> or <code>X-Liminal-Token</code>.</p>
+    </div>
+  </div>
+</body>
+</html>

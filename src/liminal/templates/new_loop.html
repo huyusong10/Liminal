@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Create Loop{% endblock %}
 {% block content %}
-<section class="hero hero-tight">
+<div class="page-stack">
+<section class="hero hero-tight hero-form">
   <div class="hero-copy-stack">
     <span class="eyebrow">
       <span data-lang="zh">新建循环</span>
@@ -22,13 +23,13 @@
 <div class="callout">
   <strong><span data-lang="zh">当前是网络访问模式</span><span data-lang="en">Network access mode is on</span></strong>
   <p>
-    <span data-lang="zh">现在填的路径都指向服务端那台机器，不是你手里这台浏览器。为了避免误会，原生“浏览”按钮已经收起来了，请直接粘贴服务端的绝对路径。</span>
+    <span data-lang="zh">现在填的路径都指向服务端那台机器，不是你手里这台浏览器。为了避免误会，原生"浏览"按钮已经收起来了，请直接粘贴服务端的绝对路径。</span>
     <span data-lang="en">Every path here points to the server machine, not the browser in your hand. To avoid confusion, the native browse buttons are disabled, so paste absolute paths from the server instead.</span>
   </p>
 </div>
 {% endif %}
 
-<form class="panel form-panel" method="post" action="/loops/new" id="new-loop-form">
+<form class="panel form-panel form-panel-wide" method="post" action="/loops/new" id="new-loop-form">
   <div
     class="field-status is-error"
     id="form-error"
@@ -87,6 +88,10 @@
     <label class="wide">
       <span class="label-row">
         <span><span data-lang="zh">Spec 路径</span><span data-lang="en">Spec path</span></span>
+        <a class="inline-hint-link" href="/tools">
+          <span data-lang="zh">不确定怎么写？先用 Spec Skill 把想法整理成可跑的 spec。</span>
+          <span data-lang="en">Not sure how to write it yet? Use Spec Skill to turn the idea into a runnable spec.</span>
+        </a>
         <button
           class="help-dot"
           type="button"
@@ -384,8 +389,8 @@
   <div class="callout">
     <strong><span data-lang="zh">额外工具</span><span data-lang="en">Extra tools</span></strong>
     <p>
-      <span data-lang="zh">如果你想安装 <code>liminal-spec</code> skill，请到侧边栏里的“工具”页操作。</span>
-      <span data-lang="en">If you want to install the <code>liminal-spec</code> skill, use the dedicated Tools page from the sidebar.</span>
+      <span data-lang="zh">如果你想安装 <code>liminal-spec</code> skill，请到顶部导航栏里的"工具"页操作。</span>
+      <span data-lang="en">If you want to install the <code>liminal-spec</code> skill, use the Tools page from the top navigation.</span>
     </p>
   </div>
 
@@ -402,4 +407,5 @@
 </form>
 <script id="executor-profiles-json" type="application/json">{{ executor_profiles|tojson }}</script>
 <script src="{{ static_asset_url('pages/new_loop.js') }}" defer></script>
+</div>
 {% endblock %}
