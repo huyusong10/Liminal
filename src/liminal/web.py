@@ -320,6 +320,23 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             },
         )
 
+    @app.get("/runs/{run_id}/console", response_class=HTMLResponse)
+    async def run_console(request: Request, run_id: str) -> HTMLResponse:
+        run = svc().get_run(run_id)
+        seed_events = svc().stream_events(run_id, limit=5000)
+        latest_event_id = seed_events[-1]["id"] if seed_events else 0
+        return templates.TemplateResponse(
+            request,
+            "run_console.html",
+            {
+                "request": request,
+                "run": run,
+                "console_events": seed_events[-360:],
+                "latest_event_id": latest_event_id,
+                "access_state": access_state,
+            },
+        )
+
     @app.post("/api/loops")
     async def api_create_loop(request: Request) -> JSONResponse:
         payload = await request.json()
@@ -337,6 +354,10 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     @app.get("/api/loops")
     async def api_list_loops() -> JSONResponse:
         return JSONResponse(svc().list_loops())
+
+    @app.get("/api/runtime/activity")
+    async def api_runtime_activity() -> JSONResponse:
+        return JSONResponse(svc().get_runtime_activity())
 
     @app.get("/api/loops/{loop_id}")
     async def api_get_loop(loop_id: str) -> JSONResponse:

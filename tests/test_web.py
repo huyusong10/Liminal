@@ -137,6 +137,47 @@ def test_api_run_events_and_stream_require_a_real_run(service_factory) -> None:
     assert "unknown run" in stream_response.json()["error"]
 
 
+def test_api_runtime_activity_reports_running_runs(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success", role_delay=0.4)
+    loop = service.create_loop(
+        name="Runtime Activity Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    service.start_run_async(run["id"])
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        current = service.get_run(run["id"])
+        if current["status"] == "running":
+            break
+        time.sleep(0.05)
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/api/runtime/activity")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["running_count"] >= 1
+    assert payload["has_running_runs"] is True
+    assert any(item["id"] == run["id"] and item["loop_name"] == "Runtime Activity Loop" for item in payload["runs"])
+
+    service.stop_run(run["id"])
+
+
 def test_api_run_stream_emits_stream_error_on_backend_failure() -> None:
     class FlakyService:
         def get_run(self, run_id: str) -> dict:

@@ -158,8 +158,8 @@
       <div>
         <h2><span data-lang="zh">控制台</span><span data-lang="en">Console</span></h2>
         <p class="console-copy">
-          <span data-lang="zh">这里会实时显示角色输出、命令执行和关键错误。</span>
-          <span data-lang="en">Role output, commands, and key errors stream here in real time.</span>
+          <span data-lang="zh">这里会白盒化展示命令下发、终端输出、阶段进展和关键错误，让这轮 run 正在做什么尽量一眼可见。</span>
+          <span data-lang="en">This console white-boxes issued commands, terminal output, stage progress, and critical errors so the current run feels legible at a glance.</span>
         </p>
       </div>
       <div class="console-meta">
@@ -170,7 +170,18 @@
         <span id="console-line-count">0 lines</span>
       </div>
     </header>
+    <div class="console-legend" aria-label="Console event legend">
+      <span class="console-legend-chip console-legend-chip-command"><span data-lang="zh">命令</span><span data-lang="en">Command</span></span>
+      <span class="console-legend-chip console-legend-chip-stdout"><span data-lang="zh">终端输出</span><span data-lang="en">Stdout</span></span>
+      <span class="console-legend-chip console-legend-chip-system"><span data-lang="zh">系统阶段</span><span data-lang="en">System</span></span>
+      <span class="console-legend-chip console-legend-chip-progress"><span data-lang="zh">模型进度</span><span data-lang="en">Progress</span></span>
+      <span class="console-legend-chip console-legend-chip-error"><span data-lang="zh">错误</span><span data-lang="en">Error</span></span>
+    </div>
     <div class="console-shell" id="console-shell">
+      <a class="ghost-button console-popout-button" id="console-popout-link" href="/runs/{{ run.id }}/console" target="_blank" rel="noreferrer">
+        <span data-lang="zh">全屏终端</span>
+        <span data-lang="en">Fullscreen</span>
+      </a>
       <div class="console-output" id="console-output"></div>
     </div>
   </article>
@@ -247,7 +258,7 @@
   let autoScrollConsole = true;
   let pollTimer = null;
   let heartbeatTimer = null;
-  const MAX_CONSOLE_LINES = 280;
+  const MAX_CONSOLE_LINES = 420;
 
   function localeText(zh, en) {
     return window.LiminalUI.pickText({zh, en});
@@ -1115,6 +1126,33 @@
     return Math.floor(parsed) + 1;
   }
 
+  function consoleChannelLabel(channel) {
+    const labels = {
+      command: localeText("命令", "Command"),
+      stdout: localeText("输出", "Stdout"),
+      state: localeText("状态", "State"),
+      progress: localeText("进展", "Progress"),
+      model: localeText("模型", "Model"),
+      file: localeText("文件", "Files"),
+      error: localeText("错误", "Error"),
+      warning: localeText("提醒", "Warning"),
+    };
+    return labels[channel] || localeText("信息", "Info");
+  }
+
+  function buildConsoleEntry(event, {tone = "info", channel = "state", text = "", indent = 0, roleLabel = null} = {}) {
+    const payload = event.payload || {};
+    const resolvedRole = roleLabel || window.LiminalUI.translateRole(event.role || payload.role || "system");
+    return {
+      tone,
+      channel,
+      text: String(text || "").trim(),
+      indent: Math.max(0, Math.min(2, Number(indent) || 0)),
+      stamp: formatClock(event.created_at),
+      label: `${resolvedRole} · ${consoleChannelLabel(channel)}`,
+    };
+  }
+
   function syncConsoleMeta() {
     const output = document.getElementById("console-output");
     document.getElementById("console-line-count").textContent = lineCountLabel(output.children.length);
@@ -1138,9 +1176,21 @@
     const output = document.getElementById("console-output");
     const shouldStick = autoScrollConsole || shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 24;
     for (const line of lines) {
-      const row = document.createElement("div");
-      row.className = `console-line console-line-${line.tone || "info"}`;
-      row.textContent = line.text;
+      const row = document.createElement("article");
+      row.className = `console-line console-line-${line.tone || "info"} console-line-indent-${line.indent || 0}`;
+      const meta = document.createElement("div");
+      meta.className = "console-line-meta";
+      const stamp = document.createElement("span");
+      stamp.className = "console-line-stamp";
+      stamp.textContent = line.stamp || "--:--:--";
+      const badge = document.createElement("span");
+      badge.className = "console-line-badge";
+      badge.textContent = line.label || localeText("系统 · 信息", "system · info");
+      meta.append(stamp, badge);
+      const body = document.createElement("div");
+      body.className = "console-line-body";
+      body.textContent = line.text;
+      row.append(meta, body);
       output.appendChild(row);
     }
     while (output.children.length > MAX_CONSOLE_LINES) {
@@ -1154,22 +1204,31 @@
 
   function buildConsoleLines(event) {
     const payload = event.payload || {};
-    const role = window.LiminalUI.translateRole(event.role || payload.role || "system");
-    const prefix = `[${formatClock(event.created_at)}] ${role}`;
-    const lines = [];
 
     if (event.event_type === "run_started") {
-      return [{tone: "system", text: `${prefix} · ${localeText("运行开始", "Run started")}`}];
+      return [buildConsoleEntry(event, {tone: "system", channel: "state", text: localeText("运行开始", "Run started")})];
     }
     if (event.event_type === "checks_resolved") {
-      return [{tone: "system", text: `${prefix} · ${localeText("检查项已就绪", "Checks resolved")} (${payload.count || 0})`}];
+      return [buildConsoleEntry(event, {
+        tone: "system",
+        channel: "state",
+        text: `${localeText("检查项已就绪", "Checks resolved")} (${payload.count || 0})`,
+      })];
     }
     if (event.event_type === "role_started") {
       const iterLabel = payload.iter !== undefined ? ` · ${localeText("迭代", "iter")} ${displayIter(payload.iter)}` : "";
-      return [{tone: "system", text: `${prefix} · ${localeText("开始执行", "started")}${iterLabel}`}];
+      return [buildConsoleEntry(event, {
+        tone: "system",
+        channel: "state",
+        text: `${localeText("开始执行", "Started")}${iterLabel}`,
+      })];
     }
     if (event.event_type === "role_degraded") {
-      return [{tone: "warning", text: `${prefix} · ${localeText("降级到", "degraded to")} ${payload.mode || "-"}`}];
+      return [buildConsoleEntry(event, {
+        tone: "warning",
+        channel: "warning",
+        text: `${localeText("降级到", "Degraded to")} ${payload.mode || "-"}`,
+      })];
     }
     if (event.event_type === "role_execution_summary") {
       const tone = payload.ok ? "success" : "error";
@@ -1177,38 +1236,77 @@
       const detail = payload.ok
         ? `${localeText("完成", "completed")} · ${localeText("尝试", "attempts")}=${payload.attempts || 1}${durationText ? ` · ${durationText}` : ""}`
         : `${localeText("失败", "failed")} · ${payload.error || "-"}${durationText ? ` · ${durationText}` : ""}`;
-      return [{tone, text: `${prefix} · ${detail}`}];
+      return [buildConsoleEntry(event, {
+        tone,
+        channel: payload.ok ? "state" : "error",
+        text: detail,
+      })];
     }
     if (event.event_type === "run_aborted") {
-      return [{tone: "error", text: `${prefix} · ${localeText("运行中止", "Run aborted")} · ${payload.error || payload.role || "-"}`}];
+      return [buildConsoleEntry(event, {
+        tone: "error",
+        channel: "error",
+        text: `${localeText("运行中止", "Run aborted")} · ${payload.error || payload.role || "-"}`,
+      })];
     }
     if (event.event_type === "workspace_guard_triggered") {
-      return [{
+      return [buildConsoleEntry(event, {
         tone: "error",
-        text: `${prefix} · ${localeText("工作区安全守卫触发", "Workspace safety guard triggered")} · ${localeText("删掉原始文件", "Deleted original files")}=${payload.deleted_original_count || 0}`,
-      }];
+        channel: "error",
+        text: `${localeText("工作区安全守卫触发", "Workspace safety guard triggered")} · ${localeText("删掉原始文件", "Deleted original files")}=${payload.deleted_original_count || 0}`,
+      })];
     }
     if (event.event_type === "stop_requested") {
-      return [{tone: "warning", text: `${prefix} · ${localeText("已请求停止", "Stop requested")}`}];
+      return [buildConsoleEntry(event, {
+        tone: "warning",
+        channel: "warning",
+        text: localeText("已请求停止", "Stop requested"),
+      })];
     }
     if (event.event_type === "run_finished") {
-      return [{tone: payload.status === "succeeded" ? "success" : "warning", text: `${prefix} · ${localeText("运行结束", "Run finished")} · ${window.LiminalUI.translateStatus(payload.status || "succeeded")}`}];
+      return [buildConsoleEntry(event, {
+        tone: payload.status === "succeeded" ? "success" : "warning",
+        channel: "state",
+        text: `${localeText("运行结束", "Run finished")} · ${window.LiminalUI.translateStatus(payload.status || "succeeded")}`,
+      })];
     }
     if (event.event_type !== "codex_event") {
       return [];
     }
 
     if (payload.type === "stdout" && payload.message) {
-      return String(payload.message).split("\n").filter(Boolean).map((line) => ({tone: "stdout", text: `${prefix} | ${line}`}));
+      return String(payload.message)
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => buildConsoleEntry(event, {
+          tone: "stdout",
+          channel: "stdout",
+          text: line,
+          indent: 1,
+        }));
     }
     if (payload.type === "command" && payload.message) {
-      return [{tone: "command", text: `${prefix} $ ${String(payload.message).trim()}`}];
+      return [buildConsoleEntry(event, {
+        tone: "command",
+        channel: "command",
+        text: `$ ${String(payload.message).trim()}`,
+      })];
     }
     if (payload.type === "error") {
-      return [{tone: "error", text: `${prefix} | ${String(payload.message || payload.error?.message || localeText("发生错误", "Error")).trim()}`}];
+      return [buildConsoleEntry(event, {
+        tone: "error",
+        channel: "error",
+        text: String(payload.message || payload.error?.message || localeText("发生错误", "Error")).trim(),
+        indent: 1,
+      })];
     }
     if (payload.type === "turn.failed") {
-      return [{tone: "error", text: `${prefix} | ${String(payload.error?.message || localeText("本轮失败", "Turn failed")).trim()}`}];
+      return [buildConsoleEntry(event, {
+        tone: "error",
+        channel: "error",
+        text: String(payload.error?.message || localeText("本轮失败", "Turn failed")).trim(),
+        indent: 1,
+      })];
     }
 
     const item = payload.item || {};
@@ -1217,29 +1315,64 @@
     }
 
     if (payload.type === "item.started" && item.type === "command_execution") {
-      return [{tone: "command", text: `${prefix} $ ${item.command || ""}`}];
+      return [buildConsoleEntry(event, {
+        tone: "command",
+        channel: "command",
+        text: `$ ${item.command || ""}`,
+      })];
     }
     if (payload.type === "item.completed" && item.type === "command_execution") {
       if (item.aggregated_output) {
-        return String(item.aggregated_output).split("\n").filter(Boolean).map((line) => ({tone: "stdout", text: `${prefix} | ${line}`}));
+        return String(item.aggregated_output)
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => buildConsoleEntry(event, {
+            tone: "stdout",
+            channel: "stdout",
+            text: line,
+            indent: 1,
+          }));
       }
       return item.exit_code && item.exit_code !== 0
-        ? [{tone: "error", text: `${prefix} | ${localeText("命令退出码", "Command exit code")} ${item.exit_code}`}]
+        ? [buildConsoleEntry(event, {
+          tone: "error",
+          channel: "error",
+          text: `${localeText("命令退出码", "Command exit code")} ${item.exit_code}`,
+          indent: 1,
+        })]
         : [];
     }
     if (payload.type === "item.completed" && item.type === "file_change") {
       const changed = (item.changes || []).map((change) => change.path?.split("/").pop()).filter(Boolean).join(", ");
-      return [{tone: "success", text: `${prefix} | ${localeText("文件变更", "Files changed")}: ${changed || "-"}`}];
+      return [buildConsoleEntry(event, {
+        tone: "success",
+        channel: "file",
+        text: `${localeText("文件变更", "Files changed")}: ${changed || "-"}`,
+        indent: 1,
+      })];
     }
     if ((payload.type === "item.started" || payload.type === "item.updated") && item.type === "todo_list") {
       const total = (item.items || []).length;
       const completed = (item.items || []).filter((entry) => entry.completed).length;
-      return [{tone: "info", text: `${prefix} | ${localeText("待办进度", "Todo progress")}: ${completed}/${total}`}];
+      return [buildConsoleEntry(event, {
+        tone: "progress",
+        channel: "progress",
+        text: `${localeText("待办进度", "Todo progress")}: ${completed}/${total}`,
+        indent: 1,
+      })];
     }
     if (payload.type === "item.completed" && item.type === "agent_message" && item.text) {
-      return String(item.text).split("\n").filter(Boolean).map((line) => ({tone: "info", text: `${prefix} | ${line}`}));
+      return String(item.text)
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => buildConsoleEntry(event, {
+          tone: "progress",
+          channel: "model",
+          text: line,
+          indent: 1,
+        }));
     }
-    return lines;
+    return [];
   }
 
   function renderConsole() {

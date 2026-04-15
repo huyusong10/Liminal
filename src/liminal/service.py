@@ -675,6 +675,42 @@ class LiminalService:
             payload["runs"] = self.repository.list_runs_for_loop(payload["id"])
         return kind, payload
 
+    def get_runtime_activity(self) -> dict:
+        self._reconcile_local_orphaned_runs()
+        active_runs = self.repository.list_active_runs()
+        loop_name_by_id = {
+            loop["id"]: loop["name"]
+            for loop in self.repository.list_loops()
+        }
+        running_count = 0
+        queued_count = 0
+        runs = []
+        for run in active_runs:
+            status = str(run.get("status") or "").strip()
+            if status == "running":
+                running_count += 1
+            elif status == "queued":
+                queued_count += 1
+            runs.append(
+                {
+                    "id": run["id"],
+                    "loop_id": run["loop_id"],
+                    "loop_name": loop_name_by_id.get(run["loop_id"]) or run["loop_id"],
+                    "status": status or "queued",
+                    "active_role": run.get("active_role"),
+                    "current_iter": run.get("current_iter"),
+                    "workdir": run.get("workdir"),
+                    "updated_at": run.get("updated_at"),
+                }
+            )
+        return {
+            "running_count": running_count,
+            "queued_count": queued_count,
+            "has_running_runs": running_count > 0,
+            "has_active_runs": bool(active_runs),
+            "runs": runs,
+        }
+
     def rerun(self, loop_id: str, *, background: bool = False) -> dict:
         run = self.start_run(loop_id)
         if background:

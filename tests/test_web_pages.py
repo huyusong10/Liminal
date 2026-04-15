@@ -94,6 +94,39 @@ def test_run_detail_places_run_files_and_console_before_timeline(
     assert "正在安装依赖" in response.text
     assert "正在启动本地服务" in response.text
     assert "正在准备浏览器环境" in response.text
+    assert "console-popout-link" in response.text
+    assert "全屏终端" in response.text
+
+
+def test_run_console_page_renders_fullscreen_console_view(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Fullscreen Console Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/runs/{run['id']}/console")
+
+    assert response.status_code == 200
+    assert "Fullscreen Console Loop" in response.text
+    assert "console-focus-shell" in response.text
+    assert "console-focus-output" in response.text
+    assert "/static/pages/run_console.js?v=" in response.text
 
 
 def test_loop_detail_uses_summary_cards_for_latest_run(
@@ -173,6 +206,8 @@ def test_tools_page_renders_skill_install_cards(service_factory) -> None:
     assert "data-install-skill=\"claude\"" in response.text
     assert "data-install-skill=\"opencode\"" in response.text
     assert "顺手的小外挂" in response.text
+    assert "wake-lock-toggle" in response.text
+    assert "Prevent sleep while running" in response.text
 
 
 def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
