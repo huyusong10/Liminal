@@ -40,7 +40,52 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     assert (run_dir / "verifier_verdict.json").exists()
     assert (run_dir / "stagnation.json").exists()
     assert (sample_workdir / ".liminal" / "loops" / loop["id"] / "compiled_spec.json").exists()
-    assert "All checks passed in this iteration." in (run_dir / "summary.md").read_text(encoding="utf-8")
+    summary = (run_dir / "summary.md").read_text(encoding="utf-8")
+    assert "All checks passed in this iteration." in summary
+    assert "## Generator" in summary
+    assert "## Verifier" in summary
+    assert "iteration_log.jsonl" in summary
+
+
+def test_successful_run_enriches_logs_and_role_outputs(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Verbose Logs Loop")
+
+    run = service.rerun(loop["id"])
+
+    run_dir = Path(run["runs_dir"])
+    tester_output = json.loads((run_dir / "tester_output.json").read_text(encoding="utf-8"))
+    verifier_verdict = json.loads((run_dir / "verifier_verdict.json").read_text(encoding="utf-8"))
+    metrics_history = [
+        json.loads(line)
+        for line in (run_dir / "metrics_history.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    iteration_log = [
+        json.loads(line)
+        for line in (run_dir / "iteration_log.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert tester_output["status_counts"]["overall"]["passed"] >= 1
+    assert "failed_items" in tester_output
+    assert verifier_verdict["decision_summary"]
+    assert "failing_metrics" in verifier_verdict
+    assert "next_actions" in verifier_verdict
+    assert metrics_history[-1]["stagnation_mode"] in {"none", "plateau", "regression"}
+    assert "score_delta" in metrics_history[-1]
+
+    complete_entries = [entry for entry in iteration_log if entry["phase"] == "complete"]
+    assert complete_entries
+    latest_entry = complete_entries[-1]
+    assert latest_entry["generator"]["changed_files"] == []
+    assert latest_entry["tester"]["status_counts"]["overall"]["passed"] >= 1
+    assert latest_entry["verifier"]["decision_summary"]
+    assert latest_entry["score"]["composite"] == verifier_verdict["composite_score"]
 
 
 def test_destructive_generator_is_blocked_by_workspace_guard(
@@ -256,6 +301,91 @@ def test_get_run_recovers_local_orphaned_active_run(service_factory, sample_spec
     assert "Recovered orphaned run" in (recovered["error_message"] or "")
     events = service.repository.list_events(run["id"], after_id=0, limit=1000)
     assert any(event["event_type"] == "run_aborted" for event in events)
+
+
+def test_second_service_instance_does_not_recover_run_active_in_same_process(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Shared Process Loop")
+    run = service.start_run(loop["id"])
+    service.repository.update_run(
+        run["id"],
+        status="running",
+        runner_pid=os.getpid(),
+        active_role="generator",
+        started_at="2026-04-13T08:00:00+00:00",
+    )
+    service._mark_run_active(run["id"])
+
+    try:
+        restarted = LiminalService(
+            repository=service.repository,
+            settings=service.settings,
+            executor_factory=service.executor_factory,
+        )
+        restarted._local_run_orphan_grace_seconds = lambda: 0.0  # type: ignore[method-assign]
+
+        current = restarted.get_run(run["id"])
+
+        assert current["status"] == "running"
+        assert current["error_message"] in {None, ""}
+    finally:
+        service._mark_run_inactive(run["id"])
+
+
+def test_second_service_instance_does_not_recover_queued_run_with_same_process_pid(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Queued Shared Process Loop")
+    run = service.start_run(loop["id"])
+    service.repository.update_run(
+        run["id"],
+        status="queued",
+        runner_pid=os.getpid(),
+        started_at="2026-04-13T08:00:00+00:00",
+    )
+    service._mark_run_active(run["id"])
+
+    try:
+        restarted = LiminalService(
+            repository=service.repository,
+            settings=service.settings,
+            executor_factory=service.executor_factory,
+        )
+        restarted._local_run_orphan_grace_seconds = lambda: 0.0  # type: ignore[method-assign]
+
+        current = restarted.get_run(run["id"])
+
+        assert current["status"] == "queued"
+        assert current["error_message"] in {None, ""}
+    finally:
+        service._mark_run_inactive(run["id"])
+
+
+def test_early_execute_run_crash_is_persisted_as_failed(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Early Crash Loop")
+    run = service.start_run(loop["id"])
+
+    service.executor_factory = lambda: (_ for _ in ()).throw(RuntimeError("executor boot failed"))  # type: ignore[assignment]
+
+    failed = service.execute_run(run["id"])
+
+    assert failed["status"] == "failed"
+    assert failed["error_message"] == "executor boot failed"
+    assert run["id"] not in LiminalService._process_active_runs
+    summary = Path(failed["runs_dir"]) / "summary.md"
+    assert "Execution crashed unexpectedly." in summary.read_text(encoding="utf-8")
 
 
 def test_stop_run_rejects_finished_runs(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
