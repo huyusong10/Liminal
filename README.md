@@ -138,6 +138,13 @@ Liminal uses a Markdown spec with these top-level sections:
 When `# Checks` is omitted, Liminal generates a frozen exploratory check set at run start. When checks are provided explicitly, each check should use a `###` heading and include `When`, `Expect`, and `Fail if`.
 For existing projects, it is a good idea to use `# Constraints` to say what must stay untouched and to make it explicit that existing user files should be preserved.
 
+For long-running benchmark or evaluation loops, specs work better when they make the owned workflow explicit:
+
+- Put the real success condition in `# Goal`, not just "run the benchmark". Name the project-owned harness and the stop condition if you already know them.
+- Use `# Checks` for judgeable outcomes such as fresh score/report artifacts, thresholded scores, or a clearly evidenced architecture-blocked stop condition.
+- Use `# Constraints` for forbidden shortcuts, preserved directories, and the only acceptable sources of improvement.
+- If the run will take a while, name the project-owned status or report artifacts that should be observed while waiting so silence is not the only progress signal.
+
 ## Web Console
 
 The local console includes:

@@ -61,12 +61,25 @@ def test_cli_run_supports_command_mode_background_and_role_models(monkeypatch, t
             calls["create_loop"] = kwargs
             return {"id": "loop_cmd", "name": kwargs["name"], "workdir": str(kwargs["workdir"])}
 
+        def start_run(self, loop_id: str):
+            calls["start_run"] = loop_id
+            return {
+                "id": "run_cmd",
+                "status": "queued",
+                "runs_dir": str(tmp_path / "runs" / "run_cmd"),
+                "workdir": str(workdir),
+            }
+
         def rerun(self, loop_id: str, background: bool = False):
-            calls["rerun"] = loop_id
-            calls["background"] = background
-            return {"id": "run_cmd", "status": "queued", "runs_dir": str(tmp_path / "runs" / "run_cmd")}
+            raise AssertionError("background CLI path should not call service.rerun()")
 
     monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+
+    def fake_spawn_background_worker(_service, run: dict):
+        calls["spawned_run_id"] = run["id"]
+        return run
+
+    monkeypatch.setattr(cli, "_spawn_background_worker", fake_spawn_background_worker)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -112,8 +125,8 @@ def test_cli_run_supports_command_mode_background_and_role_models(monkeypatch, t
     )
 
     assert result.exit_code == 0, result.stdout
-    assert calls["rerun"] == "loop_cmd"
-    assert calls["background"] is True
+    assert calls["start_run"] == "loop_cmd"
+    assert calls["spawned_run_id"] == "run_cmd"
     assert calls["create_loop"]["executor_mode"] == "command"
     assert calls["create_loop"]["command_cli"] == "codex"
     assert "{schema_path}" in calls["create_loop"]["command_args_text"]
@@ -122,6 +135,38 @@ def test_cli_run_supports_command_mode_background_and_role_models(monkeypatch, t
         "generator": "gpt-5.4",
         "verifier": "gpt-5.4-mini",
     }
+
+
+def test_cli_loops_rerun_background_spawns_worker(monkeypatch, tmp_path: Path) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeService:
+        def start_run(self, loop_id: str):
+            calls["start_run"] = loop_id
+            return {
+                "id": "run_background",
+                "status": "queued",
+                "runs_dir": str(tmp_path / "runs" / "run_background"),
+                "workdir": str(tmp_path / "workdir"),
+            }
+
+        def rerun(self, loop_id: str, background: bool = False):
+            raise AssertionError("background CLI path should not call service.rerun()")
+
+    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+
+    def fake_spawn_background_worker(_service, run: dict):
+        calls["spawned"] = run["id"]
+        return run
+
+    monkeypatch.setattr(cli, "_spawn_background_worker", fake_spawn_background_worker)
+    runner = CliRunner()
+
+    result = runner.invoke(cli.app, ["loops", "rerun", "loop_saved", "--background"])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls["start_run"] == "loop_saved"
+    assert calls["spawned"] == "run_background"
 
 
 def test_cli_loops_create_can_save_without_starting(monkeypatch, tmp_path: Path) -> None:

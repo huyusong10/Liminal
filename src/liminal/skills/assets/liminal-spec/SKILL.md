@@ -53,6 +53,7 @@ Section rules:
 - `# Checks` should contain independently judgeable outcomes. Each check should test one idea. A good check gives the Tester something concrete to inspect and gives the Verifier a clear pass/fail basis.
 - `# Constraints` should list only real boundaries such as preservation rules, forbidden directories, required interfaces, tool limits, compatibility requirements, or non-goals.
 - Meta-rules about what kinds of changes are allowed usually belong in `# Constraints`, not `# Checks`.
+- For long-running benchmark loops, put the trusted project-owned harness, stop condition, and live status/report artifacts into the spec so Generator and Tester know what evidence path to follow while the run is still in progress.
 - Stop conditions, escalation rules, and "when it is acceptable to stop iterating" are usually run policy, not product behavior. Only encode them as explicit checks when the user clearly wants the loop judged on that policy.
 
 Heuristics for placing content:

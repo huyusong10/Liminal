@@ -290,6 +290,10 @@ class LiminalService:
                         run_dir,
                         iter_id,
                         generator_mode["value"],
+                        previous_generator_result=last_generator_result,
+                        previous_tester_result=last_tester_result,
+                        previous_verifier_result=last_verifier_result,
+                        previous_challenger_result=last_challenger_result,
                     ),
                     retry_config,
                     degrade_once=lambda: self._set_mode(run_id, iter_id, "generator", generator_mode, "conservative_changes"),
@@ -737,6 +741,8 @@ class LiminalService:
         for run in self.repository.list_active_runs():
             if self._run_process_may_still_be_alive(run):
                 continue
+            if not self._startup_stale_run_is_recoverable(run):
+                continue
             logger.warning("recovering stale run %s after startup because runner pid %s is not alive", run["id"], run.get("runner_pid"))
             summary = (
                 "# Liminal Run Summary\n\n"
@@ -762,6 +768,15 @@ class LiminalService:
         if run.get("status") == "queued":
             return bool(pid and self._pid_exists(pid))
         return bool(pid and self._pid_exists(pid))
+
+    def _startup_stale_run_is_recoverable(self, run: dict) -> bool:
+        if run.get("runner_pid"):
+            return True
+        updated_at = self._parse_run_timestamp(run.get("updated_at") or run.get("started_at") or run.get("queued_at"))
+        if updated_at is None:
+            return False
+        age_seconds = time.time() - updated_at.timestamp()
+        return age_seconds >= self._local_run_orphan_grace_seconds()
 
     def _reconcile_local_orphaned_runs(self) -> None:
         for run in self.repository.list_active_runs():
@@ -1018,6 +1033,7 @@ class LiminalService:
         started_at = time.perf_counter()
 
         def wrapped() -> dict:
+            self._ensure_not_stopped(run_id)
             self.repository.update_run(run_id, active_role=role)
             start_payload = {"role": role}
             if iter_id is not None:
@@ -1055,12 +1071,26 @@ class LiminalService:
         run_dir: Path,
         iter_id: int,
         mode: str,
+        *,
+        previous_generator_result: dict | None = None,
+        previous_tester_result: dict | None = None,
+        previous_verifier_result: dict | None = None,
+        previous_challenger_result: dict | None = None,
     ) -> dict:
         output_path = run_dir / "generator_output.json"
         request = RoleRequest(
             run_id=run["id"],
             role="generator",
-            prompt=self._generator_prompt(compiled_spec, Path(run["workdir"]), iter_id, mode),
+            prompt=self._generator_prompt(
+                compiled_spec,
+                Path(run["workdir"]),
+                iter_id,
+                mode,
+                previous_generator_result=previous_generator_result,
+                previous_tester_result=previous_tester_result,
+                previous_verifier_result=previous_verifier_result,
+                previous_challenger_result=previous_challenger_result,
+            ),
             workdir=Path(run["workdir"]),
             executor_kind=run.get("executor_kind", "codex"),
             executor_mode=run.get("executor_mode", "preset"),
@@ -1073,8 +1103,16 @@ class LiminalService:
             run_dir=run_dir,
             sandbox="workspace-write",
             idle_timeout_seconds=self.settings.role_idle_timeout_seconds,
-            extra_context={"iter_id": iter_id, "compiled_spec": compiled_spec},
+            extra_context={
+                "iter_id": iter_id,
+                "compiled_spec": compiled_spec,
+                "previous_generator_result": previous_generator_result,
+                "previous_tester_result": previous_tester_result,
+                "previous_verifier_result": previous_verifier_result,
+                "previous_challenger_result": previous_challenger_result,
+            },
         )
+        self._record_role_request(run["id"], request)
         return executor.execute(
             request,
             lambda event_type, payload: self.repository.append_event(run["id"], event_type, payload, role="generator"),
@@ -1108,6 +1146,7 @@ class LiminalService:
             idle_timeout_seconds=self.settings.role_idle_timeout_seconds,
             extra_context={"compiled_spec": compiled_spec},
         )
+        self._record_role_request(run["id"], request)
         return executor.execute(
             request,
             lambda event_type, payload: self.repository.append_event(run["id"], event_type, payload, role="check_planner"),
@@ -1143,6 +1182,7 @@ class LiminalService:
             idle_timeout_seconds=self.settings.role_idle_timeout_seconds,
             extra_context={"iter_id": iter_id, "compiled_spec": compiled_spec},
         )
+        self._record_role_request(run["id"], request)
         return executor.execute(
             request,
             lambda event_type, payload: self.repository.append_event(run["id"], event_type, payload, role="tester"),
@@ -1179,6 +1219,7 @@ class LiminalService:
             idle_timeout_seconds=self.settings.role_idle_timeout_seconds,
             extra_context={"iter_id": iter_id, "compiled_spec": compiled_spec, "tester_output": tester_output},
         )
+        self._record_role_request(run["id"], request)
         return executor.execute(
             request,
             lambda event_type, payload: self.repository.append_event(run["id"], event_type, payload, role="verifier"),
@@ -1218,6 +1259,7 @@ class LiminalService:
                 "stagnation_mode": stagnation["stagnation_mode"],
             },
         )
+        self._record_role_request(run["id"], request)
         return executor.execute(
             request,
             lambda event_type, payload: self.repository.append_event(run["id"], event_type, payload, role="challenger"),
@@ -1245,6 +1287,92 @@ class LiminalService:
             (run_dir / "summary.md").write_text(summary, encoding="utf-8")
         except OSError:
             logger.exception("failed to persist summary for run dir %s", run_dir)
+
+    def _record_role_request(self, run_id: str, request: RoleRequest) -> None:
+        request_dir = request.run_dir / "role_requests"
+        request_dir.mkdir(parents=True, exist_ok=True)
+        base_name = self._role_request_basename(request)
+        prompt_path = request_dir / f"{base_name}.prompt.txt"
+        prompt_path.write_text(request.prompt, encoding="utf-8")
+        payload = {
+            "timestamp": utc_now(),
+            "role": request.role,
+            "iter": request.extra_context.get("iter_id"),
+            "executor_kind": request.executor_kind,
+            "executor_mode": request.executor_mode,
+            "model": request.model,
+            "reasoning_effort": request.reasoning_effort,
+            "sandbox": request.sandbox,
+            "workdir": str(request.workdir),
+            "output_path": str(request.output_path),
+            "prompt_path": str(prompt_path),
+            "extra_context_keys": sorted(request.extra_context.keys()),
+            "context_summary": self._summarize_role_request_context(request.extra_context),
+        }
+        append_jsonl(request.run_dir / "role_requests.jsonl", payload)
+        self.repository.append_event(run_id, "role_request_prepared", payload, role=request.role)
+
+    def _role_request_basename(self, request: RoleRequest) -> str:
+        iter_id = request.extra_context.get("iter_id")
+        if isinstance(iter_id, int):
+            return f"iter_{iter_id:03d}_{request.role}"
+        return request.role
+
+    def _summarize_role_request_context(self, extra_context: dict) -> dict:
+        summary: dict[str, object] = {}
+        iter_id = extra_context.get("iter_id")
+        if iter_id is not None:
+            summary["iter_id"] = iter_id
+        compiled_spec = extra_context.get("compiled_spec")
+        if isinstance(compiled_spec, dict):
+            summary["compiled_spec"] = {
+                "check_mode": compiled_spec.get("check_mode"),
+                "check_count": len(compiled_spec.get("checks", [])),
+            }
+        previous_generator_result = extra_context.get("previous_generator_result")
+        if isinstance(previous_generator_result, dict) and previous_generator_result:
+            summary["previous_generator_result"] = {
+                "attempted": self._truncate_text(previous_generator_result.get("attempted"), 160),
+                "summary": self._truncate_text(previous_generator_result.get("summary"), 160),
+            }
+        previous_tester_result = extra_context.get("previous_tester_result")
+        if isinstance(previous_tester_result, dict) and previous_tester_result:
+            summary["previous_tester_result"] = {
+                "failed_items": [
+                    item.get("title") or item.get("id")
+                    for item in previous_tester_result.get("failed_items", [])[:4]
+                ],
+                "tester_observations": self._truncate_text(previous_tester_result.get("tester_observations"), 160),
+            }
+        previous_verifier_result = extra_context.get("previous_verifier_result")
+        if isinstance(previous_verifier_result, dict) and previous_verifier_result:
+            summary["previous_verifier_result"] = {
+                "passed": previous_verifier_result.get("passed"),
+                "composite_score": previous_verifier_result.get("composite_score"),
+                "failed_check_titles": list(previous_verifier_result.get("failed_check_titles", []))[:4],
+                "next_actions": list(previous_verifier_result.get("next_actions", []))[:4],
+            }
+        previous_challenger_result = extra_context.get("previous_challenger_result")
+        if isinstance(previous_challenger_result, dict) and previous_challenger_result:
+            summary["previous_challenger_result"] = {
+                "mode": previous_challenger_result.get("mode"),
+                "recommended_shift": self._truncate_text(
+                    (previous_challenger_result.get("analysis") or {}).get("recommended_shift"),
+                    160,
+                ),
+                "seed_question": self._truncate_text(previous_challenger_result.get("seed_question"), 160),
+            }
+        tester_output = extra_context.get("tester_output")
+        if isinstance(tester_output, dict):
+            summary["tester_output"] = {
+                "passed": tester_output.get("execution_summary", {}).get("passed"),
+                "failed": tester_output.get("execution_summary", {}).get("failed"),
+                "dynamic_failed": len(tester_output.get("dynamic_check_failures", [])),
+            }
+        stagnation_mode = extra_context.get("stagnation_mode")
+        if stagnation_mode is not None:
+            summary["stagnation_mode"] = stagnation_mode
+        return summary
 
     @staticmethod
     def _truncate_text(value: str | None, max_length: int = 220) -> str:
@@ -1617,9 +1745,29 @@ class LiminalService:
             "Use empty strings only when a field truly cannot be made more specific."
         )
 
-    def _generator_prompt(self, compiled_spec: dict, workdir: Path, iter_id: int, mode: str) -> str:
+    def _generator_prompt(
+        self,
+        compiled_spec: dict,
+        workdir: Path,
+        iter_id: int,
+        mode: str,
+        *,
+        previous_generator_result: dict | None = None,
+        previous_tester_result: dict | None = None,
+        previous_verifier_result: dict | None = None,
+        previous_challenger_result: dict | None = None,
+    ) -> str:
         constraints = compiled_spec.get("constraints") or "No explicit constraints were provided."
         bootstrap_guidance = ""
+        action_guidance = (
+            "This role must end with a concrete attempt, not only repo inspection.\n"
+            "Once you have enough context to act, prefer making a focused change and/or running the most relevant existing verification, build, benchmark, or diagnosis command in the workdir.\n"
+            "If the repository already contains a project-owned script that directly measures the goal, prefer using it to establish evidence in this iteration.\n"
+            "If you launch a long-running project-owned command, do not wait idly for stdout alone. While it runs, inspect fresh status files, logs, reports, and intermediate artifacts so you can tell healthy progress from a harness defect.\n"
+            "If those observations reveal a real process defect in the owned evaluation flow (for example stale progress snapshots, ineffective timeouts, misleading status reporting, or broken report generation), fixing that defect is in scope before the benchmark fully finishes.\n"
+            "For benchmark-driven goals, prefer one real end-to-end run plus targeted harness fixes over many ad hoc spot checks.\n"
+            "Do not spend the whole turn only reading files unless you are blocked by missing information that truly cannot be resolved any other way.\n\n"
+        )
         if iter_id == 0 and self._is_bootstrap_workspace(workdir):
             bootstrap_guidance = (
                 "Workspace state:\n"
@@ -1628,6 +1776,13 @@ class LiminalService:
                 "Because the workspace is essentially empty, it is safe to add the first app files now; this is not permission to wipe or reset a non-empty project.\n"
                 "Prefer a minimal static entry point plus tiny supporting files when needed.\n\n"
             )
+        prior_iteration_feedback = self._generator_prior_iteration_feedback(
+            iter_id,
+            previous_generator_result=previous_generator_result,
+            previous_tester_result=previous_tester_result,
+            previous_verifier_result=previous_verifier_result,
+            previous_challenger_result=previous_challenger_result,
+        )
         return (
             "You are the Generator role inside Liminal.\n"
             "Goal: improve the workspace to satisfy the spec with one coherent change direction.\n"
@@ -1637,12 +1792,61 @@ class LiminalService:
             "You may edit files inside the workdir. Do not write into .liminal except for explicitly requested outputs.\n"
             "Treat existing non-.liminal files as user-owned. Never wipe the whole workdir, bulk-delete existing files, or reset the project from scratch.\n"
             "Prefer targeted in-place edits and additive changes. Delete a file only when that deletion is narrowly necessary to your change.\n"
+            f"{action_guidance}"
             f"{bootstrap_guidance}"
+            f"{prior_iteration_feedback}"
             f"Spec goal:\n{compiled_spec['goal']}\n\n"
             f"Checks:\n{self._render_checks(compiled_spec['checks'])}\n\n"
             f"Constraints:\n{constraints}\n\n"
             "Return JSON with attempted, abandoned, assumption, summary, and changed_files."
         )
+
+    def _generator_prior_iteration_feedback(
+        self,
+        iter_id: int,
+        *,
+        previous_generator_result: dict | None = None,
+        previous_tester_result: dict | None = None,
+        previous_verifier_result: dict | None = None,
+        previous_challenger_result: dict | None = None,
+    ) -> str:
+        if iter_id <= 0:
+            return ""
+        lines = ["Previous iteration evidence:"]
+        if previous_generator_result:
+            lines.append(
+                f"- Last attempted: {self._truncate_text(previous_generator_result.get('attempted') or previous_generator_result.get('summary'), 220) or 'none'}"
+            )
+        if previous_tester_result:
+            failed_items = list(previous_tester_result.get("failed_items", []))
+            lines.append(
+                f"- Tester observations: {self._truncate_text(previous_tester_result.get('tester_observations'), 220) or 'none'}"
+            )
+            lines.append(f"- Non-passing items last round: {self._format_failure_refs(failed_items)}")
+        if previous_verifier_result:
+            lines.append(
+                f"- Verifier decision: {self._truncate_text(previous_verifier_result.get('decision_summary'), 240) or 'none'}"
+            )
+            lines.append(
+                f"- Previous composite score: `{previous_verifier_result.get('composite_score', 'n/a')}`"
+            )
+            lines.append(
+                "- Failed checks last round: "
+                f"{self._format_inline_code_list(list(previous_verifier_result.get('failed_check_titles', []) or previous_verifier_result.get('failed_check_ids', [])), empty='none', limit=4)}"
+            )
+            lines.append(
+                "- Next actions from verifier: "
+                f"{self._format_inline_code_list(list(previous_verifier_result.get('next_actions', [])), empty='none', limit=4)}"
+            )
+        if previous_challenger_result:
+            lines.append(
+                f"- Challenger recommended shift: {self._truncate_text((previous_challenger_result.get('analysis') or {}).get('recommended_shift'), 220) or 'none'}"
+            )
+            lines.append(
+                f"- Challenger seed question: {self._truncate_text(previous_challenger_result.get('seed_question'), 220) or 'none'}"
+            )
+        lines.append("Use this evidence as your starting point for the next focused improvement. Do not restart from scratch.")
+        return "\n".join(lines) + "\n\n"
 
     def _tester_prompt(self, compiled_spec: dict, iter_id: int, mode: str) -> str:
         checks = json.dumps(compiled_spec["checks"], ensure_ascii=False, indent=2)
@@ -1651,6 +1855,8 @@ class LiminalService:
             "Inspect the workdir, run the most relevant commands, and evaluate the listed checks.\n"
             "Do not edit source files.\n"
             "Keep notes concise and evidence-focused. Prefer concrete commands, files, and observed outputs over restating the whole spec.\n"
+            "When fresh project-owned benchmark artifacts already exist, inspect them first and reuse them as primary evidence before rerunning an expensive end-to-end flow.\n"
+            "If a long-running evaluation appears stalled, confirm that with live status files, logs, or preserved artifacts instead of guessing from silent stdout alone.\n"
             f"Iteration: {iter_id}\n"
             f"Mode: {mode}\n"
             f"Checks:\n{checks}\n\n"
@@ -1664,6 +1870,8 @@ class LiminalService:
             "You are the Verifier role inside Liminal.\n"
             "Judge the tester output conservatively against the goal, checks, and constraints.\n"
             "Keep the verdict concise and tied to direct evidence. Do not rewrite the whole spec as policy prose.\n"
+            "When the main evidence comes from a project-owned benchmark or harness, treat those artifacts as primary evidence.\n"
+            "Distinguish product or knowledge failures from harness-process defects, and surface harness defects as first-class failures when they block trustworthy evaluation.\n"
             f"Iteration: {iter_id}\n"
             f"Mode: {mode}\n"
             f"Goal:\n{compiled_spec['goal']}\n\n"

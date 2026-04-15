@@ -252,7 +252,7 @@ def test_api_loop_creation_supports_provider_specific_defaults(
     assert claude_response.status_code == 201
     claude_loop = claude_response.json()["loop"]
     assert claude_loop["executor_kind"] == "claude"
-    assert claude_loop["model"] == "sonnet"
+    assert claude_loop["model"] == ""
     assert claude_loop["reasoning_effort"] == "max"
 
     opencode_response = client.post(

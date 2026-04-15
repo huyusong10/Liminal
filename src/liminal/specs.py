@@ -28,6 +28,9 @@ One gotcha:
 
 Good default safety rule:
 - If this loop points at an existing project, say so in `# Constraints`: preserve existing user files and prefer focused in-place edits over rewrites.
+
+Helpful benchmark-loop rule:
+- If the goal depends on a long-running project-owned benchmark, say which harness and report/status artifacts count as the trusted evidence path.
 -->
 
 # Goal
@@ -71,6 +74,9 @@ Describe, in natural language, the outcome this loop should achieve.
 
 一个默认安全建议：
 - 如果这个 loop 指向的是现有项目，最好在 `# Constraints` 里写明：保留现有用户文件，优先原地小改，不要大改大删。
+
+一个适合 benchmark loop 的建议：
+- 如果目标依赖项目自带的长流程评估，最好写明哪个 harness 是可信入口，以及等待期间应该观察哪些状态文件或报告产物。
 -->
 
 # Goal

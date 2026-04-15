@@ -69,7 +69,58 @@ def test_generator_prompt_uses_bootstrap_guidance_for_spec_only_workspace(
     assert "Create the smallest runnable prototype from scratch" not in prompt
     assert "Never wipe the whole workdir" in prompt
     assert "safe to add the first app files now" in prompt
+    assert "This role must end with a concrete attempt" in prompt
+    assert "prefer using it to establish evidence in this iteration" in prompt
 
     (workdir / "index.html").write_text("<!doctype html><title>Prototype</title>", encoding="utf-8")
     prompt_with_app = service._generator_prompt(compiled_spec, workdir, 0, "default")
     assert "this iteration should bootstrap the first implementation" not in prompt_with_app
+    assert "This role must end with a concrete attempt" in prompt_with_app
+
+
+def test_generator_prompt_includes_previous_iteration_feedback(service_factory, tmp_path: Path) -> None:
+    service = service_factory()
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    compiled_spec = {
+        "goal": "Improve the primary flow.",
+        "checks": [
+            {
+                "id": "check_001",
+                "title": "Main flow works",
+                "details": "The main flow is usable.",
+                "when": "When the user follows the main path.",
+                "expect": "The main path succeeds.",
+                "fail_if": "The path breaks.",
+            }
+        ],
+        "constraints": "- Keep changes focused.",
+    }
+
+    prompt = service._generator_prompt(
+        compiled_spec,
+        workdir,
+        1,
+        "default",
+        previous_generator_result={"attempted": "Updated the main flow copy.", "summary": "Focused on the hero section."},
+        previous_tester_result={
+            "failed_items": [{"id": "check_001", "title": "Main flow works", "source": "specified"}],
+            "tester_observations": "The CTA still does not start the workflow.",
+        },
+        previous_verifier_result={
+            "decision_summary": "The primary flow still stalls before completion.",
+            "composite_score": 0.61,
+            "failed_check_titles": ["Main flow works"],
+            "next_actions": ["Make the CTA complete the core workflow."],
+        },
+        previous_challenger_result={
+            "analysis": {"recommended_shift": "Try a smaller but end-to-end interaction fix."},
+            "seed_question": "What is the smallest end-to-end fix that removes the stall?",
+        },
+    )
+
+    assert "Previous iteration evidence:" in prompt
+    assert "The CTA still does not start the workflow." in prompt
+    assert "The primary flow still stalls before completion." in prompt
+    assert "Try a smaller but end-to-end interaction fix." in prompt
+    assert "Do not restart from scratch." in prompt

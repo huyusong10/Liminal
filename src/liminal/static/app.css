@@ -1802,8 +1802,11 @@ html[data-locale="zh"] .highlight-label {
   color: #f09b95;
 }
 
-.console-shell {
+.console-shell-frame {
   position: relative;
+}
+
+.console-shell {
   overflow: auto;
   resize: vertical;
   height: 460px;
@@ -1822,23 +1825,27 @@ html[data-locale="zh"] .highlight-label {
 
 .console-popout-button {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 2;
-  border-color: rgba(255, 255, 255, 0.12);
-  background: rgba(22, 19, 16, 0.88);
-  color: #f7ecdf;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  top: 16px;
+  right: 16px;
+  z-index: 3;
+  min-height: 42px;
+  padding: 10px 14px;
+  border-color: rgba(255, 204, 143, 0.24);
+  background: rgba(34, 27, 21, 0.96);
+  color: #ffddae;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(8px);
 }
 
 .console-popout-button:hover {
-  background: rgba(40, 34, 28, 0.96);
+  background: rgba(55, 43, 34, 0.98);
+  border-color: rgba(255, 204, 143, 0.36);
 }
 
 .console-output {
   display: grid;
   gap: 8px;
-  padding: 56px 18px 18px;
+  padding: 72px 18px 18px;
   font-family: "SFMono-Regular", "SF Mono", "IBM Plex Mono", "Menlo", monospace;
   font-size: 0.87rem;
   line-height: 1.55;

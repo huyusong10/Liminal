@@ -177,12 +177,21 @@
       <span class="console-legend-chip console-legend-chip-progress"><span data-lang="zh">模型进度</span><span data-lang="en">Progress</span></span>
       <span class="console-legend-chip console-legend-chip-error"><span data-lang="zh">错误</span><span data-lang="en">Error</span></span>
     </div>
-    <div class="console-shell" id="console-shell">
-      <a class="ghost-button console-popout-button" id="console-popout-link" href="/runs/{{ run.id }}/console" target="_blank" rel="noreferrer">
-        <span data-lang="zh">全屏终端</span>
-        <span data-lang="en">Fullscreen</span>
+    <div class="console-shell-frame">
+      <a
+        class="ghost-button console-popout-button"
+        id="console-popout-link"
+        href="/runs/{{ run.id }}/console"
+        target="_blank"
+        rel="noreferrer"
+        aria-label="Open fullscreen console"
+      >
+        <span data-lang="zh">打开全屏终端</span>
+        <span data-lang="en">Open fullscreen console</span>
       </a>
-      <div class="console-output" id="console-output"></div>
+      <div class="console-shell" id="console-shell">
+        <div class="console-output" id="console-output"></div>
+      </div>
     </div>
   </article>
 
@@ -1143,13 +1152,18 @@
   function buildConsoleEntry(event, {tone = "info", channel = "state", text = "", indent = 0, roleLabel = null} = {}) {
     const payload = event.payload || {};
     const resolvedRole = roleLabel || window.LiminalUI.translateRole(event.role || payload.role || "system");
+    const normalizedText = String(text ?? "")
+      .replaceAll("\r\n", "\n")
+      .replace(/\s+$/, "");
     return {
       tone,
       channel,
-      text: String(text || "").trim(),
+      text: normalizedText,
       indent: Math.max(0, Math.min(2, Number(indent) || 0)),
       stamp: formatClock(event.created_at),
       label: `${resolvedRole} · ${consoleChannelLabel(channel)}`,
+      mergeKey: `${resolvedRole}|${channel}|${tone}`,
+      mergeable: channel === "stdout",
     };
   }
 
@@ -1176,8 +1190,19 @@
     const output = document.getElementById("console-output");
     const shouldStick = autoScrollConsole || shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 24;
     for (const line of lines) {
+      const lastRow = output.lastElementChild;
+      if (line.mergeable && lastRow && lastRow.dataset.mergeKey === line.mergeKey) {
+        const body = lastRow.querySelector(".console-line-body");
+        if (body) {
+          body.textContent = `${body.textContent}\n${line.text}`;
+        }
+        continue;
+      }
       const row = document.createElement("article");
       row.className = `console-line console-line-${line.tone || "info"} console-line-indent-${line.indent || 0}`;
+      if (line.mergeKey) {
+        row.dataset.mergeKey = line.mergeKey;
+      }
       const meta = document.createElement("div");
       meta.className = "console-line-meta";
       const stamp = document.createElement("span");
@@ -1275,15 +1300,12 @@
     }
 
     if (payload.type === "stdout" && payload.message) {
-      return String(payload.message)
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => buildConsoleEntry(event, {
-          tone: "stdout",
-          channel: "stdout",
-          text: line,
-          indent: 1,
-        }));
+      return [buildConsoleEntry(event, {
+        tone: "stdout",
+        channel: "stdout",
+        text: String(payload.message),
+        indent: 1,
+      })];
     }
     if (payload.type === "command" && payload.message) {
       return [buildConsoleEntry(event, {
@@ -1323,15 +1345,12 @@
     }
     if (payload.type === "item.completed" && item.type === "command_execution") {
       if (item.aggregated_output) {
-        return String(item.aggregated_output)
-          .split("\n")
-          .filter(Boolean)
-          .map((line) => buildConsoleEntry(event, {
-            tone: "stdout",
-            channel: "stdout",
-            text: line,
-            indent: 1,
-          }));
+        return [buildConsoleEntry(event, {
+          tone: "stdout",
+          channel: "stdout",
+          text: String(item.aggregated_output),
+          indent: 1,
+        })];
       }
       return item.exit_code && item.exit_code !== 0
         ? [buildConsoleEntry(event, {
@@ -1362,15 +1381,12 @@
       })];
     }
     if (payload.type === "item.completed" && item.type === "agent_message" && item.text) {
-      return String(item.text)
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => buildConsoleEntry(event, {
-          tone: "progress",
-          channel: "model",
-          text: line,
-          indent: 1,
-        }));
+      return [buildConsoleEntry(event, {
+        tone: "progress",
+        channel: "model",
+        text: String(item.text),
+        indent: 1,
+      })];
     }
     return [];
   }

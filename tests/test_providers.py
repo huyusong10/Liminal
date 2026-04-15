@@ -69,12 +69,30 @@ def test_claude_exec_args_map_xhigh_to_max(tmp_path: Path) -> None:
     request = _request(tmp_path, executor_kind="claude", model="sonnet", reasoning_effort="xhigh")
     args = build_claude_exec_args(request)
 
-    assert args[:4] == ["claude", "-p", "--output-format", "stream-json"]
+    assert args[:6] == ["claude", "--setting-sources", "local,project", "-p", "--output-format", "stream-json"]
     assert "--json-schema" in args
     assert "--model" in args
     assert "--effort" in args
     assert "max" in args
     assert "xhigh" not in args
+
+
+def test_claude_preset_defaults_to_blank_model() -> None:
+    profile = executor_profile("claude")
+
+    assert profile.default_model == ""
+    assert "--model" in profile.command_args_template
+    assert "{model}" in profile.command_args_template
+
+
+def test_claude_exec_args_omit_model_when_blank(tmp_path: Path) -> None:
+    request = _request(tmp_path, executor_kind="claude", model="", reasoning_effort="medium")
+    args = build_claude_exec_args(request)
+
+    assert args[:6] == ["claude", "--setting-sources", "local,project", "-p", "--output-format", "stream-json"]
+    assert "--json-schema" in args
+    assert "--model" not in args
+    assert "--effort" in args
 
 
 def test_opencode_exec_args_use_variant_only_when_present(tmp_path: Path) -> None:
@@ -205,6 +223,67 @@ def test_claude_stream_parser_extracts_structured_output(tmp_path: Path) -> None
 
     assert state["structured_output"] == {"ok": True}
     assert ("codex_event", {"type": "stdout", "message": "done"}) in emitted
+
+
+def test_claude_stream_parser_logs_tool_use_and_tool_result(tmp_path: Path) -> None:
+    executor = RealCodexExecutor()
+    state = {"blocks": {}, "structured_output": None}
+    emitted: list[tuple[str, dict]] = []
+
+    lines = [
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Bash",
+                            "input": {"command": "pwd", "description": "Get current working directory"},
+                        }
+                    ]
+                },
+            }
+        ),
+        json.dumps(
+            {
+                "type": "user",
+                "message": {"content": [{"type": "tool_result", "content": "/tmp/workdir"}]},
+                "tool_use_result": {"stdout": "/tmp/workdir", "stderr": "", "interrupted": False},
+            }
+        ),
+    ]
+
+    for line in lines:
+        executor._handle_claude_line(line, state, lambda event_type, payload: emitted.append((event_type, payload)))
+
+    assert ("codex_event", {"type": "stdout", "message": "Tool use · Bash · pwd · Get current working directory"}) in emitted
+    assert ("codex_event", {"type": "stdout", "message": "Tool result · /tmp/workdir"}) in emitted
+
+
+def test_claude_stream_parser_truncates_large_tool_results(tmp_path: Path) -> None:
+    executor = RealCodexExecutor()
+    state = {"blocks": {}, "structured_output": None}
+    emitted: list[tuple[str, dict]] = []
+    long_stdout = "\n".join(f"line {index}" for index in range(40))
+
+    executor._handle_claude_line(
+        json.dumps(
+            {
+                "type": "user",
+                "message": {"content": [{"type": "tool_result", "content": long_stdout}]},
+                "tool_use_result": {"stdout": long_stdout, "stderr": "", "interrupted": False},
+            }
+        ),
+        state,
+        lambda event_type, payload: emitted.append((event_type, payload)),
+    )
+
+    assert emitted
+    message = emitted[0][1]["message"]
+    assert message.startswith("Tool result · line 0")
+    assert "... (truncated)" in message
+    assert "line 39" not in message
 
 
 def test_opencode_text_parser_extracts_json_object(tmp_path: Path) -> None:

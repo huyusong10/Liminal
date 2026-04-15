@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from liminal.executor import CodexExecutor, ExecutorError
 from liminal.service import LiminalError, LiminalService
 
 
@@ -86,6 +87,37 @@ def test_successful_run_enriches_logs_and_role_outputs(
     assert latest_entry["tester"]["status_counts"]["overall"]["passed"] >= 1
     assert latest_entry["verifier"]["decision_summary"]
     assert latest_entry["score"]["composite"] == verifier_verdict["composite_score"]
+
+
+def test_run_persists_role_request_snapshots_and_iteration_handoff(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="plateau")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Prompt Snapshot Loop")
+
+    run = service.rerun(loop["id"])
+
+    run_dir = Path(run["runs_dir"])
+    role_requests = [
+        json.loads(line)
+        for line in (run_dir / "role_requests.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    assert role_requests
+    generator_requests = [item for item in role_requests if item["role"] == "generator"]
+    assert generator_requests
+    second_generator = next(item for item in generator_requests if item["iter"] == 1)
+    assert "previous_verifier_result" in second_generator["extra_context_keys"]
+    assert second_generator["context_summary"]["previous_verifier_result"]["composite_score"] == 0.62
+
+    prompt_path = Path(second_generator["prompt_path"])
+    prompt_text = prompt_path.read_text(encoding="utf-8")
+    assert "Previous iteration evidence:" in prompt_text
+    assert "Improve the most visible failing checks without widening scope." in prompt_text
+    assert "Use this evidence as your starting point" in prompt_text
 
 
 def test_destructive_generator_is_blocked_by_workspace_guard(
@@ -187,9 +219,15 @@ def test_stop_run_marks_run_stopped(service_factory, sample_spec_file: Path, sam
     thread.start()
 
     deadline = time.time() + 5
+    saw_generator_start = False
     while time.time() < deadline:
         current = service.get_run(run["id"])
-        if current["status"] == "running":
+        events = service.repository.list_events(run["id"], after_id=0, limit=50)
+        saw_generator_start = any(
+            event["event_type"] == "role_started" and event.get("role") == "generator"
+            for event in events
+        )
+        if current["status"] == "running" and saw_generator_start:
             break
         time.sleep(0.05)
 
@@ -198,6 +236,63 @@ def test_stop_run_marks_run_stopped(service_factory, sample_spec_file: Path, sam
 
     stopped = service.get_run(run["id"])
     assert stopped["status"] == "stopped"
+
+
+def test_stop_requested_run_does_not_retry_the_active_role(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    class StopAwareExecutor(CodexExecutor):
+        def execute(self, request, emit_event, should_stop, set_child_pid):
+            deadline = time.time() + 0.4
+            while time.time() < deadline:
+                if should_stop():
+                    raise ExecutorError("terminated after stop request")
+                time.sleep(0.01)
+            return {
+                "attempted": "noop",
+                "abandoned": "",
+                "assumption": "",
+                "summary": "",
+                "changed_files": [],
+            }
+
+    service = service_factory(scenario="success")
+    service.executor_factory = lambda: StopAwareExecutor()
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Stop Retry Guard")
+    run = service.start_run(loop["id"])
+
+    thread = threading.Thread(target=service.execute_run, args=(run["id"],), daemon=True)
+    thread.start()
+
+    deadline = time.time() + 5
+    saw_generator_start = False
+    while time.time() < deadline:
+        current = service.get_run(run["id"])
+        events = service.repository.list_events(run["id"], after_id=0, limit=50)
+        saw_generator_start = any(
+            event["event_type"] == "role_started" and event.get("role") == "generator"
+            for event in events
+        )
+        if current["status"] == "running" and saw_generator_start:
+            break
+        time.sleep(0.05)
+
+    service.stop_run(run["id"])
+    thread.join(timeout=5)
+
+    stopped = service.get_run(run["id"])
+    assert stopped["status"] == "stopped"
+
+    events = service.repository.list_events(run["id"], after_id=0, limit=200)
+    generator_starts = [
+        event
+        for event in events
+        if event["event_type"] == "role_started" and event.get("role") == "generator"
+    ]
+    assert saw_generator_start is True
+    assert len(generator_starts) == 1
 
 
 def test_zero_max_iters_runs_until_stopped(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
@@ -366,6 +461,27 @@ def test_second_service_instance_does_not_recover_queued_run_with_same_process_p
         assert current["error_message"] in {None, ""}
     finally:
         service._mark_run_inactive(run["id"])
+
+
+def test_second_service_instance_keeps_fresh_queued_run_without_runner_pid(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Fresh Queued Loop")
+    run = service.start_run(loop["id"])
+
+    restarted = LiminalService(
+        repository=service.repository,
+        settings=service.settings,
+        executor_factory=service.executor_factory,
+    )
+
+    current = restarted.get_run(run["id"])
+
+    assert current["status"] == "queued"
+    assert current["error_message"] in {None, ""}
 
 
 def test_early_execute_run_crash_is_persisted_as_failed(

@@ -140,6 +140,13 @@ Liminal 使用 Markdown spec，顶层结构如下：
 如果显式提供 checks，则每条 check 应该使用 `###` 标题，并包含 `When`、`Expect`、`Fail if`。
 如果目标是现有项目，建议在 `# Constraints` 里明确写出哪些内容不能动，并说明需要保留现有用户文件。
 
+如果是长时间运行的 benchmark / evaluation loop，spec 最好把“项目自带的评估流程”写得更明确：
+
+- `# Goal` 里写真正的成功条件，而不只是“跑一下 benchmark”；最好直接点名项目自带 harness 和停止条件。
+- `# Checks` 里写可判定的结果，比如新的 score/report 产物、明确的分数阈值，或者有硬证据支撑的架构性阻塞。
+- `# Constraints` 里写禁止的 shortcut、必须保留的目录，以及唯一合法的提分来源。
+- 如果流程会跑很久，最好把等待期间应该观察的项目自带状态文件或报告产物写进去，这样就不会只把“控制台没输出”当成唯一信号。
+
 ## Web 控制台
 
 本地控制台包括：

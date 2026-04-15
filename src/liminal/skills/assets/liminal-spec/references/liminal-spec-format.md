@@ -28,3 +28,4 @@ Guidelines:
 - Each check should be independently judgeable.
 - Use `When`, `Expect`, and `Fail if` together.
 - For existing projects, prefer constraints that keep user-owned files in place and narrow the editable area.
+- For long-running benchmark loops, name the trusted project-owned harness and the status/report artifacts that should be observed while the run is in flight.

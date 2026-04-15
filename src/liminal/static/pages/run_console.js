@@ -69,13 +69,18 @@ document.addEventListener("DOMContentLoaded", () => {
   function buildConsoleEntry(event, {tone = "info", channel = "state", text = "", indent = 0, roleLabel = null} = {}) {
     const payload = event.payload || {};
     const resolvedRole = roleLabel || window.LiminalUI.translateRole(event.role || payload.role || "system");
+    const normalizedText = String(text ?? "")
+      .replaceAll("\r\n", "\n")
+      .replace(/\s+$/, "");
     return {
       tone,
       channel,
-      text: String(text || "").trim(),
+      text: normalizedText,
       indent: Math.max(0, Math.min(2, Number(indent) || 0)),
       stamp: formatClock(event.created_at),
       label: `${resolvedRole} · ${consoleChannelLabel(channel)}`,
+      mergeKey: `${resolvedRole}|${channel}|${tone}`,
+      mergeable: channel === "stdout",
     };
   }
 
@@ -150,12 +155,12 @@ document.addEventListener("DOMContentLoaded", () => {
       return [];
     }
     if (payload.type === "stdout" && payload.message) {
-      return String(payload.message).split("\n").filter(Boolean).map((line) => buildConsoleEntry(event, {
+      return [buildConsoleEntry(event, {
         tone: "stdout",
         channel: "stdout",
-        text: line,
+        text: String(payload.message),
         indent: 1,
-      }));
+      })];
     }
     if (payload.type === "command" && payload.message) {
       return [buildConsoleEntry(event, {
@@ -194,12 +199,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (payload.type === "item.completed" && item.type === "command_execution") {
       if (item.aggregated_output) {
-        return String(item.aggregated_output).split("\n").filter(Boolean).map((line) => buildConsoleEntry(event, {
+        return [buildConsoleEntry(event, {
           tone: "stdout",
           channel: "stdout",
-          text: line,
+          text: String(item.aggregated_output),
           indent: 1,
-        }));
+        })];
       }
       return item.exit_code && item.exit_code !== 0
         ? [buildConsoleEntry(event, {
@@ -230,12 +235,12 @@ document.addEventListener("DOMContentLoaded", () => {
       })];
     }
     if (payload.type === "item.completed" && item.type === "agent_message" && item.text) {
-      return String(item.text).split("\n").filter(Boolean).map((line) => buildConsoleEntry(event, {
+      return [buildConsoleEntry(event, {
         tone: "progress",
         channel: "model",
-        text: line,
+        text: String(item.text),
         indent: 1,
-      }));
+      })];
     }
     return [];
   }
@@ -254,8 +259,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const shouldStick = autoScrollConsole || shell.scrollTop + shell.clientHeight >= shell.scrollHeight - 24;
     for (const line of lines) {
+      const lastRow = output.lastElementChild;
+      if (line.mergeable && lastRow && lastRow.dataset.mergeKey === line.mergeKey) {
+        const body = lastRow.querySelector(".console-line-body");
+        if (body) {
+          body.textContent = `${body.textContent}\n${line.text}`;
+        }
+        continue;
+      }
       const row = document.createElement("article");
       row.className = `console-line console-line-${line.tone || "info"} console-line-indent-${line.indent || 0}`;
+      if (line.mergeKey) {
+        row.dataset.mergeKey = line.mergeKey;
+      }
       const meta = document.createElement("div");
       meta.className = "console-line-meta";
       const stamp = document.createElement("span");

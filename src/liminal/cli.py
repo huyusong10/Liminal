@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 from typing import Annotated
 
 import typer
@@ -10,6 +13,7 @@ import uvicorn
 from liminal.service import LiminalError, create_service, normalize_role_models
 from liminal.settings import configure_logging
 from liminal.specs import SpecError, init_spec_file, read_and_compile
+from liminal.utils import utc_now
 from liminal.web import _is_loopback_host, build_app
 
 app = typer.Typer(help="Liminal CLI")
@@ -128,6 +132,75 @@ def _print_run_result(result: dict) -> None:
         typer.echo(json.dumps(result["last_verdict_json"], ensure_ascii=False, indent=2))
 
 
+def _background_worker_command(run_id: str) -> list[str]:
+    return [sys.executable, "-m", "liminal", "_execute-run", run_id]
+
+
+def _spawn_background_worker(service, run: dict) -> dict:
+    run_dir = Path(run["runs_dir"])
+    run_dir.mkdir(parents=True, exist_ok=True)
+    log_path = run_dir / "background_worker.log"
+    command = _background_worker_command(run["id"])
+    log_handle = log_path.open("a", encoding="utf-8")
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=run["workdir"],
+            env=os.environ.copy(),
+            stdin=subprocess.DEVNULL,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            close_fds=True,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        error_text = f"failed to spawn background worker for {run['id']}: {exc}"
+        summary = (
+            "# Liminal Run Summary\n\n"
+            "Background execution failed before the worker could start.\n\n"
+            f"Reason: `{error_text}`.\n"
+        )
+        service.repository.update_run(
+            run["id"],
+            status="failed",
+            finished_at=utc_now(),
+            error_message=error_text,
+            summary_md=summary,
+        )
+        service.repository.append_event(
+            run["id"],
+            "run_aborted",
+            {
+                "role": None,
+                "attempts": 1,
+                "degraded": False,
+                "error": error_text,
+            },
+        )
+        raise LiminalError(error_text) from exc
+    finally:
+        log_handle.close()
+
+    service.repository.update_run(run["id"], runner_pid=process.pid)
+    service.repository.append_event(
+        run["id"],
+        "background_worker_spawned",
+        {
+            "pid": process.pid,
+            "command": command,
+            "log_path": str(log_path),
+        },
+    )
+    return service.get_run(run["id"])
+
+
+def _start_run(service, loop_id: str, *, background: bool) -> dict:
+    if background:
+        run = service.start_run(loop_id)
+        return _spawn_background_worker(service, run)
+    return service.rerun(loop_id, background=False)
+
+
 def _create_and_maybe_start_loop(
     *,
     spec: Path,
@@ -170,7 +243,7 @@ def _create_and_maybe_start_loop(
             role_model=role_model,
         )
     )
-    run = service.rerun(loop["id"], background=background) if start else None
+    run = _start_run(service, loop["id"], background=background) if start else None
     return loop, run
 
 
@@ -389,9 +462,21 @@ def rerun_loop(
     """Start a new run from a saved loop definition."""
     try:
         service = create_service()
-        result = service.rerun(loop_id, background=background)
+        result = _start_run(service, loop_id, background=background)
         _print_run_result(result)
     except LiminalError as exc:
+        _handle_error(exc)
+
+
+@app.command("_execute-run", hidden=True)
+def execute_run_worker(run_id: str = typer.Argument(..., help="Run ID.")) -> None:
+    """Internal helper that executes a queued run in a dedicated background process."""
+    configure_logging()
+    try:
+        service = create_service()
+        result = service.execute_run(run_id)
+        _print_run_result(result)
+    except (LiminalError, SpecError) as exc:
         _handle_error(exc)
 
 
