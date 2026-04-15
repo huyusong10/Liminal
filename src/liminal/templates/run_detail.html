@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ run.loop_name or run.id }}{% endblock %}
 {% block content %}
-<section class="hero hero-tight">
+<section class="hero hero-tight hero-run-detail">
   <div class="hero-copy-stack">
     <span class="eyebrow">
       <span data-lang="zh">运行详情</span>
@@ -12,9 +12,24 @@
       <span data-lang="zh">先看看它这一轮正在忙什么，再决定要不要插手。</span>
       <span data-lang="en">See what this run is busy with right now before deciding whether to step in.</span>
     </p>
-    <p class="hero-path">{{ run.id }} · {{ run.workdir }}</p>
+    <div class="hero-meta-row">
+      <div class="hero-meta-pill hero-meta-pill-strong">
+        <span class="hero-meta-label">
+          <span data-lang="zh">运行 ID</span>
+          <span data-lang="en">Run ID</span>
+        </span>
+        <span class="hero-meta-value">{{ run.id }}</span>
+      </div>
+      <div class="hero-meta-pill">
+        <span class="hero-meta-label">
+          <span data-lang="zh">工作目录</span>
+          <span data-lang="en">Workspace</span>
+        </span>
+        <span class="hero-meta-value">{{ run.workdir }}</span>
+      </div>
+    </div>
   </div>
-  <div class="card-actions">
+  <div class="card-actions hero-actions">
     <a class="secondary-button" href="/loops/{{ run.loop_id }}">
       <span data-lang="zh">返回循环</span>
       <span data-lang="en">Back to loop</span>
@@ -40,19 +55,73 @@
       </div>
       <div class="progress-status-cluster">
         <span class="status-pill progress-status-pill" id="progress-status-badge" data-status-label="{{ run.status }}"></span>
-        <strong class="progress-percent" id="progress-value">0%</strong>
+        <div class="progress-runtime-stack">
+          <span class="progress-runtime-label" id="progress-runtime-label">
+            <span data-lang="zh">当前阶段耗时</span>
+            <span data-lang="en">Current stage</span>
+          </span>
+          <strong class="progress-runtime" id="progress-runtime">-</strong>
+        </div>
       </div>
     </header>
-    <div class="progress-track-shell">
-      <div class="progress-track">
-        <div class="progress-fill" id="progress-fill"></div>
+    <div class="stage-strip" id="stage-strip">
+      <div class="stage-chip" data-stage="checks" tabindex="0">
+        <div class="stage-chip-head">
+          <span class="stage-chip-label"><span data-lang="zh">检查项</span><span data-lang="en">Checks</span></span>
+          <span class="stage-chip-state" data-stage-state>-</span>
+        </div>
+        <strong class="stage-chip-duration" data-stage-duration>-</strong>
+        <span class="stage-chip-meta" data-stage-meta>-</span>
+      </div>
+      <div class="stage-chip" data-stage="generator" tabindex="0">
+        <div class="stage-chip-head">
+          <span class="stage-chip-label"><span data-lang="zh">生成</span><span data-lang="en">Generator</span></span>
+          <span class="stage-chip-state" data-stage-state>-</span>
+        </div>
+        <strong class="stage-chip-duration" data-stage-duration>-</strong>
+        <span class="stage-chip-meta" data-stage-meta>-</span>
+      </div>
+      <div class="stage-chip" data-stage="tester" tabindex="0">
+        <div class="stage-chip-head">
+          <span class="stage-chip-label"><span data-lang="zh">测试</span><span data-lang="en">Tester</span></span>
+          <span class="stage-chip-state" data-stage-state>-</span>
+        </div>
+        <strong class="stage-chip-duration" data-stage-duration>-</strong>
+        <span class="stage-chip-meta" data-stage-meta>-</span>
+      </div>
+      <div class="stage-chip" data-stage="verifier" tabindex="0">
+        <div class="stage-chip-head">
+          <span class="stage-chip-label"><span data-lang="zh">验证</span><span data-lang="en">Verifier</span></span>
+          <span class="stage-chip-state" data-stage-state>-</span>
+        </div>
+        <strong class="stage-chip-duration" data-stage-duration>-</strong>
+        <span class="stage-chip-meta" data-stage-meta>-</span>
+      </div>
+      <div class="stage-chip" data-stage="challenger" tabindex="0">
+        <div class="stage-chip-head">
+          <span class="stage-chip-label"><span data-lang="zh">挑战</span><span data-lang="en">Challenger</span></span>
+          <span class="stage-chip-state" data-stage-state>-</span>
+        </div>
+        <strong class="stage-chip-duration" data-stage-duration>-</strong>
+        <span class="stage-chip-meta" data-stage-meta>-</span>
+      </div>
+      <div class="stage-chip" data-stage="finished" tabindex="0">
+        <div class="stage-chip-head">
+          <span class="stage-chip-label"><span data-lang="zh">完成</span><span data-lang="en">Done</span></span>
+          <span class="stage-chip-state" data-stage-state>-</span>
+        </div>
+        <strong class="stage-chip-duration" data-stage-duration>-</strong>
+        <span class="stage-chip-meta" data-stage-meta>-</span>
       </div>
     </div>
     <article class="progress-live-card" id="progress-live-card">
       <div class="progress-live-head">
         <div class="progress-live-title-row">
           <span class="progress-live-dot" aria-hidden="true"></span>
-          <strong id="progress-live-title">-</strong>
+          <div class="progress-live-title-stack">
+            <strong id="progress-live-title">-</strong>
+            <span class="progress-live-subtitle" id="progress-live-subtitle">-</span>
+          </div>
         </div>
         <span class="progress-live-duration" id="progress-live-duration">-</span>
       </div>
@@ -62,14 +131,6 @@
         <span id="progress-meta">-</span>
       </div>
     </article>
-    <div class="stage-strip" id="stage-strip">
-      <div class="stage-chip" data-stage="checks" tabindex="0"><span data-lang="zh">检查项</span><span data-lang="en">Checks</span></div>
-      <div class="stage-chip" data-stage="generator" tabindex="0"><span data-lang="zh">生成</span><span data-lang="en">Generator</span></div>
-      <div class="stage-chip" data-stage="tester" tabindex="0"><span data-lang="zh">测试</span><span data-lang="en">Tester</span></div>
-      <div class="stage-chip" data-stage="verifier" tabindex="0"><span data-lang="zh">验证</span><span data-lang="en">Verifier</span></div>
-      <div class="stage-chip" data-stage="challenger" tabindex="0"><span data-lang="zh">挑战</span><span data-lang="en">Challenger</span></div>
-      <div class="stage-chip" data-stage="finished" tabindex="0"><span data-lang="zh">完成</span><span data-lang="en">Done</span></div>
-    </div>
     <div class="highlight-grid">
       <article class="highlight-card" id="focus-card">
         <span class="highlight-label"><span data-lang="zh">当前焦点</span><span data-lang="en">Current focus</span></span>
@@ -182,6 +243,7 @@
   let refreshTimer = null;
   let refreshInFlight = false;
   let refreshQueued = false;
+  let refreshArtifactsQueued = false;
   let autoScrollConsole = true;
   let pollTimer = null;
   let heartbeatTimer = null;
@@ -257,7 +319,10 @@
       : localeText(`${hours} 小时前`, `${hours}h ago`);
   }
 
-  function scheduleRunRefresh({immediate = false} = {}) {
+  function scheduleRunRefresh({immediate = false, refreshArtifacts = false} = {}) {
+    if (refreshArtifacts) {
+      refreshArtifactsQueued = true;
+    }
     if (refreshTimer) {
       return;
     }
@@ -268,16 +333,45 @@
         return;
       }
       refreshInFlight = true;
+      const shouldRefreshArtifacts = refreshArtifactsQueued;
+      refreshArtifactsQueued = false;
       try {
-        await fetchRun();
+        await fetchRun({refreshArtifacts: shouldRefreshArtifacts});
       } finally {
         refreshInFlight = false;
         if (refreshQueued) {
           refreshQueued = false;
-          scheduleRunRefresh({immediate: true});
+          scheduleRunRefresh({immediate: true, refreshArtifacts: refreshArtifactsQueued});
         }
       }
     }, immediate ? 0 : 140);
+  }
+
+  function setTextContentIfChanged(target, value) {
+    const node = typeof target === "string" ? document.getElementById(target) : target;
+    if (!node) {
+      return;
+    }
+    const next = value ?? "";
+    if (node.textContent !== next) {
+      node.textContent = next;
+    }
+  }
+
+  function setClassNameIfChanged(node, value) {
+    if (node && node.className !== value) {
+      node.className = value;
+    }
+  }
+
+  function setAttributeIfChanged(node, name, value) {
+    if (!node) {
+      return;
+    }
+    const next = value ?? "";
+    if (node.getAttribute(name) !== next) {
+      node.setAttribute(name, next);
+    }
   }
 
   function stripMarkdown(value) {
@@ -373,60 +467,137 @@
     return timelineRecords.some((event) => event.event_type === type);
   }
 
+  function roleSummaryEvents(role) {
+    return timelineRecords.filter((event) => (
+      event.event_type === "role_execution_summary"
+      && (event.payload?.role || event.role) === role
+    ));
+  }
+
+  function totalRoleDurationMs(role) {
+    return roleSummaryEvents(role).reduce((total, event) => total + Number(event.payload?.duration_ms || 0), 0);
+  }
+
+  function latestTimelineEventOfType(type) {
+    return findLatestEvent(timelineRecords, (event) => event.event_type === type);
+  }
+
+  function formatStageDuration(ms) {
+    const totalSeconds = Math.max(0, Math.round(Number(ms || 0) / 1000));
+    if (!totalSeconds) {
+      return "";
+    }
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours) {
+      return minutes
+        ? localeText(`${hours} 小时 ${minutes} 分`, `${hours}h ${minutes}m`)
+        : localeText(`${hours} 小时`, `${hours}h`);
+    }
+    if (minutes) {
+      return seconds
+        ? localeText(`${minutes} 分 ${seconds} 秒`, `${minutes}m ${seconds}s`)
+        : localeText(`${minutes} 分钟`, `${minutes}m`);
+    }
+    return localeText(`${seconds} 秒`, `${seconds}s`);
+  }
+
   function getStageSnapshots(run) {
     const runFinished = ["succeeded", "failed", "stopped"].includes(run?.status || "");
     const currentStage = getCurrentStage(run);
     const snapshots = {};
-    const liveDuration = runIsActive(run)
-      ? formatDuration(run?.started_at, null)
-      : "";
+    const runStartTs = parseTimestamp(run?.started_at || run?.queued_at || run?.created_at);
+    const checksResolved = latestTimelineEventOfType("checks_resolved");
+    const checksResolvedTs = parseTimestamp(checksResolved?.created_at);
+    const checksLiveMs = runStartTs === null ? null : Math.max(0, Date.now() - runStartTs);
 
-    snapshots.checks = {
-      state: hasTimelineEvent("checks_resolved") ? "complete" : (run?.status === "queued" ? "current" : "pending"),
-      meta: hasTimelineEvent("checks_resolved")
-        ? localeText("本次运行的检查项已经冻结。", "This run's checks have been frozen.")
-        : localeText("等待检查集就绪。", "Waiting for checks to resolve."),
-    };
+    if (checksResolvedTs !== null && runStartTs !== null) {
+      snapshots.checks = {
+        state: "complete",
+        stateLabel: localeText("已冻结", "Ready"),
+        durationLabel: formatStageDuration(checksResolvedTs - runStartTs) || localeText("已就绪", "Ready"),
+        meta: checksResolved?.payload?.source === "auto_generated"
+          ? localeText("自动生成", "Auto")
+          : localeText("显式提供", "Specified"),
+      };
+    } else if (currentStage === "checks" && runIsActive(run)) {
+      snapshots.checks = {
+        state: "current",
+        stateLabel: run?.status === "queued" ? localeText("排队中", "Queued") : localeText("处理中", "Active"),
+        durationLabel: formatStageDuration(checksLiveMs) || localeText("刚开始", "Just started"),
+        meta: run?.status === "queued"
+          ? localeText("等待执行槽", "Waiting for a slot")
+          : localeText("正在整理检查集", "Resolving checks"),
+      };
+    } else {
+      snapshots.checks = {
+        state: "pending",
+        stateLabel: localeText("未开始", "Pending"),
+        durationLabel: localeText("待开始", "Waiting"),
+        meta: localeText("还没进入这一阶段", "Not started yet"),
+      };
+    }
 
     ["generator", "tester", "verifier", "challenger"].forEach((role) => {
-      const summary = latestRoleSummary(role);
-      if (summary) {
-        const durationText = formatDurationMs(summary.payload?.duration_ms);
+      const summaries = roleSummaryEvents(role);
+      const totalMs = totalRoleDurationMs(role);
+      const latestSummary = summaries[summaries.length - 1] || null;
+      if (run?.active_role === role && run?.status === "running") {
+        const stageStart = currentRoleStartEvent(run);
+        const stageStartTs = parseTimestamp(stageStart?.created_at || run?.started_at);
+        const liveMs = stageStartTs === null ? null : Math.max(0, Date.now() - stageStartTs);
+        const totalLabel = formatStageDuration(totalMs);
         snapshots[role] = {
-          state: summary.payload?.ok ? "complete" : "failed",
-          meta: summary.payload?.ok
-            ? `${localeText("已执行", "Executed")}${durationText ? ` · ${durationText}` : ""}`
-            : `${localeText("执行失败", "Failed")}${durationText ? ` · ${durationText}` : ""}`,
+          state: "current",
+          stateLabel: localeText("处理中", "Active"),
+          durationLabel: formatStageDuration(liveMs) || localeText("刚开始", "Just started"),
+          meta: totalLabel
+            ? localeText(`已完成 ${summaries.length} 次`, `Done ${summaries.length}x`)
+            : localeText("当前阶段", "Current stage"),
         };
         return;
       }
-      if (run?.active_role === role && run?.status === "running") {
+      if (latestSummary) {
+        const totalLabel = formatStageDuration(totalMs || latestSummary.payload?.duration_ms);
         snapshots[role] = {
-          state: "current",
-          meta: liveDuration
-            ? `${localeText("当前正在执行", "Running right now")} · ${liveDuration}`
-            : localeText("当前正在执行。", "Running right now."),
+          state: latestSummary.payload?.ok ? "complete" : "failed",
+          stateLabel: latestSummary.payload?.ok ? localeText("已完成", "Done") : localeText("失败", "Failed"),
+          durationLabel: totalLabel || localeText("已执行", "Done"),
+          meta: latestSummary.payload?.ok
+            ? localeText(`已完成 ${summaries.length} 次`, `Completed ${summaries.length}x`)
+            : localeText(`最近一次失败 · 共 ${summaries.length} 次`, `Last attempt failed · ${summaries.length}x`),
         };
         return;
       }
       if (role === "challenger" && runFinished) {
         snapshots[role] = {
           state: "skipped",
-          meta: localeText("未触发。只有停滞或回退时才会运行。", "Not triggered. It only runs on plateau or regression."),
+          stateLabel: localeText("未触发", "Skipped"),
+          durationLabel: localeText("未触发", "Skipped"),
+          meta: localeText("只有停滞或回退才会运行", "Only on plateau or regression"),
         };
         return;
       }
       snapshots[role] = {
         state: currentStage === role && run?.status === "running" ? "current" : "pending",
-        meta: localeText("尚未执行。", "Not executed yet."),
+        stateLabel: localeText("未开始", "Pending"),
+        durationLabel: localeText("待开始", "Waiting"),
+        meta: localeText("还没进入这一阶段", "Not started yet"),
       };
     });
 
     snapshots.finished = {
-      state: runFinished ? "complete" : "pending",
+      state: runFinished ? (run?.status === "succeeded" ? "complete" : "failed") : "pending",
+      stateLabel: runFinished
+        ? window.LiminalUI.translateStatus(run?.status || "draft")
+        : localeText("进行中", "Open"),
+      durationLabel: runFinished
+        ? formatDuration(run?.started_at, run?.finished_at)
+        : localeText("进行中", "In progress"),
       meta: runFinished
         ? `${localeText("最终状态", "Final status")}: ${window.LiminalUI.translateStatus(run?.status || "draft")}`
-        : localeText("运行尚未结束。", "The run is not finished yet."),
+        : localeText("运行尚未结束", "The run is still in progress"),
     };
 
     return snapshots;
@@ -434,8 +605,8 @@
 
   function stageTooltipText(stage, run = currentRun, snapshots = getStageSnapshots(run || currentRun)) {
     const definition = getStageDefinition(stage);
-    const snapshot = snapshots[stage] || {meta: "-"};
-    return [definition.title, definition.detail, snapshot.meta].filter(Boolean).join(" · ");
+    const snapshot = snapshots[stage] || {durationLabel: "-", meta: "-"};
+    return [definition.title, snapshot.durationLabel, snapshot.meta, definition.detail].filter(Boolean).join(" · ");
   }
 
   function currentIterValue(run) {
@@ -484,18 +655,6 @@
       const eventTs = parseTimestamp(event.created_at);
       return eventTs !== null && eventTs >= stageStartTs;
     });
-  }
-
-  function stageRange(stage) {
-    const ranges = {
-      checks: [8, 24],
-      generator: [24, 46],
-      tester: [46, 68],
-      verifier: [68, 88],
-      challenger: [88, 97],
-      finished: [100, 100],
-    };
-    return ranges[stage] || ranges.checks;
   }
 
   function fallbackActivitySummary(stage) {
@@ -725,18 +884,19 @@
 
   function describeLiveWork(run) {
     const status = run?.status || "draft";
+    const stage = getCurrentStage(run);
+    const snapshots = getStageSnapshots(run);
     if (status === "queued") {
       return {
         title: localeText("正在排队，马上轮到它", "Queued up and waiting for its turn"),
         detail: localeText("还没真正进入执行器，队列一空就会开跑。", "It has not entered the executor yet; it will start as soon as a slot opens."),
-        duration: formatDuration(run?.queued_at || run?.created_at, null),
-        metaLeft: localeText("当前轮次 · 准备阶段", "Current round · Preparing"),
+        duration: snapshots.checks?.durationLabel || formatDuration(run?.queued_at || run?.created_at, null),
+        metaLeft: localeText("当前阶段 · 检查项", "Current stage · Checks"),
         metaRight: formatRelativeAge(run?.updated_at),
       };
     }
 
     if (status === "running") {
-      const stage = getCurrentStage(run);
       const stageStart = currentRoleStartEvent(run);
       const latestActivity = latestRoleActivityEvent(run);
       const activity = extractActivitySummary(latestActivity, stage);
@@ -746,8 +906,8 @@
       return {
         title: activity.title,
         detail: activity.detail,
-        duration: stageStart ? formatDuration(stageStart.created_at, null) : formatDuration(run?.started_at, null),
-        metaLeft: localeText(`第 ${displayIter(run?.current_iter)} 轮 · ${stageDisplayName(stage)}阶段`, `Round ${displayIter(run?.current_iter)} · ${stageDisplayName(stage)} stage`),
+        duration: snapshots[stage]?.durationLabel || (stageStart ? formatDuration(stageStart.created_at, null) : formatDuration(run?.started_at, null)),
+        metaLeft: localeText(`第 ${displayIter(run?.current_iter)} 轮 · ${stageDisplayName(stage)}`, `Round ${displayIter(run?.current_iter)} · ${stageDisplayName(stage)}`),
         metaRight: latestSignal,
       };
     }
@@ -783,12 +943,20 @@
 
   async function refreshArtifacts({preserveSelection = true} = {}) {
     const response = await fetch(`/api/runs/${runId}/artifacts`);
+    const previousRecords = artifactRecords.slice();
+    const previousSelectedId = currentArtifactId;
+    const previousSelected = previousRecords.find((artifact) => artifact.id === previousSelectedId) || null;
     artifactRecords = await response.json();
     const availableIds = artifactRecords.filter((artifact) => artifact.available).map((artifact) => artifact.id);
     if (!preserveSelection || !currentArtifactId || !artifactRecords.some((artifact) => artifact.id === currentArtifactId)) {
       currentArtifactId = availableIds[0] || artifactRecords[0]?.id || null;
     }
+    const nextSelected = artifactRecords.find((artifact) => artifact.id === currentArtifactId) || null;
     renderArtifactTabs();
+    return {
+      selectionChanged: previousSelectedId !== currentArtifactId,
+      selectedAvailabilityChanged: previousSelected?.available !== nextSelected?.available,
+    };
   }
 
   function renderMissingArtifact(artifact) {
@@ -1190,29 +1358,6 @@
     return "checks";
   }
 
-  function calculateProgress(run) {
-    const stage = getCurrentStage(run);
-    if (!run) {
-      return {stage, percent: 0};
-    }
-    if (run.status === "succeeded") {
-      return {stage: "finished", percent: 100};
-    }
-    const [stageStartPercent, stageEndPercent] = stageRange(stage);
-    if (run.status === "queued") {
-      return {stage: "checks", percent: stageStartPercent};
-    }
-    if (run.status === "failed" || run.status === "stopped") {
-      return {stage, percent: stageEndPercent};
-    }
-    const stageStartEvent = currentRoleStartEvent(run);
-    const stageStartTimestamp = parseTimestamp(stageStartEvent?.created_at || run?.started_at);
-    const elapsedSeconds = stageStartTimestamp === null ? 0 : Math.max(0, (Date.now() - stageStartTimestamp) / 1000);
-    const easedGrowth = 1 - Math.exp(-elapsedSeconds / 18);
-    const livePercent = stageStartPercent + ((stageEndPercent - stageStartPercent) * (0.18 + easedGrowth * 0.62));
-    return {stage, percent: Math.min(stageEndPercent - 1, Math.max(stageStartPercent, livePercent))};
-  }
-
   function stageDisplayName(stage) {
     const labels = {
       checks: localeText("检查项", "Checks"),
@@ -1261,39 +1406,84 @@
     };
   }
 
-  function updateProgressPanel(run) {
-    const {stage, percent} = calculateProgress(run);
+  function updateProgressLiveTimers(run, {stage = null, snapshots = null, liveWork = null} = {}) {
+    if (!run) {
+      return;
+    }
+    const resolvedStage = stage || getCurrentStage(run);
+    const resolvedSnapshots = snapshots || getStageSnapshots(run);
+    const resolvedLiveWork = liveWork || describeLiveWork(run);
+    setTextContentIfChanged(
+      "progress-runtime",
+      runIsActive(run)
+        ? (resolvedSnapshots[resolvedStage]?.durationLabel || localeText("刚开始", "Just started"))
+        : formatDuration(run?.started_at, run?.finished_at)
+    );
+    setTextContentIfChanged(
+      "progress-live-duration",
+      resolvedLiveWork.duration
+        ? localeText(`已持续 ${resolvedLiveWork.duration}`, `${resolvedLiveWork.duration} elapsed`)
+        : localeText("刚刚开始", "Just started")
+    );
+    setTextContentIfChanged("progress-meta", resolvedLiveWork.metaRight);
+    const currentChip = document.querySelector(`.stage-chip[data-stage="${resolvedStage}"]`);
+    if (currentChip) {
+      setTextContentIfChanged(currentChip.querySelector("[data-stage-duration]"), resolvedSnapshots[resolvedStage]?.durationLabel || "-");
+    }
+  }
+
+  function updateProgressPanel(run, {liveOnly = false} = {}) {
+    const stage = getCurrentStage(run);
     const snapshots = getStageSnapshots(run);
-    const fill = document.getElementById("progress-fill");
     const statusBadge = document.getElementById("progress-status-badge");
     const status = run?.status || "draft";
     const liveWork = describeLiveWork(run);
+    const runtimeLabel = document.getElementById("progress-runtime-label");
+    const progressLiveCard = document.getElementById("progress-live-card");
+    const progressTone = status === "running"
+      ? "active"
+      : (status === "queued"
+        ? "queued"
+        : (status === "succeeded"
+          ? "success"
+          : (status === "failed" || status === "stopped" ? "danger" : "neutral")));
 
-    statusBadge.dataset.statusLabel = status;
-    statusBadge.textContent = window.LiminalUI.translateStatus(status);
-    statusBadge.className = `status-pill progress-status-pill status-${status}`;
+    if (liveOnly) {
+      updateProgressLiveTimers(run, {stage, snapshots, liveWork});
+      syncLiveRefreshers();
+      return;
+    }
 
-    fill.style.width = `${percent}%`;
-    fill.className = `progress-fill status-${status} ${status === "running" ? "is-live" : ""}`;
-    document.getElementById("progress-value").textContent = `${Math.round(percent)}%`;
-    document.getElementById("progress-live-title").textContent = liveWork.title;
-    document.getElementById("progress-live-detail").textContent = liveWork.detail;
-    document.getElementById("progress-live-duration").textContent = liveWork.duration
-      ? localeText(`已持续 ${liveWork.duration}`, `${liveWork.duration} elapsed`)
-      : localeText("刚刚开始", "Just started");
-    document.getElementById("progress-stage-label").textContent = liveWork.metaLeft;
-    document.getElementById("progress-meta").textContent = liveWork.metaRight;
-    document.getElementById("progress-caption").textContent = status === "running"
-      ? localeText("这条进度会跟着当前轮次的最新动作一起呼吸式刷新，不会再拿最大迭代数硬算。", "This progress bar follows the current round's live activity instead of pretending to know the whole run in advance.")
-      : localeText("这一轮已经收尾，下面保留最后的关键动作和里程碑。", "This round has settled, and the key actions and milestones below now show the final shape.");
+    setAttributeIfChanged(statusBadge, "data-status-label", status);
+    setTextContentIfChanged(statusBadge, window.LiminalUI.translateStatus(status));
+    setClassNameIfChanged(statusBadge, `status-pill progress-status-pill status-${status}`);
+    setClassNameIfChanged(progressLiveCard, `progress-live-card progress-live-card--${progressTone}`);
+    setTextContentIfChanged(runtimeLabel, runIsActive(run)
+      ? localeText("当前阶段耗时", "Current stage")
+      : localeText("总耗时", "Total elapsed"));
+    updateProgressLiveTimers(run, {stage, snapshots, liveWork});
+    setTextContentIfChanged("progress-live-title", liveWork.title);
+    setTextContentIfChanged("progress-live-subtitle", localeText(
+      `${stageDisplayName(stage)} · ${window.LiminalUI.translateStatus(status)}`,
+      `${stageDisplayName(stage)} · ${window.LiminalUI.translateStatus(status)}`
+    ));
+    setTextContentIfChanged("progress-live-detail", liveWork.detail);
+    setTextContentIfChanged("progress-stage-label", liveWork.metaLeft);
+    setTextContentIfChanged("progress-caption", status === "running"
+      ? localeText("不再猜一个虚假的百分比，只保留当前阶段、实时耗时和已经走过的阶段耗时。", "No fake percentage here anymore. This view keeps the current stage, its live duration, and the time already spent in completed stages.")
+      : localeText("这一轮已经收尾，下面保留最终阶段结果和整条路径的耗时痕迹。", "This run has settled, and the stage flow below now shows the final outcome with the time spent along the way."));
 
     document.querySelectorAll(".stage-chip").forEach((chip) => {
-      const snapshot = snapshots[chip.dataset.stage] || {state: "pending"};
-      chip.classList.remove("current", "complete", "pending", "failed", "skipped");
-      chip.classList.add(snapshot.state);
+      const snapshot = snapshots[chip.dataset.stage] || {state: "pending", stateLabel: "-", durationLabel: "-", meta: "-"};
       const tooltip = stageTooltipText(chip.dataset.stage, run, snapshots);
-      chip.dataset.tooltip = tooltip;
-      chip.setAttribute("aria-label", tooltip);
+      setClassNameIfChanged(chip, `stage-chip ${snapshot.state}`);
+      if (chip.dataset.tooltip !== tooltip) {
+        chip.dataset.tooltip = tooltip;
+      }
+      setAttributeIfChanged(chip, "aria-label", tooltip);
+      setTextContentIfChanged(chip.querySelector("[data-stage-state]"), snapshot.stateLabel || "-");
+      setTextContentIfChanged(chip.querySelector("[data-stage-duration]"), snapshot.durationLabel || "-");
+      setTextContentIfChanged(chip.querySelector("[data-stage-meta]"), snapshot.meta || "-");
     });
     syncLiveRefreshers();
   }
@@ -1327,15 +1517,18 @@
     document.getElementById("event-card").className = "highlight-card tone-neutral";
   }
 
-  async function fetchRun() {
+  async function fetchRun({refreshArtifacts = false} = {}) {
     const response = await fetch(`/api/runs/${runId}`);
     const payload = await response.json();
     currentRun = payload;
     updateProgressPanel(payload);
     updateHighlights(payload);
     syncConsoleMeta();
-    refreshArtifacts({preserveSelection: true}).then(() => {
-      if (currentArtifactId) {
+    if (!refreshArtifacts) {
+      return;
+    }
+    refreshArtifacts({preserveSelection: true}).then((state) => {
+      if (currentArtifactId && (state.selectionChanged || state.selectedAvailabilityChanged)) {
         return openArtifact(currentArtifactId);
       }
       return null;
@@ -1396,8 +1589,7 @@
 
     if (active && !heartbeatTimer) {
       heartbeatTimer = window.setInterval(() => {
-        updateProgressPanel(currentRun);
-        updateHighlights(currentRun);
+        updateProgressPanel(currentRun, {liveOnly: true});
         syncConsoleMeta();
       }, 1000);
     } else if (!active && heartbeatTimer) {
@@ -1454,7 +1646,10 @@
       pushTimelineEvent(payload);
     }
     if (options.refresh) {
-      scheduleRunRefresh({immediate: options.immediate === true});
+      scheduleRunRefresh({
+        immediate: options.immediate === true,
+        refreshArtifacts: options.refreshArtifacts === true,
+      });
     }
     return payload;
   }
@@ -1466,7 +1661,13 @@
     handleStreamEvent(message, {console: true, timeline: false, refresh: true});
   });
   eventSource.addEventListener("run_finished", (message) => {
-    const payload = handleStreamEvent(message, {console: true, timeline: true, refresh: true, immediate: true});
+    const payload = handleStreamEvent(message, {
+      console: true,
+      timeline: true,
+      refresh: true,
+      refreshArtifacts: true,
+      immediate: true,
+    });
     if (!payload) {
       return;
     }
@@ -1474,7 +1675,12 @@
   });
   ["run_started", "checks_resolved", "role_execution_summary", "role_degraded", "challenger_done", "stop_requested", "run_aborted", "workspace_guard_triggered"].forEach((eventName) => {
     eventSource.addEventListener(eventName, (message) => {
-      handleStreamEvent(message, {console: true, timeline: true, refresh: true});
+      handleStreamEvent(message, {
+        console: true,
+        timeline: true,
+        refresh: true,
+        refreshArtifacts: ["checks_resolved", "role_execution_summary", "challenger_done", "run_aborted", "workspace_guard_triggered"].includes(eventName),
+      });
     });
   });
 

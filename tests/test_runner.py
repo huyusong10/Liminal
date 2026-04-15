@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -212,6 +213,49 @@ def test_async_run_cleans_up_thread_bookkeeping(service_factory, sample_spec_fil
     finished = service.get_run(run["id"])
     assert finished["status"] == "succeeded"
     assert run["id"] not in service._threads
+
+
+def test_unexpected_run_error_marks_run_failed(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Crash Loop")
+    run = service.start_run(loop["id"])
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    service._resolve_run_checks = explode  # type: ignore[method-assign]
+
+    failed = service.execute_run(run["id"])
+
+    assert failed["status"] == "failed"
+    assert failed["error_message"] == "boom"
+    summary = Path(failed["runs_dir"]) / "summary.md"
+    assert "Execution crashed unexpectedly." in summary.read_text(encoding="utf-8")
+
+
+def test_get_run_recovers_local_orphaned_active_run(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Orphan Loop")
+    run = service.start_run(loop["id"])
+    service._local_run_orphan_grace_seconds = lambda: 0.0  # type: ignore[method-assign]
+    service.repository.update_run(
+        run["id"],
+        status="running",
+        runner_pid=os.getpid(),
+        active_role="generator",
+        started_at="2026-04-13T08:00:00+00:00",
+    )
+
+    service._threads.pop(run["id"], None)
+
+    recovered = service.get_run(run["id"])
+
+    assert recovered["status"] == "failed"
+    assert recovered["runner_pid"] is None
+    assert recovered["child_pid"] is None
+    assert "Recovered orphaned run" in (recovered["error_message"] or "")
+    events = service.repository.list_events(run["id"], after_id=0, limit=1000)
+    assert any(event["event_type"] == "run_aborted" for event in events)
 
 
 def test_stop_run_rejects_finished_runs(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:

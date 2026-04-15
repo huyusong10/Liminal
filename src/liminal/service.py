@@ -7,6 +7,7 @@ import os
 import shutil
 import threading
 import time
+from datetime import datetime
 from html import escape as escape_html
 from pathlib import Path
 from typing import Callable
@@ -73,6 +74,8 @@ class LiminalService:
         self.settings = settings
         self.executor_factory = executor_factory or executor_from_environment
         self._threads: dict[str, threading.Thread] = {}
+        self._active_runs: set[str] = set()
+        self._active_runs_lock = threading.Lock()
         self._reconcile_stale_runs()
 
     def create_loop(
@@ -207,15 +210,22 @@ class LiminalService:
         return run
 
     def start_run_async(self, run_id: str) -> None:
+        self._mark_run_active(run_id)
         thread = threading.Thread(target=self.execute_run, args=(run_id,), daemon=True, name=f"run-{run_id}")
         self._threads[run_id] = thread
-        thread.start()
+        try:
+            thread.start()
+        except Exception:
+            self._mark_run_inactive(run_id)
+            self._threads.pop(run_id, None)
+            raise
 
     def execute_run(self, run_id: str) -> dict:
         run = self.repository.get_run(run_id)
         if not run:
             raise LiminalError(f"unknown run: {run_id}")
 
+        self._mark_run_active(run_id)
         self._wait_for_slot(run_id)
         run = self.repository.get_run(run_id)
         if not run:
@@ -233,10 +243,9 @@ class LiminalService:
         last_iter_id = -1
         last_verifier_result: dict | None = None
 
-        self.repository.append_event(run_id, "run_started", {"status": "running"})
-        self._write_summary(run_id, "running", "Resolving checks for this run.")
-
         try:
+            self.repository.append_event(run_id, "run_started", {"status": "running"})
+            self._write_summary(run_id, "running", "Resolving checks for this run.")
             compiled_spec = self._resolve_run_checks(run, executor, compiled_spec, run_dir, retry_config)
             self._write_summary(run_id, "running", "Waiting for the first iteration to complete.")
             iteration_source = itertools.count() if run["max_iters"] == 0 else range(run["max_iters"])
@@ -504,11 +513,56 @@ class LiminalService:
                 },
             )
             return failed
+        except Exception as exc:
+            error_text = str(exc)
+            logger.exception("run %s crashed unexpectedly", run_id)
+            summary = (
+                "# Liminal Run Summary\n\n"
+                "Execution crashed unexpectedly.\n\n"
+                f"Reason: `{error_text}`.\n"
+            )
+            self._persist_summary_file(run_dir, summary)
+            try:
+                failed = self.repository.update_run(
+                    run_id,
+                    status="failed",
+                    finished_at=utc_now(),
+                    error_message=error_text,
+                    summary_md=summary,
+                )
+            except Exception:
+                logger.exception("failed to persist crash state for %s", run_id)
+                return {
+                    **run,
+                    "status": "failed",
+                    "finished_at": utc_now(),
+                    "error_message": error_text,
+                    "summary_md": summary,
+                }
+            try:
+                self.repository.append_event(
+                    run_id,
+                    "run_aborted",
+                    {
+                        "role": failed.get("active_role"),
+                        "attempts": 1,
+                        "degraded": False,
+                        "error": error_text,
+                    },
+                )
+            except Exception:
+                logger.exception("failed to append crash event for %s", run_id)
+            return failed
         finally:
-            self.repository.release_run_slot(run_id)
+            self._mark_run_inactive(run_id)
+            try:
+                self.repository.release_run_slot(run_id)
+            except Exception:
+                logger.exception("failed to release run slot for %s", run_id)
             self._threads.pop(run_id, None)
 
     def stop_run(self, run_id: str) -> dict:
+        self._reconcile_local_orphaned_runs()
         current = self.repository.get_run(run_id)
         if not current:
             raise LiminalError(f"unknown run: {run_id}")
@@ -523,9 +577,11 @@ class LiminalService:
         return run
 
     def list_loops(self) -> list[dict]:
+        self._reconcile_local_orphaned_runs()
         return self.repository.list_loops()
 
     def get_loop(self, loop_id: str) -> dict:
+        self._reconcile_local_orphaned_runs()
         loop = self.repository.get_loop(loop_id)
         if not loop:
             raise LiminalError(f"unknown loop: {loop_id}")
@@ -533,6 +589,7 @@ class LiminalService:
         return loop
 
     def get_run(self, run_id: str) -> dict:
+        self._reconcile_local_orphaned_runs()
         run = self.repository.get_run(run_id)
         if not run:
             raise LiminalError(f"unknown run: {run_id}")
@@ -542,6 +599,7 @@ class LiminalService:
         return run
 
     def get_status(self, identifier: str) -> tuple[str, dict]:
+        self._reconcile_local_orphaned_runs()
         found = self.repository.get_loop_or_run(identifier)
         if not found:
             raise LiminalError(f"unknown identifier: {identifier}")
@@ -580,9 +638,7 @@ class LiminalService:
                 "# Liminal Run Summary\n\n"
                 "This run was marked stopped when Liminal restarted because its previous worker process was no longer alive.\n"
             )
-            run_dir = Path(run["runs_dir"])
-            run_dir.mkdir(parents=True, exist_ok=True)
-            (run_dir / "summary.md").write_text(summary, encoding="utf-8")
+            self._persist_summary_file(Path(run["runs_dir"]), summary)
             self.repository.update_run(
                 run["id"],
                 status="stopped",
@@ -602,6 +658,83 @@ class LiminalService:
         if run.get("status") == "queued":
             return bool(pid and self._pid_exists(pid))
         return bool(pid and self._pid_exists(pid))
+
+    def _reconcile_local_orphaned_runs(self) -> None:
+        for run in self.repository.list_active_runs():
+            self._recover_local_orphaned_run(run)
+
+    def _recover_local_orphaned_run(self, run: dict) -> dict:
+        if not self._should_recover_local_orphan(run):
+            return run
+
+        reason = "Recovered orphaned run after the local worker stopped unexpectedly."
+        summary = (
+            "# Liminal Run Summary\n\n"
+            "This run was marked failed because the local worker stopped unexpectedly before it could finish cleanly.\n"
+        )
+        child_pid = run.get("child_pid")
+        if child_pid and self._pid_exists(child_pid):
+            try:
+                os.kill(int(child_pid), 15)
+            except OSError:
+                logger.exception("failed to stop orphaned child process %s for run %s", child_pid, run["id"])
+        self._persist_summary_file(Path(run["runs_dir"]), summary)
+        updated = self.repository.update_run(
+            run["id"],
+            status="failed",
+            finished_at=utc_now(),
+            error_message=reason,
+            summary_md=summary,
+        )
+        self.repository.release_run_slot(run["id"])
+        self.repository.append_event(
+            run["id"],
+            "run_aborted",
+            {
+                "role": run.get("active_role"),
+                "attempts": 1,
+                "degraded": False,
+                "error": reason,
+            },
+        )
+        return updated or run
+
+    def _should_recover_local_orphan(self, run: dict) -> bool:
+        if run.get("status") not in {"queued", "running"}:
+            return False
+        if self._is_run_active_locally(run["id"]):
+            return False
+        if run.get("status") == "running" and run.get("runner_pid") not in {None, os.getpid()}:
+            return False
+        updated_at = self._parse_run_timestamp(run.get("updated_at") or run.get("started_at") or run.get("queued_at"))
+        if updated_at is None:
+            return False
+        age_seconds = time.time() - updated_at.timestamp()
+        return age_seconds >= self._local_run_orphan_grace_seconds()
+
+    def _local_run_orphan_grace_seconds(self) -> float:
+        return max(self.settings.stop_grace_period_seconds, self.settings.polling_interval_seconds * 4, 2.0)
+
+    def _mark_run_active(self, run_id: str) -> None:
+        with self._active_runs_lock:
+            self._active_runs.add(run_id)
+
+    def _mark_run_inactive(self, run_id: str) -> None:
+        with self._active_runs_lock:
+            self._active_runs.discard(run_id)
+
+    def _is_run_active_locally(self, run_id: str) -> bool:
+        with self._active_runs_lock:
+            return run_id in self._active_runs
+
+    @staticmethod
+    def _parse_run_timestamp(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
 
     @staticmethod
     def _pid_exists(pid: int | None) -> bool:
@@ -685,6 +818,7 @@ class LiminalService:
         return suspicious / len(sample) > 0.1
 
     def stream_events(self, run_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
+        self._reconcile_local_orphaned_runs()
         return self.repository.list_events(run_id, after_id=after_id, limit=limit)
 
     def _wait_for_slot(self, run_id: str) -> None:
@@ -986,7 +1120,11 @@ class LiminalService:
         self.repository.update_run(run_id, summary_md=summary)
 
     def _persist_summary_file(self, run_dir: Path, summary: str) -> None:
-        (run_dir / "summary.md").write_text(summary, encoding="utf-8")
+        run_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            (run_dir / "summary.md").write_text(summary, encoding="utf-8")
+        except OSError:
+            logger.exception("failed to persist summary for run dir %s", run_dir)
 
     def _build_summary(
         self,

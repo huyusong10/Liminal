@@ -137,6 +137,24 @@ def test_api_run_events_and_stream_require_a_real_run(service_factory) -> None:
     assert "unknown run" in stream_response.json()["error"]
 
 
+def test_api_run_stream_emits_stream_error_on_backend_failure() -> None:
+    class FlakyService:
+        def get_run(self, run_id: str) -> dict:
+            return {"id": run_id, "status": "running", "loop_id": "loop_test"}
+
+        def stream_events(self, run_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
+            raise RuntimeError("database unavailable")
+
+    client = TestClient(build_app(service=FlakyService()))
+
+    with client.stream("GET", "/api/runs/run_test/stream") as response:
+        assert response.status_code == 200
+        body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text())
+
+    assert "event: stream_error" in body
+    assert "database unavailable" in body
+
+
 def test_api_stop_run_rejects_finished_runs(
     service_factory,
     sample_spec_file: Path,

@@ -37,6 +37,8 @@ def test_index_page_renders_with_saved_loops(
     assert "本地优先" not in response.text
     assert "/logo/logo-with-text-horizontal.svg" in response.text
     assert "/logo/logo.svg" in response.text
+    assert "/static/app.css?v=" in response.text
+    assert "/static/app.js?v=" in response.text
     assert response.text.index("/loops/new") < response.text.index("/tools")
     assert "data-open-card=" in response.text
     assert "id=\"confirm-modal\"" in response.text
@@ -71,6 +73,7 @@ def test_run_detail_places_run_files_and_console_before_timeline(
     assert response.status_code == 200
     assert "Run Detail Loop" in response.text
     assert run["id"] in response.text
+    assert "hero-run-detail" in response.text
     assert response.text.index("Progress") < response.text.index("Console")
     assert response.text.index("Console") < response.text.index("Run files")
     assert response.text.index("Console") < response.text.index("Timeline")
@@ -79,7 +82,12 @@ def test_run_detail_places_run_files_and_console_before_timeline(
     assert "实时输出" in response.text
     assert "Original spec" in response.text
     assert "progress-live-title" in response.text
+    assert "progress-runtime" in response.text
+    assert "stage-chip-duration" in response.text
+    assert response.text.index("stage-strip") < response.text.index("progress-live-title")
     assert "timeline-count" in response.text
+    assert "progress-value" not in response.text
+    assert "progress-track-shell" not in response.text
     assert "最近更新" not in response.text
     assert "还没冒出第一条具体输出" in response.text
     assert "正在收集测试证据" in response.text
@@ -116,6 +124,8 @@ def test_loop_detail_uses_summary_cards_for_latest_run(
     assert "Original spec" in response.text
     assert "Ship the requested behavior." in response.text
     assert "summary-grid" in response.text
+    assert "summary-card-status summary-card-status-" in response.text
+    assert "hero-inline-meta" in response.text
     assert "一句话摘要" in response.text
     assert "Latest verdict" in response.text
 
@@ -158,7 +168,7 @@ def test_tools_page_renders_skill_install_cards(service_factory) -> None:
 
     assert response.status_code == 200
     assert "Spec skill install" in response.text
-    assert "/static/pages/tools.js" in response.text
+    assert "/static/pages/tools.js?v=" in response.text
     assert "data-install-skill=\"codex\"" in response.text
     assert "data-install-skill=\"claude\"" in response.text
     assert "data-install-skill=\"opencode\"" in response.text
@@ -172,7 +182,7 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     response = client.get("/loops/new")
 
     assert response.status_code == 200
-    assert "/static/pages/new_loop.js" in response.text
+    assert "/static/pages/new_loop.js?v=" in response.text
     assert "name=\"executor_kind\"" in response.text
     assert "name=\"executor_mode\"" in response.text
     assert "id=\"command-preview\"" in response.text

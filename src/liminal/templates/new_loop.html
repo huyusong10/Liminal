@@ -375,5 +375,5 @@
   </div>
 </form>
 <script id="executor-profiles-json" type="application/json">{{ executor_profiles|tojson }}</script>
-<script src="/static/pages/new_loop.js" defer></script>
+<script src="{{ static_asset_url('pages/new_loop.js') }}" defer></script>
 {% endblock %}

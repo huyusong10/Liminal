@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import ipaddress
 import json
+import logging
 import re
 import time
 from collections.abc import Mapping
@@ -18,6 +19,8 @@ from liminal.skills import install_spec_skill, list_spec_skill_targets
 from liminal.service import LiminalError, create_service
 from liminal.specs import SpecError, init_spec_file, read_and_compile
 from liminal.system_dialogs import SystemDialogError, pick_directory, pick_file, pick_save_file
+
+logger = logging.getLogger(__name__)
 
 AUTH_COOKIE_NAME = "liminal_auth"
 
@@ -117,9 +120,22 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     access_state = _build_access_state(bind_host=bind_host, bind_port=bind_port, auth_token=auth_token)
     app.state.access_state = access_state
     package_root = Path(__file__).parent
+    static_root = package_root / "static"
     templates = Jinja2Templates(directory=str(package_root / "templates"))
+    templates.env.auto_reload = True
     app.mount("/static", StaticFiles(directory=str(package_root / "static")), name="static")
     app.mount("/logo", StaticFiles(directory=str(package_root / "assets" / "logo")), name="logo")
+
+    def static_asset_url(path: str) -> str:
+        normalized = path.lstrip("/")
+        asset_path = static_root / normalized
+        try:
+            version = asset_path.stat().st_mtime_ns
+        except OSError:
+            version = time.time_ns()
+        return f"/static/{normalized}?v={version}"
+
+    templates.env.globals["static_asset_url"] = static_asset_url
 
     def svc():
         return app.state.service
@@ -396,13 +412,20 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         def event_stream():
             last_id = after_id
             while True:
-                events = svc().stream_events(run_id, after_id=last_id)
-                for event in events:
-                    last_id = event["id"]
-                    yield f"id: {event['id']}\n"
-                    yield f"event: {event['event_type']}\n"
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                run = svc().get_run(run_id)
+                try:
+                    events = svc().stream_events(run_id, after_id=last_id)
+                    for event in events:
+                        last_id = event["id"]
+                        yield f"id: {event['id']}\n"
+                        yield f"event: {event['event_type']}\n"
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    run = svc().get_run(run_id)
+                except Exception as exc:
+                    logger.exception("run stream failed for %s", run_id)
+                    payload = {"run_id": run_id, "after_id": last_id, "error": str(exc)}
+                    yield "event: stream_error\n"
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    break
                 if run["status"] in {"succeeded", "failed", "stopped"} and not events:
                     break
                 yield ": keep-alive\n\n"

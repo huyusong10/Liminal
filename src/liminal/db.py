@@ -1,31 +1,60 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
 from liminal.utils import append_jsonl, utc_now
 
+logger = logging.getLogger(__name__)
+
 
 class LiminalRepository:
     def __init__(self, path: Path) -> None:
-        self.path = path
+        self.path = path.expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=30, check_same_thread=False)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA foreign_keys=ON")
-        return connection
+    def _connect(self, *, configure_journal_mode: bool = False) -> sqlite3.Connection:
+        for attempt in range(3):
+            connection: sqlite3.Connection | None = None
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                connection = sqlite3.connect(self.path, timeout=30, check_same_thread=False)
+                connection.row_factory = sqlite3.Row
+                connection.execute("PRAGMA foreign_keys=ON")
+                connection.execute("PRAGMA busy_timeout=30000")
+                if configure_journal_mode:
+                    connection.execute("PRAGMA journal_mode=WAL").fetchone()
+                return connection
+            except sqlite3.OperationalError as exc:
+                if connection is not None:
+                    connection.close()
+                if attempt == 2 or not self._is_retryable_connect_error(exc):
+                    raise
+                time.sleep(0.1 * (attempt + 1))
+        raise AssertionError("sqlite connection retry loop exited unexpectedly")
+
+    @staticmethod
+    def _is_retryable_connect_error(exc: sqlite3.OperationalError) -> bool:
+        message = str(exc).lower()
+        return any(
+            marker in message
+            for marker in (
+                "unable to open database file",
+                "database is locked",
+                "disk i/o error",
+            )
+        )
 
     @contextmanager
-    def transaction(self) -> Iterator[sqlite3.Connection]:
-        connection = self._connect()
+    def transaction(self, *, configure_journal_mode: bool = False) -> Iterator[sqlite3.Connection]:
+        connection = self._connect(configure_journal_mode=configure_journal_mode)
         try:
             connection.execute("BEGIN IMMEDIATE")
             yield connection
@@ -37,7 +66,7 @@ class LiminalRepository:
             connection.close()
 
     def _init_db(self) -> None:
-        with self.transaction() as connection:
+        with self.transaction(configure_journal_mode=True) as connection:
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS loop_definitions (
@@ -310,7 +339,10 @@ class LiminalRepository:
             "payload": payload,
         }
         if run:
-            append_jsonl(Path(run["runs_dir"]) / "events.jsonl", record)
+            try:
+                append_jsonl(Path(run["runs_dir"]) / "events.jsonl", record)
+            except OSError:
+                logger.exception("failed to mirror event %s for run %s to events.jsonl", event_type, run_id)
         return record
 
     def list_events(self, run_id: str, *, after_id: int = 0, limit: int = 200) -> list[dict]:
