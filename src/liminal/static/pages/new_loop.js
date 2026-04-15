@@ -28,6 +28,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const commandArgsInput = document.getElementById("command-args-input");
   const commandPreview = document.getElementById("command-preview");
   const commandPreviewNote = document.getElementById("command-preview-note");
+  const roleModelInputs = {
+    generator: document.getElementById("role-model-generator-input"),
+    tester: document.getElementById("role-model-tester-input"),
+    verifier: document.getElementById("role-model-verifier-input"),
+    challenger: document.getElementById("role-model-challenger-input"),
+  };
   const browseWorkdirButton = document.getElementById("browse-workdir");
   const browseSpecButton = document.getElementById("browse-spec");
   const createSpecTemplateButton = document.getElementById("create-spec-template");
@@ -416,6 +422,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const formData = new FormData(form);
     const executorMode = String(formData.get("executor_mode") || "preset").trim();
+    const roleModels = Object.fromEntries(
+      Object.entries(roleModelInputs)
+        .map(([role, input]) => [role, String(input?.value || "").trim()])
+        .filter(([, model]) => model),
+    );
     const payload = {
       name: String(formData.get("name") || "").trim(),
       workdir: String(formData.get("workdir") || "").trim(),
@@ -424,13 +435,14 @@ document.addEventListener("DOMContentLoaded", () => {
       executor_mode: executorMode,
       command_cli: executorMode === "command" ? String(formData.get("command_cli") || "").trim() : "",
       command_args_text: executorMode === "command" ? String(formData.get("command_args_text") || "") : "",
-      model: executorMode === "preset" ? String(formData.get("model") || "").trim() : "",
-      reasoning_effort: executorMode === "preset" ? String(formData.get("reasoning_effort") || "").trim() : "",
+      model: String(modelInput.value || "").trim(),
+      reasoning_effort: String(reasoningInput.value || "").trim(),
       max_iters: parseNumber(formData.get("max_iters"), 8),
       max_role_retries: parseNumber(formData.get("max_role_retries"), 2),
       delta_threshold: parseNumber(formData.get("delta_threshold"), 0.005),
       trigger_window: parseNumber(formData.get("trigger_window"), 4),
       regression_window: parseNumber(formData.get("regression_window"), 2),
+      role_models: roleModels,
       start_immediately: formData.get("start_immediately") === "1",
     };
 

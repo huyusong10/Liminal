@@ -241,8 +241,8 @@
               <button
                 class="help-dot"
                 type="button"
-                data-title-zh="每行一个参数，比直接写整串 shell 更稳。支持占位符：{workdir} {schema_path} {output_path} {json_schema} {sandbox} {prompt}。"
-                data-title-en="Use one argument per line for safer editing than a full shell string. Supported placeholders: {workdir} {schema_path} {output_path} {json_schema} {sandbox} {prompt}."
+                data-title-zh="每行一个参数，比直接写整串 shell 更稳。支持占位符：{workdir} {schema_path} {output_path} {json_schema} {sandbox} {prompt} {model} {reasoning_effort}。"
+                data-title-en="Use one argument per line for safer editing than a full shell string. Supported placeholders: {workdir} {schema_path} {output_path} {json_schema} {sandbox} {prompt} {model} {reasoning_effort}."
               >?</button>
             </span>
             <textarea
@@ -340,6 +340,32 @@
       </span>
       <input name="regression_window" type="number" min="1" value="{{ form_values.regression_window }}" />
     </label>
+
+    <details class="wide">
+      <summary><span data-lang="zh">高级：按角色覆盖模型</span><span data-lang="en">Advanced: per-role model overrides</span></summary>
+      <p class="field-note">
+        <span data-lang="zh">可选。留空则所有角色都使用上面的默认模型。适合让 generator 和 verifier 用不同模型，但仍保持同一个 loop 定义。</span>
+        <span data-lang="en">Optional. Leave these blank to use the default model above for every role. Use this when generator and verifier should run on different models while staying inside one loop definition.</span>
+      </p>
+      <div class="executor-config-body">
+        <label>
+          <span><span data-lang="zh">Generator 模型</span><span data-lang="en">Generator model</span></span>
+          <input id="role-model-generator-input" name="role_model_generator" value="{{ form_values.role_model_generator }}" />
+        </label>
+        <label>
+          <span><span data-lang="zh">Tester 模型</span><span data-lang="en">Tester model</span></span>
+          <input id="role-model-tester-input" name="role_model_tester" value="{{ form_values.role_model_tester }}" />
+        </label>
+        <label>
+          <span><span data-lang="zh">Verifier 模型</span><span data-lang="en">Verifier model</span></span>
+          <input id="role-model-verifier-input" name="role_model_verifier" value="{{ form_values.role_model_verifier }}" />
+        </label>
+        <label>
+          <span><span data-lang="zh">Challenger 模型</span><span data-lang="en">Challenger model</span></span>
+          <input id="role-model-challenger-input" name="role_model_challenger" value="{{ form_values.role_model_challenger }}" />
+        </label>
+      </div>
+    </details>
   </div>
 
   <label class="checkbox-row">

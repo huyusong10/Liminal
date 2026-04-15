@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Annotated
 
 import typer
 import uvicorn
 
-from liminal.service import LiminalError, create_service
+from liminal.service import LiminalError, create_service, normalize_role_models
 from liminal.settings import configure_logging
-from liminal.specs import SpecError, init_spec_file
+from liminal.specs import SpecError, init_spec_file, read_and_compile
 from liminal.web import _is_loopback_host, build_app
 
 app = typer.Typer(help="Liminal CLI")
@@ -23,46 +24,199 @@ def _handle_error(exc: Exception) -> None:
     raise typer.Exit(code=1)
 
 
-@app.command()
-def run(
-    spec: Path = typer.Option(..., exists=True, help="Path to the Markdown spec."),
-    workdir: Path = typer.Option(..., exists=True, file_okay=False, dir_okay=True, help="Target workdir."),
-    executor_kind: str = typer.Option("codex", "--executor", help="Execution tool: codex, claude, or opencode."),
-    model: str = typer.Option("", help="Default model or alias for the selected execution tool."),
-    reasoning_effort: str = typer.Option("", help="Reasoning effort or variant for the selected execution tool."),
-    max_iters: int = typer.Option(8, min=0, help="Maximum orchestration iterations. Use 0 to keep iterating until you stop it."),
-    max_role_retries: int = typer.Option(2, min=0, help="Retries per role before aborting."),
-    delta_threshold: float = typer.Option(0.005, min=0.0, help="Plateau threshold."),
-    trigger_window: int = typer.Option(4, min=1, help="Plateau trigger window."),
-    regression_window: int = typer.Option(2, min=1, help="Regression trigger window."),
-    name: str | None = typer.Option(None, help="Optional loop name."),
-    role_model: list[str] = typer.Option(None, "--role-model", help="Per-role model override like generator=gpt-5.4-mini."),
-) -> None:
-    """Create a loop definition and execute it immediately."""
-    try:
-        service = create_service()
-        loop = service.create_loop(
-            name=name or workdir.resolve().name,
-            spec_path=spec,
+SpecOption = Annotated[Path, typer.Option(..., exists=True, help="Path to the Markdown spec.")]
+WorkdirOption = Annotated[Path, typer.Option(..., exists=True, file_okay=False, dir_okay=True, help="Target workdir.")]
+ExecutorOption = Annotated[str, typer.Option("--executor", help="Execution tool: codex, claude, or opencode.")]
+ExecutorModeOption = Annotated[str, typer.Option("--executor-mode", help="Execution mode: preset or command.")]
+ModelOption = Annotated[str, typer.Option(help="Default model or alias for the selected execution tool.")]
+ReasoningOption = Annotated[str, typer.Option(help="Reasoning effort or variant for the selected execution tool.")]
+CommandCliOption = Annotated[str, typer.Option("--command-cli", help="Executable to invoke in command mode. Defaults to the selected tool CLI.")]
+CommandArgOption = Annotated[
+    list[str] | None,
+    typer.Option(
+        "--command-arg",
+        help="One command-mode argv template entry. Repeat once per argument. Supports placeholders like {workdir}, {schema_path}, {output_path}, {json_schema}, {sandbox}, {prompt}, {model}, and {reasoning_effort}.",
+    ),
+]
+MaxItersOption = Annotated[int, typer.Option(min=0, help="Maximum orchestration iterations. Use 0 to keep iterating until you stop it.")]
+MaxRoleRetriesOption = Annotated[int, typer.Option(min=0, help="Retries per role before aborting.")]
+DeltaThresholdOption = Annotated[float, typer.Option(min=0.0, help="Plateau threshold.")]
+TriggerWindowOption = Annotated[int, typer.Option(min=1, help="Plateau trigger window.")]
+RegressionWindowOption = Annotated[int, typer.Option(min=1, help="Regression trigger window.")]
+NameOption = Annotated[str | None, typer.Option(help="Optional loop name.")]
+RoleModelOption = Annotated[
+    list[str] | None,
+    typer.Option(
+        "--role-model",
+        help="Per-role model override like generator=gpt-5.4-mini. Supported roles: generator, tester, verifier, challenger.",
+    ),
+]
+StartOption = Annotated[bool, typer.Option("--start", help="Start a run immediately after creating the loop definition.")]
+BackgroundOption = Annotated[bool, typer.Option("--background", help="Queue the run and return immediately instead of waiting for it to finish.")]
+LocaleOption = Annotated[str, typer.Option("--locale", help="Template locale: zh or en.")]
+
+
+def _command_args_text_from_values(values: list[str] | None) -> str:
+    if not values:
+        return ""
+    return "\n".join(item for item in values if item.strip())
+
+
+def _parse_role_models(values: list[str] | None) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    if not values:
+        return parsed
+    for item in values:
+        if "=" not in item:
+            raise LiminalError(f"invalid --role-model value: {item}")
+        role, model = item.split("=", 1)
+        parsed[role.strip()] = model.strip()
+    return normalize_role_models(parsed)
+
+
+def _build_loop_kwargs(
+    *,
+    spec: Path,
+    workdir: Path,
+    executor_kind: str,
+    executor_mode: str,
+    model: str,
+    reasoning_effort: str,
+    command_cli: str,
+    command_arg: list[str] | None,
+    max_iters: int,
+    max_role_retries: int,
+    delta_threshold: float,
+    trigger_window: int,
+    regression_window: int,
+    name: str | None,
+    role_model: list[str] | None,
+) -> dict[str, object]:
+    return {
+        "name": name or workdir.resolve().name,
+        "spec_path": spec,
+        "workdir": workdir,
+        "executor_kind": executor_kind,
+        "executor_mode": executor_mode,
+        "command_cli": command_cli,
+        "command_args_text": _command_args_text_from_values(command_arg),
+        "model": model,
+        "reasoning_effort": reasoning_effort,
+        "max_iters": max_iters,
+        "max_role_retries": max_role_retries,
+        "delta_threshold": delta_threshold,
+        "trigger_window": trigger_window,
+        "regression_window": regression_window,
+        "role_models": _parse_role_models(role_model),
+    }
+
+
+def _print_loop_created(loop: dict) -> None:
+    typer.echo(f"loop: {loop['id']}")
+    if loop.get("name"):
+        typer.echo(f"name: {loop['name']}")
+    if loop.get("workdir"):
+        typer.echo(f"workdir: {loop['workdir']}")
+
+
+def _print_run_result(result: dict) -> None:
+    typer.echo(f"run: {result['id']}")
+    typer.echo(f"status: {result['status']}")
+    typer.echo(f"run_dir: {result['runs_dir']}")
+    if result.get("last_verdict_json"):
+        typer.echo("verdict:")
+        typer.echo(json.dumps(result["last_verdict_json"], ensure_ascii=False, indent=2))
+
+
+def _create_and_maybe_start_loop(
+    *,
+    spec: Path,
+    workdir: Path,
+    executor_kind: str,
+    executor_mode: str,
+    model: str,
+    reasoning_effort: str,
+    command_cli: str,
+    command_arg: list[str] | None,
+    max_iters: int,
+    max_role_retries: int,
+    delta_threshold: float,
+    trigger_window: int,
+    regression_window: int,
+    name: str | None,
+    role_model: list[str] | None,
+    start: bool,
+    background: bool,
+) -> tuple[dict, dict | None]:
+    if background and not start:
+        raise LiminalError("--background requires --start")
+    service = create_service()
+    loop = service.create_loop(
+        **_build_loop_kwargs(
+            spec=spec,
             workdir=workdir,
             executor_kind=executor_kind,
+            executor_mode=executor_mode,
             model=model,
             reasoning_effort=reasoning_effort,
+            command_cli=command_cli,
+            command_arg=command_arg,
             max_iters=max_iters,
             max_role_retries=max_role_retries,
             delta_threshold=delta_threshold,
             trigger_window=trigger_window,
             regression_window=regression_window,
-            role_models=_parse_role_models(role_model),
+            name=name,
+            role_model=role_model,
         )
-        result = service.rerun(loop["id"])
-        typer.echo(f"loop: {loop['id']}")
-        typer.echo(f"run: {result['id']}")
-        typer.echo(f"status: {result['status']}")
-        typer.echo(f"run_dir: {result['runs_dir']}")
-        if result.get("last_verdict_json"):
-            typer.echo("verdict:")
-            typer.echo(json.dumps(result["last_verdict_json"], ensure_ascii=False, indent=2))
+    )
+    run = service.rerun(loop["id"], background=background) if start else None
+    return loop, run
+
+
+@app.command()
+def run(
+    spec: SpecOption,
+    workdir: WorkdirOption,
+    executor_kind: ExecutorOption = "codex",
+    executor_mode: ExecutorModeOption = "preset",
+    model: ModelOption = "",
+    reasoning_effort: ReasoningOption = "",
+    command_cli: CommandCliOption = "",
+    command_arg: CommandArgOption = None,
+    max_iters: MaxItersOption = 8,
+    max_role_retries: MaxRoleRetriesOption = 2,
+    delta_threshold: DeltaThresholdOption = 0.005,
+    trigger_window: TriggerWindowOption = 4,
+    regression_window: RegressionWindowOption = 2,
+    name: NameOption = None,
+    role_model: RoleModelOption = None,
+    background: BackgroundOption = False,
+) -> None:
+    """Create a loop definition and execute it immediately."""
+    try:
+        loop, result = _create_and_maybe_start_loop(
+            spec=spec,
+            workdir=workdir,
+            executor_kind=executor_kind,
+            executor_mode=executor_mode,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            command_cli=command_cli,
+            command_arg=command_arg,
+            max_iters=max_iters,
+            max_role_retries=max_role_retries,
+            delta_threshold=delta_threshold,
+            trigger_window=trigger_window,
+            regression_window=regression_window,
+            name=name,
+            role_model=role_model,
+            start=True,
+            background=background,
+        )
+        _print_loop_created(loop)
+        if result is not None:
+            _print_run_result(result)
     except (LiminalError, SpecError, FileExistsError) as exc:
         _handle_error(exc)
 
@@ -102,12 +256,84 @@ def serve(
 
 
 @spec_app.command("init")
-def spec_init(path: Path = typer.Argument(..., help="Where to create the Markdown template.")) -> None:
+def spec_init(
+    path: Path = typer.Argument(..., help="Where to create the Markdown template."),
+    locale: LocaleOption = "zh",
+) -> None:
     """Create a starter Markdown spec."""
     try:
-        created = init_spec_file(path)
+        created = init_spec_file(path, locale=locale)
         typer.echo(f"created: {created}")
     except (FileExistsError, OSError) as exc:
+        _handle_error(exc)
+
+
+@spec_app.command("validate")
+def spec_validate(path: Path = typer.Argument(..., exists=True, help="Path to the Markdown spec to validate.")) -> None:
+    """Validate a Markdown spec and print the resolved check mode."""
+    try:
+        _, compiled = read_and_compile(path)
+        typer.echo(
+            json.dumps(
+                {
+                    "ok": True,
+                    "path": str(path.resolve()),
+                    "check_count": len(compiled["checks"]),
+                    "check_mode": compiled["check_mode"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    except (SpecError, FileNotFoundError, OSError) as exc:
+        _handle_error(exc)
+
+
+@loops_app.command("create")
+def create_loop(
+    spec: SpecOption,
+    workdir: WorkdirOption,
+    executor_kind: ExecutorOption = "codex",
+    executor_mode: ExecutorModeOption = "preset",
+    model: ModelOption = "",
+    reasoning_effort: ReasoningOption = "",
+    command_cli: CommandCliOption = "",
+    command_arg: CommandArgOption = None,
+    max_iters: MaxItersOption = 8,
+    max_role_retries: MaxRoleRetriesOption = 2,
+    delta_threshold: DeltaThresholdOption = 0.005,
+    trigger_window: TriggerWindowOption = 4,
+    regression_window: RegressionWindowOption = 2,
+    name: NameOption = None,
+    role_model: RoleModelOption = None,
+    start: StartOption = False,
+    background: BackgroundOption = False,
+) -> None:
+    """Create a saved loop definition, optionally starting a run immediately."""
+    try:
+        loop, result = _create_and_maybe_start_loop(
+            spec=spec,
+            workdir=workdir,
+            executor_kind=executor_kind,
+            executor_mode=executor_mode,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            command_cli=command_cli,
+            command_arg=command_arg,
+            max_iters=max_iters,
+            max_role_retries=max_role_retries,
+            delta_threshold=delta_threshold,
+            trigger_window=trigger_window,
+            regression_window=regression_window,
+            name=name,
+            role_model=role_model,
+            start=start,
+            background=background,
+        )
+        _print_loop_created(loop)
+        if result is not None:
+            _print_run_result(result)
+    except (LiminalError, SpecError, FileExistsError) as exc:
         _handle_error(exc)
 
 
@@ -156,29 +382,25 @@ def stop_run(run_id: str = typer.Argument(..., help="Run ID.")) -> None:
 
 
 @loops_app.command("rerun")
-def rerun_loop(loop_id: str = typer.Argument(..., help="Loop definition ID.")) -> None:
+def rerun_loop(
+    loop_id: str = typer.Argument(..., help="Loop definition ID."),
+    background: BackgroundOption = False,
+) -> None:
     """Start a new run from a saved loop definition."""
     try:
         service = create_service()
-        result = service.rerun(loop_id)
-        typer.echo(f"run: {result['id']}")
-        typer.echo(f"status: {result['status']}")
-        typer.echo(f"run_dir: {result['runs_dir']}")
+        result = service.rerun(loop_id, background=background)
+        _print_run_result(result)
     except LiminalError as exc:
         _handle_error(exc)
 
 
-def _parse_role_models(values: list[str] | None) -> dict[str, str]:
-    parsed: dict[str, str] = {}
-    if not values:
-        return parsed
-    for item in values:
-        if "=" not in item:
-            raise LiminalError(f"invalid --role-model value: {item}")
-        role, model = item.split("=", 1)
-        role = role.strip()
-        model = model.strip()
-        if role not in {"generator", "tester", "verifier", "challenger"} or not model:
-            raise LiminalError(f"invalid --role-model value: {item}")
-        parsed[role] = model
-    return parsed
+@loops_app.command("delete")
+def delete_loop(loop_id: str = typer.Argument(..., help="Loop definition ID.")) -> None:
+    """Delete a saved loop definition and its run artifacts."""
+    try:
+        service = create_service()
+        result = service.delete_loop(loop_id)
+        typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+    except LiminalError as exc:
+        _handle_error(exc)

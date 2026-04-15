@@ -187,6 +187,8 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "name=\"executor_mode\"" in response.text
     assert "id=\"command-preview\"" in response.text
     assert "id=\"reasoning-input\"" in response.text
+    assert "name=\"role_model_generator\"" in response.text
+    assert "name=\"role_model_verifier\"" in response.text
     assert "Claude Code" in response.text
     assert "OpenCode" in response.text
     assert "把一个想法拎进来" in response.text

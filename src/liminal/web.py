@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 
 from liminal.providers import executor_profile, list_executor_profiles
 from liminal.skills import install_spec_skill, list_spec_skill_targets
-from liminal.service import LiminalError, create_service
+from liminal.service import LiminalError, create_service, normalize_role_models
 from liminal.specs import SpecError, init_spec_file, read_and_compile
 from liminal.system_dialogs import SystemDialogError, pick_directory, pick_file, pick_save_file
 
@@ -39,6 +39,10 @@ DEFAULT_LOOP_FORM = {
     "delta_threshold": 0.005,
     "trigger_window": 4,
     "regression_window": 2,
+    "role_model_generator": "",
+    "role_model_tester": "",
+    "role_model_verifier": "",
+    "role_model_challenger": "",
     "start_immediately": True,
 }
 
@@ -584,9 +588,21 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
         "delta_threshold": delta_threshold,
         "trigger_window": trigger_window,
         "regression_window": regression_window,
-        "role_models": payload.get("role_models") or {},
+        "role_models": _role_models_from_mapping(payload),
     }
     return loop_kwargs, _coerce_bool(payload.get("start_immediately"))
+
+
+def _role_models_from_mapping(payload: Mapping[str, object]) -> dict[str, str]:
+    role_models = payload.get("role_models")
+    if isinstance(role_models, Mapping):
+        return normalize_role_models(dict(role_models))
+    extracted = {}
+    for role in ("generator", "tester", "verifier", "challenger"):
+        value = str(payload.get(f"role_model_{role}", "")).strip()
+        if value:
+            extracted[role] = value
+    return normalize_role_models(extracted)
 
 
 def _format_timeline_event(event: dict) -> dict:

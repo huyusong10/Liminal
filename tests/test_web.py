@@ -310,6 +310,44 @@ def test_api_loop_creation_supports_command_mode(
     assert "{schema_path}" in loop["command_args_text"]
 
 
+def test_api_loop_creation_accepts_role_model_overrides(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/loops",
+        json={
+            "name": "Role Models Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "executor_kind": "codex",
+            "model": "gpt-5.4",
+            "reasoning_effort": "medium",
+            "role_models": {
+                "generator": "gpt-5.4-mini",
+                "verifier": "gpt-5.4",
+            },
+            "max_iters": 3,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+            "start_immediately": False,
+        },
+    )
+
+    assert response.status_code == 201
+    loop = response.json()["loop"]
+    assert loop["role_models_json"] == {
+        "generator": "gpt-5.4-mini",
+        "verifier": "gpt-5.4",
+    }
+
+
 def test_api_spec_init_validate_and_delete_loop(service_factory, tmp_path: Path, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     client = TestClient(build_app(service=service))

@@ -32,6 +32,7 @@ from liminal.stagnation import update_stagnation
 from liminal.utils import append_jsonl, make_id, read_json, utc_now, write_json
 
 logger = logging.getLogger(__name__)
+LOOP_ROLE_NAMES = ("generator", "tester", "verifier", "challenger")
 
 
 class LiminalError(RuntimeError):
@@ -61,6 +62,21 @@ class WorkspaceSafetyError(LiminalError):
 
 class StopRequested(LiminalError):
     """Raised when a user asked to stop a running loop."""
+
+
+def normalize_role_models(role_models: dict | None) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    if not role_models:
+        return normalized
+    for raw_role, raw_model in dict(role_models).items():
+        role = str(raw_role).strip()
+        model = str(raw_model).strip()
+        if not role:
+            raise LiminalError("role model overrides require a role name")
+        if role not in LOOP_ROLE_NAMES or not model:
+            raise LiminalError(f"invalid role model override: {raw_role}={raw_model}")
+        normalized[role] = model
+    return normalized
 
 
 class LiminalService:
@@ -157,7 +173,7 @@ class LiminalService:
             "delta_threshold": delta_threshold,
             "trigger_window": trigger_window,
             "regression_window": regression_window,
-            "role_models": role_models or {},
+            "role_models": normalize_role_models(role_models),
         }
         loop = self.repository.create_loop(payload)
         self._write_recent_workdirs()

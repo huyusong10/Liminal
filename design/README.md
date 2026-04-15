@@ -1,0 +1,56 @@
+# Liminal Design
+
+## 1. 目的
+
+本目录记录 Liminal 的设计约束与实现分解。
+
+文档分成两个子模块：
+
+- `core-ideas/`：只保留抽象规则、反例、非目标；作为项目级约束。
+- `detailed-design/`：按高内聚模块拆分实现设计；作为实现和演进的参考面。
+
+## 2. 使用规则
+
+- `core-ideas/` 优先回答“什么绝不能变形”。
+- `detailed-design/` 优先回答“模块边界如何切、职责如何分、依赖如何流动”。
+- 本目录不是 README 扩写版；不重复安装、使用教程、营销性描述。
+- 本目录默认以当前代码为准；如果文档与实现冲突，应同时修正文档和实现，不允许长期漂移。
+- 细节设计不追踪易变细节；字段枚举、提示词文案、常量阈值、临时 UI copy 不是这里的重点。
+
+## 3. 文档稳定性原则
+
+以下变化通常不要求更新 `detailed-design/`：
+
+- 小范围字段增删
+- 文案调整
+- 默认值调整
+- provider 参数细节调整
+- 日志结构小幅扩展
+
+以下变化必须更新 `detailed-design/`：
+
+- 模块职责迁移
+- 依赖方向改变
+- 生命周期或状态机改变
+- 新增或删除一层核心边界
+- 原有不变量失效
+
+## 4. 文档地图
+
+| 子模块 | 文档 | 主题 | 主要代码边界 |
+| --- | --- | --- | --- |
+| 核心思想 | `core-ideas/README.md` | 项目公理、反例、非目标 | 全局 |
+| 细节设计 | `detailed-design/01-spec-subsystem.md` | `spec.md` 编译与 checks 冻结 | `src/liminal/specs.py`, `src/liminal/service.py` |
+| 细节设计 | `detailed-design/02-orchestration-service.md` | loop/run 编排与角色循环 | `src/liminal/service.py` |
+| 细节设计 | `detailed-design/03-executor-subsystem.md` | 执行器、provider 适配、命令模式 | `src/liminal/executor.py`, `src/liminal/providers.py` |
+| 细节设计 | `detailed-design/04-persistence-and-reliability.md` | 存储、事件、锁、恢复、安全守卫 | `src/liminal/db.py`, `src/liminal/settings.py`, `src/liminal/recovery.py`, `src/liminal/stagnation.py`, `src/liminal/service.py` |
+| 细节设计 | `detailed-design/05-interfaces.md` | Web / CLI / API 交互面 | `src/liminal/cli.py`, `src/liminal/web.py`, `src/liminal/templates/`, `src/liminal/static/` |
+
+## 5. 读者约定
+
+- 产品与架构讨论先读 `core-ideas/README.md`。
+- 改某个模块前先读对应的 `detailed-design/*.md`。
+- 涉及跨模块变更时，至少同时检查：
+  - `02-orchestration-service.md`
+  - `04-persistence-and-reliability.md`
+  - `05-interfaces.md`
