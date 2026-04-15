@@ -41,7 +41,7 @@ Each run compiles the Markdown spec into a frozen snapshot, updates the workspac
 
 - Local FastAPI console for loop creation, run monitoring, artifact inspection, and skill installation
 - Structured run outputs such as `compiled_spec.json`, `tester_output.json`, `verifier_verdict.json`, `events.jsonl`, and `summary.md`
-- CLI commands for `run`, `serve`, `loops list`, `loops status`, `loops stop`, `loops rerun`, and `spec init`
+- CLI commands for `run`, `serve`, `loops create`, `loops list`, `loops status`, `loops stop`, `loops rerun`, `loops delete`, `spec init`, and `spec validate`
 - Optional fake executor mode for smoke tests and demos
 - Bundled `liminal-spec` skill that helps draft valid `spec.md` files
 
@@ -125,6 +125,7 @@ liminal run \
 ```
 
 You can switch tools with `--executor claude` or `--executor opencode`. Claude Code uses `low/medium/high/max`. For more tool-specific or fast-moving CLI flags, the Web UI now also supports direct command parameters.
+The CLI now exposes the same core loop creation surface as the Web UI: `--executor-mode command`, repeated `--command-arg` entries for direct argv templates, `loops create` when you want to save without starting, and `spec validate` for a quick structural check.
 
 ## Spec Model
 

@@ -49,11 +49,15 @@ def save_settings(settings: AppSettings) -> None:
 
 def configure_logging() -> None:
     log_path = logs_dir() / "service.log"
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        handlers=[
-            logging.FileHandler(log_path, encoding="utf-8"),
-            logging.StreamHandler(),
-        ],
-    )
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+
+    package_logger = logging.getLogger("liminal")
+    package_logger.handlers.clear()
+    package_logger.setLevel(logging.INFO)
+    package_logger.propagate = False
+    package_logger.addHandler(file_handler)
+    package_logger.addHandler(stream_handler)

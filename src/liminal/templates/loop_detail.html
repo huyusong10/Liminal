@@ -14,7 +14,7 @@
     </p>
     <p class="hero-path">{{ loop.workdir }}</p>
     {% if latest_run %}
-    <div class="card-actions">
+    <div class="hero-inline-meta">
       <span class="status-pill status-{{ latest_run.status }}" data-status-label="{{ latest_run.status }}"></span>
       <span class="highlight-meta">
         <span data-lang="zh">最近运行迭代</span><span data-lang="en">Latest iter</span> {{ latest_run.display_iter }}
@@ -98,7 +98,7 @@
     </a>
   </header>
   <div class="summary-grid">
-    <article class="summary-card summary-card-status">
+    <article class="summary-card summary-card-status summary-card-status-{{ latest_run.status }}">
       <span class="highlight-label"><span data-lang="zh">运行状态</span><span data-lang="en">Run status</span></span>
       <div class="summary-card-head">
         <span class="status-pill status-{{ latest_run.status }}" data-status-label="{{ latest_run.status }}"></span>

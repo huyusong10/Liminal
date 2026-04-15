@@ -7,6 +7,7 @@ import os
 import shutil
 import threading
 import time
+from datetime import datetime
 from html import escape as escape_html
 from pathlib import Path
 from typing import Callable
@@ -31,6 +32,7 @@ from liminal.stagnation import update_stagnation
 from liminal.utils import append_jsonl, make_id, read_json, utc_now, write_json
 
 logger = logging.getLogger(__name__)
+LOOP_ROLE_NAMES = ("generator", "tester", "verifier", "challenger")
 
 
 class LiminalError(RuntimeError):
@@ -62,7 +64,25 @@ class StopRequested(LiminalError):
     """Raised when a user asked to stop a running loop."""
 
 
+def normalize_role_models(role_models: dict | None) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    if not role_models:
+        return normalized
+    for raw_role, raw_model in dict(role_models).items():
+        role = str(raw_role).strip()
+        model = str(raw_model).strip()
+        if not role:
+            raise LiminalError("role model overrides require a role name")
+        if role not in LOOP_ROLE_NAMES or not model:
+            raise LiminalError(f"invalid role model override: {raw_role}={raw_model}")
+        normalized[role] = model
+    return normalized
+
+
 class LiminalService:
+    _process_active_runs: set[str] = set()
+    _process_active_runs_lock = threading.Lock()
+
     def __init__(
         self,
         repository: LiminalRepository,
@@ -153,7 +173,7 @@ class LiminalService:
             "delta_threshold": delta_threshold,
             "trigger_window": trigger_window,
             "regression_window": regression_window,
-            "role_models": role_models or {},
+            "role_models": normalize_role_models(role_models),
         }
         loop = self.repository.create_loop(payload)
         self._write_recent_workdirs()
@@ -207,36 +227,47 @@ class LiminalService:
         return run
 
     def start_run_async(self, run_id: str) -> None:
+        self._mark_run_active(run_id)
         thread = threading.Thread(target=self.execute_run, args=(run_id,), daemon=True, name=f"run-{run_id}")
         self._threads[run_id] = thread
-        thread.start()
+        try:
+            thread.start()
+        except Exception:
+            self._mark_run_inactive(run_id)
+            self._threads.pop(run_id, None)
+            raise
 
     def execute_run(self, run_id: str) -> dict:
         run = self.repository.get_run(run_id)
         if not run:
             raise LiminalError(f"unknown run: {run_id}")
 
-        self._wait_for_slot(run_id)
-        run = self.repository.get_run(run_id)
-        if not run:
-            raise LiminalError(f"unknown run after queue wait: {run_id}")
-        if run["status"] == "stopped":
-            return run
-
-        executor = self.executor_factory()
-        compiled_spec = run["compiled_spec_json"]
+        self._mark_run_active(run_id)
         run_dir = Path(run["runs_dir"])
-        retry_config = RetryConfig(max_retries=run["max_role_retries"])
-        stagnation = read_json(run_dir / "stagnation.json")
-        metrics_history_path = run_dir / "metrics_history.jsonl"
-        metrics_history_path.touch(exist_ok=True)
-        last_iter_id = -1
-        last_verifier_result: dict | None = None
-
-        self.repository.append_event(run_id, "run_started", {"status": "running"})
-        self._write_summary(run_id, "running", "Resolving checks for this run.")
 
         try:
+            self.repository.update_run(run_id, runner_pid=os.getpid())
+            self._wait_for_slot(run_id)
+            run = self.repository.get_run(run_id)
+            if not run:
+                raise LiminalError(f"unknown run after queue wait: {run_id}")
+            if run["status"] == "stopped":
+                return run
+
+            executor = self.executor_factory()
+            compiled_spec = run["compiled_spec_json"]
+            retry_config = RetryConfig(max_retries=run["max_role_retries"])
+            stagnation = read_json(run_dir / "stagnation.json")
+            metrics_history_path = run_dir / "metrics_history.jsonl"
+            metrics_history_path.touch(exist_ok=True)
+            last_iter_id = -1
+            last_generator_result: dict | None = None
+            last_tester_result: dict | None = None
+            last_verifier_result: dict | None = None
+            last_challenger_result: dict | None = None
+
+            self.repository.append_event(run_id, "run_started", {"status": "running"})
+            self._write_summary(run_id, "running", "Resolving checks for this run.")
             compiled_spec = self._resolve_run_checks(run, executor, compiled_spec, run_dir, retry_config)
             self._write_summary(run_id, "running", "Waiting for the first iteration to complete.")
             iteration_source = itertools.count() if run["max_iters"] == 0 else range(run["max_iters"])
@@ -265,12 +296,7 @@ class LiminalService:
                 )
                 append_jsonl(
                     run_dir / "iteration_log.jsonl",
-                    {
-                        "iter": iter_id,
-                        "timestamp": utc_now(),
-                        **generator_result,
-                        "mode": generator_mode["value"],
-                    },
+                    self._build_generator_log_entry(iter_id, generator_result, generator_mode["value"]),
                 )
                 self._enforce_workspace_safety(run, run_dir, iter_id, role="generator")
 
@@ -289,9 +315,11 @@ class LiminalService:
                     retry_config,
                     degrade_once=lambda: self._set_mode(run_id, iter_id, "tester", tester_mode, "skip_dynamic_checks"),
                 )
+                tester_result = self._enrich_tester_result(tester_result)
                 write_json(run_dir / "tester_output.json", tester_result)
                 self._enforce_workspace_safety(run, run_dir, iter_id, role="tester")
 
+                previous_composite = last_verifier_result["composite_score"] if last_verifier_result is not None else None
                 verifier_result = self._execute_role(
                     run_id,
                     iter_id,
@@ -314,18 +342,8 @@ class LiminalService:
                         "strict_minimal_validation",
                     ),
                 )
+                verifier_result = self._enrich_verifier_result(verifier_result, compiled_spec, tester_result)
                 write_json(run_dir / "verifier_verdict.json", verifier_result)
-                last_verifier_result = verifier_result
-                append_jsonl(
-                    metrics_history_path,
-                    {
-                        "iter": iter_id,
-                        "timestamp": utc_now(),
-                        "composite": verifier_result["composite_score"],
-                        "passed": verifier_result["passed"],
-                        "metric_scores": verifier_result["metric_scores"],
-                    },
-                )
                 self.repository.update_run(run_id, last_verdict=verifier_result)
 
                 stagnation = update_stagnation(
@@ -357,12 +375,63 @@ class LiminalService:
                         run_id,
                         "challenger_done",
                         {"iter": iter_id, "mode": challenger_result["mode"]},
-                        role="challenger",
-                    )
+                            role="challenger",
+                        )
+                else:
+                    challenger_result = None
                 write_json(run_dir / "stagnation.json", stagnation)
 
-                summary = self._build_summary(run, compiled_spec, iter_id, verifier_result, stagnation)
+                append_jsonl(
+                    metrics_history_path,
+                    {
+                        "iter": iter_id,
+                        "timestamp": utc_now(),
+                        "composite": verifier_result["composite_score"],
+                        "score_delta": round(verifier_result["composite_score"] - previous_composite, 6)
+                        if previous_composite is not None
+                        else None,
+                        "passed": verifier_result["passed"],
+                        "metric_scores": verifier_result["metric_scores"],
+                        "failed_check_ids": verifier_result.get("failed_check_ids", []),
+                        "failed_check_titles": verifier_result.get("failed_check_titles", []),
+                        "stagnation_mode": stagnation["stagnation_mode"],
+                    },
+                )
+                append_jsonl(
+                    run_dir / "iteration_log.jsonl",
+                    self._build_iteration_log_entry(
+                        iter_id,
+                        generator_result,
+                        tester_result,
+                        verifier_result,
+                        stagnation,
+                        generator_mode["value"],
+                        tester_mode["value"],
+                        verifier_mode["value"],
+                        previous_composite=previous_composite,
+                        challenger_result=challenger_result,
+                    ),
+                )
+
+                summary = self._build_summary(
+                    run,
+                    compiled_spec,
+                    iter_id,
+                    generator_result,
+                    tester_result,
+                    verifier_result,
+                    stagnation,
+                    generator_mode["value"],
+                    tester_mode["value"],
+                    verifier_mode["value"],
+                    previous_composite=previous_composite,
+                    challenger_result=challenger_result,
+                )
                 self._write_summary(run_id, "running", summary)
+                last_generator_result = generator_result
+                last_tester_result = tester_result
+                last_verifier_result = verifier_result
+                last_challenger_result = challenger_result
 
                 if verifier_result["passed"]:
                     finished = self.repository.update_run(
@@ -381,9 +450,16 @@ class LiminalService:
                     run,
                     compiled_spec,
                     last_iter_id,
+                    last_generator_result or {},
+                    last_tester_result or {},
                     last_verifier_result,
                     stagnation,
+                    generator_mode["value"],
+                    tester_mode["value"],
+                    verifier_mode["value"],
                     exhausted=True,
+                    previous_composite=None,
+                    challenger_result=last_challenger_result,
                 )
                 finished = self.repository.update_run(
                     run_id,
@@ -504,11 +580,56 @@ class LiminalService:
                 },
             )
             return failed
+        except Exception as exc:
+            error_text = str(exc)
+            logger.exception("run %s crashed unexpectedly", run_id)
+            summary = (
+                "# Liminal Run Summary\n\n"
+                "Execution crashed unexpectedly.\n\n"
+                f"Reason: `{error_text}`.\n"
+            )
+            self._persist_summary_file(run_dir, summary)
+            try:
+                failed = self.repository.update_run(
+                    run_id,
+                    status="failed",
+                    finished_at=utc_now(),
+                    error_message=error_text,
+                    summary_md=summary,
+                )
+            except Exception:
+                logger.exception("failed to persist crash state for %s", run_id)
+                return {
+                    **run,
+                    "status": "failed",
+                    "finished_at": utc_now(),
+                    "error_message": error_text,
+                    "summary_md": summary,
+                }
+            try:
+                self.repository.append_event(
+                    run_id,
+                    "run_aborted",
+                    {
+                        "role": failed.get("active_role"),
+                        "attempts": 1,
+                        "degraded": False,
+                        "error": error_text,
+                    },
+                )
+            except Exception:
+                logger.exception("failed to append crash event for %s", run_id)
+            return failed
         finally:
-            self.repository.release_run_slot(run_id)
+            self._mark_run_inactive(run_id)
+            try:
+                self.repository.release_run_slot(run_id)
+            except Exception:
+                logger.exception("failed to release run slot for %s", run_id)
             self._threads.pop(run_id, None)
 
     def stop_run(self, run_id: str) -> dict:
+        self._reconcile_local_orphaned_runs()
         current = self.repository.get_run(run_id)
         if not current:
             raise LiminalError(f"unknown run: {run_id}")
@@ -523,9 +644,11 @@ class LiminalService:
         return run
 
     def list_loops(self) -> list[dict]:
+        self._reconcile_local_orphaned_runs()
         return self.repository.list_loops()
 
     def get_loop(self, loop_id: str) -> dict:
+        self._reconcile_local_orphaned_runs()
         loop = self.repository.get_loop(loop_id)
         if not loop:
             raise LiminalError(f"unknown loop: {loop_id}")
@@ -533,6 +656,7 @@ class LiminalService:
         return loop
 
     def get_run(self, run_id: str) -> dict:
+        self._reconcile_local_orphaned_runs()
         run = self.repository.get_run(run_id)
         if not run:
             raise LiminalError(f"unknown run: {run_id}")
@@ -542,6 +666,7 @@ class LiminalService:
         return run
 
     def get_status(self, identifier: str) -> tuple[str, dict]:
+        self._reconcile_local_orphaned_runs()
         found = self.repository.get_loop_or_run(identifier)
         if not found:
             raise LiminalError(f"unknown identifier: {identifier}")
@@ -549,6 +674,42 @@ class LiminalService:
         if kind == "loop":
             payload["runs"] = self.repository.list_runs_for_loop(payload["id"])
         return kind, payload
+
+    def get_runtime_activity(self) -> dict:
+        self._reconcile_local_orphaned_runs()
+        active_runs = self.repository.list_active_runs()
+        loop_name_by_id = {
+            loop["id"]: loop["name"]
+            for loop in self.repository.list_loops()
+        }
+        running_count = 0
+        queued_count = 0
+        runs = []
+        for run in active_runs:
+            status = str(run.get("status") or "").strip()
+            if status == "running":
+                running_count += 1
+            elif status == "queued":
+                queued_count += 1
+            runs.append(
+                {
+                    "id": run["id"],
+                    "loop_id": run["loop_id"],
+                    "loop_name": loop_name_by_id.get(run["loop_id"]) or run["loop_id"],
+                    "status": status or "queued",
+                    "active_role": run.get("active_role"),
+                    "current_iter": run.get("current_iter"),
+                    "workdir": run.get("workdir"),
+                    "updated_at": run.get("updated_at"),
+                }
+            )
+        return {
+            "running_count": running_count,
+            "queued_count": queued_count,
+            "has_running_runs": running_count > 0,
+            "has_active_runs": bool(active_runs),
+            "runs": runs,
+        }
 
     def rerun(self, loop_id: str, *, background: bool = False) -> dict:
         run = self.start_run(loop_id)
@@ -576,13 +737,12 @@ class LiminalService:
         for run in self.repository.list_active_runs():
             if self._run_process_may_still_be_alive(run):
                 continue
+            logger.warning("recovering stale run %s after startup because runner pid %s is not alive", run["id"], run.get("runner_pid"))
             summary = (
                 "# Liminal Run Summary\n\n"
                 "This run was marked stopped when Liminal restarted because its previous worker process was no longer alive.\n"
             )
-            run_dir = Path(run["runs_dir"])
-            run_dir.mkdir(parents=True, exist_ok=True)
-            (run_dir / "summary.md").write_text(summary, encoding="utf-8")
+            self._persist_summary_file(Path(run["runs_dir"]), summary)
             self.repository.update_run(
                 run["id"],
                 status="stopped",
@@ -602,6 +762,99 @@ class LiminalService:
         if run.get("status") == "queued":
             return bool(pid and self._pid_exists(pid))
         return bool(pid and self._pid_exists(pid))
+
+    def _reconcile_local_orphaned_runs(self) -> None:
+        for run in self.repository.list_active_runs():
+            self._recover_local_orphaned_run(run)
+
+    def _recover_local_orphaned_run(self, run: dict) -> dict:
+        if not self._should_recover_local_orphan(run):
+            return run
+
+        reason = "Recovered orphaned run after the local worker stopped unexpectedly."
+        logger.warning(
+            "recovering local orphaned run %s status=%s runner_pid=%s child_pid=%s updated_at=%s",
+            run["id"],
+            run.get("status"),
+            run.get("runner_pid"),
+            run.get("child_pid"),
+            run.get("updated_at"),
+        )
+        summary = (
+            "# Liminal Run Summary\n\n"
+            "This run was marked failed because the local worker stopped unexpectedly before it could finish cleanly.\n"
+        )
+        child_pid = run.get("child_pid")
+        if child_pid and self._pid_exists(child_pid):
+            try:
+                os.kill(int(child_pid), 15)
+            except OSError:
+                logger.exception("failed to stop orphaned child process %s for run %s", child_pid, run["id"])
+        self._persist_summary_file(Path(run["runs_dir"]), summary)
+        updated = self.repository.update_run(
+            run["id"],
+            status="failed",
+            finished_at=utc_now(),
+            error_message=reason,
+            summary_md=summary,
+        )
+        self.repository.release_run_slot(run["id"])
+        self.repository.append_event(
+            run["id"],
+            "run_aborted",
+            {
+                "role": run.get("active_role"),
+                "attempts": 1,
+                "degraded": False,
+                "error": reason,
+            },
+        )
+        return updated or run
+
+    def _should_recover_local_orphan(self, run: dict) -> bool:
+        if run.get("status") not in {"queued", "running"}:
+            return False
+        if self._is_run_active_locally(run["id"]):
+            return False
+        if run.get("runner_pid") not in {None, os.getpid()}:
+            return False
+        updated_at = self._parse_run_timestamp(run.get("updated_at") or run.get("started_at") or run.get("queued_at"))
+        if updated_at is None:
+            return False
+        age_seconds = time.time() - updated_at.timestamp()
+        return age_seconds >= self._local_run_orphan_grace_seconds()
+
+    def _local_run_orphan_grace_seconds(self) -> float:
+        return max(
+            self.settings.stop_grace_period_seconds,
+            self.settings.polling_interval_seconds * 4,
+            self.settings.role_idle_timeout_seconds,
+            30.0,
+        )
+
+    def _mark_run_active(self, run_id: str) -> None:
+        cls = type(self)
+        with cls._process_active_runs_lock:
+            cls._process_active_runs.add(run_id)
+
+    def _mark_run_inactive(self, run_id: str) -> None:
+        cls = type(self)
+        with cls._process_active_runs_lock:
+            cls._process_active_runs.discard(run_id)
+
+    def _is_run_active_locally(self, run_id: str) -> bool:
+        cls = type(self)
+        with cls._process_active_runs_lock:
+            return run_id in cls._process_active_runs
+
+    @staticmethod
+    def _parse_run_timestamp(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
 
     @staticmethod
     def _pid_exists(pid: int | None) -> bool:
@@ -685,6 +938,7 @@ class LiminalService:
         return suspicious / len(sample) > 0.1
 
     def stream_events(self, run_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
+        self._reconcile_local_orphaned_runs()
         return self.repository.list_events(run_id, after_id=after_id, limit=limit)
 
     def _wait_for_slot(self, run_id: str) -> None:
@@ -986,18 +1240,281 @@ class LiminalService:
         self.repository.update_run(run_id, summary_md=summary)
 
     def _persist_summary_file(self, run_dir: Path, summary: str) -> None:
-        (run_dir / "summary.md").write_text(summary, encoding="utf-8")
+        run_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            (run_dir / "summary.md").write_text(summary, encoding="utf-8")
+        except OSError:
+            logger.exception("failed to persist summary for run dir %s", run_dir)
+
+    @staticmethod
+    def _truncate_text(value: str | None, max_length: int = 220) -> str:
+        text = str(value or "").strip()
+        if len(text) <= max_length:
+            return text
+        return f"{text[: max_length - 1].rstrip()}..."
+
+    @staticmethod
+    def _empty_status_counts() -> dict[str, int]:
+        return {"passed": 0, "failed": 0, "errored": 0, "skipped": 0}
+
+    def _count_statuses(self, items: list[dict]) -> dict[str, int]:
+        counts = self._empty_status_counts()
+        for item in items:
+            status = str(item.get("status", "")).strip().lower()
+            if status in counts:
+                counts[status] += 1
+        return counts
+
+    def _collect_non_passing_items(self, items: list[dict], *, source: str) -> list[dict]:
+        failures = []
+        for item in items:
+            status = str(item.get("status", "")).strip().lower()
+            if status == "passed":
+                continue
+            failures.append(
+                {
+                    "id": str(item.get("id", "")).strip(),
+                    "title": str(item.get("title", "")).strip(),
+                    "status": status or "unknown",
+                    "source": source,
+                    "notes": self._truncate_text(str(item.get("notes", "")).strip(), max_length=280),
+                }
+            )
+        return failures
+
+    def _enrich_tester_result(self, tester_result: dict) -> dict:
+        result = dict(tester_result)
+        check_results = list(result.get("check_results", []))
+        dynamic_checks = list(result.get("dynamic_checks", []))
+        check_counts = self._count_statuses(check_results)
+        dynamic_counts = self._count_statuses(dynamic_checks)
+        overall_counts = {
+            key: check_counts.get(key, 0) + dynamic_counts.get(key, 0)
+            for key in self._empty_status_counts()
+        }
+        failed_items = self._collect_non_passing_items(check_results, source="specified")
+        failed_items.extend(self._collect_non_passing_items(dynamic_checks, source="dynamic"))
+        result["status_counts"] = {
+            "check_results": check_counts,
+            "dynamic_checks": dynamic_counts,
+            "overall": overall_counts,
+        }
+        result["failed_items"] = failed_items
+        result["specified_check_failures"] = [item["id"] for item in failed_items if item["source"] == "specified"]
+        result["dynamic_check_failures"] = [item["id"] for item in failed_items if item["source"] == "dynamic"]
+        return result
+
+    def _build_decision_summary(self, verifier_result: dict, tester_result: dict) -> str:
+        reasons: list[str] = []
+        failed_check_titles = list(verifier_result.get("failed_check_titles", []))
+        dynamic_failures = list(tester_result.get("dynamic_check_failures", []))
+        hard_constraint_violations = list(verifier_result.get("hard_constraint_violations", []))
+        failing_metrics = list(verifier_result.get("failing_metrics", []))
+        priority_failures = list(verifier_result.get("priority_failures", []))
+        if failed_check_titles:
+            reasons.append(
+                "specified checks still failing: "
+                + ", ".join(failed_check_titles[:3])
+                + ("..." if len(failed_check_titles) > 3 else "")
+            )
+        if dynamic_failures:
+            reasons.append(
+                f"{len(dynamic_failures)} dynamic check failure"
+                + ("s remain" if len(dynamic_failures) != 1 else " remains")
+            )
+        if hard_constraint_violations:
+            reasons.append(
+                f"{len(hard_constraint_violations)} hard constraint violation"
+                + ("s" if len(hard_constraint_violations) != 1 else "")
+            )
+        if failing_metrics:
+            metric_names = [str(item.get("name", "")).strip() for item in failing_metrics if item.get("name")]
+            if metric_names:
+                reasons.append("failing metrics: " + ", ".join(metric_names))
+        if priority_failures and not reasons:
+            reasons.append(
+                "priority failures reported: "
+                + ", ".join(self._truncate_text(item.get("summary"), 120) for item in priority_failures[:2])
+            )
+        if verifier_result.get("passed"):
+            return "All specified and dynamic checks passed with no blocking constraint violations."
+        if not reasons:
+            return "The run is not yet passing because one or more checks or metrics remain below threshold."
+        return "The run is not yet passing because " + "; ".join(reasons) + "."
+
+    def _split_action_hints(self, feedback: str | None) -> list[str]:
+        text = str(feedback or "").strip()
+        if not text:
+            return []
+        hints = []
+        for raw_line in text.splitlines():
+            cleaned = raw_line.strip().lstrip("-*").strip()
+            if cleaned:
+                hints.append(cleaned)
+        return hints[:5] if hints else [text]
+
+    def _enrich_verifier_result(self, verifier_result: dict, compiled_spec: dict, tester_result: dict) -> dict:
+        result = dict(verifier_result)
+        check_title_map = {str(check.get("id", "")).strip(): str(check.get("title", "")).strip() for check in compiled_spec.get("checks", [])}
+        failed_check_titles = [check_title_map.get(check_id, check_id) for check_id in result.get("failed_check_ids", [])]
+        failing_metrics = []
+        for name, metric in (result.get("metric_scores") or {}).items():
+            if metric.get("passed"):
+                continue
+            failing_metrics.append(
+                {
+                    "name": name,
+                    "value": metric.get("value"),
+                    "threshold": metric.get("threshold"),
+                }
+            )
+        result["failed_check_titles"] = failed_check_titles
+        result["failing_metrics"] = failing_metrics
+        result["hard_constraint_violation_count"] = len(result.get("hard_constraint_violations", []))
+        result["priority_failure_count"] = len(result.get("priority_failures", []))
+        result["decision_summary"] = self._build_decision_summary(result, tester_result)
+        result["next_actions"] = self._split_action_hints(result.get("feedback_to_generator"))
+        return result
+
+    def _format_inline_code_list(self, items: list[str], *, empty: str = "none", limit: int = 5) -> str:
+        values = [str(item).strip() for item in items if str(item).strip()]
+        if not values:
+            return empty
+        visible = [f"`{item}`" for item in values[:limit]]
+        if len(values) > limit:
+            visible.append(f"`+{len(values) - limit} more`")
+        return ", ".join(visible)
+
+    def _format_failure_refs(self, items: list[dict], *, limit: int = 4) -> str:
+        if not items:
+            return "none"
+        visible = []
+        for item in items[:limit]:
+            label = item.get("title") or item.get("id") or "unknown"
+            source = item.get("source")
+            if source == "dynamic":
+                label = f"{label} [dynamic]"
+            visible.append(f"`{label}`")
+        if len(items) > limit:
+            visible.append(f"`+{len(items) - limit} more`")
+        return ", ".join(visible)
+
+    def _format_metric_refs(self, metrics: list[dict], *, limit: int = 4) -> str:
+        if not metrics:
+            return "none"
+        visible = []
+        for metric in metrics[:limit]:
+            name = str(metric.get("name", "")).strip() or "unknown_metric"
+            value = metric.get("value")
+            threshold = metric.get("threshold")
+            if value is None or threshold is None:
+                visible.append(f"`{name}`")
+            else:
+                visible.append(f"`{name}={value}` (threshold `{threshold}`)")
+        if len(metrics) > limit:
+            visible.append(f"`+{len(metrics) - limit} more`")
+        return ", ".join(visible)
+
+    def _build_generator_log_entry(self, iter_id: int, generator_result: dict, mode: str) -> dict:
+        return {
+            "phase": "generator",
+            "iter": iter_id,
+            "timestamp": utc_now(),
+            "mode": mode,
+            "attempted": generator_result.get("attempted", ""),
+            "summary": generator_result.get("summary", ""),
+            "assumption": generator_result.get("assumption", ""),
+            "abandoned": generator_result.get("abandoned", ""),
+            "changed_files": list(generator_result.get("changed_files", [])),
+        }
+
+    def _build_iteration_log_entry(
+        self,
+        iter_id: int,
+        generator_result: dict,
+        tester_result: dict,
+        verifier_result: dict,
+        stagnation: dict,
+        generator_mode: str,
+        tester_mode: str,
+        verifier_mode: str,
+        *,
+        previous_composite: float | None,
+        challenger_result: dict | None = None,
+    ) -> dict:
+        entry = {
+            "phase": "complete",
+            "iter": iter_id,
+            "timestamp": utc_now(),
+            "modes": {
+                "generator": generator_mode,
+                "tester": tester_mode,
+                "verifier": verifier_mode,
+            },
+            "score": {
+                "composite": verifier_result.get("composite_score"),
+                "delta": round(verifier_result["composite_score"] - previous_composite, 6)
+                if previous_composite is not None
+                else None,
+                "passed": verifier_result.get("passed"),
+            },
+            "generator": {
+                "attempted": generator_result.get("attempted", ""),
+                "summary": generator_result.get("summary", ""),
+                "assumption": generator_result.get("assumption", ""),
+                "abandoned": generator_result.get("abandoned", ""),
+                "changed_files": list(generator_result.get("changed_files", [])),
+            },
+            "tester": {
+                "execution_summary": dict(tester_result.get("execution_summary", {})),
+                "status_counts": dict(tester_result.get("status_counts", {})),
+                "failed_items": list(tester_result.get("failed_items", [])),
+                "tester_observations": tester_result.get("tester_observations", ""),
+            },
+            "verifier": {
+                "passed": verifier_result.get("passed"),
+                "decision_summary": verifier_result.get("decision_summary", ""),
+                "failed_check_ids": list(verifier_result.get("failed_check_ids", [])),
+                "failed_check_titles": list(verifier_result.get("failed_check_titles", [])),
+                "failing_metrics": list(verifier_result.get("failing_metrics", [])),
+                "hard_constraint_violations": list(verifier_result.get("hard_constraint_violations", [])),
+                "priority_failures": list(verifier_result.get("priority_failures", [])),
+                "feedback_to_generator": verifier_result.get("feedback_to_generator", ""),
+                "next_actions": list(verifier_result.get("next_actions", [])),
+            },
+            "stagnation": {
+                "mode": stagnation.get("stagnation_mode", "none"),
+                "recent_composites": list(stagnation.get("recent_composites", [])),
+                "recent_deltas": list(stagnation.get("recent_deltas", [])),
+                "consecutive_low_delta": stagnation.get("consecutive_low_delta", 0),
+            },
+        }
+        if challenger_result is not None:
+            entry["challenger"] = {
+                "mode": challenger_result.get("mode"),
+                "analysis": dict(challenger_result.get("analysis", {})),
+                "seed_question": challenger_result.get("seed_question", ""),
+                "meta_note": challenger_result.get("meta_note", ""),
+            }
+        return entry
 
     def _build_summary(
         self,
         run: dict,
         compiled_spec: dict,
         iter_id: int,
+        generator_result: dict,
+        tester_result: dict,
         verifier_result: dict,
         stagnation: dict,
+        generator_mode: str,
+        tester_mode: str,
+        verifier_mode: str,
         exhausted: bool = False,
+        previous_composite: float | None = None,
+        challenger_result: dict | None = None,
     ) -> str:
-        failed = verifier_result.get("failed_check_ids", [])
+        failed = verifier_result.get("failed_check_titles", verifier_result.get("failed_check_ids", []))
         if exhausted:
             status_line = "Max iterations exhausted."
         elif verifier_result["passed"]:
@@ -1005,18 +1522,86 @@ class LiminalService:
         else:
             status_line = "Still iterating."
         check_mode = compiled_spec.get("check_mode", "specified")
-        return (
-            "# Liminal Run Summary\n\n"
-            f"- Workdir: `{run['workdir']}`\n"
-            f"- Iteration: `{iter_id + 1}`\n"
-            f"- Check mode: `{check_mode}`\n"
-            f"- Check count: `{len(compiled_spec.get('checks', []))}`\n"
-            f"- Composite score: `{verifier_result['composite_score']}`\n"
-            f"- Passed: `{verifier_result['passed']}`\n"
-            f"- Stagnation mode: `{stagnation['stagnation_mode']}`\n"
-            f"- Failed checks: `{', '.join(failed) if failed else 'none'}`\n\n"
-            f"{status_line}\n"
+        overall_counts = tester_result.get("status_counts", {}).get("overall", self._empty_status_counts())
+        dynamic_counts = tester_result.get("status_counts", {}).get("dynamic_checks", self._empty_status_counts())
+        delta_text = (
+            f"`{round(verifier_result['composite_score'] - previous_composite, 6):+}`"
+            if previous_composite is not None
+            else "`n/a`"
         )
+        lines = [
+            "# Liminal Run Summary",
+            "",
+            f"- Workdir: `{run['workdir']}`",
+            f"- Iteration: `{iter_id + 1}`",
+            f"- Check mode: `{check_mode}`",
+            f"- Check count: `{len(compiled_spec.get('checks', []))}`",
+            f"- Composite score: `{verifier_result['composite_score']}`",
+            f"- Score delta vs previous iteration: {delta_text}",
+            f"- Passed: `{verifier_result['passed']}`",
+            f"- Stagnation mode: `{stagnation.get('stagnation_mode', 'none')}`",
+            f"- Failed checks: {self._format_inline_code_list(failed, empty='none', limit=4)}",
+            (
+                "- Role modes: "
+                f"generator=`{generator_mode}`, tester=`{tester_mode}`, verifier=`{verifier_mode}`"
+            ),
+            "",
+            status_line,
+            "",
+            "## Generator",
+            f"- Attempted: {self._truncate_text(generator_result.get('attempted') or generator_result.get('summary'), 280) or 'none'}",
+            f"- Changed files: {self._format_inline_code_list(list(generator_result.get('changed_files', [])))}",
+            f"- Assumption: {self._truncate_text(generator_result.get('assumption'), 220) or 'none'}",
+            f"- Abandoned: {self._truncate_text(generator_result.get('abandoned'), 220) or 'none'}",
+            "",
+            "## Tester",
+            (
+                "- Overall statuses: "
+                f"passed=`{overall_counts['passed']}`, failed=`{overall_counts['failed']}`, "
+                f"errored=`{overall_counts['errored']}`, skipped=`{overall_counts['skipped']}`"
+            ),
+            (
+                "- Dynamic checks: "
+                f"passed=`{dynamic_counts['passed']}`, failed=`{dynamic_counts['failed']}`, "
+                f"errored=`{dynamic_counts['errored']}`, skipped=`{dynamic_counts['skipped']}`"
+            ),
+            f"- Non-passing items: {self._format_failure_refs(list(tester_result.get('failed_items', [])))}",
+            f"- Observations: {self._truncate_text(tester_result.get('tester_observations'), 320) or 'none'}",
+            "",
+            "## Verifier",
+            f"- Decision: {self._truncate_text(verifier_result.get('decision_summary'), 320) or 'none'}",
+            f"- Failing metrics: {self._format_metric_refs(list(verifier_result.get('failing_metrics', [])))}",
+            (
+                "- Hard constraint violations: "
+                f"{self._format_inline_code_list(list(verifier_result.get('hard_constraint_violations', [])), empty='none', limit=3)}"
+            ),
+            (
+                "- Priority failures: "
+                f"{self._format_inline_code_list([item.get('error_code', 'unknown') for item in verifier_result.get('priority_failures', [])], empty='none', limit=4)}"
+            ),
+            (
+                "- Next actions: "
+                f"{self._format_inline_code_list(list(verifier_result.get('next_actions', [])), empty='none', limit=3)}"
+            ),
+        ]
+        if challenger_result is not None:
+            lines.extend(
+                [
+                    "",
+                    "## Challenger",
+                    f"- Mode: `{challenger_result.get('mode', 'unknown')}`",
+                    f"- Recommended shift: {self._truncate_text(challenger_result.get('analysis', {}).get('recommended_shift'), 220) or 'none'}",
+                    f"- Seed question: {self._truncate_text(challenger_result.get('seed_question'), 220) or 'none'}",
+                ]
+            )
+        lines.extend(
+            [
+                "",
+                "## Artifacts",
+                "- Inspect `tester_output.json`, `verifier_verdict.json`, `iteration_log.jsonl`, and `events.jsonl` for full details.",
+            ]
+        )
+        return "\n".join(lines).rstrip() + "\n"
 
     def _check_planner_prompt(self, compiled_spec: dict) -> str:
         constraints = compiled_spec.get("constraints") or "No explicit constraints were provided."
@@ -1065,6 +1650,7 @@ class LiminalService:
             "You are the Tester role inside Liminal.\n"
             "Inspect the workdir, run the most relevant commands, and evaluate the listed checks.\n"
             "Do not edit source files.\n"
+            "Keep notes concise and evidence-focused. Prefer concrete commands, files, and observed outputs over restating the whole spec.\n"
             f"Iteration: {iter_id}\n"
             f"Mode: {mode}\n"
             f"Checks:\n{checks}\n\n"
@@ -1077,6 +1663,7 @@ class LiminalService:
         return (
             "You are the Verifier role inside Liminal.\n"
             "Judge the tester output conservatively against the goal, checks, and constraints.\n"
+            "Keep the verdict concise and tied to direct evidence. Do not rewrite the whole spec as policy prose.\n"
             f"Iteration: {iter_id}\n"
             f"Mode: {mode}\n"
             f"Goal:\n{compiled_spec['goal']}\n\n"

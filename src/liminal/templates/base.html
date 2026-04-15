@@ -6,8 +6,8 @@
   <title>{% block title %}Liminal{% endblock %}</title>
   <link rel="icon" href="/logo/logo.svg" sizes="any" type="image/svg+xml" />
   <link rel="shortcut icon" href="/logo/logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/app.css" />
-  <script src="/static/app.js" defer></script>
+  <link rel="stylesheet" href="{{ static_asset_url('app.css') }}" />
+  <script src="{{ static_asset_url('app.js') }}" defer></script>
 </head>
 <body>
   <div class="site-shell">

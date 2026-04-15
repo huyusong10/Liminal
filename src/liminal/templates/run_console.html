@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN" data-locale="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ run.loop_name or run.id }} · Console</title>
+  <link rel="icon" href="/logo/logo.svg" sizes="any" type="image/svg+xml" />
+  <link rel="shortcut icon" href="/logo/logo.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="{{ static_asset_url('app.css') }}" />
+  <script src="{{ static_asset_url('app.js') }}" defer></script>
+  <script src="{{ static_asset_url('pages/run_console.js') }}" defer></script>
+</head>
+<body class="console-focus-body">
+  <main class="console-focus-shell">
+    <header class="console-focus-header">
+      <div class="console-focus-copy">
+        <span class="eyebrow">
+          <span data-lang="zh">全屏终端</span>
+          <span data-lang="en">Fullscreen console</span>
+        </span>
+        <h1>{{ run.loop_name or run.id }}</h1>
+        <p>
+          <span data-lang="zh">把这一轮 run 的命令、输出和阶段信号铺满整页，适合盯长任务或投屏观察。</span>
+          <span data-lang="en">A full-page view of this run's commands, output, and stage signals, suited for long tasks or a wall display.</span>
+        </p>
+      </div>
+      <div class="card-actions console-focus-actions">
+        <span class="status-pill progress-status-pill status-{{ run.status }}" id="console-focus-status" data-status-label="{{ run.status }}"></span>
+        <a class="secondary-button" href="/runs/{{ run.id }}">
+          <span data-lang="zh">返回运行详情</span>
+          <span data-lang="en">Back to run</span>
+        </a>
+      </div>
+    </header>
+
+    <section class="console-focus-panel">
+      <div class="console-focus-meta-row">
+        <div class="console-focus-meta-card">
+          <span class="console-focus-meta-label"><span data-lang="zh">运行 ID</span><span data-lang="en">Run ID</span></span>
+          <strong>{{ run.id }}</strong>
+        </div>
+        <div class="console-focus-meta-card">
+          <span class="console-focus-meta-label"><span data-lang="zh">工作目录</span><span data-lang="en">Workspace</span></span>
+          <strong>{{ run.workdir }}</strong>
+        </div>
+        <div class="console-focus-meta-card">
+          <span class="console-focus-meta-label"><span data-lang="zh">终端行数</span><span data-lang="en">Console lines</span></span>
+          <strong id="console-focus-line-count">0 lines</strong>
+        </div>
+      </div>
+
+      <div class="console-legend console-legend-focus" aria-label="Console event legend">
+        <span class="console-legend-chip console-legend-chip-command"><span data-lang="zh">命令</span><span data-lang="en">Command</span></span>
+        <span class="console-legend-chip console-legend-chip-stdout"><span data-lang="zh">终端输出</span><span data-lang="en">Stdout</span></span>
+        <span class="console-legend-chip console-legend-chip-system"><span data-lang="zh">系统阶段</span><span data-lang="en">System</span></span>
+        <span class="console-legend-chip console-legend-chip-progress"><span data-lang="zh">模型进度</span><span data-lang="en">Progress</span></span>
+        <span class="console-legend-chip console-legend-chip-error"><span data-lang="zh">错误</span><span data-lang="en">Error</span></span>
+      </div>
+
+      <div class="console-shell console-shell-focus" id="console-focus-shell">
+        <div class="console-output console-output-focus" id="console-focus-output"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    window.LiminalRunConsoleBootstrap = {
+      runId: {{ run.id|tojson }},
+      initialRun: {{ run|tojson }},
+      initialConsoleEvents: {{ console_events|tojson }},
+      latestEventId: {{ latest_event_id|tojson }},
+    };
+  </script>
+</body>
+</html>

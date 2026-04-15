@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import ipaddress
 import json
+import logging
 import re
 import time
 from collections.abc import Mapping
@@ -15,9 +16,11 @@ from fastapi.templating import Jinja2Templates
 
 from liminal.providers import executor_profile, list_executor_profiles
 from liminal.skills import install_spec_skill, list_spec_skill_targets
-from liminal.service import LiminalError, create_service
+from liminal.service import LiminalError, create_service, normalize_role_models
 from liminal.specs import SpecError, init_spec_file, read_and_compile
 from liminal.system_dialogs import SystemDialogError, pick_directory, pick_file, pick_save_file
+
+logger = logging.getLogger(__name__)
 
 AUTH_COOKIE_NAME = "liminal_auth"
 
@@ -36,6 +39,10 @@ DEFAULT_LOOP_FORM = {
     "delta_threshold": 0.005,
     "trigger_window": 4,
     "regression_window": 2,
+    "role_model_generator": "",
+    "role_model_tester": "",
+    "role_model_verifier": "",
+    "role_model_challenger": "",
     "start_immediately": True,
 }
 
@@ -117,9 +124,22 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     access_state = _build_access_state(bind_host=bind_host, bind_port=bind_port, auth_token=auth_token)
     app.state.access_state = access_state
     package_root = Path(__file__).parent
+    static_root = package_root / "static"
     templates = Jinja2Templates(directory=str(package_root / "templates"))
+    templates.env.auto_reload = True
     app.mount("/static", StaticFiles(directory=str(package_root / "static")), name="static")
     app.mount("/logo", StaticFiles(directory=str(package_root / "assets" / "logo")), name="logo")
+
+    def static_asset_url(path: str) -> str:
+        normalized = path.lstrip("/")
+        asset_path = static_root / normalized
+        try:
+            version = asset_path.stat().st_mtime_ns
+        except OSError:
+            version = time.time_ns()
+        return f"/static/{normalized}?v={version}"
+
+    templates.env.globals["static_asset_url"] = static_asset_url
 
     def svc():
         return app.state.service
@@ -300,6 +320,23 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             },
         )
 
+    @app.get("/runs/{run_id}/console", response_class=HTMLResponse)
+    async def run_console(request: Request, run_id: str) -> HTMLResponse:
+        run = svc().get_run(run_id)
+        seed_events = svc().stream_events(run_id, limit=5000)
+        latest_event_id = seed_events[-1]["id"] if seed_events else 0
+        return templates.TemplateResponse(
+            request,
+            "run_console.html",
+            {
+                "request": request,
+                "run": run,
+                "console_events": seed_events[-360:],
+                "latest_event_id": latest_event_id,
+                "access_state": access_state,
+            },
+        )
+
     @app.post("/api/loops")
     async def api_create_loop(request: Request) -> JSONResponse:
         payload = await request.json()
@@ -317,6 +354,10 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     @app.get("/api/loops")
     async def api_list_loops() -> JSONResponse:
         return JSONResponse(svc().list_loops())
+
+    @app.get("/api/runtime/activity")
+    async def api_runtime_activity() -> JSONResponse:
+        return JSONResponse(svc().get_runtime_activity())
 
     @app.get("/api/loops/{loop_id}")
     async def api_get_loop(loop_id: str) -> JSONResponse:
@@ -396,13 +437,20 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         def event_stream():
             last_id = after_id
             while True:
-                events = svc().stream_events(run_id, after_id=last_id)
-                for event in events:
-                    last_id = event["id"]
-                    yield f"id: {event['id']}\n"
-                    yield f"event: {event['event_type']}\n"
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                run = svc().get_run(run_id)
+                try:
+                    events = svc().stream_events(run_id, after_id=last_id)
+                    for event in events:
+                        last_id = event["id"]
+                        yield f"id: {event['id']}\n"
+                        yield f"event: {event['event_type']}\n"
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    run = svc().get_run(run_id)
+                except Exception as exc:
+                    logger.exception("run stream failed for %s", run_id)
+                    payload = {"run_id": run_id, "after_id": last_id, "error": str(exc)}
+                    yield "event: stream_error\n"
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    break
                 if run["status"] in {"succeeded", "failed", "stopped"} and not events:
                     break
                 yield ": keep-alive\n\n"
@@ -561,9 +609,21 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
         "delta_threshold": delta_threshold,
         "trigger_window": trigger_window,
         "regression_window": regression_window,
-        "role_models": payload.get("role_models") or {},
+        "role_models": _role_models_from_mapping(payload),
     }
     return loop_kwargs, _coerce_bool(payload.get("start_immediately"))
+
+
+def _role_models_from_mapping(payload: Mapping[str, object]) -> dict[str, str]:
+    role_models = payload.get("role_models")
+    if isinstance(role_models, Mapping):
+        return normalize_role_models(dict(role_models))
+    extracted = {}
+    for role in ("generator", "tester", "verifier", "challenger"):
+        value = str(payload.get(f"role_model_{role}", "")).strip()
+        if value:
+            extracted[role] = value
+    return normalize_role_models(extracted)
 
 
 def _format_timeline_event(event: dict) -> dict:

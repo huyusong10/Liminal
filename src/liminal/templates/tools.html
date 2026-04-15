@@ -21,6 +21,43 @@
 <section class="panel">
   <header class="panel-header">
     <div>
+      <h2><span data-lang="zh">防止自动休眠</span><span data-lang="en">Keep This Screen Awake</span></h2>
+      <p class="tools-copy">
+        <span data-lang="zh">打开后，工具页会在检测到有 run 正在执行时请求浏览器保持屏幕唤醒；没有运行中的任务时会自动释放，不会一直霸占系统。</span>
+        <span data-lang="en">When enabled, the Tools page requests a browser wake lock only while a run is actively executing, then releases it automatically once nothing is running.</span>
+      </p>
+    </div>
+  </header>
+  <div class="wake-lock-panel" id="wake-lock-panel">
+    <label class="checkbox-row wake-lock-toggle-row" for="wake-lock-toggle">
+      <input id="wake-lock-toggle" type="checkbox" />
+      <span>
+        <span data-lang="zh">运行中防休眠</span>
+        <span data-lang="en">Prevent sleep while running</span>
+      </span>
+    </label>
+    <p class="field-note">
+      <span data-lang="zh">保持这个工具页标签页打开会更稳。浏览器或系统回收 wake lock 时，页面会在可见状态下自动重试。</span>
+      <span data-lang="en">It works best while this Tools tab stays open. If the browser or OS releases the wake lock, the page retries automatically once it becomes visible again.</span>
+    </p>
+    <div class="wake-lock-summary" id="wake-lock-summary">
+      <span class="wake-lock-pill wake-lock-pill-neutral" id="wake-lock-runtime-pill">
+        <span data-lang="zh">正在读取运行状态…</span>
+        <span data-lang="en">Loading run activity…</span>
+      </span>
+      <span class="wake-lock-pill wake-lock-pill-neutral" id="wake-lock-hold-pill">
+        <span data-lang="zh">尚未持有 wake lock</span>
+        <span data-lang="en">Wake lock not held</span>
+      </span>
+    </div>
+    <div class="field-status" id="wake-lock-status" hidden></div>
+    <div class="wake-lock-runs" id="wake-lock-runs"></div>
+  </div>
+</section>
+
+<section class="panel">
+  <header class="panel-header">
+    <div>
       <h2><span data-lang="zh">Spec Skill 安装</span><span data-lang="en">Spec skill install</span></h2>
       <p class="tools-copy">
         <span data-lang="zh"><code>liminal-spec</code> 会帮你把模糊想法整理成符合 Liminal 的 <code>spec.md</code>。如果信息不够，它会先追问，再输出结构化 spec。</span>
@@ -68,5 +105,5 @@
   <div class="field-status" id="skill-install-status" hidden></div>
 </section>
 
-<script src="/static/pages/tools.js" defer></script>
+<script src="{{ static_asset_url('pages/tools.js') }}" defer></script>
 {% endblock %}

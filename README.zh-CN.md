@@ -42,7 +42,7 @@
 
 - 本地 FastAPI 控制台支持创建循环、监控运行、查看关键产物、安装 skill
 - 每次 run 都会产出结构化文件，例如 `compiled_spec.json`、`tester_output.json`、`verifier_verdict.json`、`events.jsonl`、`summary.md`
-- CLI 支持 `run`、`serve`、`loops list`、`loops status`、`loops stop`、`loops rerun`、`spec init`
+- CLI 支持 `run`、`serve`、`loops create`、`loops list`、`loops status`、`loops stop`、`loops rerun`、`loops delete`、`spec init`、`spec validate`
 - 支持 fake executor，方便本地 smoke test 和演示
 - 内置 `liminal-spec` skill，帮助你生成符合要求的 `spec.md`
 
@@ -126,6 +126,7 @@ liminal run \
 ```
 
 如果你想换工具，可以用 `--executor claude` 或 `--executor opencode`。其中 Claude Code 的 effort 是 `low/medium/high/max`。如果底层 CLI 参数变化更快，也可以直接在 Web UI 里切到“直接命令”模式。
+现在 CLI 和 Web UI 的 loop 创建能力也已经对齐：可以用 `--executor-mode command` 和重复的 `--command-arg` 直接给出 argv 模板；如果你只想先保存 loop、不立即执行，可以用 `loops create`；如果只想先检查 spec 结构，可以用 `spec validate`。
 
 ## Spec 模型
 
