@@ -43,6 +43,7 @@ def test_index_page_renders_with_saved_loops(
     assert "/static/app.css?v=" in response.text
     assert "/static/app.js?v=" in response.text
     assert response.text.index("/loops/new") < response.text.index("/tools")
+    assert response.text.index("/orchestrations") < response.text.index("/tools")
     assert "data-open-card=" in response.text
     assert "id=\"confirm-modal\"" in response.text
     assert "id=\"loops-empty-state\" hidden" in response.text
@@ -228,13 +229,48 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "name=\"executor_mode\"" in response.text
     assert "id=\"command-preview\"" in response.text
     assert "id=\"reasoning-input\"" in response.text
-    assert "name=\"role_model_generator\"" in response.text
-    assert "name=\"role_model_verifier\"" in response.text
+    assert "name=\"orchestration_id\"" in response.text
+    assert "name=\"role_model_builder\"" in response.text
+    assert "name=\"role_model_gatekeeper\"" in response.text
+    assert "Manage orchestrations" in response.text
+    assert "workflow-json-input" not in response.text
     assert "Claude Code" in response.text
     assert "OpenCode" in response.text
-    assert "把一个想法拎进来" in response.text
+    assert "新建一条 loop" in response.text
     assert "inline-hint-link" in response.text
     assert "Spec Skill" in response.text
+
+
+def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    client = TestClient(build_app(service=service))
+    list_response = client.get("/orchestrations")
+    assert list_response.status_code == 200
+    assert "流程编排" in list_response.text
+    assert "Build First" in list_response.text
+    assert "Create orchestration" in list_response.text
+    assert 'data-open-card="/orchestrations/builtin:build_first/edit"' in list_response.text
+    assert "Create loop" not in list_response.text
+
+    new_response = client.get("/orchestrations/new")
+    assert new_response.status_code == 200
+    assert "/static/pages/new_orchestration.js?v=" in new_response.text
+    assert "name=\"workflow_preset\"" in new_response.text
+    assert "id=\"workflow-json-input\"" in new_response.text
+    assert "id=\"prompt-files-json-input\"" in new_response.text
+    assert "把这个想法交给它持续推进" not in new_response.text
+
+    builtin_edit_response = client.get("/orchestrations/builtin:build_first/edit")
+    assert builtin_edit_response.status_code == 200
+    assert "保存为新编排" in builtin_edit_response.text
+    assert "先构建，再验收 / Build First" in builtin_edit_response.text
+
+    orchestration = service.create_orchestration(name="Custom", workflow={"preset": "inspect_first"})
+    custom_edit_response = client.get(f"/orchestrations/{orchestration['id']}/edit")
+    assert custom_edit_response.status_code == 200
+    assert f'action="/orchestrations/{orchestration["id"]}/edit"' in custom_edit_response.text
+    assert "保存修改" in custom_edit_response.text
 
 
 def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -> None:
@@ -269,7 +305,10 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".help-dot--tips {" in css
     assert ".inline-hint-link {" in css
     assert ".skill-download-card {" in css
+    assert ".workflow-toolbar {" in css
+    assert ".workflow-editor-section {" in css
+    assert ".workflow-empty-state {" in css
     assert re.search(r"@media \(max-width: 640px\)\s*{[\s\S]*?\.top-nav\s*{[\s\S]*?flex-wrap:\s*wrap;", css)
     assert re.search(r"@media \(max-width: 640px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?overflow-x:\s*auto;", css)
     assert re.search(r"@media \(max-width: 640px\)\s*{[\s\S]*?\.card-actions--loop,\s*\.card-actions--loop-compact\s*{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);", css)
-    assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.form-grid,\s*\.executor-config-grid\s*{[\s\S]*?grid-template-columns:\s*1fr;", css)
+    assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.form-grid,[\s\S]*?\.executor-config-grid,[\s\S]*?grid-template-columns:\s*1fr;", css)

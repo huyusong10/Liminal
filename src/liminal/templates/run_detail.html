@@ -3,10 +3,6 @@
 {% block content %}
 <section class="hero hero-tight hero-run-detail">
   <div class="hero-copy-stack">
-    <span class="eyebrow">
-      <span data-lang="zh">运行详情</span>
-      <span data-lang="en">Run detail</span>
-    </span>
     <h1>{{ run.loop_name or run.id }}</h1>
     <p>
       <span data-lang="zh">先看看它这一轮正在忙什么，再决定要不要插手。</span>
@@ -75,7 +71,7 @@
       </div>
       <div class="stage-chip" data-stage="generator" tabindex="0">
         <div class="stage-chip-head">
-          <span class="stage-chip-label"><span data-lang="zh">生成</span><span data-lang="en">Generator</span></span>
+          <span class="stage-chip-label"><span data-lang="zh">建造者</span><span data-lang="en">Builder</span></span>
           <span class="stage-chip-state" data-stage-state>-</span>
         </div>
         <strong class="stage-chip-duration" data-stage-duration>-</strong>
@@ -83,7 +79,7 @@
       </div>
       <div class="stage-chip" data-stage="tester" tabindex="0">
         <div class="stage-chip-head">
-          <span class="stage-chip-label"><span data-lang="zh">测试</span><span data-lang="en">Tester</span></span>
+          <span class="stage-chip-label"><span data-lang="zh">巡检者</span><span data-lang="en">Inspector</span></span>
           <span class="stage-chip-state" data-stage-state>-</span>
         </div>
         <strong class="stage-chip-duration" data-stage-duration>-</strong>
@@ -91,7 +87,7 @@
       </div>
       <div class="stage-chip" data-stage="verifier" tabindex="0">
         <div class="stage-chip-head">
-          <span class="stage-chip-label"><span data-lang="zh">验证</span><span data-lang="en">Verifier</span></span>
+          <span class="stage-chip-label"><span data-lang="zh">守门人</span><span data-lang="en">GateKeeper</span></span>
           <span class="stage-chip-state" data-stage-state>-</span>
         </div>
         <strong class="stage-chip-duration" data-stage-duration>-</strong>
@@ -99,7 +95,7 @@
       </div>
       <div class="stage-chip" data-stage="challenger" tabindex="0">
         <div class="stage-chip-head">
-          <span class="stage-chip-label"><span data-lang="zh">挑战</span><span data-lang="en">Challenger</span></span>
+          <span class="stage-chip-label"><span data-lang="zh">向导</span><span data-lang="en">Guide</span></span>
           <span class="stage-chip-state" data-stage-state>-</span>
         </div>
         <strong class="stage-chip-duration" data-stage-duration>-</strong>
@@ -250,9 +246,13 @@
   const roleStageMap = {
     check_planner: "checks",
     generator: "generator",
+    builder: "generator",
     tester: "tester",
+    inspector: "tester",
     verifier: "verifier",
+    gatekeeper: "verifier",
     challenger: "challenger",
+    guide: "challenger",
   };
   let currentRun = initialRun;
   let timelineRecords = initialTimelineRecords.slice();
@@ -1510,10 +1510,10 @@
   function stageDisplayName(stage) {
     const labels = {
       checks: localeText("检查项", "Checks"),
-      generator: localeText("生成", "Generator"),
-      tester: localeText("测试", "Tester"),
-      verifier: localeText("验证", "Verifier"),
-      challenger: localeText("挑战", "Challenger"),
+      generator: localeText("建造者", "Builder"),
+      tester: localeText("巡检者", "Inspector"),
+      verifier: localeText("守门人", "GateKeeper"),
+      challenger: localeText("向导", "Guide"),
       finished: localeText("完成", "Done"),
     };
     return labels[stage] || stage;
@@ -1523,7 +1523,7 @@
     if (!verdict) {
       return {
         title: localeText("还没有结论", "No verdict yet"),
-        detail: localeText("等验证阶段产出后，这里会马上更新。", "This updates once the verifier produces a verdict."),
+        detail: localeText("等 GateKeeper 产出后，这里会马上更新。", "This updates once the GateKeeper produces a verdict."),
         meta: "",
       };
     }

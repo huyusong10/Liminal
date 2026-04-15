@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}{{ page_copy.submit_en }}{% endblock %}
+{% block content %}
+<div class="page-stack">
+<section class="hero hero-tight hero-form">
+  <div class="hero-copy-stack">
+    <h1>
+      <span data-lang="zh">{{ page_copy.title_zh }}</span>
+      <span data-lang="en">{{ page_copy.title_en }}</span>
+    </h1>
+    <p>
+      <span data-lang="zh">{{ page_copy.body_zh }}</span>
+      <span data-lang="en">{{ page_copy.body_en }}</span>
+    </p>
+  </div>
+</section>
+
+<form class="panel form-panel form-panel-wide" method="post" action="{{ page_copy.action }}" id="new-orchestration-form">
+  <div class="field-status is-error" id="form-error" aria-live="polite" {% if not form_error %}hidden{% endif %}>{{ form_error or "" }}</div>
+
+  <div class="form-grid">
+    <label>
+      <span><span data-lang="zh">名称</span><span data-lang="en">Name</span></span>
+      <input name="name" value="{{ form_values.name }}" required />
+    </label>
+
+    <label class="wide">
+      <span><span data-lang="zh">描述</span><span data-lang="en">Description</span></span>
+      <textarea name="description" rows="3">{{- form_values.description -}}</textarea>
+    </label>
+
+    <section class="wide panel workflow-editor-panel">
+      <header class="panel-header workflow-editor-header">
+        <div>
+          <h2><span data-lang="zh">工作流编排</span><span data-lang="en">Workflow</span></h2>
+          <p class="field-note">
+            <span data-lang="zh">从预设开始，再增删角色、改 prompt、重排 step。</span>
+            <span data-lang="en">Start from a preset, then add or remove roles, edit prompts, and reorder steps.</span>
+          </p>
+        </div>
+      </header>
+      <div class="workflow-toolbar">
+        <label class="workflow-toolbar-preset">
+          <span class="label-row">
+            <span><span data-lang="zh">工作流预设</span><span data-lang="en">Workflow preset</span></span>
+          </span>
+          <select id="workflow-preset-input" name="workflow_preset">
+            {% for option in workflow_preset_options %}
+            <option value="{{ option.id }}" {% if form_values.workflow_preset == option.id %}selected{% endif %}>
+              {{ option.label_zh }} / {{ option.label_en }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="card-actions card-actions-compact workflow-toolbar-actions">
+          <button class="secondary-button" type="button" id="reset-workflow-preset">
+            <span data-lang="zh">按预设重置</span>
+            <span data-lang="en">Reset from preset</span>
+          </button>
+          <button class="ghost-button" type="button" id="add-role-button">
+            <span data-lang="zh">添加角色</span>
+            <span data-lang="en">Add role</span>
+          </button>
+          <button class="ghost-button" type="button" id="add-step-button">
+            <span data-lang="zh">添加步骤</span>
+            <span data-lang="en">Add step</span>
+          </button>
+        </div>
+      </div>
+      <div class="field-status" id="workflow-validation" aria-live="polite" hidden></div>
+      <div class="workflow-editor-grid">
+        <section class="workflow-editor-section">
+          <div class="workflow-section-head">
+            <div>
+              <strong><span data-lang="zh">角色</span><span data-lang="en">Roles</span></strong>
+              <p class="workflow-section-note">
+                <span data-lang="zh">定义流程里可复用的角色、原型和 prompt。</span>
+                <span data-lang="en">Define the reusable roles, archetypes, and prompts in this orchestration.</span>
+              </p>
+            </div>
+          </div>
+          <div id="workflow-roles-list" class="workflow-roles-list"></div>
+          <datalist id="prompt-template-options">
+            {% for prompt_template in prompt_templates %}
+            <option value="{{ prompt_template.prompt_ref }}">{{ prompt_template.prompt_ref }}</option>
+            {% endfor %}
+          </datalist>
+        </section>
+        <section class="workflow-editor-section">
+          <div class="workflow-section-head">
+            <div>
+              <strong><span data-lang="zh">步骤</span><span data-lang="en">Steps</span></strong>
+              <p class="workflow-section-note">
+                <span data-lang="zh">安排每轮的执行顺序，以及 GateKeeper 通过后如何收束流程。</span>
+                <span data-lang="en">Arrange the step order for each iteration, including how GateKeeper closes out a successful run.</span>
+              </p>
+            </div>
+          </div>
+          <div id="workflow-steps-list" class="workflow-steps-list"></div>
+        </section>
+      </div>
+      <details class="wide">
+        <summary><span data-lang="zh">高级：查看 JSON</span><span data-lang="en">Advanced: inspect JSON</span></summary>
+        <label class="wide">
+          <span><span data-lang="zh">workflow_json</span><span data-lang="en">workflow_json</span></span>
+          <textarea id="workflow-json-input" name="workflow_json" rows="12">{{- form_values.workflow_json -}}</textarea>
+        </label>
+        <label class="wide">
+          <span><span data-lang="zh">prompt_files_json</span><span data-lang="en">prompt_files_json</span></span>
+          <textarea id="prompt-files-json-input" name="prompt_files_json" rows="12">{{- form_values.prompt_files_json -}}</textarea>
+        </label>
+      </details>
+    </section>
+  </div>
+
+  <div class="card-actions">
+    <button class="primary-button" type="submit" id="save-orchestration-button">
+      <span data-lang="zh">{{ page_copy.submit_zh }}</span>
+      <span data-lang="en">{{ page_copy.submit_en }}</span>
+    </button>
+    <a class="ghost-button" href="/orchestrations">
+      <span data-lang="zh">取消</span>
+      <span data-lang="en">Cancel</span>
+    </a>
+  </div>
+</form>
+
+<script id="workflow-preset-bundles-json" type="application/json">{{ workflow_preset_bundles|tojson }}</script>
+<script id="prompt-templates-json" type="application/json">{{ prompt_templates|tojson }}</script>
+<script src="{{ static_asset_url('pages/new_orchestration.js') }}" defer></script>
+</div>
+{% endblock %}

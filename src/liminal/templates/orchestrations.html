@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Orchestrations{% endblock %}
+{% block content %}
+<section class="hero hero-tight">
+  <div class="hero-copy-stack">
+    <h1>
+      <span data-lang="zh">先把流程编排清楚，再给 loop 选择合适的方案。</span>
+      <span data-lang="en">Shape the orchestration first, then let each loop pick the right one.</span>
+    </h1>
+    <p>
+      <span data-lang="zh">这里保存 Builder / Inspector / GateKeeper / Guide 的线性流程和 prompt 资产。点开方案会先进入编辑器，确认好之后再去创建 loop。</span>
+      <span data-lang="en">This is where Builder / Inspector / GateKeeper / Guide workflows and prompts live. Opening a saved orchestration now takes you into the editor first, then loops can reuse it later.</span>
+    </p>
+  </div>
+  <div class="card-actions hero-actions">
+    <a class="primary-button" href="/orchestrations/new">
+      <span data-lang="zh">新建编排</span>
+      <span data-lang="en">Create orchestration</span>
+    </a>
+  </div>
+</section>
+
+<section class="panel">
+  <header class="panel-header">
+    <h2><span data-lang="zh">已保存方案</span><span data-lang="en">Saved orchestrations</span></h2>
+    <span>{{ orchestrations|length }}</span>
+  </header>
+  {% if orchestrations %}
+  <div class="loop-grid">
+    {% for orchestration in orchestrations %}
+    <article class="loop-card is-clickable" data-open-card="/orchestrations/{{ orchestration.id }}/edit" tabindex="0">
+      <a class="loop-card-link" href="/orchestrations/{{ orchestration.id }}/edit"></a>
+      <div class="loop-card-head">
+        <div>
+          <strong>{{ orchestration.name }}</strong>
+          <p class="loop-card-meta">
+            {% if orchestration.source == "builtin" %}
+            <span data-lang="zh">内置方案</span>
+            <span data-lang="en">Built-in</span>
+            {% else %}
+            <span data-lang="zh">自定义方案</span>
+            <span data-lang="en">Custom</span>
+            {% endif %}
+          </p>
+        </div>
+      </div>
+      <p>{{ orchestration.description or "-" }}</p>
+      <p class="loop-card-meta">
+        <span data-lang="zh">步骤数</span><span data-lang="en">Steps</span> {{ orchestration.workflow_json.steps|length }}
+        ·
+        <span data-lang="zh">角色数</span><span data-lang="en">Roles</span> {{ orchestration.workflow_json.roles|length }}
+      </p>
+      {% if orchestration.workflow_warnings %}
+      <div class="field-status">
+        {{ orchestration.workflow_warnings|join(' ') }}
+      </div>
+      {% endif %}
+      {% if orchestration.deletable %}
+      <div class="card-actions card-actions-compact">
+        <form method="post" action="/api/orchestrations/{{ orchestration.id }}" onsubmit="event.preventDefault(); fetch(this.action, {method: 'DELETE'}).then(() => window.location.reload());">
+          <button class="ghost-button danger-button" type="submit">
+            <span data-lang="zh">删除</span>
+            <span data-lang="en">Delete</span>
+          </button>
+        </form>
+      </div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h3><span data-lang="zh">还没有自定义编排</span><span data-lang="en">No custom orchestrations yet</span></h3>
+    <p><span data-lang="zh">可以先从内置 preset 开始，也可以创建一条自己的线性流程。</span><span data-lang="en">Start from a built-in preset or create your own linear workflow.</span></p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

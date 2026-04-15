@@ -15,11 +15,14 @@ from liminal.settings import configure_logging
 from liminal.specs import SpecError, init_spec_file, read_and_compile
 from liminal.utils import utc_now
 from liminal.web import _is_loopback_host, build_app
+from liminal.workflows import load_workflow_file, preset_names
 
 app = typer.Typer(help="Liminal CLI")
 loops_app = typer.Typer(help="Inspect and control saved loops")
+orchestrations_app = typer.Typer(help="Create and inspect orchestrations")
 spec_app = typer.Typer(help="Work with Markdown loop specs")
 app.add_typer(loops_app, name="loops")
+app.add_typer(orchestrations_app, name="orchestrations")
 app.add_typer(spec_app, name="spec")
 
 
@@ -52,7 +55,31 @@ RoleModelOption = Annotated[
     list[str] | None,
     typer.Option(
         "--role-model",
-        help="Per-role model override like generator=gpt-5.4-mini. Supported roles: generator, tester, verifier, challenger.",
+        help="Per-role model override like builder=gpt-5.4-mini. Legacy names like generator/verifier still work.",
+    ),
+]
+WorkflowPresetOption = Annotated[
+    str,
+    typer.Option(
+        "--workflow-preset",
+        help=f"Workflow preset: {', '.join(preset_names())}.",
+    ),
+]
+OrchestrationIdOption = Annotated[
+    str,
+    typer.Option(
+        "--orchestration-id",
+        help="Use a saved orchestration id, such as builtin:build_first or a custom orchestration id.",
+    ),
+]
+WorkflowFileOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--workflow-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        help="Path to a JSON or YAML workflow bundle. Supports {workflow, prompt_files} or a raw workflow object.",
     ),
 ]
 StartOption = Annotated[bool, typer.Option("--start", help="Start a run immediately after creating the loop definition.")]
@@ -95,11 +122,21 @@ def _build_loop_kwargs(
     regression_window: int,
     name: str | None,
     role_model: list[str] | None,
+    orchestration_id: str,
+    workflow_preset: str,
+    workflow_file: Path | None,
 ) -> dict[str, object]:
+    workflow: dict | None = None
+    prompt_files: dict[str, str] | None = None
+    if workflow_file is not None:
+        workflow, prompt_files = load_workflow_file(workflow_file)
+    elif workflow_preset and not orchestration_id.strip():
+        workflow = {"preset": workflow_preset}
     return {
         "name": name or workdir.resolve().name,
         "spec_path": spec,
         "workdir": workdir,
+        "orchestration_id": orchestration_id.strip() or None,
         "executor_kind": executor_kind,
         "executor_mode": executor_mode,
         "command_cli": command_cli,
@@ -111,6 +148,8 @@ def _build_loop_kwargs(
         "delta_threshold": delta_threshold,
         "trigger_window": trigger_window,
         "regression_window": regression_window,
+        "workflow": workflow,
+        "prompt_files": prompt_files,
         "role_models": _parse_role_models(role_model),
     }
 
@@ -218,6 +257,9 @@ def _create_and_maybe_start_loop(
     regression_window: int,
     name: str | None,
     role_model: list[str] | None,
+    orchestration_id: str,
+    workflow_preset: str,
+    workflow_file: Path | None,
     start: bool,
     background: bool,
 ) -> tuple[dict, dict | None]:
@@ -241,6 +283,9 @@ def _create_and_maybe_start_loop(
             regression_window=regression_window,
             name=name,
             role_model=role_model,
+            orchestration_id=orchestration_id,
+            workflow_preset=workflow_preset,
+            workflow_file=workflow_file,
         )
     )
     run = _start_run(service, loop["id"], background=background) if start else None
@@ -264,6 +309,9 @@ def run(
     regression_window: RegressionWindowOption = 2,
     name: NameOption = None,
     role_model: RoleModelOption = None,
+    orchestration_id: OrchestrationIdOption = "",
+    workflow_preset: WorkflowPresetOption = "",
+    workflow_file: WorkflowFileOption = None,
     background: BackgroundOption = False,
 ) -> None:
     """Create a loop definition and execute it immediately."""
@@ -284,6 +332,9 @@ def run(
             regression_window=regression_window,
             name=name,
             role_model=role_model,
+            orchestration_id=orchestration_id,
+            workflow_preset=workflow_preset,
+            workflow_file=workflow_file,
             start=True,
             background=background,
         )
@@ -379,6 +430,9 @@ def create_loop(
     regression_window: RegressionWindowOption = 2,
     name: NameOption = None,
     role_model: RoleModelOption = None,
+    orchestration_id: OrchestrationIdOption = "",
+    workflow_preset: WorkflowPresetOption = "",
+    workflow_file: WorkflowFileOption = None,
     start: StartOption = False,
     background: BackgroundOption = False,
 ) -> None:
@@ -400,6 +454,9 @@ def create_loop(
             regression_window=regression_window,
             name=name,
             role_model=role_model,
+            orchestration_id=orchestration_id,
+            workflow_preset=workflow_preset,
+            workflow_file=workflow_file,
             start=start,
             background=background,
         )
@@ -425,6 +482,50 @@ def list_loops() -> None:
                 f"{loop['id']}  {loop['name']}  [{status}]  "
                 f"{loop['workdir']}  executor={loop.get('executor_kind', 'codex')}  model={loop['model'] or '-'}"
             )
+    except LiminalError as exc:
+        _handle_error(exc)
+
+
+@orchestrations_app.command("list")
+def list_orchestrations() -> None:
+    """List saved orchestrations."""
+    try:
+        service = create_service()
+        orchestrations = service.list_orchestrations()
+        for item in orchestrations:
+            typer.echo(
+                f"{item['id']}  {item['name']}  "
+                f"source={item.get('source', 'custom')}  "
+                f"roles={len(item.get('workflow_json', {}).get('roles', []))}  "
+                f"steps={len(item.get('workflow_json', {}).get('steps', []))}"
+            )
+    except LiminalError as exc:
+        _handle_error(exc)
+
+
+@orchestrations_app.command("create")
+def create_orchestration(
+    name: str = typer.Option(..., help="Orchestration name."),
+    description: str = typer.Option("", help="Optional orchestration description."),
+    workflow_preset: WorkflowPresetOption = "build_first",
+    workflow_file: WorkflowFileOption = None,
+) -> None:
+    """Create a saved orchestration."""
+    try:
+        service = create_service()
+        workflow: dict | None = None
+        prompt_files: dict[str, str] | None = None
+        if workflow_file is not None:
+            workflow, prompt_files = load_workflow_file(workflow_file)
+        elif workflow_preset:
+            workflow = {"preset": workflow_preset}
+        orchestration = service.create_orchestration(
+            name=name,
+            description=description,
+            workflow=workflow,
+            prompt_files=prompt_files,
+        )
+        typer.echo(json.dumps(orchestration, ensure_ascii=False, indent=2))
     except LiminalError as exc:
         _handle_error(exc)
 

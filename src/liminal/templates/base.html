@@ -24,6 +24,10 @@
           <span data-lang="zh">创建循环</span>
           <span data-lang="en">Create Loop</span>
         </a>
+        <a class="top-nav-link {% if request.url.path.startswith('/orchestrations') %}active{% endif %}" href="/orchestrations">
+          <span data-lang="zh">流程编排</span>
+          <span data-lang="en">Orchestrations</span>
+        </a>
         <a class="top-nav-link {% if request.url.path == '/tools' %}active{% endif %}" href="/tools">
           <span data-lang="zh">工具</span>
           <span data-lang="en">Tools</span>
@@ -44,10 +48,6 @@
     <div class="confirm-modal-backdrop" data-close-confirm-modal="1"></div>
     <div class="confirm-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
       <div class="confirm-modal-copy">
-        <span class="eyebrow">
-          <span data-lang="zh">确认操作</span>
-          <span data-lang="en">Confirm action</span>
-        </span>
         <h2 id="confirm-modal-title">
           <span data-lang="zh">要删除这条 loop 吗？</span>
           <span data-lang="en">Delete this loop?</span>

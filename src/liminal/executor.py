@@ -47,6 +47,9 @@ class RoleRequest:
     command_args_text: str = ""
     sandbox: str = "workspace-write"
     idle_timeout_seconds: float | None = None
+    role_archetype: str = ""
+    role_name: str = ""
+    step_id: str = ""
     extra_context: dict = field(default_factory=dict)
 
 
@@ -614,13 +617,14 @@ class FakeCodexExecutor(CodexExecutor):
         compiled_spec = request.extra_context.get("compiled_spec", {})
         checks = compiled_spec.get("checks", [])
         check_count = max(len(checks), 1)
+        archetype = str(request.role_archetype or request.extra_context.get("archetype") or request.role).strip().lower()
 
-        if self.scenario == "role_failure" and request.role == "tester":
-            raise ExecutorError("simulated tester failure")
+        if self.scenario == "role_failure" and archetype in {"tester", "inspector"}:
+            raise ExecutorError("simulated inspector failure")
 
         if (
-            (self.scenario == "destructive_generator" and request.role == "generator")
-            or (self.scenario == "destructive_tester" and request.role == "tester")
+            (self.scenario == "destructive_generator" and archetype in {"generator", "builder"})
+            or (self.scenario == "destructive_tester" and archetype in {"tester", "inspector"})
         ):
             for child in request.workdir.iterdir():
                 if child.name == ".liminal":
@@ -635,7 +639,7 @@ class FakeCodexExecutor(CodexExecutor):
                 else:
                     child.unlink()
 
-        if request.role == "generator":
+        if archetype in {"generator", "builder"}:
             return {
                 "attempted": f"Iter {iter_id}: refine workdir toward compiled goal",
                 "abandoned": "Avoided multi-module changes in the same iteration.",
@@ -685,7 +689,7 @@ class FakeCodexExecutor(CodexExecutor):
                 "generation_notes": "Generated a compact exploratory check set because the spec did not provide explicit checks.",
             }
 
-        if request.role == "tester":
+        if archetype in {"tester", "inspector"}:
             passed_checks = min(check_count, 1 + iter_id)
             total_checks = check_count
             results = []
@@ -712,8 +716,11 @@ class FakeCodexExecutor(CodexExecutor):
                 "tester_observations": "Fake executor evaluated the compiled Markdown checks.",
             }
 
-        if request.role == "verifier":
-            tester_output = request.extra_context["tester_output"]
+        if archetype in {"verifier", "gatekeeper"}:
+            tester_output = request.extra_context.get("inspector_output") or request.extra_context.get("tester_output") or {
+                "execution_summary": {"total_checks": check_count, "passed": 0},
+                "check_results": [],
+            }
             total_checks = max(tester_output["execution_summary"]["total_checks"], 1)
             passed_checks = tester_output["execution_summary"]["passed"]
             if self.scenario == "plateau":
@@ -727,7 +734,22 @@ class FakeCodexExecutor(CodexExecutor):
             passed = composite >= 0.9 and not failed_check_ids
             return {
                 "passed": passed,
+                "decision_summary": "All checks passed." if passed else "The run still has failing evidence.",
                 "composite_score": composite,
+                "metrics": [
+                    {
+                        "name": "check_pass_rate",
+                        "value": check_pass_rate,
+                        "threshold": 0.9,
+                        "passed": check_pass_rate >= 0.9,
+                    },
+                    {
+                        "name": "quality_score",
+                        "value": composite,
+                        "threshold": 0.9,
+                        "passed": composite >= 0.9,
+                    },
+                ],
                 "metric_scores": {
                     "check_pass_rate": {
                         "value": check_pass_rate,
@@ -740,14 +762,17 @@ class FakeCodexExecutor(CodexExecutor):
                         "passed": composite >= 0.9,
                     },
                 },
+                "blocking_issues": [],
                 "hard_constraint_violations": [],
                 "failed_check_ids": failed_check_ids,
                 "priority_failures": [],
+                "feedback_to_builder": "Improve the most visible failing checks without widening scope.",
                 "feedback_to_generator": "Improve the most visible failing checks without widening scope.",
+                "confidence": "high",
                 "verifier_confidence": "high",
             }
 
-        if request.role == "challenger":
+        if archetype in {"challenger", "guide"}:
             return {
                 "created_at_iter": iter_id,
                 "mode": request.extra_context.get("stagnation_mode", "plateau"),

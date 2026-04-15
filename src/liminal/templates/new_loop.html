@@ -4,13 +4,9 @@
 <div class="page-stack">
 <section class="hero hero-tight hero-form">
   <div class="hero-copy-stack">
-    <span class="eyebrow">
-      <span data-lang="zh">新建循环</span>
-      <span data-lang="en">New loop</span>
-    </span>
     <h1>
-      <span data-lang="zh">把一个想法拎进来，让它开始自己跑。</span>
-      <span data-lang="en">Drop in an idea and let it start running on its own.</span>
+      <span data-lang="zh">新建一条 loop，把这个想法交给它持续推进。</span>
+      <span data-lang="en">Create a loop and let it keep pushing this idea forward.</span>
     </h1>
     <p>
       <span data-lang="zh">填好 workdir、spec 和执行工具，剩下的脏活累活就交给 loop 慢慢折腾。</span>
@@ -177,8 +173,8 @@
                 id="model-help-trigger"
                 class="help-dot"
                 type="button"
-                data-title-zh="默认用哪个模型执行 generator、tester、verifier 和 challenger。"
-                data-title-en="Which model to use by default for generator, tester, verifier, and challenger."
+                data-title-zh="默认用哪个模型执行 Builder、Inspector、GateKeeper 和 Guide。"
+                data-title-en="Which model to use by default for Builder, Inspector, GateKeeper, and Guide."
               >?</button>
             </span>
             <input id="model-input" name="model" value="{{ form_values.model }}" />
@@ -281,6 +277,43 @@
       <small class="field-note" id="command-preview-note"></small>
     </div>
 
+    <section class="wide panel workflow-editor-panel">
+      <header class="panel-header workflow-editor-header">
+        <div>
+          <h2><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></h2>
+          <p class="field-note">
+            <span data-lang="zh">编排方案现在是独立一级对象。先去维护 Builder / Inspector / GateKeeper / Guide 的流程，再回到这里挑一个方案给 loop 使用。</span>
+            <span data-lang="en">Orchestrations are now first-class assets. Define the Builder / Inspector / GateKeeper / Guide workflow separately, then choose one here for this loop.</span>
+          </p>
+        </div>
+        <div class="card-actions card-actions-compact">
+          <a class="secondary-button" href="/orchestrations/new">
+            <span data-lang="zh">新建编排</span>
+            <span data-lang="en">New orchestration</span>
+          </a>
+          <a class="ghost-button" href="/orchestrations">
+            <span data-lang="zh">管理编排</span>
+            <span data-lang="en">Manage orchestrations</span>
+          </a>
+        </div>
+      </header>
+      <div class="form-grid">
+        <label class="wide">
+          <span class="label-row">
+            <span><span data-lang="zh">选择编排方案</span><span data-lang="en">Choose orchestration</span></span>
+          </span>
+          <select id="orchestration-id-input" name="orchestration_id">
+            {% for orchestration in orchestrations %}
+            <option value="{{ orchestration.id }}" {% if form_values.orchestration_id == orchestration.id %}selected{% endif %}>
+              {{ orchestration.name }}{% if orchestration.source == "builtin" %} · builtin{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="field-status" id="orchestration-summary" aria-live="polite"></div>
+    </section>
+
     <label>
       <span class="label-row">
         <span><span data-lang="zh">最大迭代次数</span><span data-lang="en">Max iterations</span></span>
@@ -349,25 +382,25 @@
     <details class="wide">
       <summary><span data-lang="zh">高级：按角色覆盖模型</span><span data-lang="en">Advanced: per-role model overrides</span></summary>
       <p class="field-note">
-        <span data-lang="zh">可选。留空则所有角色都使用上面的默认模型。适合让 generator 和 verifier 用不同模型，但仍保持同一个 loop 定义。</span>
-        <span data-lang="en">Optional. Leave these blank to use the default model above for every role. Use this when generator and verifier should run on different models while staying inside one loop definition.</span>
+        <span data-lang="zh">可选。留空则所有角色都使用上面的默认模型。适合让 Builder 和 GateKeeper 用不同模型，但仍保持同一个 loop 定义。</span>
+        <span data-lang="en">Optional. Leave these blank to use the default model above for every role. Use this when Builder and GateKeeper should run on different models while staying inside one loop definition.</span>
       </p>
       <div class="executor-config-body">
         <label>
-          <span><span data-lang="zh">Generator 模型</span><span data-lang="en">Generator model</span></span>
-          <input id="role-model-generator-input" name="role_model_generator" value="{{ form_values.role_model_generator }}" />
+          <span><span data-lang="zh">Builder 模型</span><span data-lang="en">Builder model</span></span>
+          <input id="role-model-builder-input" name="role_model_builder" value="{{ form_values.role_model_builder }}" />
         </label>
         <label>
-          <span><span data-lang="zh">Tester 模型</span><span data-lang="en">Tester model</span></span>
-          <input id="role-model-tester-input" name="role_model_tester" value="{{ form_values.role_model_tester }}" />
+          <span><span data-lang="zh">Inspector 模型</span><span data-lang="en">Inspector model</span></span>
+          <input id="role-model-inspector-input" name="role_model_inspector" value="{{ form_values.role_model_inspector }}" />
         </label>
         <label>
-          <span><span data-lang="zh">Verifier 模型</span><span data-lang="en">Verifier model</span></span>
-          <input id="role-model-verifier-input" name="role_model_verifier" value="{{ form_values.role_model_verifier }}" />
+          <span><span data-lang="zh">GateKeeper 模型</span><span data-lang="en">GateKeeper model</span></span>
+          <input id="role-model-gatekeeper-input" name="role_model_gatekeeper" value="{{ form_values.role_model_gatekeeper }}" />
         </label>
         <label>
-          <span><span data-lang="zh">Challenger 模型</span><span data-lang="en">Challenger model</span></span>
-          <input id="role-model-challenger-input" name="role_model_challenger" value="{{ form_values.role_model_challenger }}" />
+          <span><span data-lang="zh">Guide 模型</span><span data-lang="en">Guide model</span></span>
+          <input id="role-model-guide-input" name="role_model_guide" value="{{ form_values.role_model_guide }}" />
         </label>
       </div>
     </details>
@@ -406,6 +439,7 @@
   </div>
 </form>
 <script id="executor-profiles-json" type="application/json">{{ executor_profiles|tojson }}</script>
+<script id="orchestrations-json" type="application/json">{{ orchestrations|tojson }}</script>
 <script src="{{ static_asset_url('pages/new_loop.js') }}" defer></script>
 </div>
 {% endblock %}

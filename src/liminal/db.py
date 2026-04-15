@@ -72,6 +72,8 @@ class LiminalRepository:
                 CREATE TABLE IF NOT EXISTS loop_definitions (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
+                    orchestration_id TEXT NOT NULL DEFAULT '',
+                    orchestration_name TEXT NOT NULL DEFAULT '',
                     workdir TEXT NOT NULL,
                     spec_path TEXT NOT NULL,
                     spec_markdown TEXT NOT NULL,
@@ -88,6 +90,7 @@ class LiminalRepository:
                     trigger_window INTEGER NOT NULL,
                     regression_window INTEGER NOT NULL,
                     role_models_json TEXT NOT NULL,
+                    workflow_json TEXT NOT NULL DEFAULT '{}',
                     latest_run_id TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -96,6 +99,8 @@ class LiminalRepository:
                 CREATE TABLE IF NOT EXISTS loop_runs (
                     id TEXT PRIMARY KEY,
                     loop_id TEXT NOT NULL REFERENCES loop_definitions(id),
+                    orchestration_id TEXT NOT NULL DEFAULT '',
+                    orchestration_name TEXT NOT NULL DEFAULT '',
                     workdir TEXT NOT NULL,
                     spec_path TEXT NOT NULL,
                     spec_markdown TEXT NOT NULL,
@@ -112,6 +117,7 @@ class LiminalRepository:
                     trigger_window INTEGER NOT NULL,
                     regression_window INTEGER NOT NULL,
                     role_models_json TEXT NOT NULL,
+                    workflow_json TEXT NOT NULL DEFAULT '{}',
                     status TEXT NOT NULL,
                     stop_requested INTEGER NOT NULL DEFAULT 0,
                     current_iter INTEGER NOT NULL DEFAULT 0,
@@ -143,8 +149,22 @@ class LiminalRepository:
                     run_id TEXT NOT NULL REFERENCES loop_runs(id),
                     acquired_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS orchestration_definitions (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    workflow_json TEXT NOT NULL,
+                    prompt_files_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
+            self._ensure_column(connection, "loop_definitions", "orchestration_id", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "loop_definitions", "orchestration_name", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "loop_runs", "orchestration_id", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "loop_runs", "orchestration_name", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "loop_definitions", "executor_kind", "TEXT NOT NULL DEFAULT 'codex'")
             self._ensure_column(connection, "loop_definitions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
             self._ensure_column(connection, "loop_definitions", "command_cli", "TEXT NOT NULL DEFAULT ''")
@@ -153,6 +173,8 @@ class LiminalRepository:
             self._ensure_column(connection, "loop_runs", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
             self._ensure_column(connection, "loop_runs", "command_cli", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "loop_runs", "command_args_text", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "loop_definitions", "workflow_json", "TEXT NOT NULL DEFAULT '{}'")
+            self._ensure_column(connection, "loop_runs", "workflow_json", "TEXT NOT NULL DEFAULT '{}'")
 
     @staticmethod
     def _ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -169,16 +191,18 @@ class LiminalRepository:
             connection.execute(
                 """
                 INSERT INTO loop_definitions (
-                    id, name, workdir, spec_path, spec_markdown, compiled_spec_json,
+                    id, name, orchestration_id, orchestration_name, workdir, spec_path, spec_markdown, compiled_spec_json,
                     executor_kind, executor_mode, command_cli, command_args_text,
                     model, reasoning_effort, max_iters, max_role_retries, delta_threshold,
-                    trigger_window, regression_window, role_models_json, latest_run_id,
+                    trigger_window, regression_window, role_models_json, workflow_json, latest_run_id,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
                 """,
                 (
                     payload["id"],
                     payload["name"],
+                    payload.get("orchestration_id", ""),
+                    payload.get("orchestration_name", ""),
                     payload["workdir"],
                     payload["spec_path"],
                     payload["spec_markdown"],
@@ -195,6 +219,7 @@ class LiminalRepository:
                     payload["trigger_window"],
                     payload["regression_window"],
                     json.dumps(payload.get("role_models", {}), ensure_ascii=False),
+                    json.dumps(payload.get("workflow", {}), ensure_ascii=False),
                     now,
                     now,
                 ),
@@ -207,18 +232,20 @@ class LiminalRepository:
             connection.execute(
                 """
                 INSERT INTO loop_runs (
-                    id, loop_id, workdir, spec_path, spec_markdown, compiled_spec_json,
+                    id, loop_id, orchestration_id, orchestration_name, workdir, spec_path, spec_markdown, compiled_spec_json,
                     executor_kind, executor_mode, command_cli, command_args_text,
                     model, reasoning_effort, max_iters, max_role_retries, delta_threshold,
-                    trigger_window, regression_window, role_models_json, status, stop_requested,
+                    trigger_window, regression_window, role_models_json, workflow_json, status, stop_requested,
                     current_iter, active_role, runner_pid, child_pid, queued_at, started_at,
                     finished_at, error_message, last_verdict_json, summary_md, runs_dir,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?)
                 """,
                 (
                     payload["id"],
                     payload["loop_id"],
+                    payload.get("orchestration_id", ""),
+                    payload.get("orchestration_name", ""),
                     payload["workdir"],
                     payload["spec_path"],
                     payload["spec_markdown"],
@@ -235,6 +262,7 @@ class LiminalRepository:
                     payload["trigger_window"],
                     payload["regression_window"],
                     json.dumps(payload.get("role_models", {}), ensure_ascii=False),
+                    json.dumps(payload.get("workflow", {}), ensure_ascii=False),
                     payload["status"],
                     now,
                     payload.get("summary_md", ""),
@@ -248,6 +276,68 @@ class LiminalRepository:
                 (payload["id"], now, payload["loop_id"]),
             )
         return self.get_run(payload["id"])
+
+    def create_orchestration(self, payload: dict) -> dict:
+        now = utc_now()
+        with self.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO orchestration_definitions (
+                    id, name, description, workflow_json, prompt_files_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["id"],
+                    payload["name"],
+                    payload.get("description", ""),
+                    json.dumps(payload["workflow"], ensure_ascii=False),
+                    json.dumps(payload.get("prompt_files", {}), ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
+        return self.get_orchestration(payload["id"])
+
+    def update_orchestration(self, orchestration_id: str, payload: dict) -> dict | None:
+        now = utc_now()
+        with self.transaction() as connection:
+            row = connection.execute("SELECT 1 FROM orchestration_definitions WHERE id = ?", (orchestration_id,)).fetchone()
+            if row is None:
+                return None
+            connection.execute(
+                """
+                UPDATE orchestration_definitions
+                SET name = ?, description = ?, workflow_json = ?, prompt_files_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    payload["name"],
+                    payload.get("description", ""),
+                    json.dumps(payload["workflow"], ensure_ascii=False),
+                    json.dumps(payload.get("prompt_files", {}), ensure_ascii=False),
+                    now,
+                    orchestration_id,
+                ),
+            )
+        return self.get_orchestration(orchestration_id)
+
+    def get_orchestration(self, orchestration_id: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM orchestration_definitions WHERE id = ?", (orchestration_id,)).fetchone()
+        return self._decode_row(row) if row else None
+
+    def list_orchestrations(self) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM orchestration_definitions ORDER BY updated_at DESC, created_at DESC").fetchall()
+        return [self._decode_row(row) for row in rows]
+
+    def delete_orchestration(self, orchestration_id: str) -> bool:
+        with self.transaction() as connection:
+            row = connection.execute("SELECT 1 FROM orchestration_definitions WHERE id = ?", (orchestration_id,)).fetchone()
+            if row is None:
+                return False
+            connection.execute("DELETE FROM orchestration_definitions WHERE id = ?", (orchestration_id,))
+        return True
 
     def get_loop(self, loop_id: str) -> dict | None:
         with self._connect() as connection:
@@ -521,7 +611,7 @@ class LiminalRepository:
         if row is None:
             return {}
         payload = dict(row)
-        for key in ("compiled_spec_json", "role_models_json", "last_verdict_json", "payload_json"):
+        for key in ("compiled_spec_json", "role_models_json", "workflow_json", "prompt_files_json", "last_verdict_json", "payload_json"):
             if key in payload and payload[key]:
                 payload[key] = json.loads(payload[key])
         if "payload_json" in payload:

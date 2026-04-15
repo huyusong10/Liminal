@@ -30,9 +30,22 @@ from liminal.settings import AppSettings, app_home, db_path, load_settings
 from liminal.specs import SpecError, compile_markdown_spec, read_and_compile
 from liminal.stagnation import update_stagnation
 from liminal.utils import append_jsonl, make_id, read_json, utc_now, write_json
+from liminal.workflows import (
+    ARCHETYPES,
+    LEGACY_ROLE_BY_ARCHETYPE,
+    LEGACY_ROLE_TO_ARCHETYPE,
+    WorkflowError,
+    build_preset_workflow,
+    display_name_for_archetype,
+    normalize_role_models as workflow_normalize_role_models,
+    normalize_workflow,
+    preset_names,
+    resolve_prompt_files,
+    workflow_warnings,
+)
 
 logger = logging.getLogger(__name__)
-LOOP_ROLE_NAMES = ("generator", "tester", "verifier", "challenger")
+LOOP_ROLE_NAMES = ARCHETYPES
 
 
 class LiminalError(RuntimeError):
@@ -65,18 +78,10 @@ class StopRequested(LiminalError):
 
 
 def normalize_role_models(role_models: dict | None) -> dict[str, str]:
-    normalized: dict[str, str] = {}
-    if not role_models:
-        return normalized
-    for raw_role, raw_model in dict(role_models).items():
-        role = str(raw_role).strip()
-        model = str(raw_model).strip()
-        if not role:
-            raise LiminalError("role model overrides require a role name")
-        if role not in LOOP_ROLE_NAMES or not model:
-            raise LiminalError(f"invalid role model override: {raw_role}={raw_model}")
-        normalized[role] = model
-    return normalized
+    try:
+        return workflow_normalize_role_models(role_models)
+    except WorkflowError as exc:
+        raise LiminalError(str(exc)) from exc
 
 
 class LiminalService:
@@ -112,6 +117,9 @@ class LiminalService:
         executor_mode: str = "preset",
         command_cli: str = "",
         command_args_text: str = "",
+        workflow: dict | None = None,
+        prompt_files: dict | None = None,
+        orchestration_id: str | None = None,
         role_models: dict | None = None,
     ) -> dict:
         workdir = workdir.expanduser().resolve()
@@ -148,12 +156,23 @@ class LiminalService:
         except ValueError as exc:
             raise LiminalError(str(exc)) from exc
 
+        resolved_orchestration = self._resolve_orchestration_input(
+            orchestration_id=orchestration_id,
+            workflow=workflow,
+            prompt_files=prompt_files,
+            role_models=role_models,
+        )
+        normalized_workflow = resolved_orchestration["workflow"]
+        resolved_prompt_files = resolved_orchestration["prompt_files"]
+
         spec_markdown, compiled_spec = read_and_compile(spec_path)
         loop_id = make_id("loop")
         loop_dir = self._ensure_loop_dir(workdir, loop_id)
         persisted_spec_path = loop_dir / "spec.md"
         persisted_spec_path.write_text(spec_markdown, encoding="utf-8")
         write_json(loop_dir / "compiled_spec.json", compiled_spec)
+        self._persist_prompt_files(loop_dir, resolved_prompt_files)
+        write_json(loop_dir / "workflow.json", normalized_workflow)
 
         payload = {
             "id": loop_id,
@@ -173,11 +192,14 @@ class LiminalService:
             "delta_threshold": delta_threshold,
             "trigger_window": trigger_window,
             "regression_window": regression_window,
+            "orchestration_id": resolved_orchestration["id"],
+            "orchestration_name": resolved_orchestration["name"],
             "role_models": normalize_role_models(role_models),
+            "workflow": normalized_workflow,
         }
         loop = self.repository.create_loop(payload)
         self._write_recent_workdirs()
-        return loop
+        return self._hydrate_loop_files(loop)
 
     def start_run(self, loop_id: str) -> dict:
         loop = self.repository.get_loop(loop_id)
@@ -197,6 +219,9 @@ class LiminalService:
             encoding="utf-8",
         )
         (run_dir / "spec.md").write_text(loop["spec_markdown"], encoding="utf-8")
+        workflow = loop.get("workflow_json") or self._legacy_workflow_from_loop(loop)
+        write_json(run_dir / "workflow.json", workflow)
+        self._persist_prompt_files(run_dir, self._read_prompt_files_for_loop(loop["workdir"], loop["id"], workflow))
 
         run = self.repository.create_run(
             {
@@ -217,13 +242,178 @@ class LiminalService:
                 "delta_threshold": loop["delta_threshold"],
                 "trigger_window": loop["trigger_window"],
                 "regression_window": loop["regression_window"],
+                "orchestration_id": loop.get("orchestration_id", ""),
+                "orchestration_name": loop.get("orchestration_name", ""),
                 "role_models": loop["role_models_json"],
+                "workflow": workflow,
                 "status": "queued",
                 "runs_dir": str(run_dir),
                 "summary_md": "# Liminal Run Summary\n\nQueued.\n",
             }
         )
         self.repository.append_event(run_id, "run_registered", {"loop_id": loop_id, "status": "queued"})
+        return self._hydrate_run_files(run)
+
+    def _legacy_workflow_from_loop(self, loop_or_run: dict) -> dict:
+        role_models = normalize_role_models(loop_or_run.get("role_models_json") or loop_or_run.get("role_models") or {})
+        return build_preset_workflow("build_first", role_models=role_models)
+
+    def _builtin_orchestration_records(self) -> list[dict]:
+        labels = {
+            "build_first": "Build First",
+            "inspect_first": "Inspect First",
+            "benchmark_loop": "Benchmark Loop",
+        }
+        descriptions = {
+            "build_first": "Builder -> Inspector -> GateKeeper -> Guide",
+            "inspect_first": "Inspector -> Builder -> GateKeeper -> Guide",
+            "benchmark_loop": "GateKeeper (benchmark) -> Builder",
+        }
+        records = []
+        for preset_name in preset_names():
+            workflow = build_preset_workflow(preset_name)
+            prompt_files = resolve_prompt_files(workflow)
+            records.append(
+                {
+                    "id": f"builtin:{preset_name}",
+                    "name": labels.get(preset_name, preset_name),
+                    "description": descriptions.get(preset_name, ""),
+                    "source": "builtin",
+                    "preset": preset_name,
+                    "editable": False,
+                    "deletable": False,
+                    "workflow_json": workflow,
+                    "prompt_files_json": prompt_files,
+                    "workflow_warnings": workflow_warnings(workflow),
+                }
+            )
+        return records
+
+    def _resolve_orchestration(self, orchestration_id: str) -> dict:
+        orchestration_key = str(orchestration_id or "").strip()
+        if not orchestration_key:
+            raise LiminalError("orchestration_id is required")
+        if orchestration_key.startswith("builtin:"):
+            preset_name = orchestration_key.split(":", 1)[1]
+            for record in self._builtin_orchestration_records():
+                if record["id"] == orchestration_key:
+                    return record
+            raise LiminalError(f"unknown built-in orchestration: {preset_name}")
+        record = self.repository.get_orchestration(orchestration_key)
+        if not record:
+            raise LiminalError(f"unknown orchestration: {orchestration_key}")
+        record["source"] = "custom"
+        record["editable"] = True
+        record["deletable"] = True
+        record["workflow_warnings"] = workflow_warnings(record.get("workflow_json") or {})
+        return record
+
+    def _resolve_orchestration_input(
+        self,
+        *,
+        orchestration_id: str | None,
+        workflow: dict | None,
+        prompt_files: dict | None,
+        role_models: dict | None,
+    ) -> dict:
+        try:
+            if orchestration_id and workflow is None and not prompt_files:
+                orchestration = self._resolve_orchestration(orchestration_id)
+                normalized_workflow = normalize_workflow(orchestration["workflow_json"], role_models=role_models)
+                resolved_prompt_files = resolve_prompt_files(normalized_workflow, orchestration.get("prompt_files_json") or {})
+                return {
+                    "id": orchestration["id"],
+                    "name": orchestration["name"],
+                    "workflow": normalized_workflow,
+                    "prompt_files": resolved_prompt_files,
+                }
+            normalized_workflow = normalize_workflow(workflow, role_models=role_models)
+            resolved_prompt_files = resolve_prompt_files(normalized_workflow, prompt_files)
+        except WorkflowError as exc:
+            raise LiminalError(str(exc)) from exc
+        derived_id = str(orchestration_id or "").strip()
+        derived_name = ""
+        if derived_id:
+            try:
+                existing = self._resolve_orchestration(derived_id)
+                derived_name = existing["name"]
+            except LiminalError:
+                derived_name = ""
+        if not derived_id and normalized_workflow.get("preset"):
+            derived_id = f"builtin:{normalized_workflow['preset']}"
+            derived_name = next(
+                (record["name"] for record in self._builtin_orchestration_records() if record["id"] == derived_id),
+                normalized_workflow["preset"],
+            )
+        return {
+            "id": derived_id,
+            "name": derived_name,
+            "workflow": normalized_workflow,
+            "prompt_files": resolved_prompt_files,
+        }
+
+    def _prompt_dir(self, base_dir: Path) -> Path:
+        return base_dir / "prompts"
+
+    def _persist_prompt_files(self, base_dir: Path, prompt_files: dict[str, str]) -> None:
+        prompt_dir = self._prompt_dir(base_dir)
+        prompt_dir.mkdir(parents=True, exist_ok=True)
+        for prompt_ref, markdown_text in sorted(prompt_files.items()):
+            path = prompt_dir / prompt_ref
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(str(markdown_text), encoding="utf-8")
+
+    def _read_prompt_files(self, base_dir: Path, workflow: dict) -> dict[str, str]:
+        prompt_files: dict[str, str] = {}
+        for role in workflow.get("roles", []):
+            prompt_ref = str(role.get("prompt_ref", "")).strip()
+            if not prompt_ref or prompt_ref in prompt_files:
+                continue
+            path = self._prompt_dir(base_dir) / prompt_ref
+            if path.exists():
+                prompt_files[prompt_ref] = path.read_text(encoding="utf-8")
+        return resolve_prompt_files(workflow, prompt_files)
+
+    def _read_prompt_files_for_loop(self, workdir: str, loop_id: str, workflow: dict) -> dict[str, str]:
+        loop_dir = Path(workdir) / ".liminal" / "loops" / loop_id
+        return self._read_prompt_files(loop_dir, workflow)
+
+    def _read_prompt_files_for_run(self, run: dict) -> dict[str, str]:
+        workflow = run.get("workflow_json") or self._legacy_workflow_from_loop(run)
+        return self._read_prompt_files(Path(run["runs_dir"]), workflow)
+
+    def _hydrate_loop_files(self, loop: dict) -> dict:
+        if not loop:
+            return loop
+        workflow = loop.get("workflow_json") or self._legacy_workflow_from_loop(loop)
+        loop["workflow_json"] = workflow
+        loop["workflow_warnings"] = workflow_warnings(workflow)
+        if loop.get("orchestration_id"):
+            loop["orchestration"] = {
+                "id": loop.get("orchestration_id"),
+                "name": loop.get("orchestration_name") or loop.get("orchestration_id"),
+            }
+        try:
+            loop["prompt_files"] = self._read_prompt_files_for_loop(loop["workdir"], loop["id"], workflow)
+        except WorkflowError:
+            loop["prompt_files"] = {}
+        return loop
+
+    def _hydrate_run_files(self, run: dict) -> dict:
+        if not run:
+            return run
+        workflow = run.get("workflow_json") or self._legacy_workflow_from_loop(run)
+        run["workflow_json"] = workflow
+        run["workflow_warnings"] = workflow_warnings(workflow)
+        if run.get("orchestration_id"):
+            run["orchestration"] = {
+                "id": run.get("orchestration_id"),
+                "name": run.get("orchestration_name") or run.get("orchestration_id"),
+            }
+        try:
+            run["prompt_files"] = self._read_prompt_files_for_run(run)
+        except WorkflowError:
+            run["prompt_files"] = {}
         return run
 
     def start_run_async(self, run_id: str) -> None:
@@ -244,6 +434,9 @@ class LiminalService:
 
         self._mark_run_active(run_id)
         run_dir = Path(run["runs_dir"])
+        workflow = run.get("workflow_json") or self._legacy_workflow_from_loop(run)
+        if workflow:
+            return self._execute_workflow_run(run_id, run, run_dir, workflow)
 
         try:
             self.repository.update_run(run_id, runner_pid=os.getpid())
@@ -632,6 +825,781 @@ class LiminalService:
                 logger.exception("failed to release run slot for %s", run_id)
             self._threads.pop(run_id, None)
 
+    def _execute_workflow_run(self, run_id: str, run: dict, run_dir: Path, workflow: dict) -> dict:
+        try:
+            self.repository.update_run(run_id, runner_pid=os.getpid())
+            self._wait_for_slot(run_id)
+            run = self.repository.get_run(run_id)
+            if not run:
+                raise LiminalError(f"unknown run after queue wait: {run_id}")
+            if run["status"] == "stopped":
+                return self._hydrate_run_files(run)
+
+            executor = self.executor_factory()
+            compiled_spec = run["compiled_spec_json"]
+            retry_config = RetryConfig(max_retries=run["max_role_retries"])
+            prompt_files = self._read_prompt_files_for_run(run)
+            stagnation = read_json(run_dir / "stagnation.json")
+            metrics_history_path = run_dir / "metrics_history.jsonl"
+            metrics_history_path.touch(exist_ok=True)
+            last_iter_id = -1
+            previous_outputs_by_archetype: dict[str, dict] = {}
+            last_gatekeeper_result: dict | None = None
+
+            self.repository.append_event(run_id, "run_started", {"status": "running"})
+            self._write_summary(run_id, "running", "Resolving checks for this run.")
+            compiled_spec = self._resolve_run_checks(run, executor, compiled_spec, run_dir, retry_config)
+            self._write_summary(run_id, "running", "Waiting for the first workflow iteration to complete.")
+
+            enabled_steps = [step for step in workflow.get("steps", []) if step.get("enabled", True)]
+            role_by_id = {role["id"]: role for role in workflow.get("roles", [])}
+            iteration_source = itertools.count() if run["max_iters"] == 0 else range(run["max_iters"])
+
+            for iter_id in iteration_source:
+                last_iter_id = iter_id
+                self._ensure_not_stopped(run_id)
+                self.repository.update_run(run_id, current_iter=iter_id)
+                step_results: list[dict] = []
+                current_outputs_by_archetype: dict[str, dict] = {}
+                current_outputs_by_role: dict[str, dict] = {}
+                current_gatekeeper_result: dict | None = None
+                current_guide_result: dict | None = None
+                previous_composite = (
+                    last_gatekeeper_result.get("composite_score")
+                    if isinstance(last_gatekeeper_result, dict)
+                    else None
+                )
+
+                for step in enabled_steps:
+                    role = role_by_id[step["role_id"]]
+                    runtime_role = self._runtime_role_key(role)
+                    if role["archetype"] == "guide" and stagnation.get("stagnation_mode", "none") == "none":
+                        continue
+                    output = self._run_workflow_step(
+                        executor,
+                        run,
+                        compiled_spec,
+                        run_dir,
+                        iter_id,
+                        step,
+                        role,
+                        prompt_files,
+                        current_outputs_by_role=current_outputs_by_role,
+                        current_outputs_by_archetype=current_outputs_by_archetype,
+                        previous_outputs_by_archetype=previous_outputs_by_archetype,
+                        retry_config=retry_config,
+                    )
+                    normalized_output = self._normalize_step_output(
+                        role["archetype"],
+                        output,
+                        compiled_spec=compiled_spec,
+                        inspector_output=current_outputs_by_archetype.get("inspector"),
+                    )
+                    self._write_step_outputs(run_dir, iter_id, step, role, normalized_output)
+                    current_outputs_by_role[role["id"]] = normalized_output
+                    current_outputs_by_role[runtime_role] = normalized_output
+                    current_outputs_by_archetype[role["archetype"]] = normalized_output
+                    step_results.append(
+                        {
+                            "step": step,
+                            "role": role,
+                            "runtime_role": runtime_role,
+                            "output": normalized_output,
+                        }
+                    )
+
+                    if role["archetype"] in {"builder", "inspector"}:
+                        self._enforce_workspace_safety(run, run_dir, iter_id, role=runtime_role)
+
+                    if role["archetype"] == "gatekeeper":
+                        current_gatekeeper_result = normalized_output
+                        last_gatekeeper_result = normalized_output
+                        self.repository.update_run(run_id, last_verdict=normalized_output)
+                        stagnation = update_stagnation(
+                            stagnation,
+                            normalized_output["composite_score"],
+                            iter_id,
+                            delta_threshold=run["delta_threshold"],
+                            trigger_window=run["trigger_window"],
+                            regression_window=run["regression_window"],
+                        )
+                        write_json(run_dir / "stagnation.json", stagnation)
+                        append_jsonl(
+                            metrics_history_path,
+                            {
+                                "iter": iter_id,
+                                "timestamp": utc_now(),
+                                "composite": normalized_output["composite_score"],
+                                "score_delta": round(normalized_output["composite_score"] - previous_composite, 6)
+                                if previous_composite is not None
+                                else None,
+                                "passed": normalized_output["passed"],
+                                "metric_scores": normalized_output.get("metric_scores", {}),
+                                "failed_check_ids": normalized_output.get("failed_check_ids", []),
+                                "failed_check_titles": normalized_output.get("failed_check_titles", []),
+                                "stagnation_mode": stagnation["stagnation_mode"],
+                            },
+                        )
+                        if normalized_output["passed"] and step.get("on_pass") == "finish_run":
+                            previous_outputs_by_archetype = dict(current_outputs_by_archetype)
+                            append_jsonl(
+                                run_dir / "iteration_log.jsonl",
+                                self._build_workflow_iteration_entry(
+                                    iter_id,
+                                    step_results,
+                                    stagnation,
+                                    previous_composite=previous_composite,
+                                ),
+                            )
+                            summary = self._build_workflow_summary(
+                                run,
+                                workflow,
+                                compiled_spec,
+                                iter_id,
+                                step_results,
+                                stagnation,
+                                exhausted=False,
+                                previous_composite=previous_composite,
+                            )
+                            finished = self.repository.update_run(
+                                run_id,
+                                status="succeeded",
+                                finished_at=utc_now(),
+                                last_verdict=normalized_output,
+                                summary_md=summary,
+                            )
+                            self._persist_summary_file(run_dir, summary)
+                            self.repository.append_event(run_id, "run_finished", {"status": "succeeded", "iter": iter_id})
+                            return self._hydrate_run_files(finished)
+                    elif role["archetype"] == "guide":
+                        current_guide_result = normalized_output
+                        self.repository.append_event(
+                            run_id,
+                            "challenger_done",
+                            {
+                                "iter": iter_id,
+                                "mode": normalized_output.get("mode"),
+                                "step_id": step["id"],
+                                "role_name": role["name"],
+                                "archetype": role["archetype"],
+                            },
+                            role=runtime_role,
+                        )
+
+                previous_outputs_by_archetype = dict(current_outputs_by_archetype)
+                append_jsonl(
+                    run_dir / "iteration_log.jsonl",
+                    self._build_workflow_iteration_entry(
+                        iter_id,
+                        step_results,
+                        stagnation,
+                        previous_composite=previous_composite,
+                    ),
+                )
+                summary = self._build_workflow_summary(
+                    run,
+                    workflow,
+                    compiled_spec,
+                    iter_id,
+                    step_results,
+                    stagnation,
+                    exhausted=False,
+                    previous_composite=previous_composite,
+                )
+                self._write_summary(run_id, "running", summary)
+
+            summary = self._build_workflow_summary(
+                run,
+                workflow,
+                compiled_spec,
+                last_iter_id,
+                step_results if "step_results" in locals() else [],
+                stagnation,
+                exhausted=True,
+                previous_composite=None,
+            )
+            failed = self.repository.update_run(
+                run_id,
+                status="failed",
+                finished_at=utc_now(),
+                summary_md=summary,
+            )
+            self._persist_summary_file(run_dir, summary)
+            self.repository.append_event(
+                run_id,
+                "run_finished",
+                {"status": "failed", "reason": "max_iters_exhausted"},
+            )
+            return self._hydrate_run_files(failed)
+        except (StopRequested, ExecutionStopped):
+            summary = "# Liminal Run Summary\n\nStopped by user.\n"
+            stopped = self.repository.update_run(
+                run_id,
+                status="stopped",
+                finished_at=utc_now(),
+                summary_md=summary,
+            )
+            self._persist_summary_file(run_dir, summary)
+            self.repository.append_event(run_id, "run_finished", {"status": "stopped"})
+            return self._hydrate_run_files(stopped)
+        except RoleExecutionError as exc:
+            error_text = str(exc.result.error) if exc.result.error else str(exc)
+            verdict = {
+                "passed": False,
+                "decision_summary": "A workflow step aborted before the run could finish.",
+                "composite_score": 0.0,
+                "metrics": [],
+                "metric_scores": {},
+                "blocking_issues": ["role_execution_abort"],
+                "hard_constraint_violations": ["role_execution_abort"],
+                "failed_check_ids": [],
+                "priority_failures": [
+                    {
+                        "error_code": "ROLE_EXECUTION_ABORT",
+                        "role": exc.role,
+                        "attempts": exc.result.attempts,
+                        "degraded": exc.result.degraded,
+                    }
+                ],
+                "feedback_to_builder": "Fix the failing workflow step before retrying.",
+                "feedback_to_generator": "Fix the failing workflow step before retrying.",
+                "confidence": "high",
+                "verifier_confidence": "high",
+            }
+            write_json(run_dir / "gatekeeper_verdict.json", verdict)
+            write_json(run_dir / "verifier_verdict.json", verdict)
+            summary = (
+                "# Liminal Run Summary\n\n"
+                f"Execution failed during `{exc.role}`.\n\n"
+                f"Reason: `{error_text}`.\n"
+            )
+            failed = self.repository.update_run(
+                run_id,
+                status="failed",
+                finished_at=utc_now(),
+                error_message=error_text,
+                last_verdict=verdict,
+                summary_md=summary,
+            )
+            self._persist_summary_file(run_dir, summary)
+            self.repository.append_event(
+                run_id,
+                "run_aborted",
+                {
+                    "role": exc.role,
+                    "attempts": exc.result.attempts,
+                    "degraded": exc.result.degraded,
+                    "error": error_text,
+                },
+            )
+            return self._hydrate_run_files(failed)
+        except WorkspaceSafetyError as exc:
+            error_text = str(exc)
+            verdict = {
+                "passed": False,
+                "decision_summary": "The workspace safety guard stopped the run.",
+                "composite_score": 0.0,
+                "metrics": [],
+                "metric_scores": {},
+                "blocking_issues": ["workspace_safety_guard"],
+                "hard_constraint_violations": ["workspace_safety_guard"],
+                "failed_check_ids": [],
+                "priority_failures": [
+                    {
+                        "error_code": "WORKSPACE_SAFETY_GUARD",
+                        "summary": "The run deleted too many original workspace files and was stopped.",
+                    }
+                ],
+                "feedback_to_builder": "Do not bulk-delete existing user files. Prefer narrow in-place edits.",
+                "feedback_to_generator": "Do not bulk-delete existing user files. Prefer narrow in-place edits.",
+                "confidence": "high",
+                "verifier_confidence": "high",
+            }
+            write_json(run_dir / "gatekeeper_verdict.json", verdict)
+            write_json(run_dir / "verifier_verdict.json", verdict)
+            deleted_preview = ", ".join(exc.deleted_paths[:5]) if exc.deleted_paths else "none"
+            summary = (
+                "# Liminal Run Summary\n\n"
+                "Execution stopped by the workspace safety guard.\n\n"
+                f"- Original files tracked: `{exc.baseline_count}`\n"
+                f"- Original files still present: `{exc.current_count}`\n"
+                f"- Deleted original files: `{len(exc.deleted_paths)}`\n"
+                f"- Sample deleted paths: `{deleted_preview}`\n"
+            )
+            failed = self.repository.update_run(
+                run_id,
+                status="failed",
+                finished_at=utc_now(),
+                error_message=error_text,
+                last_verdict=verdict,
+                summary_md=summary,
+            )
+            self._persist_summary_file(run_dir, summary)
+            self.repository.append_event(
+                run_id,
+                "run_aborted",
+                {
+                    "role": exc.role,
+                    "attempts": 1,
+                    "degraded": False,
+                    "error": error_text,
+                },
+            )
+            return self._hydrate_run_files(failed)
+        except Exception as exc:
+            error_text = str(exc)
+            logger.exception("run %s crashed unexpectedly", run_id)
+            summary = (
+                "# Liminal Run Summary\n\n"
+                "Execution crashed unexpectedly.\n\n"
+                f"Reason: `{error_text}`.\n"
+            )
+            self._persist_summary_file(run_dir, summary)
+            failed = self.repository.update_run(
+                run_id,
+                status="failed",
+                finished_at=utc_now(),
+                error_message=error_text,
+                summary_md=summary,
+            )
+            self.repository.append_event(
+                run_id,
+                "run_aborted",
+                {
+                    "role": failed.get("active_role"),
+                    "attempts": 1,
+                    "degraded": False,
+                    "error": error_text,
+                },
+            )
+            return self._hydrate_run_files(failed)
+        finally:
+            self._mark_run_inactive(run_id)
+            try:
+                self.repository.release_run_slot(run_id)
+            except Exception:
+                logger.exception("failed to release run slot for %s", run_id)
+            self._threads.pop(run_id, None)
+
+    def _run_workflow_step(
+        self,
+        executor: CodexExecutor,
+        run: dict,
+        compiled_spec: dict,
+        run_dir: Path,
+        iter_id: int,
+        step: dict,
+        role: dict,
+        prompt_files: dict[str, str],
+        *,
+        current_outputs_by_role: dict[str, dict],
+        current_outputs_by_archetype: dict[str, dict],
+        previous_outputs_by_archetype: dict[str, dict],
+        retry_config: RetryConfig,
+    ) -> dict:
+        step_dir = run_dir / "steps" / f"iter_{iter_id:03d}" / step["id"]
+        step_dir.mkdir(parents=True, exist_ok=True)
+        output_path = step_dir / "output.raw.json"
+        prompt_text = self._build_step_prompt(
+            role,
+            compiled_spec,
+            prompt_files[role["prompt_ref"]],
+            iter_id,
+            current_outputs_by_role=current_outputs_by_role,
+            current_outputs_by_archetype=current_outputs_by_archetype,
+            previous_outputs_by_archetype=previous_outputs_by_archetype,
+        )
+        request = RoleRequest(
+            run_id=run["id"],
+            role=self._runtime_role_key(role),
+            role_archetype=role["archetype"],
+            role_name=role["name"],
+            step_id=step["id"],
+            prompt=prompt_text,
+            workdir=Path(run["workdir"]),
+            executor_kind=run.get("executor_kind", "codex"),
+            executor_mode=run.get("executor_mode", "preset"),
+            command_cli=run.get("command_cli", ""),
+            command_args_text=run.get("command_args_text", ""),
+            model=str(role.get("model") or run["model"]),
+            reasoning_effort=run["reasoning_effort"],
+            output_schema=self._output_schema_for_archetype(role["archetype"]),
+            output_path=output_path,
+            run_dir=run_dir,
+            sandbox=self._sandbox_for_archetype(role["archetype"]),
+            idle_timeout_seconds=self.settings.role_idle_timeout_seconds,
+            extra_context={
+                "iter_id": iter_id,
+                "compiled_spec": compiled_spec,
+                "archetype": role["archetype"],
+                "step_id": step["id"],
+                "role_name": role["name"],
+                "legacy_role": self._runtime_role_key(role),
+                "current_outputs_by_role": current_outputs_by_role,
+                "current_outputs_by_archetype": current_outputs_by_archetype,
+                "previous_outputs_by_archetype": previous_outputs_by_archetype,
+                "inspector_output": current_outputs_by_archetype.get("inspector"),
+                "tester_output": current_outputs_by_archetype.get("inspector"),
+                "previous_builder_result": previous_outputs_by_archetype.get("builder"),
+                "previous_generator_result": previous_outputs_by_archetype.get("builder"),
+                "previous_inspector_result": previous_outputs_by_archetype.get("inspector"),
+                "previous_tester_result": previous_outputs_by_archetype.get("inspector"),
+                "previous_gatekeeper_result": previous_outputs_by_archetype.get("gatekeeper"),
+                "previous_verifier_result": previous_outputs_by_archetype.get("gatekeeper"),
+                "previous_guide_result": previous_outputs_by_archetype.get("guide"),
+                "previous_challenger_result": previous_outputs_by_archetype.get("guide"),
+                "stagnation_mode": read_json(run_dir / "stagnation.json").get("stagnation_mode", "none"),
+            },
+        )
+        self._record_role_request(run["id"], request)
+
+        def execute_request() -> dict:
+            return executor.execute(
+                request,
+                lambda event_type, payload: self.repository.append_event(
+                    run["id"],
+                    event_type,
+                    {
+                        **payload,
+                        "step_id": step["id"],
+                        "role_name": role["name"],
+                        "archetype": role["archetype"],
+                    },
+                    role=role["id"],
+                ),
+                lambda: self.repository.should_stop(run["id"]),
+                lambda pid: self.repository.update_run(run["id"], child_pid=pid)
+                if pid is not None
+                else self.repository.update_run(run["id"], clear_child_pid=True),
+            )
+
+        return self._execute_role(run["id"], iter_id, self._runtime_role_key(role), execute_request, retry_config)
+
+    def _build_step_prompt(
+        self,
+        role: dict,
+        compiled_spec: dict,
+        prompt_markdown: str,
+        iter_id: int,
+        *,
+        current_outputs_by_role: dict[str, dict],
+        current_outputs_by_archetype: dict[str, dict],
+        previous_outputs_by_archetype: dict[str, dict],
+    ) -> str:
+        prompt_metadata, prompt_body = self._parse_runtime_prompt(prompt_markdown, expected_archetype=role["archetype"])
+        constraints = compiled_spec.get("constraints") or "No explicit constraints were provided."
+        sections = [
+            f"You are {role['name']} inside Liminal.",
+            self._system_prompt_prefix(role["archetype"]),
+            prompt_body,
+            f"Iteration: {iter_id}",
+            f"Prompt template: {prompt_metadata.get('label', role['name'])}",
+            f"Goal:\n{compiled_spec.get('goal', '').strip()}",
+            f"Checks:\n{self._render_checks(compiled_spec.get('checks', []))}",
+            f"Constraints:\n{constraints}",
+            (
+                "Previous iteration evidence:\n"
+                + json.dumps(previous_outputs_by_archetype, ensure_ascii=False, indent=2)
+                + "\nUse this evidence as your starting point for the next change."
+                if previous_outputs_by_archetype
+                else ""
+            ),
+            "Current workflow evidence:",
+            json.dumps(
+                {
+                    "current_outputs_by_role": current_outputs_by_role,
+                    "current_outputs_by_archetype": current_outputs_by_archetype,
+                    "previous_outputs_by_archetype": previous_outputs_by_archetype,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            self._output_contract_prompt(role["archetype"]),
+        ]
+        return "\n\n".join(section for section in sections if section.strip()).strip()
+
+    def _system_prompt_prefix(self, archetype: str) -> str:
+        if archetype == "builder":
+            return (
+                "System safety rules:\n"
+                "- You may edit files inside the workdir.\n"
+                "- Preserve existing non-.liminal files and avoid destructive rewrites.\n"
+                "- Prefer focused, incremental changes over broad resets."
+            )
+        if archetype == "inspector":
+            return (
+                "System safety rules:\n"
+                "- Collect evidence with project-owned commands, files, and artifacts.\n"
+                "- Prefer concrete commands and observations.\n"
+                "- Do not rewrite source files as part of inspection."
+            )
+        if archetype == "gatekeeper":
+            return (
+                "System safety rules:\n"
+                "- Decide conservatively from direct evidence.\n"
+                "- When evidence is weak, fail closed and explain what is missing.\n"
+                "- Keep the verdict short and operational."
+            )
+        return (
+            "System safety rules:\n"
+            "- Suggest the smallest useful direction change.\n"
+            "- Do not act like a second GateKeeper.\n"
+            "- Keep the advice grounded in the current evidence."
+        )
+
+    def _output_contract_prompt(self, archetype: str) -> str:
+        if archetype == "builder":
+            return "Return JSON with attempted, abandoned, assumption, summary, and changed_files."
+        if archetype == "inspector":
+            return "Return JSON with execution_summary, check_results, dynamic_checks, and tester_observations."
+        if archetype == "gatekeeper":
+            return (
+                "Return JSON with passed, decision_summary, feedback_to_builder, confidence, blocking_issues, metrics, "
+                "failed_check_ids, priority_failures, and composite_score."
+            )
+        return "Return JSON with created_at_iter, mode, consumed, analysis, seed_question, and meta_note."
+
+    def _parse_runtime_prompt(self, prompt_markdown: str, *, expected_archetype: str) -> tuple[dict, str]:
+        try:
+            from liminal.workflows import validate_prompt_markdown
+
+            return validate_prompt_markdown(prompt_markdown, expected_archetype=expected_archetype)
+        except WorkflowError as exc:
+            raise LiminalError(str(exc)) from exc
+
+    def _sandbox_for_archetype(self, archetype: str) -> str:
+        if archetype == "builder":
+            return "workspace-write"
+        if archetype == "inspector":
+            return "workspace-write"
+        return "read-only"
+
+    def _output_schema_for_archetype(self, archetype: str) -> dict:
+        if archetype == "builder":
+            return BUILDER_SCHEMA
+        if archetype == "inspector":
+            return INSPECTOR_SCHEMA
+        if archetype == "gatekeeper":
+            return GATEKEEPER_SCHEMA
+        return GUIDE_SCHEMA
+
+    def _normalize_step_output(
+        self,
+        archetype: str,
+        output: dict,
+        *,
+        compiled_spec: dict,
+        inspector_output: dict | None,
+    ) -> dict:
+        if archetype == "inspector":
+            return self._enrich_tester_result(output)
+        if archetype == "gatekeeper":
+            gatekeeper_output = self._coerce_gatekeeper_output(output)
+            return self._enrich_verifier_result(gatekeeper_output, compiled_spec, inspector_output or {})
+        return dict(output)
+
+    def _coerce_gatekeeper_output(self, output: dict) -> dict:
+        result = dict(output)
+        feedback = str(result.get("feedback_to_builder") or result.get("feedback_to_generator") or "").strip()
+        confidence = str(result.get("confidence") or result.get("verifier_confidence") or "medium").strip() or "medium"
+        blocking_issues = list(result.get("blocking_issues") or result.get("hard_constraint_violations") or [])
+        metric_scores = result.get("metric_scores")
+        if not isinstance(metric_scores, dict):
+            metric_scores = {}
+            for metric in list(result.get("metrics", [])):
+                name = str(metric.get("name", "")).strip()
+                if not name:
+                    continue
+                metric_scores[name] = {
+                    "value": metric.get("value"),
+                    "threshold": metric.get("threshold"),
+                    "passed": bool(metric.get("passed")),
+                }
+        composite_score = result.get("composite_score")
+        if composite_score is None:
+            quality_metric = metric_scores.get("quality_score")
+            composite_score = quality_metric.get("value") if isinstance(quality_metric, dict) else (1.0 if result.get("passed") else 0.0)
+        if not result.get("metrics"):
+            result["metrics"] = [
+                {
+                    "name": name,
+                    "value": value.get("value"),
+                    "threshold": value.get("threshold"),
+                    "passed": value.get("passed"),
+                }
+                for name, value in metric_scores.items()
+            ]
+        result["passed"] = bool(result.get("passed", False))
+        result["decision_summary"] = str(result.get("decision_summary") or "").strip() or (
+            "The workflow still needs more evidence." if not result["passed"] else "All checks passed."
+        )
+        result["feedback_to_builder"] = feedback
+        result["feedback_to_generator"] = feedback
+        result["confidence"] = confidence
+        result["verifier_confidence"] = confidence
+        result["blocking_issues"] = blocking_issues
+        result["hard_constraint_violations"] = blocking_issues
+        result["metric_scores"] = metric_scores
+        result["composite_score"] = float(composite_score or 0.0)
+        result.setdefault("failed_check_ids", [])
+        result.setdefault("priority_failures", [])
+        return result
+
+    def _write_step_outputs(self, run_dir: Path, iter_id: int, step: dict, role: dict, output: dict) -> None:
+        step_dir = run_dir / "steps" / f"iter_{iter_id:03d}" / step["id"]
+        step_dir.mkdir(parents=True, exist_ok=True)
+        write_json(step_dir / "output.normalized.json", output)
+        write_json(
+            step_dir / "metadata.json",
+            {
+                "step_id": step["id"],
+                "role_id": role["id"],
+                "role_name": role["name"],
+                "archetype": role["archetype"],
+                "iter": iter_id,
+            },
+        )
+
+        alias_paths = []
+        if role["archetype"] == "builder":
+            alias_paths = [run_dir / "builder_output.json", run_dir / "generator_output.json"]
+        elif role["archetype"] == "inspector":
+            alias_paths = [run_dir / "inspector_output.json", run_dir / "tester_output.json"]
+        elif role["archetype"] == "gatekeeper":
+            alias_paths = [run_dir / "gatekeeper_verdict.json", run_dir / "verifier_verdict.json"]
+        elif role["archetype"] == "guide":
+            alias_paths = [run_dir / "guide_output.json", run_dir / "challenger_seed.json"]
+        for alias_path in alias_paths:
+            write_json(alias_path, output)
+
+    def _build_workflow_iteration_entry(
+        self,
+        iter_id: int,
+        step_results: list[dict],
+        stagnation: dict,
+        *,
+        previous_composite: float | None,
+    ) -> dict:
+        by_archetype = {
+            item["role"]["archetype"]: item["output"]
+            for item in step_results
+        }
+        gatekeeper_output = by_archetype.get("gatekeeper", {})
+        entry = {
+            "phase": "complete",
+            "iter": iter_id,
+            "timestamp": utc_now(),
+            "workflow": [
+                {
+                    "step_id": item["step"]["id"],
+                    "role_id": item["role"]["id"],
+                    "runtime_role": item.get("runtime_role"),
+                    "role_name": item["role"]["name"],
+                    "archetype": item["role"]["archetype"],
+                }
+                for item in step_results
+            ],
+            "builder": by_archetype.get("builder", {}),
+            "inspector": by_archetype.get("inspector", {}),
+            "gatekeeper": gatekeeper_output,
+            "guide": by_archetype.get("guide", {}),
+            "score": {
+                "composite": gatekeeper_output.get("composite_score"),
+                "delta": round(gatekeeper_output["composite_score"] - previous_composite, 6)
+                if previous_composite is not None and gatekeeper_output.get("composite_score") is not None
+                else None,
+                "passed": gatekeeper_output.get("passed"),
+            },
+            "stagnation": {
+                "mode": stagnation.get("stagnation_mode", "none"),
+                "recent_composites": list(stagnation.get("recent_composites", [])),
+                "recent_deltas": list(stagnation.get("recent_deltas", [])),
+                "consecutive_low_delta": stagnation.get("consecutive_low_delta", 0),
+            },
+        }
+        entry["generator"] = entry["builder"]
+        entry["tester"] = entry["inspector"]
+        entry["verifier"] = entry["gatekeeper"]
+        if entry["guide"]:
+            entry["challenger"] = entry["guide"]
+        return entry
+
+    def _build_workflow_summary(
+        self,
+        run: dict,
+        workflow: dict,
+        compiled_spec: dict,
+        iter_id: int,
+        step_results: list[dict],
+        stagnation: dict,
+        *,
+        exhausted: bool,
+        previous_composite: float | None,
+    ) -> str:
+        gatekeeper_output = next((item["output"] for item in reversed(step_results) if item["role"]["archetype"] == "gatekeeper"), {})
+        status_line = "Max iterations exhausted." if exhausted else "Still iterating."
+        if gatekeeper_output.get("passed"):
+            status_line = "All checks passed in this iteration."
+        delta_text = (
+            f"`{round(gatekeeper_output['composite_score'] - previous_composite, 6):+}`"
+            if previous_composite is not None and gatekeeper_output.get("composite_score") is not None
+            else "`n/a`"
+        )
+        lines = [
+            "# Liminal Run Summary",
+            "",
+            f"- Workdir: `{run['workdir']}`",
+            f"- Iteration: `{iter_id + 1 if iter_id >= 0 else 0}`",
+            f"- Workflow preset: `{workflow.get('preset') or 'custom'}`",
+            f"- Check mode: `{compiled_spec.get('check_mode', 'specified')}`",
+            f"- Check count: `{len(compiled_spec.get('checks', []))}`",
+            f"- Composite score: `{gatekeeper_output.get('composite_score', 'n/a')}`",
+            f"- Score delta vs previous iteration: {delta_text}",
+            f"- Passed: `{gatekeeper_output.get('passed', False)}`",
+            f"- Stagnation mode: `{stagnation.get('stagnation_mode', 'none')}`",
+            "",
+            status_line,
+        ]
+        for item in step_results:
+            role = item["role"]
+            output = item["output"]
+            heading = {
+                "builder": "Generator / Builder",
+                "inspector": "Tester / Inspector",
+                "gatekeeper": "Verifier / GateKeeper",
+                "guide": "Challenger / Guide",
+            }.get(role["archetype"], role["name"])
+            lines.extend(
+                [
+                    "",
+                    f"## {heading}",
+                    f"- Archetype: `{role['archetype']}`",
+                    f"- Summary: {self._summary_line_for_step(role['archetype'], output)}",
+                ]
+            )
+        lines.extend(
+            [
+                "",
+                "## Artifacts",
+                "- Inspect `workflow.json`, `iteration_log.jsonl`, `events.jsonl`, and the `steps/` directory for full details.",
+            ]
+        )
+        return "\n".join(lines).rstrip() + "\n"
+
+    def _summary_line_for_step(self, archetype: str, output: dict) -> str:
+        if archetype == "builder":
+            return self._truncate_text(output.get("attempted") or output.get("summary"), 280) or "none"
+        if archetype == "inspector":
+            return self._truncate_text(output.get("tester_observations"), 280) or "none"
+        if archetype == "gatekeeper":
+            return self._truncate_text(output.get("decision_summary"), 280) or "none"
+        return self._truncate_text(output.get("seed_question") or output.get("meta_note"), 280) or "none"
+
+    def _runtime_role_key(self, role: dict) -> str:
+        if role.get("id") == role.get("archetype"):
+            return LEGACY_ROLE_BY_ARCHETYPE.get(role["archetype"], role["id"])
+        return role["id"]
+
     def stop_run(self, run_id: str) -> dict:
         self._reconcile_local_orphaned_runs()
         current = self.repository.get_run(run_id)
@@ -649,14 +1617,108 @@ class LiminalService:
 
     def list_loops(self) -> list[dict]:
         self._reconcile_local_orphaned_runs()
-        return self.repository.list_loops()
+        return [self._hydrate_loop_files(loop) for loop in self.repository.list_loops()]
+
+    def list_orchestrations(self) -> list[dict]:
+        builtins = self._builtin_orchestration_records()
+        custom = []
+        for record in self.repository.list_orchestrations():
+            record["source"] = "custom"
+            record["editable"] = True
+            record["deletable"] = True
+            record["workflow_warnings"] = workflow_warnings(record.get("workflow_json") or {})
+            custom.append(record)
+        return [*builtins, *custom]
+
+    def get_orchestration(self, orchestration_id: str) -> dict:
+        self._reconcile_local_orphaned_runs()
+        return self._resolve_orchestration(orchestration_id)
+
+    def create_orchestration(
+        self,
+        *,
+        name: str,
+        description: str = "",
+        workflow: dict | None = None,
+        prompt_files: dict | None = None,
+        role_models: dict | None = None,
+    ) -> dict:
+        if not str(name or "").strip():
+            raise LiminalError("name is required")
+        resolved = self._resolve_orchestration_input(
+            orchestration_id=None,
+            workflow=workflow,
+            prompt_files=prompt_files,
+            role_models=role_models,
+        )
+        orchestration = self.repository.create_orchestration(
+            {
+                "id": make_id("orch"),
+                "name": str(name).strip(),
+                "description": str(description or "").strip(),
+                "workflow": resolved["workflow"],
+                "prompt_files": resolved["prompt_files"],
+            }
+        )
+        orchestration["source"] = "custom"
+        orchestration["editable"] = True
+        orchestration["deletable"] = True
+        orchestration["workflow_warnings"] = workflow_warnings(orchestration.get("workflow_json") or {})
+        return orchestration
+
+    def update_orchestration(
+        self,
+        orchestration_id: str,
+        *,
+        name: str,
+        description: str = "",
+        workflow: dict | None = None,
+        prompt_files: dict | None = None,
+        role_models: dict | None = None,
+    ) -> dict:
+        current = self.get_orchestration(orchestration_id)
+        if current.get("source") == "builtin":
+            raise LiminalError("built-in orchestrations cannot be updated")
+        if not str(name or "").strip():
+            raise LiminalError("name is required")
+        resolved = self._resolve_orchestration_input(
+            orchestration_id=None,
+            workflow=workflow,
+            prompt_files=prompt_files,
+            role_models=role_models,
+        )
+        orchestration = self.repository.update_orchestration(
+            orchestration_id,
+            {
+                "name": str(name).strip(),
+                "description": str(description or "").strip(),
+                "workflow": resolved["workflow"],
+                "prompt_files": resolved["prompt_files"],
+            },
+        )
+        if not orchestration:
+            raise LiminalError(f"unknown orchestration: {orchestration_id}")
+        orchestration["source"] = "custom"
+        orchestration["editable"] = True
+        orchestration["deletable"] = True
+        orchestration["workflow_warnings"] = workflow_warnings(orchestration.get("workflow_json") or {})
+        return orchestration
+
+    def delete_orchestration(self, orchestration_id: str) -> dict:
+        orchestration = self.get_orchestration(orchestration_id)
+        if orchestration.get("source") == "builtin":
+            raise LiminalError("built-in orchestrations cannot be deleted")
+        if not self.repository.delete_orchestration(orchestration_id):
+            raise LiminalError(f"unknown orchestration: {orchestration_id}")
+        return orchestration
 
     def get_loop(self, loop_id: str) -> dict:
         self._reconcile_local_orphaned_runs()
         loop = self.repository.get_loop(loop_id)
         if not loop:
             raise LiminalError(f"unknown loop: {loop_id}")
-        loop["runs"] = self.repository.list_runs_for_loop(loop_id)
+        loop = self._hydrate_loop_files(loop)
+        loop["runs"] = [self._hydrate_run_files(run) for run in self.repository.list_runs_for_loop(loop_id)]
         return loop
 
     def get_run(self, run_id: str) -> dict:
@@ -667,7 +1729,7 @@ class LiminalService:
         loop = self.repository.get_loop(run["loop_id"])
         if loop:
             run["loop_name"] = loop["name"]
-        return run
+        return self._hydrate_run_files(run)
 
     def get_status(self, identifier: str) -> tuple[str, dict]:
         self._reconcile_local_orphaned_runs()
@@ -676,7 +1738,10 @@ class LiminalService:
             raise LiminalError(f"unknown identifier: {identifier}")
         kind, payload = found
         if kind == "loop":
-            payload["runs"] = self.repository.list_runs_for_loop(payload["id"])
+            payload = self._hydrate_loop_files(payload)
+            payload["runs"] = [self._hydrate_run_files(run) for run in self.repository.list_runs_for_loop(payload["id"])]
+        else:
+            payload = self._hydrate_run_files(payload)
         return kind, payload
 
     def get_runtime_activity(self) -> dict:
@@ -1294,9 +2359,15 @@ class LiminalService:
         base_name = self._role_request_basename(request)
         prompt_path = request_dir / f"{base_name}.prompt.txt"
         prompt_path.write_text(request.prompt, encoding="utf-8")
+        step_prompt_path = request.output_path.parent / "prompt.md"
+        step_prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        step_prompt_path.write_text(request.prompt, encoding="utf-8")
         payload = {
             "timestamp": utc_now(),
             "role": request.role,
+            "role_archetype": request.role_archetype,
+            "role_name": request.role_name,
+            "step_id": request.step_id,
             "iter": request.extra_context.get("iter_id"),
             "executor_kind": request.executor_kind,
             "executor_mode": request.executor_mode,
@@ -1306,6 +2377,7 @@ class LiminalService:
             "workdir": str(request.workdir),
             "output_path": str(request.output_path),
             "prompt_path": str(prompt_path),
+            "step_prompt_path": str(step_prompt_path),
             "extra_context_keys": sorted(request.extra_context.keys()),
             "context_summary": self._summarize_role_request_context(request.extra_context),
         }
@@ -1323,12 +2395,27 @@ class LiminalService:
         iter_id = extra_context.get("iter_id")
         if iter_id is not None:
             summary["iter_id"] = iter_id
+        step_id = extra_context.get("step_id")
+        if step_id is not None:
+            summary["step_id"] = step_id
+        role_name = extra_context.get("role_name")
+        if role_name is not None:
+            summary["role_name"] = role_name
+        archetype = extra_context.get("archetype")
+        if archetype is not None:
+            summary["archetype"] = archetype
         compiled_spec = extra_context.get("compiled_spec")
         if isinstance(compiled_spec, dict):
             summary["compiled_spec"] = {
                 "check_mode": compiled_spec.get("check_mode"),
                 "check_count": len(compiled_spec.get("checks", [])),
             }
+        current_outputs_by_archetype = extra_context.get("current_outputs_by_archetype")
+        if isinstance(current_outputs_by_archetype, dict) and current_outputs_by_archetype:
+            summary["current_outputs_by_archetype"] = sorted(current_outputs_by_archetype.keys())
+        previous_outputs_by_archetype = extra_context.get("previous_outputs_by_archetype")
+        if isinstance(previous_outputs_by_archetype, dict) and previous_outputs_by_archetype:
+            summary["previous_outputs_by_archetype"] = sorted(previous_outputs_by_archetype.keys())
         previous_generator_result = extra_context.get("previous_generator_result")
         if isinstance(previous_generator_result, dict) and previous_generator_result:
             summary["previous_generator_result"] = {
@@ -2127,17 +3214,37 @@ VERIFIER_SCHEMA = {
     "type": "object",
     "required": [
         "passed",
+        "decision_summary",
         "composite_score",
+        "metrics",
         "metric_scores",
+        "blocking_issues",
         "hard_constraint_violations",
         "failed_check_ids",
         "priority_failures",
+        "feedback_to_builder",
         "feedback_to_generator",
+        "confidence",
         "verifier_confidence",
     ],
     "properties": {
         "passed": {"type": "boolean"},
+        "decision_summary": {"type": "string"},
         "composite_score": {"type": "number"},
+        "metrics": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["name", "value", "threshold", "passed"],
+                "properties": {
+                    "name": {"type": "string"},
+                    "value": {"type": "number"},
+                    "threshold": {"type": "number"},
+                    "passed": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+            },
+        },
         "metric_scores": {
             "type": "object",
             "required": ["check_pass_rate", "quality_score"],
@@ -2165,6 +3272,7 @@ VERIFIER_SCHEMA = {
             },
             "additionalProperties": False,
         },
+        "blocking_issues": {"type": "array", "items": {"type": "string"}},
         "hard_constraint_violations": {"type": "array", "items": {"type": "string"}},
         "failed_check_ids": {"type": "array", "items": {"type": "string"}},
         "priority_failures": {
@@ -2179,7 +3287,9 @@ VERIFIER_SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        "feedback_to_builder": {"type": "string"},
         "feedback_to_generator": {"type": "string"},
+        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
         "verifier_confidence": {"type": "string", "enum": ["low", "medium", "high"]},
     },
     "additionalProperties": False,
@@ -2207,6 +3317,11 @@ CHALLENGER_SCHEMA = {
     },
     "additionalProperties": False,
 }
+
+BUILDER_SCHEMA = GENERATOR_SCHEMA
+INSPECTOR_SCHEMA = TESTER_SCHEMA
+GATEKEEPER_SCHEMA = VERIFIER_SCHEMA
+GUIDE_SCHEMA = CHALLENGER_SCHEMA
 
 
 def create_service(executor_factory: Callable[[], CodexExecutor] | None = None) -> LiminalService:

@@ -41,6 +41,11 @@
 - Web UI：面向可视化操作与观测
 - HTTP API：面向 Web UI 与程序化集成
 
+一级功能还必须区分两类对象：
+
+- `orchestration`：保存线性 workflow 与 prompt 资产
+- `loop`：绑定 workdir / spec / executor，并引用一个 orchestration
+
 设计原则：
 
 - 三者共享同一个 loop 定义模型
@@ -53,26 +58,34 @@
 以下能力属于“核心能力”，必须跨入口同构：
 
 - 创建 loop
+- 选择 workflow preset 或提交自定义 workflow
+- 编辑 / 上传 / 下载 prompt 文件
+- 创建、列出、选择、编辑 orchestration
 - 选择执行模式
 - 指定运行边界参数
 - 启动、重跑、停止、删除
 - 校验 spec
+- 校验 prompt 文件
 
 ### 5.2 Allowed Differences
 
 以下差异属于“表现层差异”，允许存在：
 
-- Web 提供实时流与页面导航
+- Web 提供 workflow 编辑器、实时流和页面导航
 - CLI 提供同步等待或后台返回
 - Web 在网络模式下禁用本地文件弹窗
+- CLI 用 `--workflow-preset` / `--workflow-file` 替代表单式编辑
+- Web 的 orchestration 列表默认进入编辑器；loop 创建页只负责“选择已有 orchestration”
 
 ### 5.3 Forbidden Differences
 
 以下差异不可接受：
 
 - 只有某一入口能表达核心 loop 配置
+- 只有某一入口能表达 workflow 或 prompt 资产
 - 同名配置项在不同入口语义不同
 - 预览行为与实际提交行为不一致
+- 把存储层 slug（例如 `build_first`、`finish_run`）直接暴露成主要用户文案
 
 ## 6. Dependency Direction
 
@@ -119,6 +132,7 @@
 
 - 新增一种顶层入口
 - 跨入口能力模型变化
+- workflow / prompt 编辑能力只落在单一入口
 - 安全边界变化
 - 输入规范化责任迁移
 

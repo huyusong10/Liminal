@@ -19,6 +19,15 @@ from liminal.skills import build_spec_skill_bundle_archive, install_spec_skill, 
 from liminal.service import LiminalError, create_service, normalize_role_models
 from liminal.specs import SpecError, init_spec_file, read_and_compile
 from liminal.system_dialogs import SystemDialogError, pick_directory, pick_file, pick_save_file
+from liminal.workflows import (
+    WorkflowError,
+    available_prompt_templates,
+    build_preset_workflow,
+    builtin_prompt_markdown,
+    normalize_workflow,
+    preset_names,
+    resolve_prompt_files,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +37,7 @@ DEFAULT_LOOP_FORM = {
     "name": "",
     "workdir": "",
     "spec_path": "",
+    "orchestration_id": "builtin:build_first",
     "executor_kind": "codex",
     "executor_mode": "preset",
     "command_cli": "codex",
@@ -39,11 +49,40 @@ DEFAULT_LOOP_FORM = {
     "delta_threshold": 0.005,
     "trigger_window": 4,
     "regression_window": 2,
-    "role_model_generator": "",
-    "role_model_tester": "",
-    "role_model_verifier": "",
-    "role_model_challenger": "",
+    "role_model_builder": "",
+    "role_model_inspector": "",
+    "role_model_gatekeeper": "",
+    "role_model_guide": "",
     "start_immediately": True,
+}
+
+DEFAULT_ORCHESTRATION_FORM = {
+    "name": "",
+    "description": "",
+    "workflow_preset": "build_first",
+    "workflow_json": "",
+    "prompt_files_json": "",
+}
+
+WORKFLOW_PRESET_COPY = {
+    "build_first": {
+        "label_zh": "先构建，再验收",
+        "label_en": "Build First",
+        "description_zh": "Builder -> Inspector -> GateKeeper -> Guide",
+        "description_en": "Builder -> Inspector -> GateKeeper -> Guide",
+    },
+    "inspect_first": {
+        "label_zh": "先巡检，再构建",
+        "label_en": "Inspect First",
+        "description_zh": "Inspector -> Builder -> GateKeeper -> Guide",
+        "description_en": "Inspector -> Builder -> GateKeeper -> Guide",
+    },
+    "benchmark_loop": {
+        "label_zh": "基准先行",
+        "label_en": "Benchmark Loop",
+        "description_zh": "GateKeeper (benchmark) -> Builder",
+        "description_en": "GateKeeper (benchmark) -> Builder",
+    },
 }
 
 TIMELINE_EVENT_TYPES = {
@@ -82,6 +121,46 @@ RUN_ARTIFACT_SPECS = (
         "label_en": "Compiled spec",
         "description_zh": "本次 run 实际使用的 Goal、Checks 和 Constraints。",
         "description_en": "The Goal, Checks, and Constraints used by this run.",
+    },
+    {
+        "id": "workflow-manifest",
+        "filename": "workflow.json",
+        "label_zh": "工作流清单",
+        "label_en": "Workflow manifest",
+        "description_zh": "这次 run 冻结下来的 workflow 定义。",
+        "description_en": "The workflow definition frozen for this run.",
+    },
+    {
+        "id": "builder-output",
+        "filename": "builder_output.json",
+        "label_zh": "Builder 输出",
+        "label_en": "Builder output",
+        "description_zh": "Builder 最近一次产出的结构化结果。",
+        "description_en": "The latest structured Builder result.",
+    },
+    {
+        "id": "inspector-output",
+        "filename": "inspector_output.json",
+        "label_zh": "Inspector 输出",
+        "label_en": "Inspector output",
+        "description_zh": "Inspector 最近一次产出的证据与检查结果。",
+        "description_en": "The latest Inspector evidence and check results.",
+    },
+    {
+        "id": "gatekeeper-verdict",
+        "filename": "gatekeeper_verdict.json",
+        "label_zh": "GateKeeper 结论",
+        "label_en": "GateKeeper verdict",
+        "description_zh": "GateKeeper 最近一次给出的放行判断。",
+        "description_en": "The latest GateKeeper pass/fail decision.",
+    },
+    {
+        "id": "guide-output",
+        "filename": "guide_output.json",
+        "label_zh": "Guide 建议",
+        "label_en": "Guide output",
+        "description_zh": "Guide 在停滞时提出的方向建议。",
+        "description_en": "The Guide suggestion emitted during stagnation.",
     },
     {
         "id": "generator-output",
@@ -176,6 +255,82 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                 "form_values": _normalize_loop_form(values),
                 "form_error": form_error,
                 "executor_profiles": list_executor_profiles(),
+                "orchestrations": svc().list_orchestrations(),
+                "access_state": access_state,
+            },
+        )
+
+    def render_orchestrations(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "orchestrations.html",
+            {
+                "request": request,
+                "orchestrations": svc().list_orchestrations(),
+                "access_state": access_state,
+            },
+        )
+
+    def render_new_orchestration(
+        request: Request,
+        *,
+        values: Mapping[str, object] | None = None,
+        form_error: str | None = None,
+        orchestration: Mapping[str, object] | None = None,
+    ) -> HTMLResponse:
+        current_orchestration = dict(orchestration) if orchestration else None
+        if values is None and current_orchestration is not None:
+            values = _orchestration_form_values_from_record(current_orchestration)
+        is_builtin_template = bool(current_orchestration and current_orchestration.get("source") == "builtin")
+        is_editing_custom = bool(current_orchestration and current_orchestration.get("source") == "custom")
+        if is_editing_custom:
+            page_copy = {
+                "title_zh": "修改编排，让后续 loop 继续沿着新的流程走。",
+                "title_en": "Refine this orchestration before future loops use the new flow.",
+                "body_zh": "这里改的是已经保存的编排方案。保存后，新建 loop 会用新版；已有 loop 和历史 run 不会被回写。",
+                "body_en": "You are editing a saved orchestration. New loops will use the updated version, while existing loops and historical runs keep their frozen snapshots.",
+                "submit_zh": "保存修改",
+                "submit_en": "Save changes",
+                "action": f"/orchestrations/{current_orchestration['id']}/edit",
+            }
+        elif is_builtin_template:
+            page_copy = {
+                "title_zh": "从内置编排出发，改成更适合你团队的版本。",
+                "title_en": "Start from the built-in orchestration, then tailor it to your team.",
+                "body_zh": "这是内置方案的可编辑副本。你可以调整角色、步骤和 prompt；保存时会另存为新的自定义编排。",
+                "body_en": "This is an editable copy of a built-in orchestration. Adjust roles, steps, and prompts here, then save it as a new custom orchestration.",
+                "submit_zh": "保存为新编排",
+                "submit_en": "Save as new orchestration",
+                "action": "/orchestrations/new",
+            }
+        else:
+            page_copy = {
+                "title_zh": "先把流程编排清楚，再让 loop 去执行。",
+                "title_en": "Shape the orchestration first, then let loops execute it.",
+                "body_zh": "保存后，这套 Builder / Inspector / GateKeeper / Guide 流程就能在创建 loop 时直接复用。",
+                "body_en": "Once saved, this Builder / Inspector / GateKeeper / Guide orchestration can be reused directly when creating loops.",
+                "submit_zh": "保存编排",
+                "submit_en": "Save orchestration",
+                "action": "/orchestrations/new",
+            }
+        return templates.TemplateResponse(
+            request,
+            "new_orchestration.html",
+            {
+                "request": request,
+                "form_values": _normalize_orchestration_form(values),
+                "form_error": form_error,
+                "workflow_preset_options": _workflow_preset_options(),
+                "workflow_preset_bundles": {
+                    preset_name: {
+                        "workflow": build_preset_workflow(preset_name),
+                        "prompt_files": resolve_prompt_files(build_preset_workflow(preset_name)),
+                    }
+                    for preset_name in preset_names()
+                },
+                "prompt_templates": available_prompt_templates(),
+                "page_copy": page_copy,
+                "current_orchestration": current_orchestration,
                 "access_state": access_state,
             },
         )
@@ -224,6 +379,10 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     async def spec_error_handler(_: Request, exc: SpecError) -> JSONResponse:
         return json_error(str(exc), status_code=400)
 
+    @app.exception_handler(WorkflowError)
+    async def workflow_error_handler(_: Request, exc: WorkflowError) -> JSONResponse:
+        return json_error(str(exc), status_code=400)
+
     @app.exception_handler(SystemDialogError)
     async def system_dialog_error_handler(_: Request, exc: SystemDialogError) -> JSONResponse:
         return json_error(str(exc), status_code=400)
@@ -235,7 +394,21 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
 
     @app.get("/loops/new", response_class=HTMLResponse)
     async def new_loop(request: Request) -> HTMLResponse:
-        return render_new_loop(request)
+        return render_new_loop(request, values=request.query_params)
+
+    @app.get("/orchestrations", response_class=HTMLResponse)
+    async def orchestrations_page(request: Request) -> HTMLResponse:
+        return render_orchestrations(request)
+
+    @app.get("/orchestrations/new", response_class=HTMLResponse)
+    async def new_orchestration(request: Request) -> HTMLResponse:
+        preset = str(request.query_params.get("workflow_preset", "")).strip()
+        values = request.query_params if preset else None
+        return render_new_orchestration(request, values=values)
+
+    @app.get("/orchestrations/{orchestration_id}/edit", response_class=HTMLResponse)
+    async def edit_orchestration(request: Request, orchestration_id: str) -> HTMLResponse:
+        return render_new_orchestration(request, orchestration=svc().get_orchestration(orchestration_id))
 
     @app.get("/tools", response_class=HTMLResponse)
     async def tools_page(request: Request) -> HTMLResponse:
@@ -313,6 +486,30 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     async def api_list_loops() -> JSONResponse:
         return JSONResponse(svc().list_loops())
 
+    @app.get("/api/orchestrations")
+    async def api_list_orchestrations() -> JSONResponse:
+        return JSONResponse(svc().list_orchestrations())
+
+    @app.get("/api/orchestrations/{orchestration_id}")
+    async def api_get_orchestration(orchestration_id: str) -> JSONResponse:
+        return JSONResponse(svc().get_orchestration(orchestration_id))
+
+    @app.post("/api/orchestrations")
+    async def api_create_orchestration(request: Request) -> JSONResponse:
+        payload = await request.json()
+        orchestration = svc().create_orchestration(**_orchestration_payload_from_mapping(payload))
+        return JSONResponse({"orchestration": orchestration, "redirect_url": f"/orchestrations/{orchestration['id']}/edit"}, status_code=201)
+
+    @app.put("/api/orchestrations/{orchestration_id}")
+    async def api_update_orchestration(orchestration_id: str, request: Request) -> JSONResponse:
+        payload = await request.json()
+        orchestration = svc().update_orchestration(orchestration_id, **_orchestration_payload_from_mapping(payload))
+        return JSONResponse({"orchestration": orchestration, "redirect_url": f"/orchestrations/{orchestration['id']}/edit"})
+
+    @app.delete("/api/orchestrations/{orchestration_id}")
+    async def api_delete_orchestration(orchestration_id: str) -> JSONResponse:
+        return JSONResponse(svc().delete_orchestration(orchestration_id))
+
     @app.get("/api/runtime/activity")
     async def api_runtime_activity() -> JSONResponse:
         return JSONResponse(svc().get_runtime_activity())
@@ -352,9 +549,9 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     @app.get("/api/runs/{run_id}/artifacts/{artifact_id}")
     async def api_run_artifact_preview(run_id: str, artifact_id: str) -> JSONResponse:
         run = svc().get_run(run_id)
-        artifact = _artifact_spec_or_404(artifact_id)
-        artifact_path = Path(run["runs_dir"]) / artifact["filename"]
-        relative_path = f"runs/{run_id}/{artifact['filename']}"
+        artifact = _artifact_record_or_404(run, artifact_id)
+        artifact_path = Path(run["runs_dir"]) / artifact["relative_path"]
+        relative_path = f"runs/{run_id}/{artifact['relative_path']}"
         if not artifact_path.exists():
             return JSONResponse(
                 {
@@ -376,8 +573,8 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     @app.get("/api/runs/{run_id}/artifacts/{artifact_id}/download")
     async def api_run_artifact_download(run_id: str, artifact_id: str) -> FileResponse:
         run = svc().get_run(run_id)
-        artifact = _artifact_spec_or_404(artifact_id)
-        artifact_path = Path(run["runs_dir"]) / artifact["filename"]
+        artifact = _artifact_record_or_404(run, artifact_id)
+        artifact_path = Path(run["runs_dir"]) / artifact["relative_path"]
         if not artifact_path.exists():
             raise HTTPException(status_code=404, detail="artifact not found")
         return FileResponse(artifact_path.resolve())
@@ -456,6 +653,31 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             }
         )
 
+    @app.post("/api/prompts/validate")
+    async def api_validate_prompt(request: Request) -> JSONResponse:
+        payload = await request.json()
+        markdown_text = str(payload.get("markdown", ""))
+        expected_archetype = str(payload.get("archetype", "")).strip() or None
+        try:
+            from liminal.workflows import validate_prompt_markdown
+
+            metadata, body = validate_prompt_markdown(markdown_text, expected_archetype=expected_archetype)
+        except WorkflowError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)})
+        return JSONResponse({"ok": True, "metadata": metadata, "body": body})
+
+    @app.get("/api/prompts/templates/{prompt_ref}")
+    async def api_prompt_template(prompt_ref: str) -> Response:
+        try:
+            markdown_text = builtin_prompt_markdown(prompt_ref)
+        except WorkflowError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return Response(
+            content=markdown_text,
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{prompt_ref}"'},
+        )
+
     @app.post("/api/specs/init")
     async def api_init_spec(request: Request) -> JSONResponse:
         payload = await request.json()
@@ -528,6 +750,30 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         except (LiminalError, SpecError, FileExistsError, OSError, ValueError) as exc:
             return render_new_loop(request, values=values, form_error=str(exc))
 
+    @app.post("/orchestrations/new")
+    async def create_orchestration_from_form(request: Request):
+        form = await request.form()
+        values = _normalize_orchestration_form(form)
+        try:
+            orchestration = svc().create_orchestration(**_orchestration_payload_from_mapping(form))
+            return RedirectResponse(url=f"/orchestrations/{orchestration['id']}/edit?saved=1", status_code=303)
+        except (LiminalError, FileExistsError, OSError, ValueError) as exc:
+            return render_new_orchestration(request, values=values, form_error=str(exc))
+
+    @app.post("/orchestrations/{orchestration_id}/edit")
+    async def update_orchestration_from_form(request: Request, orchestration_id: str):
+        form = await request.form()
+        values = _normalize_orchestration_form(form)
+        orchestration = svc().get_orchestration(orchestration_id)
+        try:
+            if orchestration.get("source") == "builtin":
+                created = svc().create_orchestration(**_orchestration_payload_from_mapping(form))
+                return RedirectResponse(url=f"/orchestrations/{created['id']}/edit?saved=1", status_code=303)
+            updated = svc().update_orchestration(orchestration_id, **_orchestration_payload_from_mapping(form))
+            return RedirectResponse(url=f"/orchestrations/{updated['id']}/edit?saved=1", status_code=303)
+        except (LiminalError, FileExistsError, OSError, ValueError) as exc:
+            return render_new_orchestration(request, values=values, form_error=str(exc), orchestration=orchestration)
+
     return app
 
 
@@ -565,6 +811,7 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
         "name": name,
         "spec_path": Path(spec_path),
         "workdir": Path(workdir),
+        "orchestration_id": str(payload.get("orchestration_id", "")).strip() or None,
         "executor_kind": executor_kind,
         "executor_mode": executor_mode,
         "command_cli": command_cli if command_cli else profile.cli_name,
@@ -576,9 +823,61 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
         "delta_threshold": delta_threshold,
         "trigger_window": trigger_window,
         "regression_window": regression_window,
+        "workflow": _workflow_from_mapping(payload, default_to_preset=False),
+        "prompt_files": _prompt_files_from_mapping(payload),
         "role_models": _role_models_from_mapping(payload),
     }
     return loop_kwargs, _coerce_bool(payload.get("start_immediately"))
+
+
+def _orchestration_payload_from_mapping(payload: Mapping[str, object]) -> dict[str, object]:
+    name = str(payload.get("name", "")).strip()
+    description = str(payload.get("description", "")).strip()
+    if not name:
+        raise LiminalError("name is required")
+    return {
+        "name": name,
+        "description": description,
+        "workflow": _workflow_from_mapping(payload, default_to_preset=True),
+        "prompt_files": _prompt_files_from_mapping(payload),
+        "role_models": _role_models_from_mapping(payload),
+    }
+
+
+def _mapping_from_json_field(value: object, *, field_name: str) -> dict[str, object]:
+    if isinstance(value, Mapping):
+        return dict(value)
+    text = str(value or "").strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise LiminalError(f"{field_name} must be valid JSON") from exc
+    if not isinstance(parsed, Mapping):
+        raise LiminalError(f"{field_name} must decode to an object")
+    return dict(parsed)
+
+
+def _workflow_from_mapping(payload: Mapping[str, object], *, default_to_preset: bool = True) -> dict | None:
+    workflow = payload.get("workflow")
+    if isinstance(workflow, Mapping):
+        return normalize_workflow(dict(workflow))
+    workflow_json = _mapping_from_json_field(payload.get("workflow_json"), field_name="workflow_json")
+    if workflow_json:
+        return normalize_workflow(workflow_json)
+    if not default_to_preset:
+        return None
+    preset = str(payload.get("workflow_preset", "build_first")).strip() or "build_first"
+    return build_preset_workflow(preset)
+
+
+def _prompt_files_from_mapping(payload: Mapping[str, object]) -> dict[str, str]:
+    prompt_files = payload.get("prompt_files")
+    if isinstance(prompt_files, Mapping):
+        return {str(key): str(value) for key, value in dict(prompt_files).items()}
+    prompt_files_json = _mapping_from_json_field(payload.get("prompt_files_json"), field_name="prompt_files_json")
+    return {str(key): str(value) for key, value in prompt_files_json.items()}
 
 
 def _role_models_from_mapping(payload: Mapping[str, object]) -> dict[str, str]:
@@ -586,7 +885,7 @@ def _role_models_from_mapping(payload: Mapping[str, object]) -> dict[str, str]:
     if isinstance(role_models, Mapping):
         return normalize_role_models(dict(role_models))
     extracted = {}
-    for role in ("generator", "tester", "verifier", "challenger"):
+    for role in ("builder", "inspector", "gatekeeper", "guide", "generator", "tester", "verifier", "challenger"):
         value = str(payload.get(f"role_model_{role}", "")).strip()
         if value:
             extracted[role] = value
@@ -674,6 +973,52 @@ def _normalize_loop_form(values: Mapping[str, object] | None) -> dict[str, objec
     return normalized
 
 
+def _normalize_orchestration_form(values: Mapping[str, object] | None) -> dict[str, object]:
+    normalized = dict(DEFAULT_ORCHESTRATION_FORM)
+    if not values:
+        workflow = build_preset_workflow("build_first")
+        normalized["workflow_json"] = json.dumps(workflow, ensure_ascii=False, indent=2)
+        normalized["prompt_files_json"] = json.dumps(resolve_prompt_files(workflow), ensure_ascii=False, indent=2)
+        return normalized
+    for key in normalized:
+        if key in values:
+            normalized[key] = values[key]
+    if isinstance(normalized.get("workflow_json"), Mapping):
+        normalized["workflow_json"] = json.dumps(normalized["workflow_json"], ensure_ascii=False, indent=2)
+    if isinstance(normalized.get("prompt_files_json"), Mapping):
+        normalized["prompt_files_json"] = json.dumps(normalized["prompt_files_json"], ensure_ascii=False, indent=2)
+    if not str(normalized.get("workflow_json", "")).strip():
+        preset_name = str(normalized.get("workflow_preset", "build_first")).strip() or "build_first"
+        workflow = build_preset_workflow(preset_name)
+        normalized["workflow_json"] = json.dumps(workflow, ensure_ascii=False, indent=2)
+        normalized["prompt_files_json"] = json.dumps(resolve_prompt_files(workflow), ensure_ascii=False, indent=2)
+    return normalized
+
+
+def _workflow_preset_options() -> list[dict[str, str]]:
+    return [
+        {
+            "id": preset_name,
+            "label_zh": WORKFLOW_PRESET_COPY.get(preset_name, {}).get("label_zh", preset_name),
+            "label_en": WORKFLOW_PRESET_COPY.get(preset_name, {}).get("label_en", preset_name),
+            "description_zh": WORKFLOW_PRESET_COPY.get(preset_name, {}).get("description_zh", ""),
+            "description_en": WORKFLOW_PRESET_COPY.get(preset_name, {}).get("description_en", ""),
+        }
+        for preset_name in preset_names()
+    ]
+
+
+def _orchestration_form_values_from_record(orchestration: Mapping[str, object]) -> dict[str, object]:
+    workflow = dict(orchestration.get("workflow_json") or {})
+    return {
+        "name": str(orchestration.get("name", "")),
+        "description": str(orchestration.get("description", "")),
+        "workflow_preset": str(workflow.get("preset", "build_first")).strip() or "build_first",
+        "workflow_json": json.dumps(workflow, ensure_ascii=False, indent=2),
+        "prompt_files_json": json.dumps(orchestration.get("prompt_files_json") or {}, ensure_ascii=False, indent=2),
+    }
+
+
 def _build_access_state(*, bind_host: str, bind_port: int, auth_token: str | None) -> dict[str, object]:
     normalized_auth = (auth_token or "").strip() or None
     remote_access_enabled = not _is_loopback_host(bind_host)
@@ -734,18 +1079,63 @@ def _list_run_artifacts(run: dict) -> list[dict]:
         artifacts.append(
             {
                 **artifact,
+                "relative_path": artifact["filename"],
                 "path": str(path),
                 "available": path.exists(),
             }
         )
+    prompt_dir = run_dir / "prompts"
+    if prompt_dir.exists():
+        for prompt_path in sorted(path for path in prompt_dir.rglob("*.md") if path.is_file()):
+            relative_path = str(prompt_path.relative_to(run_dir))
+            artifacts.append(
+                {
+                    "id": f"prompt-{_artifact_slug(relative_path)}",
+                    "filename": relative_path,
+                    "relative_path": relative_path,
+                    "label_zh": f"Prompt · {prompt_path.name}",
+                    "label_en": f"Prompt · {prompt_path.name}",
+                    "description_zh": "这个角色当前使用的 prompt Markdown。",
+                    "description_en": "The prompt Markdown used by this role.",
+                    "path": str(prompt_path),
+                    "available": True,
+                }
+            )
+    steps_dir = run_dir / "steps"
+    if steps_dir.exists():
+        for artifact_path in sorted(steps_dir.rglob("*")):
+            if not artifact_path.is_file():
+                continue
+            relative_path = str(artifact_path.relative_to(run_dir))
+            if artifact_path.name not in {"output.normalized.json", "output.raw.json", "prompt.md", "metadata.json"}:
+                continue
+            label_prefix = "Step prompt" if artifact_path.name == "prompt.md" else "Step artifact"
+            label_prefix_zh = "步骤 Prompt" if artifact_path.name == "prompt.md" else "步骤产物"
+            artifacts.append(
+                {
+                    "id": f"step-{_artifact_slug(relative_path)}",
+                    "filename": relative_path,
+                    "relative_path": relative_path,
+                    "label_zh": f"{label_prefix_zh} · {relative_path}",
+                    "label_en": f"{label_prefix} · {relative_path}",
+                    "description_zh": "按 step 冻结保存的 prompt、元数据或输出快照。",
+                    "description_en": "A step-scoped prompt, metadata, or output snapshot.",
+                    "path": str(artifact_path),
+                    "available": True,
+                }
+            )
     return artifacts
 
 
-def _artifact_spec_or_404(artifact_id: str) -> dict:
-    for artifact in RUN_ARTIFACT_SPECS:
+def _artifact_record_or_404(run: dict, artifact_id: str) -> dict:
+    for artifact in _list_run_artifacts(run):
         if artifact["id"] == artifact_id:
             return artifact
     raise HTTPException(status_code=404, detail="unknown artifact")
+
+
+def _artifact_slug(relative_path: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "-", relative_path).strip("-").lower()
 
 
 def _display_iter(iter_value: object | None) -> int | None:
@@ -832,7 +1222,7 @@ def _build_run_summary_snapshot(run: dict) -> dict:
         )
     else:
         verdict_title = ("还没有结论", "No verdict yet")
-        verdict_note = ("Verifier 产出后这里会更新。", "This updates once the Verifier produces a verdict.")
+        verdict_note = ("GateKeeper 产出后这里会更新。", "This updates once the GateKeeper produces a verdict.")
 
     status_notes = {
         "queued": ("运行已创建，正在等待执行。", "The run is created and waiting to start."),

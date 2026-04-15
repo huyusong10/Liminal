@@ -39,25 +39,27 @@
 
 1. 创建与复制可运行的 loop 配置
 2. 驱动 run 从排队到结束
-3. 执行固定角色链路
-4. 在必要时引入重试、降级和 challenger
+3. 执行声明式线性 workflow
+4. 在必要时引入重试、降级和 Guide
 5. 把一次 run 收敛成明确终态
 6. 生成人类可读摘要和结构化运行痕迹
+7. 规范化 orchestration 的创建、读取、更新和删除语义
 
 ## 4. Role Model
 
 角色边界必须保持为：
 
-- `Generator`：负责改变工作区
-- `Tester`：负责收集证据
-- `Verifier`：负责做通过裁决
-- `Challenger`：负责在停滞时提出方向偏移
+- `Builder`：负责改变工作区并推进实现
+- `Inspector`：负责收集证据、运行测试和 benchmark
+- `GateKeeper`：负责根据证据做通过裁决
+- `Guide`：负责在停滞或回退时提出方向偏移
 
 设计关键点：
 
-- `Challenger` 不是主路径角色
-- `Verifier` 是唯一通过裁决入口
-- 角色链路是稳定的；具体 prompt 可以演化，边界不能漂移
+- `Guide` 不是稳定每轮都运行的主路径角色；它默认只在停滞信号出现时生效
+- `GateKeeper` 是唯一通过裁决入口
+- 角色职责边界稳定，但每条 loop 的步骤顺序不再固定
+- prompt 是资产文件，不再硬编码在 service 中
 
 ## 5. Lifecycle Ownership
 
@@ -67,9 +69,20 @@ loop 表示“可复用运行模板”。
 
 本模块只关心它包含：
 
+- orchestration 引用
 - spec 快照
 - executor 选择
 - 运行控制参数
+- workflow 清单
+- prompt 文件快照
+
+orchestration 表示“可编辑、可复用的 workflow 资产”。
+
+本模块必须保证：
+
+- custom orchestration 可被更新
+- built-in orchestration 不可被原地修改
+- built-in orchestration 可以作为复制源进入同一个编辑器
 
 ### 5.2 Run
 
@@ -96,8 +109,9 @@ run 表示“某次具体执行实例”。
 
 ## 7. Invariants
 
-- 单次 iteration 的主链顺序固定：`Generator -> Tester -> Verifier`
-- `Challenger` 只在停滞/回退分支出现
+- 单次 iteration 只支持线性 step 顺序，不支持 DAG
+- workflow 必须至少包含一个可收敛的 `GateKeeper`
+- `Guide` 只在停滞/回退分支出现
 - 每个 run 只能收敛到一个终态
 - 终态必须伴随可读摘要
 - run 的状态变化必须可被外部观察
@@ -131,6 +145,7 @@ run 表示“某次具体执行实例”。
 以下变化需要更新本文档：
 
 - 角色链路变化
+- workflow 结构变化
 - run 生命周期变化
 - 终态定义变化
 - 编排层与其他模块的责任转移

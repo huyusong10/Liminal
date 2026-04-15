@@ -12,7 +12,14 @@ from liminal.executor import CodexExecutor, ExecutorError
 from liminal.service import LiminalError, LiminalService
 
 
-def _create_loop(service, sample_spec_file: Path, sample_workdir: Path, name: str = "Demo Loop") -> dict:
+def _create_loop(
+    service,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+    name: str = "Demo Loop",
+    *,
+    workflow: dict | None = None,
+) -> dict:
     return service.create_loop(
         name=name,
         spec_path=sample_spec_file,
@@ -25,6 +32,7 @@ def _create_loop(service, sample_spec_file: Path, sample_workdir: Path, name: st
         trigger_window=2,
         regression_window=2,
         role_models={},
+        workflow=workflow,
     )
 
 
@@ -118,6 +126,75 @@ def test_run_persists_role_request_snapshots_and_iteration_handoff(
     assert "Previous iteration evidence:" in prompt_text
     assert "Improve the most visible failing checks without widening scope." in prompt_text
     assert "Use this evidence as your starting point" in prompt_text
+
+
+def test_inspect_first_workflow_runs_inspector_before_builder(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Inspect First Loop",
+        workflow={"preset": "inspect_first"},
+    )
+
+    run = service.rerun(loop["id"])
+
+    assert run["status"] == "succeeded"
+    assert run["workflow_json"]["preset"] == "inspect_first"
+    iteration_log = [
+        json.loads(line)
+        for line in (Path(run["runs_dir"]) / "iteration_log.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    workflow_entry = next(entry for entry in iteration_log if entry["phase"] == "complete")
+    assert [step["archetype"] for step in workflow_entry["workflow"][:3]] == ["inspector", "builder", "gatekeeper"]
+
+
+def test_benchmark_loop_can_finish_before_builder_runs(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    class BenchmarkPassingExecutor(CodexExecutor):
+        def execute(self, request, emit_event, should_stop, set_child_pid):
+            set_child_pid(None)
+            if request.role_archetype == "gatekeeper":
+                payload = {
+                    "passed": True,
+                    "decision_summary": "Benchmark target already satisfied.",
+                    "feedback_to_builder": "No code change is required.",
+                    "confidence": "high",
+                    "blocking_issues": [],
+                    "metrics": [],
+                    "failed_check_ids": [],
+                    "priority_failures": [],
+                    "composite_score": 1.0,
+                }
+                request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                return payload
+            raise AssertionError("Builder should not run when benchmark loop already passes.")
+
+    service = service_factory(scenario="success")
+    service.executor_factory = lambda: BenchmarkPassingExecutor()
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Benchmark Loop",
+        workflow={"preset": "benchmark_loop"},
+    )
+
+    run = service.rerun(loop["id"])
+    run_dir = Path(run["runs_dir"])
+
+    assert run["status"] == "succeeded"
+    assert not (run_dir / "builder_output.json").exists()
+    assert json.loads((run_dir / "gatekeeper_verdict.json").read_text(encoding="utf-8"))["passed"] is True
 
 
 def test_destructive_generator_is_blocked_by_workspace_guard(

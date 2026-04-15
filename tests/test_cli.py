@@ -132,8 +132,8 @@ def test_cli_run_supports_command_mode_background_and_role_models(monkeypatch, t
     assert "{schema_path}" in calls["create_loop"]["command_args_text"]
     assert "{model}" in calls["create_loop"]["command_args_text"]
     assert calls["create_loop"]["role_models"] == {
-        "generator": "gpt-5.4",
-        "verifier": "gpt-5.4-mini",
+        "builder": "gpt-5.4",
+        "gatekeeper": "gpt-5.4-mini",
     }
 
 
@@ -206,6 +206,67 @@ def test_cli_loops_create_can_save_without_starting(monkeypatch, tmp_path: Path)
     assert result.exit_code == 0, result.stdout
     assert calls["create_loop"]["name"] == "Saved Loop"
     assert "rerun" not in calls
+
+
+def test_cli_loops_create_accepts_orchestration_id(monkeypatch, tmp_path: Path) -> None:
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text("# Goal\n\nKeep going.\n", encoding="utf-8")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    calls: dict[str, object] = {}
+
+    class FakeService:
+        def create_loop(self, **kwargs):
+            calls["create_loop"] = kwargs
+            return {"id": "loop_saved", "name": kwargs["name"], "workdir": str(kwargs["workdir"])}
+
+    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.app,
+        [
+            "loops",
+            "create",
+            "--spec",
+            str(spec_path),
+            "--workdir",
+            str(workdir),
+            "--orchestration-id",
+            "builtin:inspect_first",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert calls["create_loop"]["orchestration_id"] == "builtin:inspect_first"
+    assert calls["create_loop"]["workflow"] is None
+
+
+def test_cli_orchestrations_create_and_list(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    class FakeService:
+        def create_orchestration(self, **kwargs):
+            calls["create_orchestration"] = kwargs
+            return {"id": "orch_1", "name": kwargs["name"], "workflow_json": {"roles": [], "steps": []}}
+
+        def list_orchestrations(self):
+            return [
+                {"id": "builtin:build_first", "name": "Build First", "source": "builtin", "workflow_json": {"roles": [1], "steps": [1]}},
+                {"id": "orch_1", "name": "Custom", "source": "custom", "workflow_json": {"roles": [1, 2], "steps": [1, 2]}},
+            ]
+
+    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    runner = CliRunner()
+
+    create_result = runner.invoke(cli.app, ["orchestrations", "create", "--name", "Custom", "--workflow-preset", "inspect_first"])
+    assert create_result.exit_code == 0, create_result.stdout
+    assert calls["create_orchestration"]["name"] == "Custom"
+    assert calls["create_orchestration"]["workflow"] == {"preset": "inspect_first"}
+
+    list_result = runner.invoke(cli.app, ["orchestrations", "list"])
+    assert list_result.exit_code == 0, list_result.stdout
+    assert "builtin:build_first" in list_result.stdout
+    assert "orch_1" in list_result.stdout
 
 
 def test_cli_loops_delete_prints_json(monkeypatch) -> None:

@@ -386,9 +386,102 @@ def test_api_loop_creation_accepts_role_model_overrides(
     assert response.status_code == 201
     loop = response.json()["loop"]
     assert loop["role_models_json"] == {
-        "generator": "gpt-5.4-mini",
-        "verifier": "gpt-5.4",
+        "builder": "gpt-5.4-mini",
+        "gatekeeper": "gpt-5.4",
     }
+
+
+def test_prompt_template_download_and_validation_endpoints(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    template_response = client.get("/api/prompts/templates/builder.md")
+    assert template_response.status_code == 200
+    markdown_text = template_response.text
+    assert "archetype: builder" in markdown_text
+
+    validation_response = client.post(
+        "/api/prompts/validate",
+        json={
+            "markdown": markdown_text,
+            "archetype": "builder",
+        },
+    )
+    assert validation_response.status_code == 200
+    assert validation_response.json()["ok"] is True
+
+    mismatch_response = client.post(
+        "/api/prompts/validate",
+        json={
+            "markdown": markdown_text,
+            "archetype": "gatekeeper",
+        },
+    )
+    assert mismatch_response.status_code == 200
+    assert mismatch_response.json()["ok"] is False
+
+
+def test_api_can_create_orchestration_and_use_it_for_loop(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    orchestration_response = client.post(
+        "/api/orchestrations",
+        json={
+            "name": "Custom Inspect First",
+            "description": "Inspector before Builder.",
+            "workflow": {"preset": "inspect_first"},
+        },
+    )
+    assert orchestration_response.status_code == 201
+    orchestration = orchestration_response.json()["orchestration"]
+    assert orchestration["name"] == "Custom Inspect First"
+    assert orchestration["workflow_json"]["preset"] == "inspect_first"
+
+    list_response = client.get("/api/orchestrations")
+    assert list_response.status_code == 200
+    assert any(item["id"] == orchestration["id"] for item in list_response.json())
+
+    update_response = client.put(
+        f"/api/orchestrations/{orchestration['id']}",
+        json={
+            "name": "Custom Build First",
+            "description": "Updated description.",
+            "workflow": {"preset": "build_first"},
+        },
+    )
+    assert update_response.status_code == 200
+    updated_orchestration = update_response.json()["orchestration"]
+    assert updated_orchestration["name"] == "Custom Build First"
+    assert updated_orchestration["workflow_json"]["preset"] == "build_first"
+
+    loop_response = client.post(
+        "/api/loops",
+        json={
+            "name": "Uses Custom Orchestration",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "orchestration_id": updated_orchestration["id"],
+            "executor_kind": "codex",
+            "model": "gpt-5.4",
+            "reasoning_effort": "medium",
+            "max_iters": 3,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+            "start_immediately": False,
+        },
+    )
+    assert loop_response.status_code == 201
+    loop = loop_response.json()["loop"]
+    assert loop["orchestration"]["id"] == updated_orchestration["id"]
+    assert loop["orchestration"]["name"] == "Custom Build First"
+    assert loop["workflow_json"]["preset"] == "build_first"
 
 
 def test_api_spec_init_validate_and_delete_loop(service_factory, tmp_path: Path, sample_workdir: Path) -> None:

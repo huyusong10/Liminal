@@ -6,6 +6,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const workdirInput = document.getElementById("workdir-input");
   const specPathInput = document.getElementById("spec-path-input");
+  const orchestrationInput = document.getElementById("orchestration-id-input");
+  const orchestrationSummary = document.getElementById("orchestration-summary");
   const executorKindInput = document.getElementById("executor-kind-input");
   const executorModeInput = document.getElementById("executor-mode-input");
   const modelFieldLabel = document.getElementById("model-field-label");
@@ -28,12 +30,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const commandArgsInput = document.getElementById("command-args-input");
   const commandPreview = document.getElementById("command-preview");
   const commandPreviewNote = document.getElementById("command-preview-note");
-  const roleModelInputs = {
-    generator: document.getElementById("role-model-generator-input"),
-    tester: document.getElementById("role-model-tester-input"),
-    verifier: document.getElementById("role-model-verifier-input"),
-    challenger: document.getElementById("role-model-challenger-input"),
-  };
   const browseWorkdirButton = document.getElementById("browse-workdir");
   const browseSpecButton = document.getElementById("browse-spec");
   const createSpecTemplateButton = document.getElementById("create-spec-template");
@@ -41,6 +37,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const formError = document.getElementById("form-error");
   const specValidation = document.getElementById("spec-validation");
   const executorProfiles = JSON.parse(document.getElementById("executor-profiles-json")?.textContent || "[]");
+  const orchestrations = JSON.parse(document.getElementById("orchestrations-json")?.textContent || "[]");
+  const roleModelInputs = {
+    builder: document.getElementById("role-model-builder-input"),
+    inspector: document.getElementById("role-model-inspector-input"),
+    gatekeeper: document.getElementById("role-model-gatekeeper-input"),
+    guide: document.getElementById("role-model-guide-input"),
+  };
+
   const commandDrafts = new Map();
   let lastExecutorKind = executorKindInput.value;
 
@@ -52,8 +56,43 @@ document.addEventListener("DOMContentLoaded", () => {
     element.innerHTML = `<span data-lang="zh">${zh}</span><span data-lang="en">${en}</span>`;
   }
 
+  function showStatus(element, message, kind = "") {
+    if (!message) {
+      element.hidden = true;
+      element.textContent = "";
+      element.className = "field-status";
+      return;
+    }
+    element.hidden = false;
+    element.textContent = message;
+    element.className = `field-status${kind ? ` is-${kind}` : ""}`;
+  }
+
   function selectedExecutorProfile() {
     return executorProfiles.find((profile) => profile.key === executorKindInput.value) || executorProfiles[0];
+  }
+
+  function currentOrchestration() {
+    return orchestrations.find((item) => item.id === orchestrationInput.value) || orchestrations[0] || null;
+  }
+
+  function renderOrchestrationSummary() {
+    const selected = currentOrchestration();
+    if (!selected) {
+      showStatus(orchestrationSummary, localeText("还没有可用的编排方案，请先去“流程编排”里创建。", "No orchestration is available yet. Create one from the Orchestrations page."), "error");
+      return;
+    }
+    const workflow = selected.workflow_json || {};
+    const roles = Array.isArray(workflow.roles) ? workflow.roles.length : 0;
+    const steps = Array.isArray(workflow.steps) ? workflow.steps.length : 0;
+    const source = selected.source === "builtin"
+      ? localeText("内置方案", "Built-in")
+      : localeText("自定义方案", "Custom");
+    showStatus(
+      orchestrationSummary,
+      `${selected.name} · ${source} · ${localeText("角色", "Roles")} ${roles} · ${localeText("步骤", "Steps")} ${steps}${selected.description ? ` · ${selected.description}` : ""}`,
+      "success",
+    );
   }
 
   function parseCommandArgsText(value) {
@@ -163,10 +202,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function buildPresetCommandSnapshot(profile) {
     const args = presetPreviewArgs(profile);
-    return {
-      cli: args[0] || profile.cli_name,
-      argsText: args.slice(1).join("\n"),
-    };
+    return {cli: args[0] || profile.cli_name, argsText: args.slice(1).join("\n")};
   }
 
   function renderCommandPreview() {
@@ -184,7 +220,7 @@ document.addEventListener("DOMContentLoaded", () => {
         : "这里展示预设模式下自动拼出来的命令参数。你改动模型或推理强度时，下面的命令区会同步刷新，但保持只读。",
       isCommandMode
         ? "This shows the argv used in command mode. Angle-bracket values are filled in only at runtime."
-        : "This shows the command assembled from the preset settings. When you change the model or reasoning option, the command block below updates automatically but stays read-only."
+        : "This shows the command assembled from the preset settings. When you change the model or reasoning option, the command block below updates automatically but stays read-only.",
     );
   }
 
@@ -192,10 +228,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!profileKey) {
       return;
     }
-    commandDrafts.set(profileKey, {
-      cli: commandCliInput.value,
-      args: commandArgsInput.value,
-    });
+    commandDrafts.set(profileKey, {cli: commandCliInput.value, args: commandArgsInput.value});
   }
 
   function loadCommandDraft(profile) {
@@ -215,20 +248,12 @@ document.addEventListener("DOMContentLoaded", () => {
     options.forEach((option) => {
       const item = document.createElement("option");
       item.value = option;
-      if (!option && profile.effort_optional) {
-        item.textContent = localeText("默认", "Default");
-      } else {
-        item.textContent = option;
-      }
+      item.textContent = (!option && profile.effort_optional) ? localeText("默认", "Default") : option;
       reasoningInput.appendChild(item);
     });
     const fallback = profile.effort_default || "";
     const nextValue = options.includes(currentValue) ? currentValue : fallback;
-    if (options.length) {
-      reasoningInput.value = nextValue;
-    } else {
-      reasoningInput.value = fallback;
-    }
+    reasoningInput.value = options.length ? nextValue : fallback;
   }
 
   function syncCommandBlock(profile) {
@@ -290,7 +315,6 @@ document.addEventListener("DOMContentLoaded", () => {
     effortHelpTrigger.dataset.titleZh = profile.effort_help_zh;
     effortHelpTrigger.dataset.titleEn = profile.effort_help_en;
     window.LiminalUI.applyLocalizedAttributes(form);
-
     setBilingualHtml(modelFieldNote, profile.model_help_zh, profile.model_help_en);
     setBilingualHtml(effortFieldNote, profile.effort_help_zh, profile.effort_help_en);
 
@@ -302,18 +326,6 @@ document.addEventListener("DOMContentLoaded", () => {
     modelInput.dataset.defaultModel = profile.default_model || "";
     reasoningInput.dataset.defaultEffort = profile.effort_default || "";
     syncExecutorModeUI();
-  }
-
-  function showStatus(element, message, kind = "") {
-    if (!message) {
-      element.hidden = true;
-      element.textContent = "";
-      element.className = "field-status";
-      return;
-    }
-    element.hidden = false;
-    element.textContent = message;
-    element.className = `field-status${kind ? ` is-${kind}` : ""}`;
   }
 
   function parseNumber(value, fallback) {
@@ -336,22 +348,16 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       return false;
     }
-
     const {payload} = await fetchJson(`/api/specs/validate?path=${encodeURIComponent(path)}`);
     if (payload.ok) {
       const modeMessage = payload.check_mode === "auto_generated"
         ? localeText("未提供显式 checks，run 开始时会自动生成并冻结。", "No explicit checks provided. Liminal will generate and freeze them at run start.")
         : localeText(`识别到 ${payload.check_count} 个显式 checks。`, `Detected ${payload.check_count} explicit check(s).`);
-      showStatus(
-        specValidation,
-        `${localeText("Spec 校验通过。", "Spec is valid.")} ${modeMessage}`,
-        "success",
-      );
+      showStatus(specValidation, `${localeText("Spec 校验通过。", "Spec is valid.")} ${modeMessage}`, "success");
       specPathInput.value = payload.path;
       renderCommandPreview();
       return true;
     }
-
     if (!quiet) {
       showStatus(specValidation, payload.error || localeText("Spec 校验失败。", "Spec validation failed."), "error");
     }
@@ -379,11 +385,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let targetPath = specPathInput.value.trim();
     if (!targetPath) {
       if (createSpecTemplateButton.dataset.nativeDialogsEnabled === "false") {
-        showStatus(
-          specValidation,
-          localeText("网络模式下请先手动填好服务端上的 spec 路径，再创建模版。", "In network mode, enter a server-side spec path first and then create the template."),
-          "error",
-        );
+        showStatus(specValidation, localeText("网络模式下请先手动填好服务端上的 spec 路径，再创建模版。", "In network mode, enter a server-side spec path first and then create the template."), "error");
         return;
       }
       const startPath = workdirInput.value.trim();
@@ -412,8 +414,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!form.reportValidity()) {
       return;
     }
-
     showStatus(formError, "");
+    if (!currentOrchestration()) {
+      showStatus(formError, localeText("请先选择一个流程编排。", "Choose an orchestration first."), "error");
+      return;
+    }
     const specValid = await validateSpec();
     if (!specValid) {
       showStatus(formError, localeText("Spec 不满足要求，请先修复后再提交。", "The spec does not satisfy the required structure yet."), "error");
@@ -423,14 +428,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const formData = new FormData(form);
     const executorMode = String(formData.get("executor_mode") || "preset").trim();
     const roleModels = Object.fromEntries(
-      Object.entries(roleModelInputs)
-        .map(([role, input]) => [role, String(input?.value || "").trim()])
-        .filter(([, model]) => model),
+      Object.entries(roleModelInputs).map(([role, input]) => [role, String(input?.value || "").trim()]).filter(([, value]) => value),
     );
     const payload = {
       name: String(formData.get("name") || "").trim(),
       workdir: String(formData.get("workdir") || "").trim(),
       spec_path: String(formData.get("spec_path") || "").trim(),
+      orchestration_id: String(formData.get("orchestration_id") || "").trim(),
       executor_kind: String(formData.get("executor_kind") || "codex").trim(),
       executor_mode: executorMode,
       command_cli: executorMode === "command" ? String(formData.get("command_cli") || "").trim() : "",
@@ -472,15 +476,13 @@ document.addEventListener("DOMContentLoaded", () => {
   if (createSpecTemplateButton) {
     createSpecTemplateButton.addEventListener("click", createSpecTemplate);
   }
+  orchestrationInput?.addEventListener("change", renderOrchestrationSummary);
   executorKindInput.addEventListener("change", () => {
     if (executorModeInput.value === "command") {
       saveCommandDraft(lastExecutorKind);
     }
     lastExecutorKind = executorKindInput.value;
-    refreshExecutorFields({
-      preserveUserModel: true,
-      preserveUserEffort: true,
-    });
+    refreshExecutorFields({preserveUserModel: true, preserveUserEffort: true});
   });
   executorModeInput.addEventListener("change", () => {
     if (executorModeInput.value === "preset") {
@@ -506,16 +508,13 @@ document.addEventListener("DOMContentLoaded", () => {
     renderCommandPreview();
   });
   form.addEventListener("submit", submitForm);
-  document.addEventListener("liminal:localechange", () => refreshExecutorFields({
-    preserveUserModel: true,
-    preserveUserEffort: true,
-  }));
-
-  refreshExecutorFields({
-    preserveUserModel: true,
-    preserveUserEffort: true,
+  document.addEventListener("liminal:localechange", () => {
+    refreshExecutorFields({preserveUserModel: true, preserveUserEffort: true});
+    renderOrchestrationSummary();
   });
 
+  refreshExecutorFields({preserveUserModel: true, preserveUserEffort: true});
+  renderOrchestrationSummary();
   if (specPathInput.value.trim()) {
     validateSpec({quiet: true});
   } else {

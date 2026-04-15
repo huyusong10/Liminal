@@ -3,10 +3,6 @@
 {% block content %}
 <section class="hero hero-tight">
   <div class="hero-copy-stack">
-    <span class="eyebrow">
-      <span data-lang="zh">循环定义</span>
-      <span data-lang="en">Loop definition</span>
-    </span>
     <h1>{{ loop.name }}</h1>
     <p>
       <span data-lang="zh">目标、Checks 和运行历史都住在这里，算是这条 loop 的小基地。</span>
@@ -37,6 +33,7 @@
   <dl class="meta-grid">
     <div><dt><span data-lang="zh">Loop ID</span><span data-lang="en">Loop ID</span></dt><dd>{{ loop.id }}</dd></div>
     <div><dt><span data-lang="zh">执行工具</span><span data-lang="en">Executor</span></dt><dd>{{ latest_run.executor_label if latest_run else loop.executor_label }}</dd></div>
+    <div><dt><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></dt><dd>{{ loop.orchestration.name if loop.orchestration else "-" }}</dd></div>
     <div><dt><span data-lang="zh">模型</span><span data-lang="en">Model</span></dt><dd>{{ loop.model or "-" }}</dd></div>
     <div><dt><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning</span></dt><dd>{{ loop.reasoning_effort }}</dd></div>
     <div><dt><span data-lang="zh">最大迭代</span><span data-lang="en">Max iters</span></dt><dd>{% if loop.max_iters %}{{ loop.max_iters }}{% else %}<span data-lang="zh">无限</span><span data-lang="en">infinite</span>{% endif %}</dd></div>
@@ -116,8 +113,8 @@
         <span data-lang="zh">综合分 {{ summary_snapshot.composite_score }}</span>
         <span data-lang="en">Composite {{ summary_snapshot.composite_score }}</span>
         {% else %}
-        <span data-lang="zh">等待 Verifier 输出</span>
-        <span data-lang="en">Waiting for verifier output</span>
+        <span data-lang="zh">等待 GateKeeper 输出</span>
+        <span data-lang="en">Waiting for GateKeeper output</span>
         {% endif %}
       </span>
     </article>
