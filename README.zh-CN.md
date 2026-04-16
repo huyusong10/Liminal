@@ -1,7 +1,7 @@
 **简体中文** | [English](./README.md)
 
 <p align="center">
-  <img src="./src/loopora/assets/logo/logo-with-text-horizontal.svg" alt="Loopora" width="760" />
+  <img src="./src/loopora/assets/logo/logo-with-text-horizontal.svg" alt="Loopora" width="720" />
 </p>
 
 <p align="center">
