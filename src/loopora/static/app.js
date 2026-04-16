@@ -354,7 +354,9 @@
     if (saved === "light" || saved === "dark") {
       return saved;
     }
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    const prefersDark = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return prefersDark ? "dark" : "light";
   }
 
   function setTheme(theme) {
@@ -375,8 +377,10 @@
     });
   });
 
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
-    if (!window.localStorage.getItem("loopora:theme")) {
-      setTheme(e.matches ? "dark" : "light");
-    }
-  });
+  if (typeof window.matchMedia === "function") {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+      if (!window.localStorage.getItem("loopora:theme")) {
+        setTheme(e.matches ? "dark" : "light");
+      }
+    });
+  }

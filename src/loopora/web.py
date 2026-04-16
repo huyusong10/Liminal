@@ -28,6 +28,7 @@ from loopora.branding import (
 )
 from loopora.providers import executor_profile, list_executor_profiles
 from loopora.diagnostics import get_logger, log_event, log_exception
+from loopora.run_artifacts import list_run_artifacts as _list_run_artifacts
 from loopora.settings import load_recent_workdirs
 from loopora.skills import build_spec_skill_bundle_archive, install_spec_skill, list_spec_skill_targets, load_spec_skill_bundle
 from loopora.service import LooporaError, create_service, normalize_role_models
@@ -106,7 +107,10 @@ WORKFLOW_PRESET_COPY = {
 TIMELINE_EVENT_TYPES = {
     "run_started",
     "checks_resolved",
+    "step_context_prepared",
     "role_execution_summary",
+    "step_handoff_written",
+    "iteration_summary_written",
     "role_degraded",
     "challenger_done",
     "iteration_wait_started",
@@ -116,105 +120,6 @@ TIMELINE_EVENT_TYPES = {
     "run_aborted",
     "run_finished",
 }
-
-RUN_ARTIFACT_SPECS = (
-    {
-        "id": "original-spec",
-        "filename": "spec.md",
-        "label_zh": "原始 Spec",
-        "label_en": "Original spec",
-        "description_zh": "这次 run 开始时冻结保存的原始 Markdown spec。",
-        "description_en": "The original Markdown spec snapshot frozen at the start of this run.",
-    },
-    {
-        "id": "summary",
-        "filename": "summary.md",
-        "label_zh": "运行摘要",
-        "label_en": "Summary",
-        "description_zh": "当前 run 的摘要结论。",
-        "description_en": "The current run summary.",
-    },
-    {
-        "id": "compiled-spec",
-        "filename": "compiled_spec.json",
-        "label_zh": "编译后 Spec",
-        "label_en": "Compiled spec",
-        "description_zh": "本次 run 实际使用的 Goal、Checks 和 Constraints。",
-        "description_en": "The Goal, Checks, and Constraints used by this run.",
-    },
-    {
-        "id": "workflow-manifest",
-        "filename": "workflow.json",
-        "label_zh": "工作流清单",
-        "label_en": "Workflow manifest",
-        "description_zh": "这次 run 冻结下来的 workflow 定义。",
-        "description_en": "The workflow definition frozen for this run.",
-    },
-    {
-        "id": "builder-output",
-        "filename": "builder_output.json",
-        "label_zh": "Builder 输出",
-        "label_en": "Builder output",
-        "description_zh": "Builder 最近一次产出的结构化结果。",
-        "description_en": "The latest structured Builder result.",
-    },
-    {
-        "id": "inspector-output",
-        "filename": "inspector_output.json",
-        "label_zh": "Inspector 输出",
-        "label_en": "Inspector output",
-        "description_zh": "Inspector 最近一次产出的证据与检查结果。",
-        "description_en": "The latest Inspector evidence and check results.",
-    },
-    {
-        "id": "gatekeeper-verdict",
-        "filename": "gatekeeper_verdict.json",
-        "label_zh": "GateKeeper 结论",
-        "label_en": "GateKeeper verdict",
-        "description_zh": "GateKeeper 最近一次给出的放行判断。",
-        "description_en": "The latest GateKeeper pass/fail decision.",
-    },
-    {
-        "id": "guide-output",
-        "filename": "guide_output.json",
-        "label_zh": "Guide 建议",
-        "label_en": "Guide output",
-        "description_zh": "Guide 在停滞时提出的方向建议。",
-        "description_en": "The Guide suggestion emitted during stagnation.",
-    },
-    {
-        "id": "generator-output",
-        "filename": "generator_output.json",
-        "label_zh": "生成输出",
-        "label_en": "Generator output",
-        "description_zh": "Generator 这轮改了什么、没改什么、做了哪些假设。",
-        "description_en": "What the Generator changed, skipped, and assumed.",
-    },
-    {
-        "id": "tester-output",
-        "filename": "tester_output.json",
-        "label_zh": "测试输出",
-        "label_en": "Tester output",
-        "description_zh": "Tester 的检查结果、证据和观察。",
-        "description_en": "The Tester's results, evidence, and observations.",
-    },
-    {
-        "id": "verifier-verdict",
-        "filename": "verifier_verdict.json",
-        "label_zh": "验证结论",
-        "label_en": "Verifier verdict",
-        "description_zh": "Verifier 对是否通过的最终裁决。",
-        "description_en": "The Verifier's final pass/fail judgement.",
-    },
-    {
-        "id": "challenger-seed",
-        "filename": "challenger_seed.json",
-        "label_zh": "挑战输出",
-        "label_en": "Challenger output",
-        "description_zh": "只有进入停滞或回退时才会生成的新方向建议。",
-        "description_en": "A direction shift that only appears on plateau or regression.",
-    },
-)
 
 
 def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 8742, auth_token: str | None = None) -> FastAPI:
@@ -1257,6 +1162,12 @@ def _format_timeline_event(event: dict) -> dict:
         source = "auto-generated" if payload.get("source") == "auto_generated" else "specified"
         title = "Checks resolved"
         detail = f"{payload.get('count', 0)} checks, {source}"
+    elif event["event_type"] == "role_request_prepared":
+        title = "Role request prepared"
+        detail = str(payload.get("role_name") or role or "").strip()
+    elif event["event_type"] == "step_context_prepared":
+        title = "Step context prepared"
+        detail = str(payload.get("step_id") or "").strip()
     elif event["event_type"] == "role_execution_summary":
         if payload.get("ok"):
             title = f"{role or 'role'} completed"
@@ -1277,6 +1188,12 @@ def _format_timeline_event(event: dict) -> dict:
     elif event["event_type"] == "role_degraded":
         title = f"{role or 'role'} degraded"
         detail = str(payload.get("mode", "")).strip()
+    elif event["event_type"] == "step_handoff_written":
+        title = "Step handoff written"
+        detail = str(payload.get("summary") or payload.get("step_id") or "").strip()
+    elif event["event_type"] == "iteration_summary_written":
+        title = "Iteration summary written"
+        detail = str(payload.get("composite_score", "")).strip()
     elif event["event_type"] == "challenger_done":
         title = "Challenger suggested a new direction"
         detail = str(payload.get("mode", "")).strip()
@@ -1512,71 +1429,11 @@ def _coerce_bool(value: object) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _list_run_artifacts(run: dict) -> list[dict]:
-    run_dir = Path(run["runs_dir"])
-    artifacts = []
-    for artifact in RUN_ARTIFACT_SPECS:
-        path = run_dir / artifact["filename"]
-        artifacts.append(
-            {
-                **artifact,
-                "relative_path": artifact["filename"],
-                "path": str(path),
-                "available": path.exists(),
-            }
-        )
-    prompt_dir = run_dir / "prompts"
-    if prompt_dir.exists():
-        for prompt_path in sorted(path for path in prompt_dir.rglob("*.md") if path.is_file()):
-            relative_path = str(prompt_path.relative_to(run_dir))
-            artifacts.append(
-                {
-                    "id": f"prompt-{_artifact_slug(relative_path)}",
-                    "filename": relative_path,
-                    "relative_path": relative_path,
-                    "label_zh": f"Prompt · {prompt_path.name}",
-                    "label_en": f"Prompt · {prompt_path.name}",
-                    "description_zh": "这个角色当前使用的 prompt Markdown。",
-                    "description_en": "The prompt Markdown used by this role.",
-                    "path": str(prompt_path),
-                    "available": True,
-                }
-            )
-    steps_dir = run_dir / "steps"
-    if steps_dir.exists():
-        for artifact_path in sorted(steps_dir.rglob("*")):
-            if not artifact_path.is_file():
-                continue
-            relative_path = str(artifact_path.relative_to(run_dir))
-            if artifact_path.name not in {"output.normalized.json", "output.raw.json", "prompt.md", "metadata.json"}:
-                continue
-            label_prefix = "Step prompt" if artifact_path.name == "prompt.md" else "Step artifact"
-            label_prefix_zh = "步骤 Prompt" if artifact_path.name == "prompt.md" else "步骤产物"
-            artifacts.append(
-                {
-                    "id": f"step-{_artifact_slug(relative_path)}",
-                    "filename": relative_path,
-                    "relative_path": relative_path,
-                    "label_zh": f"{label_prefix_zh} · {relative_path}",
-                    "label_en": f"{label_prefix} · {relative_path}",
-                    "description_zh": "按 step 冻结保存的 prompt、元数据或输出快照。",
-                    "description_en": "A step-scoped prompt, metadata, or output snapshot.",
-                    "path": str(artifact_path),
-                    "available": True,
-                }
-            )
-    return artifacts
-
-
 def _artifact_record_or_404(run: dict, artifact_id: str) -> dict:
     for artifact in _list_run_artifacts(run):
         if artifact["id"] == artifact_id:
             return artifact
     raise HTTPException(status_code=404, detail="unknown artifact")
-
-
-def _artifact_slug(relative_path: str) -> str:
-    return re.sub(r"[^A-Za-z0-9]+", "-", relative_path).strip("-").lower()
 
 
 def _display_iter(iter_value: object | None) -> int | None:

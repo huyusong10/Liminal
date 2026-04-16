@@ -77,9 +77,10 @@ def test_api_loop_creation_run_preview_and_stream(
     assert summary_artifact.json()["kind"] == "file"
     assert "Loopora Run Summary" in summary_artifact.json()["content"]
 
-    challenger_artifact = client.get(f"/api/runs/{run_id}/artifacts/challenger-seed")
-    assert challenger_artifact.status_code == 200
-    assert challenger_artifact.json()["kind"] == "missing"
+    latest_state_artifact = client.get(f"/api/runs/{run_id}/artifacts/latest-state")
+    assert latest_state_artifact.status_code == 200
+    assert latest_state_artifact.json()["kind"] == "file"
+    assert "\"latest_iteration\"" in latest_state_artifact.json()["content"]
 
     binary_path = sample_workdir / ".DS_Store"
     binary_path.write_bytes(b"\x00\x01\x02binary-data")

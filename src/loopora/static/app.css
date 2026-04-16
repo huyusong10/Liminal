@@ -2366,6 +2366,40 @@ html[data-locale="zh"] .highlight-label {
   margin-bottom: 12px;
 }
 
+.console-toolbar {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.console-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.console-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.console-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid rgba(var(--glass-rgb), 0.08);
+  background: rgba(34, 29, 23, 0.78);
+  color: rgba(255, 248, 237, 0.88);
+  font-size: 0.82rem;
+}
+
+.console-filter-chip input {
+  accent-color: #f3c26f;
+}
+
 .console-legend-chip {
   display: inline-flex;
   align-items: center;
@@ -2454,13 +2488,29 @@ html[data-locale="zh"] .console-output {
 
 .console-line {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
+  gap: 10px;
   padding: 10px 12px;
   border-radius: 0;
   border: 1px solid rgba(var(--glass-rgb), 0.04);
   background: rgba(var(--glass-rgb), 0.02);
+}
+
+.console-line.is-hidden {
+  display: none;
+}
+
+.console-line-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 180px) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .console-line-meta {
@@ -2485,10 +2535,32 @@ html[data-locale="zh"] .console-output {
   font-size: 0.76rem;
 }
 
+.console-line-summary {
+  min-width: 0;
+  padding-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.console-line-expander {
+  align-self: center;
+  color: rgba(255, 248, 237, 0.56);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .console-line-body {
   min-width: 0;
+  margin: 0;
+  padding-left: 192px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.console-line.is-collapsed .console-line-body {
+  display: none;
 }
 
 .console-line-indent-1 {
@@ -2932,18 +3004,18 @@ html[data-locale="zh"] .preview-box {
   }
 
   .console-focus-meta-row,
-  .console-line {
+  .console-line-toggle {
     display: grid;
     grid-template-columns: 1fr;
-  }
-
-  .console-line {
-    gap: 8px;
   }
 
   .console-line-indent-1,
   .console-line-indent-2 {
     margin-left: 0;
+  }
+
+  .console-line-body {
+    padding-left: 0;
   }
 
   .console-shell {

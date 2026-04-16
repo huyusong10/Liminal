@@ -20,6 +20,7 @@
 
 - application log 与 run event stream 必须并存，不能互相替代。
 - 同一诊断场景优先用共享关联字段串联三者，而不是复制大段内容。
+- Web 终端必须把关键系统动作白盒化投影出来，不能只展示底层命令输出。
 
 ## 3. 标准日志结构
 
@@ -64,6 +65,8 @@
 - `service.loop.created`
 - `service.run.execution.started`
 - `service.workflow.step.completed`
+- `service.workflow.step.context_prepared`
+- `service.workflow.iteration.summary_written`
 - `db.connect.retry`
 - `web.request.completed`
 - `cli.background_worker.spawned`
@@ -109,6 +112,15 @@
 | `service` | loop/run 生命周期、轮次推进、步骤开始结束、恢复、自我保护、终态 | HTTP 请求明细 |
 | `web` | 请求完成、认证拒绝、SSE 故障、接口层领域错误 | 持久化细节 |
 | `cli` | 命令触发、后台 worker 启停、CLI 失败 | Web 请求语义 |
+
+run event stream 中，以下事件属于稳定白盒事件：
+
+- `role_request_prepared`
+- `step_context_prepared`
+- `step_handoff_written`
+- `iteration_summary_written`
+
+这些事件必须能被终端观察面直接订阅并渲染。
 
 ## 8. 边界约束
 

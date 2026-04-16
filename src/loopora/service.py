@@ -16,6 +16,16 @@ import markdown as markdown_lib
 
 from loopora.asset_catalog import WorkflowAssetCatalog
 from loopora.branding import LEGACY_APP_STATE_DIRNAME, normalize_file_root, state_dir_for_workdir
+from loopora.context_flow import (
+    build_iteration_summary,
+    build_run_contract_snapshot,
+    build_step_context_packet,
+    build_step_handoff,
+    derive_latest_state,
+    output_contract_prompt,
+    render_step_prompt,
+    system_prompt_prefix,
+)
 from loopora.db import LooporaRepository
 from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.executor import (
@@ -29,6 +39,13 @@ from loopora.executor import (
 )
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode
 from loopora.recovery import RecoveryResult, RetryConfig, execute_with_recovery
+from loopora.run_artifacts import (
+    INITIAL_STAGNATION_STATE,
+    RunArtifactLayout,
+    append_jsonl_with_mirrors,
+    write_json_with_mirrors,
+    write_text_with_mirrors,
+)
 from loopora.settings import AppSettings, configure_logging, db_path, load_settings, save_recent_workdirs
 from loopora.specs import SpecError, compile_markdown_spec, read_and_compile
 from loopora.stagnation import update_stagnation
@@ -287,18 +304,51 @@ class LooporaService:
 
         run_id = make_id("run")
         run_dir = self._ensure_run_dir(Path(loop["workdir"]), run_id)
-        (run_dir / "events.jsonl").touch()
-        (run_dir / "iteration_log.jsonl").touch()
-        (run_dir / "summary.md").write_text("# Loopora Run Summary\n\nQueued.\n", encoding="utf-8")
-        write_json(run_dir / "workspace_baseline.json", self._capture_workspace_manifest(Path(loop["workdir"])))
-        (run_dir / "compiled_spec.json").write_text(
-            json.dumps(loop["compiled_spec_json"], ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        (run_dir / "spec.md").write_text(loop["spec_markdown"], encoding="utf-8")
         workflow = loop.get("workflow_json") or self._legacy_workflow_from_loop(loop)
-        write_json(run_dir / "workflow.json", workflow)
-        self._persist_prompt_files(run_dir, self._read_prompt_files_for_loop(loop["workdir"], loop["id"], workflow))
+        layout = self._run_artifact_layout(run_dir)
+        layout.initialize()
+        queued_summary = "# Loopora Run Summary\n\nQueued.\n"
+        workspace_baseline = self._capture_workspace_manifest(Path(loop["workdir"]))
+        prompt_files = self._read_prompt_files_for_loop(loop["workdir"], loop["id"], workflow)
+        write_text_with_mirrors(layout.summary_path, queued_summary)
+        write_json_with_mirrors(layout.workspace_baseline_path, workspace_baseline)
+        write_json_with_mirrors(
+            layout.timeline_stagnation_path,
+            dict(INITIAL_STAGNATION_STATE),
+            mirror_paths=[layout.run_dir / "stagnation.json"],
+        )
+        write_json_with_mirrors(layout.contract_compiled_spec_path, loop["compiled_spec_json"])
+        write_text_with_mirrors(layout.contract_spec_path, loop["spec_markdown"])
+        write_json_with_mirrors(layout.contract_workflow_path, workflow)
+        self._persist_prompt_files(layout.contract_dir, prompt_files)
+
+        run_contract = build_run_contract_snapshot(
+            {
+                "id": run_id,
+                "loop_id": loop_id,
+                "workdir": loop["workdir"],
+                "completion_mode": loop.get("completion_mode", "gatekeeper"),
+                "max_iters": loop["max_iters"],
+                "max_role_retries": loop["max_role_retries"],
+                "delta_threshold": loop["delta_threshold"],
+                "trigger_window": loop["trigger_window"],
+                "regression_window": loop["regression_window"],
+                "iteration_interval_seconds": loop.get("iteration_interval_seconds", 0.0),
+                "executor_kind": loop.get("executor_kind", "codex"),
+                "executor_mode": loop.get("executor_mode", "preset"),
+                "model": loop["model"],
+                "reasoning_effort": coerce_reasoning_effort(
+                    loop["reasoning_effort"],
+                    loop.get("executor_kind", "codex"),
+                ),
+            },
+            compiled_spec=loop["compiled_spec_json"],
+            workflow=workflow,
+            prompt_files=prompt_files,
+            workspace_baseline=workspace_baseline,
+            layout=layout,
+        )
+        write_json_with_mirrors(layout.run_contract_path, run_contract)
 
         run = self.repository.create_run(
             {
@@ -327,7 +377,7 @@ class LooporaService:
                 "workflow": workflow,
                 "status": "queued",
                 "runs_dir": str(run_dir),
-                "summary_md": "# Loopora Run Summary\n\nQueued.\n",
+                "summary_md": queued_summary,
             }
         )
         self.repository.append_event(run_id, "run_registered", {"loop_id": loop_id, "status": "queued"})
@@ -448,6 +498,9 @@ class LooporaService:
     def _prompt_dir(self, base_dir: Path) -> Path:
         return base_dir / "prompts"
 
+    def _run_artifact_layout(self, run_dir: Path) -> RunArtifactLayout:
+        return RunArtifactLayout(run_dir)
+
     def _persist_prompt_files(self, base_dir: Path, prompt_files: dict[str, str]) -> None:
         prompt_dir = self._prompt_dir(base_dir)
         prompt_dir.mkdir(parents=True, exist_ok=True)
@@ -473,7 +526,8 @@ class LooporaService:
 
     def _read_prompt_files_for_run(self, run: dict) -> dict[str, str]:
         workflow = run.get("workflow_json") or self._legacy_workflow_from_loop(run)
-        return self._read_prompt_files(Path(run["runs_dir"]), workflow)
+        layout = self._run_artifact_layout(Path(run["runs_dir"]))
+        return self._read_prompt_files(layout.contract_dir, workflow)
 
     def _hydrate_loop_files(self, loop: dict) -> dict:
         if not loop:
@@ -1035,16 +1089,22 @@ class LooporaService:
             compiled_spec = run["compiled_spec_json"]
             retry_config = RetryConfig(max_retries=run["max_role_retries"])
             prompt_files = self._read_prompt_files_for_run(run)
-            stagnation = read_json(run_dir / "stagnation.json")
-            metrics_history_path = run_dir / "metrics_history.jsonl"
-            metrics_history_path.touch(exist_ok=True)
+            layout = self._run_artifact_layout(run_dir)
+            stagnation = read_json(layout.timeline_stagnation_path) or dict(INITIAL_STAGNATION_STATE)
             last_iter_id = -1
+            previous_outputs_by_step: dict[str, dict] = {}
+            previous_outputs_by_role: dict[str, dict] = {}
             previous_outputs_by_archetype: dict[str, dict] = {}
+            previous_handoffs_by_step: dict[str, dict] = {}
+            previous_handoffs_by_role: dict[str, dict] = {}
+            previous_handoffs_by_archetype: dict[str, dict] = {}
+            previous_iteration_summary: dict | None = None
             last_gatekeeper_result: dict | None = None
 
             self.repository.append_event(run_id, "run_started", {"status": "running"})
             self._write_summary(run_id, "running", "Resolving checks for this run.")
             compiled_spec = self._resolve_run_checks(run, executor, compiled_spec, run_dir, retry_config)
+            run_contract = read_json(layout.run_contract_path)
             self._write_summary(run_id, "running", "Waiting for the first workflow iteration to complete.")
 
             enabled_steps = [step for step in workflow.get("steps", []) if step.get("enabled", True)]
@@ -1070,8 +1130,10 @@ class LooporaService:
                 self._ensure_not_stopped(run_id)
                 self.repository.update_run(run_id, current_iter=iter_id)
                 step_results: list[dict] = []
+                current_outputs_by_step: dict[str, dict] = {}
                 current_outputs_by_archetype: dict[str, dict] = {}
                 current_outputs_by_role: dict[str, dict] = {}
+                current_handoffs: list[dict] = []
                 current_gatekeeper_result: dict | None = None
                 current_guide_result: dict | None = None
                 previous_composite = (
@@ -1093,7 +1155,7 @@ class LooporaService:
                     ),
                 )
 
-                for step in enabled_steps:
+                for step_order, step in enumerate(enabled_steps):
                     role = role_by_id[step["role_id"]]
                     runtime_role = self._runtime_role_key(role)
                     if role["archetype"] == "guide" and stagnation.get("stagnation_mode", "none") == "none":
@@ -1130,19 +1192,30 @@ class LooporaService:
                         ),
                     )
                     step_started_at = time.perf_counter()
-                    output = self._run_workflow_step(
+                    output, context_packet = self._run_workflow_step(
                         executor,
                         run,
                         compiled_spec,
-                        run_dir,
+                        layout,
                         iter_id,
                         step,
+                        step_order,
                         role,
                         prompt_files,
                         execution_settings=execution_settings,
+                        run_contract=run_contract,
+                        current_outputs_by_step=current_outputs_by_step,
                         current_outputs_by_role=current_outputs_by_role,
                         current_outputs_by_archetype=current_outputs_by_archetype,
+                        current_handoffs=current_handoffs,
+                        previous_outputs_by_step=previous_outputs_by_step,
+                        previous_outputs_by_role=previous_outputs_by_role,
                         previous_outputs_by_archetype=previous_outputs_by_archetype,
+                        previous_handoffs_by_step=previous_handoffs_by_step,
+                        previous_handoffs_by_role=previous_handoffs_by_role,
+                        previous_iteration_summary=previous_iteration_summary,
+                        previous_composite=previous_composite,
+                        stagnation_mode=stagnation.get("stagnation_mode", "none"),
                         retry_config=retry_config,
                     )
                     normalized_output = self._normalize_step_output(
@@ -1151,19 +1224,59 @@ class LooporaService:
                         compiled_spec=compiled_spec,
                         inspector_output=current_outputs_by_archetype.get("inspector"),
                     )
-                    self._write_step_outputs(run_dir, iter_id, step, role, normalized_output)
+                    handoff = build_step_handoff(
+                        layout=layout,
+                        iter_id=iter_id,
+                        step=step,
+                        step_order=step_order,
+                        role=role,
+                        runtime_role=runtime_role,
+                        output=normalized_output,
+                    )
+                    self._write_step_outputs(
+                        layout,
+                        iter_id,
+                        step,
+                        step_order,
+                        role,
+                        runtime_role,
+                        normalized_output,
+                        handoff,
+                    )
+                    self.repository.append_event(
+                        run_id,
+                        "step_handoff_written",
+                        {
+                            "iter": iter_id,
+                            "step_id": step["id"],
+                            "step_order": step_order,
+                            "role_name": role["name"],
+                            "archetype": role["archetype"],
+                            "handoff_path": layout.relative(layout.step_handoff_path(iter_id, step_order, step["id"])),
+                            "status": handoff["status"],
+                            "summary": handoff["summary"],
+                            "blocking_count": len(handoff["blocking_items"]),
+                        },
+                        role=runtime_role,
+                    )
+                    current_outputs_by_step[step["id"]] = normalized_output
                     current_outputs_by_role[role["id"]] = normalized_output
-                    current_outputs_by_role[runtime_role] = normalized_output
+                    if runtime_role != role["id"]:
+                        current_outputs_by_role[runtime_role] = normalized_output
                     current_outputs_by_archetype[role["archetype"]] = normalized_output
+                    current_handoffs.append(handoff)
                     step_duration_ms = int((time.perf_counter() - step_started_at) * 1000)
                     step_results.append(
                         {
                             "step": step,
+                            "step_order": step_order,
                             "role": role,
                             "runtime_role": runtime_role,
                             "resolved_model": execution_settings["model"],
                             "resolved_executor_kind": execution_settings["executor_kind"],
                             "output": normalized_output,
+                            "handoff": handoff,
+                            "context_packet": context_packet,
                         }
                     )
                     log_event(
@@ -1198,9 +1311,13 @@ class LooporaService:
                             trigger_window=run["trigger_window"],
                             regression_window=run["regression_window"],
                         )
-                        write_json(run_dir / "stagnation.json", stagnation)
-                        append_jsonl(
-                            metrics_history_path,
+                        write_json_with_mirrors(
+                            layout.timeline_stagnation_path,
+                            stagnation,
+                            mirror_paths=[layout.run_dir / "stagnation.json"],
+                        )
+                        append_jsonl_with_mirrors(
+                            layout.timeline_metrics_path,
                             {
                                 "iter": iter_id,
                                 "timestamp": utc_now(),
@@ -1214,21 +1331,44 @@ class LooporaService:
                                 "failed_check_titles": normalized_output.get("failed_check_titles", []),
                                 "stagnation_mode": stagnation["stagnation_mode"],
                             },
+                            mirror_paths=[layout.legacy_metrics_path],
                         )
                         if (
                             completion_mode == "gatekeeper"
                             and normalized_output["passed"]
                             and step.get("on_pass") == "finish_run"
                         ):
+                            previous_outputs_by_step = dict(current_outputs_by_step)
+                            previous_outputs_by_role = dict(current_outputs_by_role)
                             previous_outputs_by_archetype = dict(current_outputs_by_archetype)
+                            previous_handoffs_by_step = {
+                                item["step"]["id"]: item["handoff"]
+                                for item in step_results
+                            }
+                            previous_handoffs_by_role = {
+                                item["role"]["id"]: item["handoff"]
+                                for item in step_results
+                            }
+                            previous_handoffs_by_archetype = {
+                                item["role"]["archetype"]: item["handoff"]
+                                for item in step_results
+                            }
                             append_jsonl(
-                                run_dir / "iteration_log.jsonl",
+                                layout.legacy_iterations_path,
                                 self._build_workflow_iteration_entry(
                                     iter_id,
                                     step_results,
                                     stagnation,
                                     previous_composite=previous_composite,
                                 ),
+                            )
+                            previous_iteration_summary = self._persist_iteration_context(
+                                layout=layout,
+                                run_id=run_id,
+                                iter_id=iter_id,
+                                step_results=step_results,
+                                stagnation=stagnation,
+                                previous_composite=previous_composite,
                             )
                             summary = self._build_workflow_summary(
                                 run,
@@ -1279,15 +1419,31 @@ class LooporaService:
                             role=runtime_role,
                         )
 
+                previous_outputs_by_step = dict(current_outputs_by_step)
+                previous_outputs_by_role = dict(current_outputs_by_role)
                 previous_outputs_by_archetype = dict(current_outputs_by_archetype)
+                previous_handoffs_by_step = {item["step"]["id"]: item["handoff"] for item in step_results}
+                previous_handoffs_by_role = {item["role"]["id"]: item["handoff"] for item in step_results}
+                previous_handoffs_by_archetype = {
+                    item["role"]["archetype"]: item["handoff"]
+                    for item in step_results
+                }
                 append_jsonl(
-                    run_dir / "iteration_log.jsonl",
+                    layout.legacy_iterations_path,
                     self._build_workflow_iteration_entry(
                         iter_id,
                         step_results,
                         stagnation,
                         previous_composite=previous_composite,
                     ),
+                )
+                previous_iteration_summary = self._persist_iteration_context(
+                    layout=layout,
+                    run_id=run_id,
+                    iter_id=iter_id,
+                    step_results=step_results,
+                    stagnation=stagnation,
+                    previous_composite=previous_composite,
                 )
                 summary = self._build_workflow_summary(
                     run,
@@ -1552,33 +1708,85 @@ class LooporaService:
         executor: CodexExecutor,
         run: dict,
         compiled_spec: dict,
-        run_dir: Path,
+        layout: RunArtifactLayout,
         iter_id: int,
         step: dict,
+        step_order: int,
         role: dict,
         prompt_files: dict[str, str],
         execution_settings: dict[str, str],
         *,
+        run_contract: dict,
+        current_outputs_by_step: dict[str, dict],
         current_outputs_by_role: dict[str, dict],
         current_outputs_by_archetype: dict[str, dict],
+        current_handoffs: list[dict],
+        previous_outputs_by_step: dict[str, dict],
+        previous_outputs_by_role: dict[str, dict],
         previous_outputs_by_archetype: dict[str, dict],
+        previous_handoffs_by_step: dict[str, dict],
+        previous_handoffs_by_role: dict[str, dict],
+        previous_iteration_summary: dict | None,
+        previous_composite: float | None,
+        stagnation_mode: str,
         retry_config: RetryConfig,
-    ) -> dict:
-        step_dir = run_dir / "steps" / f"iter_{iter_id:03d}" / step["id"]
+    ) -> tuple[dict, dict]:
+        step_dir = layout.step_dir(iter_id, step_order, step["id"])
         step_dir.mkdir(parents=True, exist_ok=True)
-        output_path = step_dir / "output.raw.json"
-        prompt_text = self._build_step_prompt(
-            role,
-            compiled_spec,
+        output_path = layout.step_output_raw_path(iter_id, step_order, step["id"])
+        prompt_metadata, prompt_body = self._parse_runtime_prompt(
             prompt_files[role["prompt_ref"]],
-            iter_id,
-            current_outputs_by_role=current_outputs_by_role,
-            current_outputs_by_archetype=current_outputs_by_archetype,
-            previous_outputs_by_archetype=previous_outputs_by_archetype,
+            expected_archetype=role["archetype"],
+        )
+        runtime_role = self._runtime_role_key(role)
+        context_packet = build_step_context_packet(
+            run_contract=run_contract,
+            layout=layout,
+            iter_id=iter_id,
+            step=step,
+            step_order=step_order,
+            role=role,
+            execution_settings=execution_settings,
+            immediate_previous_step=current_handoffs[-1] if current_handoffs else None,
+            completed_steps_this_iteration=current_handoffs,
+            previous_iteration_same_step=previous_handoffs_by_step.get(step["id"]),
+            previous_iteration_same_role=previous_handoffs_by_role.get(role["id"]),
+            previous_iteration_summary=previous_iteration_summary,
+            previous_composite=previous_composite,
+            stagnation_mode=stagnation_mode,
+        )
+        context_path = layout.step_context_path(iter_id, step_order, step["id"])
+        write_json(context_path, context_packet)
+        self.repository.append_event(
+            run["id"],
+            "step_context_prepared",
+            {
+                "iter": iter_id,
+                "step_id": step["id"],
+                "step_order": step_order,
+                "role_name": role["name"],
+                "archetype": role["archetype"],
+                "context_path": layout.relative(context_path),
+                "previous_iteration_exists": context_packet["iteration"]["previous_iteration_exists"],
+                "completed_steps_this_iteration": len(current_handoffs),
+                "immediate_previous_step_id": (
+                    context_packet["upstream"]["immediate_previous_step"]["source"]["step_id"]
+                    if context_packet["upstream"]["immediate_previous_step"]
+                    else None
+                ),
+            },
+            role=runtime_role,
+        )
+        prompt_text = render_step_prompt(
+            role=role,
+            prompt_label=str(prompt_metadata.get("label", role["name"])),
+            prompt_body=prompt_body,
+            packet=context_packet,
+            compiled_spec=compiled_spec,
         )
         request = RoleRequest(
             run_id=run["id"],
-            role=self._runtime_role_key(role),
+            role=runtime_role,
             role_archetype=role["archetype"],
             role_name=role["name"],
             step_id=step["id"],
@@ -1592,7 +1800,7 @@ class LooporaService:
             reasoning_effort=execution_settings["reasoning_effort"],
             output_schema=self._output_schema_for_archetype(role["archetype"]),
             output_path=output_path,
-            run_dir=run_dir,
+            run_dir=layout.run_dir,
             sandbox=self._sandbox_for_archetype(role["archetype"]),
             idle_timeout_seconds=self.settings.role_idle_timeout_seconds,
             extra_context={
@@ -1604,9 +1812,15 @@ class LooporaService:
                 "step_model": execution_settings["step_model"],
                 "executor_kind": execution_settings["executor_kind"],
                 "executor_mode": execution_settings["executor_mode"],
-                "legacy_role": self._runtime_role_key(role),
+                "legacy_role": runtime_role,
+                "context_packet": context_packet,
+                "immediate_previous_step": context_packet["upstream"]["immediate_previous_step"],
+                "previous_iteration_summary": previous_iteration_summary,
+                "current_outputs_by_step": current_outputs_by_step,
                 "current_outputs_by_role": current_outputs_by_role,
                 "current_outputs_by_archetype": current_outputs_by_archetype,
+                "previous_outputs_by_step": previous_outputs_by_step,
+                "previous_outputs_by_role": previous_outputs_by_role,
                 "previous_outputs_by_archetype": previous_outputs_by_archetype,
                 "inspector_output": current_outputs_by_archetype.get("inspector"),
                 "tester_output": current_outputs_by_archetype.get("inspector"),
@@ -1618,7 +1832,7 @@ class LooporaService:
                 "previous_verifier_result": previous_outputs_by_archetype.get("gatekeeper"),
                 "previous_guide_result": previous_outputs_by_archetype.get("guide"),
                 "previous_challenger_result": previous_outputs_by_archetype.get("guide"),
-                "stagnation_mode": read_json(run_dir / "stagnation.json").get("stagnation_mode", "none"),
+                "stagnation_mode": stagnation_mode,
             },
         )
         self._record_role_request(run["id"], request)
@@ -1632,10 +1846,11 @@ class LooporaService:
                     {
                         **payload,
                         "step_id": step["id"],
+                        "step_order": step_order,
                         "role_name": role["name"],
                         "archetype": role["archetype"],
                     },
-                    role=role["id"],
+                    role=runtime_role,
                 ),
                 lambda: self.repository.should_stop(run["id"]),
                 lambda pid: self.repository.update_run(run["id"], child_pid=pid)
@@ -1643,7 +1858,7 @@ class LooporaService:
                 else self.repository.update_run(run["id"], clear_child_pid=True),
             )
 
-        return self._execute_role(run["id"], iter_id, self._runtime_role_key(role), execute_request, retry_config)
+        return self._execute_role(run["id"], iter_id, runtime_role, execute_request, retry_config), context_packet
 
     def _resolve_role_execution_settings(self, run: dict, step: dict, role: dict) -> dict[str, str]:
         step_model = str(step.get("model") or "").strip()
@@ -1714,86 +1929,54 @@ class LooporaService:
         previous_outputs_by_archetype: dict[str, dict],
     ) -> str:
         prompt_metadata, prompt_body = self._parse_runtime_prompt(prompt_markdown, expected_archetype=role["archetype"])
-        constraints = compiled_spec.get("constraints") or "No explicit constraints were provided."
-        sections = [
-            f"You are {role['name']} inside Loopora.",
-            self._system_prompt_prefix(role["archetype"]),
-            prompt_body,
-            f"Iteration: {iter_id}",
-            f"Prompt template: {prompt_metadata.get('label', role['name'])}",
-            f"Goal:\n{compiled_spec.get('goal', '').strip()}",
-            f"Checks:\n{self._render_checks(compiled_spec.get('checks', []))}",
-            f"Constraints:\n{constraints}",
-            (
-                "Previous iteration evidence:\n"
-                + json.dumps(previous_outputs_by_archetype, ensure_ascii=False, indent=2)
-                + "\nUse this evidence as your starting point for the next change."
-                if previous_outputs_by_archetype
-                else ""
-            ),
-            "Current workflow evidence:",
-            json.dumps(
-                {
-                    "current_outputs_by_role": current_outputs_by_role,
-                    "current_outputs_by_archetype": current_outputs_by_archetype,
-                    "previous_outputs_by_archetype": previous_outputs_by_archetype,
+        return render_step_prompt(
+            role=role,
+            prompt_label=str(prompt_metadata.get("label", role["name"])),
+            prompt_body=prompt_body,
+            packet={
+                "contract": {
+                    "path": "contract/run_contract.json",
+                    "goal": str(compiled_spec.get("goal") or "").strip(),
+                    "constraints": str(compiled_spec.get("constraints") or "No explicit constraints were provided.").strip(),
+                    "check_mode": str(compiled_spec.get("check_mode") or "specified"),
+                    "check_count": len(compiled_spec.get("checks") or []),
+                    "completion_mode": "gatekeeper",
+                    "workflow_preset": "custom",
                 },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            self._output_contract_prompt(role["archetype"]),
-        ]
-        return "\n\n".join(section for section in sections if section.strip()).strip()
-
-    def _system_prompt_prefix(self, archetype: str) -> str:
-        if archetype == "builder":
-            return (
-                "System safety rules:\n"
-                "- You may edit files inside the workdir.\n"
-                "- Preserve existing non-.loopora files and avoid destructive rewrites. Treat .liminal as reserved legacy state too.\n"
-                "- Prefer focused, incremental changes over broad resets."
-            )
-        if archetype == "inspector":
-            return (
-                "System safety rules:\n"
-                "- Collect evidence with project-owned commands, files, and artifacts.\n"
-                "- Prefer concrete commands and observations.\n"
-                "- Do not rewrite source files as part of inspection."
-            )
-        if archetype == "gatekeeper":
-            return (
-                "System safety rules:\n"
-                "- Decide conservatively from direct evidence.\n"
-                "- When evidence is weak, fail closed and explain what is missing.\n"
-                "- Keep the verdict short and operational."
-            )
-        if archetype == "custom":
-            return (
-                "System safety rules:\n"
-                "- You are a low-permission supporting role.\n"
-                "- Read the workspace and evidence, but do not claim write actions or final authority.\n"
-                "- Prefer concrete observations and next-step recommendations."
-            )
-        return (
-            "System safety rules:\n"
-            "- Suggest the smallest useful direction change.\n"
-            "- Do not act like a second GateKeeper.\n"
-            "- Keep the advice grounded in the current evidence."
+                "iteration": {
+                    "iter_index": iter_id,
+                    "is_first_iteration": iter_id == 0,
+                    "previous_iteration_exists": bool(previous_outputs_by_archetype),
+                    "previous_composite": None,
+                    "stagnation_mode": "none",
+                },
+                "current_step": {
+                    "step_id": role.get("id") or role["name"],
+                    "step_order": 0,
+                    "role_id": role.get("id") or role["name"],
+                    "role_name": role["name"],
+                    "archetype": role["archetype"],
+                    "model": "",
+                    "executor_kind": "",
+                    "executor_mode": "",
+                },
+                "upstream": {
+                    "immediate_previous_step": None,
+                    "completed_steps_this_iteration": [],
+                    "previous_iteration_same_step": None,
+                    "previous_iteration_same_role": None,
+                    "previous_iteration_summary": None,
+                },
+                "artifacts": [],
+            },
+            compiled_spec=compiled_spec,
         )
 
+    def _system_prompt_prefix(self, archetype: str) -> str:
+        return system_prompt_prefix(archetype)
+
     def _output_contract_prompt(self, archetype: str) -> str:
-        if archetype == "builder":
-            return "Return JSON with attempted, abandoned, assumption, summary, and changed_files."
-        if archetype == "inspector":
-            return "Return JSON with execution_summary, check_results, dynamic_checks, and tester_observations."
-        if archetype == "gatekeeper":
-            return (
-                "Return JSON with passed, decision_summary, feedback_to_builder, confidence, blocking_issues, metrics, "
-                "failed_check_ids, priority_failures, and composite_score."
-            )
-        if archetype == "custom":
-            return "Return JSON with summary, observations, recommendations, risks, and handoff_note."
-        return "Return JSON with created_at_iter, mode, consumed, analysis, seed_question, and meta_note."
+        return output_contract_prompt(archetype)
 
     def _parse_runtime_prompt(self, prompt_markdown: str, *, expected_archetype: str) -> tuple[dict, str]:
         try:
@@ -1883,32 +2066,73 @@ class LooporaService:
         result.setdefault("priority_failures", [])
         return result
 
-    def _write_step_outputs(self, run_dir: Path, iter_id: int, step: dict, role: dict, output: dict) -> None:
-        step_dir = run_dir / "steps" / f"iter_{iter_id:03d}" / step["id"]
+    def _write_step_outputs(
+        self,
+        layout: RunArtifactLayout,
+        iter_id: int,
+        step: dict,
+        step_order: int,
+        role: dict,
+        runtime_role: str,
+        output: dict,
+        handoff: dict,
+    ) -> None:
+        step_dir = layout.step_dir(iter_id, step_order, step["id"])
         step_dir.mkdir(parents=True, exist_ok=True)
-        write_json(step_dir / "output.normalized.json", output)
+        write_json(layout.step_output_normalized_path(iter_id, step_order, step["id"]), output)
         write_json(
-            step_dir / "metadata.json",
+            layout.step_metadata_path(iter_id, step_order, step["id"]),
             {
                 "step_id": step["id"],
+                "step_order": step_order,
                 "role_id": role["id"],
                 "role_name": role["name"],
+                "runtime_role": runtime_role,
                 "archetype": role["archetype"],
                 "iter": iter_id,
             },
         )
+        write_json(layout.step_handoff_path(iter_id, step_order, step["id"]), handoff)
 
-        alias_paths = []
-        if role["archetype"] == "builder":
-            alias_paths = [run_dir / "builder_output.json", run_dir / "generator_output.json"]
-        elif role["archetype"] == "inspector":
-            alias_paths = [run_dir / "inspector_output.json", run_dir / "tester_output.json"]
-        elif role["archetype"] == "gatekeeper":
-            alias_paths = [run_dir / "gatekeeper_verdict.json", run_dir / "verifier_verdict.json"]
-        elif role["archetype"] == "guide":
-            alias_paths = [run_dir / "guide_output.json", run_dir / "challenger_seed.json"]
-        for alias_path in alias_paths:
+        for alias_path in layout.legacy_role_output_paths(role["archetype"]):
             write_json(alias_path, output)
+
+    def _persist_iteration_context(
+        self,
+        *,
+        layout: RunArtifactLayout,
+        run_id: str,
+        iter_id: int,
+        step_results: list[dict],
+        stagnation: dict,
+        previous_composite: float | None,
+    ) -> dict:
+        iteration_summary = build_iteration_summary(
+            layout=layout,
+            iter_id=iter_id,
+            step_results=step_results,
+            stagnation=stagnation,
+            previous_composite=previous_composite,
+            timestamp=utc_now(),
+        )
+        write_json(layout.iteration_summary_path(iter_id), iteration_summary)
+        append_jsonl_with_mirrors(layout.timeline_iterations_path, iteration_summary)
+        latest_state = derive_latest_state(read_json(layout.latest_state_path), iteration_summary)
+        write_json(layout.latest_iteration_summary_path, iteration_summary)
+        write_json(layout.latest_state_path, latest_state)
+        self.repository.append_event(
+            run_id,
+            "iteration_summary_written",
+            {
+                "iter": iter_id,
+                "summary_path": layout.relative(layout.iteration_summary_path(iter_id)),
+                "latest_state_path": layout.relative(layout.latest_state_path),
+                "executed_step_count": len(step_results),
+                "composite_score": iteration_summary["score"]["composite"],
+                "passed": iteration_summary["score"]["passed"],
+            },
+        )
+        return iteration_summary
 
     def _build_workflow_iteration_entry(
         self,
@@ -2026,7 +2250,7 @@ class LooporaService:
             [
                 "",
                 "## Artifacts",
-                "- Inspect `workflow.json`, `iteration_log.jsonl`, `events.jsonl`, and the `steps/` directory for full details.",
+                "- Inspect `contract/workflow.json`, `timeline/iterations.jsonl`, `timeline/events.jsonl`, and `iterations/` for full details.",
             ]
         )
         return "\n".join(lines).rstrip() + "\n"
@@ -2576,6 +2800,7 @@ class LooporaService:
         run_dir: Path,
         retry_config: RetryConfig,
     ) -> dict:
+        layout = self._run_artifact_layout(run_dir)
         checks = compiled_spec.get("checks", [])
         if checks:
             self.repository.append_event(
@@ -2609,16 +2834,21 @@ class LooporaService:
             "check_mode": "auto_generated",
             "check_generation_notes": str(planner_result.get("generation_notes", "")).strip(),
         }
-        write_json(run_dir / "compiled_spec.json", resolved_spec)
-        write_json(
-            run_dir / "auto_checks.json",
+        write_json_with_mirrors(layout.contract_compiled_spec_path, resolved_spec)
+        write_json_with_mirrors(
+            layout.contract_auto_checks_path,
             {
                 "generated_at": utc_now(),
                 "count": len(resolved_checks),
                 "notes": resolved_spec["check_generation_notes"],
                 "checks": resolved_checks,
             },
+            mirror_paths=[layout.legacy_auto_checks_path],
         )
+        run_contract = read_json(layout.run_contract_path)
+        if run_contract:
+            run_contract["compiled_spec"] = resolved_spec
+            write_json_with_mirrors(layout.run_contract_path, run_contract)
         self.repository.update_run(run["id"], compiled_spec=resolved_spec)
         self.repository.append_event(
             run["id"],
@@ -2767,7 +2997,8 @@ class LooporaService:
         compiled_spec: dict,
         run_dir: Path,
     ) -> dict:
-        output_path = run_dir / "check_planner_output.raw.json"
+        layout = self._run_artifact_layout(run_dir)
+        output_path = layout.check_planner_output_raw_path
         request = RoleRequest(
             run_id=run["id"],
             role="check_planner",
@@ -2944,7 +3175,8 @@ class LooporaService:
             )
 
     def _record_role_request(self, run_id: str, request: RoleRequest) -> None:
-        request_dir = request.run_dir / "role_requests"
+        layout = self._run_artifact_layout(request.run_dir)
+        request_dir = layout.context_dir / "role_requests"
         request_dir.mkdir(parents=True, exist_ok=True)
         base_name = self._role_request_basename(request)
         prompt_path = request_dir / f"{base_name}.prompt.txt"
@@ -2965,13 +3197,13 @@ class LooporaService:
             "reasoning_effort": request.reasoning_effort,
             "sandbox": request.sandbox,
             "workdir": str(request.workdir),
-            "output_path": str(request.output_path),
-            "prompt_path": str(prompt_path),
-            "step_prompt_path": str(step_prompt_path),
+            "output_path": layout.relative(request.output_path),
+            "prompt_path": layout.relative(prompt_path),
+            "step_prompt_path": layout.relative(step_prompt_path),
             "extra_context_keys": sorted(request.extra_context.keys()),
             "context_summary": self._summarize_role_request_context(request.extra_context),
         }
-        append_jsonl(request.run_dir / "role_requests.jsonl", payload)
+        append_jsonl(layout.role_requests_path, payload)
         self.repository.append_event(run_id, "role_request_prepared", payload, role=request.role)
 
     def _role_request_basename(self, request: RoleRequest) -> str:
@@ -3002,6 +3234,16 @@ class LooporaService:
             summary["compiled_spec"] = {
                 "check_mode": compiled_spec.get("check_mode"),
                 "check_count": len(compiled_spec.get("checks", [])),
+            }
+        context_packet = extra_context.get("context_packet")
+        if isinstance(context_packet, dict):
+            summary["context_packet"] = {
+                "iter_index": context_packet.get("iteration", {}).get("iter_index"),
+                "step_order": context_packet.get("current_step", {}).get("step_order"),
+                "previous_iteration_exists": context_packet.get("iteration", {}).get("previous_iteration_exists"),
+                "completed_steps_this_iteration": len(
+                    context_packet.get("upstream", {}).get("completed_steps_this_iteration", [])
+                ),
             }
         current_outputs_by_archetype = extra_context.get("current_outputs_by_archetype")
         if isinstance(current_outputs_by_archetype, dict) and current_outputs_by_archetype:
@@ -3048,6 +3290,20 @@ class LooporaService:
                 "passed": tester_output.get("execution_summary", {}).get("passed"),
                 "failed": tester_output.get("execution_summary", {}).get("failed"),
                 "dynamic_failed": len(tester_output.get("dynamic_check_failures", [])),
+            }
+        immediate_previous_step = extra_context.get("immediate_previous_step")
+        if isinstance(immediate_previous_step, dict):
+            summary["immediate_previous_step"] = {
+                "step_id": immediate_previous_step.get("source", {}).get("step_id"),
+                "role_name": immediate_previous_step.get("source", {}).get("role_name"),
+                "status": immediate_previous_step.get("status"),
+            }
+        previous_iteration_summary = extra_context.get("previous_iteration_summary")
+        if isinstance(previous_iteration_summary, dict):
+            summary["previous_iteration_summary"] = {
+                "iter": previous_iteration_summary.get("iter"),
+                "composite": previous_iteration_summary.get("score", {}).get("composite"),
+                "passed": previous_iteration_summary.get("score", {}).get("passed"),
             }
         stagnation_mode = extra_context.get("stagnation_mode")
         if stagnation_mode is not None:
@@ -3654,7 +3910,8 @@ class LooporaService:
                 yield (Path(root) / filename).relative_to(workdir).as_posix()
 
     def _enforce_workspace_safety(self, run: dict, run_dir: Path, iter_id: int, *, role: str) -> None:
-        baseline = read_json(run_dir / "workspace_baseline.json")
+        layout = self._run_artifact_layout(run_dir)
+        baseline = read_json(layout.workspace_baseline_path)
         baseline_files = set((baseline or {}).get("files") or [])
         if not baseline_files:
             return
@@ -3687,7 +3944,11 @@ class LooporaService:
             "deleted_original_paths": deleted_original,
             "deleted_ratio": round(deleted_ratio, 4),
         }
-        write_json(run_dir / "workspace_guard.json", payload)
+        write_json_with_mirrors(
+            layout.timeline_workspace_guard_path,
+            payload,
+            mirror_paths=[layout.legacy_workspace_guard_path],
+        )
         self.repository.append_event(
             run["id"],
             "workspace_guard_triggered",

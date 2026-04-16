@@ -23,7 +23,7 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 def _step_outputs_by_archetype(run_dir: Path) -> dict[str, list[dict]]:
     outputs: dict[str, list[dict]] = {}
-    for metadata_path in sorted(run_dir.glob("steps/iter_*/*/metadata.json")):
+    for metadata_path in sorted(run_dir.glob("iterations/iter_*/steps/*/metadata.json")):
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         output_path = metadata_path.parent / "output.normalized.json"
         outputs.setdefault(metadata["archetype"], []).append(
@@ -72,8 +72,15 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     run_dir = Path(run["runs_dir"])
     step_outputs = _step_outputs_by_archetype(run_dir)
     assert run["status"] == "succeeded"
+    assert (run_dir / "timeline" / "events.jsonl").exists()
     assert (run_dir / "events.jsonl").exists()
+    assert (run_dir / "timeline" / "stagnation.json").exists()
     assert (run_dir / "stagnation.json").exists()
+    assert (run_dir / "contract" / "compiled_spec.json").exists()
+    assert (run_dir / "contract" / "workflow.json").exists()
+    assert (run_dir / "contract" / "run_contract.json").exists()
+    assert (run_dir / "context" / "latest_state.json").exists()
+    assert (run_dir / "context" / "latest_iteration_summary.json").exists()
     assert (sample_workdir / ".loopora" / "loops" / loop["id"] / "compiled_spec.json").exists()
     assert step_outputs["inspector"]
     assert step_outputs["gatekeeper"]
@@ -81,7 +88,7 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     assert any((item["step_dir"] / "prompt.md").exists() for item in step_outputs["gatekeeper"])
     summary = (run_dir / "summary.md").read_text(encoding="utf-8")
     assert "All checks passed in this iteration." in summary
-    assert "iteration_log.jsonl" in summary
+    assert "timeline/iterations.jsonl" in summary
 
 
 def test_successful_run_enriches_logs_and_role_outputs(
@@ -98,8 +105,9 @@ def test_successful_run_enriches_logs_and_role_outputs(
     step_outputs = _step_outputs_by_archetype(run_dir)
     tester_output = step_outputs["inspector"][-1]["output"]
     verifier_verdict = step_outputs["gatekeeper"][-1]["output"]
-    metrics_history = _read_jsonl(run_dir / "metrics_history.jsonl")
+    metrics_history = _read_jsonl(run_dir / "timeline" / "metrics.jsonl")
     iteration_log = _read_jsonl(run_dir / "iteration_log.jsonl")
+    latest_iteration_summary = json.loads((run_dir / "context" / "latest_iteration_summary.json").read_text(encoding="utf-8"))
 
     assert tester_output["status_counts"]["overall"]["passed"] >= 1
     assert "failed_items" in tester_output
@@ -116,6 +124,8 @@ def test_successful_run_enriches_logs_and_role_outputs(
     assert latest_entry["tester"]["status_counts"]["overall"]["passed"] >= 1
     assert latest_entry["verifier"]["decision_summary"]
     assert latest_entry["score"]["composite"] == verifier_verdict["composite_score"]
+    assert latest_iteration_summary["score"]["composite"] == verifier_verdict["composite_score"]
+    assert latest_iteration_summary["step_handoffs"]
 
 
 def test_successful_run_emits_structured_service_logs(
@@ -157,20 +167,21 @@ def test_run_persists_role_request_snapshots_and_iteration_handoff(
     run = service.rerun(loop["id"])
 
     run_dir = Path(run["runs_dir"])
-    role_requests = _read_jsonl(run_dir / "role_requests.jsonl")
+    role_requests = _read_jsonl(run_dir / "context" / "role_requests.jsonl")
 
     assert role_requests
     generator_requests = [item for item in role_requests if item["role"] == "generator"]
     assert generator_requests
     second_generator = next(item for item in generator_requests if item["iter"] == 1)
-    assert "previous_verifier_result" in second_generator["extra_context_keys"]
-    assert second_generator["context_summary"]["previous_verifier_result"]["composite_score"] == 0.62
+    assert "context_packet" in second_generator["extra_context_keys"]
+    assert second_generator["context_summary"]["previous_iteration_summary"]["composite"] == 0.62
 
-    prompt_path = Path(second_generator["prompt_path"])
+    prompt_path = run_dir / second_generator["prompt_path"]
     prompt_text = prompt_path.read_text(encoding="utf-8")
-    assert "Previous iteration evidence:" in prompt_text
+    assert "This is iteration 2." in prompt_text
+    assert "Previous iteration summary:" in prompt_text
     assert "Improve the most visible failing checks without widening scope." in prompt_text
-    assert "Use this evidence as your starting point" in prompt_text
+    assert "Immediate upstream handoff" in prompt_text
 
 
 def test_inspect_first_workflow_runs_inspector_before_builder(
@@ -264,7 +275,7 @@ def test_workflow_step_model_override_is_used_for_role_requests(
 
     run = service.rerun(loop["id"])
 
-    role_requests = _read_jsonl(Path(run["runs_dir"]) / "role_requests.jsonl")
+    role_requests = _read_jsonl(Path(run["runs_dir"]) / "context" / "role_requests.jsonl")
     builder_request = next(item for item in role_requests if item.get("step_id") == "builder_step")
     assert builder_request["model"] == "gpt-5.4-mini"
 
@@ -316,7 +327,7 @@ def test_workflow_roles_can_use_distinct_executor_snapshots(
     )
     run = service.rerun(loop["id"])
 
-    role_requests = _read_jsonl(Path(run["runs_dir"]) / "role_requests.jsonl")
+    role_requests = _read_jsonl(Path(run["runs_dir"]) / "context" / "role_requests.jsonl")
     builder_request = next(item for item in role_requests if item.get("step_id") == "builder_step")
     custom_request = next(item for item in role_requests if item.get("step_id") == "custom_step")
 
@@ -456,8 +467,8 @@ def test_exploratory_run_generates_and_freezes_checks(
     run = service.rerun(loop["id"])
 
     run_dir = Path(run["runs_dir"])
-    compiled_spec = json.loads((run_dir / "compiled_spec.json").read_text(encoding="utf-8"))
-    auto_checks = json.loads((run_dir / "auto_checks.json").read_text(encoding="utf-8"))
+    compiled_spec = json.loads((run_dir / "contract" / "compiled_spec.json").read_text(encoding="utf-8"))
+    auto_checks = json.loads((run_dir / "contract" / "auto_checks.json").read_text(encoding="utf-8"))
     tester_output = json.loads((run_dir / "tester_output.json").read_text(encoding="utf-8"))
 
     assert compiled_spec["check_mode"] == "auto_generated"

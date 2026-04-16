@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Iterator
 
 from loopora.diagnostics import get_logger, log_event, log_exception
-from loopora.utils import append_jsonl, utc_now
+from loopora.run_artifacts import RunArtifactLayout, append_jsonl_with_mirrors
+from loopora.utils import utc_now
 
 logger = get_logger(__name__)
 
@@ -677,7 +678,12 @@ class LooporaRepository:
         }
         if run:
             try:
-                append_jsonl(Path(run["runs_dir"]) / "events.jsonl", record)
+                layout = RunArtifactLayout(Path(run["runs_dir"]))
+                append_jsonl_with_mirrors(
+                    layout.timeline_events_path,
+                    record,
+                    mirror_paths=[layout.legacy_events_path],
+                )
             except OSError:
                 log_exception(
                     logger,

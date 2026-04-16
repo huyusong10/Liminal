@@ -106,6 +106,9 @@ def test_run_detail_places_run_files_and_console_before_timeline(
     assert "正在准备浏览器环境" in response.text
     assert "console-popout-link" in response.text
     assert "全屏终端" in response.text
+    assert "console-filters" in response.text
+    assert "console-expand-all" in response.text
+    assert "console-collapse-all" in response.text
 
 
 def test_run_console_page_renders_fullscreen_console_view(
@@ -136,6 +139,9 @@ def test_run_console_page_renders_fullscreen_console_view(
     assert "Fullscreen Console Loop" in response.text
     assert "console-focus-shell" in response.text
     assert "console-focus-output" in response.text
+    assert "console-focus-filters" in response.text
+    assert "console-focus-expand-all" in response.text
+    assert "console-focus-collapse-all" in response.text
     assert "/static/pages/run_console.js?v=" in response.text
 
 

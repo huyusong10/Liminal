@@ -86,7 +86,10 @@ def test_append_event_tolerates_jsonl_mirror_failures(tmp_path: Path, monkeypatc
         }
     )
 
-    monkeypatch.setattr("loopora.db.append_jsonl", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")))
+    monkeypatch.setattr(
+        "loopora.db.append_jsonl_with_mirrors",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
 
     event = repository.append_event("run_test", "run_started", {"status": "running"})
 

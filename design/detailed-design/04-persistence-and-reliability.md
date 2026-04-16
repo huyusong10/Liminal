@@ -44,7 +44,37 @@
 - orchestration 保存的是角色快照与步骤，不直接回写 role definition
 - loop definition 保存的是运行策略与 orchestration 引用，不重新定义角色默认执行配置
 
-## 4. 可靠性控制件
+## 4. Canonical Run Layout
+
+run 目录使用统一 canonical layout：
+
+- `summary.md`
+- `contract/spec.md`
+- `contract/compiled_spec.json`
+- `contract/workflow.json`
+- `contract/run_contract.json`
+- `contract/workspace_baseline.json`
+- `contract/prompts/<prompt_ref>.md`
+- `context/role_requests.jsonl`
+- `context/latest_state.json`
+- `context/latest_iteration_summary.json`
+- `timeline/events.jsonl`
+- `timeline/iterations.jsonl`
+- `timeline/metrics.jsonl`
+- `timeline/stagnation.json`
+- `iterations/iter_XXX/summary.json`
+- `iterations/iter_XXX/steps/NN__<step_id>/{metadata,input.context,prompt,output.raw,output.normalized,handoff}.json|md`
+
+兼容策略：
+
+- `events.jsonl`
+- `iteration_log.jsonl`
+- `metrics_history.jsonl`
+- `builder_output.json / tester_output.json / verifier_verdict.json` 等 root 文件
+
+这些 legacy mirrors 可以继续被读取，但不再承担真实上下文流转语义。
+
+## 5. 可靠性控制件
 
 | 控制件 | 触发时机 | 承诺 |
 |--------|----------|------|
@@ -54,7 +84,7 @@
 | stale/orphan recovery | 进程异常退出或状态失联 | 重启后会先把活动状态收敛为可理解状态 |
 | workspace safety guard | 检测到破坏性工作区改动 | 用户项目安全优先于继续执行 |
 
-## 5. 核心约束
+## 6. 核心约束
 
 - 单个 workdir 同时最多一个活动 run。
 - 活动 run 必须能被停止。
@@ -63,7 +93,7 @@
 - 工作区安全优先于继续执行。
 - 界面辅助状态只能是 best-effort，不得污染核心持久语义。
 
-## 6. 恢复哲学
+## 7. 恢复哲学
 
 恢复遵循以下优先级：
 
@@ -72,7 +102,7 @@
 
 因此“恢复”的目标不是无条件续跑，而是把 run 收敛成对系统和用户都可解释的状态。
 
-## 7. 边界约束
+## 8. 边界约束
 
 依赖方向必须保持为：
 
@@ -84,7 +114,7 @@
 - 接口层直接操作底层锁语义
 - executor 直接定义恢复策略
 
-## 8. 配置与辅助状态
+## 9. 配置与辅助状态
 
 配置与最近使用记录属于可靠性边界的一部分，但不属于业务契约本身。
 
@@ -94,7 +124,7 @@
 - 自愈过程不能阻止系统启动
 - 辅助状态只能改善体验，不能改变最终提交到服务层的定义
 
-## 9. 变更触发
+## 10. 变更触发
 
 以下变化需要更新本文档：
 
@@ -107,9 +137,8 @@
 
 - 字段扩展
 - 阈值调整
-- 存储格式或目录布局的内部实现变化
 
-## 10. 非目标
+## 11. 非目标
 
 - 不做分布式一致性系统
 - 不承诺崩溃后自动续跑到原位置

@@ -45,7 +45,7 @@
 - 流程编排支持步骤级模型覆盖；角色定义支持把 archetype-backed prompt 模版录入成可复用资产
 - loop 支持 GateKeeper 收敛模式，也支持按最大轮数推进的 rounds 模式；非零轮次间隔可以把循环改成“每隔一段时间再跑下一轮”
 - 创建循环页会记住浏览器里未提交完的草稿，并给出最近使用过的 workdir，底层 loop 模型本身不变
-- 每次 run 都会产出结构化文件，例如 `compiled_spec.json`、`tester_output.json`、`verifier_verdict.json`、`events.jsonl`、`summary.md`
+- 每次 run 都会产出 canonical artifacts，统一落在 `contract/`、`context/`、`timeline/`、`iterations/` 下，同时保留 root 级兼容镜像文件
 - CLI 支持 `run`、`serve`、`loops create`、`loops list`、`loops status`、`loops stop`、`loops rerun`、`loops delete`、`spec init`、`spec validate`
 - 支持 fake executor，方便本地 smoke test 和演示
 - 内置 `loopora-spec` skill，帮助你生成符合要求的 `spec.md`
@@ -158,7 +158,7 @@ Loopora 使用 Markdown spec，顶层结构如下：
 - 循环列表页：查看状态、模型、最近运行和常用操作
 - 创建循环页：校验 spec、推荐最近使用过的 workdir、配置 completion mode / iteration interval，并支持恢复浏览器本地草稿
 - 角色定义页：维护可复用的角色模版
-- 运行详情页：实时进度、阶段说明、控制台流、时间线和关键产物
+- 运行详情页：实时进度、阶段说明、控制台流、时间线和关键产物，并支持终端过滤、单条折叠/展开、全部收缩/展开
 - 工具页：安装内置的 `loopora-spec` skill
 
 ## 存储结构
@@ -174,16 +174,30 @@ Loopora 使用 Markdown spec，顶层结构如下：
 - `logs/service.log`
 - `recent_workdirs.json`
 
-项目内状态位于 `<workdir>/.loopora/`。如果老项目已经在使用 `.liminal/`，当前版本也会继续识别并复用它：
+项目内状态位于 `<workdir>/.loopora/`。如果老项目已经在使用 `.liminal/`，当前版本也会继续识别并复用它。
+
+canonical run 布局：
 
 - `loops/<loop_id>/spec.md`
 - `loops/<loop_id>/compiled_spec.json`
-- `runs/<run_id>/events.jsonl`
-- `runs/<run_id>/tester_output.json`
-- `runs/<run_id>/verifier_verdict.json`
-- `runs/<run_id>/iteration_log.jsonl`
-- `runs/<run_id>/stagnation.json`
 - `runs/<run_id>/summary.md`
+- `runs/<run_id>/contract/spec.md`
+- `runs/<run_id>/contract/compiled_spec.json`
+- `runs/<run_id>/contract/workflow.json`
+- `runs/<run_id>/contract/run_contract.json`
+- `runs/<run_id>/contract/prompts/<prompt_ref>.md`
+- `runs/<run_id>/context/role_requests.jsonl`
+- `runs/<run_id>/context/latest_state.json`
+- `runs/<run_id>/context/latest_iteration_summary.json`
+- `runs/<run_id>/timeline/events.jsonl`
+- `runs/<run_id>/timeline/iterations.jsonl`
+- `runs/<run_id>/timeline/metrics.jsonl`
+- `runs/<run_id>/timeline/stagnation.json`
+- `runs/<run_id>/iterations/iter_000/summary.json`
+- `runs/<run_id>/iterations/iter_000/steps/00__<step_id>/input.context.json`
+- `runs/<run_id>/iterations/iter_000/steps/00__<step_id>/handoff.json`
+
+像 `events.jsonl`、`iteration_log.jsonl`、`metrics_history.jsonl`、`tester_output.json`、`verifier_verdict.json` 这样的 root 级文件仍会继续镜像生成，但它们已经不再是 context 流转的 canonical 来源。
 
 ## Fake Executor
 

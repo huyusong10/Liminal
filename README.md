@@ -44,7 +44,7 @@ Each run compiles the Markdown spec into a frozen snapshot, updates the workspac
 - First-class role definitions plus orchestration editing, including per-step model overrides
 - Loop completion can be GateKeeper-driven or round-based, and non-zero iteration intervals let a loop wait between rounds
 - The loop creation page remembers unfinished browser drafts and surfaces recent workdirs without changing the underlying loop model
-- Structured run outputs such as `compiled_spec.json`, `tester_output.json`, `verifier_verdict.json`, `events.jsonl`, and `summary.md`
+- Canonical run artifacts under `contract/`, `context/`, `timeline/`, and `iterations/`, with legacy root mirrors kept for compatibility
 - CLI commands for `run`, `serve`, `loops create`, `loops list`, `loops status`, `loops stop`, `loops rerun`, `loops delete`, `spec init`, and `spec validate`
 - Optional fake executor mode for smoke tests and demos
 - Bundled `loopora-spec` skill that helps draft valid `spec.md` files
@@ -156,7 +156,7 @@ The local console includes:
 - Saved loop list with status, model, latest run, and direct actions
 - Loop creation page with spec validation, recent workdir suggestions, completion mode and iteration interval controls, and browser-local draft recovery
 - Role definitions page for reusable archetype-backed role templates
-- Run detail page with live progress, stage explanations, console streaming, timeline, and fixed artifact tabs
+- Run detail page with live progress, stage explanations, console streaming, timeline, fixed artifact tabs, and white-box terminal controls for filtering plus collapse/expand
 - Tool page for installing the bundled `loopora-spec` skill
 
 ## Storage
@@ -172,16 +172,30 @@ Global state lives under `~/.loopora/` by default. Set `LOOPORA_HOME=/custom/pat
 - `logs/service.log`
 - `recent_workdirs.json`
 
-Per-project state lives under `<workdir>/.loopora/`. Existing workdirs that already use `.liminal/` remain readable and writable:
+Per-project state lives under `<workdir>/.loopora/`. Existing workdirs that already use `.liminal/` remain readable and writable.
+
+Canonical run layout:
 
 - `loops/<loop_id>/spec.md`
 - `loops/<loop_id>/compiled_spec.json`
-- `runs/<run_id>/events.jsonl`
-- `runs/<run_id>/tester_output.json`
-- `runs/<run_id>/verifier_verdict.json`
-- `runs/<run_id>/iteration_log.jsonl`
-- `runs/<run_id>/stagnation.json`
 - `runs/<run_id>/summary.md`
+- `runs/<run_id>/contract/spec.md`
+- `runs/<run_id>/contract/compiled_spec.json`
+- `runs/<run_id>/contract/workflow.json`
+- `runs/<run_id>/contract/run_contract.json`
+- `runs/<run_id>/contract/prompts/<prompt_ref>.md`
+- `runs/<run_id>/context/role_requests.jsonl`
+- `runs/<run_id>/context/latest_state.json`
+- `runs/<run_id>/context/latest_iteration_summary.json`
+- `runs/<run_id>/timeline/events.jsonl`
+- `runs/<run_id>/timeline/iterations.jsonl`
+- `runs/<run_id>/timeline/metrics.jsonl`
+- `runs/<run_id>/timeline/stagnation.json`
+- `runs/<run_id>/iterations/iter_000/summary.json`
+- `runs/<run_id>/iterations/iter_000/steps/00__<step_id>/input.context.json`
+- `runs/<run_id>/iterations/iter_000/steps/00__<step_id>/handoff.json`
+
+Compatibility mirrors such as `events.jsonl`, `iteration_log.jsonl`, `metrics_history.jsonl`, `tester_output.json`, and `verifier_verdict.json` are still written at the run root, but they are no longer the canonical source of context flow.
 
 ## Fake Executor
 

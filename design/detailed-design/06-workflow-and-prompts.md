@@ -112,13 +112,28 @@ prompt 资产必须满足：
 
 ## 7. 运行时装配
 
-运行时 prompt 由以下信息共同装配：
+运行时 prompt 由稳定协议装配，顺序固定为：
 
-`系统安全约束 → 用户 prompt → spec 与限制条件 → 同轮和上一轮证据 → 输出契约`
+`系统安全约束 → 输出契约 → 用户 prompt → run contract 摘要 → 当前轮次/当前 step 说明 → 紧邻上一步 handoff → 本轮已完成步骤摘要 → 上一轮同 step / 同 role handoff → 上一轮总结 → artifact refs`
 
-这意味着 prompt 可以被自定义，但系统安全边界和结构化输出约束不能被绕开。
+补充约束：
 
-## 8. 运行数据流
+- 首轮必须显式声明“这是第一轮，没有上一轮结果”。
+- 后续轮次必须显式声明“这是第 N 轮，并给出上一轮关键结果”。
+- prompt 可以被自定义，但系统安全边界、输出契约和 context packet shape 不能被绕开。
+
+## 8. Context Protocol
+
+运行时使用以下内部稳定对象：
+
+| 对象 | 作用 | 稳定承诺 |
+|------|------|----------|
+| `RunContractSnapshot` | 冻结 spec、workflow、prompt refs、runtime 配置 | run 生命周期内不漂移 |
+| `StepContextPacket` | 在 step 开始前装配当前轮次、当前步骤、上游 handoff 与 artifact refs | shape 由代码固定生成 |
+| `StepHandoff` | 在 step 结束后给下游角色消费的结构化交接包 | 由代码从结构化输出派生 |
+| `IterationSummary` | 汇总本轮 handoff、得分、停滞状态与 latest refs | 作为下一轮的统一回看入口 |
+
+## 9. 运行数据流
 
 | 阶段 | 输入 | 输出 |
 |------|------|------|
@@ -126,7 +141,7 @@ prompt 资产必须满足：
 | loop 创建 | workflow、prompt、运行参数 | 冻结后的 loop snapshot |
 | run 执行 | snapshot | 分步骤证据、事件、终态摘要 |
 
-## 9. 跨入口一致性
+## 10. 跨入口一致性
 
 workflow 与 prompt 资产必须满足：
 
@@ -136,7 +151,7 @@ workflow 与 prompt 资产必须满足：
 - step 级模型覆盖不能只在单一入口可表达
 - orchestration 不直接维护角色默认 prompt 与执行配置
 
-## 10. 变更触发
+## 11. 变更触发
 
 以下变化需要更新本文档：
 
@@ -149,10 +164,9 @@ workflow 与 prompt 资产必须满足：
 以下变化通常不需要更新本文档：
 
 - prompt 具体文案调整
-- 内部落盘路径调整
 - 兼容层实现细节变化
 
-## 11. 非目标
+## 12. 非目标
 
 - 不支持 DAG
 - 不支持并发 step

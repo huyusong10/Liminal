@@ -57,7 +57,11 @@
 
 - 保持单轮内步骤为线性顺序
 - 维护当前活动角色与轮次状态
-- 在步骤之间传递上一轮证据
+- 在 run 开始时冻结 `run contract`
+- 在每个 step 开始前生成稳定的 `StepContextPacket`
+- 在每个 step 结束后生成稳定的 `StepHandoff`
+- 在每轮结束后生成 `IterationSummary`
+- 角色上下文主键必须以 `step_id` 和 `role_id` 为主，`archetype` 只能作为聚类与回退
 - 汇聚结构化结果与人类可读摘要
 
 ### 4.3 终态收敛
@@ -84,6 +88,9 @@
 - `gatekeeper` completion mode 必须依赖可结束流程的 GateKeeper 步骤。
 - `rounds` completion mode 允许没有 GateKeeper。
 - orchestration 只负责编排角色快照与步骤，不直接维护角色 prompt 或执行配置。
+- context / handoff 的 shape 必须由代码固定生成，不能依赖模型自由发挥。
+- 首轮与后续轮次的上下文语义必须显式区分。
+- 下一步角色看到的上游信息必须来自结构化 handoff，而不是非约束的自由文本。
 - 非零轮次间隔必须可被 stop 请求打断。
 - 每个 run 只能落到一个终态。
 - 每次状态变化都必须能投影到外部观察面。

@@ -7,7 +7,23 @@ document.addEventListener("DOMContentLoaded", () => {
   const output = document.getElementById("console-focus-output");
   const shell = document.getElementById("console-focus-shell");
   const statusBadge = document.getElementById("console-focus-status");
+  const lineCountNode = document.getElementById("console-focus-line-count");
+  const filterGroup = document.getElementById("console-focus-filters");
+  const expandAllButton = document.getElementById("console-focus-expand-all");
+  const collapseAllButton = document.getElementById("console-focus-collapse-all");
   const MAX_CONSOLE_LINES = 640;
+  const FILTER_OPTIONS = [
+    {key: "system", zh: "系统动作", en: "System"},
+    {key: "context", zh: "上下文流转", en: "Context"},
+    {key: "command", zh: "命令", en: "Command"},
+    {key: "stdout", zh: "终端输出", en: "Stdout"},
+    {key: "progress", zh: "模型进度", en: "Progress"},
+    {key: "file", zh: "文件变更", en: "Files"},
+    {key: "warning", zh: "提醒", en: "Warning"},
+    {key: "error", zh: "错误", en: "Error"},
+  ];
+  const selectedFilters = new Set(FILTER_OPTIONS.map((item) => item.key));
+
   let currentRun = initialRun;
   let consoleEventRecords = Array.isArray(initialConsoleEvents) ? initialConsoleEvents.slice() : [];
   let lastEventId = Number(initialLatestEventId || 0);
@@ -48,8 +64,13 @@ document.addEventListener("DOMContentLoaded", () => {
     return Math.floor(parsed) + 1;
   }
 
-  function lineCountLabel(count) {
-    return window.LooporaUI.currentLocale() === "zh" ? `${count} 行` : `${count} lines`;
+  function lineCountLabel(visibleCount, totalCount = visibleCount) {
+    if (visibleCount === totalCount) {
+      return window.LooporaUI.currentLocale() === "zh" ? `${visibleCount} 行` : `${visibleCount} lines`;
+    }
+    return window.LooporaUI.currentLocale() === "zh"
+      ? `${visibleCount}/${totalCount} 行`
+      : `${visibleCount}/${totalCount} lines`;
   }
 
   function consoleChannelLabel(channel) {
@@ -57,6 +78,7 @@ document.addEventListener("DOMContentLoaded", () => {
       command: localeText("命令", "Command"),
       stdout: localeText("输出", "Stdout"),
       state: localeText("状态", "State"),
+      context: localeText("上下文", "Context"),
       progress: localeText("进展", "Progress"),
       model: localeText("模型", "Model"),
       file: localeText("文件", "Files"),
@@ -66,34 +88,100 @@ document.addEventListener("DOMContentLoaded", () => {
     return labels[channel] || localeText("信息", "Info");
   }
 
-  function buildConsoleEntry(event, {tone = "info", channel = "state", text = "", indent = 0, roleLabel = null} = {}) {
+  function firstLine(text) {
+    return String(text || "").split("\n")[0] || "";
+  }
+
+  function truncateSummary(text, maxChars = 140) {
+    const normalized = firstLine(text).trim();
+    if (normalized.length <= maxChars) {
+      return normalized;
+    }
+    return `${normalized.slice(0, maxChars - 1).trimEnd()}…`;
+  }
+
+  function prettyJson(value) {
+    return JSON.stringify(value, null, 2);
+  }
+
+  function buildConsoleEntry(
+    event,
+    {
+      tone = "info",
+      channel = "state",
+      filterKey = "system",
+      text = "",
+      summary = "",
+      indent = 0,
+      roleLabel = null,
+      collapsed = false,
+    } = {},
+  ) {
     const payload = event.payload || {};
     const resolvedRole = roleLabel || window.LooporaUI.translateRole(event.role || payload.role || "system");
-    const normalizedText = String(text ?? "")
-      .replaceAll("\r\n", "\n")
-      .replace(/\s+$/, "");
+    const normalizedText = String(text ?? "").replaceAll("\r\n", "\n").replace(/\s+$/, "");
     return {
       tone,
       channel,
+      filterKey,
       text: normalizedText,
+      summary: truncateSummary(summary || normalizedText),
       indent: Math.max(0, Math.min(2, Number(indent) || 0)),
       stamp: formatClock(event.created_at),
       label: `${resolvedRole} · ${consoleChannelLabel(channel)}`,
-      mergeKey: `${resolvedRole}|${channel}|${tone}`,
+      mergeKey: `${resolvedRole}|${channel}|${tone}|${filterKey}`,
       mergeable: channel === "stdout",
+      collapsed,
     };
+  }
+
+  function buildContextDetail(payload) {
+    return [
+      `iter=${payload.iter !== undefined ? displayIter(payload.iter) : "-"}`,
+      `step=${payload.step_id || "-"}`,
+      `role=${payload.role_name || payload.role || "-"}`,
+      `path=${payload.context_path || payload.handoff_path || payload.summary_path || payload.step_prompt_path || payload.output_path || "-"}`,
+    ].join(" · ");
   }
 
   function buildConsoleLines(event) {
     const payload = event.payload || {};
     if (event.event_type === "run_started") {
-      return [buildConsoleEntry(event, {tone: "system", channel: "state", text: localeText("运行开始", "Run started")})];
+      return [buildConsoleEntry(event, {
+        tone: "system",
+        channel: "state",
+        filterKey: "system",
+        summary: localeText("运行开始", "Run started"),
+        text: localeText("运行开始，Loopora 已进入执行态。", "Run started and Loopora entered execution mode."),
+      })];
     }
     if (event.event_type === "checks_resolved") {
       return [buildConsoleEntry(event, {
         tone: "system",
         channel: "state",
-        text: `${localeText("检查项已就绪", "Checks resolved")} (${payload.count || 0})`,
+        filterKey: "system",
+        summary: `${localeText("检查项已就绪", "Checks resolved")} (${payload.count || 0})`,
+        text: prettyJson(payload),
+      })];
+    }
+    if (event.event_type === "role_request_prepared") {
+      return [buildConsoleEntry(event, {
+        tone: "system",
+        channel: "context",
+        filterKey: "context",
+        summary: `${localeText("角色请求已准备", "Role request prepared")} · ${payload.role_name || payload.role || "-"}`,
+        text: prettyJson(payload),
+        collapsed: true,
+      })];
+    }
+    if (event.event_type === "step_context_prepared") {
+      return [buildConsoleEntry(event, {
+        tone: "system",
+        channel: "context",
+        filterKey: "context",
+        summary: `${localeText("上下文已装配", "Context prepared")} · ${buildContextDetail(payload)}`,
+        text: prettyJson(payload),
+        collapsed: true,
       })];
     }
     if (event.event_type === "role_started") {
@@ -101,63 +189,100 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "system",
         channel: "state",
-        text: `${localeText("开始执行", "Started")}${iterLabel}`,
+        filterKey: "system",
+        summary: `${localeText("开始执行", "Started")}${iterLabel}`,
+        text: prettyJson(payload),
       })];
     }
     if (event.event_type === "role_degraded") {
       return [buildConsoleEntry(event, {
         tone: "warning",
         channel: "warning",
-        text: `${localeText("降级到", "Degraded to")} ${payload.mode || "-"}`,
+        filterKey: "warning",
+        summary: `${localeText("降级到", "Degraded to")} ${payload.mode || "-"}`,
+        text: prettyJson(payload),
       })];
     }
     if (event.event_type === "role_execution_summary") {
       const tone = payload.ok ? "success" : "error";
       const durationText = formatDurationMs(payload.duration_ms);
       const detail = payload.ok
-        ? `${localeText("完成", "completed")} · ${localeText("尝试", "attempts")}=${payload.attempts || 1}${durationText ? ` · ${durationText}` : ""}`
-        : `${localeText("失败", "failed")} · ${payload.error || "-"}${durationText ? ` · ${durationText}` : ""}`;
+        ? `${localeText("完成", "Completed")} · ${localeText("尝试", "attempts")}=${payload.attempts || 1}${durationText ? ` · ${durationText}` : ""}`
+        : `${localeText("失败", "Failed")} · ${payload.error || "-"}${durationText ? ` · ${durationText}` : ""}`;
       return [buildConsoleEntry(event, {
         tone,
         channel: payload.ok ? "state" : "error",
-        text: detail,
+        filterKey: payload.ok ? "system" : "error",
+        summary: detail,
+        text: prettyJson(payload),
+      })];
+    }
+    if (event.event_type === "step_handoff_written") {
+      return [buildConsoleEntry(event, {
+        tone: payload.status === "blocked" ? "warning" : payload.status === "passed" ? "success" : "system",
+        channel: "context",
+        filterKey: "context",
+        summary: `${localeText("交接包已写入", "Handoff written")} · ${payload.summary || "-"}`,
+        text: prettyJson(payload),
+        collapsed: true,
+      })];
+    }
+    if (event.event_type === "iteration_summary_written") {
+      return [buildConsoleEntry(event, {
+        tone: payload.passed ? "success" : "system",
+        channel: "context",
+        filterKey: "context",
+        summary: `${localeText("轮次摘要已冻结", "Iteration summary written")} · score=${payload.composite_score ?? "n/a"}`,
+        text: prettyJson(payload),
+        collapsed: true,
       })];
     }
     if (event.event_type === "run_aborted") {
       return [buildConsoleEntry(event, {
         tone: "error",
         channel: "error",
-        text: `${localeText("运行中止", "Run aborted")} · ${payload.error || payload.role || "-"}`,
+        filterKey: "error",
+        summary: `${localeText("运行中止", "Run aborted")} · ${payload.error || payload.role || "-"}`,
+        text: prettyJson(payload),
       })];
     }
     if (event.event_type === "workspace_guard_triggered") {
       return [buildConsoleEntry(event, {
         tone: "error",
         channel: "error",
-        text: `${localeText("工作区安全守卫触发", "Workspace safety guard triggered")} · ${localeText("删掉原始文件", "Deleted original files")}=${payload.deleted_original_count || 0}`,
+        filterKey: "error",
+        summary: `${localeText("工作区安全守卫触发", "Workspace safety guard triggered")} · ${localeText("删掉原始文件", "Deleted original files")}=${payload.deleted_original_count || 0}`,
+        text: prettyJson(payload),
       })];
     }
     if (event.event_type === "stop_requested") {
       return [buildConsoleEntry(event, {
         tone: "warning",
         channel: "warning",
-        text: localeText("已请求停止", "Stop requested"),
+        filterKey: "warning",
+        summary: localeText("已请求停止", "Stop requested"),
+        text: prettyJson(payload),
       })];
     }
     if (event.event_type === "run_finished") {
       return [buildConsoleEntry(event, {
         tone: payload.status === "succeeded" ? "success" : "warning",
         channel: "state",
-        text: `${localeText("运行结束", "Run finished")} · ${window.LooporaUI.translateStatus(payload.status || "succeeded")}`,
+        filterKey: "system",
+        summary: `${localeText("运行结束", "Run finished")} · ${window.LooporaUI.translateStatus(payload.status || "succeeded")}`,
+        text: prettyJson(payload),
       })];
     }
     if (event.event_type !== "codex_event") {
       return [];
     }
+
     if (payload.type === "stdout" && payload.message) {
       return [buildConsoleEntry(event, {
         tone: "stdout",
         channel: "stdout",
+        filterKey: "stdout",
+        summary: String(payload.message),
         text: String(payload.message),
         indent: 1,
       })];
@@ -166,22 +291,30 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "command",
         channel: "command",
+        filterKey: "command",
+        summary: `$ ${String(payload.message).trim()}`,
         text: `$ ${String(payload.message).trim()}`,
       })];
     }
     if (payload.type === "error") {
+      const message = String(payload.message || payload.error?.message || localeText("发生错误", "Error")).trim();
       return [buildConsoleEntry(event, {
         tone: "error",
         channel: "error",
-        text: String(payload.message || payload.error?.message || localeText("发生错误", "Error")).trim(),
+        filterKey: "error",
+        summary: message,
+        text: message,
         indent: 1,
       })];
     }
     if (payload.type === "turn.failed") {
+      const message = String(payload.error?.message || localeText("本轮失败", "Turn failed")).trim();
       return [buildConsoleEntry(event, {
         tone: "error",
         channel: "error",
-        text: String(payload.error?.message || localeText("本轮失败", "Turn failed")).trim(),
+        filterKey: "error",
+        summary: message,
+        text: message,
         indent: 1,
       })];
     }
@@ -194,6 +327,8 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "command",
         channel: "command",
+        filterKey: "command",
+        summary: `$ ${item.command || ""}`,
         text: `$ ${item.command || ""}`,
       })];
     }
@@ -202,6 +337,8 @@ document.addEventListener("DOMContentLoaded", () => {
         return [buildConsoleEntry(event, {
           tone: "stdout",
           channel: "stdout",
+          filterKey: "stdout",
+          summary: String(item.aggregated_output),
           text: String(item.aggregated_output),
           indent: 1,
         })];
@@ -210,6 +347,8 @@ document.addEventListener("DOMContentLoaded", () => {
         ? [buildConsoleEntry(event, {
           tone: "error",
           channel: "error",
+          filterKey: "error",
+          summary: `${localeText("命令退出码", "Command exit code")} ${item.exit_code}`,
           text: `${localeText("命令退出码", "Command exit code")} ${item.exit_code}`,
           indent: 1,
         })]
@@ -220,7 +359,9 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "success",
         channel: "file",
-        text: `${localeText("文件变更", "Files changed")}: ${changed || "-"}`,
+        filterKey: "file",
+        summary: `${localeText("文件变更", "Files changed")}: ${changed || "-"}`,
+        text: prettyJson(item),
         indent: 1,
       })];
     }
@@ -230,7 +371,9 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "progress",
         channel: "progress",
-        text: `${localeText("待办进度", "Todo progress")}: ${completed}/${total}`,
+        filterKey: "progress",
+        summary: `${localeText("待办进度", "Todo progress")}: ${completed}/${total}`,
+        text: prettyJson(item),
         indent: 1,
       })];
     }
@@ -238,6 +381,8 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "progress",
         channel: "model",
+        filterKey: "progress",
+        summary: String(item.text),
         text: String(item.text),
         indent: 1,
       })];
@@ -245,12 +390,77 @@ document.addEventListener("DOMContentLoaded", () => {
     return [];
   }
 
+  function setRowCollapsed(row, collapsed) {
+    row.classList.toggle("is-collapsed", collapsed);
+    const expander = row.querySelector(".console-line-expander");
+    if (expander) {
+      expander.textContent = collapsed ? localeText("展开", "Expand") : localeText("收起", "Collapse");
+    }
+  }
+
+  function applyConsoleFilters() {
+    const rows = output.querySelectorAll(".console-line");
+    let visibleCount = 0;
+    for (const row of rows) {
+      const visible = selectedFilters.has(row.dataset.filterKey || "system");
+      row.classList.toggle("is-hidden", !visible);
+      if (visible) {
+        visibleCount += 1;
+      }
+    }
+    lineCountNode.textContent = lineCountLabel(visibleCount, rows.length);
+  }
+
   function syncConsoleMeta() {
-    document.getElementById("console-focus-line-count").textContent = lineCountLabel(output.children.length);
+    applyConsoleFilters();
     const status = currentRun?.status || "draft";
     statusBadge.className = `status-pill progress-status-pill status-${status}`;
     statusBadge.dataset.statusLabel = status;
     statusBadge.textContent = window.LooporaUI.translateStatus(status);
+  }
+
+  function buildRow(line) {
+    const row = document.createElement("article");
+    row.className = `console-line console-line-${line.tone || "info"} console-line-indent-${line.indent || 0}`;
+    row.dataset.filterKey = line.filterKey || "system";
+    if (line.mergeKey) {
+      row.dataset.mergeKey = line.mergeKey;
+    }
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "console-line-toggle";
+
+    const meta = document.createElement("div");
+    meta.className = "console-line-meta";
+    const stamp = document.createElement("span");
+    stamp.className = "console-line-stamp";
+    stamp.textContent = line.stamp || "--:--:--";
+    const badge = document.createElement("span");
+    badge.className = "console-line-badge";
+    badge.textContent = line.label || localeText("系统 · 信息", "system · info");
+    meta.append(stamp, badge);
+
+    const summary = document.createElement("div");
+    summary.className = "console-line-summary";
+    summary.textContent = line.summary || firstLine(line.text);
+
+    const expander = document.createElement("span");
+    expander.className = "console-line-expander";
+
+    const body = document.createElement("pre");
+    body.className = "console-line-body";
+    body.textContent = line.text;
+
+    toggle.append(meta, summary, expander);
+    toggle.addEventListener("click", () => {
+      setRowCollapsed(row, !row.classList.contains("is-collapsed"));
+    });
+
+    row.append(toggle, body);
+    setRowCollapsed(row, Boolean(line.collapsed));
+    row.classList.toggle("is-hidden", !selectedFilters.has(line.filterKey || "system"));
+    return row;
   }
 
   function appendConsoleLines(lines) {
@@ -267,25 +477,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         continue;
       }
-      const row = document.createElement("article");
-      row.className = `console-line console-line-${line.tone || "info"} console-line-indent-${line.indent || 0}`;
-      if (line.mergeKey) {
-        row.dataset.mergeKey = line.mergeKey;
-      }
-      const meta = document.createElement("div");
-      meta.className = "console-line-meta";
-      const stamp = document.createElement("span");
-      stamp.className = "console-line-stamp";
-      stamp.textContent = line.stamp || "--:--:--";
-      const badge = document.createElement("span");
-      badge.className = "console-line-badge";
-      badge.textContent = line.label || localeText("系统 · 信息", "system · info");
-      meta.append(stamp, badge);
-      const body = document.createElement("div");
-      body.className = "console-line-body";
-      body.textContent = line.text;
-      row.append(meta, body);
-      output.appendChild(row);
+      output.appendChild(buildRow(line));
     }
     while (output.children.length > MAX_CONSOLE_LINES) {
       output.removeChild(output.firstChild);
@@ -347,6 +539,37 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function buildFilterControls() {
+    expandAllButton.textContent = localeText("全部展开", "Expand all");
+    collapseAllButton.textContent = localeText("全部收缩", "Collapse all");
+    filterGroup.innerHTML = "";
+    for (const option of FILTER_OPTIONS) {
+      const label = document.createElement("label");
+      label.className = "console-filter-chip";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = selectedFilters.has(option.key);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) {
+          selectedFilters.add(option.key);
+        } else {
+          selectedFilters.delete(option.key);
+        }
+        applyConsoleFilters();
+      });
+      const text = document.createElement("span");
+      text.textContent = localeText(option.zh, option.en);
+      label.append(checkbox, text);
+      filterGroup.appendChild(label);
+    }
+    expandAllButton.onclick = () => {
+      output.querySelectorAll(".console-line").forEach((row) => setRowCollapsed(row, false));
+    };
+    collapseAllButton.onclick = () => {
+      output.querySelectorAll(".console-line").forEach((row) => setRowCollapsed(row, true));
+    };
+  }
+
   shell.addEventListener("scroll", (event) => {
     const currentShell = event.currentTarget;
     autoScrollConsole = currentShell.scrollTop + currentShell.clientHeight >= currentShell.scrollHeight - 24;
@@ -366,8 +589,23 @@ document.addEventListener("DOMContentLoaded", () => {
     return payload;
   }
 
+  const streamedEvents = [
+    "run_started",
+    "checks_resolved",
+    "role_request_prepared",
+    "step_context_prepared",
+    "role_started",
+    "role_execution_summary",
+    "step_handoff_written",
+    "iteration_summary_written",
+    "role_degraded",
+    "challenger_done",
+    "stop_requested",
+    "run_aborted",
+    "workspace_guard_triggered",
+  ];
   eventSource.addEventListener("codex_event", handleStreamEvent);
-  ["run_started", "checks_resolved", "role_started", "role_execution_summary", "role_degraded", "challenger_done", "stop_requested", "run_aborted", "workspace_guard_triggered"].forEach((eventName) => {
+  streamedEvents.forEach((eventName) => {
     eventSource.addEventListener(eventName, handleStreamEvent);
   });
   eventSource.addEventListener("run_finished", (message) => {
@@ -380,9 +618,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.addEventListener("loopora:localechange", () => {
     window.LooporaUI.applyLocalizedAttributes(document);
+    buildFilterControls();
     renderConsole();
   });
 
+  buildFilterControls();
   renderConsole();
   syncConsoleMeta();
 });
