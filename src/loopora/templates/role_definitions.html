@@ -3,12 +3,8 @@
 {% block content %}
 <div class="page-stack" data-testid="role-definitions-page">
 <section class="hero hero-tight">
-  <div class="hero-copy-stack">
-    <h1>
-      <span data-lang="zh">先把角色定义清楚，再在编排里自由挑选。</span>
-      <span data-lang="en">Define roles once, then pick them freely inside orchestrations.</span>
-    </h1>
-    <p>
+  <div class="hero-copy-stack hero-copy-stack-lede">
+    <p class="hero-lede" data-testid="role-definitions-intro-copy">
       <span data-lang="zh">这里保存角色名、角色模板、默认执行工具、模型和 prompt 模版。编排选中后，会把它们带进 workflow 作为角色快照。</span>
       <span data-lang="en">Store the role name, role template, default executor, model, and prompt template here. Orchestrations copy them in as role snapshots when selected.</span>
     </p>

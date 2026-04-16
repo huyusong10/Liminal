@@ -1,13 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Orchestrations{% endblock %}
 {% block content %}
+<div class="page-stack" data-testid="orchestrations-page">
 <section class="hero hero-tight">
-  <div class="hero-copy-stack">
-    <h1>
-      <span data-lang="zh">先把流程编排清楚，再给 loop 选择合适的方案。</span>
-      <span data-lang="en">Shape the orchestration first, then let each loop pick the right one.</span>
-    </h1>
-    <p>
+  <div class="hero-copy-stack hero-copy-stack-lede">
+    <p class="hero-lede" data-testid="orchestrations-intro-copy">
       <span data-lang="zh">这里保存角色定义之间的协作顺序、步骤编排和流程收束规则。点开方案会先进入编辑器，确认好之后再去创建 loop。</span>
       <span data-lang="en">This is where role-definition collaboration order, step orchestration, and completion rules live. Opening a saved orchestration takes you into the editor first, then loops can reuse it later.</span>
     </p>
@@ -75,4 +72,5 @@
   </div>
   {% endif %}
 </section>
+</div>
 {% endblock %}

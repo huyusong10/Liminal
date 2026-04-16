@@ -316,6 +316,19 @@ pre,
   gap: 8px;
 }
 
+.hero-copy-stack-lede {
+  max-width: 980px;
+}
+
+.hero-lede {
+  margin: 0;
+  max-width: 980px;
+  color: var(--ink);
+  font-size: clamp(1.12rem, 1.5vw, 1.36rem);
+  line-height: 1.82;
+  font-weight: 500;
+}
+
 .hero-form,
 .form-panel-wide {
   width: 100%;
@@ -418,6 +431,10 @@ html[data-locale="zh"] .callout p,
 html[data-locale="zh"] .preview-box,
 html[data-locale="zh"] .field-status {
   line-height: 1.85;
+}
+
+html[data-locale="zh"] .hero-lede {
+  line-height: 1.9;
 }
 
 .hero-path {

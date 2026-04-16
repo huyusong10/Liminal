@@ -394,6 +394,8 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     client = TestClient(build_app(service=service))
     list_response = client.get("/orchestrations")
     assert list_response.status_code == 200
+    _assert_has_testid(list_response.text, "orchestrations-page")
+    _assert_has_testid(list_response.text, "orchestrations-intro-copy")
     _assert_has_testid(list_response.text, "nav-orchestrations-link")
     assert 'data-open-card="/orchestrations/builtin:build_first/edit"' in list_response.text
     assert "Create loop" not in list_response.text
@@ -448,6 +450,7 @@ Focus on scoped release work.
     list_response = client.get("/roles")
     assert list_response.status_code == 200
     _assert_has_testid(list_response.text, "role-definitions-page")
+    _assert_has_testid(list_response.text, "role-definitions-intro-copy")
     _assert_has_testid(list_response.text, "create-role-definition-link")
     _assert_has_testid(list_response.text, "role-definitions-list")
     assert "Release Builder" in list_response.text
