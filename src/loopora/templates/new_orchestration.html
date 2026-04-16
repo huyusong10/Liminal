@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ page_copy.submit_en }}{% endblock %}
 {% block content %}
-<div class="page-stack">
+<div class="page-stack" data-testid="orchestration-editor-page">
 <section class="hero hero-tight hero-form">
   <div class="hero-copy-stack">
     <h1>
@@ -15,7 +15,7 @@
   </div>
 </section>
 
-<form class="panel form-panel form-panel-wide" method="post" action="{{ page_copy.action }}" id="new-orchestration-form">
+<form class="panel form-panel form-panel-wide" method="post" action="{{ page_copy.action }}" id="new-orchestration-form" data-testid="orchestration-editor-form">
   <div class="field-status is-error" id="form-error" aria-live="polite" {% if not form_error %}hidden{% endif %}>{{ form_error or "" }}</div>
 
   <div class="form-grid">
@@ -44,7 +44,7 @@
           <span class="label-row">
             <span><span data-lang="zh">工作流预设</span><span data-lang="en">Workflow preset</span></span>
           </span>
-          <select id="workflow-preset-input" name="workflow_preset">
+          <select id="workflow-preset-input" name="workflow_preset" data-testid="workflow-preset-input">
             {% for option in workflow_preset_options %}
             <option value="{{ option.id }}" {% if form_values.workflow_preset == option.id %}selected{% endif %}>
               {{ option.label_zh }} / {{ option.label_en }}
@@ -61,7 +61,7 @@
             <span class="label-row">
               <span><span data-lang="zh">角色定义</span><span data-lang="en">Role definition</span></span>
             </span>
-            <select id="role-definition-select">
+            <select id="role-definition-select" data-testid="role-definition-select">
               {% for role_definition in role_definitions %}
               <option value="{{ role_definition.id }}">
                 {{ role_definition.name }} · {{ role_definition.archetype }}{% if role_definition.source == "builtin" %} · builtin{% endif %}
@@ -69,7 +69,7 @@
               {% endfor %}
             </select>
           </label>
-          <button class="ghost-button" type="button" id="add-role-from-definition-button">
+          <button class="ghost-button" type="button" id="add-role-from-definition-button" data-testid="add-role-from-definition-button">
             <span data-lang="zh">加入已选角色</span>
             <span data-lang="en">Add selected role</span>
           </button>
@@ -99,7 +99,7 @@
               </p>
             </div>
           </div>
-          <div id="workflow-roles-list" class="workflow-roles-list"></div>
+          <div id="workflow-roles-list" class="workflow-roles-list" data-testid="workflow-roles-list"></div>
           <datalist id="prompt-template-options">
             {% for prompt_template in prompt_templates %}
             <option value="{{ prompt_template.prompt_ref }}">{{ prompt_template.prompt_ref }}</option>
@@ -116,25 +116,25 @@
               </p>
             </div>
           </div>
-          <div id="workflow-steps-list" class="workflow-steps-list"></div>
+          <div id="workflow-steps-list" class="workflow-steps-list" data-testid="workflow-steps-list"></div>
         </section>
       </div>
       <details class="wide">
         <summary><span data-lang="zh">高级：查看 JSON</span><span data-lang="en">Advanced: inspect JSON</span></summary>
         <label class="wide">
           <span><span data-lang="zh">workflow_json</span><span data-lang="en">workflow_json</span></span>
-          <textarea id="workflow-json-input" name="workflow_json" rows="12">{{- form_values.workflow_json -}}</textarea>
+          <textarea id="workflow-json-input" name="workflow_json" rows="12" data-testid="workflow-json-input">{{- form_values.workflow_json -}}</textarea>
         </label>
         <label class="wide">
           <span><span data-lang="zh">prompt_files_json</span><span data-lang="en">prompt_files_json</span></span>
-          <textarea id="prompt-files-json-input" name="prompt_files_json" rows="12">{{- form_values.prompt_files_json -}}</textarea>
+          <textarea id="prompt-files-json-input" name="prompt_files_json" rows="12" data-testid="prompt-files-json-input">{{- form_values.prompt_files_json -}}</textarea>
         </label>
       </details>
     </section>
   </div>
 
   <div class="card-actions">
-    <button class="primary-button" type="submit" id="save-orchestration-button">
+    <button class="primary-button" type="submit" id="save-orchestration-button" data-testid="save-orchestration-button">
       <span data-lang="zh">{{ page_copy.submit_zh }}</span>
       <span data-lang="en">{{ page_copy.submit_en }}</span>
     </button>

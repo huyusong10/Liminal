@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ page_copy.submit_en }}{% endblock %}
 {% block content %}
-<div class="page-stack">
+<div class="page-stack" data-testid="role-definition-editor-page">
 <section class="hero hero-tight hero-form">
   <div class="hero-copy-stack">
     <h1>
@@ -15,7 +15,7 @@
   </div>
 </section>
 
-<form class="panel form-panel form-panel-wide" method="post" action="{{ page_copy.action }}">
+<form class="panel form-panel form-panel-wide" method="post" action="{{ page_copy.action }}" data-testid="role-definition-editor-form">
   <div class="field-status is-error" aria-live="polite" {% if not form_error %}hidden{% endif %}>{{ form_error or "" }}</div>
 
   <div class="form-grid">
@@ -37,12 +37,12 @@
 
     <label>
       <span><span data-lang="zh">Prompt 文件名</span><span data-lang="en">Prompt file name</span></span>
-      <input name="prompt_ref" value="{{ form_values.prompt_ref }}" required />
+      <input name="prompt_ref" value="{{ form_values.prompt_ref }}" required data-testid="role-definition-prompt-ref-input" />
     </label>
 
     <label>
       <span><span data-lang="zh">默认模型</span><span data-lang="en">Default model</span></span>
-      <input name="model" value="{{ form_values.model }}" />
+      <input name="model" value="{{ form_values.model }}" data-testid="role-definition-model-input" />
     </label>
 
     <label class="wide">
@@ -52,7 +52,7 @@
 
     <label class="wide">
       <span><span data-lang="zh">Prompt Markdown</span><span data-lang="en">Prompt Markdown</span></span>
-      <textarea name="prompt_markdown" rows="20" required>{{- form_values.prompt_markdown -}}</textarea>
+      <textarea name="prompt_markdown" rows="20" required data-testid="role-definition-prompt-markdown-input">{{- form_values.prompt_markdown -}}</textarea>
       <small class="field-note">
         <span data-lang="zh">Prompt 必须带 YAML front matter，并且 `archetype` 要和上面的原型一致。</span>
         <span data-lang="en">The prompt must include YAML front matter, and its `archetype` must match the selected archetype above.</span>
@@ -61,7 +61,7 @@
   </div>
 
   <div class="card-actions">
-    <button class="primary-button" type="submit">
+    <button class="primary-button" type="submit" data-testid="save-role-definition-button">
       <span data-lang="zh">{{ page_copy.submit_zh }}</span>
       <span data-lang="en">{{ page_copy.submit_en }}</span>
     </button>

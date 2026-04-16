@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Create Loop{% endblock %}
 {% block content %}
-<div class="page-stack">
+<div class="page-stack" data-testid="loop-create-page">
 <section class="hero hero-tight hero-form">
   <div class="hero-copy-stack">
     <h1>
@@ -16,7 +16,7 @@
 </section>
 
 {% if access_state.remote_access_enabled %}
-<div class="callout">
+<div class="callout" data-testid="remote-path-callout">
   <strong><span data-lang="zh">当前是网络访问模式</span><span data-lang="en">Network access mode is on</span></strong>
   <p>
     <span data-lang="zh">现在填的路径都指向服务端那台机器，不是你手里这台浏览器。为了避免误会，原生"浏览"按钮已经收起来了，请直接粘贴服务端的绝对路径。</span>
@@ -30,6 +30,7 @@
   method="post"
   action="/loops/new"
   id="new-loop-form"
+  data-testid="loop-create-form"
   data-restore-draft="{{ 'true' if allow_draft_restore else 'false' }}"
 >
   <div
@@ -89,7 +90,7 @@
           placeholder="/absolute/path/to/project"
           required
         />
-        <button class="ghost-button" type="button" id="browse-workdir" {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}>
+        <button class="ghost-button" type="button" id="browse-workdir" data-testid="workdir-browse-button" {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}>
           <span data-lang="zh">浏览</span>
           <span data-lang="en">Browse</span>
         </button>
@@ -99,7 +100,7 @@
         <span data-lang="zh">最近用过的目录：</span>
         <span data-lang="en">Recent workdirs:</span>
       </small>
-      <div class="card-actions recent-workdir-actions">
+      <div class="card-actions recent-workdir-actions" data-testid="recent-workdir-actions">
         {% for recent_workdir in recent_workdirs[:6] %}
         <button class="ghost-button recent-workdir-button" type="button" data-fill-workdir="{{ recent_workdir }}">
           <span class="brand-mark">{{ recent_workdir }}</span>
@@ -142,7 +143,7 @@
           <span data-lang="zh">浏览</span>
           <span data-lang="en">Browse</span>
         </button>
-        <button class="secondary-button" type="button" id="create-spec-template" data-native-dialogs-enabled="{{ 'true' if access_state.native_dialogs_enabled else 'false' }}">
+        <button class="secondary-button" type="button" id="create-spec-template" data-testid="spec-template-button" data-native-dialogs-enabled="{{ 'true' if access_state.native_dialogs_enabled else 'false' }}">
           <span data-lang="zh">创建模版</span>
           <span data-lang="en">Create template</span>
         </button>
@@ -339,7 +340,7 @@
           <span class="label-row">
             <span><span data-lang="zh">选择编排方案</span><span data-lang="en">Choose orchestration</span></span>
           </span>
-          <select id="orchestration-id-input" name="orchestration_id">
+          <select id="orchestration-id-input" name="orchestration_id" data-testid="loop-orchestration-input">
             {% for orchestration in orchestrations %}
             <option value="{{ orchestration.id }}" {% if form_values.orchestration_id == orchestration.id %}selected{% endif %}>
               {{ orchestration.name }}{% if orchestration.source == "builtin" %} · builtin{% endif %}
@@ -361,7 +362,7 @@
           data-title-en="GateKeeper mode ends when a GateKeeper finish step passes. Round-based mode only follows the max-round limit, so pure builder-only flows are allowed."
         >?</button>
       </span>
-      <select id="completion-mode-input" name="completion_mode">
+      <select id="completion-mode-input" name="completion_mode" data-testid="loop-completion-mode-input">
         <option value="gatekeeper" {% if form_values.completion_mode == "gatekeeper" %}selected{% endif %}>GateKeeper / 守门裁决</option>
         <option value="rounds" {% if form_values.completion_mode == "rounds" %}selected{% endif %}>Rounds / 轮次推进</option>
       </select>
@@ -377,7 +378,7 @@
           data-title-en="Use 0 to start the next iteration immediately. Use a value above 0 to wait that many seconds between iterations."
         >?</button>
       </span>
-      <input id="iteration-interval-input" name="iteration_interval_seconds" type="number" min="0" step="0.1" value="{{ form_values.iteration_interval_seconds }}" />
+      <input id="iteration-interval-input" name="iteration_interval_seconds" type="number" min="0" step="0.1" value="{{ form_values.iteration_interval_seconds }}" data-testid="loop-iteration-interval-input" />
     </label>
 
     <label>
@@ -454,19 +455,19 @@
       <div class="executor-config-body">
         <label>
           <span><span data-lang="zh">Builder 模型</span><span data-lang="en">Builder model</span></span>
-          <input id="role-model-builder-input" name="role_model_builder" value="{{ form_values.role_model_builder }}" />
+          <input id="role-model-builder-input" name="role_model_builder" value="{{ form_values.role_model_builder }}" data-testid="role-model-builder-input" />
         </label>
         <label>
           <span><span data-lang="zh">Inspector 模型</span><span data-lang="en">Inspector model</span></span>
-          <input id="role-model-inspector-input" name="role_model_inspector" value="{{ form_values.role_model_inspector }}" />
+          <input id="role-model-inspector-input" name="role_model_inspector" value="{{ form_values.role_model_inspector }}" data-testid="role-model-inspector-input" />
         </label>
         <label>
           <span><span data-lang="zh">GateKeeper 模型</span><span data-lang="en">GateKeeper model</span></span>
-          <input id="role-model-gatekeeper-input" name="role_model_gatekeeper" value="{{ form_values.role_model_gatekeeper }}" />
+          <input id="role-model-gatekeeper-input" name="role_model_gatekeeper" value="{{ form_values.role_model_gatekeeper }}" data-testid="role-model-gatekeeper-input" />
         </label>
         <label>
           <span><span data-lang="zh">Guide 模型</span><span data-lang="en">Guide model</span></span>
-          <input id="role-model-guide-input" name="role_model_guide" value="{{ form_values.role_model_guide }}" />
+          <input id="role-model-guide-input" name="role_model_guide" value="{{ form_values.role_model_guide }}" data-testid="role-model-guide-input" />
         </label>
       </div>
     </details>

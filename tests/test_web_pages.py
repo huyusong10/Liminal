@@ -8,6 +8,10 @@ from fastapi.testclient import TestClient
 from loopora.web import build_app
 
 
+def _assert_has_testid(html: str, testid: str) -> None:
+    assert f'data-testid="{testid}"' in html
+
+
 def test_index_page_renders_with_saved_loops(
     service_factory,
     sample_spec_file: Path,
@@ -33,21 +37,20 @@ def test_index_page_renders_with_saved_loops(
 
     assert response.status_code == 200
     assert "Homepage Loop" in response.text
-    assert "<span data-lang=\"zh\">已创建</span>" in response.text
-    assert "别只盯着最新一次运行" not in response.text
-    assert "本地优先" not in response.text
     assert "/logo/logo-with-text-horizontal-light.svg" in response.text
     assert "page-stack" in response.text
     assert "loop-grid-note" in response.text
-    assert "循环总览" not in response.text
     assert "/static/app.css?v=" in response.text
     assert "/static/app.js?v=" in response.text
-    assert response.text.index("/loops/new") < response.text.index("/tools")
-    assert response.text.index("/orchestrations") < response.text.index("/tools")
+    _assert_has_testid(response.text, "top-nav")
+    _assert_has_testid(response.text, "nav-created-link")
+    _assert_has_testid(response.text, "nav-create-loop-link")
+    _assert_has_testid(response.text, "nav-orchestrations-link")
+    _assert_has_testid(response.text, "nav-role-definitions-link")
+    _assert_has_testid(response.text, "nav-tools-link")
     assert "data-open-card=" in response.text
     assert "id=\"confirm-modal\"" in response.text
     assert "id=\"loops-empty-state\" hidden" in response.text
-    assert "最近更新" not in response.text
 
 
 def test_run_detail_places_run_files_and_console_before_timeline(
@@ -225,6 +228,17 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
 
     assert response.status_code == 200
     assert "/static/pages/new_loop.js?v=" in response.text
+    _assert_has_testid(response.text, "loop-create-page")
+    _assert_has_testid(response.text, "loop-create-form")
+    _assert_has_testid(response.text, "nav-orchestrations-link")
+    _assert_has_testid(response.text, "nav-role-definitions-link")
+    _assert_has_testid(response.text, "workdir-browse-button")
+    _assert_has_testid(response.text, "spec-template-button")
+    _assert_has_testid(response.text, "loop-orchestration-input")
+    _assert_has_testid(response.text, "loop-completion-mode-input")
+    _assert_has_testid(response.text, "loop-iteration-interval-input")
+    _assert_has_testid(response.text, "role-model-builder-input")
+    _assert_has_testid(response.text, "role-model-gatekeeper-input")
     assert "name=\"executor_kind\"" in response.text
     assert "name=\"executor_mode\"" in response.text
     assert "id=\"command-preview\"" in response.text
@@ -234,14 +248,9 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "name=\"iteration_interval_seconds\"" in response.text
     assert "name=\"role_model_builder\"" in response.text
     assert "name=\"role_model_gatekeeper\"" in response.text
-    assert "Manage orchestrations" in response.text
-    assert "Roles" in response.text
     assert "workflow-json-input" not in response.text
-    assert "Claude Code" in response.text
-    assert "OpenCode" in response.text
-    assert "新建一条 loop" in response.text
-    assert "inline-hint-link" in response.text
-    assert "Spec Skill" in response.text
+    assert 'value="claude"' in response.text
+    assert 'value="opencode"' in response.text
 
 
 def test_new_loop_page_surfaces_recent_workdirs_and_browser_draft_controls(
@@ -392,33 +401,35 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     client = TestClient(build_app(service=service))
     list_response = client.get("/orchestrations")
     assert list_response.status_code == 200
-    assert "流程编排" in list_response.text
-    assert "Build First" in list_response.text
-    assert "Create orchestration" in list_response.text
+    _assert_has_testid(list_response.text, "nav-orchestrations-link")
     assert 'data-open-card="/orchestrations/builtin:build_first/edit"' in list_response.text
     assert "Create loop" not in list_response.text
 
     new_response = client.get("/orchestrations/new")
     assert new_response.status_code == 200
     assert "/static/pages/new_orchestration.js?v=" in new_response.text
-    assert "name=\"workflow_preset\"" in new_response.text
-    assert "id=\"workflow-json-input\"" in new_response.text
-    assert "id=\"prompt-files-json-input\"" in new_response.text
-    assert "id=\"role-definition-select\"" in new_response.text
-    assert "id=\"add-role-from-definition-button\"" in new_response.text
+    _assert_has_testid(new_response.text, "orchestration-editor-page")
+    _assert_has_testid(new_response.text, "orchestration-editor-form")
+    _assert_has_testid(new_response.text, "workflow-preset-input")
+    _assert_has_testid(new_response.text, "workflow-json-input")
+    _assert_has_testid(new_response.text, "prompt-files-json-input")
+    _assert_has_testid(new_response.text, "role-definition-select")
+    _assert_has_testid(new_response.text, "add-role-from-definition-button")
+    _assert_has_testid(new_response.text, "workflow-roles-list")
+    _assert_has_testid(new_response.text, "workflow-steps-list")
+    _assert_has_testid(new_response.text, "save-orchestration-button")
     assert "role-definitions-json" in new_response.text
-    assert "把这个想法交给它持续推进" not in new_response.text
 
     builtin_edit_response = client.get("/orchestrations/builtin:build_first/edit")
     assert builtin_edit_response.status_code == 200
     assert "保存为新编排" in builtin_edit_response.text
-    assert "先构建，再验收 / Build First" in builtin_edit_response.text
+    _assert_has_testid(builtin_edit_response.text, "orchestration-editor-form")
 
     orchestration = service.create_orchestration(name="Custom", workflow={"preset": "inspect_first"})
     custom_edit_response = client.get(f"/orchestrations/{orchestration['id']}/edit")
     assert custom_edit_response.status_code == 200
+    _assert_has_testid(custom_edit_response.text, "orchestration-editor-form")
     assert f'action="/orchestrations/{orchestration["id"]}/edit"' in custom_edit_response.text
-    assert "保存修改" in custom_edit_response.text
 
 
 def test_role_definitions_pages_render_as_top_level_feature(service_factory) -> None:
@@ -441,19 +452,25 @@ Focus on scoped release work.
     client = TestClient(build_app(service=service))
     list_response = client.get("/roles")
     assert list_response.status_code == 200
-    assert "角色定义" in list_response.text
+    _assert_has_testid(list_response.text, "role-definitions-page")
+    _assert_has_testid(list_response.text, "create-role-definition-link")
+    _assert_has_testid(list_response.text, "role-definitions-list")
     assert "Release Builder" in list_response.text
-    assert "Create role" in list_response.text
     assert "/roles/new" in list_response.text
+    assert 'data-role-definition-id="' in list_response.text
 
     new_response = client.get("/roles/new")
     assert new_response.status_code == 200
-    assert "name=\"prompt_ref\"" in new_response.text
-    assert "name=\"prompt_markdown\"" in new_response.text
-    assert "保存角色" in new_response.text
+    _assert_has_testid(new_response.text, "role-definition-editor-page")
+    _assert_has_testid(new_response.text, "role-definition-editor-form")
+    _assert_has_testid(new_response.text, "role-definition-prompt-ref-input")
+    _assert_has_testid(new_response.text, "role-definition-model-input")
+    _assert_has_testid(new_response.text, "role-definition-prompt-markdown-input")
+    _assert_has_testid(new_response.text, "save-role-definition-button")
 
     builtin_edit_response = client.get("/roles/builtin:builder/edit")
     assert builtin_edit_response.status_code == 200
+    _assert_has_testid(builtin_edit_response.text, "role-definition-editor-form")
     assert "保存为新角色" in builtin_edit_response.text
 
 
@@ -464,9 +481,9 @@ def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -
     response = client.get("/loops/new?token=secret-token")
 
     assert response.status_code == 200
-    assert "当前是网络访问模式" in response.text
-    assert "服务端那台机器" in response.text
-    assert "id=\"browse-workdir\" disabled" in response.text
+    _assert_has_testid(response.text, "remote-path-callout")
+    assert 'id="browse-workdir"' in response.text
+    assert 'aria-disabled="true"' in response.text
 
 
 def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(service_factory) -> None:

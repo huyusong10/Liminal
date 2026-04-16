@@ -1,155 +1,104 @@
 # Interfaces
 
-## 1. Purpose
+## 1. 模块职责
 
-本模块定义用户如何进入系统，以及不同入口之间如何保持同一语义模型。
+模块存在的唯一理由：
 
-重点不是列出所有页面和命令，而是回答：
+- 让不同入口以一致语义访问同一套 loop、编排与运行能力。
 
-- 哪些差异属于交互差异
-- 哪些差异不能上升为能力差异
+它负责输入规范化、边缘校验与结果投影，不负责业务编排本身。
 
-## 2. Owned Boundary
+## 2. 统一对象模型
 
-接口层拥有以下边界：
+| 对象 | 用户目的 | 稳定语义 |
+|------|----------|----------|
+| `loop` | 保存一套可重复执行的配置 | 绑定 workdir、spec、执行参数与 orchestration |
+| `orchestration` | 编辑可复用 workflow | 管理角色、步骤与 prompt 资产 |
+| `role definition` | 预先定义可复用角色模版 | 供 orchestration 选择并复制成角色快照 |
+| `run` | 观察一次具体执行 | 提供状态、事件、摘要与产物 |
 
-1. 用户输入与服务层输入之间的边界
-2. 不同入口形态之间的一致性边界
-3. 本地访问与网络访问之间的安全边界
-4. 文件预览与文件执行之间的边界
+## 3. 入口职责
 
-## 3. Responsibilities
+| 入口 | 面向对象 | 负责内容 | 不负责内容 |
+|------|----------|----------|------------|
+| CLI | 终端与脚本 | 参数收集、同步/后台启动、结构化输出 | 维护独立业务状态 |
+| Web UI | 可视化操作与观测 | 页面表单、列表、编辑器与实时观察 | 直接实现编排逻辑 |
+| HTTP API | Web UI 与集成调用方 | 程序化创建、更新、查询与流式事件 | 暴露底层存储实现 |
 
-接口层负责：
+## 4. 跨入口一致性
 
-1. 收集用户输入
-2. 做边缘层校验与规范化
-3. 把输入映射到统一服务语义
-4. 把运行状态投影成 CLI 输出、Web 页面和 API 响应
+以下能力属于核心能力，必须跨入口共享同一语义：
 
-接口层不负责：
+| 能力 | 一致性要求 |
+|------|------------|
+| 创建 loop | 相同参数表达相同 loop definition |
+| 选择 orchestration | 引用同一编排资产 |
+| 配置 completion mode | `gatekeeper` 与 `rounds` 的语义一致 |
+| 配置轮次间隔 | 所有入口都表达相同等待语义 |
+| 编辑 orchestration | 角色、步骤、prompt 资产语义一致 |
+| 编辑 role definition | 角色模版字段语义一致 |
+| 启动、重跑、停止、删除 run | 生命周期语义一致 |
+| 校验 spec 与 prompt | 校验规则一致 |
 
-- 编排角色生命周期
-- 直接操作数据库语义
-- 承载 provider 私有协议
+## 5. 允许差异
 
-## 4. Interface Model
+以下差异属于交互差异，允许存在：
 
-三类入口：
+| 范围 | 允许差异 |
+|------|----------|
+| Web UI | 提供可视化 workflow 编辑器、角色选择器与实时页面导航 |
+| CLI | 提供同步等待与后台执行开关 |
+| Web UI | 可保存浏览器本地草稿与最近使用建议，但这些都是 best-effort |
+| 不同入口 | 可使用不同文案、布局与交互节奏，只要不改变底层语义 |
 
-- CLI：面向脚本与终端用户
-- Web UI：面向可视化操作与观测
-- HTTP API：面向 Web UI 与程序化集成
-
-一级功能还必须区分两类对象：
-
-- `orchestration`：保存线性 workflow 与 prompt 资产
-- `loop`：绑定 workdir / spec / executor，并引用一个 orchestration
-- `role definition`：保存 archetype-backed role 模版，供 orchestration 编辑器挑选
-
-设计原则：
-
-- 三者共享同一个 loop 定义模型
-- 差异只体现在交互方式，不体现在核心能力上
-
-## 5. Consistency Rules
-
-### 5.1 Required Parity
-
-以下能力属于“核心能力”，必须跨入口同构：
-
-- 创建 loop
-- 选择 workflow preset 或提交自定义 workflow
-- 编辑 / 上传 / 下载 prompt 文件
-- 创建、列出、选择、编辑 orchestration
-- 创建、列出、选择、编辑 role definition
-- 选择执行模式
-- 选择完成模式与轮次间隔
-- 指定运行边界参数
-- 启动、重跑、停止、删除
-- 校验 spec
-- 校验 prompt 文件
-
-### 5.2 Allowed Differences
-
-以下差异属于“表现层差异”，允许存在：
-
-- Web 提供 workflow 编辑器、实时流和页面导航
-- Web 提供 role definition 编辑器与 orchestration 内的角色选择器
-- Web 可以在浏览器本地记住未提交且偏离默认值的表单草稿，并利用全局 recent workdir 历史做输入辅助；这些都必须是 best-effort，不能改变最终提交到服务层的 loop 定义，也不能阻塞 loop 创建。只有真正偏离默认值的服务端预填参数才应抑制草稿恢复，默认值经过 URL / FormData 字符串化后仍应视为“表单未改动”
-- CLI 提供同步等待或后台返回
-- Web 在网络模式下禁用本地文件弹窗
-- CLI 用 `--workflow-preset` / `--workflow-file` 替代表单式编辑
-- Web 的 orchestration 列表默认进入编辑器；loop 创建页只负责“选择已有 orchestration”
-- loop 创建页允许指定 completion mode 和 iteration interval，但不承担 workflow / role definition 的深度编辑职责
-
-### 5.3 Forbidden Differences
+## 6. 不允许差异
 
 以下差异不可接受：
 
 - 只有某一入口能表达核心 loop 配置
-- 只有某一入口能表达 workflow 或 prompt 资产
-- 同名配置项在不同入口语义不同
+- 只有某一入口能创建或编辑 orchestration / role definition
+- 同名配置项在不同入口含义不同
 - 预览行为与实际提交行为不一致
-- 把存储层 slug（例如 `build_first`、`finish_run`）直接暴露成主要用户文案
+- 把内部存储标识直接当作主要用户文案
 
-## 6. Dependency Direction
+## 7. 安全边界
+
+| 边界 | 接口层责任 |
+|------|------------|
+| 本地与网络访问 | 网络暴露必须显式开启，本地默认安全优先 |
+| 文件系统访问 | 所有路径都必须受允许根范围约束 |
+| 文件预览 | 按不可信内容处理，不能直接执行 |
+| 输入规范化 | 非法、缺失或越界输入在接口层被拦截或标准化 |
+
+## 8. 依赖方向
 
 依赖方向必须保持为：
 
-`user interaction -> interface layer -> orchestration service`
+`用户交互 → 接口层 → orchestration service`
 
 禁止：
 
 - Web 直接实现业务编排
-- CLI 直接维护独立状态模型
-- API 直接暴露底层存储细节
+- CLI 维护独立状态模型
+- API 直接暴露持久化层细节
 
-## 7. Security Boundary
-
-接口层负责把“可用性”与“暴露面”隔开。
-
-核心原则：
-
-- 本地默认安全优先
-- 网络暴露必须显式进入
-- 文件系统访问必须受根路径约束
-- 预览接口必须按不可信内容处理
-
-## 8. Documentation Scope
-
-本文档只记录稳定边界：
-
-- 入口职责
-- 一致性规则
-- 安全边界
-
-本文档刻意不记录：
-
-- 每一条路由
-- 每一个页面元素
-- 每一个 CLI flag
-
-这些内容应以代码和测试为准。
-
-## 9. Change Triggers
+## 9. 变更触发
 
 以下变化需要更新本文档：
 
-- 新增一种顶层入口
+- 新增或删除顶层入口
 - 跨入口能力模型变化
-- workflow / prompt 编辑能力只落在单一入口
+- 某个核心对象只能在单一入口创建或编辑
 - 安全边界变化
-- 输入规范化责任迁移
 
 以下变化通常不需要更新本文档：
 
-- 页面布局改版
-- 命令帮助文本调整
-- API 字段的局部扩展
+- 页面改版
+- 帮助文案调整
+- 局部字段扩展
 
-## 10. Non-Goals
+## 10. 非目标
 
 - 不把 Web 做成通用 IDE
-- 不让 CLI 承担视觉观测职责
-- 不把 API 扩张成平台化公网接口
+- 不让 CLI 承担复杂可视化职责
+- 不把 HTTP API 扩张成公网平台接口

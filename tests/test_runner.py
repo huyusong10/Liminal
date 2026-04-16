@@ -12,6 +12,29 @@ from loopora.executor import CodexExecutor, ExecutorError
 from loopora.service import LooporaError, LooporaService
 
 
+def _read_jsonl(path: Path) -> list[dict]:
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def _step_outputs_by_archetype(run_dir: Path) -> dict[str, list[dict]]:
+    outputs: dict[str, list[dict]] = {}
+    for metadata_path in sorted(run_dir.glob("steps/iter_*/*/metadata.json")):
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        output_path = metadata_path.parent / "output.normalized.json"
+        outputs.setdefault(metadata["archetype"], []).append(
+            {
+                "metadata": metadata,
+                "output": json.loads(output_path.read_text(encoding="utf-8")),
+                "step_dir": metadata_path.parent,
+            }
+        )
+    return outputs
+
+
 def _create_loop(
     service,
     sample_spec_file: Path,
@@ -46,16 +69,17 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     run = service.rerun(loop["id"])
 
     run_dir = Path(run["runs_dir"])
+    step_outputs = _step_outputs_by_archetype(run_dir)
     assert run["status"] == "succeeded"
     assert (run_dir / "events.jsonl").exists()
-    assert (run_dir / "tester_output.json").exists()
-    assert (run_dir / "verifier_verdict.json").exists()
     assert (run_dir / "stagnation.json").exists()
     assert (sample_workdir / ".loopora" / "loops" / loop["id"] / "compiled_spec.json").exists()
+    assert step_outputs["inspector"]
+    assert step_outputs["gatekeeper"]
+    assert any((item["step_dir"] / "prompt.md").exists() for item in step_outputs["inspector"])
+    assert any((item["step_dir"] / "prompt.md").exists() for item in step_outputs["gatekeeper"])
     summary = (run_dir / "summary.md").read_text(encoding="utf-8")
     assert "All checks passed in this iteration." in summary
-    assert "## Generator" in summary
-    assert "## Verifier" in summary
     assert "iteration_log.jsonl" in summary
 
 
@@ -70,18 +94,11 @@ def test_successful_run_enriches_logs_and_role_outputs(
     run = service.rerun(loop["id"])
 
     run_dir = Path(run["runs_dir"])
-    tester_output = json.loads((run_dir / "tester_output.json").read_text(encoding="utf-8"))
-    verifier_verdict = json.loads((run_dir / "verifier_verdict.json").read_text(encoding="utf-8"))
-    metrics_history = [
-        json.loads(line)
-        for line in (run_dir / "metrics_history.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    iteration_log = [
-        json.loads(line)
-        for line in (run_dir / "iteration_log.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    step_outputs = _step_outputs_by_archetype(run_dir)
+    tester_output = step_outputs["inspector"][-1]["output"]
+    verifier_verdict = step_outputs["gatekeeper"][-1]["output"]
+    metrics_history = _read_jsonl(run_dir / "metrics_history.jsonl")
+    iteration_log = _read_jsonl(run_dir / "iteration_log.jsonl")
 
     assert tester_output["status_counts"]["overall"]["passed"] >= 1
     assert "failed_items" in tester_output
@@ -111,11 +128,7 @@ def test_run_persists_role_request_snapshots_and_iteration_handoff(
     run = service.rerun(loop["id"])
 
     run_dir = Path(run["runs_dir"])
-    role_requests = [
-        json.loads(line)
-        for line in (run_dir / "role_requests.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    role_requests = _read_jsonl(run_dir / "role_requests.jsonl")
 
     assert role_requests
     generator_requests = [item for item in role_requests if item["role"] == "generator"]
@@ -194,10 +207,11 @@ def test_benchmark_loop_can_finish_before_builder_runs(
 
     run = service.rerun(loop["id"])
     run_dir = Path(run["runs_dir"])
+    step_outputs = _step_outputs_by_archetype(run_dir)
 
     assert run["status"] == "succeeded"
-    assert not (run_dir / "builder_output.json").exists()
-    assert json.loads((run_dir / "gatekeeper_verdict.json").read_text(encoding="utf-8"))["passed"] is True
+    assert "builder" not in step_outputs
+    assert step_outputs["gatekeeper"][-1]["output"]["passed"] is True
 
 
 def test_workflow_step_model_override_is_used_for_role_requests(
@@ -221,11 +235,7 @@ def test_workflow_step_model_override_is_used_for_role_requests(
 
     run = service.rerun(loop["id"])
 
-    role_requests = [
-        json.loads(line)
-        for line in (Path(run["runs_dir"]) / "role_requests.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    role_requests = _read_jsonl(Path(run["runs_dir"]) / "role_requests.jsonl")
     builder_request = next(item for item in role_requests if item.get("step_id") == "builder_step")
     assert builder_request["model"] == "gpt-5.4-mini"
 
@@ -258,11 +268,7 @@ def test_round_completion_mode_can_finish_without_gatekeeper(
     run = service.rerun(loop["id"])
 
     assert run["status"] == "succeeded"
-    iteration_log = [
-        json.loads(line)
-        for line in (Path(run["runs_dir"]) / "iteration_log.jsonl").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    iteration_log = _read_jsonl(Path(run["runs_dir"]) / "iteration_log.jsonl")
     assert len([entry for entry in iteration_log if entry["phase"] == "complete"]) == 2
     events = service.stream_events(run["id"], limit=200)
     assert any(

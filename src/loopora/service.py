@@ -14,6 +14,7 @@ from typing import Callable
 
 import markdown as markdown_lib
 
+from loopora.asset_catalog import WorkflowAssetCatalog
 from loopora.branding import LEGACY_APP_STATE_DIRNAME, normalize_file_root, state_dir_for_workdir
 from loopora.db import LooporaRepository
 from loopora.executor import (
@@ -34,17 +35,11 @@ from loopora.utils import append_jsonl, make_id, read_json, utc_now, write_json
 from loopora.workflows import (
     ARCHETYPES,
     LEGACY_ROLE_BY_ARCHETYPE,
-    LEGACY_ROLE_TO_ARCHETYPE,
     WorkflowError,
     build_preset_workflow,
-    builtin_prompt_markdown,
-    display_name_for_archetype,
     has_finish_gatekeeper_step,
     normalize_role_models as workflow_normalize_role_models,
-    normalize_workflow,
-    preset_names,
     resolve_prompt_files,
-    validate_prompt_markdown,
     workflow_warnings,
 )
 
@@ -107,10 +102,17 @@ class LooporaService:
         executor_factory: Callable[[], CodexExecutor] | None = None,
     ) -> None:
         self.repository = repository
+        self.asset_catalog = WorkflowAssetCatalog(repository)
         self.settings = settings
         self.executor_factory = executor_factory or executor_from_environment
         self._threads: dict[str, threading.Thread] = {}
         self._reconcile_stale_runs()
+
+    def _asset_call(self, callback: Callable, *args, **kwargs):
+        try:
+            return callback(*args, **kwargs)
+        except (WorkflowError, ValueError) as exc:
+            raise LooporaError(str(exc)) from exc
 
     def create_loop(
         self,
@@ -173,7 +175,8 @@ class LooporaService:
         except ValueError as exc:
             raise LooporaError(str(exc)) from exc
 
-        resolved_orchestration = self._resolve_orchestration_input(
+        resolved_orchestration = self._asset_call(
+            self.asset_catalog.resolve_orchestration_input,
             orchestration_id=orchestration_id,
             workflow=workflow,
             prompt_files=prompt_files,
@@ -283,93 +286,11 @@ class LooporaService:
         role_models = normalize_role_models(loop_or_run.get("role_models_json") or loop_or_run.get("role_models") or {})
         return build_preset_workflow("build_first", role_models=role_models)
 
-    def _builtin_orchestration_records(self) -> list[dict]:
-        labels = {
-            "build_first": "Build First",
-            "inspect_first": "Inspect First",
-            "benchmark_loop": "Benchmark Loop",
-        }
-        descriptions = {
-            "build_first": "Builder -> Inspector -> GateKeeper -> Guide",
-            "inspect_first": "Inspector -> Builder -> GateKeeper -> Guide",
-            "benchmark_loop": "GateKeeper (benchmark) -> Builder",
-        }
-        records = []
-        for preset_name in preset_names():
-            workflow = build_preset_workflow(preset_name)
-            prompt_files = resolve_prompt_files(workflow)
-            records.append(
-                {
-                    "id": f"builtin:{preset_name}",
-                    "name": labels.get(preset_name, preset_name),
-                    "description": descriptions.get(preset_name, ""),
-                    "source": "builtin",
-                    "preset": preset_name,
-                    "editable": False,
-                    "deletable": False,
-                    "workflow_json": workflow,
-                    "prompt_files_json": prompt_files,
-                    "workflow_warnings": workflow_warnings(workflow),
-                }
-            )
-        return records
-
-    def _builtin_role_definition_records(self) -> list[dict]:
-        descriptions = {
-            "builder": "Edits the workspace and pushes the implementation forward.",
-            "inspector": "Collects evidence, tests, and benchmark results.",
-            "gatekeeper": "Decides whether the evidence is strong enough to pass.",
-            "guide": "Suggests the next direction when progress stalls.",
-        }
-        records = []
-        for archetype in ARCHETYPES:
-            prompt_ref = "gatekeeper.md" if archetype == "gatekeeper" else f"{archetype}.md"
-            records.append(
-                {
-                    "id": f"builtin:{archetype}",
-                    "name": display_name_for_archetype(archetype, locale="en"),
-                    "description": descriptions.get(archetype, ""),
-                    "archetype": archetype,
-                    "prompt_ref": prompt_ref,
-                    "prompt_markdown": builtin_prompt_markdown(prompt_ref),
-                    "model": "",
-                    "source": "builtin",
-                    "editable": False,
-                    "deletable": False,
-                }
-            )
-        return records
-
-    def _decorate_role_definition(self, record: dict, *, source: str) -> dict:
-        decorated = dict(record)
-        decorated["source"] = source
-        decorated["editable"] = source == "custom"
-        decorated["deletable"] = source == "custom"
-        return decorated
-
-    def _resolve_role_definition(self, role_definition_id: str) -> dict:
-        definition_key = str(role_definition_id or "").strip()
-        if not definition_key:
-            raise LooporaError("role_definition_id is required")
-        if definition_key.startswith("builtin:"):
-            for record in self._builtin_role_definition_records():
-                if record["id"] == definition_key:
-                    return record
-            raise LooporaError(f"unknown built-in role definition: {definition_key}")
-        record = self.repository.get_role_definition(definition_key)
-        if not record:
-            raise LooporaError(f"unknown role definition: {definition_key}")
-        return self._decorate_role_definition(record, source="custom")
-
     def list_role_definitions(self) -> list[dict]:
-        custom_records = [
-            self._decorate_role_definition(record, source="custom")
-            for record in self.repository.list_role_definitions()
-        ]
-        return custom_records + self._builtin_role_definition_records()
+        return self._asset_call(self.asset_catalog.list_role_definitions)
 
     def get_role_definition(self, role_definition_id: str) -> dict:
-        return self._resolve_role_definition(role_definition_id)
+        return self._asset_call(self.asset_catalog.get_role_definition, role_definition_id)
 
     def create_role_definition(
         self,
@@ -381,35 +302,15 @@ class LooporaService:
         prompt_markdown: str,
         model: str = "",
     ) -> dict:
-        name = str(name).strip()
-        description = str(description).strip()
-        prompt_ref = str(prompt_ref).strip()
-        prompt_markdown = str(prompt_markdown)
-        model = str(model).strip()
-        if not name:
-            raise LooporaError("name is required")
-        if not prompt_ref:
-            raise LooporaError("prompt_ref is required")
-        try:
-            normalized_archetype = LEGACY_ROLE_TO_ARCHETYPE[str(archetype).strip().lower()]
-        except KeyError as exc:
-            raise LooporaError(f"unsupported workflow archetype: {archetype}") from exc
-        try:
-            validate_prompt_markdown(prompt_markdown, expected_archetype=normalized_archetype)
-        except WorkflowError as exc:
-            raise LooporaError(str(exc)) from exc
-        role_definition = self.repository.create_role_definition(
-            {
-                "id": make_id("role"),
-                "name": name,
-                "description": description,
-                "archetype": normalized_archetype,
-                "prompt_ref": prompt_ref,
-                "prompt_markdown": prompt_markdown,
-                "model": model,
-            }
+        return self._asset_call(
+            self.asset_catalog.create_role_definition,
+            name=name,
+            description=description,
+            archetype=archetype,
+            prompt_ref=prompt_ref,
+            prompt_markdown=prompt_markdown,
+            model=model,
         )
-        return self._decorate_role_definition(role_definition, source="custom")
 
     def update_role_definition(
         self,
@@ -422,112 +323,19 @@ class LooporaService:
         prompt_markdown: str,
         model: str = "",
     ) -> dict:
-        existing = self._resolve_role_definition(role_definition_id)
-        if existing.get("source") == "builtin":
-            raise LooporaError("built-in role definitions cannot be updated in place")
-        name = str(name).strip()
-        description = str(description).strip()
-        prompt_ref = str(prompt_ref).strip()
-        prompt_markdown = str(prompt_markdown)
-        model = str(model).strip()
-        if not name:
-            raise LooporaError("name is required")
-        if not prompt_ref:
-            raise LooporaError("prompt_ref is required")
-        try:
-            normalized_archetype = LEGACY_ROLE_TO_ARCHETYPE[str(archetype).strip().lower()]
-        except KeyError as exc:
-            raise LooporaError(f"unsupported workflow archetype: {archetype}") from exc
-        try:
-            validate_prompt_markdown(prompt_markdown, expected_archetype=normalized_archetype)
-        except WorkflowError as exc:
-            raise LooporaError(str(exc)) from exc
-        updated = self.repository.update_role_definition(
+        return self._asset_call(
+            self.asset_catalog.update_role_definition,
             role_definition_id,
-            {
-                "name": name,
-                "description": description,
-                "archetype": normalized_archetype,
-                "prompt_ref": prompt_ref,
-                "prompt_markdown": prompt_markdown,
-                "model": model,
-            },
+            name=name,
+            description=description,
+            archetype=archetype,
+            prompt_ref=prompt_ref,
+            prompt_markdown=prompt_markdown,
+            model=model,
         )
-        if not updated:
-            raise LooporaError(f"unknown role definition: {role_definition_id}")
-        return self._decorate_role_definition(updated, source="custom")
 
     def delete_role_definition(self, role_definition_id: str) -> dict:
-        existing = self._resolve_role_definition(role_definition_id)
-        if existing.get("source") == "builtin":
-            raise LooporaError("built-in role definitions cannot be deleted")
-        deleted = self.repository.delete_role_definition(role_definition_id)
-        if not deleted:
-            raise LooporaError(f"unknown role definition: {role_definition_id}")
-        return {"id": role_definition_id, "deleted": True}
-
-    def _resolve_orchestration(self, orchestration_id: str) -> dict:
-        orchestration_key = str(orchestration_id or "").strip()
-        if not orchestration_key:
-            raise LooporaError("orchestration_id is required")
-        if orchestration_key.startswith("builtin:"):
-            preset_name = orchestration_key.split(":", 1)[1]
-            for record in self._builtin_orchestration_records():
-                if record["id"] == orchestration_key:
-                    return record
-            raise LooporaError(f"unknown built-in orchestration: {preset_name}")
-        record = self.repository.get_orchestration(orchestration_key)
-        if not record:
-            raise LooporaError(f"unknown orchestration: {orchestration_key}")
-        record["source"] = "custom"
-        record["editable"] = True
-        record["deletable"] = True
-        record["workflow_warnings"] = workflow_warnings(record.get("workflow_json") or {})
-        return record
-
-    def _resolve_orchestration_input(
-        self,
-        *,
-        orchestration_id: str | None,
-        workflow: dict | None,
-        prompt_files: dict | None,
-        role_models: dict | None,
-    ) -> dict:
-        try:
-            if orchestration_id and workflow is None and not prompt_files:
-                orchestration = self._resolve_orchestration(orchestration_id)
-                normalized_workflow = normalize_workflow(orchestration["workflow_json"], role_models=role_models)
-                resolved_prompt_files = resolve_prompt_files(normalized_workflow, orchestration.get("prompt_files_json") or {})
-                return {
-                    "id": orchestration["id"],
-                    "name": orchestration["name"],
-                    "workflow": normalized_workflow,
-                    "prompt_files": resolved_prompt_files,
-                }
-            normalized_workflow = normalize_workflow(workflow, role_models=role_models)
-            resolved_prompt_files = resolve_prompt_files(normalized_workflow, prompt_files)
-        except WorkflowError as exc:
-            raise LooporaError(str(exc)) from exc
-        derived_id = str(orchestration_id or "").strip()
-        derived_name = ""
-        if derived_id:
-            try:
-                existing = self._resolve_orchestration(derived_id)
-                derived_name = existing["name"]
-            except LooporaError:
-                derived_name = ""
-        if not derived_id and normalized_workflow.get("preset"):
-            derived_id = f"builtin:{normalized_workflow['preset']}"
-            derived_name = next(
-                (record["name"] for record in self._builtin_orchestration_records() if record["id"] == derived_id),
-                normalized_workflow["preset"],
-            )
-        return {
-            "id": derived_id,
-            "name": derived_name,
-            "workflow": normalized_workflow,
-            "prompt_files": resolved_prompt_files,
-        }
+        return self._asset_call(self.asset_catalog.delete_role_definition, role_definition_id)
 
     def _prompt_dir(self, base_dir: Path) -> Path:
         return base_dir / "prompts"
@@ -1822,19 +1630,11 @@ class LooporaService:
         return [self._hydrate_loop_files(loop) for loop in self.repository.list_loops()]
 
     def list_orchestrations(self) -> list[dict]:
-        builtins = self._builtin_orchestration_records()
-        custom = []
-        for record in self.repository.list_orchestrations():
-            record["source"] = "custom"
-            record["editable"] = True
-            record["deletable"] = True
-            record["workflow_warnings"] = workflow_warnings(record.get("workflow_json") or {})
-            custom.append(record)
-        return [*builtins, *custom]
+        return self._asset_call(self.asset_catalog.list_orchestrations)
 
     def get_orchestration(self, orchestration_id: str) -> dict:
         self._reconcile_local_orphaned_runs()
-        return self._resolve_orchestration(orchestration_id)
+        return self._asset_call(self.asset_catalog.get_orchestration, orchestration_id)
 
     def create_orchestration(
         self,
@@ -1845,28 +1645,14 @@ class LooporaService:
         prompt_files: dict | None = None,
         role_models: dict | None = None,
     ) -> dict:
-        if not str(name or "").strip():
-            raise LooporaError("name is required")
-        resolved = self._resolve_orchestration_input(
-            orchestration_id=None,
+        return self._asset_call(
+            self.asset_catalog.create_orchestration,
+            name=name,
+            description=description,
             workflow=workflow,
             prompt_files=prompt_files,
             role_models=role_models,
         )
-        orchestration = self.repository.create_orchestration(
-            {
-                "id": make_id("orch"),
-                "name": str(name).strip(),
-                "description": str(description or "").strip(),
-                "workflow": resolved["workflow"],
-                "prompt_files": resolved["prompt_files"],
-            }
-        )
-        orchestration["source"] = "custom"
-        orchestration["editable"] = True
-        orchestration["deletable"] = True
-        orchestration["workflow_warnings"] = workflow_warnings(orchestration.get("workflow_json") or {})
-        return orchestration
 
     def update_orchestration(
         self,
@@ -1878,41 +1664,18 @@ class LooporaService:
         prompt_files: dict | None = None,
         role_models: dict | None = None,
     ) -> dict:
-        current = self.get_orchestration(orchestration_id)
-        if current.get("source") == "builtin":
-            raise LooporaError("built-in orchestrations cannot be updated")
-        if not str(name or "").strip():
-            raise LooporaError("name is required")
-        resolved = self._resolve_orchestration_input(
-            orchestration_id=None,
+        return self._asset_call(
+            self.asset_catalog.update_orchestration,
+            orchestration_id,
+            name=name,
+            description=description,
             workflow=workflow,
             prompt_files=prompt_files,
             role_models=role_models,
         )
-        orchestration = self.repository.update_orchestration(
-            orchestration_id,
-            {
-                "name": str(name).strip(),
-                "description": str(description or "").strip(),
-                "workflow": resolved["workflow"],
-                "prompt_files": resolved["prompt_files"],
-            },
-        )
-        if not orchestration:
-            raise LooporaError(f"unknown orchestration: {orchestration_id}")
-        orchestration["source"] = "custom"
-        orchestration["editable"] = True
-        orchestration["deletable"] = True
-        orchestration["workflow_warnings"] = workflow_warnings(orchestration.get("workflow_json") or {})
-        return orchestration
 
     def delete_orchestration(self, orchestration_id: str) -> dict:
-        orchestration = self.get_orchestration(orchestration_id)
-        if orchestration.get("source") == "builtin":
-            raise LooporaError("built-in orchestrations cannot be deleted")
-        if not self.repository.delete_orchestration(orchestration_id):
-            raise LooporaError(f"unknown orchestration: {orchestration_id}")
-        return orchestration
+        return self._asset_call(self.asset_catalog.delete_orchestration, orchestration_id)
 
     def get_loop(self, loop_id: str) -> dict:
         self._reconcile_local_orphaned_runs()

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Role Definitions{% endblock %}
 {% block content %}
-<div class="page-stack">
+<div class="page-stack" data-testid="role-definitions-page">
 <section class="hero hero-tight">
   <div class="hero-copy-stack">
     <h1>
@@ -14,14 +14,14 @@
     </p>
   </div>
   <div class="card-actions">
-    <a class="primary-button" href="/roles/new">
+    <a class="primary-button" href="/roles/new" data-testid="create-role-definition-link">
       <span data-lang="zh">新建角色</span>
       <span data-lang="en">Create role</span>
     </a>
   </div>
 </section>
 
-<section class="panel">
+<section class="panel" data-testid="role-definitions-list">
   <header class="panel-header">
     <h2><span data-lang="zh">已保存角色</span><span data-lang="en">Saved roles</span></h2>
     <span>{{ role_definitions|length }}</span>
@@ -29,7 +29,7 @@
   {% if role_definitions %}
   <div class="loop-grid">
     {% for role_definition in role_definitions %}
-    <article class="loop-card is-clickable" data-open-card="/roles/{{ role_definition.id }}/edit" tabindex="0">
+    <article class="loop-card is-clickable" data-open-card="/roles/{{ role_definition.id }}/edit" data-testid="role-definition-card" data-role-definition-id="{{ role_definition.id }}" tabindex="0">
       <a class="loop-card-link" href="/roles/{{ role_definition.id }}/edit"></a>
       <div class="loop-card-head">
         <div>
