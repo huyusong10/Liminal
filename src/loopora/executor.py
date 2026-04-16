@@ -23,6 +23,7 @@ from loopora.branding import (
 )
 from loopora.providers import (
     coerce_reasoning_setting,
+    executor_profile,
     normalize_executor_kind,
     normalize_executor_mode,
     normalize_reasoning_setting,
@@ -156,11 +157,8 @@ def validate_command_args_text(command_args_text: str | None, *, executor_kind: 
     if not args:
         raise ValueError("custom command arguments are required in command mode")
     joined = "\n".join(args)
-    required_placeholders = {
-        "codex": ("{prompt}", "{output_path}", "{schema_path}"),
-        "claude": ("{prompt}", "{json_schema}"),
-        "opencode": ("{prompt}",),
-    }[normalize_executor_kind(executor_kind)]
+    profile = executor_profile(executor_kind)
+    required_placeholders = profile.command_required_placeholders
     missing = [placeholder for placeholder in required_placeholders if placeholder not in joined]
     if missing:
         joined_missing = ", ".join(missing)
@@ -212,6 +210,8 @@ class RealCodexExecutor(CodexExecutor):
             return self._execute_claude(request, emit_event, should_stop, set_child_pid)
         if executor_kind == "opencode":
             return self._execute_opencode(request, emit_event, should_stop, set_child_pid)
+        if executor_kind == "custom":
+            return self._execute_custom(request, emit_event, should_stop, set_child_pid)
         raise ExecutorError(f"unsupported executor kind: {executor_kind}")
 
     def _execute_codex(
@@ -302,6 +302,38 @@ class RealCodexExecutor(CodexExecutor):
         if not isinstance(payload, dict):
             raise ExecutorError(f"opencode did not produce a valid JSON object for role={request.role}")
         request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return payload
+
+    def _execute_custom(
+        self,
+        request: RoleRequest,
+        emit_event: Callable[[str, dict], None],
+        should_stop: Callable[[], bool],
+        set_child_pid: Callable[[int | None], None],
+    ) -> dict:
+        if request.executor_mode != "command":
+            raise ExecutorError("custom executor only supports command mode")
+        schema_path = request.run_dir / f"{request.role}_schema.json"
+        schema_path.write_text(json.dumps(request.output_schema, ensure_ascii=False, indent=2), encoding="utf-8")
+        args = build_custom_exec_args(request, schema_path)
+        return_code = self._stream_process(
+            request,
+            args,
+            emit_event,
+            should_stop,
+            set_child_pid,
+            line_handler=lambda line: emit_event("codex_event", self._decode_json_line(line)),
+        )
+        if return_code != 0:
+            raise ExecutorError(f"custom exec failed for role={request.role} exit_code={return_code}")
+        if not request.output_path.exists():
+            raise ExecutorError(f"custom exec did not produce an output file for role={request.role}")
+        try:
+            payload = json.loads(request.output_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ExecutorError(f"role={request.role} produced invalid JSON output") from exc
+        if not isinstance(payload, dict):
+            raise ExecutorError(f"custom exec did not produce a JSON object for role={request.role}")
         return payload
 
     def _stream_process(

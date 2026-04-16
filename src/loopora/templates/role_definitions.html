@@ -4,9 +4,13 @@
 <div class="page-stack" data-testid="role-definitions-page">
 <section class="hero hero-tight">
   <div class="hero-copy-stack hero-copy-stack-lede">
+    <h1>
+      <span data-lang="zh">角色定义</span>
+      <span data-lang="en">Role Definitions</span>
+    </h1>
     <p class="hero-lede" data-testid="role-definitions-intro-copy">
-      <span data-lang="zh">这里保存角色名、角色模板、默认执行工具、模型和 prompt 模版。编排选中后，会把它们带进 workflow 作为角色快照。</span>
-      <span data-lang="en">Store the role name, role template, default executor, model, and prompt template here. Orchestrations copy them in as role snapshots when selected.</span>
+      <span data-lang="zh">这里分成两层：上面是你保存的团队角色，点进去就是修改；下面是系统内置模板，用来快速派生新的角色版本。</span>
+      <span data-lang="en">This page has two layers: your saved team roles on top, which open in edit mode, and the built-in templates below, which you can use as starting points for new variants.</span>
     </p>
   </div>
   <div class="card-actions">
@@ -19,24 +23,23 @@
 
 <section class="panel" data-testid="role-definitions-list">
   <header class="panel-header">
-    <h2><span data-lang="zh">已保存角色</span><span data-lang="en">Saved roles</span></h2>
-    <span>{{ role_definitions|length }}</span>
+    <h2><span data-lang="zh">已保存自定义角色</span><span data-lang="en">Saved custom roles</span></h2>
+    <span>{{ custom_role_definitions|length }}</span>
   </header>
-  {% if role_definitions %}
+  {% if custom_role_definitions %}
   <div class="loop-grid">
-    {% for role_definition in role_definitions %}
+    {% for role_definition in custom_role_definitions %}
     <article class="loop-card is-clickable" data-open-card="/roles/{{ role_definition.id }}/edit" data-testid="role-definition-card" data-role-definition-id="{{ role_definition.id }}" tabindex="0">
       <a class="loop-card-link" href="/roles/{{ role_definition.id }}/edit"></a>
       <div class="loop-card-head">
         <div>
           <strong>{{ role_definition.name }}</strong>
           <p class="loop-card-meta">
-            {% if role_definition.source == "builtin" %}
-            <span data-lang="zh">内置角色</span><span data-lang="en">Built-in</span>
-            {% else %}
             <span data-lang="zh">自定义角色</span><span data-lang="en">Custom</span>
+            {% if role_definition.show_template_meta %}
+            ·
+            <span data-lang="zh">模板</span><span data-lang="en">Template</span> {{ role_definition.template_display_name }}
             {% endif %}
-            · {{ role_definition.name if role_definition.archetype == "custom" else role_definition.archetype }}
           </p>
         </div>
       </div>
@@ -61,10 +64,42 @@
   </div>
   {% else %}
   <div class="empty-state">
-    <h3><span data-lang="zh">还没有角色定义</span><span data-lang="en">No role definitions yet</span></h3>
-    <p><span data-lang="zh">先建一个角色，再去编排里把它串进步骤顺序。</span><span data-lang="en">Create a role first, then wire it into an orchestration.</span></p>
+    <h3><span data-lang="zh">还没有自定义角色</span><span data-lang="en">No custom roles yet</span></h3>
+    <p><span data-lang="zh">先新建一个角色，或者从下面的内置模板派生一个团队版本。</span><span data-lang="en">Create a role first, or start from one of the built-in templates below.</span></p>
   </div>
   {% endif %}
+</section>
+
+<section class="panel" data-testid="builtin-role-templates-list">
+  <header class="panel-header">
+    <h2><span data-lang="zh">内置角色模板</span><span data-lang="en">Built-in role templates</span></h2>
+    <span>{{ builtin_role_templates|length }}</span>
+  </header>
+  <div class="loop-grid">
+    {% for role_definition in builtin_role_templates %}
+    <article class="loop-card is-clickable" data-open-card="/roles/{{ role_definition.id }}/edit" data-testid="builtin-role-template-card" data-role-definition-id="{{ role_definition.id }}" tabindex="0">
+      <a class="loop-card-link" href="/roles/{{ role_definition.id }}/edit"></a>
+      <div class="loop-card-head">
+        <div>
+          <strong>{{ role_definition.name }}</strong>
+          <p class="loop-card-meta">
+            <span data-lang="zh">内置模板</span><span data-lang="en">Built-in template</span>
+          </p>
+        </div>
+      </div>
+      <p>{{ role_definition.description or "-" }}</p>
+      <p class="loop-card-meta">
+        <span data-lang="zh">执行工具</span><span data-lang="en">Executor</span> {{ role_definition.executor_label }}
+        ·
+        <span data-lang="zh">默认模型</span><span data-lang="en">Default model</span> {{ role_definition.model or "-" }}
+      </p>
+      <p class="loop-card-meta">
+        <span data-lang="zh">点进去会以这个模板为基础，派生一个新的团队角色版本。</span>
+        <span data-lang="en">Opening it starts from this template so you can derive a new team-specific role variant.</span>
+      </p>
+    </article>
+    {% endfor %}
+  </div>
 </section>
 </div>
 {% endblock %}

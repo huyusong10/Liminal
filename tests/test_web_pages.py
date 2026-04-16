@@ -403,12 +403,17 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     _assert_has_testid(list_response.text, "orchestrations-page")
     _assert_has_testid(list_response.text, "orchestrations-intro-copy")
     _assert_has_testid(list_response.text, "nav-orchestrations-link")
+    assert "Orchestrations" in list_response.text
     assert 'data-open-card="/orchestrations/builtin:build_first/edit"' in list_response.text
     assert "Create loop" not in list_response.text
+    _assert_has_testid(list_response.text, "orchestration-loop-diagram")
+    assert "/static/pages/workflow_diagram.js?v=" in list_response.text
+    assert "/static/pages/orchestrations.js?v=" in list_response.text
 
     new_response = client.get("/orchestrations/new")
     assert new_response.status_code == 200
     assert "/static/pages/new_orchestration.js?v=" in new_response.text
+    assert "/static/pages/workflow_diagram.js?v=" in new_response.text
     _assert_has_testid(new_response.text, "orchestration-editor-page")
     _assert_has_testid(new_response.text, "orchestration-editor-form")
     _assert_has_testid(new_response.text, "workflow-preset-input")
@@ -418,6 +423,8 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     _assert_has_testid(new_response.text, "add-role-from-definition-button")
     _assert_has_testid(new_response.text, "workflow-roles-list")
     _assert_has_testid(new_response.text, "workflow-steps-list")
+    _assert_has_testid(new_response.text, "workflow-loop-preview-panel")
+    _assert_has_testid(new_response.text, "workflow-loop-preview")
     _assert_has_testid(new_response.text, "save-orchestration-button")
     assert "role-definitions-json" in new_response.text
 
@@ -459,28 +466,55 @@ Focus on scoped release work.
     _assert_has_testid(list_response.text, "role-definitions-intro-copy")
     _assert_has_testid(list_response.text, "create-role-definition-link")
     _assert_has_testid(list_response.text, "role-definitions-list")
+    _assert_has_testid(list_response.text, "builtin-role-templates-list")
+    assert "Role Definitions" in list_response.text
     assert "Release Builder" in list_response.text
     assert "/roles/new" in list_response.text
     assert 'data-role-definition-id="' in list_response.text
+    assert "Saved custom roles" in list_response.text
+    assert "Built-in role templates" in list_response.text
+    assert "Built-in template" in list_response.text
+    assert "Built-in template · builder" not in list_response.text
 
     new_response = client.get("/roles/new")
     assert new_response.status_code == 200
     _assert_has_testid(new_response.text, "role-definition-editor-page")
     _assert_has_testid(new_response.text, "role-definition-editor-form")
-    _assert_has_testid(new_response.text, "role-definition-prompt-ref-input")
     _assert_has_testid(new_response.text, "role-definition-executor-kind-input")
     _assert_has_testid(new_response.text, "role-definition-executor-mode-input")
+    _assert_has_testid(new_response.text, "role-definition-executor-mode-switch")
+    _assert_has_testid(new_response.text, "role-definition-mode-preset-button")
+    _assert_has_testid(new_response.text, "role-definition-mode-command-button")
     _assert_has_testid(new_response.text, "role-definition-model-input")
     _assert_has_testid(new_response.text, "role-definition-reasoning-input")
     _assert_has_testid(new_response.text, "role-definition-command-cli-input")
     _assert_has_testid(new_response.text, "role-definition-command-args-input")
+    _assert_has_testid(new_response.text, "role-definition-command-preview")
     _assert_has_testid(new_response.text, "role-definition-prompt-markdown-input")
+    _assert_has_testid(new_response.text, "role-definition-archetype-guide")
     _assert_has_testid(new_response.text, "save-role-definition-button")
+    assert "Final command preview" in new_response.text
+    assert "Custom Command" in new_response.text
+    assert "Prompt file name" not in new_response.text
+    assert "巡检者 / Inspector" not in new_response.text
+    assert "Pushes the implementation forward" in new_response.text
+    assert "Use it where the workflow needs actual workspace edits" in new_response.text
+
+    zh_response = client.get("/roles/new", headers={"accept-language": "zh-CN,zh;q=0.9"})
+    assert zh_response.status_code == 200
+    assert "直接推进实现" in zh_response.text
+    assert "你是 Loopora 内部的建造者" in zh_response.text
 
     builtin_edit_response = client.get("/roles/builtin:builder/edit")
     assert builtin_edit_response.status_code == 200
     _assert_has_testid(builtin_edit_response.text, "role-definition-editor-form")
     assert "保存为新角色" in builtin_edit_response.text
+    assert 'id="role-definition-archetype-input" disabled' in builtin_edit_response.text
+    custom_role = next(item for item in service.list_role_definitions() if item["source"] == "custom")
+    custom_edit_response = client.get(f"/roles/{custom_role['id']}/edit")
+    assert custom_edit_response.status_code == 200
+    assert 'id="role-definition-archetype-input" disabled' in custom_edit_response.text
+    assert "Save changes" in custom_edit_response.text
 
 
 def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -> None:
@@ -529,6 +563,10 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".help-dot--tips {" in css
     assert ".inline-hint-link {" in css
     assert ".skill-download-card {" in css
+    assert ".workflow-loop-map {" in css
+    assert ".workflow-loop-segment {" in css
+    assert "@keyframes pageRiseIn {" in css
+    assert "@keyframes loopTraceIn {" in css
     assert ".workflow-toolbar {" in css
     assert ".workflow-editor-section {" in css
     assert ".workflow-empty-state {" in css

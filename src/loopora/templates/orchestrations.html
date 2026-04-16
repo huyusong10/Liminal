@@ -4,6 +4,10 @@
 <div class="page-stack" data-testid="orchestrations-page">
 <section class="hero hero-tight">
   <div class="hero-copy-stack hero-copy-stack-lede">
+    <h1>
+      <span data-lang="zh">流程编排</span>
+      <span data-lang="en">Orchestrations</span>
+    </h1>
     <p class="hero-lede" data-testid="orchestrations-intro-copy">
       <span data-lang="zh">这里保存角色定义之间的协作顺序、步骤编排和流程收束规则。点开方案会先进入编辑器，确认好之后再去创建 loop。</span>
       <span data-lang="en">This is where role-definition collaboration order, step orchestration, and completion rules live. Opening a saved orchestration takes you into the editor first, then loops can reuse it later.</span>
@@ -47,8 +51,13 @@
         ·
         <span data-lang="zh">角色数</span><span data-lang="en">Roles</span> {{ orchestration.workflow_json.roles|length }}
       </p>
+      <div
+        class="orchestration-loop-shell"
+        data-testid="orchestration-loop-diagram"
+        data-workflow-diagram="{{ orchestration.workflow_json|tojson|forceescape }}"
+      ></div>
       {% if orchestration.workflow_warnings %}
-      <div class="field-status">
+      <div class="field-status orchestration-warning-note">
         {{ orchestration.workflow_warnings|join(' ') }}
       </div>
       {% endif %}
@@ -73,4 +82,6 @@
   {% endif %}
 </section>
 </div>
+<script src="{{ static_asset_url('pages/workflow_diagram.js') }}" defer></script>
+<script src="{{ static_asset_url('pages/orchestrations.js') }}" defer></script>
 {% endblock %}

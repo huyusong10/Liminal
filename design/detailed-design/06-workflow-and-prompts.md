@@ -18,6 +18,10 @@
 | workflow snapshot | roles 与 steps | 运行期角色顺序与依赖关系 | run 开始后不再随外部编辑漂移 |
 | prompt asset | 元数据头 + Markdown 正文 | 角色运行提示 | 必须声明版本与适用角色模板 |
 
+补充说明：
+
+- 内置 prompt 资产允许提供按语言区分的内容变体，只要 front matter 版本与 archetype 契约保持一致。
+
 ## 3. Workflow 结构
 
 workflow 保持两层结构：
@@ -34,9 +38,9 @@ workflow 保持两层结构：
 | `id` | role 在当前 workflow 内的稳定标识 |
 | `name` | 用户可读名称 |
 | `archetype` | 角色模板 |
-| `prompt_ref` | 该 role 使用的 prompt 资产引用 |
-| `executor_kind` / `executor_mode` | 该 role 默认使用的执行方式 |
-| `command_cli` / `command_args_text` | 可选，仅直接命令模式使用 |
+| `prompt_ref` | 该 role 使用的 prompt 资产内部引用；运行时和持久化会使用它，但角色定义页不要求用户手工命名 |
+| `executor_kind` / `executor_mode` | 该 role 默认使用的执行方式；内置执行器支持 `preset` 与 `command`，`custom` 执行器只支持 `command` |
+| `command_cli` / `command_args_text` | 可选，仅直接命令模式使用；`custom` 执行器必须依赖它们 |
 | `model` | 可选，role 级默认模型 |
 | `reasoning_effort` | 可选，role 级默认推理配置 |
 | `role_definition_id` | 可选，表明它来源于某个角色定义 |
@@ -66,6 +70,25 @@ workflow 保持两层结构：
 | `custom` | 以最低权限读取现状、补充分析并给出建议 |
 
 兼容层仍接受旧别名，但运行时会收敛为上述稳定模板。
+
+## 4.1 执行器契约
+
+系统固定支持四类执行器：
+
+| 执行器 | 模式 | 稳定承诺 |
+|--------|------|----------|
+| `codex` | `preset` / `command` | 预设模式由系统拼装 CLI；直接命令模式允许用户覆盖 argv 模版 |
+| `claude` | `preset` / `command` | 预设模式由系统拼装 CLI；直接命令模式允许用户覆盖 argv 模版 |
+| `opencode` | `preset` / `command` | 预设模式由系统拼装 CLI；直接命令模式允许用户覆盖 argv 模版 |
+| `custom` | `command` only | 系统不再拼装预设 CLI；调用方必须提供可执行文件与 argv 模版，并在结束前把 JSON 结果写到 `{output_path}` |
+
+补充约束：
+
+- `custom` 执行器保存前必须处于 `command` 模式。
+- 直接命令模式下，`command_cli` 与 `command_args_text` 是真正的执行来源；模型和推理强度只能作为只读参考或占位符输入，不再单独驱动命令装配。
+- 角色定义页的“最终命令预览”必须与运行时实际命令装配保持同一语义顺序。
+- 角色定义页在选择不同角色模板时，必须展示该模板对应的说明、适用建议与约束提醒；这些说明只改变界面引导，不改变底层 archetype 契约。
+- 已保存的 role definition 在编辑页必须保持 archetype 固定；只有新建角色流程才能重新选择角色模板。
 
 ## 5. 验证规则
 
@@ -121,6 +144,7 @@ prompt 资产必须满足：
 - 首轮必须显式声明“这是第一轮，没有上一轮结果”。
 - 后续轮次必须显式声明“这是第 N 轮，并给出上一轮关键结果”。
 - prompt 可以被自定义，但系统安全边界、输出契约和 context packet shape 不能被绕开。
+- 当角色定义页加载内置 prompt 时，应优先使用当前语言对应的内置 prompt 变体；若缺失本地化版本，则回退到默认版本。
 
 ## 8. Context Protocol
 
@@ -141,6 +165,10 @@ prompt 资产必须满足：
 | loop 创建 | workflow、prompt、运行参数 | 冻结后的 loop snapshot |
 | run 执行 | snapshot | 分步骤证据、事件、终态摘要 |
 
+补充说明：
+
+- Web 界面可以把 workflow snapshot 投影成循环实例图，只要图中的节点顺序、角色名称和闭环语义仍然严格来自当前 workflow snapshot。
+
 ## 10. 跨入口一致性
 
 workflow 与 prompt 资产必须满足：
@@ -148,6 +176,7 @@ workflow 与 prompt 资产必须满足：
 - 可通过 Web 编辑与复用
 - 可通过 CLI 或 API 引用、提交或校验
 - 角色定义必须先作为独立资产存在，再被 orchestration 选入
+- role definition 缺失 `prompt_ref` 时，系统会自动生成并稳定保留内部引用
 - step 级模型覆盖不能只在单一入口可表达
 - orchestration 不直接维护角色默认 prompt 与执行配置
 

@@ -41,6 +41,60 @@ def test_real_executor_times_out_after_idle_period(tmp_path: Path, monkeypatch: 
         )
 
 
+def test_real_executor_supports_custom_command_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    custom_path = fake_bin / "custom-tool"
+    custom_path.write_text(
+        "#!/bin/sh\n"
+        "output=''\n"
+        "while [ \"$#\" -gt 0 ]; do\n"
+        "  if [ \"$1\" = \"--output\" ]; then\n"
+        "    output=\"$2\"\n"
+        "    shift 2\n"
+        "    continue\n"
+        "  fi\n"
+        "  shift\n"
+        "done\n"
+        "printf '{\"ok\": true, \"engine\": \"custom\"}\\n' > \"$output\"\n"
+        "printf 'custom wrapper complete\\n'\n",
+        encoding="utf-8",
+    )
+    custom_path.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    request = RoleRequest(
+        run_id="run_test",
+        role="custom_helper",
+        prompt="Emit JSON only.",
+        workdir=tmp_path,
+        model="",
+        reasoning_effort="",
+        output_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+        output_path=run_dir / "custom_output.json",
+        run_dir=run_dir,
+        executor_kind="custom",
+        executor_mode="command",
+        command_cli="custom-tool",
+        command_args_text="--output\n{output_path}\n{prompt}\n",
+    )
+
+    emitted: list[tuple[str, dict]] = []
+    executor = RealCodexExecutor()
+    payload = executor.execute(
+        request,
+        lambda event_type, payload: emitted.append((event_type, payload)),
+        lambda: False,
+        lambda _pid: None,
+    )
+
+    assert payload == {"ok": True, "engine": "custom"}
+    assert request.output_path.exists()
+    assert ("codex_event", {"type": "stdout", "message": "custom wrapper complete"}) in emitted
+
+
 def test_generator_prompt_uses_bootstrap_guidance_for_spec_only_workspace(
     service_factory,
     tmp_path: Path,

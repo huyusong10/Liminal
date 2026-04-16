@@ -50,7 +50,7 @@ def _handle_error(exc: Exception) -> None:
 
 SpecOption = Annotated[Path, typer.Option(..., exists=True, help="Path to the Markdown spec.")]
 WorkdirOption = Annotated[Path, typer.Option(..., exists=True, file_okay=False, dir_okay=True, help="Target workdir.")]
-ExecutorOption = Annotated[str, typer.Option("--executor", help="Execution tool: codex, claude, or opencode.")]
+ExecutorOption = Annotated[str, typer.Option("--executor", help="Execution tool: codex, claude, opencode, or custom.")]
 ExecutorModeOption = Annotated[str, typer.Option("--executor-mode", help="Execution mode: preset or command.")]
 ModelOption = Annotated[str, typer.Option(help="Default model or alias for the selected execution tool.")]
 ReasoningOption = Annotated[str, typer.Option(help="Reasoning effort or variant for the selected execution tool.")]

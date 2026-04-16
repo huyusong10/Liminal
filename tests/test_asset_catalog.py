@@ -89,20 +89,20 @@ def test_asset_catalog_role_definition_crud_normalizes_archetypes_and_protects_b
         name="Legacy Generator",
         description="Uses the legacy alias on input.",
         archetype="generator",
-        prompt_ref="legacy-builder.md",
         prompt_markdown=_prompt_markdown("builder", "Keep changes scoped."),
         executor_kind="codex",
         model="gpt-5.4-mini",
     )
 
     assert created["archetype"] == "builder"
+    assert created["prompt_ref"].endswith(".md")
+    original_prompt_ref = created["prompt_ref"]
 
     updated = catalog.update_role_definition(
         created["id"],
         name="Legacy Generator v2",
         description="Updated description.",
         archetype="builder",
-        prompt_ref="legacy-builder.md",
         prompt_markdown=_prompt_markdown("builder", "Keep changes very scoped."),
         executor_kind="opencode",
         model="gpt-5.4",
@@ -111,6 +111,7 @@ def test_asset_catalog_role_definition_crud_normalizes_archetypes_and_protects_b
     assert updated["name"] == "Legacy Generator v2"
     assert updated["model"] == "gpt-5.4"
     assert updated["executor_kind"] == "opencode"
+    assert updated["prompt_ref"] == original_prompt_ref
 
     with pytest.raises(ValueError, match="built-in role definitions cannot be updated in place"):
         catalog.update_role_definition(
@@ -118,10 +119,27 @@ def test_asset_catalog_role_definition_crud_normalizes_archetypes_and_protects_b
             name="Nope",
             description="",
             archetype="builder",
-            prompt_ref="builder.md",
             prompt_markdown=_prompt_markdown("builder", "Should fail."),
             model="",
         )
 
     deleted = catalog.delete_role_definition(created["id"])
     assert deleted == {"id": created["id"], "deleted": True}
+
+
+def test_asset_catalog_rejects_custom_executor_preset_mode(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+
+    with pytest.raises(ValueError, match="only supports command mode"):
+        catalog.create_role_definition(
+            name="Custom Wrapper",
+            description="Uses a wrapper command.",
+            archetype="custom",
+            prompt_ref="custom-wrapper.md",
+            prompt_markdown=_prompt_markdown("custom", "Observe and summarize."),
+            executor_kind="custom",
+            executor_mode="preset",
+            command_cli="wrapper",
+            command_args_text="--output\n{output_path}\n{prompt}\n",
+        )

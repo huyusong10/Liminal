@@ -39,6 +39,7 @@ def test_executor_kind_aliases_normalize() -> None:
     assert normalize_executor_kind("codex") == "codex"
     assert normalize_executor_kind("claudecode") == "claude"
     assert normalize_executor_kind("open-code") == "opencode"
+    assert normalize_executor_kind("custom") == "custom"
 
 
 def test_executor_mode_normalizes() -> None:
@@ -51,7 +52,9 @@ def test_reasoning_setting_is_provider_specific() -> None:
     assert normalize_reasoning_setting("xhigh", executor_kind="claude") == "max"
     assert normalize_reasoning_setting("", executor_kind="opencode") == ""
     assert normalize_reasoning_setting("default", executor_kind="opencode") == ""
-    assert executor_profile("opencode").preset_effort_visible is False
+    assert normalize_reasoning_setting("default", executor_kind="custom") == ""
+    assert executor_profile("opencode").preset_effort_visible is True
+    assert executor_profile("custom").command_only is True
 
 
 def test_codex_exec_args_include_output_schema_and_reasoning(tmp_path: Path) -> None:
@@ -113,6 +116,11 @@ def test_custom_exec_args_require_runtime_placeholders() -> None:
 def test_claude_command_args_require_json_schema_placeholder() -> None:
     with pytest.raises(ValueError, match="\\{json_schema\\}"):
         validate_command_args_text("-p\n--output-format\nstream-json\n{prompt}\n", executor_kind="claude")
+
+
+def test_custom_command_args_require_output_path_placeholder() -> None:
+    with pytest.raises(ValueError, match="\\{output_path\\}"):
+        validate_command_args_text("--prompt\n{prompt}\n", executor_kind="custom")
 
 
 def test_custom_exec_args_resolve_runtime_values(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-EXECUTOR_KINDS = ("codex", "claude", "opencode")
+EXECUTOR_KINDS = ("codex", "claude", "opencode", "custom")
 EXECUTOR_KIND_ALIASES = {
     "codex": "codex",
     "openai-codex": "codex",
@@ -13,6 +13,7 @@ EXECUTOR_KIND_ALIASES = {
     "opencode": "opencode",
     "open-code": "opencode",
     "open_code": "opencode",
+    "custom": "custom",
 }
 EXECUTOR_MODES = ("preset", "command")
 
@@ -36,6 +37,8 @@ class ExecutorProfile:
     effort_default: str
     effort_optional: bool = False
     preset_effort_visible: bool = True
+    command_only: bool = False
+    command_required_placeholders: tuple[str, ...] = ("{prompt}",)
     command_args_template: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
@@ -59,6 +62,7 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
         effort_help_en="Codex supports low, medium, high, and xhigh.",
         effort_options=("low", "medium", "high", "xhigh"),
         effort_default="medium",
+        command_required_placeholders=("{prompt}", "{output_path}", "{schema_path}"),
         command_args_template=(
             "exec",
             "--json",
@@ -94,6 +98,7 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
         effort_help_en="Claude Code supports low, medium, high, and max. Legacy xhigh is mapped to max.",
         effort_options=("low", "medium", "high", "max"),
         effort_default="medium",
+        command_required_placeholders=("{prompt}", "{json_schema}"),
         command_args_template=(
             "--setting-sources",
             "local,project",
@@ -130,7 +135,7 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
         effort_options=("", "high", "max", "minimal", "low", "medium", "xhigh", "none"),
         effort_default="",
         effort_optional=True,
-        preset_effort_visible=False,
+        command_required_placeholders=("{prompt}",),
         command_args_template=(
             "run",
             "--format",
@@ -140,6 +145,27 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
             "--dangerously-skip-permissions",
             "{prompt}",
         ),
+    ),
+    "custom": ExecutorProfile(
+        key="custom",
+        label="Custom Command",
+        label_zh="自定义命令",
+        cli_name="",
+        default_model="",
+        model_placeholder_zh="直接命令模式下不再单独配置模型；如有需要，请把模型写进命令参数里",
+        model_placeholder_en="Model is not configured separately in direct-command mode; put it in the command arguments if needed",
+        model_help_zh="自定义执行工具只支持直接命令模式。Loopora 不会为它自动拼预设命令。",
+        model_help_en="Custom execution tools only support direct-command mode. Loopora does not assemble a preset command for them.",
+        effort_label_zh="推理强度",
+        effort_label_en="Reasoning effort",
+        effort_help_zh="自定义命令不提供固定推理强度选项；如有需要，请把对应参数直接写进命令里。",
+        effort_help_en="Custom commands do not offer a fixed reasoning selector; pass any equivalent setting directly in the command.",
+        effort_options=("",),
+        effort_default="",
+        effort_optional=True,
+        preset_effort_visible=False,
+        command_only=True,
+        command_required_placeholders=("{prompt}", "{output_path}"),
     ),
 }
 
@@ -188,6 +214,10 @@ def normalize_reasoning_setting(value: str | None, *, executor_kind: str) -> str
             supported = ", ".join(profile.effort_options)
             raise ValueError(f"unsupported reasoning effort for Claude Code: {value!r}. Expected one of: {supported}")
         return normalized
+    if profile.key == "custom":
+        if not raw or raw in _OPENCODE_BLANK_ALIASES:
+            return ""
+        return raw
     if not raw or raw in _OPENCODE_BLANK_ALIASES:
         return ""
     return raw

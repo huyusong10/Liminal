@@ -210,6 +210,8 @@ class LooporaService:
             executor_kind = normalize_executor_kind(executor_kind)
             executor_mode = normalize_executor_mode(executor_mode)
             profile = executor_profile(executor_kind)
+            if profile.command_only and executor_mode != "command":
+                raise ValueError(f"{profile.label} only supports command mode")
             if executor_mode == "preset":
                 command_cli = ""
                 command_args_text = ""
@@ -406,8 +408,8 @@ class LooporaService:
         name: str,
         description: str = "",
         archetype: str,
-        prompt_ref: str,
         prompt_markdown: str,
+        prompt_ref: str = "",
         executor_kind: str = "codex",
         executor_mode: str = "preset",
         command_cli: str = "",
@@ -448,8 +450,8 @@ class LooporaService:
         name: str,
         description: str = "",
         archetype: str,
-        prompt_ref: str,
         prompt_markdown: str,
+        prompt_ref: str = "",
         executor_kind: str = "codex",
         executor_mode: str = "preset",
         command_cli: str = "",
@@ -1869,6 +1871,8 @@ class LooporaService:
             executor_mode = normalize_executor_mode(role.get("executor_mode", "preset"))
             profile = executor_profile(executor_kind)
             reasoning_effort = str(role.get("reasoning_effort") or "").strip()
+            if profile.command_only and executor_mode != "command":
+                raise LooporaError(f"{profile.label} only supports command mode")
             if executor_mode == "preset":
                 return {
                     "executor_kind": executor_kind,
@@ -1894,6 +1898,8 @@ class LooporaService:
         executor_kind = normalize_executor_kind(run.get("executor_kind", "codex"))
         executor_mode = normalize_executor_mode(run.get("executor_mode", "preset"))
         profile = executor_profile(executor_kind)
+        if profile.command_only and executor_mode != "command":
+            raise LooporaError(f"{profile.label} only supports command mode")
         if executor_mode == "preset":
             return {
                 "executor_kind": executor_kind,

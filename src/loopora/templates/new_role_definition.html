@@ -15,7 +15,13 @@
   </div>
 </section>
 
-<form class="panel form-panel form-panel-wide" method="post" action="{{ page_copy.action }}" data-testid="role-definition-editor-form">
+<form
+  class="panel form-panel form-panel-wide"
+  method="post"
+  action="{{ page_copy.action }}"
+  data-testid="role-definition-editor-form"
+  data-builtin-prompt-sync="{{ 'true' if builtin_prompt_sync_enabled else 'false' }}"
+>
   <div class="field-status is-error" aria-live="polite" {% if not form_error %}hidden{% endif %}>{{ form_error or "" }}</div>
 
   <div class="form-grid">
@@ -26,54 +32,41 @@
 
     <label>
       <span><span data-lang="zh">角色模板</span><span data-lang="en">Role template</span></span>
-      <select name="archetype" id="role-definition-archetype-input">
+      <select name="archetype" id="role-definition-archetype-input" {% if role_template_locked %}disabled{% endif %}>
         {% for option in archetype_options %}
-        <option value="{{ option.id }}" {% if form_values.archetype == option.id %}selected{% endif %}>
-          {{ option.label_zh }} / {{ option.label_en }}
-        </option>
+        <option
+          value="{{ option.id }}"
+          data-label-zh="{{ option.label_zh }}"
+          data-label-en="{{ option.label_en }}"
+          data-summary-zh="{{ option.summary_zh }}"
+          data-summary-en="{{ option.summary_en }}"
+          data-recommendation-zh="{{ option.recommendation_zh }}"
+          data-recommendation-en="{{ option.recommendation_en }}"
+          data-warning-zh="{{ option.warning_zh }}"
+          data-warning-en="{{ option.warning_en }}"
+          {% if form_values.archetype == option.id %}selected{% endif %}
+        >{{ option.label_zh if page_locale == 'zh' else option.label_en }}</option>
         {% endfor %}
       </select>
+      {% if role_template_locked %}
+      <input type="hidden" name="archetype" value="{{ form_values.archetype }}" />
+      {% endif %}
+      {% if role_template_locked %}
       <small class="field-note">
-        <span data-lang="zh">`自定义（最低权限）` 适合做只读分析、补充观察和建议，不能充当最终放行角色。</span>
-        <span data-lang="en">`Custom (Restricted)` is for read-only analysis, extra observations, and recommendations. It cannot act as the final pass/fail role.</span>
+        {% if role_template_lock_reason == "builtin" %}
+        <span data-lang="zh">这是一个已有模板的派生流程，角色模板会保持固定。若要从别的模板开始，请回到“新建角色”。</span>
+        <span data-lang="en">This flow derives from an existing template, so the role template stays fixed. Use Create Role if you want to start from a different template.</span>
+        {% else %}
+        <span data-lang="zh">编辑已有角色时，角色模板会保持固定。若要换模板，请重新创建角色。</span>
+        <span data-lang="en">Existing roles keep their template fixed while editing. Create a new role if you need a different template.</span>
+        {% endif %}
       </small>
-    </label>
-
-    <label>
-      <span><span data-lang="zh">Prompt 文件名</span><span data-lang="en">Prompt file name</span></span>
-      <input name="prompt_ref" id="role-definition-prompt-ref-input" value="{{ form_values.prompt_ref }}" required data-testid="role-definition-prompt-ref-input" />
-    </label>
-
-    <label>
-      <span><span data-lang="zh">执行工具</span><span data-lang="en">Execution tool</span></span>
-      <select name="executor_kind" id="role-definition-executor-kind-input" data-testid="role-definition-executor-kind-input">
-        {% for profile in executor_profiles %}
-        <option value="{{ profile.key }}" {% if form_values.executor_kind == profile.key %}selected{% endif %}>{{ profile.label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-
-    <label>
-      <span><span data-lang="zh">配置方式</span><span data-lang="en">Configuration mode</span></span>
-      <select name="executor_mode" id="role-definition-executor-mode-input" data-testid="role-definition-executor-mode-input">
-        <option value="preset" {% if form_values.executor_mode == "preset" %}selected{% endif %}>Preset / 预设</option>
-        <option value="command" {% if form_values.executor_mode == "command" %}selected{% endif %}>Command / 直接命令</option>
-      </select>
-    </label>
-
-    <label>
-      <span><span data-lang="zh">默认模型</span><span data-lang="en">Default model</span></span>
-      <input name="model" value="{{ form_values.model }}" data-testid="role-definition-model-input" />
-    </label>
-
-    <label>
-      <span><span data-lang="zh">推理强度 / Variant</span><span data-lang="en">Reasoning / Variant</span></span>
-      <input
-        name="reasoning_effort"
-        id="role-definition-reasoning-input"
-        value="{{ form_values.reasoning_effort }}"
-        data-testid="role-definition-reasoning-input"
-      />
+      {% endif %}
+      <div class="role-template-guide" id="role-definition-archetype-guide" data-testid="role-definition-archetype-guide" aria-live="polite">
+        <p class="role-template-guide-summary" id="role-definition-archetype-summary">{{ selected_archetype_option.summary_zh if page_locale == 'zh' else selected_archetype_option.summary_en }}</p>
+        <p class="role-template-guide-recommendation" id="role-definition-archetype-recommendation">{{ selected_archetype_option.recommendation_zh if page_locale == 'zh' else selected_archetype_option.recommendation_en }}</p>
+        <p class="role-template-guide-warning" id="role-definition-archetype-warning" {% if not (selected_archetype_option.warning_zh if page_locale == 'zh' else selected_archetype_option.warning_en) %}hidden{% endif %}>{{ selected_archetype_option.warning_zh if page_locale == 'zh' else selected_archetype_option.warning_en }}</p>
+      </div>
     </label>
 
     <label class="wide">
@@ -81,33 +74,175 @@
       <textarea name="description" rows="3">{{- form_values.description -}}</textarea>
     </label>
 
-    <label class="wide">
-      <span><span data-lang="zh">命令可执行文件</span><span data-lang="en">Command executable</span></span>
-      <input
-        name="command_cli"
-        id="role-definition-command-cli-input"
-        value="{{ form_values.command_cli }}"
-        data-testid="role-definition-command-cli-input"
-      />
-      <small class="field-note">
-        <span data-lang="zh">只有在直接命令模式下才会生效；预设模式会自动使用该工具的默认命令。</span>
-        <span data-lang="en">This only matters in command mode. Preset mode automatically uses the default command for the selected tool.</span>
-      </small>
-    </label>
+    <section class="wide panel role-execution-panel">
+      <header class="panel-header workflow-editor-header role-execution-header">
+        <div>
+          <h2><span data-lang="zh">执行方式</span><span data-lang="en">Execution setup</span></h2>
+          <p class="field-note">
+            <span data-lang="zh">预设模式适合 Codex、Claude Code、OpenCode 这些内置工具；直接命令模式适合精确控制 argv，或接入你自己的包装命令。</span>
+            <span data-lang="en">Preset mode is best for built-in tools like Codex, Claude Code, and OpenCode. Direct command mode is for exact argv control or your own wrapper commands.</span>
+          </p>
+        </div>
+      </header>
 
-    <label class="wide">
-      <span><span data-lang="zh">命令参数</span><span data-lang="en">Command arguments</span></span>
-      <textarea
-        name="command_args_text"
-        id="role-definition-command-args-input"
-        rows="8"
-        data-testid="role-definition-command-args-input"
-      >{{- form_values.command_args_text -}}</textarea>
-      <small class="field-note">
-        <span data-lang="zh">每行一个参数。支持占位符：`{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}`。</span>
-        <span data-lang="en">Use one argument per line. Supported placeholders: `{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}`.</span>
-      </small>
-    </label>
+      <div class="role-execution-content">
+        <div class="role-execution-top-grid">
+          <label>
+            <span><span data-lang="zh">执行工具</span><span data-lang="en">Execution tool</span></span>
+            <select name="executor_kind" id="role-definition-executor-kind-input" data-testid="role-definition-executor-kind-input">
+              {% for profile in executor_profiles %}
+              <option value="{{ profile.key }}" {% if form_values.executor_kind == profile.key %}selected{% endif %}>{{ profile.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+
+          <div class="field-cluster">
+            <span class="label-row">
+              <span><span data-lang="zh">配置方式</span><span data-lang="en">Configuration mode</span></span>
+            </span>
+            <div class="executor-mode-switch" data-testid="role-definition-executor-mode-switch" role="group" aria-label="Execution mode switch">
+              <button
+                class="executor-mode-chip"
+                type="button"
+                id="role-definition-mode-preset-button"
+                data-mode-choice="preset"
+                data-testid="role-definition-mode-preset-button"
+              >
+                <strong><span data-lang="zh">预设</span><span data-lang="en">Preset</span></strong>
+                <span class="executor-mode-copy">
+                  <span data-lang="zh">调模型和推理强度，命令自动生成</span>
+                  <span data-lang="en">Tune model and effort, then let Loopora build the command</span>
+                </span>
+              </button>
+              <button
+                class="executor-mode-chip"
+                type="button"
+                id="role-definition-mode-command-button"
+                data-mode-choice="command"
+                data-testid="role-definition-mode-command-button"
+              >
+                <strong><span data-lang="zh">直接命令</span><span data-lang="en">Direct command</span></strong>
+                <span class="executor-mode-copy">
+                  <span data-lang="zh">直接维护 CLI 和参数模版</span>
+                  <span data-lang="en">Own the CLI executable and argv template directly</span>
+                </span>
+              </button>
+            </div>
+            <input
+              type="hidden"
+              name="executor_mode"
+              id="role-definition-executor-mode-input"
+              value="{{ form_values.executor_mode }}"
+              data-testid="role-definition-executor-mode-input"
+            />
+            <small class="field-note" id="role-definition-mode-note"></small>
+          </div>
+        </div>
+
+        <div class="executor-config-grid">
+          <section class="executor-config-card" id="role-definition-preset-card">
+            <header class="executor-config-head">
+              <div>
+                <strong><span data-lang="zh">预设配置</span><span data-lang="en">Preset config</span></strong>
+                <p>
+                  <span data-lang="zh">这里保留模型和推理强度这些稳定选项。切到直接命令后，这一侧会冻结成只读参考。</span>
+                  <span data-lang="en">This side keeps the stable knobs like model and reasoning. When you switch to direct command, it freezes into a read-only reference.</span>
+                </p>
+              </div>
+              <span class="executor-config-state" id="role-definition-preset-state">
+                <span data-lang="zh">当前生效</span>
+                <span data-lang="en">Active</span>
+              </span>
+            </header>
+            <p class="executor-config-empty" id="role-definition-preset-empty" hidden>
+              <span data-lang="zh">这个执行工具只支持直接命令模式，预设配置不会单独生效。</span>
+              <span data-lang="en">This execution tool only supports direct-command mode, so preset controls do not apply on their own.</span>
+            </p>
+            <div class="executor-config-body" id="role-definition-preset-body">
+              <label id="role-definition-model-field">
+                <span class="label-row">
+                  <span id="role-definition-model-field-label"><span data-lang="zh">默认模型</span><span data-lang="en">Default model</span></span>
+                </span>
+                <input
+                  name="model"
+                  id="role-definition-model-input"
+                  value="{{ form_values.model }}"
+                  data-testid="role-definition-model-input"
+                />
+                <small class="field-note" id="role-definition-model-note"></small>
+              </label>
+
+              <label id="role-definition-reasoning-field">
+                <span class="label-row">
+                  <span id="role-definition-reasoning-field-label"><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning effort</span></span>
+                </span>
+                <select
+                  id="role-definition-reasoning-input"
+                  data-testid="role-definition-reasoning-input"
+                ></select>
+                <input
+                  type="hidden"
+                  name="reasoning_effort"
+                  id="role-definition-reasoning-hidden-input"
+                  value="{{ form_values.reasoning_effort }}"
+                />
+                <small class="field-note" id="role-definition-reasoning-note"></small>
+              </label>
+            </div>
+          </section>
+
+          <section class="executor-config-card" id="role-definition-command-card">
+            <header class="executor-config-head">
+              <div>
+                <strong><span data-lang="zh">直接命令</span><span data-lang="en">Direct command</span></strong>
+                <p>
+                  <span data-lang="zh">这里只有真实会执行的 CLI 模版。切到这个模式后，Loopora 不再单独改模型和推理强度，而是按你给的命令执行。</span>
+                  <span data-lang="en">This side is the exact CLI template that will run. Once active, Loopora stops editing model and reasoning separately and follows your command definition as-is.</span>
+                </p>
+              </div>
+              <span class="executor-config-state" id="role-definition-command-state">
+                <span data-lang="zh">当前生效</span>
+                <span data-lang="en">Active</span>
+              </span>
+            </header>
+            <div class="executor-config-body">
+              <label class="wide" id="role-definition-command-cli-field">
+                <span><span data-lang="zh">命令可执行文件</span><span data-lang="en">Command executable</span></span>
+                <input
+                  name="command_cli"
+                  id="role-definition-command-cli-input"
+                  value="{{ form_values.command_cli }}"
+                  data-testid="role-definition-command-cli-input"
+                />
+                <small class="field-note" id="role-definition-command-cli-note"></small>
+              </label>
+
+              <label class="wide" id="role-definition-command-args-field">
+                <span><span data-lang="zh">命令参数</span><span data-lang="en">Command arguments</span></span>
+                <textarea
+                  name="command_args_text"
+                  id="role-definition-command-args-input"
+                  rows="9"
+                  data-testid="role-definition-command-args-input"
+                >{{- form_values.command_args_text -}}</textarea>
+                <small class="field-note">
+                  <span data-lang="zh">每行一个参数。支持占位符：`{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}`。</span>
+                  <span data-lang="en">Use one argument per line. Supported placeholders: `{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}`.</span>
+                </small>
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <div class="command-preview-panel">
+          <span class="label-row">
+            <span><span data-lang="zh">最终命令预览</span><span data-lang="en">Final command preview</span></span>
+          </span>
+          <pre class="preview-box command-preview-box" id="role-definition-command-preview" data-testid="role-definition-command-preview"></pre>
+          <small class="field-note" id="role-definition-command-preview-note"></small>
+        </div>
+      </div>
+    </section>
 
     <label class="wide">
       <span><span data-lang="zh">Prompt Markdown</span><span data-lang="en">Prompt Markdown</span></span>

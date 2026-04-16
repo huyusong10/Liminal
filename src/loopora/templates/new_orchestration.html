@@ -83,6 +83,18 @@
           </button>
         </div>
       </div>
+      <section class="workflow-map-panel" data-testid="workflow-loop-preview-panel">
+        <div class="workflow-section-head">
+          <div>
+            <strong><span data-lang="zh">循环实例图</span><span data-lang="en">Loop instance map</span></strong>
+            <p class="workflow-section-note">
+              <span data-lang="zh">这里不是单向流程图，而是把每轮 steps 串成一个会回到起点的循环视图。调整角色和步骤顺序时，这里会同步刷新。</span>
+              <span data-lang="en">This is not a one-way flowchart. It renders the iteration as a loop that closes back on itself, and it refreshes as you change roles or step order.</span>
+            </p>
+          </div>
+        </div>
+        <div id="workflow-loop-preview" data-testid="workflow-loop-preview"></div>
+      </section>
       <div class="field-status" id="workflow-validation" aria-live="polite" hidden></div>
       <div class="workflow-editor-grid">
         <section class="workflow-editor-section">
@@ -129,6 +141,7 @@
 
 <script id="workflow-preset-bundles-json" type="application/json">{{ workflow_preset_bundles|tojson }}</script>
 <script id="role-definitions-json" type="application/json">{{ role_definitions|tojson }}</script>
+<script src="{{ static_asset_url('pages/workflow_diagram.js') }}" defer></script>
 <script src="{{ static_asset_url('pages/new_orchestration.js') }}" defer></script>
 </div>
 {% endblock %}

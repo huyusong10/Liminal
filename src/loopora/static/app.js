@@ -324,6 +324,18 @@
     });
   }
 
+  function bindPrimaryNavigation() {
+    document.querySelectorAll(".top-nav-link").forEach((link) => {
+      if (link.dataset.boundNav === "1") {
+        return;
+      }
+      link.dataset.boundNav = "1";
+      link.addEventListener("click", () => {
+        link.classList.add("is-routing");
+      });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     setLocale(initialLocale(), {persist: false});
     document.querySelectorAll("[data-set-locale]").forEach((button) => {
@@ -331,6 +343,12 @@
     });
     bindDeleteLoopButtons();
     bindOpenCards();
+    bindPrimaryNavigation();
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document.body.classList.add("ui-mounted");
+      });
+    });
   });
 
   window.LooporaUI = {
@@ -343,6 +361,7 @@
     applyLocalizedAttributes,
     bindDeleteLoopButtons,
     bindOpenCards,
+    bindPrimaryNavigation,
   };
 })();
 

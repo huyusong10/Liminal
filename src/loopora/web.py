@@ -40,8 +40,10 @@ from loopora.workflows import (
     available_prompt_templates,
     build_preset_workflow,
     builtin_prompt_markdown,
+    builtin_prompt_markdown_by_locale,
     default_role_execution_settings,
     display_name_for_archetype,
+    normalize_prompt_locale,
     normalize_workflow,
     preset_names,
     resolve_prompt_files,
@@ -79,7 +81,7 @@ DEFAULT_ROLE_DEFINITION_FORM = {
     "description": "",
     "archetype": "builder",
     "prompt_ref": "builder.md",
-    "prompt_markdown": builtin_prompt_markdown("builder.md"),
+    "prompt_markdown": builtin_prompt_markdown("builder.md", locale="en"),
     **default_role_execution_settings(),
 }
 
@@ -315,19 +317,17 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         )
 
     def render_role_definitions(request: Request) -> HTMLResponse:
-        role_definitions = [
-            {
-                **role_definition,
-                "executor_label": executor_profile(role_definition.get("executor_kind", "codex")).label,
-            }
-            for role_definition in svc().list_role_definitions()
-        ]
+        role_definitions = [_decorate_role_definition_overview(role_definition) for role_definition in svc().list_role_definitions()]
+        builtin_role_templates = [item for item in role_definitions if item["source"] == "builtin"]
+        custom_role_definitions = [item for item in role_definitions if item["source"] == "custom"]
         return templates.TemplateResponse(
             request,
             "role_definitions.html",
             {
                 "request": request,
                 "role_definitions": role_definitions,
+                "builtin_role_templates": builtin_role_templates,
+                "custom_role_definitions": custom_role_definitions,
                 "access_state": access_state,
             },
         )
@@ -339,11 +339,14 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         form_error: str | None = None,
         role_definition: Mapping[str, object] | None = None,
     ) -> HTMLResponse:
+        locale = _preferred_request_locale(request)
+        incoming_values = values
         current_role_definition = dict(role_definition) if role_definition else None
         if values is None and current_role_definition is not None:
-            values = _role_definition_form_values_from_record(current_role_definition)
+            values = _role_definition_form_values_from_record(current_role_definition, locale=locale)
         is_builtin_template = bool(current_role_definition and current_role_definition.get("source") == "builtin")
         is_editing_custom = bool(current_role_definition and current_role_definition.get("source") == "custom")
+        role_template_locked = current_role_definition is not None
         if is_editing_custom:
             page_copy = {
                 "title_zh": "修改这条角色定义，让后续编排都能复用新的版本。",
@@ -356,10 +359,10 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             }
         elif is_builtin_template:
             page_copy = {
-                "title_zh": "从内置角色出发，改成你团队自己的角色版本。",
-                "title_en": "Start from a built-in role, then tailor it to your team.",
-                "body_zh": "这是内置角色的可编辑副本。你可以修改角色名、角色模板、默认执行工具、模型和 prompt，保存时会另存为新的自定义角色定义。",
-                "body_en": "This is an editable copy of a built-in role. Adjust the role name, role template, default executor, model, and prompt, then save it as a new custom role definition.",
+                "title_zh": "从内置模板出发，打磨成你团队自己的角色版本。",
+                "title_en": "Start from the built-in template, then tailor it into your team’s own role.",
+                "body_zh": "这里保留的是模板的核心角色身份，你可以修改名字、执行工具、模型和 prompt；保存时会派生出一条新的自定义角色定义。",
+                "body_en": "The core role identity stays fixed here. Adjust the name, executor, model, and prompt, then save a new custom role definition derived from this template.",
                 "submit_zh": "保存为新角色",
                 "submit_en": "Save as new role",
                 "action": "/roles/new",
@@ -374,24 +377,32 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                 "submit_en": "Save role",
                 "action": "/roles/new",
             }
+        form_values = _normalize_role_definition_form(values, locale=locale)
+        archetype_options = _archetype_options()
+        selected_archetype_option = next(
+            (option for option in archetype_options if option["id"] == str(form_values.get("archetype", "builder"))),
+            archetype_options[0],
+        )
+        builtin_prompt_sync_enabled = not is_editing_custom and (
+            incoming_values is None or "prompt_markdown" not in incoming_values
+        )
         return templates.TemplateResponse(
             request,
             "new_role_definition.html",
             {
                 "request": request,
-                "form_values": _normalize_role_definition_form(values),
+                "form_values": form_values,
                 "form_error": form_error,
                 "page_copy": page_copy,
                 "current_role_definition": current_role_definition,
-                "archetype_options": _archetype_options(),
+                "archetype_options": archetype_options,
+                "selected_archetype_option": selected_archetype_option,
+                "page_locale": locale,
+                "role_template_locked": role_template_locked,
+                "role_template_lock_reason": "builtin" if is_builtin_template else ("existing" if is_editing_custom else "new"),
                 "executor_profiles": list_executor_profiles(),
-                "builtin_role_templates": {
-                    archetype: {
-                        "prompt_ref": "gatekeeper.md" if archetype == "gatekeeper" else f"{archetype}.md",
-                        "prompt_markdown": builtin_prompt_markdown("gatekeeper.md" if archetype == "gatekeeper" else f"{archetype}.md"),
-                    }
-                    for archetype in ARCHETYPES
-                },
+                "builtin_role_templates": _builtin_role_templates(locale=locale),
+                "builtin_prompt_sync_enabled": builtin_prompt_sync_enabled,
                 "access_state": access_state,
             },
         )
@@ -837,9 +848,9 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         return JSONResponse({"ok": True, "metadata": metadata, "body": body})
 
     @app.get("/api/prompts/templates/{prompt_ref}")
-    async def api_prompt_template(prompt_ref: str) -> Response:
+    async def api_prompt_template(prompt_ref: str, locale: str | None = Query(default=None)) -> Response:
         try:
-            markdown_text = builtin_prompt_markdown(prompt_ref)
+            markdown_text = builtin_prompt_markdown(prompt_ref, locale=locale)
         except WorkflowError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return Response(
@@ -1072,7 +1083,6 @@ def _role_definition_payload_from_mapping(payload: Mapping[str, object]) -> dict
     name = str(payload.get("name", "")).strip()
     description = str(payload.get("description", "")).strip()
     archetype = str(payload.get("archetype", "builder")).strip() or "builder"
-    prompt_ref = str(payload.get("prompt_ref", "")).strip()
     prompt_markdown = str(payload.get("prompt_markdown", ""))
     executor_kind = str(payload.get("executor_kind", "codex")).strip() or "codex"
     executor_mode = str(payload.get("executor_mode", "preset")).strip() or "preset"
@@ -1082,15 +1092,12 @@ def _role_definition_payload_from_mapping(payload: Mapping[str, object]) -> dict
     reasoning_effort = str(payload.get("reasoning_effort", "")).strip()
     if not name:
         raise LooporaError("name is required")
-    if not prompt_ref:
-        raise LooporaError("prompt_ref is required")
     if not prompt_markdown.strip():
         raise LooporaError("prompt_markdown is required")
     return {
         "name": name,
         "description": description,
         "archetype": archetype,
-        "prompt_ref": prompt_ref,
         "prompt_markdown": prompt_markdown,
         "executor_kind": executor_kind,
         "executor_mode": executor_mode,
@@ -1300,18 +1307,25 @@ def _normalize_orchestration_form(values: Mapping[str, object] | None) -> dict[s
     return normalized
 
 
-def _normalize_role_definition_form(values: Mapping[str, object] | None) -> dict[str, object]:
+def _normalize_role_definition_form(values: Mapping[str, object] | None, *, locale: str = "en") -> dict[str, object]:
     normalized = dict(DEFAULT_ROLE_DEFINITION_FORM)
+    normalized["prompt_markdown"] = builtin_prompt_markdown("builder.md", locale=locale)
     if not values:
         return normalized
     for key in normalized:
         if key in values:
             normalized[key] = values[key]
+    if "prompt_markdown" not in values:
+        archetype = str(normalized.get("archetype", "builder") or "builder")
+        normalized["prompt_markdown"] = builtin_prompt_markdown(_builtin_prompt_ref_for_archetype(archetype), locale=locale)
+    try:
+        profile = executor_profile(str(normalized.get("executor_kind", "codex")))
+    except ValueError:
+        profile = executor_profile("codex")
+    if profile.command_only:
+        normalized["executor_mode"] = "command"
     if not str(normalized.get("command_cli", "")).strip():
-        try:
-            normalized["command_cli"] = executor_profile(str(normalized.get("executor_kind", "codex"))).cli_name
-        except ValueError:
-            normalized["command_cli"] = "codex"
+        normalized["command_cli"] = profile.cli_name
     return normalized
 
 
@@ -1330,21 +1344,67 @@ def _workflow_preset_options() -> list[dict[str, str]]:
 
 def _archetype_options() -> list[dict[str, str]]:
     labels = []
+    copy = {
+        "builder": {
+            "summary_zh": "直接推进实现，适合把 spec 和 handoff 落成真实代码与文件改动。",
+            "summary_en": "Pushes the implementation forward and turns specs plus handoffs into real code changes.",
+            "recommendation_zh": "建议把它放在需要实际修改工作区的位置，并给它明确的主线目标。",
+            "recommendation_en": "Use it where the workflow needs actual workspace edits, with a crisp main-path goal.",
+            "warning_zh": "",
+            "warning_en": "",
+        },
+        "inspector": {
+            "summary_zh": "收集证据、跑检查、整理事实，适合验证当前产出到底到了什么程度。",
+            "summary_en": "Collects evidence, runs checks, and summarizes facts so the workflow knows what is truly working.",
+            "recommendation_zh": "建议接在 Builder 之后，优先覆盖最关键、最可复现的用户路径。",
+            "recommendation_en": "Usually works best after the Builder, starting with the most critical reproducible user paths.",
+            "warning_zh": "",
+            "warning_en": "",
+        },
+        "gatekeeper": {
+            "summary_zh": "负责做放行判断，只根据 checks、证据和风险决定是否通过。",
+            "summary_en": "Owns the pass/fail decision and judges readiness strictly from checks, evidence, and risk.",
+            "recommendation_zh": "建议只放一个在流程收束位，避免多个最终裁决角色相互打架。",
+            "recommendation_en": "Keep one of these near the end of the workflow so there is a single clear final verdict.",
+            "warning_zh": "不建议把它当成实现角色使用，它的职责是裁决，不是补做工作。",
+            "warning_en": "Do not use it as an implementation role. Its job is to decide, not to compensate for missing work.",
+        },
+        "guide": {
+            "summary_zh": "在停滞、回退或噪音过多时提供新的方向，帮流程恢复有效推进。",
+            "summary_en": "Intervenes when progress stalls or gets noisy, then suggests a tighter next direction.",
+            "recommendation_zh": "建议放在流程末尾或条件分支里，用来给下一轮提供更高杠杆的突破口。",
+            "recommendation_en": "Use it near the end or in recovery branches to generate the next high-leverage move.",
+            "warning_zh": "",
+            "warning_en": "",
+        },
+        "custom": {
+            "summary_zh": "最低权限的补充角色，适合做只读分析、专门观察和窄范围建议。",
+            "summary_en": "A restricted support role for read-only analysis, specialized observations, and narrow recommendations.",
+            "recommendation_zh": "适合安全审计、文案评审、风险盘点这类辅助任务；通常不要让它承担最终放行。",
+            "recommendation_en": "Great for sidecar tasks like security review, copy critique, or risk scans; usually not for the final verdict.",
+            "warning_zh": "它不能充当最终放行角色；如果选择 custom 执行工具，也只能使用直接命令模式。",
+            "warning_en": "It cannot be the final pass/fail role. If you pair it with the custom executor, direct-command mode is required.",
+        },
+    }
     for archetype in ARCHETYPES:
+        item = copy[archetype]
+        english_label = "Custom (Restricted)" if archetype == "custom" else display_name_for_archetype(archetype, locale="en")
         if archetype == "custom":
             labels.append(
                 {
                     "id": archetype,
-                    "label_zh": "自定义（最低权限）",
-                    "label_en": "Custom (Restricted)",
+                    "label_zh": english_label,
+                    "label_en": english_label,
+                    **item,
                 }
             )
             continue
         labels.append(
             {
                 "id": archetype,
-                "label_zh": display_name_for_archetype(archetype, locale="zh"),
-                "label_en": display_name_for_archetype(archetype, locale="en"),
+                "label_zh": english_label,
+                "label_en": english_label,
+                **item,
             }
         )
     return labels
@@ -1361,19 +1421,65 @@ def _orchestration_form_values_from_record(orchestration: Mapping[str, object]) 
     }
 
 
-def _role_definition_form_values_from_record(role_definition: Mapping[str, object]) -> dict[str, object]:
+def _role_definition_form_values_from_record(role_definition: Mapping[str, object], *, locale: str = "en") -> dict[str, object]:
+    prompt_ref = str(role_definition.get("prompt_ref", ""))
+    prompt_markdown = str(role_definition.get("prompt_markdown", ""))
+    if str(role_definition.get("source", "")).strip() == "builtin" and prompt_ref:
+        prompt_markdown = builtin_prompt_markdown(prompt_ref, locale=locale)
     return {
         "name": str(role_definition.get("name", "")),
         "description": str(role_definition.get("description", "")),
         "archetype": str(role_definition.get("archetype", "builder") or "builder"),
-        "prompt_ref": str(role_definition.get("prompt_ref", "")),
-        "prompt_markdown": str(role_definition.get("prompt_markdown", "")),
+        "prompt_ref": prompt_ref,
+        "prompt_markdown": prompt_markdown,
         "executor_kind": str(role_definition.get("executor_kind", "codex") or "codex"),
         "executor_mode": str(role_definition.get("executor_mode", "preset") or "preset"),
         "command_cli": str(role_definition.get("command_cli", "")),
         "command_args_text": str(role_definition.get("command_args_text", "")),
         "model": str(role_definition.get("model", "")),
         "reasoning_effort": str(role_definition.get("reasoning_effort", "")),
+    }
+
+
+def _builtin_prompt_ref_for_archetype(archetype: str) -> str:
+    return "gatekeeper.md" if archetype == "gatekeeper" else f"{archetype}.md"
+
+
+def _builtin_role_templates(*, locale: str = "en") -> dict[str, dict[str, object]]:
+    templates: dict[str, dict[str, object]] = {}
+    for archetype in ARCHETYPES:
+        prompt_ref = _builtin_prompt_ref_for_archetype(archetype)
+        prompt_markdown_by_locale = builtin_prompt_markdown_by_locale(prompt_ref)
+        templates[archetype] = {
+            "prompt_ref": prompt_ref,
+            "prompt_markdown": prompt_markdown_by_locale[normalize_prompt_locale(locale)],
+            "prompt_markdown_by_locale": prompt_markdown_by_locale,
+        }
+    return templates
+
+
+def _preferred_request_locale(request: Request) -> str:
+    accept_language = str(request.headers.get("accept-language", "")).strip()
+    if not accept_language:
+        return "en"
+    first_choice = accept_language.split(",", 1)[0].split(";", 1)[0]
+    return normalize_prompt_locale(first_choice)
+
+
+def _decorate_role_definition_overview(role_definition: Mapping[str, object]) -> dict[str, object]:
+    executor_kind = str(role_definition.get("executor_kind", "codex") or "codex")
+    template_name = "Custom (Restricted)" if str(role_definition.get("archetype", "")).strip() == "custom" else display_name_for_archetype(
+        str(role_definition.get("archetype", "builder") or "builder"),
+        locale="en",
+    )
+    name = str(role_definition.get("name", "")).strip()
+    normalized_name = re.sub(r"[^a-z0-9]+", "", name.lower())
+    normalized_template = re.sub(r"[^a-z0-9]+", "", template_name.lower())
+    return {
+        **role_definition,
+        "executor_label": executor_profile(executor_kind).label,
+        "template_display_name": template_name,
+        "show_template_meta": str(role_definition.get("source", "")).strip() == "custom" and normalized_name != normalized_template,
     }
 
 

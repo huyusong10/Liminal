@@ -19,6 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const formError = document.getElementById("form-error");
   const workflowValidation = document.getElementById("workflow-validation");
+  const workflowLoopPreview = document.getElementById("workflow-loop-preview");
   const workflowPresetInput = document.getElementById("workflow-preset-input");
   const workflowRolesList = document.getElementById("workflow-roles-list");
   const workflowStepsList = document.getElementById("workflow-steps-list");
@@ -245,6 +246,13 @@ document.addEventListener("DOMContentLoaded", () => {
     return parts.join(" · ");
   }
 
+  function renderWorkflowLoopPreview() {
+    if (!workflowLoopPreview || !window.LooporaWorkflowDiagram) {
+      return;
+    }
+    window.LooporaWorkflowDiagram.renderInto(workflowLoopPreview, workflowState, {variant: "editor"});
+  }
+
   function renderRoles() {
     workflowRolesList.innerHTML = "";
     if (!workflowState.roles.length) {
@@ -340,6 +348,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderWorkflowEditor() {
     syncWorkflowJsonFields();
+    renderWorkflowLoopPreview();
     renderRoles();
     renderSteps();
   }

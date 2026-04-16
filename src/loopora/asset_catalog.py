@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 
 from loopora.db import LooporaRepository
@@ -95,6 +96,14 @@ class WorkflowAssetCatalog:
             )
         return records
 
+    @staticmethod
+    def _auto_prompt_ref(*, name: str, archetype: str, role_definition_id: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", str(name).strip().lower()).strip("-")
+        if not slug:
+            slug = archetype
+        suffix = str(role_definition_id).split("_")[-1]
+        return f"{slug}-{suffix}.md"
+
     def _decorate_orchestration(self, record: dict, *, source: str) -> dict:
         decorated = dict(record)
         decorated["source"] = source
@@ -116,26 +125,34 @@ class WorkflowAssetCatalog:
         name: str,
         description: str = "",
         archetype: str,
-        prompt_ref: str,
         prompt_markdown: str,
+        prompt_ref: str = "",
         executor_kind: str = "codex",
         executor_mode: str = "preset",
         command_cli: str = "",
         command_args_text: str = "",
         model: str = "",
         reasoning_effort: str = "",
+        role_definition_id: str = "",
+        existing_prompt_ref: str = "",
     ) -> dict:
         normalized = {
             "name": str(name).strip(),
             "description": str(description).strip(),
-            "prompt_ref": str(prompt_ref).strip(),
             "prompt_markdown": str(prompt_markdown),
         }
         if not normalized["name"]:
             raise ValueError("name is required")
-        if not normalized["prompt_ref"]:
-            raise ValueError("prompt_ref is required")
         normalized["archetype"] = normalize_archetype(archetype)
+        normalized["prompt_ref"] = (
+            str(prompt_ref).strip()
+            or str(existing_prompt_ref).strip()
+            or self._auto_prompt_ref(
+                name=normalized["name"],
+                archetype=normalized["archetype"],
+                role_definition_id=role_definition_id,
+            )
+        )
         validate_prompt_markdown(normalized["prompt_markdown"], expected_archetype=normalized["archetype"])
         normalized.update(
             normalize_role_execution_settings(
@@ -178,8 +195,8 @@ class WorkflowAssetCatalog:
         name: str,
         description: str = "",
         archetype: str,
-        prompt_ref: str,
         prompt_markdown: str,
+        prompt_ref: str = "",
         executor_kind: str = "codex",
         executor_mode: str = "preset",
         command_cli: str = "",
@@ -187,6 +204,7 @@ class WorkflowAssetCatalog:
         model: str = "",
         reasoning_effort: str = "",
     ) -> dict:
+        role_definition_id = make_id("role")
         payload = self._normalize_role_definition_payload(
             name=name,
             description=description,
@@ -199,10 +217,11 @@ class WorkflowAssetCatalog:
             command_args_text=command_args_text,
             model=model,
             reasoning_effort=reasoning_effort,
+            role_definition_id=role_definition_id,
         )
         role_definition = self.repository.create_role_definition(
             {
-                "id": make_id("role"),
+                "id": role_definition_id,
                 **payload,
             }
         )
@@ -215,8 +234,8 @@ class WorkflowAssetCatalog:
         name: str,
         description: str = "",
         archetype: str,
-        prompt_ref: str,
         prompt_markdown: str,
+        prompt_ref: str = "",
         executor_kind: str = "codex",
         executor_mode: str = "preset",
         command_cli: str = "",
@@ -239,6 +258,8 @@ class WorkflowAssetCatalog:
             command_args_text=command_args_text,
             model=model,
             reasoning_effort=reasoning_effort,
+            role_definition_id=role_definition_id,
+            existing_prompt_ref=str(existing.get("prompt_ref", "")),
         )
         updated = self.repository.update_role_definition(role_definition_id, payload)
         if not updated:

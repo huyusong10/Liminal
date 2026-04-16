@@ -541,3 +541,119 @@ def test_new_loop_page_does_not_restore_pristine_only_browser_defaults(tmp_path:
                     browser.close()
         except Exception as exc:  # pragma: no cover - environment dependent
             pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+
+
+def test_role_definition_page_localizes_archetype_options_without_mixed_labels(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LooporaService(
+        repository=repository,
+        settings=settings,
+        executor_factory=lambda: FakeCodexExecutor(scenario="success"),
+    )
+
+    with serve_app(build_app(service=service)) as base_url:
+        try:
+            with playwright.sync_api.sync_playwright() as playwright_driver:
+                browser = playwright_driver.chromium.launch()
+                page = browser.new_page()
+                try:
+                    page.goto(f"{base_url}/roles/new", wait_until="networkidle")
+
+                    page.locator('button[data-set-locale="en"]').click()
+                    page.wait_for_timeout(50)
+                    assert page.locator('#role-definition-archetype-input option[value="inspector"]').text_content() == "Inspector"
+
+                    page.locator('button[data-set-locale="zh"]').click()
+                    page.wait_for_timeout(50)
+                    assert page.locator('#role-definition-archetype-input option[value="inspector"]').text_content() == "Inspector"
+                finally:
+                    browser.close()
+        except Exception as exc:  # pragma: no cover - environment dependent
+            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+
+
+def test_role_definition_page_updates_template_guidance_and_builtin_prompt_with_selection(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LooporaService(
+        repository=repository,
+        settings=settings,
+        executor_factory=lambda: FakeCodexExecutor(scenario="success"),
+    )
+
+    with serve_app(build_app(service=service)) as base_url:
+        try:
+            with playwright.sync_api.sync_playwright() as playwright_driver:
+                browser = playwright_driver.chromium.launch()
+                page = browser.new_page()
+                try:
+                    page.goto(f"{base_url}/roles/new", wait_until="networkidle")
+
+                    page.locator('button[data-set-locale="zh"]').click()
+                    page.select_option("#role-definition-archetype-input", "gatekeeper")
+                    page.wait_for_timeout(50)
+
+                    assert "负责做放行判断" in (page.locator("#role-definition-archetype-summary").text_content() or "")
+                    assert "建议只放一个" in (page.locator("#role-definition-archetype-recommendation").text_content() or "")
+                    assert "不建议把它当成实现角色" in (page.locator("#role-definition-archetype-warning").text_content() or "")
+                    assert "# 守门人 Prompt" in page.locator("#role-definition-prompt-markdown-input").input_value()
+
+                    page.locator('button[data-set-locale="en"]').click()
+                    page.wait_for_timeout(50)
+
+                    assert page.locator('#role-definition-archetype-input option[value="gatekeeper"]').text_content() == "GateKeeper"
+                    assert "Owns the pass/fail decision" in (page.locator("#role-definition-archetype-summary").text_content() or "")
+                    assert "Keep one of these near the end of the workflow" in (page.locator("#role-definition-archetype-recommendation").text_content() or "")
+                    assert "Do not use it as an implementation role" in (page.locator("#role-definition-archetype-warning").text_content() or "")
+                    assert "# GateKeeper Prompt" in page.locator("#role-definition-prompt-markdown-input").input_value()
+                finally:
+                    browser.close()
+        except Exception as exc:  # pragma: no cover - environment dependent
+            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+
+
+def test_existing_role_page_locks_template_and_orchestration_page_renders_loop_diagrams(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LooporaService(
+        repository=repository,
+        settings=settings,
+        executor_factory=lambda: FakeCodexExecutor(scenario="success"),
+    )
+    custom_role = service.create_role_definition(
+        name="Release Builder",
+        description="Ship focused release work.",
+        archetype="builder",
+        prompt_markdown="""---
+version: 1
+archetype: builder
+---
+
+Focus on scoped release work.
+""",
+        executor_kind="codex",
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+    )
+
+    with serve_app(build_app(service=service)) as base_url:
+        try:
+            with playwright.sync_api.sync_playwright() as playwright_driver:
+                browser = playwright_driver.chromium.launch()
+                page = browser.new_page()
+                try:
+                    page.goto(f"{base_url}/roles/{custom_role['id']}/edit", wait_until="networkidle")
+                    expect_disabled = page.locator("#role-definition-archetype-input")
+                    assert expect_disabled.is_disabled() is True
+
+                    page.goto(f"{base_url}/orchestrations", wait_until="networkidle")
+                    first_diagram = page.locator('[data-testid="orchestration-loop-diagram"]').first
+                    expect_svg = first_diagram.locator("svg")
+                    expect_legend = first_diagram.locator(".workflow-loop-pill")
+                    assert expect_svg.count() == 1
+                    assert expect_legend.count() >= 2
+                finally:
+                    browser.close()
+        except Exception as exc:  # pragma: no cover - environment dependent
+            pytest.skip(f"Playwright browser launch is unavailable: {exc}")

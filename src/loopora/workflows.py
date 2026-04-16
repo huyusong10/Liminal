@@ -55,13 +55,28 @@ ROLE_EXECUTION_FIELDS = (
 )
 
 
+def normalize_prompt_locale(value: str | None) -> str:
+    return "zh" if str(value or "").strip().lower().startswith("zh") else "en"
+
+
+def localized_prompt_ref(prompt_ref: str, locale: str | None = None) -> str:
+    normalized_locale = normalize_prompt_locale(locale)
+    if normalized_locale != "zh":
+        return prompt_ref
+    path = Path(prompt_ref)
+    localized_name = f"{path.stem}.zh{path.suffix}"
+    localized_path = PROMPT_ASSET_DIR / localized_name
+    return localized_name if localized_path.exists() else prompt_ref
+
+
 def default_role_execution_settings(executor_kind: str = "codex") -> dict[str, str]:
     profile = executor_profile(executor_kind)
+    default_mode = "command" if profile.command_only else "preset"
     return {
         "executor_kind": profile.key,
-        "executor_mode": "preset",
+        "executor_mode": default_mode,
         "command_cli": profile.cli_name,
-        "command_args_text": "",
+        "command_args_text": "\n".join(profile.command_args_template) if default_mode == "command" else "",
         "model": profile.default_model,
         "reasoning_effort": profile.effort_default,
     }
@@ -80,6 +95,9 @@ def normalize_role_execution_settings(
     reasoning_effort = str(settings.get("reasoning_effort", "")).strip()
     command_cli = str(settings.get("command_cli", "")).strip()
     command_args_text = str(settings.get("command_args_text", ""))
+
+    if profile.command_only and executor_mode != "command":
+        raise ValueError(f"{profile.label} only supports command mode")
 
     if executor_mode == "preset":
         command_cli = profile.cli_name
@@ -240,11 +258,18 @@ def validate_prompt_markdown(markdown_text: str, *, expected_archetype: str | No
     return metadata, body
 
 
-def builtin_prompt_markdown(prompt_ref: str) -> str:
-    path = PROMPT_ASSET_DIR / prompt_ref
+def builtin_prompt_markdown(prompt_ref: str, *, locale: str | None = None) -> str:
+    path = PROMPT_ASSET_DIR / localized_prompt_ref(prompt_ref, locale)
     if not path.exists():
         raise WorkflowError(f"unknown built-in prompt template: {prompt_ref}")
     return path.read_text(encoding="utf-8")
+
+
+def builtin_prompt_markdown_by_locale(prompt_ref: str) -> dict[str, str]:
+    return {
+        "en": builtin_prompt_markdown(prompt_ref, locale="en"),
+        "zh": builtin_prompt_markdown(prompt_ref, locale="zh"),
+    }
 
 
 def available_prompt_templates() -> list[dict[str, str]]:

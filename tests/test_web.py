@@ -430,6 +430,11 @@ def test_prompt_template_download_and_validation_endpoints(service_factory) -> N
     markdown_text = template_response.text
     assert "archetype: builder" in markdown_text
 
+    localized_template_response = client.get("/api/prompts/templates/builder.md?locale=zh")
+    assert localized_template_response.status_code == 200
+    assert "# 建造者 Prompt" in localized_template_response.text
+    assert "archetype: builder" in localized_template_response.text
+
     validation_response = client.post(
         "/api/prompts/validate",
         json={
@@ -608,7 +613,6 @@ def test_api_role_definition_crud(service_factory) -> None:
             "name": "Release Builder",
             "description": "Ship focused release changes.",
             "archetype": "builder",
-            "prompt_ref": "release-builder.md",
             "prompt_markdown": """---
 version: 1
 archetype: builder
@@ -628,6 +632,8 @@ Focus on scoped release work.
     assert role_definition["archetype"] == "builder"
     assert role_definition["executor_kind"] == "claude"
     assert role_definition["reasoning_effort"] == "high"
+    assert role_definition["prompt_ref"].endswith(".md")
+    generated_prompt_ref = role_definition["prompt_ref"]
 
     list_response = client.get("/api/role-definitions")
     assert list_response.status_code == 200
@@ -639,7 +645,6 @@ Focus on scoped release work.
             "name": "Release Builder v2",
             "description": "Updated role definition.",
             "archetype": "builder",
-            "prompt_ref": "release-builder.md",
             "prompt_markdown": """---
 version: 1
 archetype: builder
@@ -672,10 +677,41 @@ Focus on scoped release work with tighter release constraints.
     assert updated_role_definition["name"] == "Release Builder v2"
     assert updated_role_definition["executor_mode"] == "command"
     assert updated_role_definition["model"] == "gpt-5.4"
+    assert updated_role_definition["prompt_ref"] == generated_prompt_ref
 
     delete_response = client.delete(f"/api/role-definitions/{role_definition['id']}")
     assert delete_response.status_code == 200
     assert delete_response.json()["deleted"] is True
+
+
+def test_api_role_definition_rejects_custom_executor_preset_mode(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/role-definitions",
+        json={
+            "name": "Custom Wrapper",
+            "description": "Wrapper role.",
+            "archetype": "custom",
+            "prompt_markdown": """---
+version: 1
+archetype: custom
+---
+
+Observe and summarize.
+""",
+            "executor_kind": "custom",
+            "executor_mode": "preset",
+            "command_cli": "wrapper",
+            "command_args_text": "--output\n{output_path}\n{prompt}\n",
+            "model": "",
+            "reasoning_effort": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "only supports command mode" in response.json()["error"]
 
 
 def test_api_spec_init_validate_and_delete_loop(service_factory, tmp_path: Path, sample_workdir: Path) -> None:
