@@ -41,15 +41,34 @@ PROMPT_ASSET_DIR = Path(__file__).parent / "assets" / "prompts"
 WORKFLOW_PRESETS = {
     "build_first": {
         "roles": [
-            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": PROMPT_FILES["builder"]},
-            {"id": "inspector", "name": "Inspector", "archetype": "inspector", "prompt_ref": PROMPT_FILES["inspector"]},
+            {
+                "id": "builder",
+                "name": "Builder",
+                "archetype": "builder",
+                "prompt_ref": PROMPT_FILES["builder"],
+                "role_definition_id": "builtin:builder",
+            },
+            {
+                "id": "inspector",
+                "name": "Inspector",
+                "archetype": "inspector",
+                "prompt_ref": PROMPT_FILES["inspector"],
+                "role_definition_id": "builtin:inspector",
+            },
             {
                 "id": "gatekeeper",
                 "name": "GateKeeper",
                 "archetype": "gatekeeper",
                 "prompt_ref": PROMPT_FILES["gatekeeper"],
+                "role_definition_id": "builtin:gatekeeper",
             },
-            {"id": "guide", "name": "Guide", "archetype": "guide", "prompt_ref": PROMPT_FILES["guide"]},
+            {
+                "id": "guide",
+                "name": "Guide",
+                "archetype": "guide",
+                "prompt_ref": PROMPT_FILES["guide"],
+                "role_definition_id": "builtin:guide",
+            },
         ],
         "steps": [
             {"id": "builder_step", "role_id": "builder", "enabled": True},
@@ -60,15 +79,34 @@ WORKFLOW_PRESETS = {
     },
     "inspect_first": {
         "roles": [
-            {"id": "inspector", "name": "Inspector", "archetype": "inspector", "prompt_ref": PROMPT_FILES["inspector"]},
-            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": PROMPT_FILES["builder"]},
+            {
+                "id": "inspector",
+                "name": "Inspector",
+                "archetype": "inspector",
+                "prompt_ref": PROMPT_FILES["inspector"],
+                "role_definition_id": "builtin:inspector",
+            },
+            {
+                "id": "builder",
+                "name": "Builder",
+                "archetype": "builder",
+                "prompt_ref": PROMPT_FILES["builder"],
+                "role_definition_id": "builtin:builder",
+            },
             {
                 "id": "gatekeeper",
                 "name": "GateKeeper",
                 "archetype": "gatekeeper",
                 "prompt_ref": PROMPT_FILES["gatekeeper"],
+                "role_definition_id": "builtin:gatekeeper",
             },
-            {"id": "guide", "name": "Guide", "archetype": "guide", "prompt_ref": PROMPT_FILES["guide"]},
+            {
+                "id": "guide",
+                "name": "Guide",
+                "archetype": "guide",
+                "prompt_ref": PROMPT_FILES["guide"],
+                "role_definition_id": "builtin:guide",
+            },
         ],
         "steps": [
             {"id": "inspector_step", "role_id": "inspector", "enabled": True},
@@ -84,8 +122,15 @@ WORKFLOW_PRESETS = {
                 "name": "GateKeeper",
                 "archetype": "gatekeeper",
                 "prompt_ref": PROMPT_FILES["gatekeeper-benchmark"],
+                "role_definition_id": "builtin:gatekeeper",
             },
-            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": PROMPT_FILES["builder"]},
+            {
+                "id": "builder",
+                "name": "Builder",
+                "archetype": "builder",
+                "prompt_ref": PROMPT_FILES["builder"],
+                "role_definition_id": "builtin:builder",
+            },
         ],
         "steps": [
             {"id": "gatekeeper_step", "role_id": "gatekeeper", "enabled": True, "on_pass": "finish_run"},
@@ -216,6 +261,10 @@ def workflow_warnings(workflow: dict) -> list[str]:
     role_by_id = {role["id"]: role for role in workflow.get("roles", [])}
     steps = [step for step in workflow.get("steps", []) if step.get("enabled", True)]
     warnings: list[str] = []
+    if not has_finish_gatekeeper_step(workflow):
+        warnings.append(
+            "This workflow has no GateKeeper finish step, so it should be paired with round-based completion or updated before gate-based execution."
+        )
     gate_before_builder = False
     gate_after_builder_without_inspector = False
     seen_builder = False
@@ -243,6 +292,27 @@ def workflow_warnings(workflow: dict) -> list[str]:
     if gate_after_builder_without_inspector:
         warnings.append("GateKeeper appears after Builder without a later Inspector step, so it may judge stale evidence.")
     return warnings
+
+
+def has_finish_gatekeeper_step(workflow: dict[str, Any] | None) -> bool:
+    if not workflow:
+        return False
+    role_by_id = {
+        str(role.get("id", "")).strip(): role
+        for role in workflow.get("roles", [])
+        if isinstance(role, dict)
+    }
+    for raw_step in workflow.get("steps", []):
+        if not isinstance(raw_step, dict):
+            continue
+        if not bool(raw_step.get("enabled", True)):
+            continue
+        role = role_by_id.get(str(raw_step.get("role_id", "")).strip())
+        if not role or role.get("archetype") != "gatekeeper":
+            continue
+        if str(raw_step.get("on_pass", "continue") or "continue").strip() == "finish_run":
+            return True
+    return False
 
 
 def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str, str] | None = None) -> dict:
@@ -277,6 +347,7 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
         prompt_ref = str(raw_role.get("prompt_ref", "")).strip() or PROMPT_FILES[archetype]
         name = str(raw_role.get("name", "")).strip() or display_name_for_archetype(archetype, locale="en")
         model = str(raw_role.get("model", "")).strip()
+        role_definition_id = str(raw_role.get("role_definition_id", "")).strip()
         if not model:
             model = normalized_role_models.get(role_id, normalized_role_models.get(archetype, ""))
         role_ids.add(role_id)
@@ -287,11 +358,11 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
                 "archetype": archetype,
                 "prompt_ref": prompt_ref,
                 "model": model,
+                "role_definition_id": role_definition_id,
             }
         )
 
     steps: list[dict[str, Any]] = []
-    finish_gate_count = 0
     for index, raw_step in enumerate(raw_steps, start=1):
         if not isinstance(raw_step, dict):
             raise WorkflowError("workflow steps must be objects")
@@ -302,23 +373,20 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
         enabled = bool(raw_step.get("enabled", True))
         role = next(item for item in roles if item["id"] == role_id)
         on_pass = str(raw_step.get("on_pass", "continue") or "continue").strip()
+        model = str(raw_step.get("model", "")).strip()
         if role["archetype"] != "gatekeeper":
             on_pass = "continue"
         elif on_pass not in {"continue", "finish_run"}:
             raise WorkflowError("gatekeeper step on_pass must be continue or finish_run")
-        if enabled and role["archetype"] == "gatekeeper" and on_pass == "finish_run":
-            finish_gate_count += 1
         steps.append(
             {
                 "id": step_id,
                 "role_id": role_id,
                 "enabled": enabled,
                 "on_pass": on_pass,
+                "model": model,
             }
         )
-
-    if finish_gate_count < 1:
-        raise WorkflowError("workflow requires at least one enabled GateKeeper step with on_pass=finish_run")
 
     normalized = {
         "version": int(raw.get("version", 1) or 1),

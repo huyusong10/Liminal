@@ -324,6 +324,10 @@
             <span data-lang="zh">新建编排</span>
             <span data-lang="en">New orchestration</span>
           </a>
+          <a class="ghost-button" href="/roles">
+            <span data-lang="zh">角色定义</span>
+            <span data-lang="en">Roles</span>
+          </a>
           <a class="ghost-button" href="/orchestrations">
             <span data-lang="zh">管理编排</span>
             <span data-lang="en">Manage orchestrations</span>
@@ -346,6 +350,35 @@
       </div>
       <div class="field-status" id="orchestration-summary" aria-live="polite"></div>
     </section>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">完成方式</span><span data-lang="en">Completion mode</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="GateKeeper 模式会在守门步骤通过时结束；轮次模式只按最大轮数推进，允许没有 GateKeeper 的纯生成流程。"
+          data-title-en="GateKeeper mode ends when a GateKeeper finish step passes. Round-based mode only follows the max-round limit, so pure builder-only flows are allowed."
+        >?</button>
+      </span>
+      <select id="completion-mode-input" name="completion_mode">
+        <option value="gatekeeper" {% if form_values.completion_mode == "gatekeeper" %}selected{% endif %}>GateKeeper / 守门裁决</option>
+        <option value="rounds" {% if form_values.completion_mode == "rounds" %}selected{% endif %}>Rounds / 轮次推进</option>
+      </select>
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">轮次间隔（秒）</span><span data-lang="en">Iteration interval (seconds)</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="填 0 表示上一轮结束后立刻开始下一轮；大于 0 表示每轮之间等待固定时长，再执行下一轮。"
+          data-title-en="Use 0 to start the next iteration immediately. Use a value above 0 to wait that many seconds between iterations."
+        >?</button>
+      </span>
+      <input id="iteration-interval-input" name="iteration_interval_seconds" type="number" min="0" step="0.1" value="{{ form_values.iteration_interval_seconds }}" />
+    </label>
 
     <label>
       <span class="label-row">

@@ -46,6 +46,14 @@ CommandArgOption = Annotated[
         help="One command-mode argv template entry. Repeat once per argument. Supports placeholders like {workdir}, {schema_path}, {output_path}, {json_schema}, {sandbox}, {prompt}, {model}, and {reasoning_effort}.",
     ),
 ]
+CompletionModeOption = Annotated[
+    str,
+    typer.Option("--completion-mode", help="Completion mode: gatekeeper or rounds."),
+]
+IterationIntervalOption = Annotated[
+    float,
+    typer.Option("--iteration-interval-seconds", min=0.0, help="Wait this many seconds between iterations."),
+]
 MaxItersOption = Annotated[int, typer.Option(min=0, help="Maximum orchestration iterations. Use 0 to keep iterating until you stop it.")]
 MaxRoleRetriesOption = Annotated[int, typer.Option(min=0, help="Retries per role before aborting.")]
 DeltaThresholdOption = Annotated[float, typer.Option(min=0.0, help="Plateau threshold.")]
@@ -114,6 +122,8 @@ def _build_loop_kwargs(
     executor_mode: str,
     model: str,
     reasoning_effort: str,
+    completion_mode: str,
+    iteration_interval_seconds: float,
     command_cli: str,
     command_arg: list[str] | None,
     max_iters: int,
@@ -144,6 +154,8 @@ def _build_loop_kwargs(
         "command_args_text": _command_args_text_from_values(command_arg),
         "model": model,
         "reasoning_effort": reasoning_effort,
+        "completion_mode": completion_mode,
+        "iteration_interval_seconds": iteration_interval_seconds,
         "max_iters": max_iters,
         "max_role_retries": max_role_retries,
         "delta_threshold": delta_threshold,
@@ -249,6 +261,8 @@ def _create_and_maybe_start_loop(
     executor_mode: str,
     model: str,
     reasoning_effort: str,
+    completion_mode: str,
+    iteration_interval_seconds: float,
     command_cli: str,
     command_arg: list[str] | None,
     max_iters: int,
@@ -275,6 +289,8 @@ def _create_and_maybe_start_loop(
             executor_mode=executor_mode,
             model=model,
             reasoning_effort=reasoning_effort,
+            completion_mode=completion_mode,
+            iteration_interval_seconds=iteration_interval_seconds,
             command_cli=command_cli,
             command_arg=command_arg,
             max_iters=max_iters,
@@ -301,6 +317,8 @@ def run(
     executor_mode: ExecutorModeOption = "preset",
     model: ModelOption = "",
     reasoning_effort: ReasoningOption = "",
+    completion_mode: CompletionModeOption = "gatekeeper",
+    iteration_interval_seconds: IterationIntervalOption = 0.0,
     command_cli: CommandCliOption = "",
     command_arg: CommandArgOption = None,
     max_iters: MaxItersOption = 8,
@@ -324,6 +342,8 @@ def run(
             executor_mode=executor_mode,
             model=model,
             reasoning_effort=reasoning_effort,
+            completion_mode=completion_mode,
+            iteration_interval_seconds=iteration_interval_seconds,
             command_cli=command_cli,
             command_arg=command_arg,
             max_iters=max_iters,
@@ -427,6 +447,8 @@ def create_loop(
     executor_mode: ExecutorModeOption = "preset",
     model: ModelOption = "",
     reasoning_effort: ReasoningOption = "",
+    completion_mode: CompletionModeOption = "gatekeeper",
+    iteration_interval_seconds: IterationIntervalOption = 0.0,
     command_cli: CommandCliOption = "",
     command_arg: CommandArgOption = None,
     max_iters: MaxItersOption = 8,
@@ -451,6 +473,8 @@ def create_loop(
             executor_mode=executor_mode,
             model=model,
             reasoning_effort=reasoning_effort,
+            completion_mode=completion_mode,
+            iteration_interval_seconds=iteration_interval_seconds,
             command_cli=command_cli,
             command_arg=command_arg,
             max_iters=max_iters,

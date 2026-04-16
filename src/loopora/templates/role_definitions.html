@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Role Definitions{% endblock %}
+{% block content %}
+<div class="page-stack">
+<section class="hero hero-tight">
+  <div class="hero-copy-stack">
+    <h1>
+      <span data-lang="zh">先把角色定义清楚，再在编排里自由挑选。</span>
+      <span data-lang="en">Define roles once, then pick them freely inside orchestrations.</span>
+    </h1>
+    <p>
+      <span data-lang="zh">这里保存角色名、原型、默认模型和 prompt 模版。编排选中后，会把它们带进 workflow 作为角色快照。</span>
+      <span data-lang="en">Store the role name, archetype, default model, and prompt template here. Orchestrations copy them in as role snapshots when selected.</span>
+    </p>
+  </div>
+  <div class="card-actions">
+    <a class="primary-button" href="/roles/new">
+      <span data-lang="zh">新建角色</span>
+      <span data-lang="en">Create role</span>
+    </a>
+  </div>
+</section>
+
+<section class="panel">
+  <header class="panel-header">
+    <h2><span data-lang="zh">已保存角色</span><span data-lang="en">Saved roles</span></h2>
+    <span>{{ role_definitions|length }}</span>
+  </header>
+  {% if role_definitions %}
+  <div class="loop-grid">
+    {% for role_definition in role_definitions %}
+    <article class="loop-card is-clickable" data-open-card="/roles/{{ role_definition.id }}/edit" tabindex="0">
+      <a class="loop-card-link" href="/roles/{{ role_definition.id }}/edit"></a>
+      <div class="loop-card-head">
+        <div>
+          <strong>{{ role_definition.name }}</strong>
+          <p class="loop-card-meta">
+            {% if role_definition.source == "builtin" %}
+            <span data-lang="zh">内置角色</span><span data-lang="en">Built-in</span>
+            {% else %}
+            <span data-lang="zh">自定义角色</span><span data-lang="en">Custom</span>
+            {% endif %}
+            · {{ role_definition.archetype }}
+          </p>
+        </div>
+      </div>
+      <p>{{ role_definition.description or "-" }}</p>
+      <p class="loop-card-meta">
+        <span data-lang="zh">默认模型</span><span data-lang="en">Default model</span> {{ role_definition.model or "-" }}
+      </p>
+      {% if role_definition.deletable %}
+      <div class="card-actions card-actions-compact">
+        <form method="post" action="/api/role-definitions/{{ role_definition.id }}" onsubmit="event.preventDefault(); fetch(this.action, {method: 'DELETE'}).then(() => window.location.reload());">
+          <button class="ghost-button danger-button" type="submit">
+            <span data-lang="zh">删除</span>
+            <span data-lang="en">Delete</span>
+          </button>
+        </form>
+      </div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <h3><span data-lang="zh">还没有角色定义</span><span data-lang="en">No role definitions yet</span></h3>
+    <p><span data-lang="zh">先建一个角色，再去编排里把它串进步骤顺序。</span><span data-lang="en">Create a role first, then wire it into an orchestration.</span></p>
+  </div>
+  {% endif %}
+</section>
+</div>
+{% endblock %}

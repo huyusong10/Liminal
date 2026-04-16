@@ -57,6 +57,26 @@
             <span data-lang="zh">按预设重置</span>
             <span data-lang="en">Reset from preset</span>
           </button>
+          <label class="workflow-toolbar-preset">
+            <span class="label-row">
+              <span><span data-lang="zh">角色定义</span><span data-lang="en">Role definition</span></span>
+            </span>
+            <select id="role-definition-select">
+              {% for role_definition in role_definitions %}
+              <option value="{{ role_definition.id }}">
+                {{ role_definition.name }} · {{ role_definition.archetype }}{% if role_definition.source == "builtin" %} · builtin{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </label>
+          <button class="ghost-button" type="button" id="add-role-from-definition-button">
+            <span data-lang="zh">加入已选角色</span>
+            <span data-lang="en">Add selected role</span>
+          </button>
+          <a class="ghost-button" href="/roles">
+            <span data-lang="zh">管理角色</span>
+            <span data-lang="en">Manage roles</span>
+          </a>
           <button class="ghost-button" type="button" id="add-role-button">
             <span data-lang="zh">添加角色</span>
             <span data-lang="en">Add role</span>
@@ -127,6 +147,7 @@
 
 <script id="workflow-preset-bundles-json" type="application/json">{{ workflow_preset_bundles|tojson }}</script>
 <script id="prompt-templates-json" type="application/json">{{ prompt_templates|tojson }}</script>
+<script id="role-definitions-json" type="application/json">{{ role_definitions|tojson }}</script>
 <script src="{{ static_asset_url('pages/new_orchestration.js') }}" defer></script>
 </div>
 {% endblock %}

@@ -37,16 +37,20 @@ from loopora.workflows import (
     LEGACY_ROLE_TO_ARCHETYPE,
     WorkflowError,
     build_preset_workflow,
+    builtin_prompt_markdown,
     display_name_for_archetype,
+    has_finish_gatekeeper_step,
     normalize_role_models as workflow_normalize_role_models,
     normalize_workflow,
     preset_names,
     resolve_prompt_files,
+    validate_prompt_markdown,
     workflow_warnings,
 )
 
 logger = logging.getLogger(__name__)
 LOOP_ROLE_NAMES = ARCHETYPES
+COMPLETION_MODES = ("gatekeeper", "rounds")
 
 
 class LooporaError(RuntimeError):
@@ -83,6 +87,13 @@ def normalize_role_models(role_models: dict | None) -> dict[str, str]:
         return workflow_normalize_role_models(role_models)
     except WorkflowError as exc:
         raise LooporaError(str(exc)) from exc
+
+
+def normalize_completion_mode(value: str | None) -> str:
+    mode = str(value or "gatekeeper").strip().lower() or "gatekeeper"
+    if mode not in COMPLETION_MODES:
+        raise LooporaError(f"unsupported completion mode: {value}")
+    return mode
 
 
 class LooporaService:
@@ -122,6 +133,8 @@ class LooporaService:
         prompt_files: dict | None = None,
         orchestration_id: str | None = None,
         role_models: dict | None = None,
+        completion_mode: str = "gatekeeper",
+        iteration_interval_seconds: float = 0.0,
     ) -> dict:
         workdir = workdir.expanduser().resolve()
         spec_path = spec_path.expanduser()
@@ -135,6 +148,8 @@ class LooporaService:
             raise LooporaError("max_iters must be >= 0")
         if max_role_retries < 0:
             raise LooporaError("max_role_retries must be >= 0")
+        if iteration_interval_seconds < 0:
+            raise LooporaError("iteration_interval_seconds must be >= 0")
         if trigger_window < 1:
             raise LooporaError("trigger_window must be >= 1")
         if regression_window < 1:
@@ -154,6 +169,7 @@ class LooporaService:
                 validate_command_args_text(command_args_text, executor_kind=executor_kind)
                 model = model.strip()
                 reasoning_effort = reasoning_effort.strip()
+            completion_mode = normalize_completion_mode(completion_mode)
         except ValueError as exc:
             raise LooporaError(str(exc)) from exc
 
@@ -165,6 +181,10 @@ class LooporaService:
         )
         normalized_workflow = resolved_orchestration["workflow"]
         resolved_prompt_files = resolved_orchestration["prompt_files"]
+        if completion_mode == "gatekeeper" and not has_finish_gatekeeper_step(normalized_workflow):
+            raise LooporaError(
+                "gatekeeper completion mode requires an enabled GateKeeper step that can finish the run"
+            )
 
         spec_markdown, compiled_spec = read_and_compile(spec_path)
         loop_id = make_id("loop")
@@ -188,6 +208,8 @@ class LooporaService:
             "command_args_text": command_args_text,
             "model": model,
             "reasoning_effort": reasoning_effort,
+            "completion_mode": completion_mode,
+            "iteration_interval_seconds": iteration_interval_seconds,
             "max_iters": max_iters,
             "max_role_retries": max_role_retries,
             "delta_threshold": delta_threshold,
@@ -238,6 +260,8 @@ class LooporaService:
                 "command_args_text": loop.get("command_args_text", ""),
                 "model": loop["model"],
                 "reasoning_effort": coerce_reasoning_effort(loop["reasoning_effort"], loop.get("executor_kind", "codex")),
+                "completion_mode": loop.get("completion_mode", "gatekeeper"),
+                "iteration_interval_seconds": loop.get("iteration_interval_seconds", 0.0),
                 "max_iters": loop["max_iters"],
                 "max_role_retries": loop["max_role_retries"],
                 "delta_threshold": loop["delta_threshold"],
@@ -289,6 +313,158 @@ class LooporaService:
                 }
             )
         return records
+
+    def _builtin_role_definition_records(self) -> list[dict]:
+        descriptions = {
+            "builder": "Edits the workspace and pushes the implementation forward.",
+            "inspector": "Collects evidence, tests, and benchmark results.",
+            "gatekeeper": "Decides whether the evidence is strong enough to pass.",
+            "guide": "Suggests the next direction when progress stalls.",
+        }
+        records = []
+        for archetype in ARCHETYPES:
+            prompt_ref = "gatekeeper.md" if archetype == "gatekeeper" else f"{archetype}.md"
+            records.append(
+                {
+                    "id": f"builtin:{archetype}",
+                    "name": display_name_for_archetype(archetype, locale="en"),
+                    "description": descriptions.get(archetype, ""),
+                    "archetype": archetype,
+                    "prompt_ref": prompt_ref,
+                    "prompt_markdown": builtin_prompt_markdown(prompt_ref),
+                    "model": "",
+                    "source": "builtin",
+                    "editable": False,
+                    "deletable": False,
+                }
+            )
+        return records
+
+    def _decorate_role_definition(self, record: dict, *, source: str) -> dict:
+        decorated = dict(record)
+        decorated["source"] = source
+        decorated["editable"] = source == "custom"
+        decorated["deletable"] = source == "custom"
+        return decorated
+
+    def _resolve_role_definition(self, role_definition_id: str) -> dict:
+        definition_key = str(role_definition_id or "").strip()
+        if not definition_key:
+            raise LooporaError("role_definition_id is required")
+        if definition_key.startswith("builtin:"):
+            for record in self._builtin_role_definition_records():
+                if record["id"] == definition_key:
+                    return record
+            raise LooporaError(f"unknown built-in role definition: {definition_key}")
+        record = self.repository.get_role_definition(definition_key)
+        if not record:
+            raise LooporaError(f"unknown role definition: {definition_key}")
+        return self._decorate_role_definition(record, source="custom")
+
+    def list_role_definitions(self) -> list[dict]:
+        custom_records = [
+            self._decorate_role_definition(record, source="custom")
+            for record in self.repository.list_role_definitions()
+        ]
+        return custom_records + self._builtin_role_definition_records()
+
+    def get_role_definition(self, role_definition_id: str) -> dict:
+        return self._resolve_role_definition(role_definition_id)
+
+    def create_role_definition(
+        self,
+        *,
+        name: str,
+        description: str = "",
+        archetype: str,
+        prompt_ref: str,
+        prompt_markdown: str,
+        model: str = "",
+    ) -> dict:
+        name = str(name).strip()
+        description = str(description).strip()
+        prompt_ref = str(prompt_ref).strip()
+        prompt_markdown = str(prompt_markdown)
+        model = str(model).strip()
+        if not name:
+            raise LooporaError("name is required")
+        if not prompt_ref:
+            raise LooporaError("prompt_ref is required")
+        try:
+            normalized_archetype = LEGACY_ROLE_TO_ARCHETYPE[str(archetype).strip().lower()]
+        except KeyError as exc:
+            raise LooporaError(f"unsupported workflow archetype: {archetype}") from exc
+        try:
+            validate_prompt_markdown(prompt_markdown, expected_archetype=normalized_archetype)
+        except WorkflowError as exc:
+            raise LooporaError(str(exc)) from exc
+        role_definition = self.repository.create_role_definition(
+            {
+                "id": make_id("role"),
+                "name": name,
+                "description": description,
+                "archetype": normalized_archetype,
+                "prompt_ref": prompt_ref,
+                "prompt_markdown": prompt_markdown,
+                "model": model,
+            }
+        )
+        return self._decorate_role_definition(role_definition, source="custom")
+
+    def update_role_definition(
+        self,
+        role_definition_id: str,
+        *,
+        name: str,
+        description: str = "",
+        archetype: str,
+        prompt_ref: str,
+        prompt_markdown: str,
+        model: str = "",
+    ) -> dict:
+        existing = self._resolve_role_definition(role_definition_id)
+        if existing.get("source") == "builtin":
+            raise LooporaError("built-in role definitions cannot be updated in place")
+        name = str(name).strip()
+        description = str(description).strip()
+        prompt_ref = str(prompt_ref).strip()
+        prompt_markdown = str(prompt_markdown)
+        model = str(model).strip()
+        if not name:
+            raise LooporaError("name is required")
+        if not prompt_ref:
+            raise LooporaError("prompt_ref is required")
+        try:
+            normalized_archetype = LEGACY_ROLE_TO_ARCHETYPE[str(archetype).strip().lower()]
+        except KeyError as exc:
+            raise LooporaError(f"unsupported workflow archetype: {archetype}") from exc
+        try:
+            validate_prompt_markdown(prompt_markdown, expected_archetype=normalized_archetype)
+        except WorkflowError as exc:
+            raise LooporaError(str(exc)) from exc
+        updated = self.repository.update_role_definition(
+            role_definition_id,
+            {
+                "name": name,
+                "description": description,
+                "archetype": normalized_archetype,
+                "prompt_ref": prompt_ref,
+                "prompt_markdown": prompt_markdown,
+                "model": model,
+            },
+        )
+        if not updated:
+            raise LooporaError(f"unknown role definition: {role_definition_id}")
+        return self._decorate_role_definition(updated, source="custom")
+
+    def delete_role_definition(self, role_definition_id: str) -> dict:
+        existing = self._resolve_role_definition(role_definition_id)
+        if existing.get("source") == "builtin":
+            raise LooporaError("built-in role definitions cannot be deleted")
+        deleted = self.repository.delete_role_definition(role_definition_id)
+        if not deleted:
+            raise LooporaError(f"unknown role definition: {role_definition_id}")
+        return {"id": role_definition_id, "deleted": True}
 
     def _resolve_orchestration(self, orchestration_id: str) -> dict:
         orchestration_key = str(orchestration_id or "").strip()
@@ -464,6 +640,8 @@ class LooporaService:
             self._write_summary(run_id, "running", "Resolving checks for this run.")
             compiled_spec = self._resolve_run_checks(run, executor, compiled_spec, run_dir, retry_config)
             self._write_summary(run_id, "running", "Waiting for the first iteration to complete.")
+            completion_mode = normalize_completion_mode(run.get("completion_mode", "gatekeeper"))
+            iteration_interval_seconds = float(run.get("iteration_interval_seconds", 0.0) or 0.0)
             iteration_source = itertools.count() if run["max_iters"] == 0 else range(run["max_iters"])
             for iter_id in iteration_source:
                 last_iter_id = iter_id
@@ -631,7 +809,7 @@ class LooporaService:
                 last_verifier_result = verifier_result
                 last_challenger_result = challenger_result
 
-                if verifier_result["passed"]:
+                if completion_mode == "gatekeeper" and verifier_result["passed"]:
                     finished = self.repository.update_run(
                         run_id,
                         status="succeeded",
@@ -642,6 +820,8 @@ class LooporaService:
                     self._persist_summary_file(run_dir, summary)
                     self.repository.append_event(run_id, "run_finished", {"status": "succeeded", "iter": iter_id})
                     return finished
+                if iteration_interval_seconds > 0 and (run["max_iters"] == 0 or iter_id < run["max_iters"] - 1):
+                    self._pause_between_iterations(run_id, iteration_interval_seconds, iter_id)
 
             if run["max_iters"] != 0 and last_verifier_result is not None:
                 summary = self._build_summary(
@@ -661,7 +841,7 @@ class LooporaService:
                 )
                 finished = self.repository.update_run(
                     run_id,
-                    status="failed",
+                    status="succeeded" if completion_mode == "rounds" else "failed",
                     finished_at=utc_now(),
                     summary_md=summary,
                 )
@@ -669,7 +849,10 @@ class LooporaService:
                 self.repository.append_event(
                     run_id,
                     "run_finished",
-                    {"status": "failed", "reason": "max_iters_exhausted"},
+                    {
+                        "status": "succeeded" if completion_mode == "rounds" else "failed",
+                        "reason": "rounds_completed" if completion_mode == "rounds" else "max_iters_exhausted",
+                    },
                 )
                 return finished
             raise LooporaError(f"run {run_id} exited without completing an iteration")
@@ -854,6 +1037,8 @@ class LooporaService:
 
             enabled_steps = [step for step in workflow.get("steps", []) if step.get("enabled", True)]
             role_by_id = {role["id"]: role for role in workflow.get("roles", [])}
+            completion_mode = normalize_completion_mode(run.get("completion_mode", "gatekeeper"))
+            iteration_interval_seconds = float(run.get("iteration_interval_seconds", 0.0) or 0.0)
             iteration_source = itertools.count() if run["max_iters"] == 0 else range(run["max_iters"])
 
             for iter_id in iteration_source:
@@ -905,6 +1090,7 @@ class LooporaService:
                             "step": step,
                             "role": role,
                             "runtime_role": runtime_role,
+                            "resolved_model": str(step.get("model") or role.get("model") or run["model"]),
                             "output": normalized_output,
                         }
                     )
@@ -941,7 +1127,11 @@ class LooporaService:
                                 "stagnation_mode": stagnation["stagnation_mode"],
                             },
                         )
-                        if normalized_output["passed"] and step.get("on_pass") == "finish_run":
+                        if (
+                            completion_mode == "gatekeeper"
+                            and normalized_output["passed"]
+                            and step.get("on_pass") == "finish_run"
+                        ):
                             previous_outputs_by_archetype = dict(current_outputs_by_archetype)
                             append_jsonl(
                                 run_dir / "iteration_log.jsonl",
@@ -1008,6 +1198,8 @@ class LooporaService:
                     previous_composite=previous_composite,
                 )
                 self._write_summary(run_id, "running", summary)
+                if iteration_interval_seconds > 0 and (run["max_iters"] == 0 or iter_id < run["max_iters"] - 1):
+                    self._pause_between_iterations(run_id, iteration_interval_seconds, iter_id)
 
             summary = self._build_workflow_summary(
                 run,
@@ -1019,9 +1211,11 @@ class LooporaService:
                 exhausted=True,
                 previous_composite=None,
             )
-            failed = self.repository.update_run(
+            final_status = "succeeded" if completion_mode == "rounds" else "failed"
+            final_reason = "rounds_completed" if completion_mode == "rounds" else "max_iters_exhausted"
+            finished = self.repository.update_run(
                 run_id,
-                status="failed",
+                status=final_status,
                 finished_at=utc_now(),
                 summary_md=summary,
             )
@@ -1029,9 +1223,9 @@ class LooporaService:
             self.repository.append_event(
                 run_id,
                 "run_finished",
-                {"status": "failed", "reason": "max_iters_exhausted"},
+                {"status": final_status, "reason": final_reason, "iter": last_iter_id},
             )
-            return self._hydrate_run_files(failed)
+            return self._hydrate_run_files(finished)
         except (StopRequested, ExecutionStopped):
             summary = "# Loopora Run Summary\n\nStopped by user.\n"
             stopped = self.repository.update_run(
@@ -1222,7 +1416,7 @@ class LooporaService:
             executor_mode=run.get("executor_mode", "preset"),
             command_cli=run.get("command_cli", ""),
             command_args_text=run.get("command_args_text", ""),
-            model=str(role.get("model") or run["model"]),
+            model=str(step.get("model") or role.get("model") or run["model"]),
             reasoning_effort=run["reasoning_effort"],
             output_schema=self._output_schema_for_archetype(role["archetype"]),
             output_path=output_path,
@@ -1235,6 +1429,7 @@ class LooporaService:
                 "archetype": role["archetype"],
                 "step_id": step["id"],
                 "role_name": role["name"],
+                "step_model": str(step.get("model") or ""),
                 "legacy_role": self._runtime_role_key(role),
                 "current_outputs_by_role": current_outputs_by_role,
                 "current_outputs_by_archetype": current_outputs_by_archetype,
@@ -1497,6 +1692,7 @@ class LooporaService:
                     "runtime_role": item.get("runtime_role"),
                     "role_name": item["role"]["name"],
                     "archetype": item["role"]["archetype"],
+                    "model": item.get("resolved_model") or "",
                 }
                 for item in step_results
             ],
@@ -1538,9 +1734,12 @@ class LooporaService:
         previous_composite: float | None,
     ) -> str:
         gatekeeper_output = next((item["output"] for item in reversed(step_results) if item["role"]["archetype"] == "gatekeeper"), {})
-        status_line = "Max iterations exhausted." if exhausted else "Still iterating."
-        if gatekeeper_output.get("passed"):
+        completion_mode = normalize_completion_mode(run.get("completion_mode", "gatekeeper"))
+        status_line = "Planned rounds completed." if exhausted and completion_mode == "rounds" else "Max iterations exhausted." if exhausted else "Still iterating."
+        if gatekeeper_output.get("passed") and completion_mode == "gatekeeper":
             status_line = "All checks passed in this iteration."
+        elif gatekeeper_output.get("passed"):
+            status_line = "GateKeeper passed in this iteration, but the run stays in round-based mode."
         delta_text = (
             f"`{round(gatekeeper_output['composite_score'] - previous_composite, 6):+}`"
             if previous_composite is not None and gatekeeper_output.get("composite_score") is not None
@@ -1554,6 +1753,8 @@ class LooporaService:
             f"- Workflow preset: `{workflow.get('preset') or 'custom'}`",
             f"- Check mode: `{compiled_spec.get('check_mode', 'specified')}`",
             f"- Check count: `{len(compiled_spec.get('checks', []))}`",
+            f"- Completion mode: `{completion_mode}`",
+            f"- Iteration interval seconds: `{run.get('iteration_interval_seconds', 0.0)}`",
             f"- Composite score: `{gatekeeper_output.get('composite_score', 'n/a')}`",
             f"- Score delta vs previous iteration: {delta_text}",
             f"- Passed: `{gatekeeper_output.get('passed', False)}`",
@@ -2023,6 +2224,27 @@ class LooporaService:
         self._reconcile_local_orphaned_runs()
         return self.repository.list_events(run_id, after_id=after_id, limit=limit)
 
+    def _pause_between_iterations(self, run_id: str, duration_seconds: float, iter_id: int) -> None:
+        if duration_seconds <= 0:
+            return
+        self.repository.append_event(
+            run_id,
+            "iteration_wait_started",
+            {"iter": iter_id, "duration_seconds": duration_seconds},
+        )
+        deadline = time.monotonic() + duration_seconds
+        while True:
+            self._ensure_not_stopped(run_id)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(max(self.settings.polling_interval_seconds, 0.05), remaining))
+        self.repository.append_event(
+            run_id,
+            "iteration_wait_finished",
+            {"iter": iter_id, "duration_seconds": duration_seconds},
+        )
+
     def _wait_for_slot(self, run_id: str) -> None:
         self.repository.update_run(run_id, status="queued", summary_md="# Loopora Run Summary\n\nQueued.\n")
         while True:
@@ -2406,6 +2628,9 @@ class LooporaService:
         archetype = extra_context.get("archetype")
         if archetype is not None:
             summary["archetype"] = archetype
+        step_model = extra_context.get("step_model")
+        if step_model:
+            summary["step_model"] = step_model
         compiled_spec = extra_context.get("compiled_spec")
         if isinstance(compiled_spec, dict):
             summary["compiled_spec"] = {
@@ -2732,10 +2957,15 @@ class LooporaService:
         challenger_result: dict | None = None,
     ) -> str:
         failed = verifier_result.get("failed_check_titles", verifier_result.get("failed_check_ids", []))
-        if exhausted:
+        completion_mode = normalize_completion_mode(run.get("completion_mode", "gatekeeper"))
+        if exhausted and completion_mode == "rounds":
+            status_line = "Planned rounds completed."
+        elif exhausted:
             status_line = "Max iterations exhausted."
-        elif verifier_result["passed"]:
+        elif verifier_result["passed"] and completion_mode == "gatekeeper":
             status_line = "All checks passed in this iteration."
+        elif verifier_result["passed"]:
+            status_line = "Verifier passed in this iteration, but the run stays in round-based mode."
         else:
             status_line = "Still iterating."
         check_mode = compiled_spec.get("check_mode", "specified")
@@ -2753,6 +2983,8 @@ class LooporaService:
             f"- Iteration: `{iter_id + 1}`",
             f"- Check mode: `{check_mode}`",
             f"- Check count: `{len(compiled_spec.get('checks', []))}`",
+            f"- Completion mode: `{completion_mode}`",
+            f"- Iteration interval seconds: `{run.get('iteration_interval_seconds', 0.0)}`",
             f"- Composite score: `{verifier_result['composite_score']}`",
             f"- Score delta vs previous iteration: {delta_text}",
             f"- Passed: `{verifier_result['passed']}`",

@@ -230,9 +230,12 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "id=\"command-preview\"" in response.text
     assert "id=\"reasoning-input\"" in response.text
     assert "name=\"orchestration_id\"" in response.text
+    assert "name=\"completion_mode\"" in response.text
+    assert "name=\"iteration_interval_seconds\"" in response.text
     assert "name=\"role_model_builder\"" in response.text
     assert "name=\"role_model_gatekeeper\"" in response.text
     assert "Manage orchestrations" in response.text
+    assert "Roles" in response.text
     assert "workflow-json-input" not in response.text
     assert "Claude Code" in response.text
     assert "OpenCode" in response.text
@@ -401,6 +404,9 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     assert "name=\"workflow_preset\"" in new_response.text
     assert "id=\"workflow-json-input\"" in new_response.text
     assert "id=\"prompt-files-json-input\"" in new_response.text
+    assert "id=\"role-definition-select\"" in new_response.text
+    assert "id=\"add-role-from-definition-button\"" in new_response.text
+    assert "role-definitions-json" in new_response.text
     assert "把这个想法交给它持续推进" not in new_response.text
 
     builtin_edit_response = client.get("/orchestrations/builtin:build_first/edit")
@@ -413,6 +419,42 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     assert custom_edit_response.status_code == 200
     assert f'action="/orchestrations/{orchestration["id"]}/edit"' in custom_edit_response.text
     assert "保存修改" in custom_edit_response.text
+
+
+def test_role_definitions_pages_render_as_top_level_feature(service_factory) -> None:
+    service = service_factory(scenario="success")
+    service.create_role_definition(
+        name="Release Builder",
+        description="Ship focused release changes.",
+        archetype="builder",
+        prompt_ref="release-builder.md",
+        prompt_markdown="""---
+version: 1
+archetype: builder
+---
+
+Focus on scoped release work.
+""",
+        model="gpt-5.4-mini",
+    )
+
+    client = TestClient(build_app(service=service))
+    list_response = client.get("/roles")
+    assert list_response.status_code == 200
+    assert "角色定义" in list_response.text
+    assert "Release Builder" in list_response.text
+    assert "Create role" in list_response.text
+    assert "/roles/new" in list_response.text
+
+    new_response = client.get("/roles/new")
+    assert new_response.status_code == 200
+    assert "name=\"prompt_ref\"" in new_response.text
+    assert "name=\"prompt_markdown\"" in new_response.text
+    assert "保存角色" in new_response.text
+
+    builtin_edit_response = client.get("/roles/builtin:builder/edit")
+    assert builtin_edit_response.status_code == 200
+    assert "保存为新角色" in builtin_edit_response.text
 
 
 def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -> None:

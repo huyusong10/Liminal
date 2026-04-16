@@ -44,6 +44,7 @@
 5. 把一次 run 收敛成明确终态
 6. 生成人类可读摘要和结构化运行痕迹
 7. 规范化 orchestration 的创建、读取、更新和删除语义
+8. 规范化 role definition 的创建、读取、更新和删除语义
 
 ## 4. Role Model
 
@@ -73,16 +74,22 @@ loop 表示“可复用运行模板”。
 - spec 快照
 - executor 选择
 - 运行控制参数
+- 完成模式与轮次间隔
 - workflow 清单
 - prompt 文件快照
 
 orchestration 表示“可编辑、可复用的 workflow 资产”。
+
+role definition 表示“可编辑、可复用的角色模版资产”。
 
 本模块必须保证：
 
 - custom orchestration 可被更新
 - built-in orchestration 不可被原地修改
 - built-in orchestration 可以作为复制源进入同一个编辑器
+- custom role definition 可被更新
+- built-in role definition 不可被原地修改
+- built-in role definition 可以作为复制源进入同一个编辑器
 
 ### 5.2 Run
 
@@ -115,6 +122,9 @@ run 表示“某次具体执行实例”。
 - 每个 run 只能收敛到一个终态
 - 终态必须伴随可读摘要
 - run 的状态变化必须可被外部观察
+- gatekeeper completion mode 依赖 GateKeeper finish step
+- rounds completion mode 允许没有 GateKeeper，并在达到计划轮数后成功结束
+- 非零 iteration interval 必须可被 stop 信号打断
 
 ## 8. Reliability Responsibilities
 

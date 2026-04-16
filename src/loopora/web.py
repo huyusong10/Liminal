@@ -33,10 +33,12 @@ from loopora.service import LooporaError, create_service, normalize_role_models
 from loopora.specs import SpecError, init_spec_file, read_and_compile
 from loopora.system_dialogs import SystemDialogError, pick_directory, pick_file, pick_save_file
 from loopora.workflows import (
+    ARCHETYPES,
     WorkflowError,
     available_prompt_templates,
     build_preset_workflow,
     builtin_prompt_markdown,
+    display_name_for_archetype,
     normalize_workflow,
     preset_names,
     resolve_prompt_files,
@@ -57,6 +59,8 @@ DEFAULT_LOOP_FORM = {
     "command_args_text": "",
     "model": "gpt-5.4",
     "reasoning_effort": "medium",
+    "completion_mode": "gatekeeper",
+    "iteration_interval_seconds": 0,
     "max_iters": 8,
     "max_role_retries": 2,
     "delta_threshold": 0.005,
@@ -75,6 +79,15 @@ DEFAULT_ORCHESTRATION_FORM = {
     "workflow_preset": "build_first",
     "workflow_json": "",
     "prompt_files_json": "",
+}
+
+DEFAULT_ROLE_DEFINITION_FORM = {
+    "name": "",
+    "description": "",
+    "archetype": "builder",
+    "prompt_ref": "builder.md",
+    "prompt_markdown": builtin_prompt_markdown("builder.md"),
+    "model": "",
 }
 
 WORKFLOW_PRESET_COPY = {
@@ -104,6 +117,8 @@ TIMELINE_EVENT_TYPES = {
     "role_execution_summary",
     "role_degraded",
     "challenger_done",
+    "iteration_wait_started",
+    "iteration_wait_finished",
     "workspace_guard_triggered",
     "stop_requested",
     "run_aborted",
@@ -346,8 +361,76 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                     for preset_name in preset_names()
                 },
                 "prompt_templates": available_prompt_templates(),
+                "role_definitions": svc().list_role_definitions(),
                 "page_copy": page_copy,
                 "current_orchestration": current_orchestration,
+                "access_state": access_state,
+            },
+        )
+
+    def render_role_definitions(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "role_definitions.html",
+            {
+                "request": request,
+                "role_definitions": svc().list_role_definitions(),
+                "access_state": access_state,
+            },
+        )
+
+    def render_new_role_definition(
+        request: Request,
+        *,
+        values: Mapping[str, object] | None = None,
+        form_error: str | None = None,
+        role_definition: Mapping[str, object] | None = None,
+    ) -> HTMLResponse:
+        current_role_definition = dict(role_definition) if role_definition else None
+        if values is None and current_role_definition is not None:
+            values = _role_definition_form_values_from_record(current_role_definition)
+        is_builtin_template = bool(current_role_definition and current_role_definition.get("source") == "builtin")
+        is_editing_custom = bool(current_role_definition and current_role_definition.get("source") == "custom")
+        if is_editing_custom:
+            page_copy = {
+                "title_zh": "修改这条角色定义，让后续编排都能复用新的版本。",
+                "title_en": "Refine this role definition so future orchestrations can reuse it.",
+                "body_zh": "这里改的是已经保存的角色定义。保存后，新的编排可以继续引用它；已有编排里的角色快照不会被回写。",
+                "body_en": "You are editing a saved role definition. New orchestrations can keep reusing it, while existing orchestrations keep their frozen role snapshots.",
+                "submit_zh": "保存修改",
+                "submit_en": "Save changes",
+                "action": f"/roles/{current_role_definition['id']}/edit",
+            }
+        elif is_builtin_template:
+            page_copy = {
+                "title_zh": "从内置角色出发，改成你团队自己的角色版本。",
+                "title_en": "Start from a built-in role, then tailor it to your team.",
+                "body_zh": "这是内置角色的可编辑副本。你可以修改名字、默认模型和 prompt，保存时会另存为新的自定义角色定义。",
+                "body_en": "This is an editable copy of a built-in role. Adjust the name, default model, and prompt, then save it as a new custom role definition.",
+                "submit_zh": "保存为新角色",
+                "submit_en": "Save as new role",
+                "action": "/roles/new",
+            }
+        else:
+            page_copy = {
+                "title_zh": "先把角色定义好，后面的编排就能直接拿来用。",
+                "title_en": "Define the role once, then let orchestrations reuse it directly.",
+                "body_zh": "角色定义保存的是角色名、原型、默认模型和 prompt 模版。编排里选中后，会把这些字段带进去作为角色快照。",
+                "body_en": "A role definition stores the role name, archetype, default model, and prompt template. When an orchestration selects it, those values are copied in as a role snapshot.",
+                "submit_zh": "保存角色",
+                "submit_en": "Save role",
+                "action": "/roles/new",
+            }
+        return templates.TemplateResponse(
+            request,
+            "new_role_definition.html",
+            {
+                "request": request,
+                "form_values": _normalize_role_definition_form(values),
+                "form_error": form_error,
+                "page_copy": page_copy,
+                "current_role_definition": current_role_definition,
+                "archetype_options": _archetype_options(),
                 "access_state": access_state,
             },
         )
@@ -417,6 +500,10 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     async def orchestrations_page(request: Request) -> HTMLResponse:
         return render_orchestrations(request)
 
+    @app.get("/roles", response_class=HTMLResponse)
+    async def role_definitions_page(request: Request) -> HTMLResponse:
+        return render_role_definitions(request)
+
     @app.get("/orchestrations/new", response_class=HTMLResponse)
     async def new_orchestration(request: Request) -> HTMLResponse:
         preset = str(request.query_params.get("workflow_preset", "")).strip()
@@ -426,6 +513,14 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     @app.get("/orchestrations/{orchestration_id}/edit", response_class=HTMLResponse)
     async def edit_orchestration(request: Request, orchestration_id: str) -> HTMLResponse:
         return render_new_orchestration(request, orchestration=svc().get_orchestration(orchestration_id))
+
+    @app.get("/roles/new", response_class=HTMLResponse)
+    async def new_role_definition(request: Request) -> HTMLResponse:
+        return render_new_role_definition(request, values=request.query_params if request.query_params else None)
+
+    @app.get("/roles/{role_definition_id}/edit", response_class=HTMLResponse)
+    async def edit_role_definition(request: Request, role_definition_id: str) -> HTMLResponse:
+        return render_new_role_definition(request, role_definition=svc().get_role_definition(role_definition_id))
 
     @app.get("/tools", response_class=HTMLResponse)
     async def tools_page(request: Request) -> HTMLResponse:
@@ -511,6 +606,14 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     async def api_get_orchestration(orchestration_id: str) -> JSONResponse:
         return JSONResponse(svc().get_orchestration(orchestration_id))
 
+    @app.get("/api/role-definitions")
+    async def api_list_role_definitions() -> JSONResponse:
+        return JSONResponse(svc().list_role_definitions())
+
+    @app.get("/api/role-definitions/{role_definition_id}")
+    async def api_get_role_definition(role_definition_id: str) -> JSONResponse:
+        return JSONResponse(svc().get_role_definition(role_definition_id))
+
     @app.post("/api/orchestrations")
     async def api_create_orchestration(request: Request) -> JSONResponse:
         payload = await request.json()
@@ -526,6 +629,27 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     @app.delete("/api/orchestrations/{orchestration_id}")
     async def api_delete_orchestration(orchestration_id: str) -> JSONResponse:
         return JSONResponse(svc().delete_orchestration(orchestration_id))
+
+    @app.post("/api/role-definitions")
+    async def api_create_role_definition(request: Request) -> JSONResponse:
+        payload = await request.json()
+        role_definition = svc().create_role_definition(**_role_definition_payload_from_mapping(payload))
+        return JSONResponse(
+            {"role_definition": role_definition, "redirect_url": f"/roles/{role_definition['id']}/edit"},
+            status_code=201,
+        )
+
+    @app.put("/api/role-definitions/{role_definition_id}")
+    async def api_update_role_definition(role_definition_id: str, request: Request) -> JSONResponse:
+        payload = await request.json()
+        role_definition = svc().update_role_definition(role_definition_id, **_role_definition_payload_from_mapping(payload))
+        return JSONResponse(
+            {"role_definition": role_definition, "redirect_url": f"/roles/{role_definition['id']}/edit"}
+        )
+
+    @app.delete("/api/role-definitions/{role_definition_id}")
+    async def api_delete_role_definition(role_definition_id: str) -> JSONResponse:
+        return JSONResponse(svc().delete_role_definition(role_definition_id))
 
     @app.get("/api/runtime/activity")
     async def api_runtime_activity() -> JSONResponse:
@@ -794,6 +918,35 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         except (LooporaError, FileExistsError, OSError, ValueError) as exc:
             return render_new_orchestration(request, values=values, form_error=str(exc), orchestration=orchestration)
 
+    @app.post("/roles/new")
+    async def create_role_definition_from_form(request: Request):
+        form = await request.form()
+        values = _normalize_role_definition_form(form)
+        try:
+            role_definition = svc().create_role_definition(**_role_definition_payload_from_mapping(form))
+            return RedirectResponse(url=f"/roles/{role_definition['id']}/edit?saved=1", status_code=303)
+        except (LooporaError, FileExistsError, OSError, ValueError) as exc:
+            return render_new_role_definition(request, values=values, form_error=str(exc))
+
+    @app.post("/roles/{role_definition_id}/edit")
+    async def update_role_definition_from_form(request: Request, role_definition_id: str):
+        form = await request.form()
+        values = _normalize_role_definition_form(form)
+        role_definition = svc().get_role_definition(role_definition_id)
+        try:
+            if role_definition.get("source") == "builtin":
+                created = svc().create_role_definition(**_role_definition_payload_from_mapping(form))
+                return RedirectResponse(url=f"/roles/{created['id']}/edit?saved=1", status_code=303)
+            updated = svc().update_role_definition(role_definition_id, **_role_definition_payload_from_mapping(form))
+            return RedirectResponse(url=f"/roles/{updated['id']}/edit?saved=1", status_code=303)
+        except (LooporaError, FileExistsError, OSError, ValueError) as exc:
+            return render_new_role_definition(
+                request,
+                values=values,
+                form_error=str(exc),
+                role_definition=role_definition,
+            )
+
     return app
 
 
@@ -819,6 +972,7 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
         raise LooporaError("spec path is required")
 
     try:
+        iteration_interval_seconds = float(payload.get("iteration_interval_seconds", 0))
         max_iters = int(payload.get("max_iters", 8))
         max_role_retries = int(payload.get("max_role_retries", 2))
         delta_threshold = float(payload.get("delta_threshold", 0.005))
@@ -838,6 +992,8 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
         "command_args_text": command_args_text,
         "model": model if model or profile.default_model == "" else profile.default_model,
         "reasoning_effort": reasoning_effort if reasoning_effort or profile.effort_default == "" else profile.effort_default,
+        "completion_mode": str(payload.get("completion_mode", "gatekeeper")).strip() or "gatekeeper",
+        "iteration_interval_seconds": iteration_interval_seconds,
         "max_iters": max_iters,
         "max_role_retries": max_role_retries,
         "delta_threshold": delta_threshold,
@@ -861,6 +1017,29 @@ def _orchestration_payload_from_mapping(payload: Mapping[str, object]) -> dict[s
         "workflow": _workflow_from_mapping(payload, default_to_preset=True),
         "prompt_files": _prompt_files_from_mapping(payload),
         "role_models": _role_models_from_mapping(payload),
+    }
+
+
+def _role_definition_payload_from_mapping(payload: Mapping[str, object]) -> dict[str, object]:
+    name = str(payload.get("name", "")).strip()
+    description = str(payload.get("description", "")).strip()
+    archetype = str(payload.get("archetype", "builder")).strip() or "builder"
+    prompt_ref = str(payload.get("prompt_ref", "")).strip()
+    prompt_markdown = str(payload.get("prompt_markdown", ""))
+    model = str(payload.get("model", "")).strip()
+    if not name:
+        raise LooporaError("name is required")
+    if not prompt_ref:
+        raise LooporaError("prompt_ref is required")
+    if not prompt_markdown.strip():
+        raise LooporaError("prompt_markdown is required")
+    return {
+        "name": name,
+        "description": description,
+        "archetype": archetype,
+        "prompt_ref": prompt_ref,
+        "prompt_markdown": prompt_markdown,
+        "model": model,
     }
 
 
@@ -948,6 +1127,12 @@ def _format_timeline_event(event: dict) -> dict:
     elif event["event_type"] == "challenger_done":
         title = "Challenger suggested a new direction"
         detail = str(payload.get("mode", "")).strip()
+    elif event["event_type"] == "iteration_wait_started":
+        title = "Waiting for the next iteration"
+        detail = f"{payload.get('duration_seconds', 0)}s"
+    elif event["event_type"] == "iteration_wait_finished":
+        title = "Iteration wait finished"
+        detail = f"{payload.get('duration_seconds', 0)}s"
     elif event["event_type"] == "stop_requested":
         title = "Stop requested"
     elif event["event_type"] == "run_aborted":
@@ -961,7 +1146,10 @@ def _format_timeline_event(event: dict) -> dict:
         reason = str(payload.get("reason", "")).strip()
         iter_id = payload.get("iter")
         if reason:
-            detail = reason
+            detail = {
+                "max_iters_exhausted": "max iterations exhausted",
+                "rounds_completed": "planned rounds completed",
+            }.get(reason, reason)
         elif iter_id is not None:
             display_iter = _display_iter(iter_id)
             detail = f"iter={display_iter}" if display_iter is not None else ""
@@ -1008,7 +1196,7 @@ def _canonicalize_loop_form_for_comparison(values: Mapping[str, object] | None) 
         if key in {"max_iters", "max_role_retries", "trigger_window", "regression_window"}:
             canonical[key] = _coerce_loop_form_number(value, integer_only=True)
             continue
-        if key in {"delta_threshold"}:
+        if key in {"delta_threshold", "iteration_interval_seconds"}:
             canonical[key] = _coerce_loop_form_number(value, integer_only=False)
             continue
         if isinstance(value, str):
@@ -1047,6 +1235,16 @@ def _normalize_orchestration_form(values: Mapping[str, object] | None) -> dict[s
     return normalized
 
 
+def _normalize_role_definition_form(values: Mapping[str, object] | None) -> dict[str, object]:
+    normalized = dict(DEFAULT_ROLE_DEFINITION_FORM)
+    if not values:
+        return normalized
+    for key in normalized:
+        if key in values:
+            normalized[key] = values[key]
+    return normalized
+
+
 def _workflow_preset_options() -> list[dict[str, str]]:
     return [
         {
@@ -1060,6 +1258,17 @@ def _workflow_preset_options() -> list[dict[str, str]]:
     ]
 
 
+def _archetype_options() -> list[dict[str, str]]:
+    return [
+        {
+            "id": archetype,
+            "label_zh": display_name_for_archetype(archetype, locale="zh"),
+            "label_en": display_name_for_archetype(archetype, locale="en"),
+        }
+        for archetype in ARCHETYPES
+    ]
+
+
 def _orchestration_form_values_from_record(orchestration: Mapping[str, object]) -> dict[str, object]:
     workflow = dict(orchestration.get("workflow_json") or {})
     return {
@@ -1068,6 +1277,17 @@ def _orchestration_form_values_from_record(orchestration: Mapping[str, object]) 
         "workflow_preset": str(workflow.get("preset", "build_first")).strip() or "build_first",
         "workflow_json": json.dumps(workflow, ensure_ascii=False, indent=2),
         "prompt_files_json": json.dumps(orchestration.get("prompt_files_json") or {}, ensure_ascii=False, indent=2),
+    }
+
+
+def _role_definition_form_values_from_record(role_definition: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "name": str(role_definition.get("name", "")),
+        "description": str(role_definition.get("description", "")),
+        "archetype": str(role_definition.get("archetype", "builder") or "builder"),
+        "prompt_ref": str(role_definition.get("prompt_ref", "")),
+        "prompt_markdown": str(role_definition.get("prompt_markdown", "")),
+        "model": str(role_definition.get("model", "")),
     }
 
 

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}{{ page_copy.submit_en }}{% endblock %}
+{% block content %}
+<div class="page-stack">
+<section class="hero hero-tight hero-form">
+  <div class="hero-copy-stack">
+    <h1>
+      <span data-lang="zh">{{ page_copy.title_zh }}</span>
+      <span data-lang="en">{{ page_copy.title_en }}</span>
+    </h1>
+    <p>
+      <span data-lang="zh">{{ page_copy.body_zh }}</span>
+      <span data-lang="en">{{ page_copy.body_en }}</span>
+    </p>
+  </div>
+</section>
+
+<form class="panel form-panel form-panel-wide" method="post" action="{{ page_copy.action }}">
+  <div class="field-status is-error" aria-live="polite" {% if not form_error %}hidden{% endif %}>{{ form_error or "" }}</div>
+
+  <div class="form-grid">
+    <label>
+      <span><span data-lang="zh">名称</span><span data-lang="en">Name</span></span>
+      <input name="name" value="{{ form_values.name }}" required />
+    </label>
+
+    <label>
+      <span><span data-lang="zh">原型</span><span data-lang="en">Archetype</span></span>
+      <select name="archetype">
+        {% for option in archetype_options %}
+        <option value="{{ option.id }}" {% if form_values.archetype == option.id %}selected{% endif %}>
+          {{ option.label_zh }} / {{ option.label_en }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      <span><span data-lang="zh">Prompt 文件名</span><span data-lang="en">Prompt file name</span></span>
+      <input name="prompt_ref" value="{{ form_values.prompt_ref }}" required />
+    </label>
+
+    <label>
+      <span><span data-lang="zh">默认模型</span><span data-lang="en">Default model</span></span>
+      <input name="model" value="{{ form_values.model }}" />
+    </label>
+
+    <label class="wide">
+      <span><span data-lang="zh">描述</span><span data-lang="en">Description</span></span>
+      <textarea name="description" rows="3">{{- form_values.description -}}</textarea>
+    </label>
+
+    <label class="wide">
+      <span><span data-lang="zh">Prompt Markdown</span><span data-lang="en">Prompt Markdown</span></span>
+      <textarea name="prompt_markdown" rows="20" required>{{- form_values.prompt_markdown -}}</textarea>
+      <small class="field-note">
+        <span data-lang="zh">Prompt 必须带 YAML front matter，并且 `archetype` 要和上面的原型一致。</span>
+        <span data-lang="en">The prompt must include YAML front matter, and its `archetype` must match the selected archetype above.</span>
+      </small>
+    </label>
+  </div>
+
+  <div class="card-actions">
+    <button class="primary-button" type="submit">
+      <span data-lang="zh">{{ page_copy.submit_zh }}</span>
+      <span data-lang="en">{{ page_copy.submit_en }}</span>
+    </button>
+    <a class="ghost-button" href="/roles">
+      <span data-lang="zh">取消</span>
+      <span data-lang="en">Cancel</span>
+    </a>
+  </div>
+</form>
+</div>
+{% endblock %}

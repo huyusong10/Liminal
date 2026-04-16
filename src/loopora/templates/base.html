@@ -28,6 +28,10 @@
           <span data-lang="zh">流程编排</span>
           <span data-lang="en">Orchestrations</span>
         </a>
+        <a class="top-nav-link {% if request.url.path.startswith('/roles') %}active{% endif %}" href="/roles">
+          <span data-lang="zh">角色定义</span>
+          <span data-lang="en">Roles</span>
+        </a>
         <a class="top-nav-link {% if request.url.path == '/tools' %}active{% endif %}" href="/tools">
           <span data-lang="zh">工具</span>
           <span data-lang="en">Tools</span>

@@ -30,6 +30,7 @@
 - Persist run artifacts under `.loopora/` so every iteration is inspectable and reproducible.
 - Expose the same run state in a local web console with progress, console logs, timeline, and key artifacts.
 - Run the same loop definition with Codex, Claude Code, or OpenCode, with provider-aware model and effort settings.
+- Treat role definitions and orchestration workflows as first-class assets, including step-level model overrides.
 
 ## How It Works
 
@@ -40,6 +41,8 @@ Each run compiles the Markdown spec into a frozen snapshot, updates the workspac
 ## Features
 
 - Local FastAPI console for loop creation, run monitoring, artifact inspection, and skill installation
+- First-class role definitions plus orchestration editing, including per-step model overrides
+- Loop completion can be GateKeeper-driven or round-based, and non-zero iteration intervals let a loop wait between rounds
 - The loop creation page remembers unfinished browser drafts and surfaces recent workdirs without changing the underlying loop model
 - Structured run outputs such as `compiled_spec.json`, `tester_output.json`, `verifier_verdict.json`, `events.jsonl`, and `summary.md`
 - CLI commands for `run`, `serve`, `loops create`, `loops list`, `loops status`, `loops stop`, `loops rerun`, `loops delete`, `spec init`, and `spec validate`
@@ -151,7 +154,8 @@ For long-running benchmark or evaluation loops, specs work better when they make
 The local console includes:
 
 - Saved loop list with status, model, latest run, and direct actions
-- Loop creation page with spec validation, recent workdir suggestions, helper tooling, and browser-local draft recovery
+- Loop creation page with spec validation, recent workdir suggestions, completion mode and iteration interval controls, and browser-local draft recovery
+- Role definitions page for reusable archetype-backed role templates
 - Run detail page with live progress, stage explanations, console streaming, timeline, and fixed artifact tabs
 - Tool page for installing the bundled `loopora-spec` skill
 

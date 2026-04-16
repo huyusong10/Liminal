@@ -84,6 +84,8 @@ class LooporaRepository:
                     command_args_text TEXT NOT NULL DEFAULT '',
                     model TEXT NOT NULL,
                     reasoning_effort TEXT NOT NULL,
+                    completion_mode TEXT NOT NULL DEFAULT 'gatekeeper',
+                    iteration_interval_seconds REAL NOT NULL DEFAULT 0,
                     max_iters INTEGER NOT NULL,
                     max_role_retries INTEGER NOT NULL,
                     delta_threshold REAL NOT NULL,
@@ -111,6 +113,8 @@ class LooporaRepository:
                     command_args_text TEXT NOT NULL DEFAULT '',
                     model TEXT NOT NULL,
                     reasoning_effort TEXT NOT NULL,
+                    completion_mode TEXT NOT NULL DEFAULT 'gatekeeper',
+                    iteration_interval_seconds REAL NOT NULL DEFAULT 0,
                     max_iters INTEGER NOT NULL,
                     max_role_retries INTEGER NOT NULL,
                     delta_threshold REAL NOT NULL,
@@ -159,6 +163,18 @@ class LooporaRepository:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS role_definitions (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    archetype TEXT NOT NULL,
+                    prompt_ref TEXT NOT NULL,
+                    prompt_markdown TEXT NOT NULL,
+                    model TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
             self._ensure_column(connection, "loop_definitions", "orchestration_id", "TEXT NOT NULL DEFAULT ''")
@@ -175,6 +191,10 @@ class LooporaRepository:
             self._ensure_column(connection, "loop_runs", "command_args_text", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "loop_definitions", "workflow_json", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(connection, "loop_runs", "workflow_json", "TEXT NOT NULL DEFAULT '{}'")
+            self._ensure_column(connection, "loop_definitions", "completion_mode", "TEXT NOT NULL DEFAULT 'gatekeeper'")
+            self._ensure_column(connection, "loop_runs", "completion_mode", "TEXT NOT NULL DEFAULT 'gatekeeper'")
+            self._ensure_column(connection, "loop_definitions", "iteration_interval_seconds", "REAL NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "loop_runs", "iteration_interval_seconds", "REAL NOT NULL DEFAULT 0")
 
     @staticmethod
     def _ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -193,10 +213,11 @@ class LooporaRepository:
                 INSERT INTO loop_definitions (
                     id, name, orchestration_id, orchestration_name, workdir, spec_path, spec_markdown, compiled_spec_json,
                     executor_kind, executor_mode, command_cli, command_args_text,
-                    model, reasoning_effort, max_iters, max_role_retries, delta_threshold,
+                    model, reasoning_effort, completion_mode, iteration_interval_seconds,
+                    max_iters, max_role_retries, delta_threshold,
                     trigger_window, regression_window, role_models_json, workflow_json, latest_run_id,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
                 """,
                 (
                     payload["id"],
@@ -213,6 +234,8 @@ class LooporaRepository:
                     payload.get("command_args_text", ""),
                     payload["model"],
                     payload["reasoning_effort"],
+                    payload.get("completion_mode", "gatekeeper"),
+                    payload.get("iteration_interval_seconds", 0.0),
                     payload["max_iters"],
                     payload["max_role_retries"],
                     payload["delta_threshold"],
@@ -234,12 +257,13 @@ class LooporaRepository:
                 INSERT INTO loop_runs (
                     id, loop_id, orchestration_id, orchestration_name, workdir, spec_path, spec_markdown, compiled_spec_json,
                     executor_kind, executor_mode, command_cli, command_args_text,
-                    model, reasoning_effort, max_iters, max_role_retries, delta_threshold,
+                    model, reasoning_effort, completion_mode, iteration_interval_seconds,
+                    max_iters, max_role_retries, delta_threshold,
                     trigger_window, regression_window, role_models_json, workflow_json, status, stop_requested,
                     current_iter, active_role, runner_pid, child_pid, queued_at, started_at,
                     finished_at, error_message, last_verdict_json, summary_md, runs_dir,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, NULL, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload["id"],
@@ -256,6 +280,8 @@ class LooporaRepository:
                     payload.get("command_args_text", ""),
                     payload["model"],
                     payload["reasoning_effort"],
+                    payload.get("completion_mode", "gatekeeper"),
+                    payload.get("iteration_interval_seconds", 0.0),
                     payload["max_iters"],
                     payload["max_role_retries"],
                     payload["delta_threshold"],
@@ -264,7 +290,16 @@ class LooporaRepository:
                     json.dumps(payload.get("role_models", {}), ensure_ascii=False),
                     json.dumps(payload.get("workflow", {}), ensure_ascii=False),
                     payload["status"],
+                    0,
+                    0,
+                    None,
+                    None,
+                    None,
                     now,
+                    None,
+                    None,
+                    None,
+                    None,
                     payload.get("summary_md", ""),
                     payload["runs_dir"],
                     now,
@@ -330,6 +365,72 @@ class LooporaRepository:
         with self._connect() as connection:
             rows = connection.execute("SELECT * FROM orchestration_definitions ORDER BY updated_at DESC, created_at DESC").fetchall()
         return [self._decode_row(row) for row in rows]
+
+    def create_role_definition(self, payload: dict) -> dict:
+        now = utc_now()
+        with self.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO role_definitions (
+                    id, name, description, archetype, prompt_ref, prompt_markdown, model, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["id"],
+                    payload["name"],
+                    payload.get("description", ""),
+                    payload["archetype"],
+                    payload["prompt_ref"],
+                    payload["prompt_markdown"],
+                    payload.get("model", ""),
+                    now,
+                    now,
+                ),
+            )
+        return self.get_role_definition(payload["id"])
+
+    def update_role_definition(self, role_definition_id: str, payload: dict) -> dict | None:
+        now = utc_now()
+        with self.transaction() as connection:
+            row = connection.execute("SELECT 1 FROM role_definitions WHERE id = ?", (role_definition_id,)).fetchone()
+            if row is None:
+                return None
+            connection.execute(
+                """
+                UPDATE role_definitions
+                SET name = ?, description = ?, archetype = ?, prompt_ref = ?, prompt_markdown = ?, model = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    payload["name"],
+                    payload.get("description", ""),
+                    payload["archetype"],
+                    payload["prompt_ref"],
+                    payload["prompt_markdown"],
+                    payload.get("model", ""),
+                    now,
+                    role_definition_id,
+                ),
+            )
+        return self.get_role_definition(role_definition_id)
+
+    def get_role_definition(self, role_definition_id: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM role_definitions WHERE id = ?", (role_definition_id,)).fetchone()
+        return self._decode_row(row) if row else None
+
+    def list_role_definitions(self) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM role_definitions ORDER BY updated_at DESC, created_at DESC").fetchall()
+        return [self._decode_row(row) for row in rows]
+
+    def delete_role_definition(self, role_definition_id: str) -> bool:
+        with self.transaction() as connection:
+            row = connection.execute("SELECT 1 FROM role_definitions WHERE id = ?", (role_definition_id,)).fetchone()
+            if row is None:
+                return False
+            connection.execute("DELETE FROM role_definitions WHERE id = ?", (role_definition_id,))
+        return True
 
     def delete_orchestration(self, orchestration_id: str) -> bool:
         with self.transaction() as connection:

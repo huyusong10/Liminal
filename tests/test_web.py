@@ -488,6 +488,147 @@ def test_api_can_create_orchestration_and_use_it_for_loop(
     assert loop["workflow_json"]["preset"] == "build_first"
 
 
+def test_api_can_create_round_based_loop_without_gatekeeper(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/loops",
+        json={
+            "name": "Round Builder Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "executor_kind": "codex",
+            "model": "gpt-5.4",
+            "reasoning_effort": "medium",
+            "completion_mode": "rounds",
+            "iteration_interval_seconds": 0.1,
+            "max_iters": 2,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder", "enabled": True},
+                ],
+            },
+            "start_immediately": False,
+        },
+    )
+
+    assert response.status_code == 201
+    loop = response.json()["loop"]
+    assert loop["completion_mode"] == "rounds"
+    assert loop["iteration_interval_seconds"] == 0.1
+    assert loop["workflow_json"]["steps"][0]["role_id"] == "builder"
+
+
+def test_api_rejects_gatekeeper_mode_without_finish_gatekeeper(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/loops",
+        json={
+            "name": "Invalid Gate Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "executor_kind": "codex",
+            "model": "gpt-5.4",
+            "reasoning_effort": "medium",
+            "completion_mode": "gatekeeper",
+            "max_iters": 2,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder", "enabled": True},
+                ],
+            },
+            "start_immediately": False,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "gatekeeper completion mode" in response.json()["error"]
+
+
+def test_api_role_definition_crud(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    create_response = client.post(
+        "/api/role-definitions",
+        json={
+            "name": "Release Builder",
+            "description": "Ship focused release changes.",
+            "archetype": "builder",
+            "prompt_ref": "release-builder.md",
+            "prompt_markdown": """---
+version: 1
+archetype: builder
+---
+
+Focus on scoped release work.
+""",
+            "model": "gpt-5.4-mini",
+        },
+    )
+    assert create_response.status_code == 201
+    role_definition = create_response.json()["role_definition"]
+    assert role_definition["name"] == "Release Builder"
+    assert role_definition["archetype"] == "builder"
+
+    list_response = client.get("/api/role-definitions")
+    assert list_response.status_code == 200
+    assert any(item["id"] == role_definition["id"] for item in list_response.json())
+
+    update_response = client.put(
+        f"/api/role-definitions/{role_definition['id']}",
+        json={
+            "name": "Release Builder v2",
+            "description": "Updated role definition.",
+            "archetype": "builder",
+            "prompt_ref": "release-builder.md",
+            "prompt_markdown": """---
+version: 1
+archetype: builder
+---
+
+Focus on scoped release work with tighter release constraints.
+""",
+            "model": "gpt-5.4",
+        },
+    )
+    assert update_response.status_code == 200
+    updated_role_definition = update_response.json()["role_definition"]
+    assert updated_role_definition["name"] == "Release Builder v2"
+    assert updated_role_definition["model"] == "gpt-5.4"
+
+    delete_response = client.delete(f"/api/role-definitions/{role_definition['id']}")
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted"] is True
+
+
 def test_api_spec_init_validate_and_delete_loop(service_factory, tmp_path: Path, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     client = TestClient(build_app(service=service))

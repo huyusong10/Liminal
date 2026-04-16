@@ -8,6 +8,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const specPathInput = document.getElementById("spec-path-input");
   const orchestrationInput = document.getElementById("orchestration-id-input");
   const orchestrationSummary = document.getElementById("orchestration-summary");
+  const completionModeInput = document.getElementById("completion-mode-input");
+  const iterationIntervalInput = document.getElementById("iteration-interval-input");
   const executorKindInput = document.getElementById("executor-kind-input");
   const executorModeInput = document.getElementById("executor-mode-input");
   const modelFieldLabel = document.getElementById("model-field-label");
@@ -245,6 +247,18 @@ document.addEventListener("DOMContentLoaded", () => {
     return orchestrations.find((item) => item.id === orchestrationInput.value) || orchestrations[0] || null;
   }
 
+  function orchestrationHasFinishGate(orchestration) {
+    const workflow = orchestration?.workflow_json || {};
+    const roleById = Object.fromEntries((Array.isArray(workflow.roles) ? workflow.roles : []).map((role) => [role.id, role]));
+    return (Array.isArray(workflow.steps) ? workflow.steps : []).some((step) => {
+      if (step.enabled === false) {
+        return false;
+      }
+      const role = roleById[step.role_id];
+      return role?.archetype === "gatekeeper" && String(step.on_pass || "continue") === "finish_run";
+    });
+  }
+
   function renderOrchestrationSummary() {
     const selected = currentOrchestration();
     if (!selected) {
@@ -254,9 +268,22 @@ document.addEventListener("DOMContentLoaded", () => {
     const workflow = selected.workflow_json || {};
     const roles = Array.isArray(workflow.roles) ? workflow.roles.length : 0;
     const steps = Array.isArray(workflow.steps) ? workflow.steps.length : 0;
+    const finishGate = orchestrationHasFinishGate(selected);
     const source = selected.source === "builtin"
       ? localeText("内置方案", "Built-in")
       : localeText("自定义方案", "Custom");
+    const completionMode = completionModeInput?.value || "gatekeeper";
+    if (completionMode === "gatekeeper" && !finishGate) {
+      showStatus(
+        orchestrationSummary,
+        localeText(
+          `当前方案是 ${selected.name} · ${source} · 角色 ${roles} · 步骤 ${steps}，但它没有“通过即结束”的 GateKeeper 步骤。请改成轮次模式，或先去编排页补一个 GateKeeper finish step。`,
+          `The selected orchestration is ${selected.name} · ${source} · Roles ${roles} · Steps ${steps}, but it has no finish-on-pass GateKeeper step. Switch the loop to round-based mode, or add a GateKeeper finish step first.`,
+        ),
+        "warning",
+      );
+      return;
+    }
     showStatus(
       orchestrationSummary,
       `${selected.name} · ${source} · ${localeText("角色", "Roles")} ${roles} · ${localeText("步骤", "Steps")} ${steps}${selected.description ? ` · ${selected.description}` : ""}`,
@@ -646,6 +673,8 @@ document.addEventListener("DOMContentLoaded", () => {
       command_args_text: executorMode === "command" ? String(formData.get("command_args_text") || "") : "",
       model: String(modelInput.value || "").trim(),
       reasoning_effort: String(reasoningInput.value || "").trim(),
+      completion_mode: String(formData.get("completion_mode") || "gatekeeper").trim(),
+      iteration_interval_seconds: parseNumber(formData.get("iteration_interval_seconds"), 0),
       max_iters: parseNumber(formData.get("max_iters"), 8),
       max_role_retries: parseNumber(formData.get("max_role_retries"), 2),
       delta_threshold: parseNumber(formData.get("delta_threshold"), 0.005),
@@ -719,6 +748,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
   orchestrationInput?.addEventListener("change", renderOrchestrationSummary);
+  completionModeInput?.addEventListener("change", renderOrchestrationSummary);
+  iterationIntervalInput?.addEventListener("input", saveDraft);
   executorKindInput.addEventListener("change", () => {
     if (executorModeInput.value === "command") {
       saveCommandDraft(lastExecutorKind);

@@ -19,6 +19,7 @@
 - `steps[]`
 
 在平台化 v1 中，`workflow_json` 由独立的 `orchestration` 持有；loop 通过 `orchestration_id` 引用它，再在 run 开始时冻结到 run 目录。
+role definition 不是 runtime 引用对象，而是 orchestration 编辑时可选择的资产来源；一旦选入 workflow，就会复制成 role snapshot。
 
 ### 2.1 roles
 
@@ -29,6 +30,7 @@
 - `archetype`
 - `prompt_ref`
 - 可选 `model`
+- 可选 `role_definition_id`
 
 ### 2.2 steps
 
@@ -38,6 +40,7 @@
 - `role_id`
 - `enabled`
 - 可选 `on_pass`
+- 可选 `model`
 
 `on_pass` 仅对 `gatekeeper` archetype 生效，允许：
 
@@ -97,13 +100,19 @@ workflow 保存前必须满足：
 - 至少 1 个 role
 - 至少 1 个 step
 - step 引用的 `role_id` 必须存在
-- 至少 1 个启用的 `gatekeeper` step 且 `on_pass=finish_run`
 
-但面向用户的校验提示不应直接暴露内部字段名；  
-例如应表达为“至少要有一个可在通过时结束流程的 GateKeeper 步骤”，而不是原样输出 `on_pass=finish_run`。
+其中“至少 1 个启用的 `gatekeeper` step 且 `on_pass=finish_run`”不再是 workflow 自身的硬约束，而是 gatekeeper completion mode 的 loop 约束。
+
+- workflow 允许只有 `builder` 或其他非 GateKeeper 角色
+- gatekeeper completion mode 在创建 loop 时必须校验存在可收敛的 GateKeeper finish step
+- rounds completion mode 可以复用没有 GateKeeper 的 workflow
+
+面向用户的提示仍不应直接暴露内部字段名；  
+例如应表达为“如果要靠守门裁决收敛，请至少添加一个可在通过时结束流程的 GateKeeper 步骤”，而不是原样输出 `on_pass=finish_run`。
 
 系统还会给出非阻断 warning，例如：
 
+- workflow 没有 `GateKeeper finish step`
 - `GateKeeper` 出现在后续 `Builder` 之前
 - `GateKeeper` 在 `Builder` 之后立刻出现，但中间没有新的 `Inspector` 证据
 
@@ -166,6 +175,7 @@ workflow / prompt 资产必须跨入口同构：
 - API：通过 `workflow` 与 `prompt_files`
 
 同时，系统必须提供独立的一层 orchestration 管理入口，而不是把 workflow 编辑塞进 loop 创建表单中。
+Web 还必须提供独立的一层 role definition 管理入口，让用户先定义 archetype-backed role 模版，再在 orchestration 编辑器中按需选入。
 
 在 Web 中，orchestration 列表页的主交互应该是“进入编辑器”，而不是“直接去创建 loop”。  
 loop 创建页只负责从已有 orchestration 中选择一套方案。
@@ -177,6 +187,7 @@ loop 创建页只负责从已有 orchestration 中选择一套方案。
 - 只有 Web 能改 workflow
 - 只有 CLI 能提交 prompt 文件
 - 只有 API 能表达 custom archetype instance
+- 只有编排 JSON 才能表达 step-level model override
 
 ## 10. Non-Goals
 

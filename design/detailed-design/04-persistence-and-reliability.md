@@ -19,9 +19,10 @@
 本模块负责：
 
 1. 保存 loop / run / event 的持久事实
-2. 管理 workdir 级互斥
-3. 为 run 提供停止、恢复、重启后的收敛能力
-4. 提供 retry / stagnation / safety guard 这类可靠性控制件
+2. 保存 orchestration / role definition 资产
+3. 管理 workdir 级互斥
+4. 为 run 提供停止、恢复、重启后的收敛能力
+5. 提供 retry / stagnation / safety guard 这类可靠性控制件
 
 ## 4. Storage Design
 
@@ -42,6 +43,13 @@
 全局配置文件 `settings.json` 也属于可靠性边界的一部分：如果文件缺失、损坏、包含未知字段，或字段值越界，系统必须回退到已知安全默认值，并把磁盘内容自愈回规范化后的配置，而不是让启动阶段直接失败。
 
 `recent_workdirs.json` 属于 best-effort 的界面辅助状态：实现只能把其中的非空路径字符串重新投影回 UI 建议项，遇到损坏内容或非字符串条目时必须忽略，而不是把脏数据扩散到表单提示层。
+
+全局数据库还负责保存两类可复用资产：
+
+- orchestration definition
+- role definition
+
+它们属于“可编辑索引事实”，而不是 runtime 产物。
 
 ## 5. Durable Ownership
 

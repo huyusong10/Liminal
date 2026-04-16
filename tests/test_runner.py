@@ -19,21 +19,24 @@ def _create_loop(
     name: str = "Demo Loop",
     *,
     workflow: dict | None = None,
+    **overrides,
 ) -> dict:
-    return service.create_loop(
-        name=name,
-        spec_path=sample_spec_file,
-        workdir=sample_workdir,
-        model="gpt-5.4",
-        reasoning_effort="medium",
-        max_iters=3,
-        max_role_retries=1,
-        delta_threshold=0.005,
-        trigger_window=2,
-        regression_window=2,
-        role_models={},
-        workflow=workflow,
-    )
+    payload = {
+        "name": name,
+        "spec_path": sample_spec_file,
+        "workdir": sample_workdir,
+        "model": "gpt-5.4",
+        "reasoning_effort": "medium",
+        "max_iters": 3,
+        "max_role_retries": 1,
+        "delta_threshold": 0.005,
+        "trigger_window": 2,
+        "regression_window": 2,
+        "role_models": {},
+        "workflow": workflow,
+    }
+    payload.update(overrides)
+    return service.create_loop(**payload)
 
 
 def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
@@ -195,6 +198,110 @@ def test_benchmark_loop_can_finish_before_builder_runs(
     assert run["status"] == "succeeded"
     assert not (run_dir / "builder_output.json").exists()
     assert json.loads((run_dir / "gatekeeper_verdict.json").read_text(encoding="utf-8"))["passed"] is True
+
+
+def test_workflow_step_model_override_is_used_for_role_requests(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder", "enabled": True, "model": "gpt-5.4-mini"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "enabled": True, "on_pass": "finish_run"},
+        ],
+    }
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Step Model Loop", workflow=workflow)
+
+    run = service.rerun(loop["id"])
+
+    role_requests = [
+        json.loads(line)
+        for line in (Path(run["runs_dir"]) / "role_requests.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    builder_request = next(item for item in role_requests if item.get("step_id") == "builder_step")
+    assert builder_request["model"] == "gpt-5.4-mini"
+
+
+def test_round_completion_mode_can_finish_without_gatekeeper(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder", "enabled": True},
+        ],
+    }
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Round Loop",
+        workflow=workflow,
+        completion_mode="rounds",
+        max_iters=2,
+    )
+
+    run = service.rerun(loop["id"])
+
+    assert run["status"] == "succeeded"
+    iteration_log = [
+        json.loads(line)
+        for line in (Path(run["runs_dir"]) / "iteration_log.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len([entry for entry in iteration_log if entry["phase"] == "complete"]) == 2
+    events = service.stream_events(run["id"], limit=200)
+    assert any(
+        event["event_type"] == "run_finished" and event["payload"].get("reason") == "rounds_completed"
+        for event in events
+    )
+
+
+def test_iteration_interval_emits_wait_events_between_rounds(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder", "enabled": True},
+        ],
+    }
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Timed Round Loop",
+        workflow=workflow,
+        completion_mode="rounds",
+        max_iters=2,
+        iteration_interval_seconds=0.01,
+    )
+
+    run = service.rerun(loop["id"])
+
+    events = service.stream_events(run["id"], limit=200)
+    assert any(event["event_type"] == "iteration_wait_started" for event in events)
+    assert any(event["event_type"] == "iteration_wait_finished" for event in events)
 
 
 def test_destructive_generator_is_blocked_by_workspace_guard(

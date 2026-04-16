@@ -31,6 +31,7 @@
 - 把运行产物写进 `.loopora/`，方便回放、排查和比较。
 - 用本地 Web 控制台统一查看进度、控制台输出、时间线和关键产物。
 - 同一套 loop 定义可以切换由 Codex、Claude Code 或 OpenCode 执行，并自动适配各自的模型/推理选项。
+- 支持独立的角色定义与流程编排，让步骤级模型覆盖和角色复用都进入一等资产层。
 
 ## 它是怎么工作的
 
@@ -41,6 +42,8 @@
 ## 功能特性
 
 - 本地 FastAPI 控制台支持创建循环、监控运行、查看关键产物、安装 skill
+- 流程编排支持步骤级模型覆盖；角色定义支持把 archetype-backed prompt 模版录入成可复用资产
+- loop 支持 GateKeeper 收敛模式，也支持按最大轮数推进的 rounds 模式；非零轮次间隔可以把循环改成“每隔一段时间再跑下一轮”
 - 创建循环页会记住浏览器里未提交完的草稿，并给出最近使用过的 workdir，底层 loop 模型本身不变
 - 每次 run 都会产出结构化文件，例如 `compiled_spec.json`、`tester_output.json`、`verifier_verdict.json`、`events.jsonl`、`summary.md`
 - CLI 支持 `run`、`serve`、`loops create`、`loops list`、`loops status`、`loops stop`、`loops rerun`、`loops delete`、`spec init`、`spec validate`
@@ -153,7 +156,8 @@ Loopora 使用 Markdown spec，顶层结构如下：
 本地控制台包括：
 
 - 循环列表页：查看状态、模型、最近运行和常用操作
-- 创建循环页：校验 spec、推荐最近使用过的 workdir、提供辅助工具，并支持恢复浏览器本地草稿
+- 创建循环页：校验 spec、推荐最近使用过的 workdir、配置 completion mode / iteration interval，并支持恢复浏览器本地草稿
+- 角色定义页：维护可复用的角色模版
 - 运行详情页：实时进度、阶段说明、控制台流、时间线和关键产物
 - 工具页：安装内置的 `loopora-spec` skill
 

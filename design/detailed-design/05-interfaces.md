@@ -45,6 +45,7 @@
 
 - `orchestration`：保存线性 workflow 与 prompt 资产
 - `loop`：绑定 workdir / spec / executor，并引用一个 orchestration
+- `role definition`：保存 archetype-backed role 模版，供 orchestration 编辑器挑选
 
 设计原则：
 
@@ -61,7 +62,9 @@
 - 选择 workflow preset 或提交自定义 workflow
 - 编辑 / 上传 / 下载 prompt 文件
 - 创建、列出、选择、编辑 orchestration
+- 创建、列出、选择、编辑 role definition
 - 选择执行模式
+- 选择完成模式与轮次间隔
 - 指定运行边界参数
 - 启动、重跑、停止、删除
 - 校验 spec
@@ -72,11 +75,13 @@
 以下差异属于“表现层差异”，允许存在：
 
 - Web 提供 workflow 编辑器、实时流和页面导航
+- Web 提供 role definition 编辑器与 orchestration 内的角色选择器
 - Web 可以在浏览器本地记住未提交且偏离默认值的表单草稿，并利用全局 recent workdir 历史做输入辅助；这些都必须是 best-effort，不能改变最终提交到服务层的 loop 定义，也不能阻塞 loop 创建。只有真正偏离默认值的服务端预填参数才应抑制草稿恢复，默认值经过 URL / FormData 字符串化后仍应视为“表单未改动”
 - CLI 提供同步等待或后台返回
 - Web 在网络模式下禁用本地文件弹窗
 - CLI 用 `--workflow-preset` / `--workflow-file` 替代表单式编辑
 - Web 的 orchestration 列表默认进入编辑器；loop 创建页只负责“选择已有 orchestration”
+- loop 创建页允许指定 completion mode 和 iteration interval，但不承担 workflow / role definition 的深度编辑职责
 
 ### 5.3 Forbidden Differences
 

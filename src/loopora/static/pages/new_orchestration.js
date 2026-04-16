@@ -26,12 +26,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const workflowJsonInput = document.getElementById("workflow-json-input");
   const promptFilesJsonInput = document.getElementById("prompt-files-json-input");
   const resetWorkflowPresetButton = document.getElementById("reset-workflow-preset");
+  const roleDefinitionSelect = document.getElementById("role-definition-select");
+  const addRoleFromDefinitionButton = document.getElementById("add-role-from-definition-button");
   const addRoleButton = document.getElementById("add-role-button");
   const addStepButton = document.getElementById("add-step-button");
   const saveOrchestrationButton = document.getElementById("save-orchestration-button");
 
   const workflowPresetBundles = JSON.parse(document.getElementById("workflow-preset-bundles-json")?.textContent || "{}");
   const promptTemplates = JSON.parse(document.getElementById("prompt-templates-json")?.textContent || "[]");
+  const roleDefinitions = JSON.parse(document.getElementById("role-definitions-json")?.textContent || "[]");
   const promptTemplateSet = new Set(promptTemplates.map((entry) => String(entry.prompt_ref || "").trim()).filter(Boolean));
 
   let workflowState = null;
@@ -80,6 +83,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function promptBundleForPreset(name) {
     return workflowPresetBundles[String(name || "").trim()] || workflowPresetBundles.build_first || null;
+  }
+
+  function roleDefinitionById(roleDefinitionId) {
+    return roleDefinitions.find((entry) => entry.id === roleDefinitionId) || null;
   }
 
   function ensurePromptText(promptRef, archetype) {
@@ -148,6 +155,7 @@ document.addEventListener("DOMContentLoaded", () => {
         archetype,
         prompt_ref: promptRef,
         model: String(role.model || ""),
+        role_definition_id: String(role.role_definition_id || ""),
       };
     });
     workflowPayload.steps = workflowPayload.steps.map((step, index) => ({
@@ -155,6 +163,7 @@ document.addEventListener("DOMContentLoaded", () => {
       role_id: String(step.role_id || workflowPayload.roles[0]?.id || ""),
       enabled: step.enabled !== false,
       on_pass: String(step.on_pass || "continue"),
+      model: String(step.model || ""),
     }));
     workflowState = workflowPayload;
     promptFilesState = {...(promptFiles || {})};
@@ -176,7 +185,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function workflowValidationMessages() {
     const messages = [];
     const roleIds = new Set();
-    const enabledGateSteps = [];
+    const stepIds = new Set();
     if (!workflowState.roles.length) {
       messages.push(localeText("至少需要 1 个角色。", "At least one role is required."));
     }
@@ -196,29 +205,48 @@ document.addEventListener("DOMContentLoaded", () => {
       messages.push(localeText("至少需要 1 个步骤。", "At least one step is required."));
     }
     workflowState.steps.forEach((step) => {
+      if (!step.id.trim()) {
+        messages.push(localeText("每个步骤都需要一个 id。", "Every step needs an id."));
+      }
+      if (stepIds.has(step.id)) {
+        messages.push(localeText(`步骤 id 重复：${step.id}`, `Duplicate step id: ${step.id}`));
+      }
+      stepIds.add(step.id);
       if (!step.role_id || !roleIds.has(step.role_id)) {
         messages.push(localeText(`步骤 ${step.id || "(未命名)"} 引用了不存在的角色。`, `Step ${step.id || "(unnamed)"} references an unknown role.`));
       }
-      const role = workflowState.roles.find((entry) => entry.id === step.role_id);
-      if (step.enabled !== false && role?.archetype === "gatekeeper" && step.on_pass === "finish_run") {
-        enabledGateSteps.push(step);
-      }
     });
-    if (!enabledGateSteps.length) {
-      messages.push(
-        localeText(
-          "至少要有一个启用中的 GateKeeper 步骤，能够在满足条件时判定流程完成。",
-          "Add at least one enabled GateKeeper step that can mark the workflow as complete.",
-        ),
-      );
-    }
     return messages;
+  }
+
+  function workflowValidationWarnings() {
+    const enabledFinishGate = workflowState.steps.some((step) => {
+      if (step.enabled === false) {
+        return false;
+      }
+      const role = workflowState.roles.find((entry) => entry.id === step.role_id);
+      return role?.archetype === "gatekeeper" && step.on_pass === "finish_run";
+    });
+    if (enabledFinishGate) {
+      return [];
+    }
+    return [
+      localeText(
+        "这套工作流没有“通过即结束”的 GateKeeper 步骤。把它交给按轮次推进的 loop 没问题；如果要靠守门裁决收敛，请补一个 GateKeeper finish step。",
+        "This workflow has no finish-on-pass GateKeeper step. It is fine for round-based loops; add a GateKeeper finish step before using gate-based completion.",
+      ),
+    ];
   }
 
   function renderWorkflowValidation() {
     const messages = workflowValidationMessages();
     if (!messages.length) {
-      showStatus(workflowValidation, localeText("工作流结构看起来没问题。", "Workflow structure looks valid."), "success");
+      const warnings = workflowValidationWarnings();
+      showStatus(
+        workflowValidation,
+        warnings[0] || localeText("工作流结构看起来没问题。", "Workflow structure looks valid."),
+        warnings.length ? "warning" : "success",
+      );
       return true;
     }
     showStatus(workflowValidation, messages.join(" "), "error");
@@ -272,11 +300,17 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     workflowState.roles.forEach((role, index) => {
       const promptText = ensurePromptText(role.prompt_ref, role.archetype);
+      const roleDefinition = roleDefinitionById(role.role_definition_id);
       const card = document.createElement("article");
       card.className = "workflow-role-card";
       card.innerHTML = `
         <div class="workflow-card-head">
-          <strong>${escapeHtml(role.name || role.id)}</strong>
+          <div>
+            <strong>${escapeHtml(role.name || role.id)}</strong>
+            <p class="workflow-section-note">${roleDefinition
+              ? `${localeText("来源角色定义", "From role definition")}: ${escapeHtml(roleDefinition.name)}`
+              : localeText("这是编排里的独立角色快照。", "This role is an orchestration-local snapshot.")}</p>
+          </div>
         </div>
         <div class="form-grid">
           <label><span>${localeText("角色 ID", "Role ID")}</span><input data-role-field="id" data-role-index="${index}" value="${escapeHtml(role.id)}" /></label>
@@ -334,6 +368,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="form-grid">
           <label><span>${localeText("步骤 ID", "Step ID")}</span><input data-step-field="id" data-step-index="${index}" value="${escapeHtml(step.id)}" /></label>
           <label><span>${localeText("角色", "Role")}</span><select data-step-field="role_id" data-step-index="${index}">${roleOptions}</select></label>
+          <label><span>${localeText("步骤模型", "Step model")}</span><input data-step-field="model" data-step-index="${index}" value="${escapeHtml(step.model || "")}" /></label>
           <label><span>${localeText("通过后动作", "On pass")}</span><select data-step-field="on_pass" data-step-index="${index}" ${isGate ? "" : "disabled"}>
             <option value="continue" ${step.on_pass === "continue" ? "selected" : ""}>${escapeHtml(onPassLabel("continue"))}</option>
             <option value="finish_run" ${step.on_pass === "finish_run" ? "selected" : ""}>${escapeHtml(onPassLabel("finish_run"))}</option>
@@ -368,6 +403,28 @@ document.addEventListener("DOMContentLoaded", () => {
     renderWorkflowEditor();
   }
 
+  function addRoleFromDefinition(roleDefinitionId) {
+    const definition = roleDefinitionById(roleDefinitionId);
+    if (!definition) {
+      showStatus(workflowValidation, localeText("请选择一个可用的角色定义。", "Choose an available role definition first."), "error");
+      return;
+    }
+    const roleId = makeRoleId(definition.archetype || "builder");
+    const promptRef = String(definition.prompt_ref || DEFAULT_PROMPTS[definition.archetype] || `${roleId}.md`).trim();
+    workflowState.roles.push({
+      id: roleId,
+      name: String(definition.name || roleLabel(definition.archetype || "builder")),
+      archetype: definition.archetype || "builder",
+      prompt_ref: promptRef,
+      model: String(definition.model || ""),
+      role_definition_id: String(definition.id || ""),
+    });
+    if (promptRef) {
+      promptFilesState[promptRef] = String(definition.prompt_markdown || promptFilesState[promptRef] || "");
+    }
+    renderWorkflowEditor();
+  }
+
   workflowRolesList.addEventListener("input", (event) => {
     const index = Number(event.target.dataset.roleIndex);
     const field = event.target.dataset.roleField;
@@ -377,6 +434,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     role[field] = event.target.value;
     if (field === "archetype") {
+      role.role_definition_id = "";
       role.name = roleLabel(role.archetype);
       if (!role.prompt_ref || promptTemplateSet.has(role.prompt_ref)) {
         role.prompt_ref = DEFAULT_PROMPTS[role.archetype];
@@ -386,7 +444,10 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     if (field === "prompt_ref") {
+      role.role_definition_id = "";
       ensurePromptText(role.prompt_ref, role.archetype);
+    } else if (field === "name" || field === "model") {
+      role.role_definition_id = "";
     }
     syncWorkflowJsonFields();
     renderWorkflowValidation();
@@ -515,19 +576,34 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   resetWorkflowPresetButton.addEventListener("click", () => applyPresetBundle(promptBundleForPreset(workflowPresetInput.value)));
+  addRoleFromDefinitionButton?.addEventListener("click", () => addRoleFromDefinition(roleDefinitionSelect?.value));
   addRoleButton.addEventListener("click", () => {
     const archetype = "builder";
     const roleId = makeRoleId(archetype);
-    workflowState.roles.push({id: roleId, name: roleLabel(archetype), archetype, prompt_ref: DEFAULT_PROMPTS[archetype], model: ""});
+    workflowState.roles.push({
+      id: roleId,
+      name: roleLabel(archetype),
+      archetype,
+      prompt_ref: DEFAULT_PROMPTS[archetype],
+      model: "",
+      role_definition_id: "",
+    });
     ensurePromptText(DEFAULT_PROMPTS[archetype], archetype);
     renderWorkflowEditor();
   });
   addStepButton.addEventListener("click", () => {
     if (!workflowState.roles.length) {
-      workflowState.roles.push({id: "builder", name: roleLabel("builder"), archetype: "builder", prompt_ref: DEFAULT_PROMPTS.builder, model: ""});
+      workflowState.roles.push({
+        id: "builder",
+        name: roleLabel("builder"),
+        archetype: "builder",
+        prompt_ref: DEFAULT_PROMPTS.builder,
+        model: "",
+        role_definition_id: "",
+      });
     }
     const roleId = workflowState.roles[0].id;
-    workflowState.steps.push({id: makeStepId(roleId), role_id: roleId, enabled: true, on_pass: "continue"});
+    workflowState.steps.push({id: makeStepId(roleId), role_id: roleId, enabled: true, on_pass: "continue", model: ""});
     renderWorkflowEditor();
   });
 

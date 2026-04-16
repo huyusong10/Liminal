@@ -81,3 +81,43 @@ def test_append_event_tolerates_jsonl_mirror_failures(tmp_path: Path, monkeypatc
     stored = repository.list_events("run_test")
     assert len(stored) == 1
     assert stored[0]["payload"]["status"] == "running"
+
+
+def test_role_definition_crud_round_trips_through_repository(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+
+    created = repository.create_role_definition(
+        {
+            "id": "role_release_builder",
+            "name": "Release Builder",
+            "description": "Ship release work.",
+            "archetype": "builder",
+            "prompt_ref": "release-builder.md",
+            "prompt_markdown": "---\nversion: 1\narchetype: builder\n---\n\nFocus on release work.\n",
+            "model": "gpt-5.4-mini",
+        }
+    )
+
+    assert created["name"] == "Release Builder"
+    assert created["archetype"] == "builder"
+
+    updated = repository.update_role_definition(
+        created["id"],
+        {
+            "name": "Release Builder v2",
+            "description": "Ship release work safely.",
+            "archetype": "builder",
+            "prompt_ref": "release-builder.md",
+            "prompt_markdown": "---\nversion: 1\narchetype: builder\n---\n\nFocus on safe release work.\n",
+            "model": "gpt-5.4",
+        },
+    )
+    assert updated is not None
+    assert updated["name"] == "Release Builder v2"
+
+    listed = repository.list_role_definitions()
+    assert len(listed) == 1
+    assert listed[0]["model"] == "gpt-5.4"
+
+    assert repository.delete_role_definition(created["id"]) is True
+    assert repository.get_role_definition(created["id"]) is None
