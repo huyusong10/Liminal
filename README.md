@@ -40,6 +40,7 @@ Each run compiles the Markdown spec into a frozen snapshot, updates the workspac
 ## Features
 
 - Local FastAPI console for loop creation, run monitoring, artifact inspection, and skill installation
+- The loop creation page remembers unfinished browser drafts and surfaces recent workdirs without changing the underlying loop model
 - Structured run outputs such as `compiled_spec.json`, `tester_output.json`, `verifier_verdict.json`, `events.jsonl`, and `summary.md`
 - CLI commands for `run`, `serve`, `loops create`, `loops list`, `loops status`, `loops stop`, `loops rerun`, `loops delete`, `spec init`, and `spec validate`
 - Optional fake executor mode for smoke tests and demos
@@ -150,13 +151,17 @@ For long-running benchmark or evaluation loops, specs work better when they make
 The local console includes:
 
 - Saved loop list with status, model, latest run, and direct actions
-- Loop creation page with spec validation and helper tooling
+- Loop creation page with spec validation, recent workdir suggestions, helper tooling, and browser-local draft recovery
 - Run detail page with live progress, stage explanations, console streaming, timeline, and fixed artifact tabs
 - Tool page for installing the bundled `liminal-spec` skill
 
 ## Storage
 
-Global state lives under `~/.liminal/`:
+Global state lives under `~/.liminal/` by default. Set `LIMINAL_HOME=/custom/path` to relocate it when you need an isolated or sandbox-friendly home:
+
+`settings.json` is treated as self-healing state: if it is missing, corrupted, or contains unknown or out-of-range values, Liminal falls back to safe defaults and rewrites the file into a normalized shape on the next load.
+
+`recent_workdirs.json` is best-effort UI state: Liminal only projects non-empty path strings back into suggestions and ignores corrupted or non-string entries.
 
 - `app.db`
 - `settings.json`

@@ -26,7 +26,7 @@ from liminal.executor import (
 )
 from liminal.providers import executor_profile, normalize_executor_kind, normalize_executor_mode
 from liminal.recovery import RecoveryResult, RetryConfig, execute_with_recovery
-from liminal.settings import AppSettings, app_home, db_path, load_settings
+from liminal.settings import AppSettings, app_home, db_path, load_settings, save_recent_workdirs
 from liminal.specs import SpecError, compile_markdown_spec, read_and_compile
 from liminal.stagnation import update_stagnation
 from liminal.utils import append_jsonl, make_id, read_json, utc_now, write_json
@@ -3113,15 +3113,7 @@ class LiminalService:
 
     def _write_recent_workdirs(self) -> None:
         loops = self.repository.list_loops()
-        recent = []
-        seen = set()
-        for loop in loops:
-            workdir = loop["workdir"]
-            if workdir not in seen:
-                recent.append(workdir)
-                seen.add(workdir)
-        path = app_home() / "recent_workdirs.json"
-        path.write_text(json.dumps(recent[:50], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        save_recent_workdirs(loop["workdir"] for loop in loops)
 
 
 GENERATOR_SCHEMA = {

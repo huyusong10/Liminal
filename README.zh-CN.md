@@ -41,6 +41,7 @@
 ## 功能特性
 
 - 本地 FastAPI 控制台支持创建循环、监控运行、查看关键产物、安装 skill
+- 创建循环页会记住浏览器里未提交完的草稿，并给出最近使用过的 workdir，底层 loop 模型本身不变
 - 每次 run 都会产出结构化文件，例如 `compiled_spec.json`、`tester_output.json`、`verifier_verdict.json`、`events.jsonl`、`summary.md`
 - CLI 支持 `run`、`serve`、`loops create`、`loops list`、`loops status`、`loops stop`、`loops rerun`、`loops delete`、`spec init`、`spec validate`
 - 支持 fake executor，方便本地 smoke test 和演示
@@ -152,13 +153,17 @@ Liminal 使用 Markdown spec，顶层结构如下：
 本地控制台包括：
 
 - 循环列表页：查看状态、模型、最近运行和常用操作
-- 创建循环页：校验 spec，并提供辅助工具
+- 创建循环页：校验 spec、推荐最近使用过的 workdir、提供辅助工具，并支持恢复浏览器本地草稿
 - 运行详情页：实时进度、阶段说明、控制台流、时间线和关键产物
 - 工具页：安装内置的 `liminal-spec` skill
 
 ## 存储结构
 
-全局状态位于 `~/.liminal/`：
+全局状态默认位于 `~/.liminal/`。如果需要隔离目录或适配受限环境，可以设置 `LIMINAL_HOME=/custom/path` 覆盖位置：
+
+其中 `settings.json` 被视为可自愈状态：如果文件缺失、损坏、混入未知字段，或者字段值越界，Liminal 会回退到安全默认值，并在下一次加载时把文件重写成规范化后的内容。
+
+`recent_workdirs.json` 属于 best-effort 的界面辅助状态：Liminal 只会把其中非空的路径字符串重新投影成建议项，遇到损坏内容或非字符串条目时会直接忽略。
 
 - `app.db`
 - `settings.json`

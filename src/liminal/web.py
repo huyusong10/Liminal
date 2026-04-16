@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from liminal.providers import executor_profile, list_executor_profiles
+from liminal.settings import load_recent_workdirs
 from liminal.skills import build_spec_skill_bundle_archive, install_spec_skill, list_spec_skill_targets, load_spec_skill_bundle
 from liminal.service import LiminalError, create_service, normalize_role_models
 from liminal.specs import SpecError, init_spec_file, read_and_compile
@@ -247,15 +248,19 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         values: Mapping[str, object] | None = None,
         form_error: str | None = None,
     ) -> HTMLResponse:
+        form_values = _normalize_loop_form(values)
         return templates.TemplateResponse(
             request,
             "new_loop.html",
             {
                 "request": request,
-                "form_values": _normalize_loop_form(values),
+                "form_values": form_values,
+                "pristine_loop_form": _normalize_loop_form(None),
                 "form_error": form_error,
                 "executor_profiles": list_executor_profiles(),
                 "orchestrations": svc().list_orchestrations(),
+                "recent_workdirs": load_recent_workdirs(),
+                "allow_draft_restore": form_error is None and _loop_form_is_pristine(form_values),
                 "access_state": access_state,
             },
         )
@@ -971,6 +976,38 @@ def _normalize_loop_form(values: Mapping[str, object] | None) -> dict[str, objec
             normalized["command_cli"] = "codex"
     normalized["start_immediately"] = _coerce_bool(normalized.get("start_immediately", True))
     return normalized
+
+
+def _loop_form_is_pristine(values: Mapping[str, object] | None) -> bool:
+    return _canonicalize_loop_form_for_comparison(values) == _canonicalize_loop_form_for_comparison(None)
+
+
+def _canonicalize_loop_form_for_comparison(values: Mapping[str, object] | None) -> dict[str, object]:
+    normalized = _normalize_loop_form(values)
+    canonical = dict(normalized)
+    for key in canonical:
+        value = canonical[key]
+        if key == "start_immediately":
+            canonical[key] = _coerce_bool(value)
+            continue
+        if key in {"max_iters", "max_role_retries", "trigger_window", "regression_window"}:
+            canonical[key] = _coerce_loop_form_number(value, integer_only=True)
+            continue
+        if key in {"delta_threshold"}:
+            canonical[key] = _coerce_loop_form_number(value, integer_only=False)
+            continue
+        if isinstance(value, str):
+            canonical[key] = value.strip()
+    return canonical
+
+
+def _coerce_loop_form_number(value: object, *, integer_only: bool) -> object:
+    if isinstance(value, str) and not value.strip():
+        return ""
+    try:
+        return int(value) if integer_only else float(value)
+    except (TypeError, ValueError):
+        return value
 
 
 def _normalize_orchestration_form(values: Mapping[str, object] | None) -> dict[str, object]:

@@ -1437,6 +1437,23 @@ html[data-locale="zh"] .callout {
   line-height: 1.55;
 }
 
+.recent-workdir-actions {
+  margin-top: 10px;
+}
+
+.recent-workdir-button {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.recent-workdir-button .brand-mark {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .command-preview-panel {
   padding: 16px;
   border-radius: var(--radius-md);

@@ -158,10 +158,28 @@ class CalculatorPrototypeExecutor(FakeCodexExecutor):
         return super()._build_payload(request)
 
 
+def _skip_if_local_listener_unavailable(exc: OSError) -> None:
+    if isinstance(exc, PermissionError) or getattr(exc, "errno", None) in {1, 13}:
+        pytest.skip(f"local TCP listeners are unavailable in this environment: {exc}")
+    raise exc
+
+
+def _reserve_local_port() -> tuple[str, int]:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            return sock.getsockname()
+    except OSError as exc:  # pragma: no cover - environment dependent
+        _skip_if_local_listener_unavailable(exc)
+
+
 @contextmanager
 def serve_directory(path: Path):
     handler = partial(SimpleHTTPRequestHandler, directory=str(path))
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    except OSError as exc:  # pragma: no cover - environment dependent
+        _skip_if_local_listener_unavailable(exc)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -174,9 +192,7 @@ def serve_directory(path: Path):
 
 @contextmanager
 def serve_app(app):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        host, port = sock.getsockname()
+    host, port = _reserve_local_port()
 
     config = uvicorn.Config(app, host=host, port=port, log_level="warning")
     server = uvicorn.Server(config)
@@ -204,6 +220,16 @@ def serve_app(app):
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+def test_local_listener_permission_errors_become_skips() -> None:
+    with pytest.raises(pytest.skip.Exception, match="local TCP listeners are unavailable"):
+        _skip_if_local_listener_unavailable(PermissionError("blocked"))
+
+
+def test_local_listener_other_os_errors_still_raise() -> None:
+    with pytest.raises(OSError, match="boom"):
+        _skip_if_local_listener_unavailable(OSError("boom"))
 
 
 def test_e2e_calculator_loop_runs_and_works_in_browser(tmp_path: Path) -> None:
@@ -411,3 +437,111 @@ def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(
             except Exception:
                 continue
         assert service.list_loops() == []
+
+
+def test_new_loop_page_restores_saved_browser_draft(tmp_path: Path) -> None:
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text(
+        textwrap.dedent(
+            """
+            # Goal
+
+            Keep an unfinished loop draft around.
+
+            # Constraints
+
+            - Stay focused.
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    workdir = tmp_path / "draft-workdir"
+    workdir.mkdir()
+    repository = LiminalRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LiminalService(
+        repository=repository,
+        settings=settings,
+        executor_factory=lambda: CalculatorPrototypeExecutor(scenario="success"),
+    )
+
+    with serve_app(build_app(service=service)) as base_url:
+        try:
+            with playwright.sync_api.sync_playwright() as playwright_driver:
+                browser = playwright_driver.chromium.launch()
+                page = browser.new_page()
+                try:
+                    page.goto(f"{base_url}/loops/new", wait_until="networkidle")
+                    page.locator('input[name="name"]').fill("Recovered browser draft")
+                    page.locator('input[name="workdir"]').fill(str(workdir))
+                    page.locator('input[name="spec_path"]').fill(str(spec_path))
+                    page.locator('select[name="executor_kind"]').select_option("claude")
+                    page.locator('select[name="executor_mode"]').select_option("command")
+                    page.locator('input[name="command_cli"]').fill("claude-wrapper")
+                    page.locator('textarea[name="command_args_text"]').fill("--print\n{prompt}")
+                    page.reload(wait_until="networkidle")
+
+                    assert page.locator('input[name="name"]').input_value() == "Recovered browser draft"
+                    assert page.locator('input[name="workdir"]').input_value() == str(workdir)
+                    assert page.locator('input[name="spec_path"]').input_value() == str(spec_path)
+                    assert page.locator('select[name="executor_kind"]').input_value() == "claude"
+                    assert page.locator('select[name="executor_mode"]').input_value() == "command"
+                    assert page.locator('input[name="command_cli"]').input_value() == "claude-wrapper"
+                    assert page.locator('textarea[name="command_args_text"]').input_value() == "--print\n{prompt}"
+                    assert page.locator("#draft-status").is_visible()
+                    assert page.locator("#clear-draft-button").is_visible()
+                finally:
+                    browser.close()
+        except Exception as exc:  # pragma: no cover - environment dependent
+            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+
+
+def test_new_loop_page_does_not_restore_pristine_only_browser_defaults(tmp_path: Path) -> None:
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text(
+        textwrap.dedent(
+            """
+            # Goal
+
+            Avoid treating default form values as a real draft.
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    workdir = tmp_path / "draft-workdir"
+    workdir.mkdir()
+    repository = LiminalRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LiminalService(
+        repository=repository,
+        settings=settings,
+        executor_factory=lambda: CalculatorPrototypeExecutor(scenario="success"),
+    )
+
+    with serve_app(build_app(service=service)) as base_url:
+        try:
+            with playwright.sync_api.sync_playwright() as playwright_driver:
+                browser = playwright_driver.chromium.launch()
+                page = browser.new_page()
+                try:
+                    page.goto(f"{base_url}/loops/new", wait_until="networkidle")
+                    name_input = page.locator('input[name="name"]')
+                    name_input.fill("Temporary draft")
+                    name_input.fill("")
+                    page.locator('input[name="workdir"]').fill(str(workdir))
+                    page.locator('input[name="workdir"]').fill("")
+                    page.locator('input[name="spec_path"]').fill(str(spec_path))
+                    page.locator('input[name="spec_path"]').fill("")
+                    page.reload(wait_until="networkidle")
+
+                    assert page.locator('input[name="name"]').input_value() == ""
+                    assert page.locator('input[name="workdir"]').input_value() == ""
+                    assert page.locator('input[name="spec_path"]').input_value() == ""
+                    assert page.locator("#draft-status").is_hidden()
+                    assert page.locator("#clear-draft-button").is_hidden()
+                finally:
+                    browser.close()
+        except Exception as exc:  # pragma: no cover - environment dependent
+            pytest.skip(f"Playwright browser launch is unavailable: {exc}")

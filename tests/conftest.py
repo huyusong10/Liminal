@@ -16,6 +16,11 @@ from liminal.service import LiminalService
 from liminal.settings import AppSettings
 
 
+@pytest.fixture(autouse=True)
+def isolate_liminal_home(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("LIMINAL_HOME", str(tmp_path / "liminal-home"))
+
+
 @pytest.fixture()
 def sample_spec_text() -> str:
     return """# Goal

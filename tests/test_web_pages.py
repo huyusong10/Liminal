@@ -241,6 +241,148 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "Spec Skill" in response.text
 
 
+def test_new_loop_page_surfaces_recent_workdirs_and_browser_draft_controls(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+    second_workdir = tmp_path / "second-workdir"
+    second_workdir.mkdir()
+    service = service_factory(scenario="success")
+    service.create_loop(
+        name="Recent Loop A",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    service.create_loop(
+        name="Recent Loop B",
+        spec_path=sample_spec_file,
+        workdir=second_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/loops/new")
+
+    assert response.status_code == 200
+    assert 'data-restore-draft="true"' in response.text
+    assert 'id="draft-status"' in response.text
+    assert 'id="clear-draft-button"' in response.text
+    assert 'id="pristine-loop-form-json"' in response.text
+    assert 'list="recent-workdir-options"' in response.text
+    assert f'data-fill-workdir="{sample_workdir}"' in response.text
+    assert f'data-fill-workdir="{second_workdir}"' in response.text
+    assert "Recent workdirs" in response.text
+
+
+def test_new_loop_page_keeps_draft_restore_enabled_for_default_equivalent_query_values(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    client = TestClient(build_app(service=service))
+    response = client.get(
+        "/loops/new"
+        "?orchestration_id=builtin:build_first"
+        "&executor_kind=codex"
+        "&executor_mode=preset"
+        "&command_cli=codex"
+        "&model=gpt-5.4"
+        "&reasoning_effort=medium"
+        "&max_iters=8"
+        "&max_role_retries=2"
+        "&delta_threshold=0.005"
+        "&trigger_window=4"
+        "&regression_window=2"
+        "&start_immediately=1"
+    )
+
+    assert response.status_code == 200
+    assert 'data-restore-draft="true"' in response.text
+
+
+def test_new_loop_page_disables_draft_restore_for_non_default_query_values(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/loops/new?workdir=/tmp/demo")
+
+    assert response.status_code == 200
+    assert 'data-restore-draft="false"' in response.text
+
+
+def test_deleting_loop_refreshes_recent_workdir_suggestions(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+    tmp_path: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    second_workdir = tmp_path / "second-workdir"
+    second_workdir.mkdir()
+
+    deleted_loop = service.create_loop(
+        name="Delete Me",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    service.create_loop(
+        name="Keep Me",
+        spec_path=sample_spec_file,
+        workdir=second_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+
+    client = TestClient(build_app(service=service))
+
+    before_delete = client.get("/loops/new")
+    assert before_delete.status_code == 200
+    assert f'data-fill-workdir="{sample_workdir}"' in before_delete.text
+    assert f'data-fill-workdir="{second_workdir}"' in before_delete.text
+
+    delete_response = client.delete(f"/api/loops/{deleted_loop['id']}")
+    assert delete_response.status_code == 200
+
+    after_delete = client.get("/loops/new")
+    assert after_delete.status_code == 200
+    assert f'data-fill-workdir="{sample_workdir}"' not in after_delete.text
+    assert f'data-fill-workdir="{second_workdir}"' in after_delete.text
+
+
 def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> None:
     service = service_factory(scenario="success")
 

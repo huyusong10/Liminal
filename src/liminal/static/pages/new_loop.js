@@ -35,9 +35,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const createSpecTemplateButton = document.getElementById("create-spec-template");
   const saveLoopButton = document.getElementById("save-loop-button");
   const formError = document.getElementById("form-error");
+  const draftStatus = document.getElementById("draft-status");
+  const draftActions = document.getElementById("draft-actions");
+  const clearDraftButton = document.getElementById("clear-draft-button");
   const specValidation = document.getElementById("spec-validation");
   const executorProfiles = JSON.parse(document.getElementById("executor-profiles-json")?.textContent || "[]");
   const orchestrations = JSON.parse(document.getElementById("orchestrations-json")?.textContent || "[]");
+  const pristineLoopForm = JSON.parse(document.getElementById("pristine-loop-form-json")?.textContent || "{}");
+  const workdirQuickPickButtons = Array.from(document.querySelectorAll("[data-fill-workdir]"));
   const roleModelInputs = {
     builder: document.getElementById("role-model-builder-input"),
     inspector: document.getElementById("role-model-inspector-input"),
@@ -45,8 +50,10 @@ document.addEventListener("DOMContentLoaded", () => {
     guide: document.getElementById("role-model-guide-input"),
   };
 
+  const DRAFT_STORAGE_KEY = "liminal:new-loop-draft:v1";
   const commandDrafts = new Map();
   let lastExecutorKind = executorKindInput.value;
+  let latestSpecValidationRequest = 0;
 
   function localeText(zh, en) {
     return window.LiminalUI.pickText({zh, en});
@@ -66,6 +73,168 @@ document.addEventListener("DOMContentLoaded", () => {
     element.hidden = false;
     element.textContent = message;
     element.className = `field-status${kind ? ` is-${kind}` : ""}`;
+  }
+
+  function errorMessage(error, fallbackMessage) {
+    if (error && typeof error === "object" && "message" in error && error.message) {
+      return String(error.message);
+    }
+    return fallbackMessage;
+  }
+
+  function setButtonBusy(button, isBusy) {
+    if (!button) {
+      return;
+    }
+    button.disabled = isBusy;
+    button.setAttribute("aria-busy", String(isBusy));
+  }
+
+  function loadDraft() {
+    try {
+      const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (!raw) {
+        return null;
+      }
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function hasDraft(draft) {
+    return Object.keys(pruneDraft(draft)).length > 0;
+  }
+
+  function normalizeDraftValue(key, value) {
+    if (key === "start_immediately") {
+      if (typeof value === "boolean") {
+        return value ? "1" : "";
+      }
+      const normalized = String(value || "").trim().toLowerCase();
+      return normalized === "1" || normalized === "true" ? "1" : "";
+    }
+    return String(value ?? "");
+  }
+
+  function pruneDraft(rawDraft) {
+    if (!rawDraft || typeof rawDraft !== "object") {
+      return {};
+    }
+    const draft = {};
+    Object.entries(rawDraft).forEach(([key, value]) => {
+      const normalizedValue = normalizeDraftValue(key, value);
+      const pristineValue = normalizeDraftValue(key, pristineLoopForm[key]);
+      if (normalizedValue !== pristineValue) {
+        draft[key] = normalizedValue;
+      }
+    });
+    return draft;
+  }
+
+  function updateDraftUI() {
+    const draft = loadDraft();
+    const visible = hasDraft(draft);
+    if (draftActions) {
+      draftActions.hidden = !visible;
+    }
+  }
+
+  function collectDraft() {
+    const formData = new FormData(form);
+    const draft = Object.fromEntries(
+      Array.from(formData.entries()).map(([key, value]) => [key, typeof value === "string" ? value : String(value)]),
+    );
+    draft.start_immediately = form.querySelector('input[name="start_immediately"]')?.checked ? "1" : "";
+    draft.model = modelInput.value;
+    draft.reasoning_effort = reasoningInput.value;
+    return draft;
+  }
+
+  function saveDraft() {
+    const draft = pruneDraft(collectDraft());
+    try {
+      if (Object.keys(draft).length === 0) {
+        window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+      } else {
+        window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+      }
+    } catch (_) {
+      return;
+    }
+    updateDraftUI();
+  }
+
+  function clearDraft(options = {}) {
+    try {
+      window.localStorage.removeItem(DRAFT_STORAGE_KEY);
+    } catch (_) {
+      // Ignore storage cleanup issues.
+    }
+    updateDraftUI();
+    if (options.announce) {
+      showStatus(
+        draftStatus,
+        localeText("本地草稿已清空，当前表单内容保持不变。", "Saved browser draft cleared. The current form stays as-is."),
+        "success",
+      );
+    } else {
+      showStatus(draftStatus, "");
+    }
+  }
+
+  function applyDraft(draft) {
+    const normalizedDraft = pruneDraft(draft);
+    if (!hasDraft(normalizedDraft)) {
+      return false;
+    }
+    Array.from(form.elements).forEach((element) => {
+      if (!(element instanceof HTMLElement)) {
+        return;
+      }
+      const name = element.getAttribute("name");
+      if (!name || !(name in normalizedDraft)) {
+        return;
+      }
+      if (element instanceof HTMLInputElement && element.type === "checkbox") {
+        element.checked = String(normalizedDraft[name] || "").trim().toLowerCase() === "1";
+        return;
+      }
+      if ("value" in element) {
+        element.value = String(normalizedDraft[name] ?? "");
+      }
+    });
+    return true;
+  }
+
+  function restoreDraftIfAllowed() {
+    updateDraftUI();
+    if (form.dataset.restoreDraft !== "true") {
+      return false;
+    }
+    const draft = loadDraft();
+    if (!applyDraft(draft)) {
+      return false;
+    }
+    showStatus(
+      draftStatus,
+      localeText("已恢复这台浏览器里上次没提交完的 loop 草稿。", "Restored the unfinished loop draft saved in this browser."),
+      "success",
+    );
+    return true;
+  }
+
+  async function runAction(button, action, options) {
+    const {errorTarget, fallbackMessage} = options;
+    setButtonBusy(button, true);
+    try {
+      await action();
+    } catch (error) {
+      showStatus(errorTarget, errorMessage(error, fallbackMessage), "error");
+    } finally {
+      setButtonBusy(button, false);
+    }
   }
 
   function selectedExecutorProfile() {
@@ -238,6 +407,9 @@ document.addEventListener("DOMContentLoaded", () => {
       commandArgsInput.value = saved.args || defaultCommandArgsText(profile);
       return;
     }
+    if (commandCliInput.value.trim() || commandArgsInput.value.trim()) {
+      return;
+    }
     commandCliInput.value = profile.cli_name || "";
     commandArgsInput.value = defaultCommandArgsText(profile);
   }
@@ -334,27 +506,47 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function fetchJson(url, options = {}) {
-    const response = await fetch(url, options);
-    const payload = await response.json().catch(() => ({}));
-    return {response, payload};
+    try {
+      const response = await fetch(url, options);
+      const payload = await response.json().catch(() => ({}));
+      return {response, payload, error: null};
+    } catch (error) {
+      return {response: null, payload: {}, error};
+    }
   }
 
   async function validateSpec(options = {}) {
     const quiet = options.quiet ?? false;
     const path = specPathInput.value.trim();
+    const requestId = ++latestSpecValidationRequest;
     if (!path) {
-      if (!quiet) {
+      if (quiet) {
+        showStatus(specValidation, "");
+      } else {
         showStatus(specValidation, localeText("请先提供 spec 路径。", "Please provide a spec path first."), "error");
       }
       return false;
     }
-    const {payload} = await fetchJson(`/api/specs/validate?path=${encodeURIComponent(path)}`);
+    if (!quiet) {
+      showStatus(specValidation, localeText("正在校验 Spec…", "Validating spec..."));
+    }
+    const {response, payload, error} = await fetchJson(`/api/specs/validate?path=${encodeURIComponent(path)}`);
+    if (requestId !== latestSpecValidationRequest) {
+      return false;
+    }
+    if (error || !response) {
+      if (!quiet) {
+        showStatus(specValidation, errorMessage(error, localeText("Spec 校验暂时不可用。", "Spec validation is temporarily unavailable.")), "error");
+      }
+      return false;
+    }
     if (payload.ok) {
       const modeMessage = payload.check_mode === "auto_generated"
         ? localeText("未提供显式 checks，run 开始时会自动生成并冻结。", "No explicit checks provided. Liminal will generate and freeze them at run start.")
         : localeText(`识别到 ${payload.check_count} 个显式 checks。`, `Detected ${payload.check_count} explicit check(s).`);
       showStatus(specValidation, `${localeText("Spec 校验通过。", "Spec is valid.")} ${modeMessage}`, "success");
       specPathInput.value = payload.path;
+      saveDraft();
       renderCommandPreview();
       return true;
     }
@@ -365,16 +557,23 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function browseWorkdir() {
-    const {payload} = await fetchJson(`/api/system/pick-directory?start_path=${encodeURIComponent(workdirInput.value.trim())}`);
+    const {response, payload, error} = await fetchJson(`/api/system/pick-directory?start_path=${encodeURIComponent(workdirInput.value.trim())}`);
+    if (error || !response?.ok) {
+      throw new Error(payload.error || errorMessage(error, localeText("无法打开目录选择器。", "Unable to open the directory picker.")));
+    }
     if (payload.path) {
       workdirInput.value = payload.path;
+      saveDraft();
       renderCommandPreview();
     }
   }
 
   async function browseSpec() {
     const startPath = specPathInput.value.trim() || workdirInput.value.trim();
-    const {payload} = await fetchJson(`/api/system/pick-spec-file?start_path=${encodeURIComponent(startPath)}`);
+    const {response, payload, error} = await fetchJson(`/api/system/pick-spec-file?start_path=${encodeURIComponent(startPath)}`);
+    if (error || !response?.ok) {
+      throw new Error(payload.error || errorMessage(error, localeText("无法打开 spec 选择器。", "Unable to open the spec picker.")));
+    }
     if (payload.path) {
       specPathInput.value = payload.path;
       await validateSpec();
@@ -390,17 +589,23 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       const startPath = workdirInput.value.trim();
       const selection = await fetchJson(`/api/system/pick-spec-save-path?start_path=${encodeURIComponent(startPath)}`);
+      if (selection.error || !selection.response?.ok) {
+        throw new Error(selection.payload.error || errorMessage(selection.error, localeText("无法选择 spec 保存路径。", "Unable to choose a spec save path.")));
+      }
       if (!selection.payload.path) {
         return;
       }
       targetPath = selection.payload.path;
     }
 
-    const {response, payload} = await fetchJson("/api/specs/init", {
+    const {response, payload, error} = await fetchJson("/api/specs/init", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({path: targetPath, locale: window.LiminalUI.currentLocale()}),
     });
+    if (error || !response) {
+      throw new Error(errorMessage(error, localeText("无法创建 spec 模版。", "Unable to create the spec template.")));
+    }
     if (!response.ok) {
       showStatus(specValidation, payload.error || localeText("无法创建 spec 模版。", "Unable to create the spec template."), "error");
       return;
@@ -450,32 +655,69 @@ document.addEventListener("DOMContentLoaded", () => {
       start_immediately: formData.get("start_immediately") === "1",
     };
 
-    saveLoopButton.disabled = true;
+    setButtonBusy(saveLoopButton, true);
     try {
-      const {response, payload: responsePayload} = await fetchJson("/api/loops", {
+      const {response, payload: responsePayload, error} = await fetchJson("/api/loops", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(payload),
       });
+      if (error || !response) {
+        showStatus(formError, errorMessage(error, localeText("保存 loop 失败。", "Unable to save the loop.")), "error");
+        return;
+      }
       if (!response.ok) {
         showStatus(formError, responsePayload.error || localeText("保存 loop 失败。", "Unable to save the loop."), "error");
         return;
       }
+      clearDraft();
       window.location.href = responsePayload.redirect_url || "/";
     } finally {
-      saveLoopButton.disabled = false;
+      setButtonBusy(saveLoopButton, false);
     }
   }
 
   if (browseWorkdirButton && !browseWorkdirButton.disabled) {
-    browseWorkdirButton.addEventListener("click", browseWorkdir);
+    browseWorkdirButton.addEventListener("click", () => runAction(
+      browseWorkdirButton,
+      browseWorkdir,
+      {
+        errorTarget: formError,
+        fallbackMessage: localeText("无法打开目录选择器。", "Unable to open the directory picker."),
+      },
+    ));
   }
   if (browseSpecButton && !browseSpecButton.disabled) {
-    browseSpecButton.addEventListener("click", browseSpec);
+    browseSpecButton.addEventListener("click", () => runAction(
+      browseSpecButton,
+      browseSpec,
+      {
+        errorTarget: specValidation,
+        fallbackMessage: localeText("无法打开 spec 选择器。", "Unable to open the spec picker."),
+      },
+    ));
   }
   if (createSpecTemplateButton) {
-    createSpecTemplateButton.addEventListener("click", createSpecTemplate);
+    createSpecTemplateButton.addEventListener("click", () => runAction(
+      createSpecTemplateButton,
+      createSpecTemplate,
+      {
+        errorTarget: specValidation,
+        fallbackMessage: localeText("无法创建 spec 模版。", "Unable to create the spec template."),
+      },
+    ));
   }
+  if (clearDraftButton) {
+    clearDraftButton.addEventListener("click", () => clearDraft({announce: true}));
+  }
+  workdirQuickPickButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      workdirInput.value = button.dataset.fillWorkdir || "";
+      saveDraft();
+      renderCommandPreview();
+      showStatus(formError, "");
+    });
+  });
   orchestrationInput?.addEventListener("change", renderOrchestrationSummary);
   executorKindInput.addEventListener("change", () => {
     if (executorModeInput.value === "command") {
@@ -483,41 +725,59 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     lastExecutorKind = executorKindInput.value;
     refreshExecutorFields({preserveUserModel: true, preserveUserEffort: true});
+    saveDraft();
   });
   executorModeInput.addEventListener("change", () => {
     if (executorModeInput.value === "preset") {
       saveCommandDraft(selectedExecutorProfile().key);
     }
     syncExecutorModeUI();
+    saveDraft();
   });
   specPathInput.addEventListener("change", () => validateSpec({quiet: false}));
   specPathInput.addEventListener("blur", () => validateSpec({quiet: true}));
-  workdirInput.addEventListener("input", syncExecutorModeUI);
-  modelInput.addEventListener("input", () => syncExecutorModeUI());
+  workdirInput.addEventListener("input", () => {
+    syncExecutorModeUI();
+    saveDraft();
+  });
+  modelInput.addEventListener("input", () => {
+    syncExecutorModeUI();
+    saveDraft();
+  });
   reasoningInput.addEventListener("change", () => syncExecutorModeUI());
   commandCliInput.addEventListener("input", () => {
     if (executorModeInput.value === "command") {
       saveCommandDraft(selectedExecutorProfile().key);
     }
     renderCommandPreview();
+    saveDraft();
   });
   commandArgsInput.addEventListener("input", () => {
     if (executorModeInput.value === "command") {
       saveCommandDraft(selectedExecutorProfile().key);
     }
     renderCommandPreview();
+    saveDraft();
   });
+  form.addEventListener("input", saveDraft);
+  form.addEventListener("change", saveDraft);
   form.addEventListener("submit", submitForm);
   document.addEventListener("liminal:localechange", () => {
     refreshExecutorFields({preserveUserModel: true, preserveUserEffort: true});
     renderOrchestrationSummary();
   });
 
+  const restoredDraft = restoreDraftIfAllowed();
   refreshExecutorFields({preserveUserModel: true, preserveUserEffort: true});
   renderOrchestrationSummary();
   if (specPathInput.value.trim()) {
     validateSpec({quiet: true});
   } else {
     renderCommandPreview();
+  }
+  if (restoredDraft) {
+    saveDraft();
+  } else {
+    updateDraftUI();
   }
 });

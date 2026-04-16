@@ -25,13 +25,27 @@
 </div>
 {% endif %}
 
-<form class="panel form-panel form-panel-wide" method="post" action="/loops/new" id="new-loop-form">
+<form
+  class="panel form-panel form-panel-wide"
+  method="post"
+  action="/loops/new"
+  id="new-loop-form"
+  data-restore-draft="{{ 'true' if allow_draft_restore else 'false' }}"
+>
   <div
     class="field-status is-error"
     id="form-error"
     aria-live="polite"
     {% if not form_error %}hidden{% endif %}
   >{{ form_error or "" }}</div>
+
+  <div class="field-status" id="draft-status" aria-live="polite" hidden></div>
+  <div class="card-actions" id="draft-actions" hidden>
+    <button class="ghost-button" type="button" id="clear-draft-button">
+      <span data-lang="zh">清空本地草稿</span>
+      <span data-lang="en">Clear saved draft</span>
+    </button>
+  </div>
 
   <div class="form-grid">
     <label>
@@ -69,6 +83,7 @@
           id="workdir-input"
           name="workdir"
           value="{{ form_values.workdir }}"
+          list="recent-workdir-options"
           data-placeholder-zh="/absolute/path/to/project"
           data-placeholder-en="/absolute/path/to/project"
           placeholder="/absolute/path/to/project"
@@ -79,6 +94,24 @@
           <span data-lang="en">Browse</span>
         </button>
       </div>
+      {% if recent_workdirs %}
+      <small class="field-note">
+        <span data-lang="zh">最近用过的目录：</span>
+        <span data-lang="en">Recent workdirs:</span>
+      </small>
+      <div class="card-actions recent-workdir-actions">
+        {% for recent_workdir in recent_workdirs[:6] %}
+        <button class="ghost-button recent-workdir-button" type="button" data-fill-workdir="{{ recent_workdir }}">
+          <span class="brand-mark">{{ recent_workdir }}</span>
+        </button>
+        {% endfor %}
+      </div>
+      <datalist id="recent-workdir-options">
+        {% for recent_workdir in recent_workdirs %}
+        <option value="{{ recent_workdir }}"></option>
+        {% endfor %}
+      </datalist>
+      {% endif %}
     </label>
 
     <label class="wide">
@@ -440,6 +473,7 @@
 </form>
 <script id="executor-profiles-json" type="application/json">{{ executor_profiles|tojson }}</script>
 <script id="orchestrations-json" type="application/json">{{ orchestrations|tojson }}</script>
+<script id="pristine-loop-form-json" type="application/json">{{ pristine_loop_form|tojson }}</script>
 <script src="{{ static_asset_url('pages/new_loop.js') }}" defer></script>
 </div>
 {% endblock %}
