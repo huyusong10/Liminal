@@ -25,24 +25,55 @@
     </label>
 
     <label>
-      <span><span data-lang="zh">原型</span><span data-lang="en">Archetype</span></span>
-      <select name="archetype">
+      <span><span data-lang="zh">角色模板</span><span data-lang="en">Role template</span></span>
+      <select name="archetype" id="role-definition-archetype-input">
         {% for option in archetype_options %}
         <option value="{{ option.id }}" {% if form_values.archetype == option.id %}selected{% endif %}>
           {{ option.label_zh }} / {{ option.label_en }}
         </option>
         {% endfor %}
       </select>
+      <small class="field-note">
+        <span data-lang="zh">`自定义（最低权限）` 适合做只读分析、补充观察和建议，不能充当最终放行角色。</span>
+        <span data-lang="en">`Custom (Restricted)` is for read-only analysis, extra observations, and recommendations. It cannot act as the final pass/fail role.</span>
+      </small>
     </label>
 
     <label>
       <span><span data-lang="zh">Prompt 文件名</span><span data-lang="en">Prompt file name</span></span>
-      <input name="prompt_ref" value="{{ form_values.prompt_ref }}" required data-testid="role-definition-prompt-ref-input" />
+      <input name="prompt_ref" id="role-definition-prompt-ref-input" value="{{ form_values.prompt_ref }}" required data-testid="role-definition-prompt-ref-input" />
+    </label>
+
+    <label>
+      <span><span data-lang="zh">执行工具</span><span data-lang="en">Execution tool</span></span>
+      <select name="executor_kind" id="role-definition-executor-kind-input" data-testid="role-definition-executor-kind-input">
+        {% for profile in executor_profiles %}
+        <option value="{{ profile.key }}" {% if form_values.executor_kind == profile.key %}selected{% endif %}>{{ profile.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      <span><span data-lang="zh">配置方式</span><span data-lang="en">Configuration mode</span></span>
+      <select name="executor_mode" id="role-definition-executor-mode-input" data-testid="role-definition-executor-mode-input">
+        <option value="preset" {% if form_values.executor_mode == "preset" %}selected{% endif %}>Preset / 预设</option>
+        <option value="command" {% if form_values.executor_mode == "command" %}selected{% endif %}>Command / 直接命令</option>
+      </select>
     </label>
 
     <label>
       <span><span data-lang="zh">默认模型</span><span data-lang="en">Default model</span></span>
       <input name="model" value="{{ form_values.model }}" data-testid="role-definition-model-input" />
+    </label>
+
+    <label>
+      <span><span data-lang="zh">推理强度 / Variant</span><span data-lang="en">Reasoning / Variant</span></span>
+      <input
+        name="reasoning_effort"
+        id="role-definition-reasoning-input"
+        value="{{ form_values.reasoning_effort }}"
+        data-testid="role-definition-reasoning-input"
+      />
     </label>
 
     <label class="wide">
@@ -51,11 +82,39 @@
     </label>
 
     <label class="wide">
-      <span><span data-lang="zh">Prompt Markdown</span><span data-lang="en">Prompt Markdown</span></span>
-      <textarea name="prompt_markdown" rows="20" required data-testid="role-definition-prompt-markdown-input">{{- form_values.prompt_markdown -}}</textarea>
+      <span><span data-lang="zh">命令可执行文件</span><span data-lang="en">Command executable</span></span>
+      <input
+        name="command_cli"
+        id="role-definition-command-cli-input"
+        value="{{ form_values.command_cli }}"
+        data-testid="role-definition-command-cli-input"
+      />
       <small class="field-note">
-        <span data-lang="zh">Prompt 必须带 YAML front matter，并且 `archetype` 要和上面的原型一致。</span>
-        <span data-lang="en">The prompt must include YAML front matter, and its `archetype` must match the selected archetype above.</span>
+        <span data-lang="zh">只有在直接命令模式下才会生效；预设模式会自动使用该工具的默认命令。</span>
+        <span data-lang="en">This only matters in command mode. Preset mode automatically uses the default command for the selected tool.</span>
+      </small>
+    </label>
+
+    <label class="wide">
+      <span><span data-lang="zh">命令参数</span><span data-lang="en">Command arguments</span></span>
+      <textarea
+        name="command_args_text"
+        id="role-definition-command-args-input"
+        rows="8"
+        data-testid="role-definition-command-args-input"
+      >{{- form_values.command_args_text -}}</textarea>
+      <small class="field-note">
+        <span data-lang="zh">每行一个参数。支持占位符：`{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}`。</span>
+        <span data-lang="en">Use one argument per line. Supported placeholders: `{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}`.</span>
+      </small>
+    </label>
+
+    <label class="wide">
+      <span><span data-lang="zh">Prompt Markdown</span><span data-lang="en">Prompt Markdown</span></span>
+      <textarea name="prompt_markdown" id="role-definition-prompt-markdown-input" rows="20" required data-testid="role-definition-prompt-markdown-input">{{- form_values.prompt_markdown -}}</textarea>
+      <small class="field-note">
+        <span data-lang="zh">Prompt 必须带 YAML front matter，并且 `archetype` 要和上面的角色模板一致。</span>
+        <span data-lang="en">The prompt must include YAML front matter, and its `archetype` must match the selected role template above.</span>
       </small>
     </label>
   </div>
@@ -71,5 +130,8 @@
     </a>
   </div>
 </form>
+<script id="role-definition-builtin-templates-json" type="application/json">{{ builtin_role_templates|tojson }}</script>
+<script id="role-definition-executor-profiles-json" type="application/json">{{ executor_profiles|tojson }}</script>
+<script src="{{ static_asset_url('pages/new_role_definition.js') }}" defer></script>
 </div>
 {% endblock %}

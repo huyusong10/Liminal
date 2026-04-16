@@ -39,6 +39,7 @@ from loopora.workflows import (
     build_preset_workflow,
     has_finish_gatekeeper_step,
     normalize_role_models as workflow_normalize_role_models,
+    role_uses_execution_snapshot,
     resolve_prompt_files,
     workflow_warnings,
 )
@@ -300,7 +301,12 @@ class LooporaService:
         archetype: str,
         prompt_ref: str,
         prompt_markdown: str,
+        executor_kind: str = "codex",
+        executor_mode: str = "preset",
+        command_cli: str = "",
+        command_args_text: str = "",
         model: str = "",
+        reasoning_effort: str = "",
     ) -> dict:
         return self._asset_call(
             self.asset_catalog.create_role_definition,
@@ -309,7 +315,12 @@ class LooporaService:
             archetype=archetype,
             prompt_ref=prompt_ref,
             prompt_markdown=prompt_markdown,
+            executor_kind=executor_kind,
+            executor_mode=executor_mode,
+            command_cli=command_cli,
+            command_args_text=command_args_text,
             model=model,
+            reasoning_effort=reasoning_effort,
         )
 
     def update_role_definition(
@@ -321,7 +332,12 @@ class LooporaService:
         archetype: str,
         prompt_ref: str,
         prompt_markdown: str,
+        executor_kind: str = "codex",
+        executor_mode: str = "preset",
+        command_cli: str = "",
+        command_args_text: str = "",
         model: str = "",
+        reasoning_effort: str = "",
     ) -> dict:
         return self._asset_call(
             self.asset_catalog.update_role_definition,
@@ -331,7 +347,12 @@ class LooporaService:
             archetype=archetype,
             prompt_ref=prompt_ref,
             prompt_markdown=prompt_markdown,
+            executor_kind=executor_kind,
+            executor_mode=executor_mode,
+            command_cli=command_cli,
+            command_args_text=command_args_text,
             model=model,
+            reasoning_effort=reasoning_effort,
         )
 
     def delete_role_definition(self, role_definition_id: str) -> dict:
@@ -869,6 +890,7 @@ class LooporaService:
                     runtime_role = self._runtime_role_key(role)
                     if role["archetype"] == "guide" and stagnation.get("stagnation_mode", "none") == "none":
                         continue
+                    execution_settings = self._resolve_role_execution_settings(run, step, role)
                     output = self._run_workflow_step(
                         executor,
                         run,
@@ -878,6 +900,7 @@ class LooporaService:
                         step,
                         role,
                         prompt_files,
+                        execution_settings=execution_settings,
                         current_outputs_by_role=current_outputs_by_role,
                         current_outputs_by_archetype=current_outputs_by_archetype,
                         previous_outputs_by_archetype=previous_outputs_by_archetype,
@@ -898,7 +921,8 @@ class LooporaService:
                             "step": step,
                             "role": role,
                             "runtime_role": runtime_role,
-                            "resolved_model": str(step.get("model") or role.get("model") or run["model"]),
+                            "resolved_model": execution_settings["model"],
+                            "resolved_executor_kind": execution_settings["executor_kind"],
                             "output": normalized_output,
                         }
                     )
@@ -1194,6 +1218,7 @@ class LooporaService:
         step: dict,
         role: dict,
         prompt_files: dict[str, str],
+        execution_settings: dict[str, str],
         *,
         current_outputs_by_role: dict[str, dict],
         current_outputs_by_archetype: dict[str, dict],
@@ -1220,12 +1245,12 @@ class LooporaService:
             step_id=step["id"],
             prompt=prompt_text,
             workdir=Path(run["workdir"]),
-            executor_kind=run.get("executor_kind", "codex"),
-            executor_mode=run.get("executor_mode", "preset"),
-            command_cli=run.get("command_cli", ""),
-            command_args_text=run.get("command_args_text", ""),
-            model=str(step.get("model") or role.get("model") or run["model"]),
-            reasoning_effort=run["reasoning_effort"],
+            executor_kind=execution_settings["executor_kind"],
+            executor_mode=execution_settings["executor_mode"],
+            command_cli=execution_settings["command_cli"],
+            command_args_text=execution_settings["command_args_text"],
+            model=execution_settings["model"],
+            reasoning_effort=execution_settings["reasoning_effort"],
             output_schema=self._output_schema_for_archetype(role["archetype"]),
             output_path=output_path,
             run_dir=run_dir,
@@ -1237,7 +1262,9 @@ class LooporaService:
                 "archetype": role["archetype"],
                 "step_id": step["id"],
                 "role_name": role["name"],
-                "step_model": str(step.get("model") or ""),
+                "step_model": execution_settings["step_model"],
+                "executor_kind": execution_settings["executor_kind"],
+                "executor_mode": execution_settings["executor_mode"],
                 "legacy_role": self._runtime_role_key(role),
                 "current_outputs_by_role": current_outputs_by_role,
                 "current_outputs_by_archetype": current_outputs_by_archetype,
@@ -1278,6 +1305,63 @@ class LooporaService:
             )
 
         return self._execute_role(run["id"], iter_id, self._runtime_role_key(role), execute_request, retry_config)
+
+    def _resolve_role_execution_settings(self, run: dict, step: dict, role: dict) -> dict[str, str]:
+        step_model = str(step.get("model") or "").strip()
+        role_model = str(role.get("model") or "").strip()
+
+        if role_uses_execution_snapshot(role):
+            executor_kind = normalize_executor_kind(role.get("executor_kind", "codex"))
+            executor_mode = normalize_executor_mode(role.get("executor_mode", "preset"))
+            profile = executor_profile(executor_kind)
+            reasoning_effort = str(role.get("reasoning_effort") or "").strip()
+            if executor_mode == "preset":
+                return {
+                    "executor_kind": executor_kind,
+                    "executor_mode": executor_mode,
+                    "command_cli": "",
+                    "command_args_text": "",
+                    "model": step_model or role_model or profile.default_model,
+                    "reasoning_effort": normalize_reasoning_effort(reasoning_effort, executor_kind),
+                    "step_model": step_model,
+                }
+            command_args_text = str(role.get("command_args_text") or "")
+            validate_command_args_text(command_args_text, executor_kind=executor_kind)
+            return {
+                "executor_kind": executor_kind,
+                "executor_mode": executor_mode,
+                "command_cli": str(role.get("command_cli") or "").strip() or profile.cli_name,
+                "command_args_text": command_args_text,
+                "model": step_model or role_model,
+                "reasoning_effort": reasoning_effort,
+                "step_model": step_model,
+            }
+
+        executor_kind = normalize_executor_kind(run.get("executor_kind", "codex"))
+        executor_mode = normalize_executor_mode(run.get("executor_mode", "preset"))
+        profile = executor_profile(executor_kind)
+        if executor_mode == "preset":
+            return {
+                "executor_kind": executor_kind,
+                "executor_mode": executor_mode,
+                "command_cli": "",
+                "command_args_text": "",
+                "model": step_model or role_model or str(run.get("model") or "") or profile.default_model,
+                "reasoning_effort": coerce_reasoning_effort(run.get("reasoning_effort", ""), executor_kind),
+                "step_model": step_model,
+            }
+
+        command_args_text = str(run.get("command_args_text") or "")
+        validate_command_args_text(command_args_text, executor_kind=executor_kind)
+        return {
+            "executor_kind": executor_kind,
+            "executor_mode": executor_mode,
+            "command_cli": str(run.get("command_cli") or "").strip() or profile.cli_name,
+            "command_args_text": command_args_text,
+            "model": step_model or role_model or str(run.get("model") or ""),
+            "reasoning_effort": str(run.get("reasoning_effort") or "").strip(),
+            "step_model": step_model,
+        }
 
     def _build_step_prompt(
         self,
@@ -1344,6 +1428,13 @@ class LooporaService:
                 "- When evidence is weak, fail closed and explain what is missing.\n"
                 "- Keep the verdict short and operational."
             )
+        if archetype == "custom":
+            return (
+                "System safety rules:\n"
+                "- You are a low-permission supporting role.\n"
+                "- Read the workspace and evidence, but do not claim write actions or final authority.\n"
+                "- Prefer concrete observations and next-step recommendations."
+            )
         return (
             "System safety rules:\n"
             "- Suggest the smallest useful direction change.\n"
@@ -1361,6 +1452,8 @@ class LooporaService:
                 "Return JSON with passed, decision_summary, feedback_to_builder, confidence, blocking_issues, metrics, "
                 "failed_check_ids, priority_failures, and composite_score."
             )
+        if archetype == "custom":
+            return "Return JSON with summary, observations, recommendations, risks, and handoff_note."
         return "Return JSON with created_at_iter, mode, consumed, analysis, seed_question, and meta_note."
 
     def _parse_runtime_prompt(self, prompt_markdown: str, *, expected_archetype: str) -> tuple[dict, str]:
@@ -1385,6 +1478,8 @@ class LooporaService:
             return INSPECTOR_SCHEMA
         if archetype == "gatekeeper":
             return GATEKEEPER_SCHEMA
+        if archetype == "custom":
+            return CUSTOM_SCHEMA
         return GUIDE_SCHEMA
 
     def _normalize_step_output(
@@ -1578,6 +1673,7 @@ class LooporaService:
                 "inspector": "Tester / Inspector",
                 "gatekeeper": "Verifier / GateKeeper",
                 "guide": "Challenger / Guide",
+                "custom": "Restricted Custom Role",
             }.get(role["archetype"], role["name"])
             lines.extend(
                 [
@@ -1603,6 +1699,8 @@ class LooporaService:
             return self._truncate_text(output.get("tester_observations"), 280) or "none"
         if archetype == "gatekeeper":
             return self._truncate_text(output.get("decision_summary"), 280) or "none"
+        if archetype == "custom":
+            return self._truncate_text(output.get("summary") or output.get("handoff_note"), 280) or "none"
         return self._truncate_text(output.get("seed_question") or output.get("meta_note"), 280) or "none"
 
     def _runtime_role_key(self, role: dict) -> str:
@@ -3303,6 +3401,19 @@ CHALLENGER_SCHEMA = {
         },
         "seed_question": {"type": "string"},
         "meta_note": {"type": "string"},
+    },
+    "additionalProperties": False,
+}
+
+CUSTOM_SCHEMA = {
+    "type": "object",
+    "required": ["summary", "observations", "recommendations", "risks", "handoff_note"],
+    "properties": {
+        "summary": {"type": "string"},
+        "observations": {"type": "array", "items": {"type": "string"}},
+        "recommendations": {"type": "array", "items": {"type": "string"}},
+        "risks": {"type": "array", "items": {"type": "string"}},
+        "handoff_note": {"type": "string"},
     },
     "additionalProperties": False,
 }

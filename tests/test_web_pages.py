@@ -237,20 +237,15 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(response.text, "loop-orchestration-input")
     _assert_has_testid(response.text, "loop-completion-mode-input")
     _assert_has_testid(response.text, "loop-iteration-interval-input")
-    _assert_has_testid(response.text, "role-model-builder-input")
-    _assert_has_testid(response.text, "role-model-gatekeeper-input")
-    assert "name=\"executor_kind\"" in response.text
-    assert "name=\"executor_mode\"" in response.text
-    assert "id=\"command-preview\"" in response.text
-    assert "id=\"reasoning-input\"" in response.text
+    assert "name=\"executor_kind\"" not in response.text
+    assert "name=\"executor_mode\"" not in response.text
     assert "name=\"orchestration_id\"" in response.text
     assert "name=\"completion_mode\"" in response.text
     assert "name=\"iteration_interval_seconds\"" in response.text
-    assert "name=\"role_model_builder\"" in response.text
-    assert "name=\"role_model_gatekeeper\"" in response.text
+    assert "Role runtime reminder" in response.text
     assert "workflow-json-input" not in response.text
-    assert 'value="claude"' in response.text
-    assert 'value="opencode"' in response.text
+    assert "角色定义" in response.text
+    _assert_has_testid(response.text, "nav-tutorial-link")
 
 
 def test_new_loop_page_surfaces_recent_workdirs_and_browser_draft_controls(
@@ -315,11 +310,6 @@ def test_new_loop_page_keeps_draft_restore_enabled_for_default_equivalent_query_
     response = client.get(
         "/loops/new"
         "?orchestration_id=builtin:build_first"
-        "&executor_kind=codex"
-        "&executor_mode=preset"
-        "&command_cli=codex"
-        "&model=gpt-5.4"
-        "&reasoning_effort=medium"
         "&max_iters=8"
         "&max_role_retries=2"
         "&delta_threshold=0.005"
@@ -446,7 +436,9 @@ archetype: builder
 
 Focus on scoped release work.
 """,
+        executor_kind="claude",
         model="gpt-5.4-mini",
+        reasoning_effort="high",
     )
 
     client = TestClient(build_app(service=service))
@@ -464,7 +456,12 @@ Focus on scoped release work.
     _assert_has_testid(new_response.text, "role-definition-editor-page")
     _assert_has_testid(new_response.text, "role-definition-editor-form")
     _assert_has_testid(new_response.text, "role-definition-prompt-ref-input")
+    _assert_has_testid(new_response.text, "role-definition-executor-kind-input")
+    _assert_has_testid(new_response.text, "role-definition-executor-mode-input")
     _assert_has_testid(new_response.text, "role-definition-model-input")
+    _assert_has_testid(new_response.text, "role-definition-reasoning-input")
+    _assert_has_testid(new_response.text, "role-definition-command-cli-input")
+    _assert_has_testid(new_response.text, "role-definition-command-args-input")
     _assert_has_testid(new_response.text, "role-definition-prompt-markdown-input")
     _assert_has_testid(new_response.text, "save-role-definition-button")
 
@@ -472,6 +469,20 @@ Focus on scoped release work.
     assert builtin_edit_response.status_code == 200
     _assert_has_testid(builtin_edit_response.text, "role-definition-editor-form")
     assert "保存为新角色" in builtin_edit_response.text
+
+
+def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/tutorial")
+
+    assert response.status_code == 200
+    _assert_has_testid(response.text, "tutorial-page")
+    _assert_has_testid(response.text, "nav-tutorial-link")
+    assert "角色定义" in response.text
+    assert "流程编排" in response.text
+    assert "创建循环" in response.text
 
 
 def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -> None:

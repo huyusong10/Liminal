@@ -12,10 +12,11 @@
 
 | 对象 | 用户目的 | 稳定语义 |
 |------|----------|----------|
-| `loop` | 保存一套可重复执行的配置 | 绑定 workdir、spec、执行参数与 orchestration |
-| `orchestration` | 编辑可复用 workflow | 管理角色、步骤与 prompt 资产 |
-| `role definition` | 预先定义可复用角色模版 | 供 orchestration 选择并复制成角色快照 |
+| `loop` | 保存一套可重复执行的配置 | 绑定 workdir、spec、runtime 策略与 orchestration |
+| `orchestration` | 编辑可复用 workflow | 管理角色快照、步骤顺序与收敛规则 |
+| `role definition` | 预先定义可复用角色模版 | 供 orchestration 选择并复制成角色快照；同时定义默认执行配置 |
 | `run` | 观察一次具体执行 | 提供状态、事件、摘要与产物 |
+| `tutorial` | 学习正确使用顺序 | 解释角色定义 → 流程编排 → 创建循环的推荐路径 |
 
 ## 3. 入口职责
 
@@ -35,8 +36,8 @@
 | 选择 orchestration | 引用同一编排资产 |
 | 配置 completion mode | `gatekeeper` 与 `rounds` 的语义一致 |
 | 配置轮次间隔 | 所有入口都表达相同等待语义 |
-| 编辑 orchestration | 角色、步骤、prompt 资产语义一致 |
-| 编辑 role definition | 角色模版字段语义一致 |
+| 编辑 orchestration | 角色快照、步骤与收敛规则语义一致 |
+| 编辑 role definition | 角色模版、权限边界、执行配置与 prompt 语义一致 |
 | 启动、重跑、停止、删除 run | 生命周期语义一致 |
 | 校验 spec 与 prompt | 校验规则一致 |
 
@@ -46,7 +47,7 @@
 
 | 范围 | 允许差异 |
 |------|----------|
-| Web UI | 提供可视化 workflow 编辑器、角色选择器与实时页面导航 |
+| Web UI | 提供可视化 workflow 编辑器、角色选择器、教程入口与实时页面导航 |
 | CLI | 提供同步等待与后台执行开关 |
 | Web UI | 可保存浏览器本地草稿与最近使用建议，但这些都是 best-effort |
 | 不同入口 | 可使用不同文案、布局与交互节奏，只要不改变底层语义 |
@@ -59,6 +60,8 @@
 - 只有某一入口能创建或编辑 orchestration / role definition
 - 同名配置项在不同入口含义不同
 - 预览行为与实际提交行为不一致
+- 在 orchestration 中直接修改 role definition 才拥有的字段
+- 在 loop 创建中重新定义角色默认执行配置
 - 把内部存储标识直接当作主要用户文案
 
 ## 7. 安全边界
@@ -89,6 +92,7 @@
 - 新增或删除顶层入口
 - 跨入口能力模型变化
 - 某个核心对象只能在单一入口创建或编辑
+- 角色定义 / 编排 / 创建循环的责任边界变化
 - 安全边界变化
 
 以下变化通常不需要更新本文档：

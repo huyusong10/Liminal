@@ -51,12 +51,12 @@
               <dd>{{ loop_item.id }}</dd>
             </div>
             <div>
-              <dt><span data-lang="zh">执行工具</span><span data-lang="en">Executor</span></dt>
-              <dd>{{ loop_item.executor_label }}</dd>
+              <dt><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></dt>
+              <dd>{{ loop_item.orchestration_name or "-" }}</dd>
             </div>
             <div>
-              <dt><span data-lang="zh">模型</span><span data-lang="en">Model</span></dt>
-              <dd>{{ loop_item.model or "-" }}</dd>
+              <dt><span data-lang="zh">角色执行</span><span data-lang="en">Role runtime</span></dt>
+              <dd>{{ loop_item.role_executor_summary }}</dd>
             </div>
             <div>
               <dt><span data-lang="zh">当前迭代</span><span data-lang="en">Current iter</span></dt>
@@ -127,6 +127,22 @@
         </p>
       </div>
     {% endif %}
+  </section>
+
+  <section class="panel" data-testid="tutorial-link-panel">
+    <header class="panel-header">
+      <h2><span data-lang="zh">第一次用？</span><span data-lang="en">New here?</span></h2>
+    </header>
+    <p>
+      <span data-lang="zh">如果你想先理清“角色定义 → 流程编排 → 创建循环”的正确顺序，可以先看完整使用教程。</span>
+      <span data-lang="en">If you want a quick walkthrough of the right order for Role Definitions, Orchestrations, and Create Loop, start with the tutorial.</span>
+    </p>
+    <div class="card-actions">
+      <a class="secondary-button" href="/tutorial" data-testid="index-tutorial-link">
+        <span data-lang="zh">打开使用教程</span>
+        <span data-lang="en">Open tutorial</span>
+      </a>
+    </div>
   </section>
 </div>
 {% endblock %}

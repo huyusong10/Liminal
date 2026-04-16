@@ -9,29 +9,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const orchestrationInput = document.getElementById("orchestration-id-input");
   const orchestrationSummary = document.getElementById("orchestration-summary");
   const completionModeInput = document.getElementById("completion-mode-input");
-  const iterationIntervalInput = document.getElementById("iteration-interval-input");
-  const executorKindInput = document.getElementById("executor-kind-input");
-  const executorModeInput = document.getElementById("executor-mode-input");
-  const modelFieldLabel = document.getElementById("model-field-label");
-  const effortFieldLabel = document.getElementById("effort-field-label");
-  const modelInput = document.getElementById("model-input");
-  const reasoningInput = document.getElementById("reasoning-input");
-  const modelHelpTrigger = document.getElementById("model-help-trigger");
-  const effortHelpTrigger = document.getElementById("effort-help-trigger");
-  const modelFieldNote = document.getElementById("model-field-note");
-  const effortFieldNote = document.getElementById("effort-field-note");
-  const presetModelField = document.getElementById("preset-model-field");
-  const presetEffortField = document.getElementById("preset-effort-field");
-  const presetConfigCard = document.getElementById("preset-config-card");
-  const commandConfigCard = document.getElementById("command-config-card");
-  const presetConfigState = document.getElementById("preset-config-state");
-  const commandConfigState = document.getElementById("command-config-state");
-  const commandCliField = document.getElementById("command-cli-field");
-  const commandArgsField = document.getElementById("command-args-field");
-  const commandCliInput = document.getElementById("command-cli-input");
-  const commandArgsInput = document.getElementById("command-args-input");
-  const commandPreview = document.getElementById("command-preview");
-  const commandPreviewNote = document.getElementById("command-preview-note");
   const browseWorkdirButton = document.getElementById("browse-workdir");
   const browseSpecButton = document.getElementById("browse-spec");
   const createSpecTemplateButton = document.getElementById("create-spec-template");
@@ -45,24 +22,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const orchestrations = JSON.parse(document.getElementById("orchestrations-json")?.textContent || "[]");
   const pristineLoopForm = JSON.parse(document.getElementById("pristine-loop-form-json")?.textContent || "{}");
   const workdirQuickPickButtons = Array.from(document.querySelectorAll("[data-fill-workdir]"));
-  const roleModelInputs = {
-    builder: document.getElementById("role-model-builder-input"),
-    inspector: document.getElementById("role-model-inspector-input"),
-    gatekeeper: document.getElementById("role-model-gatekeeper-input"),
-    guide: document.getElementById("role-model-guide-input"),
-  };
 
-  const DRAFT_STORAGE_KEY = "loopora:new-loop-draft:v1";
-  const commandDrafts = new Map();
-  let lastExecutorKind = executorKindInput.value;
+  const DRAFT_STORAGE_KEY = "loopora:new-loop-draft:v2";
   let latestSpecValidationRequest = 0;
 
   function localeText(zh, en) {
     return window.LooporaUI.pickText({zh, en});
-  }
-
-  function setBilingualHtml(element, zh, en) {
-    element.innerHTML = `<span data-lang="zh">${zh}</span><span data-lang="en">${en}</span>`;
   }
 
   function showStatus(element, message, kind = "") {
@@ -105,10 +70,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function hasDraft(draft) {
-    return Object.keys(pruneDraft(draft)).length > 0;
-  }
-
   function normalizeDraftValue(key, value) {
     if (key === "start_immediately") {
       if (typeof value === "boolean") {
@@ -137,7 +98,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateDraftUI() {
     const draft = loadDraft();
-    const visible = hasDraft(draft);
+    const visible = Object.keys(pruneDraft(draft)).length > 0;
     if (draftActions) {
       draftActions.hidden = !visible;
     }
@@ -149,8 +110,6 @@ document.addEventListener("DOMContentLoaded", () => {
       Array.from(formData.entries()).map(([key, value]) => [key, typeof value === "string" ? value : String(value)]),
     );
     draft.start_immediately = form.querySelector('input[name="start_immediately"]')?.checked ? "1" : "";
-    draft.model = modelInput.value;
-    draft.reasoning_effort = reasoningInput.value;
     return draft;
   }
 
@@ -188,7 +147,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function applyDraft(draft) {
     const normalizedDraft = pruneDraft(draft);
-    if (!hasDraft(normalizedDraft)) {
+    if (!Object.keys(normalizedDraft).length) {
       return false;
     }
     Array.from(form.elements).forEach((element) => {
@@ -227,6 +186,16 @@ document.addEventListener("DOMContentLoaded", () => {
     return true;
   }
 
+  async function fetchJson(url, options = {}) {
+    try {
+      const response = await fetch(url, options);
+      const payload = await response.json().catch(() => ({}));
+      return {response, payload, error: null};
+    } catch (error) {
+      return {response: null, payload: {}, error};
+    }
+  }
+
   async function runAction(button, action, options) {
     const {errorTarget, fallbackMessage} = options;
     setButtonBusy(button, true);
@@ -239,12 +208,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function selectedExecutorProfile() {
-    return executorProfiles.find((profile) => profile.key === executorKindInput.value) || executorProfiles[0];
-  }
-
   function currentOrchestration() {
     return orchestrations.find((item) => item.id === orchestrationInput.value) || orchestrations[0] || null;
+  }
+
+  function executorLabel(kind) {
+    return executorProfiles.find((profile) => profile.key === kind)?.label || kind || "-";
   }
 
   function orchestrationHasFinishGate(orchestration) {
@@ -257,6 +226,20 @@ document.addEventListener("DOMContentLoaded", () => {
       const role = roleById[step.role_id];
       return role?.archetype === "gatekeeper" && String(step.on_pass || "continue") === "finish_run";
     });
+  }
+
+  function roleRuntimeSummary(orchestration) {
+    const workflow = orchestration?.workflow_json || {};
+    const roles = Array.isArray(workflow.roles) ? workflow.roles : [];
+    const counts = new Map();
+    roles.forEach((role) => {
+      const label = executorLabel(String(role.executor_kind || "codex"));
+      counts.set(label, (counts.get(label) || 0) + 1);
+    });
+    if (!counts.size) {
+      return localeText("沿用旧 loop 级回退", "Legacy loop-level fallback");
+    }
+    return Array.from(counts.entries()).map(([label, count]) => (count > 1 ? `${label} x${count}` : label)).join(" · ");
   }
 
   function renderOrchestrationSummary() {
@@ -272,13 +255,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const source = selected.source === "builtin"
       ? localeText("内置方案", "Built-in")
       : localeText("自定义方案", "Custom");
+    const runtimeSummary = roleRuntimeSummary(selected);
     const completionMode = completionModeInput?.value || "gatekeeper";
     if (completionMode === "gatekeeper" && !finishGate) {
       showStatus(
         orchestrationSummary,
         localeText(
-          `当前方案是 ${selected.name} · ${source} · 角色 ${roles} · 步骤 ${steps}，但它没有“通过即结束”的 GateKeeper 步骤。请改成轮次模式，或先去编排页补一个 GateKeeper finish step。`,
-          `The selected orchestration is ${selected.name} · ${source} · Roles ${roles} · Steps ${steps}, but it has no finish-on-pass GateKeeper step. Switch the loop to round-based mode, or add a GateKeeper finish step first.`,
+          `当前方案是 ${selected.name} · ${source} · 角色 ${roles} · 步骤 ${steps} · 执行 ${runtimeSummary}，但它没有“通过即结束”的 GateKeeper 步骤。请改成轮次模式，或先去编排页补一个 GateKeeper finish step。`,
+          `The selected orchestration is ${selected.name} · ${source} · Roles ${roles} · Steps ${steps} · Runtime ${runtimeSummary}, but it has no finish-on-pass GateKeeper step. Switch the loop to round-based mode, or add a GateKeeper finish step first.`,
         ),
         "warning",
       );
@@ -286,260 +270,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     showStatus(
       orchestrationSummary,
-      `${selected.name} · ${source} · ${localeText("角色", "Roles")} ${roles} · ${localeText("步骤", "Steps")} ${steps}${selected.description ? ` · ${selected.description}` : ""}`,
+      `${selected.name} · ${source} · ${localeText("角色", "Roles")} ${roles} · ${localeText("步骤", "Steps")} ${steps} · ${localeText("执行", "Runtime")} ${runtimeSummary}${selected.description ? ` · ${selected.description}` : ""}`,
       "success",
     );
-  }
-
-  function parseCommandArgsText(value) {
-    return String(value || "")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-  }
-
-  function defaultCommandArgsText(profile) {
-    return Array.isArray(profile?.command_args_template) ? profile.command_args_template.join("\n") : "";
-  }
-
-  function shellQuote(arg) {
-    const value = String(arg ?? "");
-    if (!value) {
-      return "''";
-    }
-    if (/^[A-Za-z0-9_./:=+,@%-]+$/.test(value)) {
-      return value;
-    }
-    return `'${value.replaceAll("'", `'\"'\"'`)}'`;
-  }
-
-  function replacePreviewPlaceholders(value) {
-    const replacements = {
-      "{workdir}": workdirInput.value.trim() || "<workdir>",
-      "{schema_path}": "<run_dir>/<role>_schema.json",
-      "{output_path}": "<run_dir>/<role>_output.json",
-      "{json_schema}": "<json schema>",
-      "{sandbox}": "<sandbox-per-role>",
-      "{prompt}": "<role prompt>",
-      "{model}": modelInput.value.trim() || "<model>",
-      "{reasoning_effort}": reasoningInput.value.trim() || "<reasoning>",
-    };
-    let output = String(value || "");
-    Object.entries(replacements).forEach(([placeholder, replacement]) => {
-      output = output.replaceAll(placeholder, replacement);
-    });
-    return output;
-  }
-
-  function presetPreviewArgs(profile) {
-    const model = modelInput.value.trim() || profile.default_model || "";
-    const reasoningEffort = reasoningInput.value.trim() || profile.effort_default || "";
-    if (profile.key === "codex") {
-      return [
-        profile.cli_name,
-        "exec",
-        "--json",
-        "--skip-git-repo-check",
-        "--cd",
-        workdirInput.value.trim() || "{workdir}",
-        "--sandbox",
-        "{sandbox}",
-        "--output-schema",
-        "{schema_path}",
-        "--output-last-message",
-        "{output_path}",
-        "--model",
-        model || "<model>",
-        "-c",
-        `model_reasoning_effort="${reasoningEffort || profile.effort_default}"`,
-        "{prompt}",
-      ];
-    }
-    if (profile.key === "claude") {
-      const args = [
-        profile.cli_name,
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--include-partial-messages",
-        "--no-session-persistence",
-        "--permission-mode",
-        "bypassPermissions",
-        "--json-schema",
-        "{json_schema}",
-      ];
-      if (model) {
-        args.push("--model", model);
-      }
-      if (reasoningEffort) {
-        args.push("--effort", reasoningEffort);
-      }
-      args.push("{prompt}");
-      return args;
-    }
-    const args = [
-      profile.cli_name,
-      "run",
-      "--format",
-      "json",
-      "--dir",
-      workdirInput.value.trim() || "{workdir}",
-      "--dangerously-skip-permissions",
-    ];
-    if (model) {
-      args.push("--model", model);
-    }
-    if (reasoningEffort) {
-      args.push("--variant", reasoningEffort);
-    }
-    args.push("{prompt}");
-    return args;
-  }
-
-  function buildPresetCommandSnapshot(profile) {
-    const args = presetPreviewArgs(profile);
-    return {cli: args[0] || profile.cli_name, argsText: args.slice(1).join("\n")};
-  }
-
-  function renderCommandPreview() {
-    const profile = selectedExecutorProfile();
-    const isCommandMode = executorModeInput.value === "command";
-    const argv = [
-      commandCliInput.value.trim() || profile.cli_name,
-      ...parseCommandArgsText(commandArgsInput.value).map(replacePreviewPlaceholders),
-    ];
-    commandPreview.textContent = argv.map(shellQuote).join(" ");
-    setBilingualHtml(
-      commandPreviewNote,
-      isCommandMode
-        ? "这里展示 raw command 模式下会执行的参数。尖括号内容表示运行时才会替换的动态值。"
-        : "这里展示预设模式下自动拼出来的命令参数。你改动模型或推理强度时，下面的命令区会同步刷新，但保持只读。",
-      isCommandMode
-        ? "This shows the argv used in command mode. Angle-bracket values are filled in only at runtime."
-        : "This shows the command assembled from the preset settings. When you change the model or reasoning option, the command block below updates automatically but stays read-only.",
-    );
-  }
-
-  function saveCommandDraft(profileKey = lastExecutorKind) {
-    if (!profileKey) {
-      return;
-    }
-    commandDrafts.set(profileKey, {cli: commandCliInput.value, args: commandArgsInput.value});
-  }
-
-  function loadCommandDraft(profile) {
-    const saved = commandDrafts.get(profile.key);
-    if (saved) {
-      commandCliInput.value = saved.cli || profile.cli_name || "";
-      commandArgsInput.value = saved.args || defaultCommandArgsText(profile);
-      return;
-    }
-    if (commandCliInput.value.trim() || commandArgsInput.value.trim()) {
-      return;
-    }
-    commandCliInput.value = profile.cli_name || "";
-    commandArgsInput.value = defaultCommandArgsText(profile);
-  }
-
-  function renderEffortOptions(profile, currentValue = "") {
-    reasoningInput.innerHTML = "";
-    const options = profile.preset_effort_visible ? profile.effort_options : [];
-    options.forEach((option) => {
-      const item = document.createElement("option");
-      item.value = option;
-      item.textContent = (!option && profile.effort_optional) ? localeText("默认", "Default") : option;
-      reasoningInput.appendChild(item);
-    });
-    const fallback = profile.effort_default || "";
-    const nextValue = options.includes(currentValue) ? currentValue : fallback;
-    reasoningInput.value = options.length ? nextValue : fallback;
-  }
-
-  function syncCommandBlock(profile) {
-    const isCommandMode = executorModeInput.value === "command";
-    const presetSnapshot = buildPresetCommandSnapshot(profile);
-    if (isCommandMode) {
-      loadCommandDraft(profile);
-      commandCliInput.readOnly = false;
-      commandArgsInput.readOnly = false;
-    } else {
-      commandCliInput.value = presetSnapshot.cli;
-      commandArgsInput.value = presetSnapshot.argsText;
-      commandCliInput.readOnly = true;
-      commandArgsInput.readOnly = true;
-    }
-  }
-
-  function syncExecutorModeUI() {
-    const isCommandMode = executorModeInput.value === "command";
-    const profile = selectedExecutorProfile();
-    presetConfigCard.classList.toggle("is-active", !isCommandMode);
-    presetConfigCard.classList.toggle("is-inactive", isCommandMode);
-    commandConfigCard.classList.toggle("is-active", isCommandMode);
-    commandConfigCard.classList.toggle("is-inactive", !isCommandMode);
-    presetConfigCard.setAttribute("aria-disabled", String(isCommandMode));
-    commandConfigCard.setAttribute("aria-disabled", String(!isCommandMode));
-    presetConfigState.hidden = isCommandMode;
-    commandConfigState.hidden = !isCommandMode;
-
-    presetModelField.hidden = false;
-    presetEffortField.hidden = !profile.preset_effort_visible;
-    commandCliField.hidden = false;
-    commandArgsField.hidden = false;
-    modelInput.readOnly = isCommandMode;
-    reasoningInput.disabled = isCommandMode || !profile.preset_effort_visible;
-    syncCommandBlock(profile);
-    renderCommandPreview();
-  }
-
-  function refreshExecutorFields(options = {}) {
-    const preserveUserModel = options.preserveUserModel !== false;
-    const preserveUserEffort = options.preserveUserEffort !== false;
-    const profile = selectedExecutorProfile();
-    if (!profile) {
-      return;
-    }
-
-    const previousModelDefault = modelInput.dataset.defaultModel || "";
-    const previousEffortDefault = reasoningInput.dataset.defaultEffort || "";
-    const modelWasDefault = !modelInput.value.trim() || modelInput.value.trim() === previousModelDefault;
-    const effortWasDefault = !reasoningInput.value.trim() || reasoningInput.value.trim() === previousEffortDefault;
-
-    modelInput.dataset.placeholderZh = profile.model_placeholder_zh;
-    modelInput.dataset.placeholderEn = profile.model_placeholder_en;
-    modelHelpTrigger.dataset.titleZh = profile.model_help_zh;
-    modelHelpTrigger.dataset.titleEn = profile.model_help_en;
-    setBilingualHtml(modelFieldLabel, "模型", "Model");
-    setBilingualHtml(effortFieldLabel, profile.effort_label_zh, profile.effort_label_en);
-    effortHelpTrigger.dataset.titleZh = profile.effort_help_zh;
-    effortHelpTrigger.dataset.titleEn = profile.effort_help_en;
-    window.LooporaUI.applyLocalizedAttributes(form);
-    setBilingualHtml(modelFieldNote, profile.model_help_zh, profile.model_help_en);
-    setBilingualHtml(effortFieldNote, profile.effort_help_zh, profile.effort_help_en);
-
-    const nextEffort = (!preserveUserEffort || effortWasDefault) ? (profile.effort_default || "") : reasoningInput.value;
-    renderEffortOptions(profile, nextEffort);
-    if ((!preserveUserModel || modelWasDefault) && profile.default_model !== undefined) {
-      modelInput.value = profile.default_model;
-    }
-    modelInput.dataset.defaultModel = profile.default_model || "";
-    reasoningInput.dataset.defaultEffort = profile.effort_default || "";
-    syncExecutorModeUI();
-  }
-
-  function parseNumber(value, fallback) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  }
-
-  async function fetchJson(url, options = {}) {
-    try {
-      const response = await fetch(url, options);
-      const payload = await response.json().catch(() => ({}));
-      return {response, payload, error: null};
-    } catch (error) {
-      return {response: null, payload: {}, error};
-    }
   }
 
   async function validateSpec(options = {}) {
@@ -574,7 +307,6 @@ document.addEventListener("DOMContentLoaded", () => {
       showStatus(specValidation, `${localeText("Spec 校验通过。", "Spec is valid.")} ${modeMessage}`, "success");
       specPathInput.value = payload.path;
       saveDraft();
-      renderCommandPreview();
       return true;
     }
     if (!quiet) {
@@ -591,7 +323,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (payload.path) {
       workdirInput.value = payload.path;
       saveDraft();
-      renderCommandPreview();
     }
   }
 
@@ -641,6 +372,11 @@ document.addEventListener("DOMContentLoaded", () => {
     await validateSpec();
   }
 
+  function parseNumber(value, fallback) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
   async function submitForm(event) {
     event.preventDefault();
     if (!form.reportValidity()) {
@@ -658,21 +394,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const formData = new FormData(form);
-    const executorMode = String(formData.get("executor_mode") || "preset").trim();
-    const roleModels = Object.fromEntries(
-      Object.entries(roleModelInputs).map(([role, input]) => [role, String(input?.value || "").trim()]).filter(([, value]) => value),
-    );
     const payload = {
       name: String(formData.get("name") || "").trim(),
       workdir: String(formData.get("workdir") || "").trim(),
       spec_path: String(formData.get("spec_path") || "").trim(),
       orchestration_id: String(formData.get("orchestration_id") || "").trim(),
-      executor_kind: String(formData.get("executor_kind") || "codex").trim(),
-      executor_mode: executorMode,
-      command_cli: executorMode === "command" ? String(formData.get("command_cli") || "").trim() : "",
-      command_args_text: executorMode === "command" ? String(formData.get("command_args_text") || "") : "",
-      model: String(modelInput.value || "").trim(),
-      reasoning_effort: String(reasoningInput.value || "").trim(),
       completion_mode: String(formData.get("completion_mode") || "gatekeeper").trim(),
       iteration_interval_seconds: parseNumber(formData.get("iteration_interval_seconds"), 0),
       max_iters: parseNumber(formData.get("max_iters"), 8),
@@ -680,7 +406,6 @@ document.addEventListener("DOMContentLoaded", () => {
       delta_threshold: parseNumber(formData.get("delta_threshold"), 0.005),
       trigger_window: parseNumber(formData.get("trigger_window"), 4),
       regression_window: parseNumber(formData.get("regression_window"), 2),
-      role_models: roleModels,
       start_immediately: formData.get("start_immediately") === "1",
     };
 
@@ -743,68 +468,22 @@ document.addEventListener("DOMContentLoaded", () => {
     button.addEventListener("click", () => {
       workdirInput.value = button.dataset.fillWorkdir || "";
       saveDraft();
-      renderCommandPreview();
       showStatus(formError, "");
     });
   });
+
   orchestrationInput?.addEventListener("change", renderOrchestrationSummary);
   completionModeInput?.addEventListener("change", renderOrchestrationSummary);
-  iterationIntervalInput?.addEventListener("input", saveDraft);
-  executorKindInput.addEventListener("change", () => {
-    if (executorModeInput.value === "command") {
-      saveCommandDraft(lastExecutorKind);
-    }
-    lastExecutorKind = executorKindInput.value;
-    refreshExecutorFields({preserveUserModel: true, preserveUserEffort: true});
-    saveDraft();
-  });
-  executorModeInput.addEventListener("change", () => {
-    if (executorModeInput.value === "preset") {
-      saveCommandDraft(selectedExecutorProfile().key);
-    }
-    syncExecutorModeUI();
-    saveDraft();
-  });
   specPathInput.addEventListener("change", () => validateSpec({quiet: false}));
   specPathInput.addEventListener("blur", () => validateSpec({quiet: true}));
-  workdirInput.addEventListener("input", () => {
-    syncExecutorModeUI();
-    saveDraft();
-  });
-  modelInput.addEventListener("input", () => {
-    syncExecutorModeUI();
-    saveDraft();
-  });
-  reasoningInput.addEventListener("change", () => syncExecutorModeUI());
-  commandCliInput.addEventListener("input", () => {
-    if (executorModeInput.value === "command") {
-      saveCommandDraft(selectedExecutorProfile().key);
-    }
-    renderCommandPreview();
-    saveDraft();
-  });
-  commandArgsInput.addEventListener("input", () => {
-    if (executorModeInput.value === "command") {
-      saveCommandDraft(selectedExecutorProfile().key);
-    }
-    renderCommandPreview();
-    saveDraft();
-  });
   form.addEventListener("input", saveDraft);
   form.addEventListener("change", saveDraft);
   form.addEventListener("submit", submitForm);
-  document.addEventListener("loopora:localechange", () => {
-    refreshExecutorFields({preserveUserModel: true, preserveUserEffort: true});
-    renderOrchestrationSummary();
-  });
 
   const restoredDraft = restoreDraftIfAllowed();
-  refreshExecutorFields({preserveUserModel: true, preserveUserEffort: true});
   renderOrchestrationSummary();
   if (specPathInput.value.trim()) {
     validateSpec({quiet: true});
-  } else {
-    renderCommandPreview();
   }
   if (restoredDraft) {
     saveDraft();

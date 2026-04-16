@@ -34,8 +34,8 @@
         <div>
           <h2><span data-lang="zh">工作流编排</span><span data-lang="en">Workflow</span></h2>
           <p class="field-note">
-            <span data-lang="zh">从预设开始，再增删角色、改 prompt、重排 step。</span>
-            <span data-lang="en">Start from a preset, then add or remove roles, edit prompts, and reorder steps.</span>
+            <span data-lang="zh">从预设开始，替换角色定义、重排步骤，并决定流程怎样收束。角色 prompt 和执行工具请回到“角色定义”里维护。</span>
+            <span data-lang="en">Start from a preset, swap role definitions, reorder steps, and decide how the workflow closes out. Maintain prompts and executor settings back in Role Definitions.</span>
           </p>
         </div>
       </header>
@@ -77,10 +77,6 @@
             <span data-lang="zh">管理角色</span>
             <span data-lang="en">Manage roles</span>
           </a>
-          <button class="ghost-button" type="button" id="add-role-button">
-            <span data-lang="zh">添加角色</span>
-            <span data-lang="en">Add role</span>
-          </button>
           <button class="ghost-button" type="button" id="add-step-button">
             <span data-lang="zh">添加步骤</span>
             <span data-lang="en">Add step</span>
@@ -94,17 +90,12 @@
             <div>
               <strong><span data-lang="zh">角色</span><span data-lang="en">Roles</span></strong>
               <p class="workflow-section-note">
-                <span data-lang="zh">定义流程里可复用的角色、原型和 prompt。</span>
-                <span data-lang="en">Define the reusable roles, archetypes, and prompts in this orchestration.</span>
+                <span data-lang="zh">这里展示的是编排里冻结下来的角色快照。想修改 prompt、执行工具或权限边界，请回到“角色定义”页。</span>
+                <span data-lang="en">These are the frozen role snapshots used by this orchestration. Go back to Role Definitions to change prompts, executors, or permission boundaries.</span>
               </p>
             </div>
           </div>
           <div id="workflow-roles-list" class="workflow-roles-list" data-testid="workflow-roles-list"></div>
-          <datalist id="prompt-template-options">
-            {% for prompt_template in prompt_templates %}
-            <option value="{{ prompt_template.prompt_ref }}">{{ prompt_template.prompt_ref }}</option>
-            {% endfor %}
-          </datalist>
         </section>
         <section class="workflow-editor-section">
           <div class="workflow-section-head">
@@ -119,17 +110,8 @@
           <div id="workflow-steps-list" class="workflow-steps-list" data-testid="workflow-steps-list"></div>
         </section>
       </div>
-      <details class="wide">
-        <summary><span data-lang="zh">高级：查看 JSON</span><span data-lang="en">Advanced: inspect JSON</span></summary>
-        <label class="wide">
-          <span><span data-lang="zh">workflow_json</span><span data-lang="en">workflow_json</span></span>
-          <textarea id="workflow-json-input" name="workflow_json" rows="12" data-testid="workflow-json-input">{{- form_values.workflow_json -}}</textarea>
-        </label>
-        <label class="wide">
-          <span><span data-lang="zh">prompt_files_json</span><span data-lang="en">prompt_files_json</span></span>
-          <textarea id="prompt-files-json-input" name="prompt_files_json" rows="12" data-testid="prompt-files-json-input">{{- form_values.prompt_files_json -}}</textarea>
-        </label>
-      </details>
+      <textarea id="workflow-json-input" name="workflow_json" rows="12" data-testid="workflow-json-input" hidden>{{- form_values.workflow_json -}}</textarea>
+      <textarea id="prompt-files-json-input" name="prompt_files_json" rows="12" data-testid="prompt-files-json-input" hidden>{{- form_values.prompt_files_json -}}</textarea>
     </section>
   </div>
 
@@ -146,7 +128,6 @@
 </form>
 
 <script id="workflow-preset-bundles-json" type="application/json">{{ workflow_preset_bundles|tojson }}</script>
-<script id="prompt-templates-json" type="application/json">{{ prompt_templates|tojson }}</script>
 <script id="role-definitions-json" type="application/json">{{ role_definitions|tojson }}</script>
 <script src="{{ static_asset_url('pages/new_orchestration.js') }}" defer></script>
 </div>

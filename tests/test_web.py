@@ -590,13 +590,18 @@ archetype: builder
 
 Focus on scoped release work.
 """,
-            "model": "gpt-5.4-mini",
+            "executor_kind": "claude",
+            "executor_mode": "preset",
+            "model": "",
+            "reasoning_effort": "high",
         },
     )
     assert create_response.status_code == 201
     role_definition = create_response.json()["role_definition"]
     assert role_definition["name"] == "Release Builder"
     assert role_definition["archetype"] == "builder"
+    assert role_definition["executor_kind"] == "claude"
+    assert role_definition["reasoning_effort"] == "high"
 
     list_response = client.get("/api/role-definitions")
     assert list_response.status_code == 200
@@ -616,12 +621,30 @@ archetype: builder
 
 Focus on scoped release work with tighter release constraints.
 """,
+            "executor_kind": "codex",
+            "executor_mode": "command",
+            "command_cli": "codex",
+                "command_args_text": "\n".join(
+                    [
+                        "exec",
+                        "--json",
+                        "--cd",
+                        "{workdir}",
+                        "--output-schema",
+                        "{schema_path}",
+                        "--output-last-message",
+                        "{output_path}",
+                        "{prompt}",
+                    ]
+                ),
             "model": "gpt-5.4",
+            "reasoning_effort": "",
         },
     )
     assert update_response.status_code == 200
     updated_role_definition = update_response.json()["role_definition"]
     assert updated_role_definition["name"] == "Release Builder v2"
+    assert updated_role_definition["executor_mode"] == "command"
     assert updated_role_definition["model"] == "gpt-5.4"
 
     delete_response = client.delete(f"/api/role-definitions/{role_definition['id']}")

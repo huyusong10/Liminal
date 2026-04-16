@@ -171,7 +171,12 @@ class LooporaRepository:
                     archetype TEXT NOT NULL,
                     prompt_ref TEXT NOT NULL,
                     prompt_markdown TEXT NOT NULL,
+                    executor_kind TEXT NOT NULL DEFAULT 'codex',
+                    executor_mode TEXT NOT NULL DEFAULT 'preset',
+                    command_cli TEXT NOT NULL DEFAULT 'codex',
+                    command_args_text TEXT NOT NULL DEFAULT '',
                     model TEXT NOT NULL DEFAULT '',
+                    reasoning_effort TEXT NOT NULL DEFAULT 'medium',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -195,6 +200,11 @@ class LooporaRepository:
             self._ensure_column(connection, "loop_runs", "completion_mode", "TEXT NOT NULL DEFAULT 'gatekeeper'")
             self._ensure_column(connection, "loop_definitions", "iteration_interval_seconds", "REAL NOT NULL DEFAULT 0")
             self._ensure_column(connection, "loop_runs", "iteration_interval_seconds", "REAL NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "role_definitions", "executor_kind", "TEXT NOT NULL DEFAULT 'codex'")
+            self._ensure_column(connection, "role_definitions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
+            self._ensure_column(connection, "role_definitions", "command_cli", "TEXT NOT NULL DEFAULT 'codex'")
+            self._ensure_column(connection, "role_definitions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "role_definitions", "reasoning_effort", "TEXT NOT NULL DEFAULT 'medium'")
 
     @staticmethod
     def _ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -372,8 +382,10 @@ class LooporaRepository:
             connection.execute(
                 """
                 INSERT INTO role_definitions (
-                    id, name, description, archetype, prompt_ref, prompt_markdown, model, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, name, description, archetype, prompt_ref, prompt_markdown,
+                    executor_kind, executor_mode, command_cli, command_args_text, model, reasoning_effort,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload["id"],
@@ -382,7 +394,12 @@ class LooporaRepository:
                     payload["archetype"],
                     payload["prompt_ref"],
                     payload["prompt_markdown"],
+                    payload.get("executor_kind", "codex"),
+                    payload.get("executor_mode", "preset"),
+                    payload.get("command_cli", "codex"),
+                    payload.get("command_args_text", ""),
                     payload.get("model", ""),
+                    payload.get("reasoning_effort", "medium"),
                     now,
                     now,
                 ),
@@ -398,7 +415,9 @@ class LooporaRepository:
             connection.execute(
                 """
                 UPDATE role_definitions
-                SET name = ?, description = ?, archetype = ?, prompt_ref = ?, prompt_markdown = ?, model = ?, updated_at = ?
+                SET name = ?, description = ?, archetype = ?, prompt_ref = ?, prompt_markdown = ?,
+                    executor_kind = ?, executor_mode = ?, command_cli = ?, command_args_text = ?, model = ?, reasoning_effort = ?,
+                    updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -407,7 +426,12 @@ class LooporaRepository:
                     payload["archetype"],
                     payload["prompt_ref"],
                     payload["prompt_markdown"],
+                    payload.get("executor_kind", "codex"),
+                    payload.get("executor_mode", "preset"),
+                    payload.get("command_cli", "codex"),
+                    payload.get("command_args_text", ""),
                     payload.get("model", ""),
+                    payload.get("reasoning_effort", "medium"),
                     now,
                     role_definition_id,
                 ),

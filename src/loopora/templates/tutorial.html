@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Loopora Tutorial{% endblock %}
+{% block content %}
+<div class="page-stack" data-testid="tutorial-page">
+  <section class="hero hero-tight">
+    <div class="hero-copy-stack">
+      <h1>
+        <span data-lang="zh">按正确顺序使用 Loopora：先定义角色，再编排流程，最后创建循环。</span>
+        <span data-lang="en">Use Loopora in the right order: define roles first, orchestrate the flow second, then create loops.</span>
+      </h1>
+      <p>
+        <span data-lang="zh">Loopora 现在把“角色是谁、怎么执行”和“流程怎么串起来”拆开了。照着下面三步走，后面的循环会清爽很多。</span>
+        <span data-lang="en">Loopora now separates role identity and execution from orchestration wiring. Follow the three steps below and your loops stay much easier to reason about.</span>
+      </p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <header class="panel-header">
+      <h2><span data-lang="zh">推荐流程</span><span data-lang="en">Recommended flow</span></h2>
+    </header>
+    <div class="loop-grid">
+      <article class="loop-card">
+        <div class="loop-card-head">
+          <div>
+            <strong><span data-lang="zh">1. 角色定义</span><span data-lang="en">1. Role definitions</span></strong>
+            <p class="loop-card-meta"><span data-lang="zh">先定义角色是谁、权限多大、默认用什么工具执行。</span><span data-lang="en">Define who the role is, how much permission it has, and which tool it uses by default.</span></p>
+          </div>
+        </div>
+        <p>
+          <span data-lang="zh">这里负责角色名、角色模板、默认 prompt、执行工具、模型和推理配置。完全自定义角色也在这里创建，但它默认是最低权限，只负责读、分析和建议。</span>
+          <span data-lang="en">This is where role names, role templates, default prompts, executors, models, and reasoning settings live. Fully custom roles are created here too, but they stay low-permission by default and focus on reading, analysis, and recommendations.</span>
+        </p>
+        <div class="card-actions">
+          <a class="secondary-button" href="/roles">
+            <span data-lang="zh">打开角色定义</span>
+            <span data-lang="en">Open roles</span>
+          </a>
+        </div>
+      </article>
+
+      <article class="loop-card">
+        <div class="loop-card-head">
+          <div>
+            <strong><span data-lang="zh">2. 流程编排</span><span data-lang="en">2. Orchestrations</span></strong>
+            <p class="loop-card-meta"><span data-lang="zh">再把角色定义串成步骤顺序和收束逻辑。</span><span data-lang="en">Then wire those role definitions into step order and completion rules.</span></p>
+          </div>
+        </div>
+        <p>
+          <span data-lang="zh">编排页只负责选哪些角色、每轮按什么顺序跑、哪些步骤启用，以及 GateKeeper 通过后是否结束。角色 prompt 和执行工具不在这里改。</span>
+          <span data-lang="en">The orchestration page only chooses roles, defines iteration order, enables or disables steps, and decides whether GateKeeper finishes the run. Prompt and executor changes do not happen here.</span>
+        </p>
+        <div class="card-actions">
+          <a class="secondary-button" href="/orchestrations">
+            <span data-lang="zh">打开流程编排</span>
+            <span data-lang="en">Open orchestrations</span>
+          </a>
+        </div>
+      </article>
+
+      <article class="loop-card">
+        <div class="loop-card-head">
+          <div>
+            <strong><span data-lang="zh">3. 创建循环</span><span data-lang="en">3. Create loops</span></strong>
+            <p class="loop-card-meta"><span data-lang="zh">最后把编排放进具体项目里运行。</span><span data-lang="en">Finally, apply the orchestration to a concrete project.</span></p>
+          </div>
+        </div>
+        <p>
+          <span data-lang="zh">创建循环页只关心 workdir、spec、选哪套编排，以及运行策略，比如按守门裁决结束，还是按固定轮次推进、轮次之间等待多久。</span>
+          <span data-lang="en">The create-loop page only cares about workdir, spec, which orchestration to use, and runtime policy such as GateKeeper completion, round-based completion, and the wait between rounds.</span>
+        </p>
+        <div class="card-actions">
+          <a class="secondary-button" href="/loops/new">
+            <span data-lang="zh">打开创建循环</span>
+            <span data-lang="en">Open loop creation</span>
+          </a>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel">
+    <header class="panel-header">
+      <h2><span data-lang="zh">关键原则</span><span data-lang="en">Key principles</span></h2>
+    </header>
+    <div class="stacked-copy">
+      <p>
+        <span data-lang="zh">角色定义回答“这个角色是谁、能做什么、默认怎么跑”。流程编排回答“这些角色怎样协作”。创建循环回答“这套流程在这个项目里怎么持续运行”。</span>
+        <span data-lang="en">Role definitions answer “who is this role and how does it run by default”. Orchestrations answer “how do these roles collaborate”. Loop creation answers “how should this collaboration keep running in this project”.</span>
+      </p>
+      <p>
+        <span data-lang="zh">如果你发现自己想在编排里改 prompt 或执行工具，通常说明这项改动应该回到“角色定义”。如果你只是想调整运行频率、最大轮数或 completion mode，那就是“创建循环”的职责。</span>
+        <span data-lang="en">If you find yourself trying to change prompts or executors inside an orchestration, that usually means the change belongs back in Role Definitions. If you only want to tune cadence, max rounds, or completion mode, that belongs in Create Loop.</span>
+      </p>
+    </div>
+  </section>
+</div>
+{% endblock %}

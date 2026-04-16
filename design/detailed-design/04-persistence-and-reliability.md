@@ -12,9 +12,9 @@
 
 | 持久对象 | 保存内容 | 对外承诺 |
 |----------|----------|----------|
-| loop definition | 可执行模板、运行参数、编排引用 | 可被重新读取并复用 |
+| loop definition | 可执行模板、runtime 策略、编排引用 | 可被重新读取并复用 |
 | orchestration definition | workflow 与 prompt 资产 | 可被列出、复制、编辑与复用 |
-| role definition | 角色模版、默认模型、prompt 资产 | 可被列出、复制、编辑与复用 |
+| role definition | 角色模版、默认执行配置、prompt 资产 | 可被列出、复制、编辑与复用 |
 | run record | 生命周期状态、当前轮次、终态摘要、最近裁决 | 可被恢复、查询、停止与复盘 |
 | run event stream | 关键状态转换与角色阶段事件 | 外部观察面可增量消费 |
 | workspace lock | 当前工作区是否被活动 run 占用 | 同一工作区不会被多个活动 run 并发驱动 |
@@ -32,6 +32,12 @@
 | 启动 run | 申请工作区锁并创建 run record | 可执行的活动实例 |
 | 运行中事件 | 追加关键事件并更新 run 状态 | 可流式观察的时间线 |
 | 终态或异常 | 释放工作区锁并写入终态摘要 | 可恢复、可解释的结束状态 |
+
+补充约束：
+
+- role definition 的执行配置与 prompt 一起持久化，供 orchestration 复制成角色快照
+- orchestration 保存的是角色快照与步骤，不直接回写 role definition
+- loop definition 保存的是运行策略与 orchestration 引用，不重新定义角色默认执行配置
 
 ## 4. 可靠性控制件
 

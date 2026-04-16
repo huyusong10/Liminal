@@ -9,7 +9,9 @@ from loopora.workflows import (
     WorkflowError,
     build_preset_workflow,
     builtin_prompt_markdown,
+    default_role_execution_settings,
     display_name_for_archetype,
+    normalize_role_execution_settings,
     normalize_archetype,
     normalize_workflow,
     preset_names,
@@ -63,23 +65,29 @@ class WorkflowAssetCatalog:
 
     def _build_builtin_role_definition_records(self) -> list[dict]:
         descriptions = {
-            "builder": "Edits the workspace and pushes the implementation forward.",
-            "inspector": "Collects evidence, tests, and benchmark results.",
+            "builder": "Edits the workspace and pushes implementation forward.",
+            "inspector": "Collects evidence, checks, and benchmark results.",
             "gatekeeper": "Decides whether the evidence is strong enough to pass.",
             "guide": "Suggests the next direction when progress stalls.",
+            "custom": "A low-permission custom support role that can read, analyze, and recommend, but cannot close the run.",
         }
         records = []
         for archetype in ARCHETYPES:
-            prompt_ref = "gatekeeper.md" if archetype == "gatekeeper" else f"{archetype}.md"
+            prompt_ref = {
+                "gatekeeper": "gatekeeper.md",
+            }.get(archetype, f"{archetype}.md")
+            default_name = display_name_for_archetype(archetype, locale="en")
+            if archetype == "custom":
+                default_name = "Custom (Restricted)"
             records.append(
                 {
                     "id": f"builtin:{archetype}",
-                    "name": display_name_for_archetype(archetype, locale="en"),
+                    "name": default_name,
                     "description": descriptions.get(archetype, ""),
                     "archetype": archetype,
                     "prompt_ref": prompt_ref,
                     "prompt_markdown": builtin_prompt_markdown(prompt_ref),
-                    "model": "",
+                    **default_role_execution_settings(),
                     "source": "builtin",
                     "editable": False,
                     "deletable": False,
@@ -110,14 +118,18 @@ class WorkflowAssetCatalog:
         archetype: str,
         prompt_ref: str,
         prompt_markdown: str,
+        executor_kind: str = "codex",
+        executor_mode: str = "preset",
+        command_cli: str = "",
+        command_args_text: str = "",
         model: str = "",
+        reasoning_effort: str = "",
     ) -> dict:
         normalized = {
             "name": str(name).strip(),
             "description": str(description).strip(),
             "prompt_ref": str(prompt_ref).strip(),
             "prompt_markdown": str(prompt_markdown),
-            "model": str(model).strip(),
         }
         if not normalized["name"]:
             raise ValueError("name is required")
@@ -125,6 +137,18 @@ class WorkflowAssetCatalog:
             raise ValueError("prompt_ref is required")
         normalized["archetype"] = normalize_archetype(archetype)
         validate_prompt_markdown(normalized["prompt_markdown"], expected_archetype=normalized["archetype"])
+        normalized.update(
+            normalize_role_execution_settings(
+                {
+                    "executor_kind": executor_kind,
+                    "executor_mode": executor_mode,
+                    "command_cli": command_cli,
+                    "command_args_text": command_args_text,
+                    "model": model,
+                    "reasoning_effort": reasoning_effort,
+                }
+            )
+        )
         return normalized
 
     def list_role_definitions(self) -> list[dict]:
@@ -156,7 +180,12 @@ class WorkflowAssetCatalog:
         archetype: str,
         prompt_ref: str,
         prompt_markdown: str,
+        executor_kind: str = "codex",
+        executor_mode: str = "preset",
+        command_cli: str = "",
+        command_args_text: str = "",
         model: str = "",
+        reasoning_effort: str = "",
     ) -> dict:
         payload = self._normalize_role_definition_payload(
             name=name,
@@ -164,7 +193,12 @@ class WorkflowAssetCatalog:
             archetype=archetype,
             prompt_ref=prompt_ref,
             prompt_markdown=prompt_markdown,
+            executor_kind=executor_kind,
+            executor_mode=executor_mode,
+            command_cli=command_cli,
+            command_args_text=command_args_text,
             model=model,
+            reasoning_effort=reasoning_effort,
         )
         role_definition = self.repository.create_role_definition(
             {
@@ -183,7 +217,12 @@ class WorkflowAssetCatalog:
         archetype: str,
         prompt_ref: str,
         prompt_markdown: str,
+        executor_kind: str = "codex",
+        executor_mode: str = "preset",
+        command_cli: str = "",
+        command_args_text: str = "",
         model: str = "",
+        reasoning_effort: str = "",
     ) -> dict:
         existing = self.get_role_definition(role_definition_id)
         if existing.get("source") == "builtin":
@@ -194,7 +233,12 @@ class WorkflowAssetCatalog:
             archetype=archetype,
             prompt_ref=prompt_ref,
             prompt_markdown=prompt_markdown,
+            executor_kind=executor_kind,
+            executor_mode=executor_mode,
+            command_cli=command_cli,
+            command_args_text=command_args_text,
             model=model,
+            reasoning_effort=reasoning_effort,
         )
         updated = self.repository.update_role_definition(role_definition_id, payload)
         if not updated:

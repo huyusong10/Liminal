@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-ARCHETYPES = ("builder", "inspector", "gatekeeper", "guide")
+from loopora.executor import validate_command_args_text
+from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
+
+ARCHETYPES = ("builder", "inspector", "gatekeeper", "guide", "custom")
 LEGACY_ROLE_TO_ARCHETYPE = {
     "generator": "builder",
     "tester": "inspector",
@@ -17,12 +21,14 @@ LEGACY_ROLE_TO_ARCHETYPE = {
     "inspector": "inspector",
     "gatekeeper": "gatekeeper",
     "guide": "guide",
+    "custom": "custom",
 }
 ARCHETYPE_DISPLAY = {
     "builder": {"zh": "建造者", "en": "Builder"},
     "inspector": {"zh": "巡检者", "en": "Inspector"},
     "gatekeeper": {"zh": "守门人", "en": "GateKeeper"},
     "guide": {"zh": "向导", "en": "Guide"},
+    "custom": {"zh": "自定义角色", "en": "Custom Role"},
 }
 LEGACY_ROLE_BY_ARCHETYPE = {
     "builder": "generator",
@@ -36,39 +42,98 @@ PROMPT_FILES = {
     "gatekeeper": "gatekeeper.md",
     "gatekeeper-benchmark": "gatekeeper-benchmark.md",
     "guide": "guide.md",
+    "custom": "custom.md",
 }
 PROMPT_ASSET_DIR = Path(__file__).parent / "assets" / "prompts"
+ROLE_EXECUTION_FIELDS = (
+    "executor_kind",
+    "executor_mode",
+    "command_cli",
+    "command_args_text",
+    "model",
+    "reasoning_effort",
+)
+
+
+def default_role_execution_settings(executor_kind: str = "codex") -> dict[str, str]:
+    profile = executor_profile(executor_kind)
+    return {
+        "executor_kind": profile.key,
+        "executor_mode": "preset",
+        "command_cli": profile.cli_name,
+        "command_args_text": "",
+        "model": profile.default_model,
+        "reasoning_effort": profile.effort_default,
+    }
+
+
+def normalize_role_execution_settings(
+    raw_settings: Mapping[str, Any] | None = None,
+    *,
+    default_executor_kind: str = "codex",
+) -> dict[str, str]:
+    settings = dict(raw_settings or {})
+    executor_kind = normalize_executor_kind(str(settings.get("executor_kind", default_executor_kind)).strip() or default_executor_kind)
+    executor_mode = normalize_executor_mode(str(settings.get("executor_mode", "preset")).strip() or "preset")
+    profile = executor_profile(executor_kind)
+    model = str(settings.get("model", "")).strip()
+    reasoning_effort = str(settings.get("reasoning_effort", "")).strip()
+    command_cli = str(settings.get("command_cli", "")).strip()
+    command_args_text = str(settings.get("command_args_text", ""))
+
+    if executor_mode == "preset":
+        command_cli = profile.cli_name
+        command_args_text = ""
+        reasoning_effort = normalize_reasoning_setting(reasoning_effort, executor_kind=executor_kind)
+        if not model and profile.default_model:
+            model = profile.default_model
+    else:
+        command_cli = command_cli or profile.cli_name
+        validate_command_args_text(command_args_text, executor_kind=executor_kind)
+
+    return {
+        "executor_kind": executor_kind,
+        "executor_mode": executor_mode,
+        "command_cli": command_cli,
+        "command_args_text": command_args_text,
+        "model": model,
+        "reasoning_effort": reasoning_effort,
+    }
+
+
+def role_uses_execution_snapshot(role: Mapping[str, Any] | None) -> bool:
+    if not isinstance(role, Mapping):
+        return False
+    return any(
+        key in role
+        for key in ("executor_kind", "executor_mode", "command_cli", "command_args_text", "reasoning_effort")
+    )
+
+
+def _preset_role(
+    *,
+    role_id: str,
+    archetype: str,
+    prompt_ref: str,
+    role_definition_id: str,
+) -> dict[str, str]:
+    return {
+        "id": role_id,
+        "name": ARCHETYPE_DISPLAY[archetype]["en"],
+        "archetype": archetype,
+        "prompt_ref": prompt_ref,
+        "role_definition_id": role_definition_id,
+        **default_role_execution_settings(),
+    }
+
+
 WORKFLOW_PRESETS = {
     "build_first": {
         "roles": [
-            {
-                "id": "builder",
-                "name": "Builder",
-                "archetype": "builder",
-                "prompt_ref": PROMPT_FILES["builder"],
-                "role_definition_id": "builtin:builder",
-            },
-            {
-                "id": "inspector",
-                "name": "Inspector",
-                "archetype": "inspector",
-                "prompt_ref": PROMPT_FILES["inspector"],
-                "role_definition_id": "builtin:inspector",
-            },
-            {
-                "id": "gatekeeper",
-                "name": "GateKeeper",
-                "archetype": "gatekeeper",
-                "prompt_ref": PROMPT_FILES["gatekeeper"],
-                "role_definition_id": "builtin:gatekeeper",
-            },
-            {
-                "id": "guide",
-                "name": "Guide",
-                "archetype": "guide",
-                "prompt_ref": PROMPT_FILES["guide"],
-                "role_definition_id": "builtin:guide",
-            },
+            _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
+            _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
+            _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
+            _preset_role(role_id="guide", archetype="guide", prompt_ref=PROMPT_FILES["guide"], role_definition_id="builtin:guide"),
         ],
         "steps": [
             {"id": "builder_step", "role_id": "builder", "enabled": True},
@@ -79,34 +144,10 @@ WORKFLOW_PRESETS = {
     },
     "inspect_first": {
         "roles": [
-            {
-                "id": "inspector",
-                "name": "Inspector",
-                "archetype": "inspector",
-                "prompt_ref": PROMPT_FILES["inspector"],
-                "role_definition_id": "builtin:inspector",
-            },
-            {
-                "id": "builder",
-                "name": "Builder",
-                "archetype": "builder",
-                "prompt_ref": PROMPT_FILES["builder"],
-                "role_definition_id": "builtin:builder",
-            },
-            {
-                "id": "gatekeeper",
-                "name": "GateKeeper",
-                "archetype": "gatekeeper",
-                "prompt_ref": PROMPT_FILES["gatekeeper"],
-                "role_definition_id": "builtin:gatekeeper",
-            },
-            {
-                "id": "guide",
-                "name": "Guide",
-                "archetype": "guide",
-                "prompt_ref": PROMPT_FILES["guide"],
-                "role_definition_id": "builtin:guide",
-            },
+            _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
+            _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
+            _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
+            _preset_role(role_id="guide", archetype="guide", prompt_ref=PROMPT_FILES["guide"], role_definition_id="builtin:guide"),
         ],
         "steps": [
             {"id": "inspector_step", "role_id": "inspector", "enabled": True},
@@ -117,20 +158,8 @@ WORKFLOW_PRESETS = {
     },
     "benchmark_loop": {
         "roles": [
-            {
-                "id": "gatekeeper",
-                "name": "GateKeeper",
-                "archetype": "gatekeeper",
-                "prompt_ref": PROMPT_FILES["gatekeeper-benchmark"],
-                "role_definition_id": "builtin:gatekeeper",
-            },
-            {
-                "id": "builder",
-                "name": "Builder",
-                "archetype": "builder",
-                "prompt_ref": PROMPT_FILES["builder"],
-                "role_definition_id": "builtin:builder",
-            },
+            _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper-benchmark"], role_definition_id="builtin:gatekeeper"),
+            _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
         ],
         "steps": [
             {"id": "gatekeeper_step", "role_id": "gatekeeper", "enabled": True, "on_pass": "finish_run"},
@@ -348,19 +377,24 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
         name = str(raw_role.get("name", "")).strip() or display_name_for_archetype(archetype, locale="en")
         model = str(raw_role.get("model", "")).strip()
         role_definition_id = str(raw_role.get("role_definition_id", "")).strip()
-        if not model:
-            model = normalized_role_models.get(role_id, normalized_role_models.get(archetype, ""))
+        override_model = normalized_role_models.get(role_id, normalized_role_models.get(archetype, ""))
+        if override_model:
+            model = override_model
         role_ids.add(role_id)
-        roles.append(
-            {
-                "id": role_id,
-                "name": name,
-                "archetype": archetype,
-                "prompt_ref": prompt_ref,
-                "model": model,
-                "role_definition_id": role_definition_id,
-            }
-        )
+        role_entry = {
+            "id": role_id,
+            "name": name,
+            "archetype": archetype,
+            "prompt_ref": prompt_ref,
+            "model": model,
+            "role_definition_id": role_definition_id,
+        }
+        if role_uses_execution_snapshot(raw_role):
+            execution_settings = normalize_role_execution_settings(raw_role)
+            role_entry.update(execution_settings)
+            if model:
+                role_entry["model"] = model
+        roles.append(role_entry)
 
     steps: list[dict[str, Any]] = []
     for index, raw_step in enumerate(raw_steps, start=1):

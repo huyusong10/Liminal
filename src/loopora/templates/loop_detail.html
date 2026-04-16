@@ -32,10 +32,8 @@
   </header>
   <dl class="meta-grid">
     <div><dt><span data-lang="zh">Loop ID</span><span data-lang="en">Loop ID</span></dt><dd>{{ loop.id }}</dd></div>
-    <div><dt><span data-lang="zh">执行工具</span><span data-lang="en">Executor</span></dt><dd>{{ latest_run.executor_label if latest_run else loop.executor_label }}</dd></div>
     <div><dt><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></dt><dd>{{ loop.orchestration.name if loop.orchestration else "-" }}</dd></div>
-    <div><dt><span data-lang="zh">模型</span><span data-lang="en">Model</span></dt><dd>{{ loop.model or "-" }}</dd></div>
-    <div><dt><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning</span></dt><dd>{{ loop.reasoning_effort }}</dd></div>
+    <div><dt><span data-lang="zh">角色执行</span><span data-lang="en">Role runtime</span></dt><dd>{{ latest_run.role_executor_summary if latest_run else loop.role_executor_summary }}</dd></div>
     <div><dt><span data-lang="zh">完成方式</span><span data-lang="en">Completion</span></dt><dd>{% if loop.completion_mode == "rounds" %}<span data-lang="zh">轮次推进</span><span data-lang="en">Rounds</span>{% else %}<span data-lang="zh">守门裁决</span><span data-lang="en">GateKeeper</span>{% endif %}</dd></div>
     <div><dt><span data-lang="zh">轮次间隔</span><span data-lang="en">Interval</span></dt><dd>{{ loop.iteration_interval_seconds }}s</dd></div>
     <div><dt><span data-lang="zh">最大迭代</span><span data-lang="en">Max iters</span></dt><dd>{% if loop.max_iters %}{{ loop.max_iters }}{% else %}<span data-lang="zh">无限</span><span data-lang="en">infinite</span>{% endif %}</dd></div>

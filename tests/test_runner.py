@@ -240,6 +240,63 @@ def test_workflow_step_model_override_is_used_for_role_requests(
     assert builder_request["model"] == "gpt-5.4-mini"
 
 
+def test_workflow_roles_can_use_distinct_executor_snapshots(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    workflow = {
+        "version": 1,
+        "roles": [
+            {
+                "id": "builder",
+                "name": "Builder",
+                "archetype": "builder",
+                "prompt_ref": "builder.md",
+                "executor_kind": "codex",
+                "executor_mode": "preset",
+                "model": "gpt-5.4-mini",
+                "reasoning_effort": "high",
+            },
+            {
+                "id": "custom_helper",
+                "name": "Custom Helper",
+                "archetype": "custom",
+                "prompt_ref": "custom.md",
+                "executor_kind": "claude",
+                "executor_mode": "preset",
+                "model": "",
+                "reasoning_effort": "high",
+            },
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder", "enabled": True},
+            {"id": "custom_step", "role_id": "custom_helper", "enabled": True},
+        ],
+    }
+
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Per Role Executor Loop",
+        workflow=workflow,
+        completion_mode="rounds",
+        max_iters=1,
+    )
+    run = service.rerun(loop["id"])
+
+    role_requests = _read_jsonl(Path(run["runs_dir"]) / "role_requests.jsonl")
+    builder_request = next(item for item in role_requests if item.get("step_id") == "builder_step")
+    custom_request = next(item for item in role_requests if item.get("step_id") == "custom_step")
+
+    assert builder_request["executor_kind"] == "codex"
+    assert builder_request["model"] == "gpt-5.4-mini"
+    assert custom_request["executor_kind"] == "claude"
+    assert custom_request["role_archetype"] == "custom"
+
+
 def test_round_completion_mode_can_finish_without_gatekeeper(
     service_factory,
     sample_spec_file: Path,

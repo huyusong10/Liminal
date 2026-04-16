@@ -794,6 +794,22 @@ class FakeCodexExecutor(CodexExecutor):
                 "meta_note": "This is a suggestion, not a command.",
             }
 
+        if archetype == "custom":
+            return {
+                "summary": "Collected read-only evidence and prepared a scoped handoff.",
+                "observations": [
+                    "The custom role stayed inside the current workspace evidence.",
+                    "No write action was claimed from this restricted role.",
+                ],
+                "recommendations": [
+                    "Use the strongest evidence path for the next change.",
+                ],
+                "risks": [
+                    "A restricted role can guide the next move but cannot close the loop alone.",
+                ],
+                "handoff_note": "Pass these observations to a Builder or Inspector step.",
+            }
+
         raise ExecutorError(f"unsupported fake role: {request.role}")
 
 

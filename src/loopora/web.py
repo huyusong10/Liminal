@@ -38,6 +38,7 @@ from loopora.workflows import (
     available_prompt_templates,
     build_preset_workflow,
     builtin_prompt_markdown,
+    default_role_execution_settings,
     display_name_for_archetype,
     normalize_workflow,
     preset_names,
@@ -53,12 +54,6 @@ DEFAULT_LOOP_FORM = {
     "workdir": "",
     "spec_path": "",
     "orchestration_id": "builtin:build_first",
-    "executor_kind": "codex",
-    "executor_mode": "preset",
-    "command_cli": "codex",
-    "command_args_text": "",
-    "model": "gpt-5.4",
-    "reasoning_effort": "medium",
     "completion_mode": "gatekeeper",
     "iteration_interval_seconds": 0,
     "max_iters": 8,
@@ -66,10 +61,6 @@ DEFAULT_LOOP_FORM = {
     "delta_threshold": 0.005,
     "trigger_window": 4,
     "regression_window": 2,
-    "role_model_builder": "",
-    "role_model_inspector": "",
-    "role_model_gatekeeper": "",
-    "role_model_guide": "",
     "start_immediately": True,
 }
 
@@ -87,7 +78,7 @@ DEFAULT_ROLE_DEFINITION_FORM = {
     "archetype": "builder",
     "prompt_ref": "builder.md",
     "prompt_markdown": builtin_prompt_markdown("builder.md"),
-    "model": "",
+    **default_role_execution_settings(),
 }
 
 WORKFLOW_PRESET_COPY = {
@@ -319,8 +310,8 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             page_copy = {
                 "title_zh": "修改编排，让后续 loop 继续沿着新的流程走。",
                 "title_en": "Refine this orchestration before future loops use the new flow.",
-                "body_zh": "这里改的是已经保存的编排方案。保存后，新建 loop 会用新版；已有 loop 和历史 run 不会被回写。",
-                "body_en": "You are editing a saved orchestration. New loops will use the updated version, while existing loops and historical runs keep their frozen snapshots.",
+                "body_zh": "这里改的是已经保存的流程编排。你可以调整角色定义的引用关系、步骤顺序和收束规则；角色 prompt 和执行方式请回到“角色定义”页修改。",
+                "body_en": "You are editing a saved orchestration. Adjust role-definition snapshots, step order, and completion rules here; return to Role Definitions to change prompts or execution settings.",
                 "submit_zh": "保存修改",
                 "submit_en": "Save changes",
                 "action": f"/orchestrations/{current_orchestration['id']}/edit",
@@ -329,8 +320,8 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             page_copy = {
                 "title_zh": "从内置编排出发，改成更适合你团队的版本。",
                 "title_en": "Start from the built-in orchestration, then tailor it to your team.",
-                "body_zh": "这是内置方案的可编辑副本。你可以调整角色、步骤和 prompt；保存时会另存为新的自定义编排。",
-                "body_en": "This is an editable copy of a built-in orchestration. Adjust roles, steps, and prompts here, then save it as a new custom orchestration.",
+                "body_zh": "这是内置方案的可编辑副本。你可以替换角色定义、重排步骤，并决定 GateKeeper 怎样收束流程；角色 prompt 和执行工具配置不在这里改。",
+                "body_en": "This is an editable copy of a built-in orchestration. Swap role definitions, reorder steps, and decide how GateKeeper closes the run; prompts and executor choices live in Role Definitions.",
                 "submit_zh": "保存为新编排",
                 "submit_en": "Save as new orchestration",
                 "action": "/orchestrations/new",
@@ -339,8 +330,8 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             page_copy = {
                 "title_zh": "先把流程编排清楚，再让 loop 去执行。",
                 "title_en": "Shape the orchestration first, then let loops execute it.",
-                "body_zh": "保存后，这套 Builder / Inspector / GateKeeper / Guide 流程就能在创建 loop 时直接复用。",
-                "body_en": "Once saved, this Builder / Inspector / GateKeeper / Guide orchestration can be reused directly when creating loops.",
+                "body_zh": "编排页只负责引用角色定义、安排步骤顺序和配置流程收束。角色 prompt、权限边界和执行工具，都在“角色定义”页维护。",
+                "body_en": "The orchestration page only wires role definitions together, sets step order, and configures completion rules. Prompts, permission boundaries, and executor settings live in Role Definitions.",
                 "submit_zh": "保存编排",
                 "submit_en": "Save orchestration",
                 "action": "/orchestrations/new",
@@ -369,12 +360,19 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         )
 
     def render_role_definitions(request: Request) -> HTMLResponse:
+        role_definitions = [
+            {
+                **role_definition,
+                "executor_label": executor_profile(role_definition.get("executor_kind", "codex")).label,
+            }
+            for role_definition in svc().list_role_definitions()
+        ]
         return templates.TemplateResponse(
             request,
             "role_definitions.html",
             {
                 "request": request,
-                "role_definitions": svc().list_role_definitions(),
+                "role_definitions": role_definitions,
                 "access_state": access_state,
             },
         )
@@ -395,8 +393,8 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             page_copy = {
                 "title_zh": "修改这条角色定义，让后续编排都能复用新的版本。",
                 "title_en": "Refine this role definition so future orchestrations can reuse it.",
-                "body_zh": "这里改的是已经保存的角色定义。保存后，新的编排可以继续引用它；已有编排里的角色快照不会被回写。",
-                "body_en": "You are editing a saved role definition. New orchestrations can keep reusing it, while existing orchestrations keep their frozen role snapshots.",
+                "body_zh": "这里改的是已经保存的角色定义。保存后，新的编排会继续引用它；已有编排里的角色快照不会被回写。",
+                "body_en": "You are editing a saved role definition. Future orchestrations keep reusing it, while existing orchestrations keep their frozen role snapshots.",
                 "submit_zh": "保存修改",
                 "submit_en": "Save changes",
                 "action": f"/roles/{current_role_definition['id']}/edit",
@@ -405,8 +403,8 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             page_copy = {
                 "title_zh": "从内置角色出发，改成你团队自己的角色版本。",
                 "title_en": "Start from a built-in role, then tailor it to your team.",
-                "body_zh": "这是内置角色的可编辑副本。你可以修改名字、默认模型和 prompt，保存时会另存为新的自定义角色定义。",
-                "body_en": "This is an editable copy of a built-in role. Adjust the name, default model, and prompt, then save it as a new custom role definition.",
+                "body_zh": "这是内置角色的可编辑副本。你可以修改角色名、角色模板、默认执行工具、模型和 prompt，保存时会另存为新的自定义角色定义。",
+                "body_en": "This is an editable copy of a built-in role. Adjust the role name, role template, default executor, model, and prompt, then save it as a new custom role definition.",
                 "submit_zh": "保存为新角色",
                 "submit_en": "Save as new role",
                 "action": "/roles/new",
@@ -415,8 +413,8 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             page_copy = {
                 "title_zh": "先把角色定义好，后面的编排就能直接拿来用。",
                 "title_en": "Define the role once, then let orchestrations reuse it directly.",
-                "body_zh": "角色定义保存的是角色名、原型、默认模型和 prompt 模版。编排里选中后，会把这些字段带进去作为角色快照。",
-                "body_en": "A role definition stores the role name, archetype, default model, and prompt template. When an orchestration selects it, those values are copied in as a role snapshot.",
+                "body_zh": "角色定义保存的是角色名、角色模板、权限边界、默认执行工具、模型和 prompt 模版。编排里选中后，会把这些字段带进去作为角色快照。",
+                "body_en": "A role definition stores the role name, role template, permission boundary, default executor, model, and prompt template. When an orchestration selects it, those values are copied in as a role snapshot.",
                 "submit_zh": "保存角色",
                 "submit_en": "Save role",
                 "action": "/roles/new",
@@ -431,6 +429,24 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                 "page_copy": page_copy,
                 "current_role_definition": current_role_definition,
                 "archetype_options": _archetype_options(),
+                "executor_profiles": list_executor_profiles(),
+                "builtin_role_templates": {
+                    archetype: {
+                        "prompt_ref": "gatekeeper.md" if archetype == "gatekeeper" else f"{archetype}.md",
+                        "prompt_markdown": builtin_prompt_markdown("gatekeeper.md" if archetype == "gatekeeper" else f"{archetype}.md"),
+                    }
+                    for archetype in ARCHETYPES
+                },
+                "access_state": access_state,
+            },
+        )
+
+    def render_tutorial(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(
+            request,
+            "tutorial.html",
+            {
+                "request": request,
                 "access_state": access_state,
             },
         )
@@ -526,6 +542,10 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     async def tools_page(request: Request) -> HTMLResponse:
         return render_tools(request)
 
+    @app.get("/tutorial", response_class=HTMLResponse)
+    async def tutorial_page(request: Request) -> HTMLResponse:
+        return render_tutorial(request)
+
     @app.get("/loops/{loop_id}", response_class=HTMLResponse)
     async def loop_detail(request: Request, loop_id: str) -> HTMLResponse:
         loop = svc().get_loop(loop_id)
@@ -536,7 +556,14 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             "loop_detail.html",
             {
                 "request": request,
-                "loop": {**loop, "runs": runs, "executor_label": executor_profile(loop.get("executor_kind", "codex")).label},
+                "loop": {
+                    **loop,
+                    "runs": runs,
+                    "role_executor_summary": _workflow_role_executor_summary(
+                        loop.get("workflow_json") or {},
+                        fallback_executor_kind=loop.get("executor_kind", "codex"),
+                    ),
+                },
                 "latest_run": latest_run,
                 "summary_snapshot": _build_run_summary_snapshot(latest_run) if latest_run else None,
                 "access_state": access_state,
@@ -1026,7 +1053,12 @@ def _role_definition_payload_from_mapping(payload: Mapping[str, object]) -> dict
     archetype = str(payload.get("archetype", "builder")).strip() or "builder"
     prompt_ref = str(payload.get("prompt_ref", "")).strip()
     prompt_markdown = str(payload.get("prompt_markdown", ""))
+    executor_kind = str(payload.get("executor_kind", "codex")).strip() or "codex"
+    executor_mode = str(payload.get("executor_mode", "preset")).strip() or "preset"
+    command_cli = str(payload.get("command_cli", "")).strip()
+    command_args_text = str(payload.get("command_args_text", ""))
     model = str(payload.get("model", "")).strip()
+    reasoning_effort = str(payload.get("reasoning_effort", "")).strip()
     if not name:
         raise LooporaError("name is required")
     if not prompt_ref:
@@ -1039,7 +1071,12 @@ def _role_definition_payload_from_mapping(payload: Mapping[str, object]) -> dict
         "archetype": archetype,
         "prompt_ref": prompt_ref,
         "prompt_markdown": prompt_markdown,
+        "executor_kind": executor_kind,
+        "executor_mode": executor_mode,
+        "command_cli": command_cli,
+        "command_args_text": command_args_text,
         "model": model,
+        "reasoning_effort": reasoning_effort,
     }
 
 
@@ -1172,11 +1209,6 @@ def _normalize_loop_form(values: Mapping[str, object] | None) -> dict[str, objec
     for key in normalized:
         if key in values:
             normalized[key] = values[key]
-    if not str(normalized.get("command_cli", "")).strip():
-        try:
-            normalized["command_cli"] = executor_profile(str(normalized.get("executor_kind", "codex"))).cli_name
-        except ValueError:
-            normalized["command_cli"] = "codex"
     normalized["start_immediately"] = _coerce_bool(normalized.get("start_immediately", True))
     return normalized
 
@@ -1242,6 +1274,11 @@ def _normalize_role_definition_form(values: Mapping[str, object] | None) -> dict
     for key in normalized:
         if key in values:
             normalized[key] = values[key]
+    if not str(normalized.get("command_cli", "")).strip():
+        try:
+            normalized["command_cli"] = executor_profile(str(normalized.get("executor_kind", "codex"))).cli_name
+        except ValueError:
+            normalized["command_cli"] = "codex"
     return normalized
 
 
@@ -1259,14 +1296,25 @@ def _workflow_preset_options() -> list[dict[str, str]]:
 
 
 def _archetype_options() -> list[dict[str, str]]:
-    return [
-        {
-            "id": archetype,
-            "label_zh": display_name_for_archetype(archetype, locale="zh"),
-            "label_en": display_name_for_archetype(archetype, locale="en"),
-        }
-        for archetype in ARCHETYPES
-    ]
+    labels = []
+    for archetype in ARCHETYPES:
+        if archetype == "custom":
+            labels.append(
+                {
+                    "id": archetype,
+                    "label_zh": "自定义（最低权限）",
+                    "label_en": "Custom (Restricted)",
+                }
+            )
+            continue
+        labels.append(
+            {
+                "id": archetype,
+                "label_zh": display_name_for_archetype(archetype, locale="zh"),
+                "label_en": display_name_for_archetype(archetype, locale="en"),
+            }
+        )
+    return labels
 
 
 def _orchestration_form_values_from_record(orchestration: Mapping[str, object]) -> dict[str, object]:
@@ -1287,7 +1335,12 @@ def _role_definition_form_values_from_record(role_definition: Mapping[str, objec
         "archetype": str(role_definition.get("archetype", "builder") or "builder"),
         "prompt_ref": str(role_definition.get("prompt_ref", "")),
         "prompt_markdown": str(role_definition.get("prompt_markdown", "")),
+        "executor_kind": str(role_definition.get("executor_kind", "codex") or "codex"),
+        "executor_mode": str(role_definition.get("executor_mode", "preset") or "preset"),
+        "command_cli": str(role_definition.get("command_cli", "")),
+        "command_args_text": str(role_definition.get("command_args_text", "")),
         "model": str(role_definition.get("model", "")),
+        "reasoning_effort": str(role_definition.get("reasoning_effort", "")),
     }
 
 
@@ -1443,10 +1496,33 @@ def _summary_excerpt(summary_md: str | None) -> str:
     return _truncate_text(text, max_length=170) if text else ""
 
 
+def _workflow_role_executor_summary(workflow: Mapping[str, object] | None, *, fallback_executor_kind: str = "codex") -> str:
+    roles = workflow.get("roles", []) if isinstance(workflow, Mapping) else []
+    if not isinstance(roles, list) or not roles:
+        return "-"
+    counts: dict[str, int] = {}
+    for role in roles:
+        if not isinstance(role, Mapping):
+            continue
+        raw_kind = str(role.get("executor_kind", "")).strip() or fallback_executor_kind
+        try:
+            label = executor_profile(raw_kind).label
+        except ValueError:
+            label = raw_kind or "-"
+        counts[label] = counts.get(label, 0) + 1
+    if not counts:
+        return "-"
+    return " · ".join(
+        f"{label} x{count}" if count > 1 else label
+        for label, count in counts.items()
+    )
+
+
 def _decorate_loop_overview(loop: dict) -> dict:
     latest_run_id = loop.get("latest_run_id")
     latest_status = loop.get("latest_status") or "draft"
     summary_excerpt = _summary_excerpt(loop.get("latest_summary_md"))
+    workflow = loop.get("workflow_json") or {}
     hints = {
         "draft": ("还没有运行，先检查 spec 和工作目录。", "No run yet. Start by checking the spec and workdir."),
         "queued": ("已经进入队列，点进去看最新状态。", "Queued up. Open it to see the current state."),
@@ -1458,8 +1534,9 @@ def _decorate_loop_overview(loop: dict) -> dict:
     hint_zh, hint_en = hints.get(latest_status, hints["draft"])
     return {
         **loop,
-        "executor_label": executor_profile(loop.get("executor_kind", "codex")).label,
-        "executor_mode": loop.get("executor_mode", "preset"),
+        "role_executor_summary": _workflow_role_executor_summary(workflow, fallback_executor_kind=loop.get("executor_kind", "codex")),
+        "role_count": len(workflow.get("roles", []) if isinstance(workflow, Mapping) else []),
+        "step_count": len(workflow.get("steps", []) if isinstance(workflow, Mapping) else []),
         "display_iter": _display_iter(loop.get("latest_current_iter")),
         "card_href": f"/runs/{latest_run_id}" if latest_run_id else f"/loops/{loop['id']}",
         "card_hint_zh": hint_zh,
@@ -1469,10 +1546,10 @@ def _decorate_loop_overview(loop: dict) -> dict:
 
 
 def _decorate_run_overview(run: dict) -> dict:
+    workflow = run.get("workflow_json") or {}
     return {
         **run,
-        "executor_label": executor_profile(run.get("executor_kind", "codex")).label,
-        "executor_mode": run.get("executor_mode", "preset"),
+        "role_executor_summary": _workflow_role_executor_summary(workflow, fallback_executor_kind=run.get("executor_kind", "codex")),
         "display_iter": _display_iter(run.get("current_iter")),
         "summary_excerpt": _summary_excerpt(run.get("summary_md")),
     }

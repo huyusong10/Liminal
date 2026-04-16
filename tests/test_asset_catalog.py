@@ -28,7 +28,9 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
         archetype="builder",
         prompt_ref="release-builder.md",
         prompt_markdown=_prompt_markdown("builder", "Focus on release work."),
+        executor_kind="claude",
         model="gpt-5.4-mini",
+        reasoning_effort="high",
     )
     orchestration = catalog.create_orchestration(
         name="Custom Inspect First",
@@ -50,6 +52,7 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
     assert custom_role["source"] == "custom"
     assert custom_role["editable"] is True
     assert custom_role["deletable"] is True
+    assert custom_role["executor_kind"] == "claude"
 
     assert builtin_orchestration["source"] == "builtin"
     assert builtin_orchestration["workflow_json"]["preset"] == "build_first"
@@ -88,6 +91,7 @@ def test_asset_catalog_role_definition_crud_normalizes_archetypes_and_protects_b
         archetype="generator",
         prompt_ref="legacy-builder.md",
         prompt_markdown=_prompt_markdown("builder", "Keep changes scoped."),
+        executor_kind="codex",
         model="gpt-5.4-mini",
     )
 
@@ -100,10 +104,13 @@ def test_asset_catalog_role_definition_crud_normalizes_archetypes_and_protects_b
         archetype="builder",
         prompt_ref="legacy-builder.md",
         prompt_markdown=_prompt_markdown("builder", "Keep changes very scoped."),
+        executor_kind="opencode",
         model="gpt-5.4",
+        reasoning_effort="max",
     )
     assert updated["name"] == "Legacy Generator v2"
     assert updated["model"] == "gpt-5.4"
+    assert updated["executor_kind"] == "opencode"
 
     with pytest.raises(ValueError, match="built-in role definitions cannot be updated in place"):
         catalog.update_role_definition(

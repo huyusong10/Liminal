@@ -9,8 +9,8 @@
       <span data-lang="en">Define roles once, then pick them freely inside orchestrations.</span>
     </h1>
     <p>
-      <span data-lang="zh">这里保存角色名、原型、默认模型和 prompt 模版。编排选中后，会把它们带进 workflow 作为角色快照。</span>
-      <span data-lang="en">Store the role name, archetype, default model, and prompt template here. Orchestrations copy them in as role snapshots when selected.</span>
+      <span data-lang="zh">这里保存角色名、角色模板、默认执行工具、模型和 prompt 模版。编排选中后，会把它们带进 workflow 作为角色快照。</span>
+      <span data-lang="en">Store the role name, role template, default executor, model, and prompt template here. Orchestrations copy them in as role snapshots when selected.</span>
     </p>
   </div>
   <div class="card-actions">
@@ -40,12 +40,14 @@
             {% else %}
             <span data-lang="zh">自定义角色</span><span data-lang="en">Custom</span>
             {% endif %}
-            · {{ role_definition.archetype }}
+            · {{ role_definition.name if role_definition.archetype == "custom" else role_definition.archetype }}
           </p>
         </div>
       </div>
       <p>{{ role_definition.description or "-" }}</p>
       <p class="loop-card-meta">
+        <span data-lang="zh">执行工具</span><span data-lang="en">Executor</span> {{ role_definition.executor_label }}
+        ·
         <span data-lang="zh">默认模型</span><span data-lang="en">Default model</span> {{ role_definition.model or "-" }}
       </p>
       {% if role_definition.deletable %}

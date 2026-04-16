@@ -476,19 +476,15 @@ def test_new_loop_page_restores_saved_browser_draft(tmp_path: Path) -> None:
                     page.locator('input[name="name"]').fill("Recovered browser draft")
                     page.locator('input[name="workdir"]').fill(str(workdir))
                     page.locator('input[name="spec_path"]').fill(str(spec_path))
-                    page.locator('select[name="executor_kind"]').select_option("claude")
-                    page.locator('select[name="executor_mode"]').select_option("command")
-                    page.locator('input[name="command_cli"]').fill("claude-wrapper")
-                    page.locator('textarea[name="command_args_text"]').fill("--print\n{prompt}")
+                    page.locator('select[name="orchestration_id"]').select_option("builtin:inspect_first")
+                    page.locator('select[name="completion_mode"]').select_option("rounds")
                     page.reload(wait_until="networkidle")
 
                     assert page.locator('input[name="name"]').input_value() == "Recovered browser draft"
                     assert page.locator('input[name="workdir"]').input_value() == str(workdir)
                     assert page.locator('input[name="spec_path"]').input_value() == str(spec_path)
-                    assert page.locator('select[name="executor_kind"]').input_value() == "claude"
-                    assert page.locator('select[name="executor_mode"]').input_value() == "command"
-                    assert page.locator('input[name="command_cli"]').input_value() == "claude-wrapper"
-                    assert page.locator('textarea[name="command_args_text"]').input_value() == "--print\n{prompt}"
+                    assert page.locator('select[name="orchestration_id"]').input_value() == "builtin:inspect_first"
+                    assert page.locator('select[name="completion_mode"]').input_value() == "rounds"
                     assert page.locator("#draft-status").is_visible()
                     assert page.locator("#clear-draft-button").is_visible()
                 finally:
