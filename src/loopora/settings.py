@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from loopora.branding import APP_PACKAGE, app_home_path
+from loopora.diagnostics import LooporaJsonFormatter, get_logger, log_event
 
 
 @dataclass(slots=True)
@@ -18,7 +19,7 @@ class AppSettings:
     role_idle_timeout_seconds: float = 300.0
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def app_home() -> Path:
@@ -54,7 +55,14 @@ def load_settings() -> AppSettings:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        logger.warning("failed to read %s; resetting settings to defaults", path)
+        log_event(
+            logger,
+            logging.WARNING,
+            "settings.load.reset_defaults",
+            "Failed to read settings file; resetting to defaults",
+            app_home=app_home(),
+            path=path,
+        )
         _persist_settings_best_effort(defaults, path=path)
         return defaults
 
@@ -76,7 +84,14 @@ def load_recent_workdirs(limit: int = 50) -> list[str]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        logger.warning("failed to read %s; ignoring stored recent workdirs", path)
+        log_event(
+            logger,
+            logging.WARNING,
+            "settings.recent_workdirs.read_failed",
+            "Failed to read recent workdirs; ignoring stored entries",
+            app_home=app_home(),
+            path=path,
+        )
         return []
     if not isinstance(payload, list):
         return []
@@ -92,7 +107,14 @@ def save_recent_workdirs(workdirs: Iterable[str], limit: int = 50) -> None:
             encoding="utf-8",
         )
     except OSError:
-        logger.warning("failed to write %s; ignoring recent workdir update", path)
+        log_event(
+            logger,
+            logging.WARNING,
+            "settings.recent_workdirs.write_failed",
+            "Failed to write recent workdirs; update ignored",
+            app_home=app_home(),
+            path=path,
+        )
 
 
 def _normalize_recent_workdirs(workdirs: Iterable[object], *, limit: int) -> list[str]:
@@ -121,12 +143,25 @@ def _persist_settings_best_effort(settings: AppSettings, *, path: Path) -> None:
     try:
         path.write_text(json.dumps(asdict(settings), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     except OSError:
-        logger.warning("failed to write %s; continuing with in-memory defaults", path)
+        log_event(
+            logger,
+            logging.WARNING,
+            "settings.persist.write_failed",
+            "Failed to persist settings; continuing with in-memory defaults",
+            app_home=app_home(),
+            path=path,
+        )
 
 
 def _normalize_settings_payload(payload: object, *, defaults: AppSettings) -> tuple[AppSettings, bool]:
     if not isinstance(payload, dict):
-        logger.warning("settings payload is not an object; resetting to defaults")
+        log_event(
+            logger,
+            logging.WARNING,
+            "settings.normalize.invalid_payload",
+            "Settings payload is not an object; resetting to defaults",
+            payload_type=type(payload).__name__,
+        )
         return defaults, True
 
     normalized: dict[str, float | int] = {}
@@ -193,32 +228,70 @@ def _coerce_setting_number(
 ) -> int | float:
     raw_value = payload.get(key, default)
     if isinstance(raw_value, bool):
-        logger.warning("invalid %s=%r in settings; using default %r", key, raw_value, default)
+        log_event(
+            logger,
+            logging.WARNING,
+            "settings.normalize.invalid_value",
+            "Invalid boolean-like settings value; using default",
+            setting_key=key,
+            raw_value=raw_value,
+            default_value=default,
+        )
         return default
 
     try:
         value = int(raw_value) if integer_only else float(raw_value)
     except (TypeError, ValueError):
-        logger.warning("invalid %s=%r in settings; using default %r", key, raw_value, default)
+        log_event(
+            logger,
+            logging.WARNING,
+            "settings.normalize.invalid_value",
+            "Invalid settings value; using default",
+            setting_key=key,
+            raw_value=raw_value,
+            default_value=default,
+        )
         return default
 
     if value < minimum:
-        logger.warning("out-of-range %s=%r in settings; using default %r", key, raw_value, default)
+        log_event(
+            logger,
+            logging.WARNING,
+            "settings.normalize.out_of_range",
+            "Out-of-range settings value; using default",
+            setting_key=key,
+            raw_value=raw_value,
+            default_value=default,
+            minimum=minimum,
+        )
         return default
     return value
 
 
 def configure_logging() -> None:
     log_path = logs_dir() / "service.log"
-    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    formatter = LooporaJsonFormatter()
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
     file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.INFO)
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
+    stream_handler.setLevel(logging.WARNING)
+    file_handler.set_name("loopora-file")
+    stream_handler.set_name("loopora-stream")
 
     package_logger = logging.getLogger(APP_PACKAGE)
+    for handler in package_logger.handlers:
+        handler.close()
     package_logger.handlers.clear()
     package_logger.setLevel(logging.INFO)
     package_logger.propagate = False
     package_logger.addHandler(file_handler)
     package_logger.addHandler(stream_handler)
+    log_event(
+        logger,
+        logging.INFO,
+        "logging.configured",
+        "Structured diagnostic logging configured",
+        path=log_path,
+    )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import io
 import time
 import zipfile
@@ -7,6 +8,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from loopora.settings import app_home, configure_logging
 from loopora.web import build_app
 
 
@@ -200,6 +202,29 @@ def test_api_run_stream_emits_stream_error_on_backend_failure() -> None:
 
     assert "event: stream_error" in body
     assert "database unavailable" in body
+
+
+def test_web_logs_completed_requests(service_factory) -> None:
+    configure_logging()
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.get("/tutorial")
+
+    assert response.status_code == 200
+    records = [
+        json.loads(line)
+        for line in (app_home() / "logs" / "service.log").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    record = next(
+        item
+        for item in records
+        if item["event"] == "web.request.completed"
+        and item["context"]["request_path"] == "/tutorial"
+    )
+    assert record["context"]["status_code"] == 200
+    assert record["context"]["duration_ms"] >= 0
 
 
 def test_api_stop_run_rejects_finished_runs(

@@ -27,6 +27,7 @@ from loopora.branding import (
     strip_run_summary_title,
 )
 from loopora.providers import executor_profile, list_executor_profiles
+from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.settings import load_recent_workdirs
 from loopora.skills import build_spec_skill_bundle_archive, install_spec_skill, list_spec_skill_targets, load_spec_skill_bundle
 from loopora.service import LooporaError, create_service, normalize_role_models
@@ -45,7 +46,7 @@ from loopora.workflows import (
     resolve_prompt_files,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 AUTH_COOKIE_NAME = APP_AUTH_COOKIE
 
@@ -238,6 +239,15 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         return f"/static/{normalized}?v={version}"
 
     templates.env.globals["static_asset_url"] = static_asset_url
+    log_event(
+        logger,
+        logging.INFO,
+        "web.app.built",
+        "Built web application instance",
+        bind_host=bind_host,
+        bind_port=bind_port,
+        auth_enabled=bool(auth_token),
+    )
 
     def svc():
         return app.state.service
@@ -247,17 +257,57 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
+        start_time = time.perf_counter()
         expected_token = access_state["auth_token"]
         if not expected_token:
-            return await call_next(request)
+            try:
+                response = await call_next(request)
+            except Exception as exc:
+                log_exception(
+                    logger,
+                    "web.request.failed",
+                    "HTTP request failed before authentication was required",
+                    error=exc,
+                    method=request.method,
+                    request_path=request.url.path,
+                    client_ip=request.client.host if request.client else "",
+                )
+                raise
+            _log_web_response(request, response.status_code, start_time)
+            return response
 
         provided_token = _extract_request_token(request)
         if provided_token != expected_token:
-            return _auth_required_response(request)
+            response = _auth_required_response(request)
+            log_event(
+                logger,
+                logging.WARNING,
+                "web.auth.rejected",
+                "Rejected request with a missing or invalid auth token",
+                method=request.method,
+                request_path=request.url.path,
+                status_code=response.status_code,
+                client_ip=request.client.host if request.client else "",
+            )
+            _log_web_response(request, response.status_code, start_time)
+            return response
 
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            log_exception(
+                logger,
+                "web.request.failed",
+                "HTTP request failed",
+                error=exc,
+                method=request.method,
+                request_path=request.url.path,
+                client_ip=request.client.host if request.client else "",
+            )
+            raise
         if request.cookies.get(APP_AUTH_COOKIE) != expected_token:
             response.set_cookie(AUTH_COOKIE_NAME, expected_token, httponly=True, samesite="lax")
+        _log_web_response(request, response.status_code, start_time)
         return response
 
     def render_new_loop(
@@ -488,19 +538,59 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         return render_auth_required(request)
 
     @app.exception_handler(LooporaError)
-    async def loopora_error_handler(_: Request, exc: LooporaError) -> JSONResponse:
+    async def loopora_error_handler(request: Request, exc: LooporaError) -> JSONResponse:
+        log_event(
+            logger,
+            logging.WARNING,
+            "web.request.domain_error",
+            "Request failed with a Loopora domain error",
+            method=request.method,
+            request_path=request.url.path,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
         return json_error(str(exc), status_code=400)
 
     @app.exception_handler(SpecError)
-    async def spec_error_handler(_: Request, exc: SpecError) -> JSONResponse:
+    async def spec_error_handler(request: Request, exc: SpecError) -> JSONResponse:
+        log_event(
+            logger,
+            logging.WARNING,
+            "web.request.domain_error",
+            "Request failed with a spec validation error",
+            method=request.method,
+            request_path=request.url.path,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
         return json_error(str(exc), status_code=400)
 
     @app.exception_handler(WorkflowError)
-    async def workflow_error_handler(_: Request, exc: WorkflowError) -> JSONResponse:
+    async def workflow_error_handler(request: Request, exc: WorkflowError) -> JSONResponse:
+        log_event(
+            logger,
+            logging.WARNING,
+            "web.request.domain_error",
+            "Request failed with a workflow validation error",
+            method=request.method,
+            request_path=request.url.path,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
         return json_error(str(exc), status_code=400)
 
     @app.exception_handler(SystemDialogError)
-    async def system_dialog_error_handler(_: Request, exc: SystemDialogError) -> JSONResponse:
+    async def system_dialog_error_handler(request: Request, exc: SystemDialogError) -> JSONResponse:
+        log_event(
+            logger,
+            logging.WARNING,
+            "web.request.domain_error",
+            "Request failed while opening a system dialog",
+            method=request.method,
+            request_path=request.url.path,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+        )
         return json_error(str(exc), status_code=400)
 
     @app.get("/", response_class=HTMLResponse)
@@ -769,7 +859,14 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                         yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                     run = svc().get_run(run_id)
                 except Exception as exc:
-                    logger.exception("run stream failed for %s", run_id)
+                    log_exception(
+                        logger,
+                        "web.run_stream.failed",
+                        "Run event stream failed",
+                        error=exc,
+                        run_id=run_id,
+                        after_id=last_id,
+                    )
                     payload = {"run_id": run_id, "after_id": last_id, "error": str(exc)}
                     yield "event: stream_error\n"
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -975,6 +1072,25 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             )
 
     return app
+
+
+def _log_web_response(request: Request, status_code: int, started_at: float) -> None:
+    path = request.url.path
+    if path.startswith("/static/") or path.startswith("/logo/"):
+        return
+    level = logging.ERROR if status_code >= 500 else (logging.WARNING if status_code >= 400 else logging.INFO)
+    event = "web.request.failed" if status_code >= 500 else ("web.request.rejected" if status_code >= 400 else "web.request.completed")
+    log_event(
+        logger,
+        level,
+        event,
+        "HTTP request completed",
+        method=request.method,
+        request_path=path,
+        status_code=status_code,
+        duration_ms=int((time.perf_counter() - started_at) * 1000),
+        client_ip=request.client.host if request.client else "",
+    )
 
 
 def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str, object], bool]:

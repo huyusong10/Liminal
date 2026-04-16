@@ -9,9 +9,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.utils import append_jsonl, utc_now
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class LooporaRepository:
@@ -35,9 +36,35 @@ class LooporaRepository:
             except sqlite3.OperationalError as exc:
                 if connection is not None:
                     connection.close()
-                if attempt == 2 or not self._is_retryable_connect_error(exc):
+                retryable = self._is_retryable_connect_error(exc)
+                attempt_number = attempt + 1
+                if attempt == 2 or not retryable:
+                    log_exception(
+                        logger,
+                        "db.connect.failed",
+                        "Database connection failed",
+                        error=exc,
+                        path=self.path,
+                        attempt=attempt_number,
+                        configure_journal_mode=configure_journal_mode,
+                        retryable=retryable,
+                    )
                     raise
-                time.sleep(0.1 * (attempt + 1))
+                sleep_seconds = 0.1 * attempt_number
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "db.connect.retry",
+                    "Retrying database connection after a transient failure",
+                    path=self.path,
+                    attempt=attempt_number,
+                    configure_journal_mode=configure_journal_mode,
+                    retryable=True,
+                    sleep_seconds=sleep_seconds,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+                time.sleep(sleep_seconds)
         raise AssertionError("sqlite connection retry loop exited unexpectedly")
 
     @staticmethod
@@ -205,6 +232,13 @@ class LooporaRepository:
             self._ensure_column(connection, "role_definitions", "command_cli", "TEXT NOT NULL DEFAULT 'codex'")
             self._ensure_column(connection, "role_definitions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "role_definitions", "reasoning_effort", "TEXT NOT NULL DEFAULT 'medium'")
+        log_event(
+            logger,
+            logging.INFO,
+            "db.schema.ready",
+            "Database schema is ready",
+            path=self.path,
+        )
 
     @staticmethod
     def _ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -257,7 +291,18 @@ class LooporaRepository:
                     now,
                 ),
             )
-        return self.get_loop(payload["id"])
+        loop = self.get_loop(payload["id"])
+        log_event(
+            logger,
+            logging.INFO,
+            "db.loop.created",
+            "Persisted loop definition",
+            loop_id=payload["id"],
+            orchestration_id=payload.get("orchestration_id", ""),
+            workdir=payload["workdir"],
+            loop_name=payload["name"],
+        )
+        return loop
 
     def create_run(self, payload: dict) -> dict:
         now = utc_now()
@@ -320,7 +365,19 @@ class LooporaRepository:
                 "UPDATE loop_definitions SET latest_run_id = ?, updated_at = ? WHERE id = ?",
                 (payload["id"], now, payload["loop_id"]),
             )
-        return self.get_run(payload["id"])
+        run = self.get_run(payload["id"])
+        log_event(
+            logger,
+            logging.INFO,
+            "db.run.created",
+            "Persisted run record",
+            run_id=payload["id"],
+            loop_id=payload["loop_id"],
+            orchestration_id=payload.get("orchestration_id", ""),
+            workdir=payload["workdir"],
+            status=payload["status"],
+        )
+        return run
 
     def create_orchestration(self, payload: dict) -> dict:
         now = utc_now()
@@ -341,7 +398,18 @@ class LooporaRepository:
                     now,
                 ),
             )
-        return self.get_orchestration(payload["id"])
+        orchestration = self.get_orchestration(payload["id"])
+        log_event(
+            logger,
+            logging.INFO,
+            "db.orchestration.created",
+            "Persisted orchestration definition",
+            orchestration_id=payload["id"],
+            orchestration_name=payload["name"],
+            role_count=len(payload["workflow"].get("roles", [])),
+            step_count=len(payload["workflow"].get("steps", [])),
+        )
+        return orchestration
 
     def update_orchestration(self, orchestration_id: str, payload: dict) -> dict | None:
         now = utc_now()
@@ -364,7 +432,18 @@ class LooporaRepository:
                     orchestration_id,
                 ),
             )
-        return self.get_orchestration(orchestration_id)
+        orchestration = self.get_orchestration(orchestration_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "db.orchestration.updated",
+            "Updated orchestration definition",
+            orchestration_id=orchestration_id,
+            orchestration_name=payload["name"],
+            role_count=len(payload["workflow"].get("roles", [])),
+            step_count=len(payload["workflow"].get("steps", [])),
+        )
+        return orchestration
 
     def get_orchestration(self, orchestration_id: str) -> dict | None:
         with self._connect() as connection:
@@ -404,7 +483,18 @@ class LooporaRepository:
                     now,
                 ),
             )
-        return self.get_role_definition(payload["id"])
+        role_definition = self.get_role_definition(payload["id"])
+        log_event(
+            logger,
+            logging.INFO,
+            "db.role_definition.created",
+            "Persisted role definition",
+            role_definition_id=payload["id"],
+            archetype=payload["archetype"],
+            executor_kind=payload.get("executor_kind", "codex"),
+            role_name=payload["name"],
+        )
+        return role_definition
 
     def update_role_definition(self, role_definition_id: str, payload: dict) -> dict | None:
         now = utc_now()
@@ -436,7 +526,18 @@ class LooporaRepository:
                     role_definition_id,
                 ),
             )
-        return self.get_role_definition(role_definition_id)
+        role_definition = self.get_role_definition(role_definition_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "db.role_definition.updated",
+            "Updated role definition",
+            role_definition_id=role_definition_id,
+            archetype=payload["archetype"],
+            executor_kind=payload.get("executor_kind", "codex"),
+            role_name=payload["name"],
+        )
+        return role_definition
 
     def get_role_definition(self, role_definition_id: str) -> dict | None:
         with self._connect() as connection:
@@ -454,6 +555,13 @@ class LooporaRepository:
             if row is None:
                 return False
             connection.execute("DELETE FROM role_definitions WHERE id = ?", (role_definition_id,))
+        log_event(
+            logger,
+            logging.INFO,
+            "db.role_definition.deleted",
+            "Deleted role definition",
+            role_definition_id=role_definition_id,
+        )
         return True
 
     def delete_orchestration(self, orchestration_id: str) -> bool:
@@ -462,6 +570,13 @@ class LooporaRepository:
             if row is None:
                 return False
             connection.execute("DELETE FROM orchestration_definitions WHERE id = ?", (orchestration_id,))
+        log_event(
+            logger,
+            logging.INFO,
+            "db.orchestration.deleted",
+            "Deleted orchestration definition",
+            orchestration_id=orchestration_id,
+        )
         return True
 
     def get_loop(self, loop_id: str) -> dict | None:
@@ -530,6 +645,13 @@ class LooporaRepository:
             )
             connection.execute("DELETE FROM loop_runs WHERE loop_id = ?", (loop_id,))
             connection.execute("DELETE FROM loop_definitions WHERE id = ?", (loop_id,))
+        log_event(
+            logger,
+            logging.INFO,
+            "db.loop.deleted",
+            "Deleted loop definition and related records",
+            loop_id=loop_id,
+        )
         return True
 
     def append_event(self, run_id: str, event_type: str, payload: dict, role: str | None = None) -> dict:
@@ -557,7 +679,15 @@ class LooporaRepository:
             try:
                 append_jsonl(Path(run["runs_dir"]) / "events.jsonl", record)
             except OSError:
-                logger.exception("failed to mirror event %s for run %s to events.jsonl", event_type, run_id)
+                log_exception(
+                    logger,
+                    "db.run_event.mirror_failed",
+                    "Failed to mirror run event to events.jsonl",
+                    run_id=run_id,
+                    role=role,
+                    event_type=event_type,
+                    runs_dir=run["runs_dir"],
+                )
         return record
 
     def list_events(self, run_id: str, *, after_id: int = 0, limit: int = 200) -> list[dict]:
@@ -626,7 +756,33 @@ class LooporaRepository:
                     "UPDATE loop_definitions SET updated_at = ? WHERE id = ?",
                     (utc_now(), row["loop_id"]),
                 )
-        return self._decode_row(row) if row else {}
+        decoded = self._decode_row(row) if row else {}
+        interesting_fields = {
+            key: updates[key]
+            for key in (
+                "status",
+                "current_iter",
+                "active_role",
+                "runner_pid",
+                "child_pid",
+                "started_at",
+                "finished_at",
+                "error_message",
+            )
+            if key in updates
+        }
+        if decoded and interesting_fields:
+            log_event(
+                logger,
+                logging.INFO,
+                "db.run.updated",
+                "Persisted run state update",
+                run_id=run_id,
+                loop_id=decoded.get("loop_id"),
+                workdir=decoded.get("workdir"),
+                **interesting_fields,
+            )
+        return decoded
 
     def request_stop(self, run_id: str) -> dict | None:
         with self.transaction() as connection:
@@ -635,7 +791,18 @@ class LooporaRepository:
                 (utc_now(), run_id),
             )
             row = connection.execute("SELECT * FROM loop_runs WHERE id = ?", (run_id,)).fetchone()
-        return self._decode_row(row) if row else None
+        decoded = self._decode_row(row) if row else None
+        if decoded:
+            log_event(
+                logger,
+                logging.INFO,
+                "db.run.stop_requested",
+                "Persisted stop request for run",
+                run_id=run_id,
+                loop_id=decoded.get("loop_id"),
+                workdir=decoded.get("workdir"),
+            )
+        return decoded
 
     def should_stop(self, run_id: str) -> bool:
         with self._connect() as connection:
@@ -669,6 +836,15 @@ class LooporaRepository:
                     WHERE id = ?
                     """,
                     (now, now, run_id),
+                )
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "db.run.slot.skip_stopped",
+                    "Skipped slot claim because the run was already asked to stop",
+                    run_id=run_id,
+                    loop_id=run["loop_id"],
+                    workdir=run["workdir"],
                 )
                 return False
 
@@ -704,14 +880,35 @@ class LooporaRepository:
                 """,
                 (now, os.getpid(), now, run_id),
             )
+        log_event(
+            logger,
+            logging.INFO,
+            "db.run.slot.claimed",
+            "Claimed run slot and workdir lock",
+            run_id=run_id,
+            loop_id=run["loop_id"],
+            workdir=run["workdir"],
+            max_concurrent_runs=max_concurrent_runs,
+        )
         return True
 
     def release_run_slot(self, run_id: str) -> None:
+        run = self.get_run(run_id)
         with self.transaction() as connection:
             connection.execute("DELETE FROM workdir_locks WHERE run_id = ?", (run_id,))
             connection.execute(
                 "UPDATE loop_runs SET active_role = NULL, runner_pid = NULL, child_pid = NULL, updated_at = ? WHERE id = ?",
                 (utc_now(), run_id),
+            )
+        if run:
+            log_event(
+                logger,
+                logging.INFO,
+                "db.run.slot.released",
+                "Released run slot and cleared active runtime markers",
+                run_id=run_id,
+                loop_id=run.get("loop_id"),
+                workdir=run.get("workdir"),
             )
 
     def active_run_count(self) -> int:
@@ -729,6 +926,16 @@ class LooporaRepository:
                 os.kill(int(pid), 15)
             except ProcessLookupError:
                 pass
+        log_event(
+            logger,
+            logging.INFO,
+            "db.run.stop_signal_sent",
+            "Sent stop signal to the active child process when present",
+            run_id=run_id,
+            loop_id=run.get("loop_id"),
+            workdir=run.get("workdir"),
+            child_pid=pid,
+        )
         return True
 
     @staticmethod

@@ -24,6 +24,11 @@
 - 全局应用状态：可跨项目查询与管理的定义、索引和运行事实
 - 项目局部状态：与具体 workdir 绑定的运行快照与复盘产物
 
+补充约束：
+
+- run event stream 是业务时间线，不等于系统诊断日志。
+- application log 的结构与分级规则由 `07-observability-and-diagnostics.md` 统一定义。
+
 ## 3. 数据流转
 
 | 输入 | 持久化处理 | 输出 |

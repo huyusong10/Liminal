@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import json
+import logging
 import sqlite3
 from pathlib import Path
 
 from loopora.db import LooporaRepository
+from loopora.settings import app_home, configure_logging
 
 
-def test_repository_retries_transient_open_errors(tmp_path: Path, monkeypatch) -> None:
+def test_repository_retries_transient_open_errors(tmp_path: Path, monkeypatch, caplog) -> None:
     target = tmp_path / "app.db"
     real_connect = sqlite3.connect
     attempts = {"count": 0}
+    configure_logging()
+    caplog.set_level(logging.WARNING, logger="loopora")
 
     def flaky_connect(*args, **kwargs):
         attempts["count"] += 1
@@ -25,6 +30,14 @@ def test_repository_retries_transient_open_errors(tmp_path: Path, monkeypatch) -
     assert attempts["count"] >= 2
     assert repository.path == target
     assert repository.path.exists()
+    records = [
+        json.loads(line)
+        for line in (app_home() / "logs" / "service.log").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    retry_record = next(record for record in records if record["event"] == "db.connect.retry")
+    assert retry_record["context"]["attempt"] == 1
+    assert retry_record["context"]["retryable"] is True
 
 
 def test_append_event_tolerates_jsonl_mirror_failures(tmp_path: Path, monkeypatch) -> None:

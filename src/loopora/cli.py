@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -11,6 +12,7 @@ import typer
 import uvicorn
 
 from loopora.branding import APP_AUTH_ENV, APP_NAME, LEGACY_APP_AUTH_ENV, RUN_SUMMARY_TITLE
+from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.service import LooporaError, create_service, normalize_role_models
 from loopora.settings import configure_logging
 from loopora.specs import SpecError, init_spec_file, read_and_compile
@@ -25,9 +27,23 @@ spec_app = typer.Typer(help="Work with Markdown loop specs")
 app.add_typer(loops_app, name="loops")
 app.add_typer(orchestrations_app, name="orchestrations")
 app.add_typer(spec_app, name="spec")
+logger = get_logger(__name__)
+
+
+@app.callback()
+def main() -> None:
+    configure_logging()
 
 
 def _handle_error(exc: Exception) -> None:
+    log_event(
+        logger,
+        logging.ERROR,
+        "cli.command.failed",
+        "CLI command failed",
+        error_type=type(exc).__name__,
+        error_message=str(exc),
+    )
     typer.secho(str(exc), fg=typer.colors.RED, err=True)
     raise typer.Exit(code=1)
 
@@ -229,6 +245,16 @@ def _spawn_background_worker(service, run: dict) -> dict:
                 "error": error_text,
             },
         )
+        log_exception(
+            logger,
+            "cli.background_worker.spawn_failed",
+            "Failed to spawn background worker",
+            error=exc,
+            run_id=run["id"],
+            workdir=run.get("workdir"),
+            log_path=log_path,
+            command=command,
+        )
         raise LooporaError(error_text) from exc
     finally:
         log_handle.close()
@@ -242,6 +268,17 @@ def _spawn_background_worker(service, run: dict) -> dict:
             "command": command,
             "log_path": str(log_path),
         },
+    )
+    log_event(
+        logger,
+        logging.INFO,
+        "cli.background_worker.spawned",
+        "Spawned background worker for run",
+        run_id=run["id"],
+        workdir=run.get("workdir"),
+        worker_pid=process.pid,
+        log_path=log_path,
+        command=command,
     )
     return service.get_run(run["id"])
 
@@ -280,6 +317,18 @@ def _create_and_maybe_start_loop(
 ) -> tuple[dict, dict | None]:
     if background and not start:
         raise LooporaError("--background requires --start")
+    log_event(
+        logger,
+        logging.INFO,
+        "cli.loop.create.requested",
+        "CLI requested loop creation",
+        workdir=workdir,
+        spec_path=spec,
+        orchestration_id=orchestration_id,
+        start=start,
+        background=background,
+        completion_mode=completion_mode,
+    )
     service = create_service()
     loop = service.create_loop(
         **_build_loop_kwargs(
@@ -306,6 +355,17 @@ def _create_and_maybe_start_loop(
         )
     )
     run = _start_run(service, loop["id"], background=background) if start else None
+    log_event(
+        logger,
+        logging.INFO,
+        "cli.loop.create.completed",
+        "CLI created loop successfully",
+        loop_id=loop["id"],
+        workdir=loop.get("workdir"),
+        run_id=run.get("id") if run else None,
+        start=start,
+        background=background,
+    )
     return loop, run
 
 
@@ -379,7 +439,16 @@ def serve(
     allow_unsafe_open: bool = typer.Option(False, "--allow-unsafe-open", help="Allow non-loopback hosts without an auth token. Dangerous on shared networks."),
 ) -> None:
     """Run the local web console."""
-    configure_logging()
+    log_event(
+        logger,
+        logging.INFO,
+        "cli.server.starting",
+        "Starting the local web console",
+        bind_host=host,
+        bind_port=port,
+        auth_enabled=bool(auth_token),
+        allow_unsafe_open=allow_unsafe_open,
+    )
     if not _is_loopback_host(host) and not auth_token and not allow_unsafe_open:
         _handle_error(
             LooporaError(
@@ -413,6 +482,14 @@ def spec_init(
     """Create a starter Markdown spec."""
     try:
         created = init_spec_file(path, locale=locale)
+        log_event(
+            logger,
+            logging.INFO,
+            "cli.spec.initialized",
+            "Initialized a new spec file",
+            path=created,
+            locale=locale,
+        )
         typer.echo(f"created: {created}")
     except (FileExistsError, OSError) as exc:
         _handle_error(exc)
@@ -423,6 +500,15 @@ def spec_validate(path: Path = typer.Argument(..., exists=True, help="Path to th
     """Validate a Markdown spec and print the resolved check mode."""
     try:
         _, compiled = read_and_compile(path)
+        log_event(
+            logger,
+            logging.INFO,
+            "cli.spec.validated",
+            "Validated a spec file",
+            path=path,
+            check_count=len(compiled["checks"]),
+            check_mode=compiled["check_mode"],
+        )
         typer.echo(
             json.dumps(
                 {
@@ -555,6 +641,14 @@ def create_orchestration(
             workflow=workflow,
             prompt_files=prompt_files,
         )
+        log_event(
+            logger,
+            logging.INFO,
+            "cli.orchestration.created",
+            "Created orchestration from the CLI",
+            orchestration_id=orchestration["id"],
+            orchestration_name=orchestration["name"],
+        )
         typer.echo(json.dumps(orchestration, ensure_ascii=False, indent=2))
     except LooporaError as exc:
         _handle_error(exc)
@@ -580,6 +674,15 @@ def stop_run(run_id: str = typer.Argument(..., help="Run ID.")) -> None:
     try:
         service = create_service()
         run = service.stop_run(run_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "cli.run.stop_requested",
+            "Requested run stop from the CLI",
+            run_id=run["id"],
+            loop_id=run.get("loop_id"),
+            status=run.get("status"),
+        )
         typer.echo(f"stop requested for {run['id']} ({run['status']})")
     except LooporaError as exc:
         _handle_error(exc)
@@ -594,6 +697,16 @@ def rerun_loop(
     try:
         service = create_service()
         result = _start_run(service, loop_id, background=background)
+        log_event(
+            logger,
+            logging.INFO,
+            "cli.run.rerun_requested",
+            "Started a rerun from the CLI",
+            loop_id=loop_id,
+            run_id=result["id"],
+            background=background,
+            status=result["status"],
+        )
         _print_run_result(result)
     except LooporaError as exc:
         _handle_error(exc)
@@ -602,10 +715,18 @@ def rerun_loop(
 @app.command("_execute-run", hidden=True)
 def execute_run_worker(run_id: str = typer.Argument(..., help="Run ID.")) -> None:
     """Internal helper that executes a queued run in a dedicated background process."""
-    configure_logging()
     try:
         service = create_service()
         result = service.execute_run(run_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "cli.background_worker.completed",
+            "Background worker finished run execution",
+            run_id=result["id"],
+            loop_id=result.get("loop_id"),
+            status=result["status"],
+        )
         _print_run_result(result)
     except (LooporaError, SpecError) as exc:
         _handle_error(exc)
@@ -617,6 +738,15 @@ def delete_loop(loop_id: str = typer.Argument(..., help="Loop definition ID.")) 
     try:
         service = create_service()
         result = service.delete_loop(loop_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "cli.loop.deleted",
+            "Deleted loop from the CLI",
+            loop_id=result["id"],
+            workdir=result.get("workdir"),
+            deleted_run_count=result.get("deleted_runs"),
+        )
         typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
     except LooporaError as exc:
         _handle_error(exc)

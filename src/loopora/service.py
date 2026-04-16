@@ -17,6 +17,7 @@ import markdown as markdown_lib
 from loopora.asset_catalog import WorkflowAssetCatalog
 from loopora.branding import LEGACY_APP_STATE_DIRNAME, normalize_file_root, state_dir_for_workdir
 from loopora.db import LooporaRepository
+from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.executor import (
     CodexExecutor,
     ExecutionStopped,
@@ -28,7 +29,7 @@ from loopora.executor import (
 )
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode
 from loopora.recovery import RecoveryResult, RetryConfig, execute_with_recovery
-from loopora.settings import AppSettings, app_home, db_path, load_settings, save_recent_workdirs
+from loopora.settings import AppSettings, configure_logging, db_path, load_settings, save_recent_workdirs
 from loopora.specs import SpecError, compile_markdown_spec, read_and_compile
 from loopora.stagnation import update_stagnation
 from loopora.utils import append_jsonl, make_id, read_json, utc_now, write_json
@@ -44,7 +45,7 @@ from loopora.workflows import (
     workflow_warnings,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 LOOP_ROLE_NAMES = ARCHETYPES
 COMPLETION_MODES = ("gatekeeper", "rounds")
 
@@ -109,6 +110,23 @@ class LooporaService:
         self._threads: dict[str, threading.Thread] = {}
         self._reconcile_stale_runs()
 
+    def _loop_log_context(self, loop: dict | None, **context) -> dict[str, object]:
+        payload = dict(context)
+        if loop:
+            payload.setdefault("loop_id", loop.get("id"))
+            payload.setdefault("workdir", loop.get("workdir"))
+            payload.setdefault("orchestration_id", loop.get("orchestration_id"))
+        return payload
+
+    def _run_log_context(self, run: dict | None, **context) -> dict[str, object]:
+        payload = dict(context)
+        if run:
+            payload.setdefault("run_id", run.get("id"))
+            payload.setdefault("loop_id", run.get("loop_id"))
+            payload.setdefault("workdir", run.get("workdir"))
+            payload.setdefault("orchestration_id", run.get("orchestration_id"))
+        return payload
+
     def _asset_call(self, callback: Callable, *args, **kwargs):
         try:
             return callback(*args, **kwargs)
@@ -139,6 +157,19 @@ class LooporaService:
         completion_mode: str = "gatekeeper",
         iteration_interval_seconds: float = 0.0,
     ) -> dict:
+        log_event(
+            logger,
+            logging.INFO,
+            "service.loop.create.requested",
+            "Received loop creation request",
+            workdir=workdir,
+            spec_path=spec_path,
+            orchestration_id=orchestration_id,
+            completion_mode=completion_mode,
+            max_iters=max_iters,
+            executor_kind=executor_kind,
+            executor_mode=executor_mode,
+        )
         workdir = workdir.expanduser().resolve()
         spec_path = spec_path.expanduser()
         if spec_path.exists():
@@ -226,12 +257,31 @@ class LooporaService:
         }
         loop = self.repository.create_loop(payload)
         self._write_recent_workdirs()
+        log_event(
+            logger,
+            logging.INFO,
+            "service.loop.created",
+            "Created loop definition",
+            **self._loop_log_context(
+                loop,
+                spec_path=loop["spec_path"],
+                loop_name=loop["name"],
+                completion_mode=loop["completion_mode"],
+            ),
+        )
         return self._hydrate_loop_files(loop)
 
     def start_run(self, loop_id: str) -> dict:
         loop = self.repository.get_loop(loop_id)
         if not loop:
             raise LooporaError(f"unknown loop: {loop_id}")
+        log_event(
+            logger,
+            logging.INFO,
+            "service.run.start.requested",
+            "Received run start request",
+            **self._loop_log_context(loop),
+        )
         if self.repository.has_active_run_for_workdir(loop["workdir"]):
             raise LooporaError(f"another active run is already using {loop['workdir']}")
 
@@ -281,6 +331,13 @@ class LooporaService:
             }
         )
         self.repository.append_event(run_id, "run_registered", {"loop_id": loop_id, "status": "queued"})
+        log_event(
+            logger,
+            logging.INFO,
+            "service.run.registered",
+            "Registered queued run",
+            **self._run_log_context(run, status=run["status"]),
+        )
         return self._hydrate_run_files(run)
 
     def _legacy_workflow_from_loop(self, loop_or_run: dict) -> dict:
@@ -308,7 +365,7 @@ class LooporaService:
         model: str = "",
         reasoning_effort: str = "",
     ) -> dict:
-        return self._asset_call(
+        role_definition = self._asset_call(
             self.asset_catalog.create_role_definition,
             name=name,
             description=description,
@@ -322,6 +379,17 @@ class LooporaService:
             model=model,
             reasoning_effort=reasoning_effort,
         )
+        log_event(
+            logger,
+            logging.INFO,
+            "service.role_definition.created",
+            "Created role definition",
+            role_definition_id=role_definition["id"],
+            archetype=role_definition["archetype"],
+            executor_kind=role_definition.get("executor_kind"),
+            role_name=role_definition["name"],
+        )
+        return role_definition
 
     def update_role_definition(
         self,
@@ -339,7 +407,7 @@ class LooporaService:
         model: str = "",
         reasoning_effort: str = "",
     ) -> dict:
-        return self._asset_call(
+        role_definition = self._asset_call(
             self.asset_catalog.update_role_definition,
             role_definition_id,
             name=name,
@@ -354,9 +422,28 @@ class LooporaService:
             model=model,
             reasoning_effort=reasoning_effort,
         )
+        log_event(
+            logger,
+            logging.INFO,
+            "service.role_definition.updated",
+            "Updated role definition",
+            role_definition_id=role_definition["id"],
+            archetype=role_definition["archetype"],
+            executor_kind=role_definition.get("executor_kind"),
+            role_name=role_definition["name"],
+        )
+        return role_definition
 
     def delete_role_definition(self, role_definition_id: str) -> dict:
-        return self._asset_call(self.asset_catalog.delete_role_definition, role_definition_id)
+        result = self._asset_call(self.asset_catalog.delete_role_definition, role_definition_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "service.role_definition.deleted",
+            "Deleted role definition",
+            role_definition_id=role_definition_id,
+        )
+        return result
 
     def _prompt_dir(self, base_dir: Path) -> Path:
         return base_dir / "prompts"
@@ -428,6 +515,14 @@ class LooporaService:
         self._threads[run_id] = thread
         try:
             thread.start()
+            log_event(
+                logger,
+                logging.INFO,
+                "service.run.dispatched",
+                "Dispatched run to a background thread",
+                run_id=run_id,
+                thread_name=thread.name,
+            )
         except Exception:
             self._mark_run_inactive(run_id)
             self._threads.pop(run_id, None)
@@ -438,6 +533,17 @@ class LooporaService:
         if not run:
             raise LooporaError(f"unknown run: {run_id}")
 
+        log_event(
+            logger,
+            logging.INFO,
+            "service.run.execution.started",
+            "Starting run execution",
+            **self._run_log_context(
+                run,
+                completion_mode=run.get("completion_mode"),
+                max_iters=run.get("max_iters"),
+            ),
+        )
         self._mark_run_active(run_id)
         run_dir = Path(run["runs_dir"])
         workflow = run.get("workflow_json") or self._legacy_workflow_from_loop(run)
@@ -644,11 +750,18 @@ class LooporaService:
                         status="succeeded",
                         finished_at=utc_now(),
                         last_verdict=verifier_result,
-                        summary_md=summary,
-                    )
-                    self._persist_summary_file(run_dir, summary)
-                    self.repository.append_event(run_id, "run_finished", {"status": "succeeded", "iter": iter_id})
-                    return finished
+                    summary_md=summary,
+                )
+                self._persist_summary_file(run_dir, summary)
+                self.repository.append_event(run_id, "run_finished", {"status": "succeeded", "iter": iter_id})
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "service.run.execution.finished",
+                    "Run finished successfully",
+                    **self._run_log_context(run, status="succeeded", iter=iter_id, reason="gatekeeper_passed"),
+                )
+                return finished
                 if iteration_interval_seconds > 0 and (run["max_iters"] == 0 or iter_id < run["max_iters"] - 1):
                     self._pause_between_iterations(run_id, iteration_interval_seconds, iter_id)
 
@@ -683,6 +796,18 @@ class LooporaService:
                         "reason": "rounds_completed" if completion_mode == "rounds" else "max_iters_exhausted",
                     },
                 )
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "service.run.execution.finished",
+                    "Run reached its planned completion boundary",
+                    **self._run_log_context(
+                        run,
+                        status="succeeded" if completion_mode == "rounds" else "failed",
+                        iter=last_iter_id,
+                        reason="rounds_completed" if completion_mode == "rounds" else "max_iters_exhausted",
+                    ),
+                )
                 return finished
             raise LooporaError(f"run {run_id} exited without completing an iteration")
         except (StopRequested, ExecutionStopped):
@@ -695,6 +820,13 @@ class LooporaService:
             )
             self._persist_summary_file(run_dir, summary)
             self.repository.append_event(run_id, "run_finished", {"status": "stopped"})
+            log_event(
+                logger,
+                logging.INFO,
+                "service.run.execution.stopped",
+                "Run stopped before completion",
+                **self._run_log_context(run, status="stopped"),
+            )
             return stopped
         except RoleExecutionError as exc:
             error_text = str(exc.result.error) if exc.result.error else str(exc)
@@ -739,6 +871,20 @@ class LooporaService:
                     "degraded": exc.result.degraded,
                     "error": error_text,
                 },
+            )
+            log_event(
+                logger,
+                logging.ERROR,
+                "service.run.execution.aborted",
+                "Run aborted because a role could not complete successfully",
+                **self._run_log_context(
+                    run,
+                    status="failed",
+                    role=exc.role,
+                    attempts=exc.result.attempts,
+                    degraded=exc.result.degraded,
+                    error_message=error_text,
+                ),
             )
             return failed
         except WorkspaceSafetyError as exc:
@@ -789,10 +935,30 @@ class LooporaService:
                     "error": error_text,
                 },
             )
+            log_event(
+                logger,
+                logging.ERROR,
+                "service.run.execution.workspace_guard_blocked",
+                "Run aborted by the workspace safety guard",
+                **self._run_log_context(
+                    run,
+                    status="failed",
+                    role=exc.role,
+                    deleted_original_count=len(exc.deleted_paths),
+                    baseline_file_count=exc.baseline_count,
+                    remaining_original_file_count=exc.current_count,
+                ),
+            )
             return failed
         except Exception as exc:
             error_text = str(exc)
-            logger.exception("run %s crashed unexpectedly", run_id)
+            log_exception(
+                logger,
+                "service.run.execution.crashed",
+                "Run crashed unexpectedly",
+                error=exc,
+                **self._run_log_context(run),
+            )
             summary = (
                 "# Loopora Run Summary\n\n"
                 "Execution crashed unexpectedly.\n\n"
@@ -808,7 +974,12 @@ class LooporaService:
                     summary_md=summary,
                 )
             except Exception:
-                logger.exception("failed to persist crash state for %s", run_id)
+                log_exception(
+                    logger,
+                    "service.run.execution.crash_state_persist_failed",
+                    "Failed to persist crashed run state",
+                    **self._run_log_context(run),
+                )
                 return {
                     **run,
                     "status": "failed",
@@ -828,14 +999,26 @@ class LooporaService:
                     },
                 )
             except Exception:
-                logger.exception("failed to append crash event for %s", run_id)
+                log_exception(
+                    logger,
+                    "service.run.execution.crash_event_append_failed",
+                    "Failed to append crash event after a run crash",
+                    **self._run_log_context(run),
+                )
             return failed
         finally:
             self._mark_run_inactive(run_id)
             try:
                 self.repository.release_run_slot(run_id)
             except Exception:
-                logger.exception("failed to release run slot for %s", run_id)
+                log_exception(
+                    logger,
+                    "service.run.slot_release_failed",
+                    "Failed to release run slot during cleanup",
+                    run_id=run_id,
+                    loop_id=run.get("loop_id"),
+                    workdir=run.get("workdir"),
+                )
             self._threads.pop(run_id, None)
 
     def _execute_workflow_run(self, run_id: str, run: dict, run_dir: Path, workflow: dict) -> dict:
@@ -869,6 +1052,18 @@ class LooporaService:
             completion_mode = normalize_completion_mode(run.get("completion_mode", "gatekeeper"))
             iteration_interval_seconds = float(run.get("iteration_interval_seconds", 0.0) or 0.0)
             iteration_source = itertools.count() if run["max_iters"] == 0 else range(run["max_iters"])
+            log_event(
+                logger,
+                logging.INFO,
+                "service.workflow.execution.started",
+                "Starting workflow run execution",
+                **self._run_log_context(
+                    run,
+                    completion_mode=completion_mode,
+                    enabled_step_count=len(enabled_steps),
+                    role_count=len(role_by_id),
+                ),
+            )
 
             for iter_id in iteration_source:
                 last_iter_id = iter_id
@@ -884,13 +1079,57 @@ class LooporaService:
                     if isinstance(last_gatekeeper_result, dict)
                     else None
                 )
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "service.workflow.iteration.started",
+                    "Starting workflow iteration",
+                    **self._run_log_context(
+                        run,
+                        iter=iter_id,
+                        enabled_step_count=len(enabled_steps),
+                        previous_composite_score=previous_composite,
+                        stagnation_mode=stagnation.get("stagnation_mode", "none"),
+                    ),
+                )
 
                 for step in enabled_steps:
                     role = role_by_id[step["role_id"]]
                     runtime_role = self._runtime_role_key(role)
                     if role["archetype"] == "guide" and stagnation.get("stagnation_mode", "none") == "none":
+                        log_event(
+                            logger,
+                            logging.INFO,
+                            "service.workflow.step.skipped",
+                            "Skipped guide step because the run is not currently stagnating",
+                            **self._run_log_context(
+                                run,
+                                iter=iter_id,
+                                step_id=step["id"],
+                                role=runtime_role,
+                                archetype=role["archetype"],
+                                stagnation_mode=stagnation.get("stagnation_mode", "none"),
+                            ),
+                        )
                         continue
                     execution_settings = self._resolve_role_execution_settings(run, step, role)
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        "service.workflow.step.started",
+                        "Starting workflow step",
+                        **self._run_log_context(
+                            run,
+                            iter=iter_id,
+                            step_id=step["id"],
+                            role=runtime_role,
+                            archetype=role["archetype"],
+                            executor_kind=execution_settings["executor_kind"],
+                            executor_mode=execution_settings["executor_mode"],
+                            model=execution_settings["model"],
+                        ),
+                    )
+                    step_started_at = time.perf_counter()
                     output = self._run_workflow_step(
                         executor,
                         run,
@@ -916,6 +1155,7 @@ class LooporaService:
                     current_outputs_by_role[role["id"]] = normalized_output
                     current_outputs_by_role[runtime_role] = normalized_output
                     current_outputs_by_archetype[role["archetype"]] = normalized_output
+                    step_duration_ms = int((time.perf_counter() - step_started_at) * 1000)
                     step_results.append(
                         {
                             "step": step,
@@ -925,6 +1165,22 @@ class LooporaService:
                             "resolved_executor_kind": execution_settings["executor_kind"],
                             "output": normalized_output,
                         }
+                    )
+                    log_event(
+                        logger,
+                        logging.INFO,
+                        "service.workflow.step.completed",
+                        "Completed workflow step",
+                        **self._run_log_context(
+                            run,
+                            iter=iter_id,
+                            step_id=step["id"],
+                            role=runtime_role,
+                            archetype=role["archetype"],
+                            duration_ms=step_duration_ms,
+                            passed=normalized_output.get("passed"),
+                            composite_score=normalized_output.get("composite_score"),
+                        ),
                     )
 
                     if role["archetype"] in {"builder", "inspector"}:
@@ -993,6 +1249,20 @@ class LooporaService:
                             )
                             self._persist_summary_file(run_dir, summary)
                             self.repository.append_event(run_id, "run_finished", {"status": "succeeded", "iter": iter_id})
+                            log_event(
+                                logger,
+                                logging.INFO,
+                                "service.run.execution.finished",
+                                "Workflow run finished successfully",
+                                **self._run_log_context(
+                                    run,
+                                    status="succeeded",
+                                    iter=iter_id,
+                                    reason="gatekeeper_passed",
+                                    step_id=step["id"],
+                                    role=runtime_role,
+                                ),
+                            )
                             return self._hydrate_run_files(finished)
                     elif role["archetype"] == "guide":
                         current_guide_result = normalized_output
@@ -1030,6 +1300,20 @@ class LooporaService:
                     previous_composite=previous_composite,
                 )
                 self._write_summary(run_id, "running", summary)
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "service.workflow.iteration.completed",
+                    "Completed workflow iteration",
+                    **self._run_log_context(
+                        run,
+                        iter=iter_id,
+                        executed_step_count=len(step_results),
+                        stagnation_mode=stagnation.get("stagnation_mode", "none"),
+                        gatekeeper_passed=bool(current_gatekeeper_result and current_gatekeeper_result.get("passed")),
+                        guide_used=current_guide_result is not None,
+                    ),
+                )
                 if iteration_interval_seconds > 0 and (run["max_iters"] == 0 or iter_id < run["max_iters"] - 1):
                     self._pause_between_iterations(run_id, iteration_interval_seconds, iter_id)
 
@@ -1057,6 +1341,13 @@ class LooporaService:
                 "run_finished",
                 {"status": final_status, "reason": final_reason, "iter": last_iter_id},
             )
+            log_event(
+                logger,
+                logging.INFO,
+                "service.run.execution.finished",
+                "Workflow run reached its final state",
+                **self._run_log_context(run, status=final_status, iter=last_iter_id, reason=final_reason),
+            )
             return self._hydrate_run_files(finished)
         except (StopRequested, ExecutionStopped):
             summary = "# Loopora Run Summary\n\nStopped by user.\n"
@@ -1068,6 +1359,13 @@ class LooporaService:
             )
             self._persist_summary_file(run_dir, summary)
             self.repository.append_event(run_id, "run_finished", {"status": "stopped"})
+            log_event(
+                logger,
+                logging.INFO,
+                "service.run.execution.stopped",
+                "Workflow run stopped before completion",
+                **self._run_log_context(run, status="stopped"),
+            )
             return self._hydrate_run_files(stopped)
         except RoleExecutionError as exc:
             error_text = str(exc.result.error) if exc.result.error else str(exc)
@@ -1118,6 +1416,20 @@ class LooporaService:
                     "degraded": exc.result.degraded,
                     "error": error_text,
                 },
+            )
+            log_event(
+                logger,
+                logging.ERROR,
+                "service.run.execution.aborted",
+                "Workflow run aborted because a step could not complete successfully",
+                **self._run_log_context(
+                    run,
+                    status="failed",
+                    role=exc.role,
+                    attempts=exc.result.attempts,
+                    degraded=exc.result.degraded,
+                    error_message=error_text,
+                ),
             )
             return self._hydrate_run_files(failed)
         except WorkspaceSafetyError as exc:
@@ -1172,10 +1484,30 @@ class LooporaService:
                     "error": error_text,
                 },
             )
+            log_event(
+                logger,
+                logging.ERROR,
+                "service.run.execution.workspace_guard_blocked",
+                "Workflow run aborted by the workspace safety guard",
+                **self._run_log_context(
+                    run,
+                    status="failed",
+                    role=exc.role,
+                    deleted_original_count=len(exc.deleted_paths),
+                    baseline_file_count=exc.baseline_count,
+                    remaining_original_file_count=exc.current_count,
+                ),
+            )
             return self._hydrate_run_files(failed)
         except Exception as exc:
             error_text = str(exc)
-            logger.exception("run %s crashed unexpectedly", run_id)
+            log_exception(
+                logger,
+                "service.run.execution.crashed",
+                "Workflow run crashed unexpectedly",
+                error=exc,
+                **self._run_log_context(run),
+            )
             summary = (
                 "# Loopora Run Summary\n\n"
                 "Execution crashed unexpectedly.\n\n"
@@ -1205,7 +1537,14 @@ class LooporaService:
             try:
                 self.repository.release_run_slot(run_id)
             except Exception:
-                logger.exception("failed to release run slot for %s", run_id)
+                log_exception(
+                    logger,
+                    "service.run.slot_release_failed",
+                    "Failed to release run slot during workflow cleanup",
+                    run_id=run_id,
+                    loop_id=run.get("loop_id"),
+                    workdir=run.get("workdir"),
+                )
             self._threads.pop(run_id, None)
 
     def _run_workflow_step(
@@ -1721,6 +2060,13 @@ class LooporaService:
             raise LooporaError(f"unknown run: {run_id}")
         self.repository.append_event(run_id, "stop_requested", {"status": run["status"]})
         self.repository.send_stop_signal(run_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "service.run.stop.requested",
+            "Requested run stop",
+            **self._run_log_context(run, status=run["status"]),
+        )
         return run
 
     def list_loops(self) -> list[dict]:
@@ -1743,7 +2089,7 @@ class LooporaService:
         prompt_files: dict | None = None,
         role_models: dict | None = None,
     ) -> dict:
-        return self._asset_call(
+        orchestration = self._asset_call(
             self.asset_catalog.create_orchestration,
             name=name,
             description=description,
@@ -1751,6 +2097,17 @@ class LooporaService:
             prompt_files=prompt_files,
             role_models=role_models,
         )
+        log_event(
+            logger,
+            logging.INFO,
+            "service.orchestration.created",
+            "Created orchestration definition",
+            orchestration_id=orchestration["id"],
+            orchestration_name=orchestration["name"],
+            role_count=len(orchestration.get("workflow_json", {}).get("roles", [])),
+            step_count=len(orchestration.get("workflow_json", {}).get("steps", [])),
+        )
+        return orchestration
 
     def update_orchestration(
         self,
@@ -1762,7 +2119,7 @@ class LooporaService:
         prompt_files: dict | None = None,
         role_models: dict | None = None,
     ) -> dict:
-        return self._asset_call(
+        orchestration = self._asset_call(
             self.asset_catalog.update_orchestration,
             orchestration_id,
             name=name,
@@ -1771,9 +2128,28 @@ class LooporaService:
             prompt_files=prompt_files,
             role_models=role_models,
         )
+        log_event(
+            logger,
+            logging.INFO,
+            "service.orchestration.updated",
+            "Updated orchestration definition",
+            orchestration_id=orchestration["id"],
+            orchestration_name=orchestration["name"],
+            role_count=len(orchestration.get("workflow_json", {}).get("roles", [])),
+            step_count=len(orchestration.get("workflow_json", {}).get("steps", [])),
+        )
+        return orchestration
 
     def delete_orchestration(self, orchestration_id: str) -> dict:
-        return self._asset_call(self.asset_catalog.delete_orchestration, orchestration_id)
+        result = self._asset_call(self.asset_catalog.delete_orchestration, orchestration_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "service.orchestration.deleted",
+            "Deleted orchestration definition",
+            orchestration_id=orchestration_id,
+        )
+        return result
 
     def get_loop(self, loop_id: str) -> dict:
         self._reconcile_local_orphaned_runs()
@@ -1844,6 +2220,14 @@ class LooporaService:
         }
 
     def rerun(self, loop_id: str, *, background: bool = False) -> dict:
+        log_event(
+            logger,
+            logging.INFO,
+            "service.run.rerun.requested",
+            "Received rerun request for loop",
+            loop_id=loop_id,
+            background=background,
+        )
         run = self.start_run(loop_id)
         if background:
             self.start_run_async(run["id"])
@@ -1863,7 +2247,17 @@ class LooporaService:
         for path in paths_to_remove:
             shutil.rmtree(path, ignore_errors=True)
         self._write_recent_workdirs()
-        return {"id": loop_id, "deleted_runs": len(loop["runs"]), "workdir": loop["workdir"]}
+        result = {"id": loop_id, "deleted_runs": len(loop["runs"]), "workdir": loop["workdir"]}
+        log_event(
+            logger,
+            logging.INFO,
+            "service.loop.deleted",
+            "Deleted loop definition and local artifacts",
+            loop_id=loop_id,
+            workdir=loop["workdir"],
+            deleted_run_count=len(loop["runs"]),
+        )
+        return result
 
     def _reconcile_stale_runs(self) -> None:
         for run in self.repository.list_active_runs():
@@ -1871,7 +2265,13 @@ class LooporaService:
                 continue
             if not self._startup_stale_run_is_recoverable(run):
                 continue
-            logger.warning("recovering stale run %s after startup because runner pid %s is not alive", run["id"], run.get("runner_pid"))
+            log_event(
+                logger,
+                logging.WARNING,
+                "service.run.recovered_after_startup",
+                "Recovered stale run during service startup",
+                **self._run_log_context(run, runner_pid=run.get("runner_pid"), status=run.get("status")),
+            )
             summary = (
                 "# Loopora Run Summary\n\n"
                 "This run was marked stopped when Loopora restarted because its previous worker process was no longer alive.\n"
@@ -1915,13 +2315,18 @@ class LooporaService:
             return run
 
         reason = "Recovered orphaned run after the local worker stopped unexpectedly."
-        logger.warning(
-            "recovering local orphaned run %s status=%s runner_pid=%s child_pid=%s updated_at=%s",
-            run["id"],
-            run.get("status"),
-            run.get("runner_pid"),
-            run.get("child_pid"),
-            run.get("updated_at"),
+        log_event(
+            logger,
+            logging.WARNING,
+            "service.run.recovered_orphan",
+            "Recovered local orphaned run after the worker stopped unexpectedly",
+            **self._run_log_context(
+                run,
+                status=run.get("status"),
+                runner_pid=run.get("runner_pid"),
+                child_pid=run.get("child_pid"),
+                updated_at=run.get("updated_at"),
+            ),
         )
         summary = (
             "# Loopora Run Summary\n\n"
@@ -1932,7 +2337,15 @@ class LooporaService:
             try:
                 os.kill(int(child_pid), 15)
             except OSError:
-                logger.exception("failed to stop orphaned child process %s for run %s", child_pid, run["id"])
+                log_exception(
+                    logger,
+                    "service.run.orphan_child_stop_failed",
+                    "Failed to stop orphaned child process",
+                    run_id=run["id"],
+                    loop_id=run.get("loop_id"),
+                    workdir=run.get("workdir"),
+                    child_pid=child_pid,
+                )
         self._persist_summary_file(Path(run["runs_dir"]), summary)
         updated = self.repository.update_run(
             run["id"],
@@ -2088,6 +2501,15 @@ class LooporaService:
     def _pause_between_iterations(self, run_id: str, duration_seconds: float, iter_id: int) -> None:
         if duration_seconds <= 0:
             return
+        log_event(
+            logger,
+            logging.INFO,
+            "service.run.iteration_wait.started",
+            "Starting the configured wait between iterations",
+            run_id=run_id,
+            iter=iter_id,
+            duration_seconds=duration_seconds,
+        )
         self.repository.append_event(
             run_id,
             "iteration_wait_started",
@@ -2105,14 +2527,45 @@ class LooporaService:
             "iteration_wait_finished",
             {"iter": iter_id, "duration_seconds": duration_seconds},
         )
+        log_event(
+            logger,
+            logging.INFO,
+            "service.run.iteration_wait.finished",
+            "Finished the configured wait between iterations",
+            run_id=run_id,
+            iter=iter_id,
+            duration_seconds=duration_seconds,
+        )
 
     def _wait_for_slot(self, run_id: str) -> None:
         self.repository.update_run(run_id, status="queued", summary_md="# Loopora Run Summary\n\nQueued.\n")
+        waiting_started_at = time.perf_counter()
+        waiting_logged = False
         while True:
             self._ensure_not_stopped(run_id)
             if self.repository.claim_run_slot(run_id, self.settings.max_concurrent_runs):
                 self.repository.update_run(run_id, started_at=utc_now(), status="running")
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "service.run.slot.acquired",
+                    "Acquired a run slot and started execution",
+                    run_id=run_id,
+                    wait_duration_ms=int((time.perf_counter() - waiting_started_at) * 1000),
+                    max_concurrent_runs=self.settings.max_concurrent_runs,
+                )
                 return
+            if not waiting_logged:
+                waiting_logged = True
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "service.run.slot.waiting",
+                    "Run is waiting for a free slot or workdir lock",
+                    run_id=run_id,
+                    polling_interval_seconds=self.settings.polling_interval_seconds,
+                    max_concurrent_runs=self.settings.max_concurrent_runs,
+                )
             time.sleep(self.settings.polling_interval_seconds)
 
     def _resolve_run_checks(
@@ -2129,6 +2582,13 @@ class LooporaService:
                 run["id"],
                 "checks_resolved",
                 {"source": "specified", "count": len(checks)},
+            )
+            log_event(
+                logger,
+                logging.INFO,
+                "service.run.checks.resolved",
+                "Run checks were resolved from the user-provided spec",
+                **self._run_log_context(run, source="specified", check_count=len(checks)),
             )
             return compiled_spec
 
@@ -2169,6 +2629,18 @@ class LooporaService:
                 "notes": resolved_spec["check_generation_notes"],
             },
         )
+        log_event(
+            logger,
+            logging.INFO,
+            "service.run.checks.resolved",
+            "Run checks were generated automatically for exploratory execution",
+            **self._run_log_context(
+                run,
+                source="auto_generated",
+                check_count=len(resolved_checks),
+                notes=resolved_spec["check_generation_notes"],
+            ),
+        )
         return resolved_spec
 
     def _execute_role(
@@ -2181,6 +2653,16 @@ class LooporaService:
         degrade_once: Callable[[], None] | None = None,
     ) -> dict:
         started_at = time.perf_counter()
+        log_context = {"run_id": run_id, "role": role}
+        if iter_id is not None:
+            log_context["iter"] = iter_id
+        log_event(
+            logger,
+            logging.INFO,
+            "service.role.execution.started",
+            "Starting role execution",
+            **log_context,
+        )
 
         def wrapped() -> dict:
             self._ensure_not_stopped(run_id)
@@ -2208,6 +2690,14 @@ class LooporaService:
             "role_execution_summary",
             summary_payload,
             role=role,
+        )
+        log_event(
+            logger,
+            logging.INFO if result.ok else logging.ERROR,
+            "service.role.execution.completed",
+            "Role execution finished",
+            run_id=run_id,
+            **summary_payload,
         )
         if not result.ok:
             raise RoleExecutionError(role, result)
@@ -2424,6 +2914,16 @@ class LooporaService:
     def _set_mode(self, run_id: str, iter_id: int, role: str, holder: dict[str, str], mode: str) -> None:
         holder["value"] = mode
         self.repository.append_event(run_id, "role_degraded", {"iter": iter_id, "role": role, "mode": mode}, role=role)
+        log_event(
+            logger,
+            logging.WARNING,
+            "service.role.execution.degraded",
+            "Role execution switched to a degraded mode after retries",
+            run_id=run_id,
+            iter=iter_id,
+            role=role,
+            mode=mode,
+        )
 
     def _write_summary(self, run_id: str, status: str, body: str) -> None:
         run = self.get_run(run_id)
@@ -2436,7 +2936,12 @@ class LooporaService:
         try:
             (run_dir / "summary.md").write_text(summary, encoding="utf-8")
         except OSError:
-            logger.exception("failed to persist summary for run dir %s", run_dir)
+            log_exception(
+                logger,
+                "service.run.summary.persist_failed",
+                "Failed to persist run summary file",
+                runs_dir=run_dir,
+            )
 
     def _record_role_request(self, run_id: str, request: RoleRequest) -> None:
         request_dir = request.run_dir / "role_requests"
@@ -3425,6 +3930,7 @@ GUIDE_SCHEMA = CHALLENGER_SCHEMA
 
 
 def create_service(executor_factory: Callable[[], CodexExecutor] | None = None) -> LooporaService:
+    configure_logging()
     return LooporaService(
         repository=LooporaRepository(db_path()),
         settings=load_settings(),
