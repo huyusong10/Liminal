@@ -48,6 +48,9 @@ def test_index_page_renders_with_saved_loops(
     _assert_has_testid(response.text, "nav-orchestrations-link")
     _assert_has_testid(response.text, "nav-role-definitions-link")
     _assert_has_testid(response.text, "nav-tools-link")
+    _assert_has_testid(response.text, "theme-switch")
+    _assert_has_testid(response.text, "theme-light-button")
+    _assert_has_testid(response.text, "theme-dark-button")
     assert "data-open-card=" in response.text
     assert "id=\"confirm-modal\"" in response.text
     assert "id=\"loops-empty-state\" hidden" in response.text

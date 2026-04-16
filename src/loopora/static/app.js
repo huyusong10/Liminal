@@ -345,3 +345,38 @@
     bindOpenCards,
   };
 })();
+
+
+
+  // Theme logic
+  function initialTheme() {
+    const saved = window.localStorage.getItem("loopora:theme");
+    if (saved === "light" || saved === "dark") {
+      return saved;
+    }
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+
+  function setTheme(theme) {
+    if (theme !== "light" && theme !== "dark") return;
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem("loopora:theme", theme);
+    document.querySelectorAll("[data-set-theme]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.setTheme === theme);
+    });
+  }
+
+  const currentTheme = initialTheme();
+  setTheme(currentTheme);
+
+  document.querySelectorAll("[data-set-theme]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setTheme(btn.dataset.setTheme);
+    });
+  });
+
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+    if (!window.localStorage.getItem("loopora:theme")) {
+      setTheme(e.matches ? "dark" : "light");
+    }
+  });

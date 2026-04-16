@@ -13,18 +13,14 @@
       display: grid;
       place-items: center;
       padding: 24px;
-      background:
-        radial-gradient(circle at top right, rgba(214, 106, 54, 0.18), transparent 28%),
-        radial-gradient(circle at bottom left, rgba(13, 124, 102, 0.12), transparent 26%),
-        linear-gradient(180deg, #f5ede1 0%, #faf6f0 50%, #f0e6d6 100%);
     }
     .auth-card {
       width: min(640px, 100%);
       padding: 32px;
-      border-radius: 28px;
-      border: 1px solid rgba(139, 109, 74, 0.12);
-      background: rgba(255, 252, 246, 0.92);
-      box-shadow: 0 28px 70px rgba(31, 26, 20, 0.18);
+      border-radius: 0;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: var(--shadow-lg);
       backdrop-filter: blur(16px);
     }
     .auth-card h1 {
@@ -36,14 +32,15 @@
     .auth-card p {
       margin: 0 0 10px;
       line-height: 1.7;
-      color: #8a7d6f;
+      color: var(--muted);
     }
     .auth-card code {
       display: inline-block;
       padding: 2px 8px;
-      border-radius: 999px;
-      background: rgba(214, 106, 54, 0.12);
-      font-family: "SFMono-Regular", "IBM Plex Mono", monospace;
+      border-radius: 0;
+      background: rgba(var(--glass-dark-rgb), 0.12);
+      color: var(--accent);
+      font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
       font-size: 0.86rem;
     }
     .auth-card-brand {
@@ -59,7 +56,10 @@
     .auth-card-brand-line {
       flex: 1;
       height: 1px;
-      background: rgba(139, 109, 74, 0.16);
+      background: var(--line);
+    }
+    html[data-theme="dark"] .auth-logo {
+      content: url("/logo/logo-with-text-horizontal-light.svg");
     }
   </style>
 </head>
@@ -67,7 +67,7 @@
   <div class="auth-shell">
     <div class="auth-card">
       <div class="auth-card-brand">
-        <img src="/logo/logo-with-text-horizontal.svg" alt="Loopora" />
+        <img class="auth-logo" src="/logo/logo-with-text-horizontal.svg" alt="Loopora" />
         <span class="auth-card-brand-line" />
       </div>
       <h1>需要访问令牌 / Auth token required</h1>
