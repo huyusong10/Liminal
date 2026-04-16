@@ -1,10 +1,8 @@
 **简体中文** | [English](./README.md)
 
 <p align="center">
-  <img src="./src/loopora/assets/logo/logo.svg" alt="Loopora logo" width="160" />
+  <img src="./src/loopora/assets/logo/logo-with-text-horizontal.svg" alt="Loopora" width="760" />
 </p>
-
-<h1 align="center">Loopora</h1>
 
 <p align="center">
   <a href="https://www.python.org/">
