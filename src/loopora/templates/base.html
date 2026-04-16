@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN" data-locale="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Loopora{% endblock %}</title>
+  <link rel="icon" href="/logo/logo.svg" sizes="any" type="image/svg+xml" />
+  <link rel="shortcut icon" href="/logo/logo.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="{{ static_asset_url('app.css') }}" />
+  <script src="{{ static_asset_url('app.js') }}" defer></script>
+</head>
+<body>
+  <div class="page-shell">
+    <nav class="top-nav">
+      <a class="top-nav-brand" href="/" aria-label="Loopora home">
+        <img class="top-nav-brand-lockup" src="/logo/logo-with-text-horizontal-light.svg" alt="" aria-hidden="true" />
+      </a>
+      <div class="top-nav-links">
+        <a class="top-nav-link {% if request.url.path == '/' %}active{% endif %}" href="/">
+          <span data-lang="zh">已创建</span>
+          <span data-lang="en">Created</span>
+        </a>
+        <a class="top-nav-link {% if request.url.path == '/loops/new' %}active{% endif %}" href="/loops/new">
+          <span data-lang="zh">创建循环</span>
+          <span data-lang="en">Create Loop</span>
+        </a>
+        <a class="top-nav-link {% if request.url.path.startswith('/orchestrations') %}active{% endif %}" href="/orchestrations">
+          <span data-lang="zh">流程编排</span>
+          <span data-lang="en">Orchestrations</span>
+        </a>
+        <a class="top-nav-link {% if request.url.path == '/tools' %}active{% endif %}" href="/tools">
+          <span data-lang="zh">工具</span>
+          <span data-lang="en">Tools</span>
+        </a>
+      </div>
+      <div class="top-nav-trailing">
+        <div class="locale-switch" role="group" aria-label="Language switch">
+          <button class="ghost-button locale-button" type="button" data-set-locale="zh">中文</button>
+          <button class="ghost-button locale-button" type="button" data-set-locale="en">EN</button>
+        </div>
+      </div>
+    </nav>
+    <main class="site-main">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <div class="confirm-modal" id="confirm-modal" hidden aria-hidden="true">
+    <div class="confirm-modal-backdrop" data-close-confirm-modal="1"></div>
+    <div class="confirm-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+      <div class="confirm-modal-copy">
+        <h2 id="confirm-modal-title">
+          <span data-lang="zh">要删除这条 loop 吗？</span>
+          <span data-lang="en">Delete this loop?</span>
+        </h2>
+        <p id="confirm-modal-detail"></p>
+      </div>
+      <div class="card-actions confirm-modal-actions">
+        <button class="ghost-button" type="button" id="confirm-modal-cancel">
+          <span data-lang="zh">先不删</span>
+          <span data-lang="en">Keep it</span>
+        </button>
+        <button class="ghost-button danger-button" type="button" id="confirm-modal-confirm">
+          <span data-lang="zh">确认删除</span>
+          <span data-lang="en">Delete</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

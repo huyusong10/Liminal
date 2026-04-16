@@ -15,7 +15,7 @@
    每次 run 必须留下结构化产物、事件流和摘要；没有产物就等于没有发生。
 
 5. workdir 视为用户资产。  
-   Liminal 可以修改，但不得把“重建整个项目”当作默认策略。
+   Loopora 可以修改，但不得把“重建整个项目”当作默认策略。
 
 6. `Guide` 不是常驻角色。  
    只有停滞或回退时才介入；默认 preset 可以是 `Builder -> Inspector -> GateKeeper`，但线性顺序允许按 loop 定义调整。
@@ -35,10 +35,10 @@
 ## 2. 不变量
 
 - 单个 workdir 同一时刻最多允许一个活动 run。
-- run 的主要事实源必须可从 `.liminal/` 与 `app.db` 还原。
+- run 的主要事实源必须可从 `.loopora/` 与 `app.db` 还原；兼容期内如果工作区仍保留 `.liminal/`，实现也必须能从该保留目录恢复同等事实。
 - `Inspector` / `GateKeeper` / `Guide` 默认不应修改源文件。
 - `GateKeeper` 的通过结论必须可映射到 checks、metrics 或约束。
-- `.liminal/` 是系统保留空间；业务改动不应写入该目录。
+- `.loopora/` 是系统保留空间；业务改动不应写入该目录。兼容期内 `.liminal/` 也视为同类保留空间。
 
 ## 3. 反例
 

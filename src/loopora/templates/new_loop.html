@@ -1,0 +1,479 @@
+{% extends "base.html" %}
+{% block title %}Create Loop{% endblock %}
+{% block content %}
+<div class="page-stack">
+<section class="hero hero-tight hero-form">
+  <div class="hero-copy-stack">
+    <h1>
+      <span data-lang="zh">新建一条 loop，把这个想法交给它持续推进。</span>
+      <span data-lang="en">Create a loop and let it keep pushing this idea forward.</span>
+    </h1>
+    <p>
+      <span data-lang="zh">填好 workdir、spec 和执行工具，剩下的脏活累活就交给 loop 慢慢折腾。</span>
+      <span data-lang="en">Point it at a workdir, a spec, and an execution tool, then let the loop do the messy part.</span>
+    </p>
+  </div>
+</section>
+
+{% if access_state.remote_access_enabled %}
+<div class="callout">
+  <strong><span data-lang="zh">当前是网络访问模式</span><span data-lang="en">Network access mode is on</span></strong>
+  <p>
+    <span data-lang="zh">现在填的路径都指向服务端那台机器，不是你手里这台浏览器。为了避免误会，原生"浏览"按钮已经收起来了，请直接粘贴服务端的绝对路径。</span>
+    <span data-lang="en">Every path here points to the server machine, not the browser in your hand. To avoid confusion, the native browse buttons are disabled, so paste absolute paths from the server instead.</span>
+  </p>
+</div>
+{% endif %}
+
+<form
+  class="panel form-panel form-panel-wide"
+  method="post"
+  action="/loops/new"
+  id="new-loop-form"
+  data-restore-draft="{{ 'true' if allow_draft_restore else 'false' }}"
+>
+  <div
+    class="field-status is-error"
+    id="form-error"
+    aria-live="polite"
+    {% if not form_error %}hidden{% endif %}
+  >{{ form_error or "" }}</div>
+
+  <div class="field-status" id="draft-status" aria-live="polite" hidden></div>
+  <div class="card-actions" id="draft-actions" hidden>
+    <button class="ghost-button" type="button" id="clear-draft-button">
+      <span data-lang="zh">清空本地草稿</span>
+      <span data-lang="en">Clear saved draft</span>
+    </button>
+  </div>
+
+  <div class="form-grid">
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">名称</span><span data-lang="en">Name</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="便于在列表里识别这个 loop。"
+          data-title-en="A friendly name to identify this loop in the list."
+        >?</button>
+      </span>
+      <input
+        name="name"
+        value="{{ form_values.name }}"
+        data-placeholder-zh="例如：Landing page hardening"
+        data-placeholder-en="For example: Landing page hardening"
+        placeholder="Landing page hardening"
+        required
+      />
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">Workdir</span><span data-lang="en">Workdir</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="Loopora 会在这个目录里读取并原地修改项目文件。默认应该保留现有用户文件，额外状态只会写进 `.loopora/`。"
+          data-title-en="Loopora will inspect and edit project files in place inside this directory. It should preserve existing user-owned files by default; extra state only goes into `.loopora/`."
+        >?</button>
+      </span>
+      <div class="input-with-action">
+        <input
+          id="workdir-input"
+          name="workdir"
+          value="{{ form_values.workdir }}"
+          list="recent-workdir-options"
+          data-placeholder-zh="/absolute/path/to/project"
+          data-placeholder-en="/absolute/path/to/project"
+          placeholder="/absolute/path/to/project"
+          required
+        />
+        <button class="ghost-button" type="button" id="browse-workdir" {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}>
+          <span data-lang="zh">浏览</span>
+          <span data-lang="en">Browse</span>
+        </button>
+      </div>
+      {% if recent_workdirs %}
+      <small class="field-note">
+        <span data-lang="zh">最近用过的目录：</span>
+        <span data-lang="en">Recent workdirs:</span>
+      </small>
+      <div class="card-actions recent-workdir-actions">
+        {% for recent_workdir in recent_workdirs[:6] %}
+        <button class="ghost-button recent-workdir-button" type="button" data-fill-workdir="{{ recent_workdir }}">
+          <span class="brand-mark">{{ recent_workdir }}</span>
+        </button>
+        {% endfor %}
+      </div>
+      <datalist id="recent-workdir-options">
+        {% for recent_workdir in recent_workdirs %}
+        <option value="{{ recent_workdir }}"></option>
+        {% endfor %}
+      </datalist>
+      {% endif %}
+    </label>
+
+    <label class="wide">
+      <span class="label-row">
+        <span><span data-lang="zh">Spec 路径</span><span data-lang="en">Spec path</span></span>
+        <a class="inline-hint-link" href="/tools">
+          <span data-lang="zh">不确定怎么写？先用 Spec Skill 把想法整理成可跑的 spec。</span>
+          <span data-lang="en">Not sure how to write it yet? Use Spec Skill to turn the idea into a runnable spec.</span>
+        </a>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="指向你的 Markdown spec。页面会校验是否包含 Goal；Checks 和 Constraints 都是可选的。"
+          data-title-en="Point to your Markdown spec. The page validates that it includes Goal; Checks and Constraints are optional."
+        >?</button>
+      </span>
+      <div class="input-with-action input-with-multi-actions">
+        <input
+          id="spec-path-input"
+          name="spec_path"
+          value="{{ form_values.spec_path }}"
+          data-placeholder-zh="/absolute/path/to/spec.md"
+          data-placeholder-en="/absolute/path/to/spec.md"
+          placeholder="/absolute/path/to/spec.md"
+          required
+        />
+        <button class="ghost-button" type="button" id="browse-spec" {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}>
+          <span data-lang="zh">浏览</span>
+          <span data-lang="en">Browse</span>
+        </button>
+        <button class="secondary-button" type="button" id="create-spec-template" data-native-dialogs-enabled="{{ 'true' if access_state.native_dialogs_enabled else 'false' }}">
+          <span data-lang="zh">创建模版</span>
+          <span data-lang="en">Create template</span>
+        </button>
+      </div>
+      <div class="field-status" id="spec-validation" aria-live="polite" hidden></div>
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">执行工具</span><span data-lang="en">Execution tool</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="选择实际驱动 loop 的本机工具。不同工具的模型名和推理/variant 选项不同。"
+          data-title-en="Choose the local tool that will actually drive the loop. Model names and reasoning or variant options differ by tool."
+        >?</button>
+      </span>
+      <select id="executor-kind-input" name="executor_kind">
+        {% for profile in executor_profiles %}
+        <option value="{{ profile.key }}" {% if form_values.executor_kind == profile.key %}selected{% endif %}>{{ profile.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">配置方式</span><span data-lang="en">Configuration mode</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="预设模式适合常规使用；直接命令模式允许你自己给出完整 CLI 参数，用来跟上工具未来的变动。"
+          data-title-en="Preset mode is for normal use. Command mode lets you provide the full CLI arguments yourself so you can keep up with future tool changes."
+        >?</button>
+      </span>
+      <select id="executor-mode-input" name="executor_mode">
+        <option value="preset" {% if form_values.executor_mode == "preset" %}selected{% endif %}>Preset options / 预设选项</option>
+        <option value="command" {% if form_values.executor_mode == "command" %}selected{% endif %}>Command params / 直接命令</option>
+      </select>
+    </label>
+
+    <div class="wide executor-config-grid">
+      <section class="executor-config-card" id="preset-config-card">
+        <header class="executor-config-head">
+          <div>
+            <strong><span data-lang="zh">预设配置</span><span data-lang="en">Preset config</span></strong>
+            <p>
+              <span data-lang="zh">适合日常使用。你只需要选工具、模型和稳定的预设参数，下面的命令参数会自动同步。</span>
+              <span data-lang="en">Best for everyday use. Choose the tool, model, and stable preset settings, and the command arguments below stay in sync automatically.</span>
+            </p>
+          </div>
+          <span class="executor-config-state" id="preset-config-state">
+            <span data-lang="zh">当前生效</span>
+            <span data-lang="en">Active</span>
+          </span>
+        </header>
+        <div class="executor-config-body">
+          <label id="preset-model-field">
+            <span class="label-row">
+              <span id="model-field-label"><span data-lang="zh">模型</span><span data-lang="en">Model</span></span>
+              <button
+                id="model-help-trigger"
+                class="help-dot"
+                type="button"
+                data-title-zh="默认用哪个模型执行 Builder、Inspector、GateKeeper 和 Guide。"
+                data-title-en="Which model to use by default for Builder, Inspector, GateKeeper, and Guide."
+              >?</button>
+            </span>
+            <input id="model-input" name="model" value="{{ form_values.model }}" />
+            <small class="field-note" id="model-field-note"></small>
+          </label>
+
+          <label id="preset-effort-field">
+            <span class="label-row">
+              <span id="effort-field-label"><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning effort</span></span>
+              <button
+                id="effort-help-trigger"
+                class="help-dot"
+                type="button"
+                data-title-zh="不同工具支持的推理强度或 variant 不一样。"
+                data-title-en="Supported reasoning or variant values differ across tools."
+              >?</button>
+            </span>
+            <select
+              id="reasoning-input"
+              name="reasoning_effort"
+            ></select>
+            <small class="field-note" id="effort-field-note"></small>
+          </label>
+        </div>
+      </section>
+
+      <section class="executor-config-card" id="command-config-card">
+        <header class="executor-config-head">
+          <div>
+            <strong><span data-lang="zh">直接命令</span><span data-lang="en">Direct command</span></strong>
+            <p>
+              <span data-lang="zh">适合跟随底层 CLI 的快速变化。你可以直接编辑可执行文件和每行一个参数的 argv 模板。</span>
+              <span data-lang="en">Use this when the underlying CLI moves faster than the presets. Edit the executable and a one-argument-per-line argv template directly.</span>
+            </p>
+          </div>
+          <span class="executor-config-state" id="command-config-state">
+            <span data-lang="zh">当前生效</span>
+            <span data-lang="en">Active</span>
+          </span>
+        </header>
+        <div class="executor-config-body">
+          <label class="wide" id="command-cli-field">
+            <span class="label-row">
+              <span><span data-lang="zh">命令可执行文件</span><span data-lang="en">Command executable</span></span>
+              <button
+                class="help-dot"
+                type="button"
+                data-title-zh="通常是 codex、claude 或 opencode。这里也可以改成你本机上的其他包装命令。"
+                data-title-en="Usually codex, claude, or opencode. You can also point it at your own local wrapper command."
+              >?</button>
+            </span>
+            <input
+              id="command-cli-input"
+              name="command_cli"
+              value="{{ form_values.command_cli }}"
+              data-placeholder-zh="例如：codex"
+              data-placeholder-en="For example: codex"
+              placeholder="codex"
+            />
+          </label>
+
+          <label class="wide" id="command-args-field">
+            <span class="label-row">
+              <span><span data-lang="zh">命令参数</span><span data-lang="en">Command arguments</span></span>
+              <button
+                class="help-dot"
+                type="button"
+                data-title-zh="每行一个参数，比直接写整串 shell 更稳。支持占位符：{workdir} {schema_path} {output_path} {json_schema} {sandbox} {prompt} {model} {reasoning_effort}。"
+                data-title-en="Use one argument per line for safer editing than a full shell string. Supported placeholders: {workdir} {schema_path} {output_path} {json_schema} {sandbox} {prompt} {model} {reasoning_effort}."
+              >?</button>
+            </span>
+            <textarea
+              id="command-args-input"
+              name="command_args_text"
+              rows="9"
+              data-placeholder-zh="每行一个参数"
+              data-placeholder-en="One argument per line"
+              placeholder="One argument per line"
+            >{{- form_values.command_args_text -}}</textarea>
+            <small class="field-note">
+              <span data-lang="zh">建议把运行时变量写成占位符，而不是写死路径。三者都需要 {prompt}；Codex 至少需要 {output_path} 才能把结构化结果交回 Loopora。{schema_path}、{json_schema} 和 {sandbox} 是否使用，取决于你想怎样调用底层 CLI。</span>
+              <span data-lang="en">Prefer runtime placeholders over hard-coded paths. All tools need {prompt}; Codex needs at least {output_path} so Loopora can recover the structured result. Whether you use {schema_path}, {json_schema}, or {sandbox} depends on how you want to invoke the underlying CLI.</span>
+            </small>
+          </label>
+        </div>
+      </section>
+    </div>
+
+    <div class="wide command-preview-panel">
+      <span class="label-row">
+        <span><span data-lang="zh">实际命令预览</span><span data-lang="en">Resolved command preview</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="这里会显示 Loopora 真正会调用的命令。运行时动态值会以尖括号示意。"
+          data-title-en="This shows the command Loopora will actually invoke. Runtime-only values are shown as angle-bracket placeholders."
+        >?</button>
+      </span>
+      <pre class="preview-box command-preview-box" id="command-preview"></pre>
+      <small class="field-note" id="command-preview-note"></small>
+    </div>
+
+    <section class="wide panel workflow-editor-panel">
+      <header class="panel-header workflow-editor-header">
+        <div>
+          <h2><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></h2>
+          <p class="field-note">
+            <span data-lang="zh">编排方案现在是独立一级对象。先去维护 Builder / Inspector / GateKeeper / Guide 的流程，再回到这里挑一个方案给 loop 使用。</span>
+            <span data-lang="en">Orchestrations are now first-class assets. Define the Builder / Inspector / GateKeeper / Guide workflow separately, then choose one here for this loop.</span>
+          </p>
+        </div>
+        <div class="card-actions card-actions-compact">
+          <a class="secondary-button" href="/orchestrations/new">
+            <span data-lang="zh">新建编排</span>
+            <span data-lang="en">New orchestration</span>
+          </a>
+          <a class="ghost-button" href="/orchestrations">
+            <span data-lang="zh">管理编排</span>
+            <span data-lang="en">Manage orchestrations</span>
+          </a>
+        </div>
+      </header>
+      <div class="form-grid">
+        <label class="wide">
+          <span class="label-row">
+            <span><span data-lang="zh">选择编排方案</span><span data-lang="en">Choose orchestration</span></span>
+          </span>
+          <select id="orchestration-id-input" name="orchestration_id">
+            {% for orchestration in orchestrations %}
+            <option value="{{ orchestration.id }}" {% if form_values.orchestration_id == orchestration.id %}selected{% endif %}>
+              {{ orchestration.name }}{% if orchestration.source == "builtin" %} · builtin{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="field-status" id="orchestration-summary" aria-live="polite"></div>
+    </section>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">最大迭代次数</span><span data-lang="en">Max iterations</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="限制整个 loop 最多跑多少轮。填 0 表示无限，直到通过或手动停止。"
+          data-title-en="Cap how many full loop iterations may run. Use 0 for unlimited until it passes or you stop it."
+        >?</button>
+      </span>
+      <input name="max_iters" type="number" min="0" value="{{ form_values.max_iters }}" />
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">每个角色的重试次数</span><span data-lang="en">Retries per role</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="单个角色失败后最多自动重试多少次。填 0 表示无限重试，直到成功或手动停止。"
+          data-title-en="How many times a failing role should retry automatically. Use 0 for unlimited retries until success or manual stop."
+        >?</button>
+      </span>
+      <input name="max_role_retries" type="number" min="0" value="{{ form_values.max_role_retries }}" />
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">停滞阈值</span><span data-lang="en">Delta threshold</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="连续多轮提升幅度低于这个值时，会触发停滞检测。"
+          data-title-en="If progress gains stay below this value across multiple iterations, plateau detection can trigger."
+        >?</button>
+      </span>
+      <input name="delta_threshold" type="number" min="0" step="0.001" value="{{ form_values.delta_threshold }}" />
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">触发窗口</span><span data-lang="en">Trigger window</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="看多少轮历史来判断是否进入 plateau。"
+          data-title-en="How many recent iterations to inspect before declaring a plateau."
+        >?</button>
+      </span>
+      <input name="trigger_window" type="number" min="1" value="{{ form_values.trigger_window }}" />
+    </label>
+
+    <label>
+      <span class="label-row">
+        <span><span data-lang="zh">回退窗口</span><span data-lang="en">Regression window</span></span>
+        <button
+          class="help-dot"
+          type="button"
+          data-title-zh="看多少轮历史来判断质量是否在倒退。"
+          data-title-en="How many recent iterations to inspect before flagging regression."
+        >?</button>
+      </span>
+      <input name="regression_window" type="number" min="1" value="{{ form_values.regression_window }}" />
+    </label>
+
+    <details class="wide">
+      <summary><span data-lang="zh">高级：按角色覆盖模型</span><span data-lang="en">Advanced: per-role model overrides</span></summary>
+      <p class="field-note">
+        <span data-lang="zh">可选。留空则所有角色都使用上面的默认模型。适合让 Builder 和 GateKeeper 用不同模型，但仍保持同一个 loop 定义。</span>
+        <span data-lang="en">Optional. Leave these blank to use the default model above for every role. Use this when Builder and GateKeeper should run on different models while staying inside one loop definition.</span>
+      </p>
+      <div class="executor-config-body">
+        <label>
+          <span><span data-lang="zh">Builder 模型</span><span data-lang="en">Builder model</span></span>
+          <input id="role-model-builder-input" name="role_model_builder" value="{{ form_values.role_model_builder }}" />
+        </label>
+        <label>
+          <span><span data-lang="zh">Inspector 模型</span><span data-lang="en">Inspector model</span></span>
+          <input id="role-model-inspector-input" name="role_model_inspector" value="{{ form_values.role_model_inspector }}" />
+        </label>
+        <label>
+          <span><span data-lang="zh">GateKeeper 模型</span><span data-lang="en">GateKeeper model</span></span>
+          <input id="role-model-gatekeeper-input" name="role_model_gatekeeper" value="{{ form_values.role_model_gatekeeper }}" />
+        </label>
+        <label>
+          <span><span data-lang="zh">Guide 模型</span><span data-lang="en">Guide model</span></span>
+          <input id="role-model-guide-input" name="role_model_guide" value="{{ form_values.role_model_guide }}" />
+        </label>
+      </div>
+    </details>
+  </div>
+
+  <label class="checkbox-row">
+    <input type="checkbox" name="start_immediately" value="1" {% if form_values.start_immediately %}checked{% endif %} />
+    <span><span data-lang="zh">创建后立即开始运行</span><span data-lang="en">Create and start immediately</span></span>
+  </label>
+
+  <div class="callout">
+    <strong><span data-lang="zh">Spec 提醒</span><span data-lang="en">Spec reminder</span></strong>
+    <p>
+      <span data-lang="zh">Markdown spec 至少需要 <code># Goal</code>。你可以额外提供 <code># Checks</code> 和 <code># Constraints</code>；如果没有显式 checks，Loopora 会在每次 run 开始时自动生成一组并只在本次运行内冻结。</span>
+      <span data-lang="en">Your Markdown spec must include <code># Goal</code>. You can optionally add <code># Checks</code> and <code># Constraints</code>; when checks are omitted, Loopora will generate a frozen set for that run.</span>
+    </p>
+  </div>
+
+  <div class="callout">
+    <strong><span data-lang="zh">额外工具</span><span data-lang="en">Extra tools</span></strong>
+    <p>
+      <span data-lang="zh">如果你想安装 <code>loopora-spec</code> skill，请到顶部导航栏里的"工具"页操作。</span>
+      <span data-lang="en">If you want to install the <code>loopora-spec</code> skill, use the Tools page from the top navigation.</span>
+    </p>
+  </div>
+
+  <div class="card-actions">
+    <button class="primary-button" type="submit" id="save-loop-button">
+      <span data-lang="zh">保存循环</span>
+      <span data-lang="en">Save loop</span>
+    </button>
+    <a class="ghost-button" href="/">
+      <span data-lang="zh">取消</span>
+      <span data-lang="en">Cancel</span>
+    </a>
+  </div>
+</form>
+<script id="executor-profiles-json" type="application/json">{{ executor_profiles|tojson }}</script>
+<script id="orchestrations-json" type="application/json">{{ orchestrations|tojson }}</script>
+<script id="pristine-loop-form-json" type="application/json">{{ pristine_loop_form|tojson }}</script>
+<script src="{{ static_asset_url('pages/new_loop.js') }}" defer></script>
+</div>
+{% endblock %}

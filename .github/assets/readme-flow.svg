@@ -17,7 +17,7 @@
 
   <rect width="1280" height="560" rx="36" fill="url(#flowbg)"/>
   <text x="96" y="108" fill="#1E1813" font-family="Georgia, 'Times New Roman', serif" font-size="46" font-weight="700">How a loop moves</text>
-  <text x="96" y="148" fill="#6E6256" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22">Liminal keeps the spec stable, iterates in the workspace, and records each run under <tspan font-weight="700">.liminal/</tspan>.</text>
+  <text x="96" y="148" fill="#6E6256" font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22">Loopora keeps the spec stable, iterates in the workspace, and records each run under <tspan font-weight="700">.loopora/</tspan>.</text>
 
   <g filter="url(#flowshadow)">
     <rect x="72" y="190" width="164" height="116" rx="24" fill="#FFFFFF"/>
@@ -71,7 +71,7 @@
 
   <g>
     <rect x="96" y="380" width="1088" height="102" rx="24" fill="#1F1A15"/>
-    <text x="126" y="418" fill="#FFF8EF" font-family="'SFMono-Regular', ui-monospace, Menlo, monospace" font-size="18">.liminal/loops/&lt;loop_id&gt;/compiled_spec.json</text>
-    <text x="126" y="448" fill="#D7F0E8" font-family="'SFMono-Regular', ui-monospace, Menlo, monospace" font-size="18">.liminal/runs/&lt;run_id&gt;/events.jsonl · tester_output.json · verifier_verdict.json · summary.md</text>
+    <text x="126" y="418" fill="#FFF8EF" font-family="'SFMono-Regular', ui-monospace, Menlo, monospace" font-size="18">.loopora/loops/&lt;loop_id&gt;/compiled_spec.json</text>
+    <text x="126" y="448" fill="#D7F0E8" font-family="'SFMono-Regular', ui-monospace, Menlo, monospace" font-size="18">.loopora/runs/&lt;run_id&gt;/events.jsonl · tester_output.json · verifier_verdict.json · summary.md</text>
   </g>
 </svg>

@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Loopora Created{% endblock %}
+{% block content %}
+<div class="page-stack">
+  <section class="hero hero-tight">
+    <div class="hero-copy-stack">
+      <h1>
+        <span data-lang="zh">继续推进已经跑起来的 loop。</span>
+        <span data-lang="en">Keep the loops you already started moving.</span>
+      </h1>
+      <p>
+        <span data-lang="zh">从这里挑一条 loop 继续跟进，最近一次运行和当前状态都能一眼看到。</span>
+        <span data-lang="en">Pick up any loop from here and see its latest run and current state at a glance.</span>
+      </p>
+    </div>
+    <a class="primary-button" href="/loops/new">
+      <span data-lang="zh">创建循环</span>
+      <span data-lang="en">Create a loop</span>
+    </a>
+  </section>
+
+  <section class="panel">
+    <header class="panel-header">
+      <h2>
+        <span data-lang="zh">已创建的循环</span>
+        <span data-lang="en">Created loops</span>
+      </h2>
+      <span><span id="loop-count">{{ loops|length }}</span> <span data-lang="zh">个</span><span data-lang="en">total</span></span>
+    </header>
+    {% if loops %}
+      <div class="loop-grid" id="loop-grid">
+        {% for loop_item in loops %}
+        <article
+          class="loop-card loop-card--{{ loop_item.latest_status or 'draft' }} is-clickable"
+          data-open-card="{{ loop_item.card_href }}"
+          tabindex="0"
+        >
+          <div class="loop-card-head">
+            <div class="loop-card-copy">
+              <h3>{{ loop_item.name }}</h3>
+              <p>{{ loop_item.workdir }}</p>
+            </div>
+            <span
+              class="status-pill status-{{ loop_item.latest_status or 'draft' }}"
+              data-status-label="{{ loop_item.latest_status or 'draft' }}"
+            ></span>
+          </div>
+          <dl class="meta-grid">
+            <div>
+              <dt><span data-lang="zh">Loop ID</span><span data-lang="en">Loop ID</span></dt>
+              <dd>{{ loop_item.id }}</dd>
+            </div>
+            <div>
+              <dt><span data-lang="zh">执行工具</span><span data-lang="en">Executor</span></dt>
+              <dd>{{ loop_item.executor_label }}</dd>
+            </div>
+            <div>
+              <dt><span data-lang="zh">模型</span><span data-lang="en">Model</span></dt>
+              <dd>{{ loop_item.model or "-" }}</dd>
+            </div>
+            <div>
+              <dt><span data-lang="zh">当前迭代</span><span data-lang="en">Current iter</span></dt>
+              <dd>{{ loop_item.display_iter if loop_item.display_iter is not none else "-" }}</dd>
+            </div>
+          </dl>
+          <div class="loop-card-glance">
+            <strong>
+              <span data-lang="zh">{{ loop_item.card_hint_zh }}</span>
+              <span data-lang="en">{{ loop_item.card_hint_en }}</span>
+            </strong>
+            <p>{{ loop_item.card_excerpt or "-" }}</p>
+          </div>
+          <div class="card-actions card-actions--loop{% if not loop_item.latest_run_id %} card-actions--loop-compact{% endif %}">
+            <a class="secondary-button" href="/loops/{{ loop_item.id }}">
+              <span data-lang="zh">查看循环</span>
+              <span data-lang="en">View loop</span>
+            </a>
+            {% if loop_item.latest_run_id %}
+            <a class="ghost-button" href="/runs/{{ loop_item.latest_run_id }}">
+              <span data-lang="zh">最近运行</span>
+              <span data-lang="en">Latest run</span>
+            </a>
+            {% endif %}
+            <button
+              class="ghost-button danger-button"
+              type="button"
+              data-delete-loop="{{ loop_item.id }}"
+              data-loop-name="{{ loop_item.name }}"
+            >
+              <span data-lang="zh">删除</span>
+              <span data-lang="en">Delete</span>
+            </button>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      <p class="panel-note loop-grid-note">
+        <span data-lang="zh">点击卡片主体可直接打开最近运行；如果这条 loop 还没有运行记录，就会进入循环详情。</span>
+        <span data-lang="en">Click the body of a card to jump to the latest run. If the loop has no run yet, it opens the loop details instead.</span>
+      </p>
+      <div class="empty-state" id="loops-empty-state" hidden>
+        <img class="empty-state-logo" src="/logo/logo.svg" alt="Loopora logo" />
+        <h3>
+          <span data-lang="zh">还没有 loop</span>
+          <span data-lang="en">No loops yet</span>
+        </h3>
+        <p>
+          <span data-lang="zh">从一个 Markdown spec 和 workdir 开始创建你的第一个 loop。</span>
+          <span data-lang="en">Create your first loop from a Markdown spec and a workdir.</span>
+        </p>
+      </div>
+    {% else %}
+      <div class="loop-grid" id="loop-grid" hidden></div>
+      <p class="panel-note loop-grid-note" hidden>
+        <span data-lang="zh">点击卡片主体可直接打开最近运行；如果这条 loop 还没有运行记录，就会进入循环详情。</span>
+        <span data-lang="en">Click the body of a card to jump to the latest run. If the loop has no run yet, it opens the loop details instead.</span>
+      </p>
+      <div class="empty-state" id="loops-empty-state">
+        <img class="empty-state-logo" src="/logo/logo.svg" alt="Loopora logo" />
+        <h3>
+          <span data-lang="zh">还没有 loop</span>
+          <span data-lang="en">No loops yet</span>
+        </h3>
+        <p>
+          <span data-lang="zh">从一个 Markdown spec 和 workdir 开始创建你的第一个 loop。</span>
+          <span data-lang="en">Create your first loop from a Markdown spec and a workdir.</span>
+        </p>
+      </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

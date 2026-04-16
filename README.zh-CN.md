@@ -1,7 +1,7 @@
 **简体中文** | [English](./README.md)
 
 <p align="center">
-  <img src="./src/liminal/assets/logo/logo-with-text-horizontal.svg" alt="Liminal" width="560" />
+  <img src="./src/loopora/assets/logo/logo-with-text-horizontal.svg" alt="Loopora" width="560" />
 </p>
 
 <p align="center">
@@ -16,25 +16,25 @@
 </p>
 
 <p align="center">
-  Liminal 是一个面向 agentic 构建循环的本地优先编排工具。
+  Loopora 是一个面向 agentic 构建循环的本地优先编排工具。
   你给它一个 Markdown 版 <code>spec</code> 和一个工作目录，它会运行
   <strong>Generator → Tester → Verifier → Challenger</strong>
   的循环，并提供实时 Web 控制台。
 </p>
 
-![Liminal 概览](./.github/assets/readme-overview.svg)
+![Loopora 概览](./.github/assets/readme-overview.svg)
 
-## 为什么是 Liminal
+## 为什么是 Loopora
 
 - 让目标保持稳定，同时让每次 run 围绕具体 checks 持续迭代。
 - 同时支持显式 checks 和探索模式下的自动生成 checks。
-- 把运行产物写进 `.liminal/`，方便回放、排查和比较。
+- 把运行产物写进 `.loopora/`，方便回放、排查和比较。
 - 用本地 Web 控制台统一查看进度、控制台输出、时间线和关键产物。
 - 同一套 loop 定义可以切换由 Codex、Claude Code 或 OpenCode 执行，并自动适配各自的模型/推理选项。
 
 ## 它是怎么工作的
 
-![Liminal 流程](./.github/assets/readme-flow.svg)
+![Loopora 流程](./.github/assets/readme-flow.svg)
 
 每次 run 都会先把 Markdown spec 编译成一份冻结快照，然后修改工作区、收集证据、做通过裁决；只有在停滞或退化时才会触发 Challenger。
 
@@ -45,7 +45,7 @@
 - 每次 run 都会产出结构化文件，例如 `compiled_spec.json`、`tester_output.json`、`verifier_verdict.json`、`events.jsonl`、`summary.md`
 - CLI 支持 `run`、`serve`、`loops create`、`loops list`、`loops status`、`loops stop`、`loops rerun`、`loops delete`、`spec init`、`spec validate`
 - 支持 fake executor，方便本地 smoke test 和演示
-- 内置 `liminal-spec` skill，帮助你生成符合要求的 `spec.md`
+- 内置 `loopora-spec` skill，帮助你生成符合要求的 `spec.md`
 
 ## 安装
 
@@ -70,7 +70,7 @@ python3 -m pip install -e .
 2. 启动本地 Web 控制台：
 
 ```bash
-liminal serve --host 127.0.0.1 --port 8742
+loopora serve --host 127.0.0.1 --port 8742
 ```
 
 然后打开 [http://127.0.0.1:8742](http://127.0.0.1:8742)。
@@ -78,7 +78,7 @@ liminal serve --host 127.0.0.1 --port 8742
 如果你想把 Web UI 暴露到局域网里，可以绑定公网地址，并顺手加上访问令牌：
 
 ```bash
-liminal serve --host 0.0.0.0 --port 8742 --auth-token your-secret
+loopora serve --host 0.0.0.0 --port 8742 --auth-token your-secret
 ```
 
 然后先用 `http://<server-ip>:8742/?token=your-secret` 打开一次页面，浏览器后面就会记住这个会话。网络模式下请直接填写服务端机器上的绝对路径，因为原生文件选择弹窗会被故意禁用，避免远程操作时搞混。
@@ -86,7 +86,7 @@ liminal serve --host 0.0.0.0 --port 8742 --auth-token your-secret
 3. 创建一个 spec 模板：
 
 ```bash
-liminal spec init ./demo-spec.md
+loopora spec init ./demo-spec.md
 ```
 
 4. 把它改成具体需求：
@@ -118,7 +118,7 @@ liminal spec init ./demo-spec.md
 如果你更习惯直接从终端启动 run，也可以继续这样用：
 
 ```bash
-liminal run \
+loopora run \
   --spec ./demo-spec.md \
   --workdir /absolute/path/to/project \
   --executor codex \
@@ -131,13 +131,13 @@ liminal run \
 
 ## Spec 模型
 
-Liminal 使用 Markdown spec，顶层结构如下：
+Loopora 使用 Markdown spec，顶层结构如下：
 
 - `# Goal` 必填
 - `# Checks` 选填
 - `# Constraints` 选填
 
-如果省略 `# Checks`，Liminal 会在 run 开始时自动生成一组冻结 checks。  
+如果省略 `# Checks`，Loopora 会在 run 开始时自动生成一组冻结 checks。  
 如果显式提供 checks，则每条 check 应该使用 `###` 标题，并包含 `When`、`Expect`、`Fail if`。
 如果目标是现有项目，建议在 `# Constraints` 里明确写出哪些内容不能动，并说明需要保留现有用户文件。
 
@@ -155,22 +155,22 @@ Liminal 使用 Markdown spec，顶层结构如下：
 - 循环列表页：查看状态、模型、最近运行和常用操作
 - 创建循环页：校验 spec、推荐最近使用过的 workdir、提供辅助工具，并支持恢复浏览器本地草稿
 - 运行详情页：实时进度、阶段说明、控制台流、时间线和关键产物
-- 工具页：安装内置的 `liminal-spec` skill
+- 工具页：安装内置的 `loopora-spec` skill
 
 ## 存储结构
 
-全局状态默认位于 `~/.liminal/`。如果需要隔离目录或适配受限环境，可以设置 `LIMINAL_HOME=/custom/path` 覆盖位置：
+全局状态默认位于 `~/.loopora/`。如果需要隔离目录或适配受限环境，可以设置 `LOOPORA_HOME=/custom/path` 覆盖位置。为了平滑升级，Loopora 仍然兼容 `LIMINAL_HOME`，并且在发现已有 `~/.liminal/` 状态目录时继续沿用：
 
-其中 `settings.json` 被视为可自愈状态：如果文件缺失、损坏、混入未知字段，或者字段值越界，Liminal 会回退到安全默认值，并在下一次加载时把文件重写成规范化后的内容。
+其中 `settings.json` 被视为可自愈状态：如果文件缺失、损坏、混入未知字段，或者字段值越界，Loopora 会回退到安全默认值，并在下一次加载时把文件重写成规范化后的内容。
 
-`recent_workdirs.json` 属于 best-effort 的界面辅助状态：Liminal 只会把其中非空的路径字符串重新投影成建议项，遇到损坏内容或非字符串条目时会直接忽略。
+`recent_workdirs.json` 属于 best-effort 的界面辅助状态：Loopora 只会把其中非空的路径字符串重新投影成建议项，遇到损坏内容或非字符串条目时会直接忽略。
 
 - `app.db`
 - `settings.json`
 - `logs/service.log`
 - `recent_workdirs.json`
 
-项目内状态位于 `<workdir>/.liminal/`：
+项目内状态位于 `<workdir>/.loopora/`。如果老项目已经在使用 `.liminal/`，当前版本也会继续识别并复用它：
 
 - `loops/<loop_id>/spec.md`
 - `loops/<loop_id>/compiled_spec.json`
@@ -186,7 +186,7 @@ Liminal 使用 Markdown spec，顶层结构如下：
 如果你只是想做 smoke test 或演示，可以切换到 fake executor：
 
 ```bash
-LIMINAL_FAKE_EXECUTOR=success liminal run --spec ./demo-spec.md --workdir /tmp/project
+LOOPORA_FAKE_EXECUTOR=success loopora run --spec ./demo-spec.md --workdir /tmp/project
 ```
 
 支持的场景：
@@ -198,12 +198,12 @@ LIMINAL_FAKE_EXECUTOR=success liminal run --spec ./demo-spec.md --workdir /tmp/p
 也可以人为加一点延迟：
 
 ```bash
-LIMINAL_FAKE_EXECUTOR=success LIMINAL_FAKE_DELAY=0.5 liminal serve
+LOOPORA_FAKE_EXECUTOR=success LOOPORA_FAKE_DELAY=0.5 loopora serve
 ```
 
 ## 项目结构
 
-- `src/liminal/`：正式产品代码、模板、静态资源、内置 skills、logo 资产
+- `src/loopora/`：正式产品代码、模板、静态资源、内置 skills、logo 资产
 - `tests/`：解析、运行、恢复、Web 和浏览器测试
 - `pyproject.toml`：打包配置、CLI 入口和测试配置
 

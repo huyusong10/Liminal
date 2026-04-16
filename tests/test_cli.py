@@ -5,7 +5,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from liminal import cli
+from loopora import cli
 
 
 def test_cli_run_allows_zero_max_iters(monkeypatch, tmp_path: Path) -> None:

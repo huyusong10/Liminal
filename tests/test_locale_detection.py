@@ -10,7 +10,7 @@ import pytest
 
 NODE = shutil.which("node")
 pytestmark = pytest.mark.skipif(NODE is None, reason="node is required for locale detection tests")
-APP_JS = Path(__file__).resolve().parents[1] / "src" / "liminal" / "static" / "app.js"
+APP_JS = Path(__file__).resolve().parents[1] / "src" / "loopora" / "static" / "app.js"
 
 
 def _run_locale_case(
@@ -30,10 +30,10 @@ const code = fs.readFileSync({json.dumps(str(APP_JS))}, "utf8");
 const storage = {{
   value: {json.dumps(saved)},
   getItem(key) {{
-    return key === "liminal:locale" ? this.value : null;
+    return key === "loopora:locale" ? this.value : null;
   }},
   setItem(key, value) {{
-    if (key === "liminal:locale") this.value = value;
+    if (key === "loopora:locale") this.value = value;
   }},
 }};
 const document = {{
@@ -42,7 +42,7 @@ const document = {{
   querySelectorAll() {{ return []; }},
   dispatchEvent() {{}},
 }};
-const window = {{ localStorage: storage, LiminalUI: null }};
+const window = {{ localStorage: storage, LooporaUI: null }};
 const navigator = {{
   languages: {json.dumps(languages)},
   language: {json.dumps(language)},
@@ -62,8 +62,8 @@ const Intl = {{
 const context = {{ window, document, navigator, Intl, CustomEvent: function () {{}}, console }};
 vm.createContext(context);
 vm.runInContext(code, context);
-const preferred = context.window.LiminalUI.detectPreferredLocale();
-context.window.LiminalUI.setLocale(preferred, {{ persist: false }});
+const preferred = context.window.LooporaUI.detectPreferredLocale();
+context.window.LooporaUI.setLocale(preferred, {{ persist: false }});
 console.log(JSON.stringify({{
   preferred,
   stored: storage.value,

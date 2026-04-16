@@ -13,11 +13,11 @@ from pathlib import Path
 import pytest
 import uvicorn
 
-from liminal.db import LiminalRepository
-from liminal.executor import FakeCodexExecutor, RoleRequest
-from liminal.service import LiminalService
-from liminal.settings import AppSettings
-from liminal.web import build_app
+from loopora.db import LooporaRepository
+from loopora.executor import FakeCodexExecutor, RoleRequest
+from loopora.service import LooporaService
+from loopora.settings import AppSettings
+from loopora.web import build_app
 
 playwright = pytest.importorskip("playwright.sync_api")
 
@@ -263,9 +263,9 @@ def test_e2e_calculator_loop_runs_and_works_in_browser(tmp_path: Path) -> None:
     )
     workdir = tmp_path / "calculator-workdir"
     workdir.mkdir()
-    repository = LiminalRepository(tmp_path / "app.db")
+    repository = LooporaRepository(tmp_path / "app.db")
     settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
-    service = LiminalService(
+    service = LooporaService(
         repository=repository,
         settings=settings,
         executor_factory=lambda: CalculatorPrototypeExecutor(scenario="success"),
@@ -458,9 +458,9 @@ def test_new_loop_page_restores_saved_browser_draft(tmp_path: Path) -> None:
     )
     workdir = tmp_path / "draft-workdir"
     workdir.mkdir()
-    repository = LiminalRepository(tmp_path / "app.db")
+    repository = LooporaRepository(tmp_path / "app.db")
     settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
-    service = LiminalService(
+    service = LooporaService(
         repository=repository,
         settings=settings,
         executor_factory=lambda: CalculatorPrototypeExecutor(scenario="success"),
@@ -512,9 +512,9 @@ def test_new_loop_page_does_not_restore_pristine_only_browser_defaults(tmp_path:
     )
     workdir = tmp_path / "draft-workdir"
     workdir.mkdir()
-    repository = LiminalRepository(tmp_path / "app.db")
+    repository = LooporaRepository(tmp_path / "app.db")
     settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
-    service = LiminalService(
+    service = LooporaService(
         repository=repository,
         settings=settings,
         executor_factory=lambda: CalculatorPrototypeExecutor(scenario="success"),

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from liminal.db import LiminalRepository
+from loopora.db import LooporaRepository
 
 
 def test_repository_retries_transient_open_errors(tmp_path: Path, monkeypatch) -> None:
@@ -17,10 +17,10 @@ def test_repository_retries_transient_open_errors(tmp_path: Path, monkeypatch) -
             raise sqlite3.OperationalError("unable to open database file")
         return real_connect(*args, **kwargs)
 
-    monkeypatch.setattr("liminal.db.sqlite3.connect", flaky_connect)
-    monkeypatch.setattr("liminal.db.time.sleep", lambda _: None)
+    monkeypatch.setattr("loopora.db.sqlite3.connect", flaky_connect)
+    monkeypatch.setattr("loopora.db.time.sleep", lambda _: None)
 
-    repository = LiminalRepository(target)
+    repository = LooporaRepository(target)
 
     assert attempts["count"] >= 2
     assert repository.path == target
@@ -28,7 +28,7 @@ def test_repository_retries_transient_open_errors(tmp_path: Path, monkeypatch) -
 
 
 def test_append_event_tolerates_jsonl_mirror_failures(tmp_path: Path, monkeypatch) -> None:
-    repository = LiminalRepository(tmp_path / "app.db")
+    repository = LooporaRepository(tmp_path / "app.db")
     workdir = tmp_path / "workdir"
     workdir.mkdir()
     loop = repository.create_loop(
@@ -49,7 +49,7 @@ def test_append_event_tolerates_jsonl_mirror_failures(tmp_path: Path, monkeypatc
             "role_models": {},
         }
     )
-    run_dir = workdir / ".liminal" / "runs" / "run_test"
+    run_dir = workdir / ".loopora" / "runs" / "run_test"
     run_dir.mkdir(parents=True)
     repository.create_run(
         {
@@ -69,11 +69,11 @@ def test_append_event_tolerates_jsonl_mirror_failures(tmp_path: Path, monkeypatc
             "role_models": {},
             "status": "queued",
             "runs_dir": str(run_dir),
-            "summary_md": "# Liminal Run Summary\n\nQueued.\n",
+            "summary_md": "# Loopora Run Summary\n\nQueued.\n",
         }
     )
 
-    monkeypatch.setattr("liminal.db.append_jsonl", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")))
+    monkeypatch.setattr("loopora.db.append_jsonl", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")))
 
     event = repository.append_event("run_test", "run_started", {"status": "running"})
 

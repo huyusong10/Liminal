@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from liminal.executor import (
+from loopora.executor import (
     RealCodexExecutor,
     RoleRequest,
     build_custom_exec_args,
@@ -14,8 +14,8 @@ from liminal.executor import (
     build_opencode_exec_args,
     validate_command_args_text,
 )
-from liminal.providers import normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
-from liminal.providers import executor_profile
+from loopora.providers import normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
+from loopora.providers import executor_profile
 
 
 def _request(tmp_path: Path, *, executor_kind: str, model: str, reasoning_effort: str) -> RoleRequest:

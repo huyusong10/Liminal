@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from liminal.web import build_app
+from loopora.web import build_app
 
 
 def test_index_page_renders_with_saved_loops(
@@ -213,7 +213,7 @@ def test_tools_page_renders_skill_install_cards(service_factory) -> None:
     assert "wake-lock-toggle" in response.text
     assert "Prevent sleep while running" in response.text
     assert "help-dot--tips" in response.text
-    assert "/api/skills/liminal-spec/download" in response.text
+    assert "/api/skills/loopora-spec/download" in response.text
     assert "下载 Skill 包" in response.text
 
 

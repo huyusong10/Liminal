@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from liminal.service import (
+from loopora.service import (
     CHALLENGER_SCHEMA,
     CHECK_PLANNER_SCHEMA,
     GENERATOR_SCHEMA,

@@ -10,15 +10,15 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from liminal.db import LiminalRepository
-from liminal.executor import FakeCodexExecutor
-from liminal.service import LiminalService
-from liminal.settings import AppSettings
+from loopora.db import LooporaRepository
+from loopora.executor import FakeCodexExecutor
+from loopora.service import LooporaService
+from loopora.settings import AppSettings
 
 
 @pytest.fixture(autouse=True)
-def isolate_liminal_home(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("LIMINAL_HOME", str(tmp_path / "liminal-home"))
+def isolate_loopora_home(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("LOOPORA_HOME", str(tmp_path / "loopora-home"))
 
 
 @pytest.fixture()
@@ -84,10 +84,10 @@ def sample_workdir(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def service_factory(tmp_path: Path):
-    def build(*, scenario: str = "success", role_delay: float = 0.0) -> LiminalService:
-        repository = LiminalRepository(tmp_path / "app.db")
+    def build(*, scenario: str = "success", role_delay: float = 0.0) -> LooporaService:
+        repository = LooporaRepository(tmp_path / "app.db")
         settings = AppSettings(max_concurrent_runs=2, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
-        return LiminalService(
+        return LooporaService(
             repository=repository,
             settings=settings,
             executor_factory=lambda: FakeCodexExecutor(scenario=scenario, role_delay=role_delay),

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from liminal.web import build_app
+from loopora.web import build_app
 
 
 def test_api_loop_creation_run_preview_and_stream(
@@ -51,9 +51,13 @@ def test_api_loop_creation_run_preview_and_stream(
     assert explorer.status_code == 200
     assert explorer.json()["kind"] == "directory"
 
-    liminal_dir = client.get(f"/api/files?run_id={run_id}&root=liminal")
-    assert liminal_dir.status_code == 200
-    assert liminal_dir.json()["kind"] == "directory"
+    loopora_dir = client.get(f"/api/files?run_id={run_id}&root=loopora")
+    assert loopora_dir.status_code == 200
+    assert loopora_dir.json()["kind"] == "directory"
+
+    legacy_dir = client.get(f"/api/files?run_id={run_id}&root=liminal")
+    assert legacy_dir.status_code == 200
+    assert legacy_dir.json()["kind"] == "directory"
 
     artifacts = client.get(f"/api/runs/{run_id}/artifacts")
     assert artifacts.status_code == 200
@@ -69,7 +73,7 @@ def test_api_loop_creation_run_preview_and_stream(
     summary_artifact = client.get(f"/api/runs/{run_id}/artifacts/summary")
     assert summary_artifact.status_code == 200
     assert summary_artifact.json()["kind"] == "file"
-    assert "Liminal Run Summary" in summary_artifact.json()["content"]
+    assert "Loopora Run Summary" in summary_artifact.json()["content"]
 
     challenger_artifact = client.get(f"/api/runs/{run_id}/artifacts/challenger-seed")
     assert challenger_artifact.status_code == 200
@@ -548,16 +552,20 @@ def test_api_spec_skill_install_targets_and_install(tmp_path: Path, monkeypatch)
 
     client = TestClient(build_app())
 
-    targets_response = client.get("/api/skills/liminal-spec")
+    targets_response = client.get("/api/skills/loopora-spec")
     assert targets_response.status_code == 200
     targets = {item["target"]: item for item in targets_response.json()["targets"]}
     assert targets["codex"]["installed"] is False
     assert targets["codex"]["install_state"] == "missing"
     assert targets["claude"]["installed"] is False
     assert targets["opencode"]["installed"] is False
-    assert targets["codex"]["install_paths"] == [str(tmp_path / ".codex" / "skills" / "liminal-spec" / "SKILL.md")]
+    assert targets["codex"]["install_paths"] == [str(tmp_path / ".codex" / "skills" / "loopora-spec" / "SKILL.md")]
 
-    install_response = client.post("/api/skills/liminal-spec/install", json={"target": "codex"})
+    legacy_targets_response = client.get("/api/skills/liminal-spec")
+    assert legacy_targets_response.status_code == 200
+    assert legacy_targets_response.json()["skill_name"] == "loopora-spec"
+
+    install_response = client.post("/api/skills/loopora-spec/install", json={"target": "codex"})
     assert install_response.status_code == 201
     install_payload = install_response.json()
     assert install_payload["result"]["action"] == "installed"
@@ -565,26 +573,26 @@ def test_api_spec_skill_install_targets_and_install(tmp_path: Path, monkeypatch)
     assert codex_targets["codex"]["installed"] is True
     assert codex_targets["codex"]["install_state"] == "installed"
 
-    skill_dir = tmp_path / ".codex" / "skills" / "liminal-spec"
+    skill_dir = tmp_path / ".codex" / "skills" / "loopora-spec"
     skill_path = skill_dir / "SKILL.md"
-    reference_path = skill_dir / "references" / "liminal-spec-format.md"
+    reference_path = skill_dir / "references" / "loopora-spec-format.md"
     original_skill_text = skill_path.read_text(encoding="utf-8")
 
     assert skill_path.exists()
     assert reference_path.exists()
-    assert not (tmp_path / ".agents" / "skills" / "liminal-spec" / "SKILL.md").exists()
+    assert not (tmp_path / ".agents" / "skills" / "loopora-spec" / "SKILL.md").exists()
 
     skill_path.write_text("tampered", encoding="utf-8")
     stale_file = skill_dir / "stale-note.txt"
     stale_file.write_text("old", encoding="utf-8")
 
-    stale_targets_response = client.get("/api/skills/liminal-spec")
+    stale_targets_response = client.get("/api/skills/loopora-spec")
     assert stale_targets_response.status_code == 200
     stale_targets = {item["target"]: item for item in stale_targets_response.json()["targets"]}
     assert stale_targets["codex"]["installed"] is False
     assert stale_targets["codex"]["install_state"] == "stale"
 
-    reinstall_response = client.post("/api/skills/liminal-spec/install", json={"target": "codex"})
+    reinstall_response = client.post("/api/skills/loopora-spec/install", json={"target": "codex"})
     assert reinstall_response.status_code == 201
     reinstall_payload = reinstall_response.json()
     assert reinstall_payload["result"]["action"] == "reinstalled"
@@ -600,16 +608,16 @@ def test_api_spec_skill_bundle_download_returns_zip(monkeypatch, tmp_path: Path)
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
 
     client = TestClient(build_app())
-    response = client.get("/api/skills/liminal-spec/download")
+    response = client.get("/api/skills/loopora-spec/download")
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"
-    assert response.headers["content-disposition"] == 'attachment; filename="liminal-spec.zip"'
+    assert response.headers["content-disposition"] == 'attachment; filename="loopora-spec.zip"'
 
     archive = zipfile.ZipFile(io.BytesIO(response.content))
     names = set(archive.namelist())
-    assert "liminal-spec/SKILL.md" in names
-    assert "liminal-spec/references/liminal-spec-format.md" in names
+    assert "loopora-spec/SKILL.md" in names
+    assert "loopora-spec/references/loopora-spec-format.md" in names
 
 
 def test_logo_assets_are_served(service_factory) -> None:
@@ -629,9 +637,13 @@ def test_network_mode_requires_auth_token_and_sets_cookie(service_factory) -> No
     assert unauthorized.status_code == 401
     assert "Auth token required" in unauthorized.text
 
+    legacy_header_authorized = client.get("/", headers={"X-Liminal-Token": "secret-token"})
+    assert legacy_header_authorized.status_code == 200
+    assert client.cookies.get("loopora_auth") == "secret-token"
+
     authorized = client.get("/?token=secret-token")
     assert authorized.status_code == 200
-    assert client.cookies.get("liminal_auth") == "secret-token"
+    assert client.cookies.get("loopora_auth") == "secret-token"
 
     api_response = client.get("/api/loops")
     assert api_response.status_code == 200

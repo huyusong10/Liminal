@@ -1,7 +1,7 @@
 [简体中文](./README.zh-CN.md) | **English**
 
 <p align="center">
-  <img src="./src/liminal/assets/logo/logo-with-text-horizontal.svg" alt="Liminal" width="560" />
+  <img src="./src/loopora/assets/logo/logo-with-text-horizontal.svg" alt="Loopora" width="560" />
 </p>
 
 <p align="center">
@@ -16,24 +16,24 @@
 </p>
 
 <p align="center">
-  Liminal is a local-first orchestration tool for agentic build loops.
+  Loopora is a local-first orchestration tool for agentic build loops.
   You give it a Markdown spec and a workdir, and it runs a
   <strong>Generator → Tester → Verifier → Challenger</strong> cycle with a live web console.
 </p>
 
-![Liminal overview](./.github/assets/readme-overview.svg)
+![Loopora overview](./.github/assets/readme-overview.svg)
 
-## Why Liminal
+## Why Loopora
 
 - Keep the goal stable while each run iterates against concrete checks.
 - Support both explicit checks and exploratory runs with auto-generated frozen checks.
-- Persist run artifacts under `.liminal/` so every iteration is inspectable and reproducible.
+- Persist run artifacts under `.loopora/` so every iteration is inspectable and reproducible.
 - Expose the same run state in a local web console with progress, console logs, timeline, and key artifacts.
 - Run the same loop definition with Codex, Claude Code, or OpenCode, with provider-aware model and effort settings.
 
 ## How It Works
 
-![Liminal flow](./.github/assets/readme-flow.svg)
+![Loopora flow](./.github/assets/readme-flow.svg)
 
 Each run compiles the Markdown spec into a frozen snapshot, updates the workspace, collects evidence, judges pass/fail, and only invokes the Challenger when the loop stalls or regresses.
 
@@ -44,7 +44,7 @@ Each run compiles the Markdown spec into a frozen snapshot, updates the workspac
 - Structured run outputs such as `compiled_spec.json`, `tester_output.json`, `verifier_verdict.json`, `events.jsonl`, and `summary.md`
 - CLI commands for `run`, `serve`, `loops create`, `loops list`, `loops status`, `loops stop`, `loops rerun`, `loops delete`, `spec init`, and `spec validate`
 - Optional fake executor mode for smoke tests and demos
-- Bundled `liminal-spec` skill that helps draft valid `spec.md` files
+- Bundled `loopora-spec` skill that helps draft valid `spec.md` files
 
 ## Install
 
@@ -69,7 +69,7 @@ python3 -m pip install -e .
 2. Start the local web console:
 
 ```bash
-liminal serve --host 127.0.0.1 --port 8742
+loopora serve --host 127.0.0.1 --port 8742
 ```
 
 Then open [http://127.0.0.1:8742](http://127.0.0.1:8742).
@@ -77,7 +77,7 @@ Then open [http://127.0.0.1:8742](http://127.0.0.1:8742).
 If you want to expose the Web UI on your LAN, bind a public host and protect it with a token:
 
 ```bash
-liminal serve --host 0.0.0.0 --port 8742 --auth-token your-secret
+loopora serve --host 0.0.0.0 --port 8742 --auth-token your-secret
 ```
 
 Then open `http://<server-ip>:8742/?token=your-secret` once in the browser. After that, the browser keeps a session cookie. In network mode, paste absolute paths from the server machine directly into the form because native file dialogs are intentionally disabled.
@@ -85,7 +85,7 @@ Then open `http://<server-ip>:8742/?token=your-secret` once in the browser. Afte
 3. Create a starter spec:
 
 ```bash
-liminal spec init ./demo-spec.md
+loopora spec init ./demo-spec.md
 ```
 
 4. Edit it into something concrete:
@@ -117,7 +117,7 @@ The Web UI is the recommended workflow because it gives you live progress, conso
 If you want to start a run directly from the terminal, you can still do that:
 
 ```bash
-liminal run \
+loopora run \
   --spec ./demo-spec.md \
   --workdir /absolute/path/to/project \
   --executor codex \
@@ -130,13 +130,13 @@ The CLI now exposes the same core loop creation surface as the Web UI: `--execut
 
 ## Spec Model
 
-Liminal uses a Markdown spec with these top-level sections:
+Loopora uses a Markdown spec with these top-level sections:
 
 - `# Goal` required
 - `# Checks` optional
 - `# Constraints` optional
 
-When `# Checks` is omitted, Liminal generates a frozen exploratory check set at run start. When checks are provided explicitly, each check should use a `###` heading and include `When`, `Expect`, and `Fail if`.
+When `# Checks` is omitted, Loopora generates a frozen exploratory check set at run start. When checks are provided explicitly, each check should use a `###` heading and include `When`, `Expect`, and `Fail if`.
 For existing projects, it is a good idea to use `# Constraints` to say what must stay untouched and to make it explicit that existing user files should be preserved.
 
 For long-running benchmark or evaluation loops, specs work better when they make the owned workflow explicit:
@@ -153,22 +153,22 @@ The local console includes:
 - Saved loop list with status, model, latest run, and direct actions
 - Loop creation page with spec validation, recent workdir suggestions, helper tooling, and browser-local draft recovery
 - Run detail page with live progress, stage explanations, console streaming, timeline, and fixed artifact tabs
-- Tool page for installing the bundled `liminal-spec` skill
+- Tool page for installing the bundled `loopora-spec` skill
 
 ## Storage
 
-Global state lives under `~/.liminal/` by default. Set `LIMINAL_HOME=/custom/path` to relocate it when you need an isolated or sandbox-friendly home:
+Global state lives under `~/.loopora/` by default. Set `LOOPORA_HOME=/custom/path` to relocate it when you need an isolated or sandbox-friendly home. For upgrade safety, Loopora still honors `LIMINAL_HOME` and will keep using an existing `~/.liminal/` home until you migrate it:
 
-`settings.json` is treated as self-healing state: if it is missing, corrupted, or contains unknown or out-of-range values, Liminal falls back to safe defaults and rewrites the file into a normalized shape on the next load.
+`settings.json` is treated as self-healing state: if it is missing, corrupted, or contains unknown or out-of-range values, Loopora falls back to safe defaults and rewrites the file into a normalized shape on the next load.
 
-`recent_workdirs.json` is best-effort UI state: Liminal only projects non-empty path strings back into suggestions and ignores corrupted or non-string entries.
+`recent_workdirs.json` is best-effort UI state: Loopora only projects non-empty path strings back into suggestions and ignores corrupted or non-string entries.
 
 - `app.db`
 - `settings.json`
 - `logs/service.log`
 - `recent_workdirs.json`
 
-Per-project state lives under `<workdir>/.liminal/`:
+Per-project state lives under `<workdir>/.loopora/`. Existing workdirs that already use `.liminal/` remain readable and writable:
 
 - `loops/<loop_id>/spec.md`
 - `loops/<loop_id>/compiled_spec.json`
@@ -184,7 +184,7 @@ Per-project state lives under `<workdir>/.liminal/`:
 For smoke tests or demos, you can switch to the fake executor:
 
 ```bash
-LIMINAL_FAKE_EXECUTOR=success liminal run --spec ./demo-spec.md --workdir /tmp/project
+LOOPORA_FAKE_EXECUTOR=success loopora run --spec ./demo-spec.md --workdir /tmp/project
 ```
 
 Supported fake scenarios:
@@ -196,12 +196,12 @@ Supported fake scenarios:
 Optional delay per role:
 
 ```bash
-LIMINAL_FAKE_EXECUTOR=success LIMINAL_FAKE_DELAY=0.5 liminal serve
+LOOPORA_FAKE_EXECUTOR=success LOOPORA_FAKE_DELAY=0.5 loopora serve
 ```
 
 ## Project Layout
 
-- `src/liminal/`: product package, templates, static files, bundled skills, and logo assets
+- `src/loopora/`: product package, templates, static files, bundled skills, and logo assets
 - `tests/`: parser, runner, recovery, web, and browser coverage
 - `pyproject.toml`: packaging, CLI entry point, and test configuration
 

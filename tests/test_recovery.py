@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from liminal.executor import ExecutionStopped
-from liminal.recovery import RetryConfig, execute_with_recovery
+from loopora.executor import ExecutionStopped
+from loopora.recovery import RetryConfig, execute_with_recovery
 
 
 def test_zero_max_retries_retries_until_success() -> None:

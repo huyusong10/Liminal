@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "liminal"
+name = "loopora"
 version = "0.1.0"
 description = "CLI-first Codex orchestration with a local web console."
 readme = "README.md"
@@ -24,7 +24,7 @@ dev = [
 ]
 
 [project.scripts]
-liminal = "liminal.cli:app"
+loopora = "loopora.cli:app"
 
 [tool.setuptools]
 include-package-data = true
@@ -34,10 +34,10 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["liminal*"]
+include = ["loopora*"]
 
 [tool.setuptools.package-data]
-liminal = [
+loopora = [
   "templates/*.html",
   "static/*.css",
   "static/*.js",

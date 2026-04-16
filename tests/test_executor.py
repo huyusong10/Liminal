@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from liminal.executor import ExecutorError, RealCodexExecutor, RoleRequest
+from loopora.executor import ExecutorError, RealCodexExecutor, RoleRequest
 
 
 def test_real_executor_times_out_after_idle_period(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

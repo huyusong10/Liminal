@@ -1,8 +1,8 @@
-# Liminal Design
+# Loopora Design
 
 ## 1. 目的
 
-本目录记录 Liminal 的设计约束与实现分解。
+本目录记录 Loopora 的设计约束与实现分解。
 
 文档分成两个子模块：
 
@@ -40,11 +40,11 @@
 | 子模块 | 文档 | 主题 | 主要代码边界 |
 | --- | --- | --- | --- |
 | 核心思想 | `core-ideas/README.md` | 项目公理、反例、非目标 | 全局 |
-| 细节设计 | `detailed-design/01-spec-subsystem.md` | `spec.md` 编译与 checks 冻结 | `src/liminal/specs.py`, `src/liminal/service.py` |
-| 细节设计 | `detailed-design/02-orchestration-service.md` | loop/run 编排与角色循环 | `src/liminal/service.py` |
-| 细节设计 | `detailed-design/03-executor-subsystem.md` | 执行器、provider 适配、命令模式 | `src/liminal/executor.py`, `src/liminal/providers.py` |
-| 细节设计 | `detailed-design/04-persistence-and-reliability.md` | 存储、事件、锁、恢复、安全守卫 | `src/liminal/db.py`, `src/liminal/settings.py`, `src/liminal/recovery.py`, `src/liminal/stagnation.py`, `src/liminal/service.py` |
-| 细节设计 | `detailed-design/05-interfaces.md` | Web / CLI / API 交互面 | `src/liminal/cli.py`, `src/liminal/web.py`, `src/liminal/templates/`, `src/liminal/static/` |
+| 细节设计 | `detailed-design/01-spec-subsystem.md` | `spec.md` 编译与 checks 冻结 | `src/loopora/specs.py`, `src/loopora/service.py` |
+| 细节设计 | `detailed-design/02-orchestration-service.md` | loop/run 编排与角色循环 | `src/loopora/service.py` |
+| 细节设计 | `detailed-design/03-executor-subsystem.md` | 执行器、provider 适配、命令模式 | `src/loopora/executor.py`, `src/loopora/providers.py` |
+| 细节设计 | `detailed-design/04-persistence-and-reliability.md` | 存储、事件、锁、恢复、安全守卫 | `src/loopora/db.py`, `src/loopora/settings.py`, `src/loopora/recovery.py`, `src/loopora/stagnation.py`, `src/loopora/service.py` |
+| 细节设计 | `detailed-design/05-interfaces.md` | Web / CLI / API 交互面 | `src/loopora/cli.py`, `src/loopora/web.py`, `src/loopora/templates/`, `src/loopora/static/` |
 
 ## 5. 读者约定
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from liminal.specs import SpecError, compile_markdown_spec
+from loopora.specs import SpecError, compile_markdown_spec
 
 
 def test_compile_markdown_spec_extracts_sections(sample_spec_text: str) -> None:

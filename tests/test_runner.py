@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from liminal.executor import CodexExecutor, ExecutorError
-from liminal.service import LiminalError, LiminalService
+from loopora.executor import CodexExecutor, ExecutorError
+from loopora.service import LooporaError, LooporaService
 
 
 def _create_loop(
@@ -48,7 +48,7 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     assert (run_dir / "tester_output.json").exists()
     assert (run_dir / "verifier_verdict.json").exists()
     assert (run_dir / "stagnation.json").exists()
-    assert (sample_workdir / ".liminal" / "loops" / loop["id"] / "compiled_spec.json").exists()
+    assert (sample_workdir / ".loopora" / "loops" / loop["id"] / "compiled_spec.json").exists()
     summary = (run_dir / "summary.md").read_text(encoding="utf-8")
     assert "All checks passed in this iteration." in summary
     assert "## Generator" in summary
@@ -283,7 +283,7 @@ def test_same_workdir_concurrent_run_is_rejected(service_factory, sample_spec_fi
             break
         time.sleep(0.05)
 
-    with pytest.raises(LiminalError):
+    with pytest.raises(LooporaError):
         service.start_run(second_loop["id"])
 
 
@@ -493,7 +493,7 @@ def test_second_service_instance_does_not_recover_run_active_in_same_process(
     service._mark_run_active(run["id"])
 
     try:
-        restarted = LiminalService(
+        restarted = LooporaService(
             repository=service.repository,
             settings=service.settings,
             executor_factory=service.executor_factory,
@@ -525,7 +525,7 @@ def test_second_service_instance_does_not_recover_queued_run_with_same_process_p
     service._mark_run_active(run["id"])
 
     try:
-        restarted = LiminalService(
+        restarted = LooporaService(
             repository=service.repository,
             settings=service.settings,
             executor_factory=service.executor_factory,
@@ -549,7 +549,7 @@ def test_second_service_instance_keeps_fresh_queued_run_without_runner_pid(
     loop = _create_loop(service, sample_spec_file, sample_workdir, name="Fresh Queued Loop")
     run = service.start_run(loop["id"])
 
-    restarted = LiminalService(
+    restarted = LooporaService(
         repository=service.repository,
         settings=service.settings,
         executor_factory=service.executor_factory,
@@ -576,7 +576,7 @@ def test_early_execute_run_crash_is_persisted_as_failed(
 
     assert failed["status"] == "failed"
     assert failed["error_message"] == "executor boot failed"
-    assert run["id"] not in LiminalService._process_active_runs
+    assert run["id"] not in LooporaService._process_active_runs
     summary = Path(failed["runs_dir"]) / "summary.md"
     assert "Execution crashed unexpectedly." in summary.read_text(encoding="utf-8")
 
@@ -586,7 +586,7 @@ def test_stop_run_rejects_finished_runs(service_factory, sample_spec_file: Path,
     loop = _create_loop(service, sample_spec_file, sample_workdir, name="Finished Loop")
     run = service.rerun(loop["id"])
 
-    with pytest.raises(LiminalError, match="cannot stop run in status"):
+    with pytest.raises(LooporaError, match="cannot stop run in status"):
         service.stop_run(run["id"])
 
     events = service.repository.list_events(run["id"], after_id=0, limit=1000)
@@ -634,7 +634,7 @@ def test_service_startup_marks_stale_active_runs_stopped(
         started_at="2026-04-13T08:00:00+00:00",
     )
 
-    restarted = LiminalService(
+    restarted = LooporaService(
         repository=service.repository,
         settings=service.settings,
         executor_factory=service.executor_factory,

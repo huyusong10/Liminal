@@ -46,7 +46,7 @@
 
 ### 4.2 Downstream
 
-- `LiminalService`
+- `LooporaService`
 - run artifact 持久化
 - `Tester` / `Verifier` / `Generator` prompt 输入
 
