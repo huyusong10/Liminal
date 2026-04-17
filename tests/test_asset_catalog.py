@@ -58,6 +58,11 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
 
     assert builtin_orchestration["source"] == "builtin"
     assert builtin_orchestration["workflow_json"]["preset"] == "build_first"
+    assert builtin_orchestration["workflow_json"]["steps"][0]["inherit_session"] is True
+    assert builtin_orchestration["workflow_json"]["steps"][1]["inherit_session"] is False
+    assert builtin_orchestration["workflow_json"]["steps"][0]["extra_cli_args"] == ""
+    assert builtin_orchestration["scenario_zh"]
+    assert builtin_orchestration["scenario_en"]
     assert len(builtin_orchestrations) == 7
     assert fast_lane["name"] == "Fast Lane"
     assert fast_lane["workflow_json"]["preset"] == "fast_lane"

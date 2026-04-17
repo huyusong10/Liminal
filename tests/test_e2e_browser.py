@@ -720,15 +720,24 @@ Focus on scoped release work.
                     assert modal.get_attribute("aria-hidden") == "false"
                     assert page.locator('[data-testid="workflow-settings-role-name"]').evaluate("node => node.tagName") == "STRONG"
                     assert "Builder" in (page.locator('[data-testid="workflow-settings-role-name"]').text_content() or "")
+                    assert page.locator('[data-testid="workflow-settings-step-inherit-session"]').is_checked() is True
                     step_model_input = page.locator('[data-testid="workflow-settings-step-model"]')
                     step_model_input.fill("gpt-5.4-mini")
+                    step_extra_cli_args_input = page.locator('[data-testid="workflow-settings-step-extra-cli-args"]')
+                    step_extra_cli_args_input.fill("--verbose")
                     page.click('[data-close-workflow-settings="1"]')
                     assert "gpt-5.4-mini" in (builder_card.text_content() or "")
+                    assert "--verbose" in (builder_card.text_content() or "")
                     guide_pill = page.locator(".workflow-loop-pill").nth(1)
                     guide_pill.hover()
                     assert "is-active" in (page.locator(".workflow-step-row").nth(1).get_attribute("class") or "")
                     guide_pill.click()
                     assert "is-active" in (page.locator(".workflow-step-row").nth(1).get_attribute("class") or "")
+
+                    inspector_card = page.locator(".workflow-step-row").nth(0)
+                    inspector_card.locator('[data-testid="workflow-step-settings-button"]').click()
+                    assert page.locator('[data-testid="workflow-settings-step-inherit-session"]').is_checked() is False
+                    page.click('[data-close-workflow-settings="1"]')
 
                     page.goto(f"{base_url}/orchestrations/builtin:build_first/edit", wait_until="networkidle")
                     page.locator('[data-testid="workflow-step-settings-button"]').first.click()

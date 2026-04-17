@@ -1101,6 +1101,7 @@ class LooporaService:
             previous_handoffs_by_role: dict[str, dict] = {}
             previous_handoffs_by_archetype: dict[str, dict] = {}
             previous_iteration_summary: dict | None = None
+            previous_session_refs_by_step: dict[str, dict] = {}
             last_gatekeeper_result: dict | None = None
 
             self.repository.append_event(run_id, "run_started", {"status": "running"})
@@ -1136,6 +1137,7 @@ class LooporaService:
                 current_outputs_by_archetype: dict[str, dict] = {}
                 current_outputs_by_role: dict[str, dict] = {}
                 current_handoffs: list[dict] = []
+                current_session_refs_by_step: dict[str, dict] = {}
                 current_gatekeeper_result: dict | None = None
                 current_guide_result: dict | None = None
                 previous_composite = (
@@ -1194,7 +1196,7 @@ class LooporaService:
                         ),
                     )
                     step_started_at = time.perf_counter()
-                    output, context_packet = self._run_workflow_step(
+                    output, context_packet, session_ref = self._run_workflow_step(
                         executor,
                         run,
                         compiled_spec,
@@ -1216,6 +1218,7 @@ class LooporaService:
                         previous_handoffs_by_step=previous_handoffs_by_step,
                         previous_handoffs_by_role=previous_handoffs_by_role,
                         previous_iteration_summary=previous_iteration_summary,
+                        previous_session_refs_by_step=previous_session_refs_by_step,
                         previous_composite=previous_composite,
                         stagnation_mode=stagnation.get("stagnation_mode", "none"),
                         retry_config=retry_config,
@@ -1267,6 +1270,8 @@ class LooporaService:
                         current_outputs_by_role[runtime_role] = normalized_output
                     current_outputs_by_archetype[role["archetype"]] = normalized_output
                     current_handoffs.append(handoff)
+                    if isinstance(session_ref, dict) and session_ref:
+                        current_session_refs_by_step[step["id"]] = dict(session_ref)
                     step_duration_ms = int((time.perf_counter() - step_started_at) * 1000)
                     step_results.append(
                         {
@@ -1343,6 +1348,7 @@ class LooporaService:
                             previous_outputs_by_step = dict(current_outputs_by_step)
                             previous_outputs_by_role = dict(current_outputs_by_role)
                             previous_outputs_by_archetype = dict(current_outputs_by_archetype)
+                            previous_session_refs_by_step = dict(current_session_refs_by_step)
                             previous_handoffs_by_step = {
                                 item["step"]["id"]: item["handoff"]
                                 for item in step_results
@@ -1424,6 +1430,7 @@ class LooporaService:
                 previous_outputs_by_step = dict(current_outputs_by_step)
                 previous_outputs_by_role = dict(current_outputs_by_role)
                 previous_outputs_by_archetype = dict(current_outputs_by_archetype)
+                previous_session_refs_by_step = dict(current_session_refs_by_step)
                 previous_handoffs_by_step = {item["step"]["id"]: item["handoff"] for item in step_results}
                 previous_handoffs_by_role = {item["role"]["id"]: item["handoff"] for item in step_results}
                 previous_handoffs_by_archetype = {
@@ -1716,7 +1723,7 @@ class LooporaService:
         step_order: int,
         role: dict,
         prompt_files: dict[str, str],
-        execution_settings: dict[str, str],
+        execution_settings: dict[str, object],
         *,
         run_contract: dict,
         current_outputs_by_step: dict[str, dict],
@@ -1729,10 +1736,11 @@ class LooporaService:
         previous_handoffs_by_step: dict[str, dict],
         previous_handoffs_by_role: dict[str, dict],
         previous_iteration_summary: dict | None,
+        previous_session_refs_by_step: dict[str, dict],
         previous_composite: float | None,
         stagnation_mode: str,
         retry_config: RetryConfig,
-    ) -> tuple[dict, dict]:
+    ) -> tuple[dict, dict, dict]:
         step_dir = layout.step_dir(iter_id, step_order, step["id"])
         step_dir.mkdir(parents=True, exist_ok=True)
         output_path = layout.step_output_raw_path(iter_id, step_order, step["id"])
@@ -1786,6 +1794,7 @@ class LooporaService:
             packet=context_packet,
             compiled_spec=compiled_spec,
         )
+        resume_session_ref = previous_session_refs_by_step.get(step["id"]) if execution_settings["inherit_session"] else None
         request = RoleRequest(
             run_id=run["id"],
             role=runtime_role,
@@ -1798,6 +1807,9 @@ class LooporaService:
             executor_mode=execution_settings["executor_mode"],
             command_cli=execution_settings["command_cli"],
             command_args_text=execution_settings["command_args_text"],
+            inherit_session=bool(execution_settings["inherit_session"]),
+            resume_session_id=str((resume_session_ref or {}).get("session_id", "")),
+            extra_cli_args_text=str(execution_settings["extra_cli_args_text"]),
             model=execution_settings["model"],
             reasoning_effort=execution_settings["reasoning_effort"],
             output_schema=self._output_schema_for_archetype(role["archetype"]),
@@ -1812,6 +1824,9 @@ class LooporaService:
                 "step_id": step["id"],
                 "role_name": role["name"],
                 "step_model": execution_settings["step_model"],
+                "inherit_session": bool(execution_settings["inherit_session"]),
+                "extra_cli_args_text": str(execution_settings["extra_cli_args_text"]),
+                "resume_session_id": str((resume_session_ref or {}).get("session_id", "")),
                 "executor_kind": execution_settings["executor_kind"],
                 "executor_mode": execution_settings["executor_mode"],
                 "legacy_role": runtime_role,
@@ -1860,10 +1875,21 @@ class LooporaService:
                 else self.repository.update_run(run["id"], clear_child_pid=True),
             )
 
-        return self._execute_role(run["id"], iter_id, runtime_role, execute_request, retry_config), context_packet
+        output = self._execute_role(run["id"], iter_id, runtime_role, execute_request, retry_config)
+        session_ref = request.extra_context.get("session_ref")
+        if not isinstance(session_ref, dict):
+            session_ref = {}
+        elif not session_ref.get("session_id") and request.resume_session_id.strip():
+            session_ref = {
+                **session_ref,
+                "session_id": request.resume_session_id.strip(),
+            }
+        return output, context_packet, session_ref
 
-    def _resolve_role_execution_settings(self, run: dict, step: dict, role: dict) -> dict[str, str]:
+    def _resolve_role_execution_settings(self, run: dict, step: dict, role: dict) -> dict[str, object]:
         step_model = str(step.get("model") or "").strip()
+        step_inherit_session = bool(step.get("inherit_session"))
+        step_extra_cli_args = str(step.get("extra_cli_args") or "").strip()
         role_model = str(role.get("model") or "").strip()
 
         if role_uses_execution_snapshot(role):
@@ -1882,6 +1908,8 @@ class LooporaService:
                     "model": step_model or role_model or profile.default_model,
                     "reasoning_effort": normalize_reasoning_effort(reasoning_effort, executor_kind),
                     "step_model": step_model,
+                    "inherit_session": step_inherit_session,
+                    "extra_cli_args_text": step_extra_cli_args,
                 }
             command_args_text = str(role.get("command_args_text") or "")
             validate_command_args_text(command_args_text, executor_kind=executor_kind)
@@ -1893,6 +1921,8 @@ class LooporaService:
                 "model": step_model or role_model,
                 "reasoning_effort": reasoning_effort,
                 "step_model": step_model,
+                "inherit_session": step_inherit_session,
+                "extra_cli_args_text": step_extra_cli_args,
             }
 
         executor_kind = normalize_executor_kind(run.get("executor_kind", "codex"))
@@ -1909,6 +1939,8 @@ class LooporaService:
                 "model": step_model or role_model or str(run.get("model") or "") or profile.default_model,
                 "reasoning_effort": coerce_reasoning_effort(run.get("reasoning_effort", ""), executor_kind),
                 "step_model": step_model,
+                "inherit_session": step_inherit_session,
+                "extra_cli_args_text": step_extra_cli_args,
             }
 
         command_args_text = str(run.get("command_args_text") or "")
@@ -1921,6 +1953,8 @@ class LooporaService:
             "model": step_model or role_model or str(run.get("model") or ""),
             "reasoning_effort": str(run.get("reasoning_effort") or "").strip(),
             "step_model": step_model,
+            "inherit_session": step_inherit_session,
+            "extra_cli_args_text": step_extra_cli_args,
         }
 
     def _build_step_prompt(
@@ -2096,6 +2130,8 @@ class LooporaService:
                 "runtime_role": runtime_role,
                 "archetype": role["archetype"],
                 "iter": iter_id,
+                "inherit_session": bool(step.get("inherit_session")),
+                "extra_cli_args": str(step.get("extra_cli_args") or ""),
             },
         )
         write_json(layout.step_handoff_path(iter_id, step_order, step["id"]), handoff)
@@ -3199,6 +3235,9 @@ class LooporaService:
             "iter": request.extra_context.get("iter_id"),
             "executor_kind": request.executor_kind,
             "executor_mode": request.executor_mode,
+            "inherit_session": request.inherit_session,
+            "resume_session_id": request.resume_session_id,
+            "extra_cli_args_text": request.extra_cli_args_text,
             "model": request.model,
             "reasoning_effort": request.reasoning_effort,
             "sandbox": request.sandbox,
@@ -3235,6 +3274,14 @@ class LooporaService:
         step_model = extra_context.get("step_model")
         if step_model:
             summary["step_model"] = step_model
+        if "inherit_session" in extra_context:
+            summary["inherit_session"] = bool(extra_context.get("inherit_session"))
+        extra_cli_args_text = str(extra_context.get("extra_cli_args_text") or "").strip()
+        if extra_cli_args_text:
+            summary["extra_cli_args_text"] = extra_cli_args_text
+        resume_session_id = str(extra_context.get("resume_session_id") or "").strip()
+        if resume_session_id:
+            summary["resume_session_id"] = resume_session_id
         compiled_spec = extra_context.get("compiled_spec")
         if isinstance(compiled_spec, dict):
             summary["compiled_spec"] = {

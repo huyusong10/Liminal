@@ -28,7 +28,7 @@
       <span><span id="loop-count">{{ loops|length }}</span> <span data-lang="zh">个</span><span data-lang="en">total</span></span>
     </header>
     {% if loops %}
-      <div class="loop-grid" id="loop-grid">
+      <div class="loop-grid loop-grid--created" id="loop-grid">
         {% for loop_item in loops %}
         <article
           class="loop-card loop-card--{{ loop_item.latest_status or 'draft' }} is-clickable"
@@ -110,7 +110,7 @@
         </p>
       </div>
     {% else %}
-      <div class="loop-grid" id="loop-grid" hidden></div>
+      <div class="loop-grid loop-grid--created" id="loop-grid" hidden></div>
       <p class="panel-note loop-grid-note" hidden>
         <span data-lang="zh">点击卡片主体可直接打开最近运行；如果这条 loop 还没有运行记录，就会进入循环详情。</span>
         <span data-lang="en">Click the body of a card to jump to the latest run. If the loop has no run yet, it opens the loop details instead.</span>

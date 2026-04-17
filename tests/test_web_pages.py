@@ -40,6 +40,7 @@ def test_index_page_renders_with_saved_loops(
     assert "/logo/logo-with-text-horizontal-light.svg" in response.text
     assert "page-stack" in response.text
     assert "loop-grid-note" in response.text
+    assert 'class="loop-grid loop-grid--created" id="loop-grid"' in response.text
     assert 'data-theme="light"' in response.text
     assert "loopora:theme" in response.text
     assert "loopora:locale" in response.text
@@ -424,14 +425,27 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     _assert_has_testid(list_response.text, "nav-orchestrations-link")
     _assert_has_testid(list_response.text, "custom-orchestrations-list")
     _assert_has_testid(list_response.text, "builtin-orchestrations-list")
+    _assert_has_testid(list_response.text, "builtin-orchestrations-tip")
+    _assert_has_testid(list_response.text, "builtin-orchestration-scenario")
     assert "Orchestrations" in list_response.text
     assert 'data-open-card="/orchestrations/builtin:build_first/edit"' in list_response.text
     assert "Create loop" not in list_response.text
     assert 'class="page-stack page-stack--catalog"' in list_response.text
-    assert 'class="loop-grid role-card-grid role-card-grid--orchestrations"' in list_response.text
     _assert_has_testid(list_response.text, "orchestration-loop-diagram")
     assert "/static/pages/workflow_diagram.js?v=" in list_response.text
     assert "/static/pages/orchestrations.js?v=" in list_response.text
+    assert "点进去可以查看结构，并从这个预设派生一个新的自定义编排。" not in list_response.text
+    assert "适用场景" in list_response.text
+    assert 'data-testid="builtin-orchestrations-tip"' in list_response.text
+    assert list_response.text.count('data-testid="builtin-orchestrations-tip"') == 1
+    custom_section = re.search(
+        r'<section class="panel" data-testid="custom-orchestrations-list">(.*?)</section>',
+        list_response.text,
+        re.S,
+    )
+    assert custom_section is not None
+    assert "loop-card-glance--scenario" not in custom_section.group(1)
+    assert "适用场景" not in custom_section.group(1)
 
     new_response = client.get("/orchestrations/new")
     assert new_response.status_code == 200
@@ -451,6 +465,8 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     _assert_has_testid(new_response.text, "workflow-step-settings-modal")
     _assert_has_testid(new_response.text, "save-orchestration-button")
     _assert_has_testid(new_response.text, "workflow-settings-role-name")
+    _assert_has_testid(new_response.text, "workflow-settings-step-inherit-session")
+    _assert_has_testid(new_response.text, "workflow-settings-step-extra-cli-args")
     assert 'data-role-field=' not in new_response.text
     assert 'data-testid="workflow-settings-step-enabled"' not in new_response.text
     assert 'data-testid="workflow-role-inspector-panel"' not in new_response.text
@@ -505,6 +521,8 @@ Focus on scoped release work.
     _assert_has_testid(list_response.text, "create-role-definition-link")
     _assert_has_testid(list_response.text, "role-definitions-list")
     _assert_has_testid(list_response.text, "builtin-role-templates-list")
+    _assert_has_testid(list_response.text, "builtin-role-templates-tip")
+    _assert_has_testid(list_response.text, "gatekeeper-role-tip")
     assert "Role Definitions" in list_response.text
     assert "Release Builder" in list_response.text
     assert "/roles/new" in list_response.text
@@ -515,6 +533,10 @@ Focus on scoped release work.
     assert "Built-in template · builder" not in list_response.text
     assert 'class="page-stack page-stack--catalog"' in list_response.text
     assert 'class="loop-grid role-card-grid role-card-grid--definitions"' in list_response.text
+    assert "点进去会以这个模板为基础，派生一个新的团队角色版本。" not in list_response.text
+    assert list_response.text.count('data-testid="builtin-role-templates-tip"') == 1
+    assert list_response.text.count('data-testid="gatekeeper-role-tip"') == 1
+    assert "GateKeeper uses that evidence to make the final pass/fail call" in list_response.text
 
     new_response = client.get("/roles/new")
     assert new_response.status_code == 200
@@ -621,7 +643,25 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".page-stack--catalog {" in css
     assert ".role-card-grid--definitions {" in css
     assert ".role-card-grid--orchestrations {" in css
+    assert ".role-card-grid--orchestrations-custom {" in css
     assert ".role-card-grid > .loop-card {" in css
+    assert ".loop-grid--created {" in css
+    assert ".loop-card-glance--scenario {" in css
+    assert ".artifact-tab-top {" in css
+    assert ".artifact-tab-meta {" in css
+    assert ".console-filter-chip input {" in css
+    assert ".timeline-event-main {" in css
+    assert ".timeline-event-timebox {" in css
+    assert re.search(r"\.role-card-grid--orchestrations\s*{[\s\S]*?justify-items:\s*start;", css)
+    assert re.search(r"\.role-card-grid--orchestrations-custom\s*{[\s\S]*?grid-template-columns:\s*repeat\(", css)
+    assert re.search(r"\.loop-card\s*{[\s\S]*?overflow:\s*visible;", css)
+    assert re.search(r"\.loop-card--running\s*{[\s\S]*?overflow:\s*hidden;", css)
+    assert re.search(r"\.loop-grid--created\s*{[\s\S]*?--loop-card-target:\s*430px;", css)
+    assert re.search(r"\.artifact-tabs\s*{[\s\S]*?display:\s*flex;[\s\S]*?overflow-x:\s*auto;", css)
+    assert re.search(r"\.console-filter-chip input\s*{[\s\S]*?width:\s*16px;[\s\S]*?padding:\s*0;", css)
+    assert re.search(r"\.console-line-toggle\s*{[\s\S]*?grid-template-columns:\s*var\(--console-meta-width\)\s+minmax\(0,\s*1fr\)\s+auto;", css)
+    assert re.search(r"\.console-line-body\s*{[\s\S]*?padding-left:\s*calc\(var\(--console-meta-width\)\s*\+\s*var\(--console-gap\)\s*\+\s*var\(--console-indent\)\);", css)
+    assert re.search(r"\.timeline-event-body\s*{[\s\S]*?grid-template-columns:\s*minmax\(220px,\s*280px\)\s+minmax\(260px,\s*1fr\)\s+minmax\(180px,\s*260px\)\s+auto;", css)
     assert ".top-nav .nav-preferences-toggle {" in css
     assert "@keyframes pageRiseIn {" in css
     assert "@keyframes loopTraceIn {" in css
@@ -632,6 +672,7 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".workflow-step-row {" in css
     assert ".workflow-settings-dialog {" in css
     assert ".workflow-step-summary-line {" in css
+    assert ".workflow-chip-code {" in css
     assert "body:not(.ui-mounted)" not in css
     assert "body.ui-mounted .hero" not in css
     assert re.search(r"\.top-nav-link:hover\s*{\s*color:\s*var\(--nav-ink\);\s*transform:\s*translateY\(-1px\);\s*}", css)

@@ -175,23 +175,23 @@
     </div>
     <div class="console-toolbar" aria-label="Console controls">
       <div class="console-toolbar-actions">
+        <a
+          class="ghost-button console-popout-button"
+          id="console-popout-link"
+          href="/runs/{{ run.id }}/console"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Open fullscreen console"
+        >
+          <span data-lang="zh">打开全屏终端</span>
+          <span data-lang="en">Open fullscreen console</span>
+        </a>
         <button type="button" class="ghost-button" id="console-expand-all"></button>
         <button type="button" class="ghost-button" id="console-collapse-all"></button>
       </div>
       <div class="console-filter-group" id="console-filters"></div>
     </div>
     <div class="console-shell-frame">
-      <a
-        class="ghost-button console-popout-button"
-        id="console-popout-link"
-        href="/runs/{{ run.id }}/console"
-        target="_blank"
-        rel="noreferrer"
-        aria-label="Open fullscreen console"
-      >
-        <span data-lang="zh">打开全屏终端</span>
-        <span data-lang="en">Open fullscreen console</span>
-      </a>
       <div class="console-shell" id="console-shell">
         <div class="console-output" id="console-output"></div>
       </div>
@@ -951,16 +951,63 @@
 
   function renderArtifactTabs() {
     const tabs = document.getElementById("artifact-tabs");
+    function artifactTabParts(artifact) {
+      const label = window.LooporaUI.currentLocale() === "zh" ? artifact.label_zh : artifact.label_en;
+      const normalized = String(label || "").trim();
+      const separator = normalized.includes(" · ") ? " · " : (normalized.includes(" • ") ? " • " : null);
+      const relativePath = String(artifact.relative_path || artifact.filename || artifact.path || "").trim();
+      const stepMatch = relativePath.match(/^iterations\/iter_(\d+)\/steps\/([^/]+)\/([^/]+)$/);
+      const promptMatch = relativePath.match(/^contract\/prompts\/(.+)$/);
+
+      if (stepMatch) {
+        const iterNumber = Number(stepMatch[1]) + 1;
+        const stepFolder = stepMatch[2].replace(/^\d+__/, "");
+        const fileName = stepMatch[3];
+        return {
+          primary: normalized || localeText("步骤产物", "Step artifact"),
+          secondary: localeText(`第 ${iterNumber} 轮 · ${stepFolder} · ${fileName}`, `Iter ${iterNumber} · ${stepFolder} · ${fileName}`),
+        };
+      }
+
+      if (promptMatch) {
+        return {
+          primary: normalized || localeText("Prompt", "Prompt"),
+          secondary: promptMatch[1],
+        };
+      }
+
+      if (separator) {
+        const [primary, ...rest] = normalized.split(separator);
+        return {
+          primary: primary || normalized,
+          secondary: rest.join(separator) || relativePath,
+        };
+      }
+      return {
+        primary: normalized || "-",
+        secondary: relativePath,
+      };
+    }
     tabs.innerHTML = artifactRecords.map((artifact) => `
       <button
         class="artifact-tab ${artifact.id === currentArtifactId ? "active" : ""}"
         data-artifact-id="${artifact.id}"
         type="button"
       >
-        <span class="artifact-tab-label">${escapeHtml(window.LooporaUI.currentLocale() === "zh" ? artifact.label_zh : artifact.label_en)}</span>
-        <span class="artifact-tab-state ${artifact.available ? "is-ready" : "is-missing"}">
-          ${artifact.available ? localeText("可用", "Ready") : localeText("未生成", "Missing")}
-        </span>
+        ${(() => {
+          const parts = artifactTabParts(artifact);
+          return `
+            <span class="artifact-tab-top">
+              <span class="artifact-tab-copy">
+                <span class="artifact-tab-label">${escapeHtml(parts.primary)}</span>
+                <span class="artifact-tab-meta">${escapeHtml(parts.secondary || localeText("当前没有附加路径。", "No extra path for this artifact."))}</span>
+              </span>
+              <span class="artifact-tab-state ${artifact.available ? "is-ready" : "is-missing"}">
+                ${artifact.available ? localeText("可用", "Ready") : localeText("未生成", "Missing")}
+              </span>
+            </span>
+          `;
+        })()}
       </button>
     `).join("");
     tabs.querySelectorAll(".artifact-tab").forEach((button) => {
@@ -1092,7 +1139,7 @@
   function renderTimelineItem(event) {
     const formatted = formatTimelineEvent(event);
     const pills = timelineMetaPills(event, formatted);
-    const detail = formatted.detail ? `<p>${escapeHtml(formatted.detail)}</p>` : "";
+    const detail = formatted.detail ? `<p class="timeline-event-detail">${escapeHtml(formatted.detail)}</p>` : "";
     const pillsHtml = pills.length
       ? `<div class="timeline-event-meta">${pills.map((pill) => `<span class="timeline-meta-pill">${escapeHtml(pill)}</span>`).join("")}</div>`
       : "";
@@ -1100,13 +1147,15 @@
       <article class="timeline-event timeline-event--${timelineTone(event)}">
         <div class="timeline-event-rail"><span class="timeline-event-dot"></span></div>
         <div class="timeline-event-body">
-          <div class="timeline-event-top">
+          <div class="timeline-event-main">
             <strong>${escapeHtml(formatted.title)}</strong>
-            <span class="timeline-event-time">${escapeHtml(formatClock(event.created_at))}</span>
+            ${detail}
           </div>
-          ${detail}
           ${pillsHtml}
-          <span class="timeline-event-stamp">${escapeHtml(formatAbsoluteDate(event.created_at))}</span>
+          <div class="timeline-event-timebox">
+            <span class="timeline-event-time">${escapeHtml(formatClock(event.created_at))}</span>
+            <span class="timeline-event-stamp">${escapeHtml(formatAbsoluteDate(event.created_at))}</span>
+          </div>
         </div>
       </article>
     `;

@@ -1,4 +1,13 @@
 {% extends "base.html" %}
+{% macro tip_button(zh, en, testid="") -%}
+<button
+  class="help-dot help-dot--tips"
+  type="button"
+  data-title-zh="{{ zh }}"
+  data-title-en="{{ en }}"
+  {% if testid %}data-testid="{{ testid }}"{% endif %}
+>i</button>
+{%- endmacro %}
 {% block title %}Orchestrations{% endblock %}
 {% block content %}
 <div class="page-stack page-stack--catalog" data-testid="orchestrations-page">
@@ -27,12 +36,12 @@
     <span>{{ custom_orchestrations|length }}</span>
   </header>
   {% if custom_orchestrations %}
-  <div class="loop-grid role-card-grid role-card-grid--orchestrations">
+  <div class="loop-grid role-card-grid role-card-grid--orchestrations role-card-grid--orchestrations-custom">
     {% for orchestration in custom_orchestrations %}
     <article class="loop-card is-clickable" data-open-card="/orchestrations/{{ orchestration.id }}/edit" tabindex="0">
       <a class="loop-card-link" href="/orchestrations/{{ orchestration.id }}/edit"></a>
       <div class="loop-card-head">
-        <div>
+        <div class="loop-card-copy">
           <strong>{{ orchestration.name }}</strong>
           <p class="loop-card-meta">
             <span data-lang="zh">自定义方案</span>
@@ -51,11 +60,6 @@
         data-testid="orchestration-loop-diagram"
         data-workflow-diagram="{{ orchestration.workflow_json|tojson|forceescape }}"
       ></div>
-      {% if orchestration.workflow_warnings %}
-      <div class="field-status orchestration-warning-note">
-        {{ orchestration.workflow_warnings|join(' ') }}
-      </div>
-      {% endif %}
       {% if orchestration.deletable %}
       <div class="card-actions card-actions-compact">
         <form method="post" action="/api/orchestrations/{{ orchestration.id }}" onsubmit="event.preventDefault(); fetch(this.action, {method: 'DELETE'}).then(() => window.location.reload());">
@@ -79,7 +83,14 @@
 
 <section class="panel" data-testid="builtin-orchestrations-list">
   <header class="panel-header">
-    <h2><span data-lang="zh">内置预设编排</span><span data-lang="en">Built-in starter orchestrations</span></h2>
+    <h2 class="panel-title-with-help">
+      <span data-lang="zh">内置预设编排</span><span data-lang="en">Built-in starter orchestrations</span>
+      {{ tip_button(
+        "内置预设本身是只读的；打开后可以查看结构，并从这个默认流程派生一个新的自定义编排。",
+        "Built-in starters are read-only. Open one to inspect its structure and derive a new custom orchestration from that default flow.",
+        "builtin-orchestrations-tip"
+      ) }}
+    </h2>
     <span>{{ builtin_orchestrations|length }}</span>
   </header>
   <div class="loop-grid role-card-grid role-card-grid--orchestrations">
@@ -87,7 +98,7 @@
     <article class="loop-card is-clickable" data-open-card="/orchestrations/{{ orchestration.id }}/edit" tabindex="0">
       <a class="loop-card-link" href="/orchestrations/{{ orchestration.id }}/edit"></a>
       <div class="loop-card-head">
-        <div>
+        <div class="loop-card-copy">
           <strong>{{ orchestration.name }}</strong>
           <p class="loop-card-meta">
             <span data-lang="zh">内置预设 · 只读</span>
@@ -95,7 +106,10 @@
           </p>
         </div>
       </div>
-      <p>{{ orchestration.description or "-" }}</p>
+      <p>
+        <span data-lang="zh">{{ orchestration.description_zh or orchestration.description or "-" }}</span>
+        <span data-lang="en">{{ orchestration.description_en or orchestration.description or "-" }}</span>
+      </p>
       <p class="loop-card-meta">
         <span data-lang="zh">步骤数</span><span data-lang="en">Steps</span> {{ orchestration.workflow_json.steps|length }}
         ·
@@ -106,15 +120,13 @@
         data-testid="orchestration-loop-diagram"
         data-workflow-diagram="{{ orchestration.workflow_json|tojson|forceescape }}"
       ></div>
-      {% if orchestration.workflow_warnings %}
-      <div class="field-status orchestration-warning-note">
-        {{ orchestration.workflow_warnings|join(' ') }}
+      <div class="loop-card-glance loop-card-glance--scenario" data-testid="builtin-orchestration-scenario">
+        <strong><span data-lang="zh">适用场景</span><span data-lang="en">Best for</span></strong>
+        <p>
+          <span data-lang="zh">{{ orchestration.scenario_zh }}</span>
+          <span data-lang="en">{{ orchestration.scenario_en }}</span>
+        </p>
       </div>
-      {% endif %}
-      <p class="loop-card-meta">
-        <span data-lang="zh">点进去可以查看结构，并从这个预设派生一个新的自定义编排。</span>
-        <span data-lang="en">Open it to inspect the structure and derive a new custom orchestration from this starter.</span>
-      </p>
     </article>
     {% endfor %}
   </div>

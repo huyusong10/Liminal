@@ -184,6 +184,35 @@
               <option value="finish_run" data-label-zh="通过后结束流程" data-label-en="Finish run">Finish run</option>
             </select>
           </label>
+          <label class="workflow-settings-toggle-row wide">
+            <span><span data-lang="zh">继承上一次 session</span><span data-lang="en">Continue previous session</span></span>
+            <span class="workflow-settings-toggle-control">
+              <input
+                id="workflow-settings-step-inherit-session"
+                type="checkbox"
+                data-step-field="inherit_session"
+                data-testid="workflow-settings-step-inherit-session"
+              />
+              <span><span data-lang="zh">让这个步骤在下一轮延续自己的 CLI 会话</span><span data-lang="en">Let this step resume its own CLI conversation on the next iteration</span></span>
+            </span>
+            <p class="workflow-settings-field-note">
+              <span data-lang="zh">Builder 默认开启，其他角色默认关闭。自定义命令模式不会自动推断恢复方式。</span>
+              <span data-lang="en">Builder steps default to on, while other roles default to off. Direct command mode does not auto-infer how to resume sessions.</span>
+            </p>
+          </label>
+          <label class="wide">
+            <span><span data-lang="zh">附加 CLI 参数</span><span data-lang="en">Extra CLI args</span></span>
+            <input
+              id="workflow-settings-step-extra-cli-args"
+              data-step-field="extra_cli_args"
+              data-testid="workflow-settings-step-extra-cli-args"
+              placeholder="--verbose"
+            />
+            <p class="workflow-settings-field-note">
+              <span data-lang="zh">把这里的字符串附加到当前步骤的 CLI 调用里，例如 `--verbose` 或 `--max-turns 5`。</span>
+              <span data-lang="en">This string is appended to the current step's CLI invocation, for example `--verbose` or `--max-turns 5`.</span>
+            </p>
+          </label>
         </div>
       </section>
       <section class="workflow-settings-section">

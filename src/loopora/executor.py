@@ -54,6 +54,9 @@ class RoleRequest:
     executor_mode: str = "preset"
     command_cli: str = ""
     command_args_text: str = ""
+    inherit_session: bool = False
+    resume_session_id: str = ""
+    extra_cli_args_text: str = ""
     sandbox: str = "workspace-write"
     idle_timeout_seconds: float | None = None
     role_archetype: str = ""
@@ -83,51 +86,67 @@ def coerce_reasoning_effort(value: str | None, executor_kind: str = "codex") -> 
 
 def build_codex_exec_args(request: RoleRequest, schema_path: Path) -> list[str]:
     reasoning_effort = coerce_reasoning_effort(request.reasoning_effort, request.executor_kind)
-    args = [
-        "codex",
-        "exec",
-        "--json",
-        "--skip-git-repo-check",
-        "--cd",
-        str(request.workdir),
-        "--sandbox",
-        request.sandbox,
-        "--output-schema",
-        str(schema_path),
-        "--output-last-message",
-        str(request.output_path),
-    ]
+    extra_args = parse_extra_cli_args_text(request.extra_cli_args_text)
+    args = ["codex", "exec"]
+    if request.inherit_session:
+        args.append("resume")
+        if request.resume_session_id.strip():
+            args.append(request.resume_session_id.strip())
+        else:
+            args.append("--last")
+    args.extend(
+        [
+            "--json",
+            "--skip-git-repo-check",
+            "--cd",
+            str(request.workdir),
+            "--sandbox",
+            request.sandbox,
+            "--output-schema",
+            str(schema_path),
+            "--output-last-message",
+            str(request.output_path),
+        ]
+    )
     if request.model.strip():
         args.extend(["--model", request.model.strip()])
-    args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"', request.prompt])
+    args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
+    args.extend(extra_args)
+    args.append(request.prompt)
     return args
 
 
 def build_claude_exec_args(request: RoleRequest) -> list[str]:
-    args = [
-        "claude",
-        "--setting-sources",
-        "local,project",
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--include-partial-messages",
-        "--no-session-persistence",
-        "--permission-mode",
-        "bypassPermissions",
-        "--json-schema",
-        json.dumps(request.output_schema, ensure_ascii=False),
-    ]
+    extra_args = parse_extra_cli_args_text(request.extra_cli_args_text)
+    args = ["claude", "--setting-sources", "local,project"]
+    if request.inherit_session:
+        if request.resume_session_id.strip():
+            args.extend(["--resume", request.resume_session_id.strip()])
+        else:
+            args.append("--continue")
+    args.extend(["-p", "--output-format", "stream-json", "--include-partial-messages"])
+    if not request.inherit_session:
+        args.append("--no-session-persistence")
+    args.extend(
+        [
+            "--permission-mode",
+            "bypassPermissions",
+            "--json-schema",
+            json.dumps(request.output_schema, ensure_ascii=False),
+        ]
+    )
     if request.model.strip():
         args.extend(["--model", request.model.strip()])
     reasoning_effort = coerce_reasoning_effort(request.reasoning_effort, request.executor_kind)
     if reasoning_effort:
         args.extend(["--effort", reasoning_effort])
+    args.extend(extra_args)
     args.append(request.prompt)
     return args
 
 
 def build_opencode_exec_args(request: RoleRequest) -> list[str]:
+    extra_args = parse_extra_cli_args_text(request.extra_cli_args_text)
     args = [
         "opencode",
         "run",
@@ -137,6 +156,12 @@ def build_opencode_exec_args(request: RoleRequest) -> list[str]:
         str(request.workdir),
         "--dangerously-skip-permissions",
     ]
+    if request.inherit_session:
+        if request.resume_session_id.strip():
+            args.extend(["--session", request.resume_session_id.strip()])
+        else:
+            args.append("--continue")
+    args.extend(extra_args)
     if request.model.strip():
         args.extend(["--model", request.model.strip()])
     variant = coerce_reasoning_effort(request.reasoning_effort, request.executor_kind)
@@ -150,6 +175,20 @@ def parse_command_args_text(value: str | None) -> list[str]:
     if not value:
         return []
     return [line.strip() for line in str(value).splitlines() if line.strip()]
+
+
+def parse_extra_cli_args_text(value: str | None) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+    try:
+        return shlex.split(text)
+    except ValueError as exc:
+        raise ValueError(f"invalid extra CLI args: {exc}") from exc
+
+
+def validate_extra_cli_args_text(value: str | None) -> list[str]:
+    return parse_extra_cli_args_text(value)
 
 
 def validate_command_args_text(command_args_text: str | None, *, executor_kind: str) -> list[str]:
@@ -171,6 +210,7 @@ def build_custom_exec_args(request: RoleRequest, schema_path: Path) -> list[str]
     if not cli_name:
         raise ValueError("custom command executable is required in command mode")
     template_args = validate_command_args_text(request.command_args_text, executor_kind=request.executor_kind)
+    extra_args = parse_extra_cli_args_text(request.extra_cli_args_text)
     replacements = {
         "{workdir}": str(request.workdir),
         "{schema_path}": str(schema_path),
@@ -183,13 +223,23 @@ def build_custom_exec_args(request: RoleRequest, schema_path: Path) -> list[str]
     }
     placeholder_pattern = re.compile("|".join(re.escape(placeholder) for placeholder in replacements))
     resolved_args = []
+    extra_args_consumed = False
     for template_arg in template_args:
+        if template_arg.strip() == "{extra_cli_args}":
+            resolved_args.extend(extra_args)
+            extra_args_consumed = True
+            continue
+        if template_arg.strip() == "{prompt}" and extra_args and not extra_args_consumed:
+            resolved_args.extend(extra_args)
+            extra_args_consumed = True
         value = placeholder_pattern.sub(lambda match: replacements[match.group(0)], template_arg)
         if not value:
             if resolved_args and resolved_args[-1].startswith("-"):
                 resolved_args.pop()
             continue
         resolved_args.append(value)
+    if extra_args and not extra_args_consumed:
+        resolved_args.extend(extra_args)
     return [cli_name, *resolved_args]
 
 
@@ -214,6 +264,100 @@ class RealCodexExecutor(CodexExecutor):
             return self._execute_custom(request, emit_event, should_stop, set_child_pid)
         raise ExecutorError(f"unsupported executor kind: {executor_kind}")
 
+    @staticmethod
+    def _normalize_session_key(value: object) -> str:
+        return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+    @classmethod
+    def _extract_session_ref(cls, payload: object) -> dict[str, str]:
+        session_id = ""
+        rollout_path = ""
+
+        def visit(value: object) -> None:
+            nonlocal session_id, rollout_path
+            if session_id and rollout_path:
+                return
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    normalized_key = cls._normalize_session_key(key)
+                    if normalized_key == "sessionid":
+                        if isinstance(child, str) and child.strip():
+                            session_id = child.strip()
+                        elif isinstance(child, dict):
+                            uuid_value = child.get("uuid")
+                            if isinstance(uuid_value, str) and uuid_value.strip():
+                                session_id = uuid_value.strip()
+                    elif normalized_key == "rolloutpath" and isinstance(child, str) and child.strip():
+                        rollout_path = child.strip()
+                    visit(child)
+            elif isinstance(value, list):
+                for child in value:
+                    visit(child)
+
+        visit(payload)
+        if not session_id and rollout_path:
+            match = re.search(
+                r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$",
+                rollout_path,
+                re.IGNORECASE,
+            )
+            if match:
+                session_id = match.group(1)
+        ref: dict[str, str] = {}
+        if session_id:
+            ref["session_id"] = session_id
+        if rollout_path:
+            ref["rollout_path"] = rollout_path
+        return ref
+
+    def _capture_session_ref(self, request: RoleRequest, payload: object) -> None:
+        if not request.inherit_session:
+            return
+        ref = self._extract_session_ref(payload)
+        if not ref:
+            return
+        current = request.extra_context.get("session_ref")
+        merged = dict(current) if isinstance(current, dict) else {}
+        merged.update(ref)
+        request.extra_context["session_ref"] = merged
+
+    def _infer_codex_session_ref(self, request: RoleRequest) -> None:
+        if not request.inherit_session:
+            return
+        current = request.extra_context.get("session_ref")
+        if isinstance(current, dict) and current.get("session_id"):
+            return
+        started_at = float(request.extra_context.get("_executor_started_at") or 0.0)
+        codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+        sessions_dir = codex_home / "sessions"
+        if not sessions_dir.exists():
+            return
+        candidates = sorted(sessions_dir.rglob("rollout-*.jsonl"), key=lambda path: path.stat().st_mtime, reverse=True)
+        workdir = str(request.workdir.resolve())
+        for path in candidates[:50]:
+            try:
+                stat = path.stat()
+                if started_at and stat.st_mtime + 1 < started_at:
+                    break
+                first_line = path.read_text(encoding="utf-8").splitlines()[0]
+                payload = json.loads(first_line)
+            except (OSError, IndexError, json.JSONDecodeError):
+                continue
+            cwd = ""
+            if isinstance(payload, dict):
+                cwd = str(payload.get("cwd") or payload.get("session_meta", {}).get("cwd") or "").strip()
+            if cwd and Path(cwd).expanduser().resolve().as_posix() != Path(workdir).as_posix():
+                continue
+            ref = self._extract_session_ref(payload)
+            if not ref:
+                ref = self._extract_session_ref({"rollout_path": str(path)})
+            if not ref:
+                continue
+            merged = dict(current) if isinstance(current, dict) else {}
+            merged.update(ref)
+            request.extra_context["session_ref"] = merged
+            return
+
     def _execute_codex(
         self,
         request: RoleRequest,
@@ -224,13 +368,15 @@ class RealCodexExecutor(CodexExecutor):
         schema_path = request.run_dir / f"{request.role}_schema.json"
         schema_path.write_text(json.dumps(request.output_schema, ensure_ascii=False, indent=2), encoding="utf-8")
         args = build_custom_exec_args(request, schema_path) if request.executor_mode == "command" else build_codex_exec_args(request, schema_path)
+        if request.inherit_session:
+            request.extra_context.setdefault("session_ref", {})
         return_code = self._stream_process(
             request,
             args,
             emit_event,
             should_stop,
             set_child_pid,
-            line_handler=lambda line: emit_event("codex_event", self._decode_json_line(line)),
+            line_handler=lambda line: self._handle_codex_line(line, request, emit_event),
         )
 
         if return_code != 0:
@@ -238,6 +384,12 @@ class RealCodexExecutor(CodexExecutor):
 
         if not request.output_path.exists():
             raise ExecutorError(f"codex exec did not produce an output file for role={request.role}")
+
+        self._infer_codex_session_ref(request)
+        if request.inherit_session and request.resume_session_id.strip():
+            current = request.extra_context.get("session_ref")
+            if not isinstance(current, dict) or not current.get("session_id"):
+                request.extra_context["session_ref"] = {"session_id": request.resume_session_id.strip()}
 
         try:
             return json.loads(request.output_path.read_text(encoding="utf-8"))
@@ -254,6 +406,8 @@ class RealCodexExecutor(CodexExecutor):
         schema_path = request.run_dir / f"{request.role}_schema.json"
         schema_path.write_text(json.dumps(request.output_schema, ensure_ascii=False, indent=2), encoding="utf-8")
         args = build_custom_exec_args(request, schema_path) if request.executor_mode == "command" else build_claude_exec_args(request)
+        if request.inherit_session:
+            request.extra_context.setdefault("session_ref", {})
         state = {
             "blocks": {},
             "structured_output": None,
@@ -264,13 +418,17 @@ class RealCodexExecutor(CodexExecutor):
             emit_event,
             should_stop,
             set_child_pid,
-            line_handler=lambda line: self._handle_claude_line(line, state, emit_event),
+            line_handler=lambda line: self._handle_claude_line(line, state, emit_event, request),
         )
         if return_code != 0:
             raise ExecutorError(f"claude print failed for role={request.role} exit_code={return_code}")
         payload = state.get("structured_output")
         if not isinstance(payload, dict):
             raise ExecutorError(f"claude did not produce structured output for role={request.role}")
+        if request.inherit_session and request.resume_session_id.strip():
+            current = request.extra_context.get("session_ref")
+            if not isinstance(current, dict) or not current.get("session_id"):
+                request.extra_context["session_ref"] = {"session_id": request.resume_session_id.strip()}
         request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return payload
 
@@ -284,6 +442,8 @@ class RealCodexExecutor(CodexExecutor):
         schema_path = request.run_dir / f"{request.role}_schema.json"
         schema_path.write_text(json.dumps(request.output_schema, ensure_ascii=False, indent=2), encoding="utf-8")
         args = build_custom_exec_args(request, schema_path) if request.executor_mode == "command" else build_opencode_exec_args(request)
+        if request.inherit_session:
+            request.extra_context.setdefault("session_ref", {})
         state = {
             "latest_text": "",
             "text_parts": [],
@@ -294,13 +454,17 @@ class RealCodexExecutor(CodexExecutor):
             emit_event,
             should_stop,
             set_child_pid,
-            line_handler=lambda line: self._handle_opencode_line(line, state, emit_event),
+            line_handler=lambda line: self._handle_opencode_line(line, state, emit_event, request),
         )
         if return_code != 0:
             raise ExecutorError(f"opencode run failed for role={request.role} exit_code={return_code}")
         payload = self._parse_structured_output_from_text(state.get("latest_text") or "\n".join(state["text_parts"]))
         if not isinstance(payload, dict):
             raise ExecutorError(f"opencode did not produce a valid JSON object for role={request.role}")
+        if request.inherit_session and request.resume_session_id.strip():
+            current = request.extra_context.get("session_ref")
+            if not isinstance(current, dict) or not current.get("session_id"):
+                request.extra_context["session_ref"] = {"session_id": request.resume_session_id.strip()}
         request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         return payload
 
@@ -346,6 +510,7 @@ class RealCodexExecutor(CodexExecutor):
         *,
         line_handler: Callable[[str], None],
     ) -> int:
+        request.extra_context["_executor_started_at"] = time.time()
         process = subprocess.Popen(
             args,
             cwd=str(request.workdir),
@@ -405,6 +570,16 @@ class RealCodexExecutor(CodexExecutor):
             set_child_pid(None)
             reader.join(timeout=0.2)
 
+    def _handle_codex_line(
+        self,
+        line: str,
+        request: RoleRequest,
+        emit_event: Callable[[str, dict], None],
+    ) -> None:
+        record = self._decode_json_line(line)
+        self._capture_session_ref(request, record)
+        emit_event("codex_event", record)
+
     @staticmethod
     def _decode_json_line(line: str) -> dict:
         try:
@@ -417,8 +592,11 @@ class RealCodexExecutor(CodexExecutor):
         line: str,
         state: dict,
         emit_event: Callable[[str, dict], None],
+        request: RoleRequest | None = None,
     ) -> None:
         record = self._decode_json_line(line)
+        if request is not None:
+            self._capture_session_ref(request, record)
         if record.get("type") == "stdout":
             emit_event("codex_event", record)
             return
@@ -572,8 +750,11 @@ class RealCodexExecutor(CodexExecutor):
         line: str,
         state: dict,
         emit_event: Callable[[str, dict], None],
+        request: RoleRequest | None = None,
     ) -> None:
         record = self._decode_json_line(line)
+        if request is not None:
+            self._capture_session_ref(request, record)
         if record.get("type") == "stdout":
             emit_event("codex_event", record)
             return

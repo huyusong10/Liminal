@@ -13,6 +13,7 @@ from loopora.executor import (
     build_codex_exec_args,
     build_opencode_exec_args,
     validate_command_args_text,
+    validate_extra_cli_args_text,
 )
 from loopora.providers import normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
 from loopora.providers import executor_profile
@@ -68,6 +69,21 @@ def test_codex_exec_args_include_output_schema_and_reasoning(tmp_path: Path) -> 
     assert 'model_reasoning_effort="high"' in args
 
 
+def test_codex_exec_args_can_resume_previous_session_and_append_extra_args(tmp_path: Path) -> None:
+    request = _request(tmp_path, executor_kind="codex", model="gpt-5.4", reasoning_effort="medium")
+    request.inherit_session = True
+    request.resume_session_id = "codex-session-123"
+    request.extra_cli_args_text = "--search --verbose"
+
+    args = build_codex_exec_args(request, request.run_dir / "schema.json")
+
+    assert args[:3] == ["codex", "exec", "resume"]
+    assert "codex-session-123" in args
+    assert "--search" in args
+    assert "--verbose" in args
+    assert args[-1] == "Return JSON only."
+
+
 def test_claude_exec_args_map_xhigh_to_max(tmp_path: Path) -> None:
     request = _request(tmp_path, executor_kind="claude", model="sonnet", reasoning_effort="xhigh")
     args = build_claude_exec_args(request)
@@ -78,6 +94,20 @@ def test_claude_exec_args_map_xhigh_to_max(tmp_path: Path) -> None:
     assert "--effort" in args
     assert "max" in args
     assert "xhigh" not in args
+
+
+def test_claude_exec_args_resume_session_and_drop_no_persistence(tmp_path: Path) -> None:
+    request = _request(tmp_path, executor_kind="claude", model="sonnet", reasoning_effort="high")
+    request.inherit_session = True
+    request.resume_session_id = "claude-session-abc"
+    request.extra_cli_args_text = "--verbose"
+
+    args = build_claude_exec_args(request)
+
+    assert "--resume" in args
+    assert "claude-session-abc" in args
+    assert "--no-session-persistence" not in args
+    assert "--verbose" in args
 
 
 def test_claude_preset_defaults_to_blank_model() -> None:
@@ -106,6 +136,19 @@ def test_opencode_exec_args_use_variant_only_when_present(tmp_path: Path) -> Non
     assert "--dangerously-skip-permissions" in args
     assert "--model" not in args
     assert "--variant" not in args
+
+
+def test_opencode_exec_args_can_resume_session_and_append_extra_args(tmp_path: Path) -> None:
+    request = _request(tmp_path, executor_kind="opencode", model="", reasoning_effort="")
+    request.inherit_session = True
+    request.resume_session_id = "open-session-42"
+    request.extra_cli_args_text = "--share"
+
+    args = build_opencode_exec_args(request)
+
+    assert "--session" in args
+    assert "open-session-42" in args
+    assert "--share" in args
 
 
 def test_custom_exec_args_require_runtime_placeholders() -> None:
@@ -147,6 +190,29 @@ def test_custom_exec_args_resolve_runtime_values(tmp_path: Path) -> None:
     assert schema_arg.startswith("{")
 
 
+def test_custom_exec_args_insert_extra_cli_args_before_prompt_when_possible(tmp_path: Path) -> None:
+    request = _request(tmp_path, executor_kind="codex", model="gpt-5.4", reasoning_effort="medium")
+    request.executor_mode = "command"
+    request.command_cli = "codex"
+    request.command_args_text = "\n".join(
+        [
+            "exec",
+            "--json",
+            "--output-schema",
+            "{schema_path}",
+            "--output-last-message",
+            "{output_path}",
+            "{prompt}",
+        ]
+    )
+    request.extra_cli_args_text = "--verbose --search"
+
+    args = build_custom_exec_args(request, request.run_dir / "schema.json")
+
+    prompt_index = args.index("Return JSON only.")
+    assert args[prompt_index - 2 : prompt_index] == ["--verbose", "--search"]
+
+
 def test_custom_exec_args_drop_empty_placeholder_lines(tmp_path: Path) -> None:
     request = _request(tmp_path, executor_kind="opencode", model="", reasoning_effort="")
     request.executor_mode = "command"
@@ -185,6 +251,11 @@ def test_custom_exec_args_do_not_expand_placeholders_inside_prompt_value(tmp_pat
     args = build_custom_exec_args(request, request.run_dir / "schema.json")
 
     assert args[-1] == "Keep the literal token {workdir} in the final prompt."
+
+
+def test_extra_cli_args_validation_rejects_unbalanced_quotes() -> None:
+    with pytest.raises(ValueError, match="invalid extra CLI args"):
+        validate_extra_cli_args_text('--verbose "unterminated')
 
 
 def test_claude_stream_parser_extracts_structured_output(tmp_path: Path) -> None:

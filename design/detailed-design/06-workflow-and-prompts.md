@@ -55,6 +55,14 @@ workflow 保持两层结构：
 | `role_id` | 指向某个 role |
 | `on_pass` | 可选，仅 GateKeeper 使用，用于声明通过后的收敛行为 |
 | `model` | 可选，step 级模型覆盖 |
+| `inherit_session` | 可选，声明该 step 是否在下一轮继续自己的上一次 CLI session |
+| `extra_cli_args` | 可选，追加到当前 step CLI 调用的原始参数字符串 |
+
+补充约束：
+
+- `inherit_session` 的语义按“同一个 step 跨轮次续接自己的会话”解释，不按“当前目录最近一次会话”解释。
+- Builder step 默认继承 session；Inspector、GateKeeper、Guide 与 Custom step 默认不继承，除非调用方显式打开。
+- `extra_cli_args` 必须是可被 shell 风格分词解析的字符串。
 
 ### 3.3 内置预设编排目录
 
@@ -74,7 +82,9 @@ workflow 保持两层结构：
 
 - 这些 starter orchestration 是内置资产，只能复制后再形成自定义编排。
 - `workflow.preset` 继续作为内置 starter 的稳定标识存在，供 Web、CLI 与 API 共享引用语义。
+- starter 元数据可以附带本地化的列表卡片说明，例如“适用场景”；这类文案属于预设元数据的一部分，应从统一元数据源提供。
 - Web 编排编辑器允许默认从空白 workflow 开始；只有在显式载入 starter 或复制内置编排时，才写入对应的 `workflow.preset`。
+- 内置 starter 中的 Builder step 默认打开 `inherit_session`，其他 step 默认关闭；所有 starter 的 `extra_cli_args` 默认留空。
 
 ## 4. 角色原型
 
@@ -153,6 +163,21 @@ prompt 资产必须满足：
 
 兼容层允许旧 snapshot 在缺少 role 级执行配置时回退到 loop 默认模型，但这不是新的资产归属规则。
 
+## 6.1 step 级执行附加项
+
+step 级执行附加项的优先语义固定为：
+
+| 字段 | 作用范围 | 稳定承诺 |
+|------|----------|----------|
+| `inherit_session` | 当前 step 对应的 CLI session 恢复策略 | 只影响当前 step，不改 role snapshot 默认执行配置 |
+| `extra_cli_args` | 当前 step CLI 调用的附加 argv | 只附加到当前 step，不改 role snapshot 默认执行配置 |
+
+补充约束：
+
+- 预设执行器会把 `inherit_session` 映射到各自原生恢复语义：例如 Claude Code 的 `--continue/--resume`、OpenCode 的 `--continue/--session`，以及 Codex 的 `exec resume` 语义。
+- 直接命令模式不会为任意第三方命令自动推断恢复方式；若调用方仍打开 `inherit_session`，Loopora 只保留该 step 的语义字段，不承诺任意命令都能恢复历史上下文。
+- `extra_cli_args` 允许与预设执行器和直接命令模式一起使用，但它属于 step 级覆盖，不属于 role definition 默认执行配置。
+
 ## 7. 运行时装配
 
 运行时 prompt 由稳定协议装配，顺序固定为：
@@ -192,7 +217,10 @@ prompt 资产必须满足：
 - Web 编排编辑页可以把角色快照信息直接显示在步骤卡片中，而不要求单独保留角色检查器或角色列表，只要卡片展示的仍是当前 workflow snapshot 中的角色快照。
 - Web 编排编辑页可以只保留一个“添加步骤”入口：当所选角色定义尚未进入当前编排时，先生成角色快照并创建首个步骤；当该角色快照已存在时，直接为它追加新步骤。
 - Web 编排编辑页可以把步骤主区展示为摘要卡片；卡片点击只负责切换当前角色与步骤高亮，不承担直接编辑语义。
+- Web 编排编辑页可以把 step 级执行附加项压缩成卡片内的紧凑标签，例如会话继承、模型覆盖与附加 CLI 参数；空值项可以不显示，但不能改变这些字段本身的提交语义。
 - Web 编排编辑页可以通过单个设置浮窗修改 step 级覆盖字段；同一个浮窗里展示的角色快照应作为只读信息查看，不在步骤设置里直接改写 snapshot 本身。
+- Web 角色模板列表与内置编排列表可以把“打开后如何派生”的公共说明收进分区标题的 tips 按钮；这类说明不应在每张卡片里重复出现。内置编排的主说明卡应优先表达适用场景，而不是重复点击行为。
+- Web 角色模板卡片可以为单个 archetype 提供专属 tips，用来解释它与相邻 archetype 的职责差异；例如 GateKeeper 可以额外说明它与 Inspector 的区别。这类 tips 应来自角色元数据，而不是在模板里硬编码散落。
 
 ## 10. 跨入口一致性
 
@@ -203,6 +231,7 @@ workflow 与 prompt 资产必须满足：
 - 角色定义必须先作为独立资产存在，再被 orchestration 选入
 - role definition 缺失 `prompt_ref` 时，系统会自动生成并稳定保留内部引用
 - step 级模型覆盖不能只在单一入口可表达
+- step 级 session 继承与附加 CLI 参数不能只在单一入口可表达
 - orchestration 不直接维护角色默认 prompt 与执行配置
 
 ## 11. 变更触发

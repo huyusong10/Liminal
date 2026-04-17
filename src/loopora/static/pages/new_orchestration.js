@@ -38,6 +38,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const settingsStepRoleInput = document.getElementById("workflow-settings-step-role");
   const settingsStepModelInput = document.getElementById("workflow-settings-step-model");
   const settingsStepOnPassInput = document.getElementById("workflow-settings-step-on-pass");
+  const settingsStepInheritSessionInput = document.getElementById("workflow-settings-step-inherit-session");
+  const settingsStepExtraCliArgsInput = document.getElementById("workflow-settings-step-extra-cli-args");
   const settingsRoleDefinition = document.getElementById("workflow-settings-role-definition");
   const settingsRoleRuntime = document.getElementById("workflow-settings-role-runtime");
   const settingsRoleNameValue = document.getElementById("workflow-settings-role-name");
@@ -207,6 +209,10 @@ document.addEventListener("DOMContentLoaded", () => {
     return `${base}_${Date.now()}`;
   }
 
+  function defaultInheritSession(archetype) {
+    return String(archetype || "") === "builder";
+  }
+
   function normalizeRole(role, index) {
     const archetype = String(role.archetype || "builder").trim() || "builder";
     return {
@@ -255,6 +261,10 @@ document.addEventListener("DOMContentLoaded", () => {
       role_id: String(step.role_id || workflowPayload.roles[0]?.id || ""),
       on_pass: String(step.on_pass || "continue"),
       model: String(step.model || ""),
+      inherit_session: Boolean(step.inherit_session ?? defaultInheritSession(
+        workflowPayload.roles.find((role) => role.id === String(step.role_id || ""))?.archetype,
+      )),
+      extra_cli_args: String(step.extra_cli_args || ""),
     })) : [];
     workflowState = workflowPayload;
     promptFilesState = {...(promptFiles || {})};
@@ -431,21 +441,6 @@ document.addEventListener("DOMContentLoaded", () => {
     return role.prompt_ref || localeText("沿用已有 prompt 引用", "Using stored prompt reference");
   }
 
-  function stepPassSummary(step, role) {
-    if (!role) {
-      return localeText("这个步骤还没有绑定有效角色。", "This step is not bound to a valid role yet.");
-    }
-    if (role.archetype === "gatekeeper") {
-      return step.on_pass === "finish_run"
-        ? localeText("GateKeeper 通过后会直接结束流程。", "This GateKeeper ends the run immediately when it passes.")
-        : localeText("GateKeeper 通过后会继续后续步骤。", "This GateKeeper continues to later steps after it passes.");
-    }
-    return localeText(
-      `${roleLabel(role.archetype)} 会在这一位执行，并把结果交给下一步。`,
-      `${roleLabel(role.archetype)} runs here and hands results to the next step.`,
-    );
-  }
-
   function stepPassLabel(step, role) {
     if (role?.archetype === "gatekeeper") {
       return step.on_pass === "finish_run"
@@ -455,10 +450,22 @@ document.addEventListener("DOMContentLoaded", () => {
     return localeText("交给下一步", "Hand off to next");
   }
 
-  function stepModelLabel(step) {
+  function stepSessionChipLabel(step) {
+    return step.inherit_session
+      ? localeText("续接会话", "Resume session")
+      : localeText("新会话", "Fresh session");
+  }
+
+  function stepModelChipLabel(step) {
     return step.model
-      ? `${localeText("模型覆盖", "Model override")} · ${step.model}`
-      : localeText("沿用角色默认模型", "Uses role default model");
+      ? `${localeText("模型", "Model")} · ${step.model}`
+      : "";
+  }
+
+  function stepCliArgsChipLabel(step) {
+    return step.extra_cli_args
+      ? `${localeText("CLI", "CLI")} · ${step.extra_cli_args}`
+      : "";
   }
 
   function renderWorkflowLoopPreview() {
@@ -489,6 +496,8 @@ document.addEventListener("DOMContentLoaded", () => {
       row.dataset.stepIndex = String(index);
       row.dataset.roleId = step.role_id;
       row.tabIndex = 0;
+      const modelChip = stepModelChipLabel(step);
+      const cliArgsChip = stepCliArgsChipLabel(step);
       row.innerHTML = `
         <div class="workflow-step-card-top">
           <div class="workflow-step-ident">
@@ -516,7 +525,9 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="workflow-step-chip-row">
           <span class="workflow-chip">${escapeHtml(role ? roleLabel(role.archetype) : localeText("缺失角色", "Missing role"))}</span>
           <span class="workflow-chip workflow-chip-muted">${escapeHtml(stepPassLabel(step, role))}</span>
-          <span class="workflow-chip workflow-chip-muted">${escapeHtml(stepModelLabel(step))}</span>
+          <span class="workflow-chip workflow-chip-muted">${escapeHtml(stepSessionChipLabel(step))}</span>
+          ${modelChip ? `<span class="workflow-chip workflow-chip-muted">${escapeHtml(modelChip)}</span>` : ""}
+          ${cliArgsChip ? `<span class="workflow-chip workflow-chip-muted workflow-chip-code">${escapeHtml(cliArgsChip)}</span>` : ""}
         </div>
         <p class="workflow-step-summary-line">
           <span class="workflow-step-summary-label">${escapeHtml(localeText("角色快照", "Role snapshot"))}</span>
@@ -525,10 +536,8 @@ document.addEventListener("DOMContentLoaded", () => {
           <span>${escapeHtml(role ? roleRuntimeSummary(role) : "-")}</span>
         </p>
         <p class="workflow-step-summary-line workflow-step-summary-line-muted">
-          <span class="workflow-step-summary-label">${escapeHtml(localeText("Prompt 与收束", "Prompt & flow"))}</span>
+          <span class="workflow-step-summary-label">${escapeHtml(localeText("Prompt", "Prompt"))}</span>
           <span>${escapeHtml(role ? promptFileSummary(role) : "-")}</span>
-          <span class="workflow-step-summary-separator">·</span>
-          <span>${escapeHtml(stepPassSummary(step, role))}</span>
         </p>
       `;
       workflowStepsList.appendChild(row);
@@ -551,6 +560,8 @@ document.addEventListener("DOMContentLoaded", () => {
       settingsStepIdInput,
       settingsStepRoleInput,
       settingsStepModelInput,
+      settingsStepInheritSessionInput,
+      settingsStepExtraCliArgsInput,
     ].forEach((element) => {
       if (element) {
         element.disabled = disabled;
@@ -600,6 +611,8 @@ document.addEventListener("DOMContentLoaded", () => {
     settingsStepIdInput.value = step.id || "";
     settingsStepModelInput.value = step.model || "";
     settingsStepOnPassInput.value = isGate && step.on_pass === "finish_run" ? "finish_run" : "continue";
+    settingsStepInheritSessionInput.checked = Boolean(step.inherit_session);
+    settingsStepExtraCliArgsInput.value = step.extra_cli_args || "";
     settingsRoleDefinition.textContent = role
       ? (definition ? `${definition.name} · ${roleLabel(definition.archetype)}` : localeText("未绑定角色定义", "Unbound role definition"))
       : localeText("请先给这个步骤绑定角色。", "Bind a role to this step first.");
@@ -719,6 +732,8 @@ document.addEventListener("DOMContentLoaded", () => {
       role_id: roleSnapshot.id,
       on_pass: isNewSnapshot && roleSnapshot.archetype === "gatekeeper" ? "finish_run" : "continue",
       model: "",
+      inherit_session: defaultInheritSession(roleSnapshot.archetype),
+      extra_cli_args: "",
     });
     activeStepIndex = workflowState.steps.length - 1;
     activeRoleId = roleSnapshot.id;
@@ -740,12 +755,17 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!step || !field) {
       return false;
     }
+    if (field === "inherit_session") {
+      step.inherit_session = Boolean(rawValue);
+      return true;
+    }
     step[field] = String(rawValue ?? "");
     if (field === "role_id") {
       const role = roleById(step.role_id);
       if (!role || role.archetype !== "gatekeeper") {
         step.on_pass = "continue";
       }
+      step.inherit_session = defaultInheritSession(role?.archetype);
       activeRoleId = step.role_id;
       activeStepIndex = openSettingsStepIndex;
       pruneUnusedRoles();

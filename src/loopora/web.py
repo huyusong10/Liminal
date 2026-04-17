@@ -1332,9 +1332,8 @@ def _normalize_role_definition_form(values: Mapping[str, object] | None, *, loca
     return normalized
 
 
-def _archetype_options() -> list[dict[str, str]]:
-    labels = []
-    copy = {
+def _archetype_ui_copy() -> dict[str, dict[str, str]]:
+    return {
         "builder": {
             "summary_zh": "直接推进实现，适合把 spec 和 handoff 落成真实代码与文件改动。",
             "summary_en": "Pushes the implementation forward and turns specs plus handoffs into real code changes.",
@@ -1342,6 +1341,8 @@ def _archetype_options() -> list[dict[str, str]]:
             "recommendation_en": "Use it where the workflow needs actual workspace edits, with a crisp main-path goal.",
             "warning_zh": "",
             "warning_en": "",
+            "card_tip_zh": "",
+            "card_tip_en": "",
         },
         "inspector": {
             "summary_zh": "收集证据、跑检查、整理事实，适合验证当前产出到底到了什么程度。",
@@ -1350,6 +1351,8 @@ def _archetype_options() -> list[dict[str, str]]:
             "recommendation_en": "Usually works best after the Builder, starting with the most critical reproducible user paths.",
             "warning_zh": "",
             "warning_en": "",
+            "card_tip_zh": "",
+            "card_tip_en": "",
         },
         "gatekeeper": {
             "summary_zh": "负责做放行判断，只根据 checks、证据和风险决定是否通过。",
@@ -1358,6 +1361,8 @@ def _archetype_options() -> list[dict[str, str]]:
             "recommendation_en": "Keep one of these near the end of the workflow so there is a single clear final verdict.",
             "warning_zh": "不建议把它当成实现角色使用，它的职责是裁决，不是补做工作。",
             "warning_en": "Do not use it as an implementation role. Its job is to decide, not to compensate for missing work.",
+            "card_tip_zh": "Inspector 负责收集证据和跑检查，只回答“现在发生了什么”；GateKeeper 负责基于这些证据做最终放行判断，回答“现在能不能过”。没有 GateKeeper 时，流程里就少了一个专门做通过/不通过裁决的角色。",
+            "card_tip_en": "The Inspector gathers evidence and runs checks, answering “what is happening now.” The GateKeeper uses that evidence to make the final pass/fail call, answering “is this ready to pass.” Without a GateKeeper, the workflow loses its dedicated final judge.",
         },
         "guide": {
             "summary_zh": "在停滞、回退或噪音过多时提供新的方向，帮流程恢复有效推进。",
@@ -1366,6 +1371,8 @@ def _archetype_options() -> list[dict[str, str]]:
             "recommendation_en": "Use it near the end or in recovery branches to generate the next high-leverage move.",
             "warning_zh": "",
             "warning_en": "",
+            "card_tip_zh": "",
+            "card_tip_en": "",
         },
         "custom": {
             "summary_zh": "最低权限的补充角色，适合做只读分析、专门观察和窄范围建议。",
@@ -1374,8 +1381,15 @@ def _archetype_options() -> list[dict[str, str]]:
             "recommendation_en": "Great for sidecar tasks like security review, copy critique, or risk scans; usually not for the final verdict.",
             "warning_zh": "它不能充当最终放行角色；如果选择 custom 执行工具，也只能使用直接命令模式。",
             "warning_en": "It cannot be the final pass/fail role. If you pair it with the custom executor, direct-command mode is required.",
+            "card_tip_zh": "",
+            "card_tip_en": "",
         },
     }
+
+
+def _archetype_options() -> list[dict[str, str]]:
+    labels = []
+    copy = _archetype_ui_copy()
     for archetype in ARCHETYPES:
         item = copy[archetype]
         english_label = "Custom (Restricted)" if archetype == "custom" else display_name_for_archetype(archetype, locale="en")
@@ -1458,10 +1472,12 @@ def _preferred_request_locale(request: Request) -> str:
 
 def _decorate_role_definition_overview(role_definition: Mapping[str, object]) -> dict[str, object]:
     executor_kind = str(role_definition.get("executor_kind", "codex") or "codex")
-    template_name = "Custom (Restricted)" if str(role_definition.get("archetype", "")).strip() == "custom" else display_name_for_archetype(
-        str(role_definition.get("archetype", "builder") or "builder"),
+    archetype = str(role_definition.get("archetype", "builder") or "builder")
+    template_name = "Custom (Restricted)" if archetype.strip() == "custom" else display_name_for_archetype(
+        archetype,
         locale="en",
     )
+    archetype_copy = _archetype_ui_copy()[archetype]
     name = str(role_definition.get("name", "")).strip()
     normalized_name = re.sub(r"[^a-z0-9]+", "", name.lower())
     normalized_template = re.sub(r"[^a-z0-9]+", "", template_name.lower())
@@ -1470,6 +1486,10 @@ def _decorate_role_definition_overview(role_definition: Mapping[str, object]) ->
         "executor_label": executor_profile(executor_kind).label,
         "template_display_name": template_name,
         "show_template_meta": str(role_definition.get("source", "")).strip() == "custom" and normalized_name != normalized_template,
+        "summary_zh": archetype_copy["summary_zh"],
+        "summary_en": archetype_copy["summary_en"],
+        "card_tip_zh": archetype_copy["card_tip_zh"],
+        "card_tip_en": archetype_copy["card_tip_en"],
     }
 
 

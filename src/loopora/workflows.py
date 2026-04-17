@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from loopora.executor import validate_command_args_text
+from loopora.executor import validate_extra_cli_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
 
 ARCHETYPES = ("builder", "inspector", "gatekeeper", "guide", "custom")
@@ -52,6 +53,12 @@ ROLE_EXECUTION_FIELDS = (
     "command_args_text",
     "model",
     "reasoning_effort",
+)
+STEP_EXECUTION_FIELDS = (
+    "on_pass",
+    "model",
+    "inherit_session",
+    "extra_cli_args",
 )
 
 
@@ -128,6 +135,21 @@ def role_uses_execution_snapshot(role: Mapping[str, Any] | None) -> bool:
     )
 
 
+def default_step_inherit_session(archetype: str | None) -> bool:
+    normalized_archetype = LEGACY_ROLE_TO_ARCHETYPE.get(str(archetype or "").strip().lower(), "")
+    return normalized_archetype == "builder"
+
+
+def default_step_execution_settings(*, archetype: str | None = None) -> dict[str, Any]:
+    normalized_archetype = LEGACY_ROLE_TO_ARCHETYPE.get(str(archetype or "").strip().lower(), "")
+    return {
+        "on_pass": "finish_run" if normalized_archetype == "gatekeeper" else "continue",
+        "model": "",
+        "inherit_session": default_step_inherit_session(normalized_archetype) if normalized_archetype else False,
+        "extra_cli_args": "",
+    }
+
+
 def _preset_role(
     *,
     role_id: str,
@@ -151,6 +173,8 @@ def _workflow_preset_definition(
     label_en: str,
     description_zh: str,
     description_en: str,
+    scenario_zh: str,
+    scenario_en: str,
     roles: list[dict[str, str]],
     steps: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -159,10 +183,33 @@ def _workflow_preset_definition(
         "label_en": label_en,
         "description_zh": description_zh,
         "description_en": description_en,
+        "scenario_zh": scenario_zh,
+        "scenario_en": scenario_en,
         "workflow": {
             "roles": roles,
             "steps": steps,
         },
+    }
+
+
+def _preset_step(
+    *,
+    step_id: str,
+    role_id: str,
+    archetype: str,
+    on_pass: str | None = None,
+    model: str = "",
+    inherit_session: bool | None = None,
+    extra_cli_args: str = "",
+) -> dict[str, Any]:
+    defaults = default_step_execution_settings(archetype=archetype)
+    return {
+        "id": step_id,
+        "role_id": role_id,
+        "on_pass": on_pass or defaults["on_pass"],
+        "model": model,
+        "inherit_session": defaults["inherit_session"] if inherit_session is None else bool(inherit_session),
+        "extra_cli_args": str(extra_cli_args or ""),
     }
 
 
@@ -172,6 +219,8 @@ WORKFLOW_PRESETS = {
         label_en="Build First",
         description_zh="Builder -> Inspector -> GateKeeper -> Guide",
         description_en="Builder -> Inspector -> GateKeeper -> Guide",
+        scenario_zh="适合目标明确、先快速落地实现，再补检查与最终收束的常规开发任务。",
+        scenario_en="Best for straightforward implementation work where you want code first, then checks, then a final verdict.",
         roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
@@ -179,10 +228,10 @@ WORKFLOW_PRESETS = {
             _preset_role(role_id="guide", archetype="guide", prompt_ref=PROMPT_FILES["guide"], role_definition_id="builtin:guide"),
         ],
         steps=[
-            {"id": "builder_step", "role_id": "builder"},
-            {"id": "inspector_step", "role_id": "inspector"},
-            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
-            {"id": "guide_step", "role_id": "guide"},
+            _preset_step(step_id="builder_step", role_id="builder", archetype="builder"),
+            _preset_step(step_id="inspector_step", role_id="inspector", archetype="inspector"),
+            _preset_step(step_id="gatekeeper_step", role_id="gatekeeper", archetype="gatekeeper", on_pass="finish_run"),
+            _preset_step(step_id="guide_step", role_id="guide", archetype="guide"),
         ],
     ),
     "inspect_first": _workflow_preset_definition(
@@ -190,6 +239,8 @@ WORKFLOW_PRESETS = {
         label_en="Inspect First",
         description_zh="Inspector -> Builder -> GateKeeper -> Guide",
         description_en="Inspector -> Builder -> GateKeeper -> Guide",
+        scenario_zh="适合先摸清现状、先拿到失败证据，再决定怎么修改的排障和接手类任务。",
+        scenario_en="Best for debugging or takeover work where you want evidence and failures before touching implementation.",
         roles=[
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
@@ -197,10 +248,10 @@ WORKFLOW_PRESETS = {
             _preset_role(role_id="guide", archetype="guide", prompt_ref=PROMPT_FILES["guide"], role_definition_id="builtin:guide"),
         ],
         steps=[
-            {"id": "inspector_step", "role_id": "inspector"},
-            {"id": "builder_step", "role_id": "builder"},
-            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
-            {"id": "guide_step", "role_id": "guide"},
+            _preset_step(step_id="inspector_step", role_id="inspector", archetype="inspector"),
+            _preset_step(step_id="builder_step", role_id="builder", archetype="builder"),
+            _preset_step(step_id="gatekeeper_step", role_id="gatekeeper", archetype="gatekeeper", on_pass="finish_run"),
+            _preset_step(step_id="guide_step", role_id="guide", archetype="guide"),
         ],
     ),
     "benchmark_loop": _workflow_preset_definition(
@@ -208,13 +259,15 @@ WORKFLOW_PRESETS = {
         label_en="Benchmark Loop",
         description_zh="GateKeeper (benchmark) -> Builder",
         description_en="GateKeeper (benchmark) -> Builder",
+        scenario_zh="适合先做基线评估或 benchmark，再让 Builder 围绕对比结果推进优化。",
+        scenario_en="Best for benchmark-driven work where you want a baseline verdict before the Builder starts optimizing.",
         roles=[
             _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper-benchmark"], role_definition_id="builtin:gatekeeper"),
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
         ],
         steps=[
-            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
-            {"id": "builder_step", "role_id": "builder"},
+            _preset_step(step_id="gatekeeper_step", role_id="gatekeeper", archetype="gatekeeper", on_pass="finish_run"),
+            _preset_step(step_id="builder_step", role_id="builder", archetype="builder"),
         ],
     ),
     "quality_gate": _workflow_preset_definition(
@@ -222,15 +275,17 @@ WORKFLOW_PRESETS = {
         label_en="Quality Gate",
         description_zh="Builder -> Inspector -> GateKeeper(finish)",
         description_en="Builder -> Inspector -> GateKeeper(finish)",
+        scenario_zh="适合交付目标清晰、希望在一轮实现和验收后直接由 GateKeeper 收束的任务。",
+        scenario_en="Best for delivery-focused work where one implementation pass and one inspection pass should lead straight to a final gate.",
         roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
             _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
         ],
         steps=[
-            {"id": "builder_step", "role_id": "builder"},
-            {"id": "inspector_step", "role_id": "inspector"},
-            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+            _preset_step(step_id="builder_step", role_id="builder", archetype="builder"),
+            _preset_step(step_id="inspector_step", role_id="inspector", archetype="inspector"),
+            _preset_step(step_id="gatekeeper_step", role_id="gatekeeper", archetype="gatekeeper", on_pass="finish_run"),
         ],
     ),
     "triage_first": _workflow_preset_definition(
@@ -238,6 +293,8 @@ WORKFLOW_PRESETS = {
         label_en="Triage First",
         description_zh="Inspector -> Guide -> Builder -> GateKeeper(finish)",
         description_en="Inspector -> Guide -> Builder -> GateKeeper(finish)",
+        scenario_zh="适合问题定义还不稳定、需要先诊断和定方向，再推进修复并做最终裁决的任务。",
+        scenario_en="Best for ambiguous problems where you want diagnosis and direction first, then implementation and a final decision.",
         roles=[
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
             _preset_role(role_id="guide", archetype="guide", prompt_ref=PROMPT_FILES["guide"], role_definition_id="builtin:guide"),
@@ -245,10 +302,10 @@ WORKFLOW_PRESETS = {
             _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
         ],
         steps=[
-            {"id": "inspector_step", "role_id": "inspector"},
-            {"id": "guide_step", "role_id": "guide"},
-            {"id": "builder_step", "role_id": "builder"},
-            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+            _preset_step(step_id="inspector_step", role_id="inspector", archetype="inspector"),
+            _preset_step(step_id="guide_step", role_id="guide", archetype="guide"),
+            _preset_step(step_id="builder_step", role_id="builder", archetype="builder"),
+            _preset_step(step_id="gatekeeper_step", role_id="gatekeeper", archetype="gatekeeper", on_pass="finish_run"),
         ],
     ),
     "repair_loop": _workflow_preset_definition(
@@ -256,6 +313,8 @@ WORKFLOW_PRESETS = {
         label_en="Repair Loop",
         description_zh="Builder -> Inspector -> Guide -> Builder -> GateKeeper(finish)",
         description_en="Builder -> Inspector -> Guide -> Builder -> GateKeeper(finish)",
+        scenario_zh="适合顽固问题或复杂改动：先修一轮、再复查、再修一次，最后再集中收束。",
+        scenario_en="Best for stubborn issues or complex fixes where you expect one repair pass, one re-check, another repair, then a final gate.",
         roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
@@ -263,11 +322,11 @@ WORKFLOW_PRESETS = {
             _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
         ],
         steps=[
-            {"id": "builder_step", "role_id": "builder"},
-            {"id": "inspector_step", "role_id": "inspector"},
-            {"id": "guide_step", "role_id": "guide"},
-            {"id": "builder_repair_step", "role_id": "builder"},
-            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+            _preset_step(step_id="builder_step", role_id="builder", archetype="builder"),
+            _preset_step(step_id="inspector_step", role_id="inspector", archetype="inspector"),
+            _preset_step(step_id="guide_step", role_id="guide", archetype="guide"),
+            _preset_step(step_id="builder_repair_step", role_id="builder", archetype="builder"),
+            _preset_step(step_id="gatekeeper_step", role_id="gatekeeper", archetype="gatekeeper", on_pass="finish_run"),
         ],
     ),
     "fast_lane": _workflow_preset_definition(
@@ -275,13 +334,15 @@ WORKFLOW_PRESETS = {
         label_en="Fast Lane",
         description_zh="Builder -> GateKeeper(finish)",
         description_en="Builder -> GateKeeper(finish)",
+        scenario_zh="适合范围小、反馈快，只需要快速实现加快速裁决的轻量任务。",
+        scenario_en="Best for small, fast-feedback tasks where a quick build-and-judge loop is enough.",
         roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
         ],
         steps=[
-            {"id": "builder_step", "role_id": "builder"},
-            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+            _preset_step(step_id="builder_step", role_id="builder", archetype="builder"),
+            _preset_step(step_id="gatekeeper_step", role_id="gatekeeper", archetype="gatekeeper", on_pass="finish_run"),
         ],
     ),
 }
@@ -408,6 +469,8 @@ def workflow_preset_copy(name: str) -> dict[str, str]:
         "label_en": str(preset["label_en"]),
         "description_zh": str(preset["description_zh"]),
         "description_en": str(preset["description_en"]),
+        "scenario_zh": str(preset["scenario_zh"]),
+        "scenario_en": str(preset["scenario_en"]),
     }
 
 
@@ -553,16 +616,21 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
         role = next(item for item in roles if item["id"] == role_id)
         on_pass = str(raw_step.get("on_pass", "continue") or "continue").strip()
         model = str(raw_step.get("model", "")).strip()
+        inherit_session = bool(raw_step.get("inherit_session", default_step_inherit_session(role["archetype"])))
+        extra_cli_args = str(raw_step.get("extra_cli_args", "") or "").strip()
         if role["archetype"] != "gatekeeper":
             on_pass = "continue"
         elif on_pass not in {"continue", "finish_run"}:
             raise WorkflowError("gatekeeper step on_pass must be continue or finish_run")
+        validate_extra_cli_args_text(extra_cli_args)
         steps.append(
             {
                 "id": step_id,
                 "role_id": role_id,
                 "on_pass": on_pass,
                 "model": model,
+                "inherit_session": inherit_session,
+                "extra_cli_args": extra_cli_args,
             }
         )
 
