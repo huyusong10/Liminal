@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Orchestrations{% endblock %}
 {% block content %}
-<div class="page-stack" data-testid="orchestrations-page">
+<div class="page-stack page-stack--catalog" data-testid="orchestrations-page">
 <section class="hero hero-tight">
   <div class="hero-copy-stack hero-copy-stack-lede">
     <h1>
@@ -9,8 +9,8 @@
       <span data-lang="en">Orchestrations</span>
     </h1>
     <p class="hero-lede" data-testid="orchestrations-intro-copy">
-      <span data-lang="zh">这里保存角色定义之间的协作顺序、步骤编排和流程收束规则。自定义编排可以直接编辑；默认编排保持只读，用来查看和直接复用。</span>
-      <span data-lang="en">This is where role-definition collaboration order, step orchestration, and completion rules live. Custom orchestrations open for editing; built-in orchestrations stay read-only for inspection and direct reuse.</span>
+      <span data-lang="zh">这里分成两层：上面是你保存的自定义编排，点进去直接修改；下面是内置预设编排，用来查看推荐流程并派生自己的版本。</span>
+      <span data-lang="en">This page has two layers: your saved custom orchestrations on top for direct editing, and built-in starter orchestrations below for inspection and derivation.</span>
     </p>
   </div>
   <div class="card-actions hero-actions">
@@ -21,27 +21,22 @@
   </div>
 </section>
 
-<section class="panel">
+<section class="panel" data-testid="custom-orchestrations-list">
   <header class="panel-header">
-    <h2><span data-lang="zh">已保存方案</span><span data-lang="en">Saved orchestrations</span></h2>
-    <span>{{ orchestrations|length }}</span>
+    <h2><span data-lang="zh">已保存自定义编排</span><span data-lang="en">Saved custom orchestrations</span></h2>
+    <span>{{ custom_orchestrations|length }}</span>
   </header>
-  {% if orchestrations %}
-  <div class="loop-grid">
-    {% for orchestration in orchestrations %}
+  {% if custom_orchestrations %}
+  <div class="loop-grid role-card-grid role-card-grid--orchestrations">
+    {% for orchestration in custom_orchestrations %}
     <article class="loop-card is-clickable" data-open-card="/orchestrations/{{ orchestration.id }}/edit" tabindex="0">
       <a class="loop-card-link" href="/orchestrations/{{ orchestration.id }}/edit"></a>
       <div class="loop-card-head">
         <div>
           <strong>{{ orchestration.name }}</strong>
           <p class="loop-card-meta">
-            {% if orchestration.source == "builtin" %}
-            <span data-lang="zh">内置方案 · 只读</span>
-            <span data-lang="en">Built-in · Read-only</span>
-            {% else %}
             <span data-lang="zh">自定义方案</span>
             <span data-lang="en">Custom</span>
-            {% endif %}
           </p>
         </div>
       </div>
@@ -77,9 +72,52 @@
   {% else %}
   <div class="empty-state">
     <h3><span data-lang="zh">还没有自定义编排</span><span data-lang="en">No custom orchestrations yet</span></h3>
-    <p><span data-lang="zh">可以先从内置 preset 开始，也可以创建一条自己的线性流程。</span><span data-lang="en">Start from a built-in preset or create your own linear workflow.</span></p>
+    <p><span data-lang="zh">先从空白工作台开始，或者从下面的内置预设编排派生一个版本。</span><span data-lang="en">Start from a blank workbench, or derive your own version from one of the built-in starters below.</span></p>
   </div>
   {% endif %}
+</section>
+
+<section class="panel" data-testid="builtin-orchestrations-list">
+  <header class="panel-header">
+    <h2><span data-lang="zh">内置预设编排</span><span data-lang="en">Built-in starter orchestrations</span></h2>
+    <span>{{ builtin_orchestrations|length }}</span>
+  </header>
+  <div class="loop-grid role-card-grid role-card-grid--orchestrations">
+    {% for orchestration in builtin_orchestrations %}
+    <article class="loop-card is-clickable" data-open-card="/orchestrations/{{ orchestration.id }}/edit" tabindex="0">
+      <a class="loop-card-link" href="/orchestrations/{{ orchestration.id }}/edit"></a>
+      <div class="loop-card-head">
+        <div>
+          <strong>{{ orchestration.name }}</strong>
+          <p class="loop-card-meta">
+            <span data-lang="zh">内置预设 · 只读</span>
+            <span data-lang="en">Built-in starter · Read-only</span>
+          </p>
+        </div>
+      </div>
+      <p>{{ orchestration.description or "-" }}</p>
+      <p class="loop-card-meta">
+        <span data-lang="zh">步骤数</span><span data-lang="en">Steps</span> {{ orchestration.workflow_json.steps|length }}
+        ·
+        <span data-lang="zh">角色数</span><span data-lang="en">Roles</span> {{ orchestration.workflow_json.roles|length }}
+      </p>
+      <div
+        class="orchestration-loop-shell"
+        data-testid="orchestration-loop-diagram"
+        data-workflow-diagram="{{ orchestration.workflow_json|tojson|forceescape }}"
+      ></div>
+      {% if orchestration.workflow_warnings %}
+      <div class="field-status orchestration-warning-note">
+        {{ orchestration.workflow_warnings|join(' ') }}
+      </div>
+      {% endif %}
+      <p class="loop-card-meta">
+        <span data-lang="zh">点进去可以查看结构，并从这个预设派生一个新的自定义编排。</span>
+        <span data-lang="en">Open it to inspect the structure and derive a new custom orchestration from this starter.</span>
+      </p>
+    </article>
+    {% endfor %}
+  </div>
 </section>
 </div>
 <script src="{{ static_asset_url('pages/workflow_diagram.js') }}" defer></script>

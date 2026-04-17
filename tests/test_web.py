@@ -543,6 +543,26 @@ def test_builtin_orchestration_form_route_is_read_only(service_factory) -> None:
     assert custom_after == custom_before
 
 
+def test_blank_orchestration_form_does_not_fall_back_to_build_first(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/orchestrations/new",
+        data={
+            "name": "Blank Starter",
+            "description": "Should stay blank until steps are added.",
+            "workflow_json": json.dumps({"version": 1, "preset": "", "roles": [], "steps": []}, ensure_ascii=False),
+            "prompt_files_json": json.dumps({}, ensure_ascii=False),
+        },
+    )
+
+    assert response.status_code == 200
+    assert "workflow requires at least one role" in response.text
+    custom_records = [item for item in service.list_orchestrations() if item["source"] == "custom"]
+    assert custom_records == []
+
+
 def test_api_can_create_round_based_loop_without_gatekeeper(
     service_factory,
     sample_spec_file: Path,
@@ -573,7 +593,7 @@ def test_api_can_create_round_based_loop_without_gatekeeper(
                     {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
                 ],
                 "steps": [
-                    {"id": "builder_step", "role_id": "builder", "enabled": True},
+                    {"id": "builder_step", "role_id": "builder"},
                 ],
             },
             "start_immediately": False,
@@ -616,7 +636,7 @@ def test_api_rejects_gatekeeper_mode_without_finish_gatekeeper(
                     {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
                 ],
                 "steps": [
-                    {"id": "builder_step", "role_id": "builder", "enabled": True},
+                    {"id": "builder_step", "role_id": "builder"},
                 ],
             },
             "start_immediately": False,

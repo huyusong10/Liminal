@@ -234,6 +234,7 @@ def test_tools_page_renders_skill_install_cards(service_factory) -> None:
     assert "wake-lock-toggle" in response.text
     assert "Prevent sleep while running" in response.text
     assert "help-dot--tips" in response.text
+    assert ">i</button>" in response.text
     assert "/api/skills/loopora-spec/download" in response.text
     assert "下载 Skill 包" in response.text
 
@@ -254,13 +255,22 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(response.text, "spec-template-button")
     _assert_has_testid(response.text, "loop-orchestration-input")
     _assert_has_testid(response.text, "loop-completion-mode-input")
+    _assert_has_testid(response.text, "loop-completion-mode-field")
+    _assert_has_testid(response.text, "loop-trigger-window-field")
+    _assert_has_testid(response.text, "loop-regression-window-field")
     _assert_has_testid(response.text, "loop-iteration-interval-input")
     assert "name=\"executor_kind\"" not in response.text
     assert "name=\"executor_mode\"" not in response.text
     assert "name=\"orchestration_id\"" in response.text
     assert "name=\"completion_mode\"" in response.text
     assert "name=\"iteration_interval_seconds\"" in response.text
-    assert "Role runtime reminder" in response.text
+    assert "Role runtime reminder" not in response.text
+    assert "Spec reminder" not in response.text
+    assert "Extra tools" not in response.text
+    _assert_has_testid(response.text, "loop-orchestration-panel-tip")
+    _assert_has_testid(response.text, "loop-completion-mode-tip")
+    _assert_has_testid(response.text, "loop-trigger-window-tip")
+    _assert_has_testid(response.text, "loop-regression-window-tip")
     assert "workflow-json-input" not in response.text
     assert "角色定义" in response.text
     _assert_has_testid(response.text, "nav-tutorial-link")
@@ -412,9 +422,13 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     _assert_has_testid(list_response.text, "orchestrations-page")
     _assert_has_testid(list_response.text, "orchestrations-intro-copy")
     _assert_has_testid(list_response.text, "nav-orchestrations-link")
+    _assert_has_testid(list_response.text, "custom-orchestrations-list")
+    _assert_has_testid(list_response.text, "builtin-orchestrations-list")
     assert "Orchestrations" in list_response.text
     assert 'data-open-card="/orchestrations/builtin:build_first/edit"' in list_response.text
     assert "Create loop" not in list_response.text
+    assert 'class="page-stack page-stack--catalog"' in list_response.text
+    assert 'class="loop-grid role-card-grid role-card-grid--orchestrations"' in list_response.text
     _assert_has_testid(list_response.text, "orchestration-loop-diagram")
     assert "/static/pages/workflow_diagram.js?v=" in list_response.text
     assert "/static/pages/orchestrations.js?v=" in list_response.text
@@ -425,16 +439,25 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     assert "/static/pages/workflow_diagram.js?v=" in new_response.text
     _assert_has_testid(new_response.text, "orchestration-editor-page")
     _assert_has_testid(new_response.text, "orchestration-editor-form")
-    _assert_has_testid(new_response.text, "workflow-preset-input")
+    _assert_has_testid(new_response.text, "workflow-starter-select")
+    _assert_has_testid(new_response.text, "load-workflow-starter-button")
     _assert_has_testid(new_response.text, "workflow-json-input")
     _assert_has_testid(new_response.text, "prompt-files-json-input")
     _assert_has_testid(new_response.text, "role-definition-select")
-    _assert_has_testid(new_response.text, "add-role-from-definition-button")
-    _assert_has_testid(new_response.text, "workflow-roles-list")
+    _assert_has_testid(new_response.text, "add-step-button")
     _assert_has_testid(new_response.text, "workflow-steps-list")
     _assert_has_testid(new_response.text, "workflow-loop-preview-panel")
     _assert_has_testid(new_response.text, "workflow-loop-preview")
+    _assert_has_testid(new_response.text, "workflow-step-settings-modal")
     _assert_has_testid(new_response.text, "save-orchestration-button")
+    _assert_has_testid(new_response.text, "workflow-settings-role-name")
+    assert 'data-role-field=' not in new_response.text
+    assert 'data-testid="workflow-settings-step-enabled"' not in new_response.text
+    assert 'data-testid="workflow-role-inspector-panel"' not in new_response.text
+    assert 'data-testid="workflow-role-inspector"' not in new_response.text
+    assert 'data-testid="workflow-preset-input"' not in new_response.text
+    assert 'data-testid="workflow-roles-list"' not in new_response.text
+    assert 'option value="build_first" selected' not in new_response.text
     assert "role-definitions-json" in new_response.text
 
     builtin_edit_response = client.get("/orchestrations/builtin:build_first/edit")
@@ -443,7 +466,7 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     _assert_has_testid(builtin_edit_response.text, "orchestration-editor-form")
     assert 'data-readonly="true"' in builtin_edit_response.text
     assert 'name="name" value="Build First" required readonly' in builtin_edit_response.text
-    assert 'id="workflow-preset-input" name="workflow_preset" data-testid="workflow-preset-input" disabled' in builtin_edit_response.text
+    assert 'id="workflow-starter-select" data-testid="workflow-starter-select" disabled' in builtin_edit_response.text
     assert 'id="save-orchestration-button"' not in builtin_edit_response.text
     assert '/orchestrations/new?workflow_preset=build_first' in builtin_edit_response.text
 
@@ -490,7 +513,8 @@ Focus on scoped release work.
     assert "Built-in role templates" in list_response.text
     assert "Built-in template" in list_response.text
     assert "Built-in template · builder" not in list_response.text
-    assert 'class="loop-grid role-card-grid"' in list_response.text
+    assert 'class="page-stack page-stack--catalog"' in list_response.text
+    assert 'class="loop-grid role-card-grid role-card-grid--definitions"' in list_response.text
 
     new_response = client.get("/roles/new")
     assert new_response.status_code == 200
@@ -583,6 +607,8 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".page-stack {" in css
     assert ".card-actions--loop {" in css
     assert ".help-dot--tips {" in css
+    assert ".label-with-help," in css
+    assert ".panel-title-with-help" in css
     assert ".inline-hint-link {" in css
     assert ".skill-download-card {" in css
     assert ".workflow-loop-map {" in css
@@ -592,12 +618,20 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".nav-preferences-panel {" in css
     assert ".nav-preferences-toggle {" in css
     assert ".role-card-grid {" in css
+    assert ".page-stack--catalog {" in css
+    assert ".role-card-grid--definitions {" in css
+    assert ".role-card-grid--orchestrations {" in css
+    assert ".role-card-grid > .loop-card {" in css
     assert ".top-nav .nav-preferences-toggle {" in css
     assert "@keyframes pageRiseIn {" in css
     assert "@keyframes loopTraceIn {" in css
     assert ".workflow-toolbar {" in css
+    assert ".workflow-toolbar-compact {" in css
     assert ".workflow-editor-section {" in css
     assert ".workflow-empty-state {" in css
+    assert ".workflow-step-row {" in css
+    assert ".workflow-settings-dialog {" in css
+    assert ".workflow-step-summary-line {" in css
     assert "body:not(.ui-mounted)" not in css
     assert "body.ui-mounted .hero" not in css
     assert re.search(r"\.top-nav-link:hover\s*{\s*color:\s*var\(--nav-ink\);\s*transform:\s*translateY\(-1px\);\s*}", css)
@@ -623,4 +657,6 @@ def test_static_app_js_bootstraps_theme_and_locale_without_mount_flash(service_f
     assert "setLocale(currentLocale(), {persist: false});" in script
     assert "function bindNavPreferences()" in script
     assert "data-toggle-nav-preferences" in script
+    assert 'setAttribute("title", title)' not in script
+    assert 'removeAttribute("title")' in script
     assert "ui-mounted" not in script

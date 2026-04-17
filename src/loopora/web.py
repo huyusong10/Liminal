@@ -47,6 +47,8 @@ from loopora.workflows import (
     normalize_workflow,
     preset_names,
     resolve_prompt_files,
+    workflow_preset_copy,
+    workflow_preset_options,
 )
 
 logger = get_logger(__name__)
@@ -71,7 +73,7 @@ DEFAULT_LOOP_FORM = {
 DEFAULT_ORCHESTRATION_FORM = {
     "name": "",
     "description": "",
-    "workflow_preset": "build_first",
+    "workflow_preset": "",
     "workflow_json": "",
     "prompt_files_json": "",
 }
@@ -83,27 +85,6 @@ DEFAULT_ROLE_DEFINITION_FORM = {
     "prompt_ref": "builder.md",
     "prompt_markdown": builtin_prompt_markdown("builder.md", locale="en"),
     **default_role_execution_settings(),
-}
-
-WORKFLOW_PRESET_COPY = {
-    "build_first": {
-        "label_zh": "先构建，再验收",
-        "label_en": "Build First",
-        "description_zh": "Builder -> Inspector -> GateKeeper -> Guide",
-        "description_en": "Builder -> Inspector -> GateKeeper -> Guide",
-    },
-    "inspect_first": {
-        "label_zh": "先巡检，再构建",
-        "label_en": "Inspect First",
-        "description_zh": "Inspector -> Builder -> GateKeeper -> Guide",
-        "description_en": "Inspector -> Builder -> GateKeeper -> Guide",
-    },
-    "benchmark_loop": {
-        "label_zh": "基准先行",
-        "label_en": "Benchmark Loop",
-        "description_zh": "GateKeeper (benchmark) -> Builder",
-        "description_en": "GateKeeper (benchmark) -> Builder",
-    },
 }
 
 TIMELINE_EVENT_TYPES = {
@@ -241,12 +222,17 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         )
 
     def render_orchestrations(request: Request) -> HTMLResponse:
+        orchestrations = svc().list_orchestrations()
+        custom_orchestrations = [item for item in orchestrations if item.get("source") == "custom"]
+        builtin_orchestrations = [item for item in orchestrations if item.get("source") == "builtin"]
         return templates.TemplateResponse(
             request,
             "orchestrations.html",
             {
                 "request": request,
-                "orchestrations": svc().list_orchestrations(),
+                "orchestrations": orchestrations,
+                "custom_orchestrations": custom_orchestrations,
+                "builtin_orchestrations": builtin_orchestrations,
                 "access_state": access_state,
             },
         )
@@ -289,10 +275,10 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             }
         else:
             page_copy = {
-                "title_zh": "先把流程编排清楚，再让 loop 去执行。",
-                "title_en": "Shape the orchestration first, then let loops execute it.",
-                "body_zh": "编排页只负责引用角色定义、安排步骤顺序和配置流程收束。角色 prompt、权限边界和执行工具，都在“角色定义”页维护。",
-                "body_en": "The orchestration page only wires role definitions together, sets step order, and configures completion rules. Prompts, permission boundaries, and executor settings live in Role Definitions.",
+                "title_zh": "先把步骤工作台搭起来，再让 loop 去执行。",
+                "title_en": "Shape the step workbench first, then let loops execute it.",
+                "body_zh": "这里默认从空白编排开始。你可以在步骤工具条里载入起手模板、按角色定义添加步骤、重排步骤和检查循环实例图；角色 prompt 与执行配置继续在“角色定义”页维护。",
+                "body_en": "This editor starts blank by default. Use the step toolbar to load a starter template, add steps from role definitions, reorder steps, and inspect the loop map. Prompts and execution settings still live in Role Definitions.",
                 "submit_zh": "保存编排",
                 "submit_en": "Save orchestration",
                 "action": "/orchestrations/new",
@@ -304,9 +290,10 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                 "request": request,
                 "form_values": form_values,
                 "form_error": form_error,
-                "workflow_preset_options": _workflow_preset_options(),
+                "workflow_preset_options": workflow_preset_options(),
                 "workflow_preset_bundles": {
                     preset_name: {
+                        "copy": workflow_preset_copy(preset_name),
                         "workflow": build_preset_workflow(preset_name),
                         "prompt_files": resolve_prompt_files(build_preset_workflow(preset_name)),
                     }
@@ -949,7 +936,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         form = await request.form()
         values = _normalize_orchestration_form(form)
         try:
-            orchestration = svc().create_orchestration(**_orchestration_payload_from_mapping(form))
+            orchestration = svc().create_orchestration(**_orchestration_payload_from_mapping(form, default_to_preset=False))
             return RedirectResponse(url=f"/orchestrations/{orchestration['id']}/edit?saved=1", status_code=303)
         except (LooporaError, FileExistsError, OSError, ValueError) as exc:
             return render_new_orchestration(request, values=values, form_error=str(exc))
@@ -962,7 +949,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         try:
             if orchestration.get("source") == "builtin":
                 raise LooporaError("built-in orchestrations are read-only; create a new orchestration to customize one")
-            updated = svc().update_orchestration(orchestration_id, **_orchestration_payload_from_mapping(form))
+            updated = svc().update_orchestration(orchestration_id, **_orchestration_payload_from_mapping(form, default_to_preset=False))
             return RedirectResponse(url=f"/orchestrations/{updated['id']}/edit?saved=1", status_code=303)
         except (LooporaError, FileExistsError, OSError, ValueError) as exc:
             return render_new_orchestration(request, values=values, form_error=str(exc), orchestration=orchestration)
@@ -1074,7 +1061,11 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
     return loop_kwargs, _coerce_bool(payload.get("start_immediately"))
 
 
-def _orchestration_payload_from_mapping(payload: Mapping[str, object]) -> dict[str, object]:
+def _orchestration_payload_from_mapping(
+    payload: Mapping[str, object],
+    *,
+    default_to_preset: bool = True,
+) -> dict[str, object]:
     name = str(payload.get("name", "")).strip()
     description = str(payload.get("description", "")).strip()
     if not name:
@@ -1082,7 +1073,7 @@ def _orchestration_payload_from_mapping(payload: Mapping[str, object]) -> dict[s
     return {
         "name": name,
         "description": description,
-        "workflow": _workflow_from_mapping(payload, default_to_preset=True),
+        "workflow": _workflow_from_mapping(payload, default_to_preset=default_to_preset),
         "prompt_files": _prompt_files_from_mapping(payload),
         "role_models": _role_models_from_mapping(payload),
     }
@@ -1297,9 +1288,8 @@ def _coerce_loop_form_number(value: object, *, integer_only: bool) -> object:
 def _normalize_orchestration_form(values: Mapping[str, object] | None) -> dict[str, object]:
     normalized = dict(DEFAULT_ORCHESTRATION_FORM)
     if not values:
-        workflow = build_preset_workflow("build_first")
-        normalized["workflow_json"] = json.dumps(workflow, ensure_ascii=False, indent=2)
-        normalized["prompt_files_json"] = json.dumps(resolve_prompt_files(workflow), ensure_ascii=False, indent=2)
+        normalized["workflow_json"] = json.dumps({"version": 1, "preset": "", "roles": [], "steps": []}, ensure_ascii=False, indent=2)
+        normalized["prompt_files_json"] = json.dumps({}, ensure_ascii=False, indent=2)
         return normalized
     for key in normalized:
         if key in values:
@@ -1309,10 +1299,14 @@ def _normalize_orchestration_form(values: Mapping[str, object] | None) -> dict[s
     if isinstance(normalized.get("prompt_files_json"), Mapping):
         normalized["prompt_files_json"] = json.dumps(normalized["prompt_files_json"], ensure_ascii=False, indent=2)
     if not str(normalized.get("workflow_json", "")).strip():
-        preset_name = str(normalized.get("workflow_preset", "build_first")).strip() or "build_first"
-        workflow = build_preset_workflow(preset_name)
-        normalized["workflow_json"] = json.dumps(workflow, ensure_ascii=False, indent=2)
-        normalized["prompt_files_json"] = json.dumps(resolve_prompt_files(workflow), ensure_ascii=False, indent=2)
+        preset_name = str(normalized.get("workflow_preset", "")).strip()
+        if preset_name:
+            workflow = build_preset_workflow(preset_name)
+            normalized["workflow_json"] = json.dumps(workflow, ensure_ascii=False, indent=2)
+            normalized["prompt_files_json"] = json.dumps(resolve_prompt_files(workflow), ensure_ascii=False, indent=2)
+        else:
+            normalized["workflow_json"] = json.dumps({"version": 1, "preset": "", "roles": [], "steps": []}, ensure_ascii=False, indent=2)
+            normalized["prompt_files_json"] = json.dumps({}, ensure_ascii=False, indent=2)
     return normalized
 
 
@@ -1336,19 +1330,6 @@ def _normalize_role_definition_form(values: Mapping[str, object] | None, *, loca
     if not str(normalized.get("command_cli", "")).strip():
         normalized["command_cli"] = profile.cli_name
     return normalized
-
-
-def _workflow_preset_options() -> list[dict[str, str]]:
-    return [
-        {
-            "id": preset_name,
-            "label_zh": WORKFLOW_PRESET_COPY.get(preset_name, {}).get("label_zh", preset_name),
-            "label_en": WORKFLOW_PRESET_COPY.get(preset_name, {}).get("label_en", preset_name),
-            "description_zh": WORKFLOW_PRESET_COPY.get(preset_name, {}).get("description_zh", ""),
-            "description_en": WORKFLOW_PRESET_COPY.get(preset_name, {}).get("description_en", ""),
-        }
-        for preset_name in preset_names()
-    ]
 
 
 def _archetype_options() -> list[dict[str, str]]:
@@ -1424,7 +1405,7 @@ def _orchestration_form_values_from_record(orchestration: Mapping[str, object]) 
     return {
         "name": str(orchestration.get("name", "")),
         "description": str(orchestration.get("description", "")),
-        "workflow_preset": str(workflow.get("preset", "build_first")).strip() or "build_first",
+        "workflow_preset": str(workflow.get("preset", "")).strip(),
         "workflow_json": json.dumps(workflow, ensure_ascii=False, indent=2),
         "prompt_files_json": json.dumps(orchestration.get("prompt_files_json") or {}, ensure_ascii=False, indent=2),
     }

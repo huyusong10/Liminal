@@ -2,7 +2,7 @@
 {% block title %}{{ page_copy.submit_en }}{% endblock %}
 {% block content %}
 <div class="page-stack" data-testid="orchestration-editor-page">
-<section class="hero hero-tight hero-form">
+<section class="hero hero-tight hero-form orchestration-hero">
   <div class="hero-copy-stack">
     <h1>
       <span data-lang="zh">{{ page_copy.title_zh }}</span>
@@ -18,111 +18,94 @@
 <form class="panel form-panel form-panel-wide" method="post" action="{{ page_copy.action }}" id="new-orchestration-form" data-testid="orchestration-editor-form" data-readonly="{{ 'true' if orchestration_locked else 'false' }}">
   <div class="field-status is-error" id="form-error" aria-live="polite" {% if not form_error %}hidden{% endif %}>{{ form_error or "" }}</div>
 
-  <div class="form-grid">
-    <label>
+  <div class="orchestration-header-grid">
+    <label class="orchestration-meta-field">
       <span><span data-lang="zh">名称</span><span data-lang="en">Name</span></span>
       <input name="name" value="{{ form_values.name }}" required {% if orchestration_locked %}readonly{% endif %} />
     </label>
 
-    <label class="wide">
+    <label class="orchestration-meta-field orchestration-meta-field-wide">
       <span><span data-lang="zh">描述</span><span data-lang="en">Description</span></span>
       <textarea name="description" rows="3" {% if orchestration_locked %}readonly{% endif %}>{{- form_values.description -}}</textarea>
     </label>
+  </div>
 
-    <section class="wide panel workflow-editor-panel">
-      <header class="panel-header workflow-editor-header">
+  <section class="panel workflow-editor-panel">
+      <header class="panel-header workflow-editor-header workflow-editor-header-tight">
         <div>
-          <h2><span data-lang="zh">工作流编排</span><span data-lang="en">Workflow</span></h2>
+          <h2><span data-lang="zh">流程工作台</span><span data-lang="en">Workflow workbench</span></h2>
           <p class="field-note">
-            <span data-lang="zh">从预设开始，替换角色定义、重排步骤，并决定流程怎样收束。角色 prompt 和执行工具请回到“角色定义”里维护。</span>
-            <span data-lang="en">Start from a preset, swap role definitions, reorder steps, and decide how the workflow closes out. Maintain prompts and executor settings back in Role Definitions.</span>
+            <span data-lang="zh">上方看实例图，下面按卡片管理步骤；需要修改时再进入设置浮窗。</span>
+            <span data-lang="en">Use the map above for orientation, manage steps through cards below, and open the settings modal only when you need to edit.</span>
           </p>
         </div>
       </header>
-      <div class="workflow-toolbar">
-        <label class="workflow-toolbar-preset">
-          <span class="label-row">
-            <span><span data-lang="zh">工作流预设</span><span data-lang="en">Workflow preset</span></span>
-          </span>
-          <select id="workflow-preset-input" name="workflow_preset" data-testid="workflow-preset-input" {% if orchestration_locked %}disabled{% endif %}>
-            {% for option in workflow_preset_options %}
-            <option value="{{ option.id }}" {% if form_values.workflow_preset == option.id %}selected{% endif %}>
-              {{ option.label_zh }} / {{ option.label_en }}
-            </option>
-            {% endfor %}
-          </select>
-          {% if orchestration_locked %}
-          <small class="field-note">
-            <span data-lang="zh">默认编排保持只读。若要做自己的版本，请新建一条自定义编排。</span>
-            <span data-lang="en">Built-in orchestrations stay read-only. Create a custom orchestration if you need your own variant.</span>
-          </small>
-          {% endif %}
-        </label>
-        <div class="card-actions card-actions-compact workflow-toolbar-actions">
-          <button class="secondary-button" type="button" id="reset-workflow-preset" {% if orchestration_locked %}disabled{% endif %}>
-            <span data-lang="zh">按预设重置</span>
-            <span data-lang="en">Reset from preset</span>
-          </button>
-          <label class="workflow-toolbar-preset">
-            <span class="label-row">
-              <span><span data-lang="zh">角色定义</span><span data-lang="en">Role definition</span></span>
-            </span>
-            <select id="role-definition-select" data-testid="role-definition-select" {% if orchestration_locked %}disabled{% endif %}>
-              {% for role_definition in role_definitions %}
-              <option value="{{ role_definition.id }}">
-                {{ role_definition.name }} · {{ role_definition.archetype }}{% if role_definition.source == "builtin" %} · builtin{% endif %}
-              </option>
-              {% endfor %}
-            </select>
-          </label>
-          <button class="ghost-button" type="button" id="add-role-from-definition-button" data-testid="add-role-from-definition-button" {% if orchestration_locked %}disabled{% endif %}>
-            <span data-lang="zh">加入已选角色</span>
-            <span data-lang="en">Add selected role</span>
-          </button>
-          <a class="ghost-button" href="/roles">
-            <span data-lang="zh">管理角色</span>
-            <span data-lang="en">Manage roles</span>
-          </a>
-          <button class="ghost-button" type="button" id="add-step-button" {% if orchestration_locked %}disabled{% endif %}>
-            <span data-lang="zh">添加步骤</span>
-            <span data-lang="en">Add step</span>
-          </button>
-        </div>
-      </div>
-      <section class="workflow-map-panel" data-testid="workflow-loop-preview-panel">
-        <div class="workflow-section-head">
-          <div>
-            <strong><span data-lang="zh">循环实例图</span><span data-lang="en">Loop instance map</span></strong>
-            <p class="workflow-section-note">
-              <span data-lang="zh">这里不是单向流程图，而是把每轮 steps 串成一个会回到起点的循环视图。调整角色和步骤顺序时，这里会同步刷新。</span>
-              <span data-lang="en">This is not a one-way flowchart. It renders the iteration as a loop that closes back on itself, and it refreshes as you change roles or step order.</span>
-            </p>
-          </div>
-        </div>
-        <div id="workflow-loop-preview" data-testid="workflow-loop-preview"></div>
-      </section>
       <div class="field-status" id="workflow-validation" aria-live="polite" hidden></div>
-      <div class="workflow-editor-grid">
-        <section class="workflow-editor-section">
+      <div class="workflow-editor-grid workflow-editor-stack">
+        <section class="workflow-editor-section workflow-map-panel" data-testid="workflow-loop-preview-panel">
           <div class="workflow-section-head">
             <div>
-              <strong><span data-lang="zh">角色</span><span data-lang="en">Roles</span></strong>
+              <strong><span data-lang="zh">循环实例图</span><span data-lang="en">Loop instance map</span></strong>
               <p class="workflow-section-note">
-                <span data-lang="zh">这里展示的是编排里冻结下来的角色快照。想修改 prompt、执行工具或权限边界，请回到“角色定义”页。</span>
-                <span data-lang="en">These are the frozen role snapshots used by this orchestration. Go back to Role Definitions to change prompts, executors, or permission boundaries.</span>
+                <span data-lang="zh">这里把当前步骤串成闭环视图。点击节点会同步定位到下面对应的步骤卡片。</span>
+                <span data-lang="en">This renders the current steps as a closed loop. Clicking a node syncs to the matching step card below.</span>
               </p>
             </div>
           </div>
-          <div id="workflow-roles-list" class="workflow-roles-list" data-testid="workflow-roles-list"></div>
+          <div id="workflow-loop-preview" data-testid="workflow-loop-preview"></div>
         </section>
-        <section class="workflow-editor-section">
+        <section class="workflow-editor-section workflow-steps-panel">
           <div class="workflow-section-head">
             <div>
               <strong><span data-lang="zh">步骤</span><span data-lang="en">Steps</span></strong>
               <p class="workflow-section-note">
-                <span data-lang="zh">安排每轮的执行顺序，以及 GateKeeper 通过后如何收束流程。</span>
-                <span data-lang="en">Arrange the step order for each iteration, including how GateKeeper closes out a successful run.</span>
+                <span data-lang="zh">角色快照直接显示在卡片里；设置和顺序都从这里统一管理。</span>
+                <span data-lang="en">Role snapshots are shown directly inside each card, and this is where settings and order come together.</span>
               </p>
+            </div>
+          </div>
+          <div class="workflow-toolbar workflow-toolbar-compact">
+            <div class="workflow-toolbar-cluster">
+              <label class="workflow-toolbar-inline">
+                <span><span data-lang="zh">起手模板</span><span data-lang="en">Starter</span></span>
+                <select id="workflow-starter-select" data-testid="workflow-starter-select" {% if orchestration_locked %}disabled{% endif %}>
+                  <option value="" data-label-zh="空白开始 / Start blank" data-label-en="Start blank">Start blank</option>
+                  {% for option in workflow_preset_options %}
+                  <option
+                    value="{{ option.id }}"
+                    data-label-zh="{{ option.label_zh }} / {{ option.label_en }}"
+                    data-label-en="{{ option.label_en }}"
+                    {% if form_values.workflow_preset == option.id %}selected{% endif %}
+                  >
+                    {{ option.label_en }}
+                  </option>
+                  {% endfor %}
+                </select>
+              </label>
+              <button class="secondary-button" type="button" id="load-workflow-starter-button" data-testid="load-workflow-starter-button" {% if orchestration_locked %}disabled{% endif %}>
+                <span data-lang="zh">载入模板</span>
+                <span data-lang="en">Load starter</span>
+              </button>
+            </div>
+            <div class="workflow-toolbar-cluster">
+              <label class="workflow-toolbar-inline">
+                <span><span data-lang="zh">角色定义</span><span data-lang="en">Role definition</span></span>
+                <select id="role-definition-select" data-testid="role-definition-select" {% if orchestration_locked %}disabled{% endif %}>
+                  {% for role_definition in role_definitions %}
+                  <option value="{{ role_definition.id }}">
+                    {{ role_definition.name }} · {{ role_definition.archetype }}{% if role_definition.source == "builtin" %} · builtin{% endif %}
+                  </option>
+                  {% endfor %}
+                </select>
+              </label>
+              <button class="ghost-button" type="button" id="add-step-button" data-testid="add-step-button" {% if orchestration_locked %}disabled{% endif %}>
+                <span data-lang="zh">添加步骤</span>
+                <span data-lang="en">Add step</span>
+              </button>
+              <a class="ghost-button" href="/roles">
+                <span data-lang="zh">管理角色</span>
+                <span data-lang="en">Manage roles</span>
+              </a>
             </div>
           </div>
           <div id="workflow-steps-list" class="workflow-steps-list" data-testid="workflow-steps-list"></div>
@@ -130,8 +113,7 @@
       </div>
       <textarea id="workflow-json-input" name="workflow_json" rows="12" data-testid="workflow-json-input" hidden>{{- form_values.workflow_json -}}</textarea>
       <textarea id="prompt-files-json-input" name="prompt_files_json" rows="12" data-testid="prompt-files-json-input" hidden>{{- form_values.prompt_files_json -}}</textarea>
-    </section>
-  </div>
+  </section>
 
   <div class="card-actions">
     {% if orchestration_locked %}
@@ -151,6 +133,119 @@
     </a>
   </div>
 </form>
+
+<div class="workflow-settings-modal confirm-modal" id="workflow-step-settings-modal" data-testid="workflow-step-settings-modal" hidden aria-hidden="true">
+  <div class="confirm-modal-backdrop" data-close-workflow-settings="1"></div>
+  <div class="confirm-modal-dialog workflow-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="workflow-step-settings-title">
+    <div class="confirm-modal-copy workflow-settings-copy">
+      <div class="workflow-settings-header">
+        <div>
+          <h2 id="workflow-step-settings-title">
+            <span data-lang="zh">步骤设置</span>
+            <span data-lang="en">Step settings</span>
+          </h2>
+          <p id="workflow-step-settings-detail">
+            <span data-lang="zh">这里只修改当前步骤；右侧角色快照仅供查看。</span>
+            <span data-lang="en">Only this step can change here; the role snapshot on the right is read-only.</span>
+          </p>
+        </div>
+        <button class="ghost-button workflow-settings-close" type="button" data-close-workflow-settings="1">
+          <span data-lang="zh">关闭</span>
+          <span data-lang="en">Close</span>
+        </button>
+      </div>
+    </div>
+    <div class="workflow-settings-layout">
+      <section class="workflow-settings-section">
+        <div class="workflow-settings-section-head">
+          <strong><span data-lang="zh">步骤设置</span><span data-lang="en">Step settings</span></strong>
+          <p class="workflow-section-note">
+            <span data-lang="zh">这些字段只影响当前步骤，不会改动角色快照。</span>
+            <span data-lang="en">These fields only affect this step and never change the role snapshot.</span>
+          </p>
+        </div>
+        <div class="workflow-settings-grid">
+          <label>
+            <span><span data-lang="zh">步骤 ID</span><span data-lang="en">Step ID</span></span>
+            <input id="workflow-settings-step-id" data-step-field="id" data-testid="workflow-settings-step-id" />
+          </label>
+          <label>
+            <span><span data-lang="zh">绑定角色</span><span data-lang="en">Bound role</span></span>
+            <select id="workflow-settings-step-role" data-step-field="role_id" data-testid="workflow-settings-step-role"></select>
+          </label>
+          <label>
+            <span><span data-lang="zh">模型覆盖</span><span data-lang="en">Model override</span></span>
+            <input id="workflow-settings-step-model" data-step-field="model" data-testid="workflow-settings-step-model" />
+          </label>
+          <label>
+            <span><span data-lang="zh">通过后动作</span><span data-lang="en">On pass</span></span>
+            <select id="workflow-settings-step-on-pass" data-step-field="on_pass" data-testid="workflow-settings-step-on-pass">
+              <option value="continue" data-label-zh="继续后续步骤" data-label-en="Continue">Continue</option>
+              <option value="finish_run" data-label-zh="通过后结束流程" data-label-en="Finish run">Finish run</option>
+            </select>
+          </label>
+        </div>
+      </section>
+      <section class="workflow-settings-section">
+        <div class="workflow-settings-section-head">
+          <strong><span data-lang="zh">角色快照</span><span data-lang="en">Role snapshot</span></strong>
+          <p class="workflow-section-note">
+            <span data-lang="zh">这里只读展示当前绑定的角色快照。</span>
+            <span data-lang="en">This is a read-only view of the bound role snapshot.</span>
+          </p>
+        </div>
+        <div class="workflow-settings-summary">
+          <div>
+            <span class="workflow-settings-summary-label"><span data-lang="zh">来源角色定义</span><span data-lang="en">Role definition</span></span>
+            <strong id="workflow-settings-role-definition" data-testid="workflow-settings-role-definition">-</strong>
+          </div>
+          <div>
+            <span class="workflow-settings-summary-label"><span data-lang="zh">执行摘要</span><span data-lang="en">Execution summary</span></span>
+            <strong id="workflow-settings-role-runtime" data-testid="workflow-settings-role-runtime">-</strong>
+          </div>
+        </div>
+        <div class="workflow-settings-readonly-grid">
+          <div class="workflow-settings-readonly-field">
+            <span class="workflow-settings-summary-label"><span data-lang="zh">角色名</span><span data-lang="en">Role name</span></span>
+            <strong id="workflow-settings-role-name" data-testid="workflow-settings-role-name">-</strong>
+          </div>
+          <div class="workflow-settings-readonly-field">
+            <span class="workflow-settings-summary-label"><span data-lang="zh">角色模板</span><span data-lang="en">Role template</span></span>
+            <strong id="workflow-settings-role-archetype" data-testid="workflow-settings-role-archetype">-</strong>
+          </div>
+          <div class="workflow-settings-readonly-field">
+            <span class="workflow-settings-summary-label"><span data-lang="zh">Prompt 文件</span><span data-lang="en">Prompt file</span></span>
+            <strong id="workflow-settings-role-prompt" data-testid="workflow-settings-role-prompt">-</strong>
+          </div>
+          <div class="workflow-settings-readonly-field">
+            <span class="workflow-settings-summary-label"><span data-lang="zh">执行器</span><span data-lang="en">Executor</span></span>
+            <strong id="workflow-settings-role-executor-kind" data-testid="workflow-settings-role-executor-kind">-</strong>
+          </div>
+          <div class="workflow-settings-readonly-field">
+            <span class="workflow-settings-summary-label"><span data-lang="zh">执行模式</span><span data-lang="en">Execution mode</span></span>
+            <strong id="workflow-settings-role-executor-mode" data-testid="workflow-settings-role-executor-mode">-</strong>
+          </div>
+          <div class="workflow-settings-readonly-field">
+            <span class="workflow-settings-summary-label"><span data-lang="zh">默认模型</span><span data-lang="en">Default model</span></span>
+            <strong id="workflow-settings-role-model" data-testid="workflow-settings-role-model">-</strong>
+          </div>
+          <div class="workflow-settings-readonly-field">
+            <span class="workflow-settings-summary-label"><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning effort</span></span>
+            <strong id="workflow-settings-role-reasoning" data-testid="workflow-settings-role-reasoning">-</strong>
+          </div>
+          <div class="workflow-settings-readonly-field wide">
+            <span class="workflow-settings-summary-label"><span data-lang="zh">命令入口</span><span data-lang="en">Command CLI</span></span>
+            <strong id="workflow-settings-role-command-cli" data-testid="workflow-settings-role-command-cli">-</strong>
+          </div>
+          <div class="workflow-settings-readonly-field wide">
+            <span class="workflow-settings-summary-label"><span data-lang="zh">命令参数模板</span><span data-lang="en">Command args template</span></span>
+            <pre id="workflow-settings-role-command-args" data-testid="workflow-settings-role-command-args">-</pre>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
 
 <script id="workflow-preset-bundles-json" type="application/json">{{ workflow_preset_bundles|tojson }}</script>
 <script id="role-definitions-json" type="application/json">{{ role_definitions|tojson }}</script>

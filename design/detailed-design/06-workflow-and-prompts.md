@@ -53,9 +53,28 @@ workflow 保持两层结构：
 |------|------|
 | `id` | step 在当前 workflow 内的稳定标识 |
 | `role_id` | 指向某个 role |
-| `enabled` | 是否参与执行 |
 | `on_pass` | 可选，仅 GateKeeper 使用，用于声明通过后的收敛行为 |
 | `model` | 可选，step 级模型覆盖 |
+
+### 3.3 内置预设编排目录
+
+系统内置以下可复用 starter orchestration：
+
+| 预设 | 稳定流程 |
+|------|----------|
+| `build_first` | `Builder → Inspector → GateKeeper → Guide` |
+| `inspect_first` | `Inspector → Builder → GateKeeper → Guide` |
+| `benchmark_loop` | `GateKeeper (benchmark) → Builder` |
+| `quality_gate` | `Builder → Inspector → GateKeeper(finish)` |
+| `triage_first` | `Inspector → Guide → Builder → GateKeeper(finish)` |
+| `repair_loop` | `Builder → Inspector → Guide → Builder → GateKeeper(finish)` |
+| `fast_lane` | `Builder → GateKeeper(finish)` |
+
+补充约束：
+
+- 这些 starter orchestration 是内置资产，只能复制后再形成自定义编排。
+- `workflow.preset` 继续作为内置 starter 的稳定标识存在，供 Web、CLI 与 API 共享引用语义。
+- Web 编排编辑器允许默认从空白 workflow 开始；只有在显式载入 starter 或复制内置编排时，才写入对应的 `workflow.preset`。
 
 ## 4. 角色原型
 
@@ -111,6 +130,7 @@ workflow 保存前必须满足：
 
 - 只有 `gatekeeper` step 可以声明 `on_pass=finish_run`
 - `custom` role 可以自由进入编排，但不能成为收敛裁决入口
+- Web 创建循环页在所选 workflow 不存在 `Guide` role 时，可以不暴露 `trigger_window` 与 `regression_window` 这两个停滞窗口输入；若 workflow 不存在可 `finish_run` 的 GateKeeper step，则只能暴露 `rounds` completion mode。
 
 ### 5.3 Prompt 校验
 
@@ -168,6 +188,11 @@ prompt 资产必须满足：
 补充说明：
 
 - Web 界面可以把 workflow snapshot 投影成循环实例图，只要图中的节点顺序、角色名称和闭环语义仍然严格来自当前 workflow snapshot。
+- Web 编排编辑页可以采用上方实例图、下方步骤卡片的布局；实例图节点选择与步骤卡片高亮必须表达同一个 workflow snapshot。
+- Web 编排编辑页可以把角色快照信息直接显示在步骤卡片中，而不要求单独保留角色检查器或角色列表，只要卡片展示的仍是当前 workflow snapshot 中的角色快照。
+- Web 编排编辑页可以只保留一个“添加步骤”入口：当所选角色定义尚未进入当前编排时，先生成角色快照并创建首个步骤；当该角色快照已存在时，直接为它追加新步骤。
+- Web 编排编辑页可以把步骤主区展示为摘要卡片；卡片点击只负责切换当前角色与步骤高亮，不承担直接编辑语义。
+- Web 编排编辑页可以通过单个设置浮窗修改 step 级覆盖字段；同一个浮窗里展示的角色快照应作为只读信息查看，不在步骤设置里直接改写 snapshot 本身。
 
 ## 10. 跨入口一致性
 

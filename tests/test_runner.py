@@ -254,6 +254,61 @@ def test_benchmark_loop_can_finish_before_builder_runs(
     assert step_outputs["gatekeeper"][-1]["output"]["passed"] is True
 
 
+def test_triage_first_workflow_runs_inspector_then_guide_then_builder(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Triage First Loop",
+        workflow={"preset": "triage_first"},
+    )
+
+    run = service.rerun(loop["id"])
+
+    assert run["status"] == "succeeded"
+    assert run["workflow_json"]["preset"] == "triage_first"
+    assert [step["role_id"] for step in run["workflow_json"]["steps"][:4]] == ["inspector", "guide", "builder", "gatekeeper"]
+    iteration_log = [
+        json.loads(line)
+        for line in (Path(run["runs_dir"]) / "iteration_log.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    workflow_entry = next(entry for entry in iteration_log if entry["phase"] == "complete")
+    assert [step["archetype"] for step in workflow_entry["workflow"][:3]] == ["inspector", "builder", "gatekeeper"]
+
+
+def test_fast_lane_workflow_runs_builder_before_gatekeeper(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Fast Lane Loop",
+        workflow={"preset": "fast_lane"},
+    )
+
+    run = service.rerun(loop["id"])
+
+    assert run["status"] == "succeeded"
+    assert run["workflow_json"]["preset"] == "fast_lane"
+    iteration_log = [
+        json.loads(line)
+        for line in (Path(run["runs_dir"]) / "iteration_log.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    workflow_entry = next(entry for entry in iteration_log if entry["phase"] == "complete")
+    assert [step["archetype"] for step in workflow_entry["workflow"][:2]] == ["builder", "gatekeeper"]
+
+
 def test_workflow_step_model_override_is_used_for_role_requests(
     service_factory,
     sample_spec_file: Path,
@@ -267,8 +322,8 @@ def test_workflow_step_model_override_is_used_for_role_requests(
             {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
         ],
         "steps": [
-            {"id": "builder_step", "role_id": "builder", "enabled": True, "model": "gpt-5.4-mini"},
-            {"id": "gatekeeper_step", "role_id": "gatekeeper", "enabled": True, "on_pass": "finish_run"},
+            {"id": "builder_step", "role_id": "builder", "model": "gpt-5.4-mini"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
         ],
     }
     loop = _create_loop(service, sample_spec_file, sample_workdir, name="Step Model Loop", workflow=workflow)
@@ -311,8 +366,8 @@ def test_workflow_roles_can_use_distinct_executor_snapshots(
             },
         ],
         "steps": [
-            {"id": "builder_step", "role_id": "builder", "enabled": True},
-            {"id": "custom_step", "role_id": "custom_helper", "enabled": True},
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "custom_step", "role_id": "custom_helper"},
         ],
     }
 
@@ -349,7 +404,7 @@ def test_round_completion_mode_can_finish_without_gatekeeper(
             {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
         ],
         "steps": [
-            {"id": "builder_step", "role_id": "builder", "enabled": True},
+            {"id": "builder_step", "role_id": "builder"},
         ],
     }
     loop = _create_loop(
@@ -386,7 +441,7 @@ def test_iteration_interval_emits_wait_events_between_rounds(
             {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
         ],
         "steps": [
-            {"id": "builder_step", "role_id": "builder", "enabled": True},
+            {"id": "builder_step", "role_id": "builder"},
         ],
     }
     loop = _create_loop(

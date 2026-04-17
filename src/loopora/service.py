@@ -237,7 +237,7 @@ class LooporaService:
         resolved_prompt_files = resolved_orchestration["prompt_files"]
         if completion_mode == "gatekeeper" and not has_finish_gatekeeper_step(normalized_workflow):
             raise LooporaError(
-                "gatekeeper completion mode requires an enabled GateKeeper step that can finish the run"
+                "gatekeeper completion mode requires a GateKeeper step that can finish the run"
             )
 
         spec_markdown, compiled_spec = read_and_compile(spec_path)
@@ -1109,7 +1109,7 @@ class LooporaService:
             run_contract = read_json(layout.run_contract_path)
             self._write_summary(run_id, "running", "Waiting for the first workflow iteration to complete.")
 
-            enabled_steps = [step for step in workflow.get("steps", []) if step.get("enabled", True)]
+            workflow_steps = list(workflow.get("steps", []))
             role_by_id = {role["id"]: role for role in workflow.get("roles", [])}
             completion_mode = normalize_completion_mode(run.get("completion_mode", "gatekeeper"))
             iteration_interval_seconds = float(run.get("iteration_interval_seconds", 0.0) or 0.0)
@@ -1122,7 +1122,7 @@ class LooporaService:
                 **self._run_log_context(
                     run,
                     completion_mode=completion_mode,
-                    enabled_step_count=len(enabled_steps),
+                    step_count=len(workflow_steps),
                     role_count=len(role_by_id),
                 ),
             )
@@ -1151,13 +1151,13 @@ class LooporaService:
                     **self._run_log_context(
                         run,
                         iter=iter_id,
-                        enabled_step_count=len(enabled_steps),
+                        step_count=len(workflow_steps),
                         previous_composite_score=previous_composite,
                         stagnation_mode=stagnation.get("stagnation_mode", "none"),
                     ),
                 )
 
-                for step_order, step in enumerate(enabled_steps):
+                for step_order, step in enumerate(workflow_steps):
                     role = role_by_id[step["role_id"]]
                     runtime_role = self._runtime_role_key(role)
                     if role["archetype"] == "guide" and stagnation.get("stagnation_mode", "none") == "none":

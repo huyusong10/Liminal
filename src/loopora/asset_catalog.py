@@ -18,6 +18,7 @@ from loopora.workflows import (
     preset_names,
     resolve_prompt_files,
     validate_prompt_markdown,
+    workflow_preset_copy,
     workflow_warnings,
 )
 
@@ -34,25 +35,16 @@ class WorkflowAssetCatalog:
         return [deepcopy(record) for record in records]
 
     def _build_builtin_orchestration_records(self) -> list[dict]:
-        labels = {
-            "build_first": "Build First",
-            "inspect_first": "Inspect First",
-            "benchmark_loop": "Benchmark Loop",
-        }
-        descriptions = {
-            "build_first": "Builder -> Inspector -> GateKeeper -> Guide",
-            "inspect_first": "Inspector -> Builder -> GateKeeper -> Guide",
-            "benchmark_loop": "GateKeeper (benchmark) -> Builder",
-        }
         records = []
         for preset_name in preset_names():
             workflow = build_preset_workflow(preset_name)
             prompt_files = resolve_prompt_files(workflow)
+            copy = workflow_preset_copy(preset_name)
             records.append(
                 {
                     "id": f"builtin:{preset_name}",
-                    "name": labels.get(preset_name, preset_name),
-                    "description": descriptions.get(preset_name, ""),
+                    "name": copy["label_en"],
+                    "description": copy["description_en"],
                     "source": "builtin",
                     "preset": preset_name,
                     "editable": False,

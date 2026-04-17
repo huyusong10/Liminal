@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Role Definitions{% endblock %}
 {% block content %}
-<div class="page-stack" data-testid="role-definitions-page">
+<div class="page-stack page-stack--catalog" data-testid="role-definitions-page">
 <section class="hero hero-tight">
   <div class="hero-copy-stack hero-copy-stack-lede">
     <h1>
@@ -27,7 +27,7 @@
     <span>{{ custom_role_definitions|length }}</span>
   </header>
   {% if custom_role_definitions %}
-  <div class="loop-grid role-card-grid">
+  <div class="loop-grid role-card-grid role-card-grid--definitions">
     {% for role_definition in custom_role_definitions %}
     <article class="loop-card is-clickable" data-open-card="/roles/{{ role_definition.id }}/edit" data-testid="role-definition-card" data-role-definition-id="{{ role_definition.id }}" tabindex="0">
       <a class="loop-card-link" href="/roles/{{ role_definition.id }}/edit"></a>
@@ -75,7 +75,7 @@
     <h2><span data-lang="zh">内置角色模板</span><span data-lang="en">Built-in role templates</span></h2>
     <span>{{ builtin_role_templates|length }}</span>
   </header>
-  <div class="loop-grid role-card-grid">
+  <div class="loop-grid role-card-grid role-card-grid--definitions">
     {% for role_definition in builtin_role_templates %}
     <article class="loop-card is-clickable" data-open-card="/roles/{{ role_definition.id }}/edit" data-testid="builtin-role-template-card" data-role-definition-id="{{ role_definition.id }}" tabindex="0">
       <a class="loop-card-link" href="/roles/{{ role_definition.id }}/edit"></a>

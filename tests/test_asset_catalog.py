@@ -40,10 +40,12 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
 
     role_definitions = catalog.list_role_definitions()
     orchestrations = catalog.list_orchestrations()
+    builtin_orchestrations = [item for item in orchestrations if item["source"] == "builtin"]
 
     builtin_role = next(item for item in role_definitions if item["id"] == "builtin:builder")
     custom_role = next(item for item in role_definitions if item["id"] == role_definition["id"])
     builtin_orchestration = next(item for item in orchestrations if item["id"] == "builtin:build_first")
+    fast_lane = next(item for item in orchestrations if item["id"] == "builtin:fast_lane")
     custom_orchestration = next(item for item in orchestrations if item["id"] == orchestration["id"])
 
     assert builtin_role["source"] == "builtin"
@@ -56,6 +58,9 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
 
     assert builtin_orchestration["source"] == "builtin"
     assert builtin_orchestration["workflow_json"]["preset"] == "build_first"
+    assert len(builtin_orchestrations) == 7
+    assert fast_lane["name"] == "Fast Lane"
+    assert fast_lane["workflow_json"]["preset"] == "fast_lane"
     assert custom_orchestration["source"] == "custom"
     assert custom_orchestration["workflow_json"]["preset"] == "inspect_first"
     assert isinstance(custom_orchestration["workflow_warnings"], list)

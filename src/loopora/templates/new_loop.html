@@ -1,4 +1,13 @@
 {% extends "base.html" %}
+{% macro tip_button(zh, en, testid="") -%}
+<button
+  class="help-dot help-dot--tips"
+  type="button"
+  data-title-zh="{{ zh }}"
+  data-title-en="{{ en }}"
+  {% if testid %}data-testid="{{ testid }}"{% endif %}
+>i</button>
+{%- endmacro %}
 {% block title %}Create Loop{% endblock %}
 {% block content %}
 <div class="page-stack" data-testid="loop-create-page">
@@ -51,7 +60,14 @@
   <div class="form-grid">
     <label>
       <span class="label-row">
-        <span><span data-lang="zh">名称</span><span data-lang="en">Name</span></span>
+        <span class="label-with-help">
+          <span><span data-lang="zh">名称</span><span data-lang="en">Name</span></span>
+          {{ tip_button(
+            "只是这个 loop 在列表里怎么显示，不影响运行逻辑。",
+            "This is only the display name used in the list. It does not change runtime behavior.",
+            "loop-name-tip"
+          ) }}
+        </span>
       </span>
       <input
         name="name"
@@ -65,7 +81,14 @@
 
     <label>
       <span class="label-row">
-        <span><span data-lang="zh">Workdir</span><span data-lang="en">Workdir</span></span>
+        <span class="label-with-help">
+          <span><span data-lang="zh">Workdir</span><span data-lang="en">Workdir</span></span>
+          {{ tip_button(
+            "指向这次循环要持续推进的项目目录。网络访问模式下，这里必须填写服务端机器上的绝对路径。",
+            "Point this to the project directory that the loop should keep advancing. In network access mode, this must be an absolute path on the server machine.",
+            "loop-workdir-tip"
+          ) }}
+        </span>
       </span>
       <div class="input-with-action">
         <input
@@ -105,7 +128,14 @@
 
     <label class="wide">
       <span class="label-row">
-        <span><span data-lang="zh">Spec 路径</span><span data-lang="en">Spec path</span></span>
+        <span class="label-with-help">
+          <span><span data-lang="zh">Spec 路径</span><span data-lang="en">Spec path</span></span>
+          {{ tip_button(
+            "Spec 至少需要 # Goal。可选提供 # Checks 和 # Constraints；如果没写显式 checks，Loopora 会在 run 开始时自动生成一组并只在本次运行内冻结。需要起草 spec 时，可以去“工具”页安装 loopora-spec skill。",
+            "A spec must include # Goal. You can optionally add # Checks and # Constraints. If checks are omitted, Loopora generates and freezes one set for that run. If you need help drafting a spec, install the loopora-spec skill from the Tools page.",
+            "loop-spec-tip"
+          ) }}
+        </span>
         <a class="inline-hint-link" href="/tools">
           <span data-lang="zh">不确定怎么写？先用 Spec Skill 把想法整理成可跑的 spec。</span>
           <span data-lang="en">Not sure how to write it yet? Use Spec Skill to turn the idea into a runnable spec.</span>
@@ -136,7 +166,14 @@
     <section class="wide panel workflow-editor-panel">
       <header class="panel-header workflow-editor-header">
         <div>
-          <h2><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></h2>
+          <h2 class="panel-title-with-help">
+            <span><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></span>
+            {{ tip_button(
+              "这里决定角色顺序和流程结构。角色默认用什么执行器、模型和 prompt，都来自“角色定义”；如果要改这些默认配置，请回到“角色定义”页面。",
+              "This decides the role order and workflow structure. Default executors, models, and prompts still come from Role Definitions. To change those defaults, go back to the Roles page.",
+              "loop-orchestration-panel-tip"
+            ) }}
+          </h2>
           <p class="field-note">
             <span data-lang="zh">先在“角色定义”和“流程编排”里把角色协作关系整理好，再回到这里挑一套方案投入运行。</span>
             <span data-lang="en">Shape role definitions and orchestration first, then come back here to run one of those plans.</span>
@@ -160,7 +197,14 @@
       <div class="form-grid">
         <label class="wide">
           <span class="label-row">
-            <span><span data-lang="zh">选择编排方案</span><span data-lang="en">Choose orchestration</span></span>
+            <span class="label-with-help">
+              <span><span data-lang="zh">选择编排方案</span><span data-lang="en">Choose orchestration</span></span>
+              {{ tip_button(
+                "编排决定有哪些角色、每轮按什么顺序执行，以及 GateKeeper 通过后是否结束。这个页面会根据所选编排，自动收起不适用的运行策略字段。",
+                "The orchestration decides which roles exist, their order in each round, and whether a GateKeeper can end the run. This page will automatically hide runtime fields that do not apply to the selected orchestration.",
+                "loop-orchestration-tip"
+              ) }}
+            </span>
           </span>
           <select id="orchestration-id-input" name="orchestration_id" data-testid="loop-orchestration-input">
             {% for orchestration in orchestrations %}
@@ -174,54 +218,114 @@
       <div class="field-status" id="orchestration-summary" aria-live="polite"></div>
     </section>
 
-    <label>
+    <label id="completion-mode-field" data-testid="loop-completion-mode-field">
       <span class="label-row">
-        <span><span data-lang="zh">完成方式</span><span data-lang="en">Completion mode</span></span>
+        <span class="label-with-help">
+          <span><span data-lang="zh">完成方式</span><span data-lang="en">Completion mode</span></span>
+          {{ tip_button(
+            "GateKeeper 模式会等待一个“通过即结束”的 GateKeeper 步骤来收束；轮次推进模式则只按最大迭代次数推进。如果当前编排没有可结束流程的 GateKeeper，这里会自动锁到轮次推进。",
+            "GateKeeper mode waits for a finish-on-pass GateKeeper step to close the run. Rounds mode advances only by the iteration cap. If the selected orchestration cannot finish through a GateKeeper, this page locks the loop to rounds automatically.",
+            "loop-completion-mode-tip"
+          ) }}
+        </span>
       </span>
       <select id="completion-mode-input" name="completion_mode" data-testid="loop-completion-mode-input">
-        <option value="gatekeeper" {% if form_values.completion_mode == "gatekeeper" %}selected{% endif %}>GateKeeper / 守门裁决</option>
-        <option value="rounds" {% if form_values.completion_mode == "rounds" %}selected{% endif %}>Rounds / 轮次推进</option>
+        <option
+          value="gatekeeper"
+          data-label-zh="守门裁决"
+          data-label-en="GateKeeper"
+          {% if form_values.completion_mode == "gatekeeper" %}selected{% endif %}
+        >GateKeeper</option>
+        <option
+          value="rounds"
+          data-label-zh="轮次推进"
+          data-label-en="Rounds"
+          {% if form_values.completion_mode == "rounds" %}selected{% endif %}
+        >Rounds</option>
       </select>
+      <small class="field-note" id="completion-mode-note" hidden></small>
     </label>
 
     <label>
       <span class="label-row">
-        <span><span data-lang="zh">轮次间隔（秒）</span><span data-lang="en">Iteration interval (seconds)</span></span>
+        <span class="label-with-help">
+          <span><span data-lang="zh">轮次间隔（秒）</span><span data-lang="en">Iteration interval (seconds)</span></span>
+          {{ tip_button(
+            "每轮结束到下一轮开始之间要等待多久。填 0 表示上一轮结束后立即进入下一轮。",
+            "How long Loopora should wait between rounds. Use 0 to start the next round immediately after the previous one ends.",
+            "loop-iteration-interval-tip"
+          ) }}
+        </span>
       </span>
       <input id="iteration-interval-input" name="iteration_interval_seconds" type="number" min="0" step="0.1" value="{{ form_values.iteration_interval_seconds }}" data-testid="loop-iteration-interval-input" />
     </label>
 
     <label>
       <span class="label-row">
-        <span><span data-lang="zh">最大迭代次数</span><span data-lang="en">Max iterations</span></span>
+        <span class="label-with-help">
+          <span><span data-lang="zh">最大迭代次数</span><span data-lang="en">Max iterations</span></span>
+          {{ tip_button(
+            "最多允许跑多少轮。达到这个上限后，即使还没收束，也会停止继续推进。",
+            "The maximum number of rounds allowed. Once this cap is reached, the loop stops even if it has not converged yet.",
+            "loop-max-iters-tip"
+          ) }}
+        </span>
       </span>
       <input name="max_iters" type="number" min="0" value="{{ form_values.max_iters }}" />
     </label>
 
     <label>
       <span class="label-row">
-        <span><span data-lang="zh">每个角色的重试次数</span><span data-lang="en">Retries per role</span></span>
+        <span class="label-with-help">
+          <span><span data-lang="zh">每个角色的重试次数</span><span data-lang="en">Retries per role</span></span>
+          {{ tip_button(
+            "单个角色步骤在同一轮里失败时，最多还能自动再试几次。",
+            "How many extra times a single role step may retry within the same round after a failed attempt.",
+            "loop-role-retries-tip"
+          ) }}
+        </span>
       </span>
       <input name="max_role_retries" type="number" min="0" value="{{ form_values.max_role_retries }}" />
     </label>
 
     <label>
       <span class="label-row">
-        <span><span data-lang="zh">停滞阈值</span><span data-lang="en">Delta threshold</span></span>
+        <span class="label-with-help">
+          <span><span data-lang="zh">停滞阈值</span><span data-lang="en">Delta threshold</span></span>
+          {{ tip_button(
+            "如果连续轮次的分数变化绝对值低于这个阈值，Loopora 会把它视为推进不足，并开始累计停滞窗口。",
+            "If the absolute score change across rounds stays below this threshold, Loopora treats progress as too small and starts counting toward stagnation windows.",
+            "loop-delta-threshold-tip"
+          ) }}
+        </span>
       </span>
       <input name="delta_threshold" type="number" min="0" step="0.001" value="{{ form_values.delta_threshold }}" />
     </label>
 
-    <label>
+    <label id="trigger-window-field" data-testid="loop-trigger-window-field">
       <span class="label-row">
-        <span><span data-lang="zh">触发窗口</span><span data-lang="en">Trigger window</span></span>
+        <span class="label-with-help">
+          <span><span data-lang="zh">触发窗口</span><span data-lang="en">Trigger window</span></span>
+          {{ tip_button(
+            "只有编排里存在 Guide 时才有意义。表示要连续多少轮都几乎没有推进，才触发 Guide 介入给出方向调整。",
+            "This only matters when the orchestration includes a Guide. It is the number of near-stalled rounds required before the Guide steps in with a direction change.",
+            "loop-trigger-window-tip"
+          ) }}
+        </span>
       </span>
       <input name="trigger_window" type="number" min="1" value="{{ form_values.trigger_window }}" />
     </label>
 
-    <label>
+    <label id="regression-window-field" data-testid="loop-regression-window-field">
       <span class="label-row">
-        <span><span data-lang="zh">回退窗口</span><span data-lang="en">Regression window</span></span>
+        <span class="label-with-help">
+          <span><span data-lang="zh">回退窗口</span><span data-lang="en">Regression window</span></span>
+          {{ tip_button(
+            "只有编排里存在 Guide 时才有意义。表示最近连续多少轮分数都在下降，才把当前趋势视作回退并触发 Guide 介入。",
+            "This only matters when the orchestration includes a Guide. It is the number of consecutive negative-score rounds required before Loopora treats the trend as regression and asks the Guide to intervene.",
+            "loop-regression-window-tip"
+          ) }}
+        </span>
       </span>
       <input name="regression_window" type="number" min="1" value="{{ form_values.regression_window }}" />
     </label>
@@ -229,32 +333,15 @@
 
   <label class="checkbox-row">
     <input type="checkbox" name="start_immediately" value="1" {% if form_values.start_immediately %}checked{% endif %} />
-    <span><span data-lang="zh">创建后立即开始运行</span><span data-lang="en">Create and start immediately</span></span>
+    <span class="label-with-help">
+      <span><span data-lang="zh">创建后立即开始运行</span><span data-lang="en">Create and start immediately</span></span>
+      {{ tip_button(
+        "勾选后会在保存 loop 定义后立刻排队运行；不勾选则只保存配置，稍后手动启动。",
+        "When checked, the loop is queued immediately after saving. When unchecked, only the loop definition is saved and you can start it later.",
+        "loop-start-immediately-tip"
+      ) }}
+    </span>
   </label>
-
-  <div class="callout">
-    <strong><span data-lang="zh">角色执行提醒</span><span data-lang="en">Role runtime reminder</span></strong>
-    <p>
-      <span data-lang="zh">Builder、Inspector、GateKeeper、Guide 以及自定义角色默认用什么工具执行，全部来自角色定义。如果你想改模型或执行器，请回到“角色定义”修改，而不是在 loop 里再覆盖一次。</span>
-      <span data-lang="en">The executor used by Builder, Inspector, GateKeeper, Guide, and custom roles all comes from Role Definitions. If you want to change a model or executor, update the role definition instead of overriding it again in the loop.</span>
-    </p>
-  </div>
-
-  <div class="callout">
-    <strong><span data-lang="zh">Spec 提醒</span><span data-lang="en">Spec reminder</span></strong>
-    <p>
-      <span data-lang="zh">Markdown spec 至少需要 <code># Goal</code>。你可以额外提供 <code># Checks</code> 和 <code># Constraints</code>；如果没有显式 checks，Loopora 会在每次 run 开始时自动生成一组并只在本次运行内冻结。</span>
-      <span data-lang="en">Your Markdown spec must include <code># Goal</code>. You can optionally add <code># Checks</code> and <code># Constraints</code>; when checks are omitted, Loopora will generate a frozen set for that run.</span>
-    </p>
-  </div>
-
-  <div class="callout">
-    <strong><span data-lang="zh">额外工具</span><span data-lang="en">Extra tools</span></strong>
-    <p>
-      <span data-lang="zh">如果你想安装 <code>loopora-spec</code> skill，请到顶部导航栏里的“工具”页操作。</span>
-      <span data-lang="en">If you want to install the <code>loopora-spec</code> skill, use the Tools page from the top navigation.</span>
-    </p>
-  </div>
 
   <div class="card-actions">
     <button class="primary-button" type="submit" id="save-loop-button">

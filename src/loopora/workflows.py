@@ -145,45 +145,145 @@ def _preset_role(
     }
 
 
+def _workflow_preset_definition(
+    *,
+    label_zh: str,
+    label_en: str,
+    description_zh: str,
+    description_en: str,
+    roles: list[dict[str, str]],
+    steps: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "label_zh": label_zh,
+        "label_en": label_en,
+        "description_zh": description_zh,
+        "description_en": description_en,
+        "workflow": {
+            "roles": roles,
+            "steps": steps,
+        },
+    }
+
+
 WORKFLOW_PRESETS = {
-    "build_first": {
-        "roles": [
+    "build_first": _workflow_preset_definition(
+        label_zh="先构建，再验收",
+        label_en="Build First",
+        description_zh="Builder -> Inspector -> GateKeeper -> Guide",
+        description_en="Builder -> Inspector -> GateKeeper -> Guide",
+        roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
             _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
             _preset_role(role_id="guide", archetype="guide", prompt_ref=PROMPT_FILES["guide"], role_definition_id="builtin:guide"),
         ],
-        "steps": [
-            {"id": "builder_step", "role_id": "builder", "enabled": True},
-            {"id": "inspector_step", "role_id": "inspector", "enabled": True},
-            {"id": "gatekeeper_step", "role_id": "gatekeeper", "enabled": True, "on_pass": "finish_run"},
-            {"id": "guide_step", "role_id": "guide", "enabled": True},
+        steps=[
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "inspector_step", "role_id": "inspector"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+            {"id": "guide_step", "role_id": "guide"},
         ],
-    },
-    "inspect_first": {
-        "roles": [
+    ),
+    "inspect_first": _workflow_preset_definition(
+        label_zh="先巡检，再构建",
+        label_en="Inspect First",
+        description_zh="Inspector -> Builder -> GateKeeper -> Guide",
+        description_en="Inspector -> Builder -> GateKeeper -> Guide",
+        roles=[
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
             _preset_role(role_id="guide", archetype="guide", prompt_ref=PROMPT_FILES["guide"], role_definition_id="builtin:guide"),
         ],
-        "steps": [
-            {"id": "inspector_step", "role_id": "inspector", "enabled": True},
-            {"id": "builder_step", "role_id": "builder", "enabled": True},
-            {"id": "gatekeeper_step", "role_id": "gatekeeper", "enabled": True, "on_pass": "finish_run"},
-            {"id": "guide_step", "role_id": "guide", "enabled": True},
+        steps=[
+            {"id": "inspector_step", "role_id": "inspector"},
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+            {"id": "guide_step", "role_id": "guide"},
         ],
-    },
-    "benchmark_loop": {
-        "roles": [
+    ),
+    "benchmark_loop": _workflow_preset_definition(
+        label_zh="基准先行",
+        label_en="Benchmark Loop",
+        description_zh="GateKeeper (benchmark) -> Builder",
+        description_en="GateKeeper (benchmark) -> Builder",
+        roles=[
             _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper-benchmark"], role_definition_id="builtin:gatekeeper"),
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
         ],
-        "steps": [
-            {"id": "gatekeeper_step", "role_id": "gatekeeper", "enabled": True, "on_pass": "finish_run"},
-            {"id": "builder_step", "role_id": "builder", "enabled": True},
+        steps=[
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+            {"id": "builder_step", "role_id": "builder"},
         ],
-    },
+    ),
+    "quality_gate": _workflow_preset_definition(
+        label_zh="质量闸门",
+        label_en="Quality Gate",
+        description_zh="Builder -> Inspector -> GateKeeper(finish)",
+        description_en="Builder -> Inspector -> GateKeeper(finish)",
+        roles=[
+            _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
+            _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
+            _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
+        ],
+        steps=[
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "inspector_step", "role_id": "inspector"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+        ],
+    ),
+    "triage_first": _workflow_preset_definition(
+        label_zh="先诊断再推进",
+        label_en="Triage First",
+        description_zh="Inspector -> Guide -> Builder -> GateKeeper(finish)",
+        description_en="Inspector -> Guide -> Builder -> GateKeeper(finish)",
+        roles=[
+            _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
+            _preset_role(role_id="guide", archetype="guide", prompt_ref=PROMPT_FILES["guide"], role_definition_id="builtin:guide"),
+            _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
+            _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
+        ],
+        steps=[
+            {"id": "inspector_step", "role_id": "inspector"},
+            {"id": "guide_step", "role_id": "guide"},
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+        ],
+    ),
+    "repair_loop": _workflow_preset_definition(
+        label_zh="修复回路",
+        label_en="Repair Loop",
+        description_zh="Builder -> Inspector -> Guide -> Builder -> GateKeeper(finish)",
+        description_en="Builder -> Inspector -> Guide -> Builder -> GateKeeper(finish)",
+        roles=[
+            _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
+            _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
+            _preset_role(role_id="guide", archetype="guide", prompt_ref=PROMPT_FILES["guide"], role_definition_id="builtin:guide"),
+            _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
+        ],
+        steps=[
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "inspector_step", "role_id": "inspector"},
+            {"id": "guide_step", "role_id": "guide"},
+            {"id": "builder_repair_step", "role_id": "builder"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+        ],
+    ),
+    "fast_lane": _workflow_preset_definition(
+        label_zh="快速通道",
+        label_en="Fast Lane",
+        description_zh="Builder -> GateKeeper(finish)",
+        description_en="Builder -> GateKeeper(finish)",
+        roles=[
+            _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
+            _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
+        ],
+        steps=[
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+        ],
+    ),
 }
 
 PROMPT_FRONT_MATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.DOTALL)
@@ -298,12 +398,35 @@ def preset_names() -> list[str]:
     return list(WORKFLOW_PRESETS.keys())
 
 
+def workflow_preset_copy(name: str) -> dict[str, str]:
+    preset_name = str(name or "build_first").strip() or "build_first"
+    preset = WORKFLOW_PRESETS.get(preset_name)
+    if not preset:
+        raise WorkflowError(f"unknown workflow preset: {name}")
+    return {
+        "label_zh": str(preset["label_zh"]),
+        "label_en": str(preset["label_en"]),
+        "description_zh": str(preset["description_zh"]),
+        "description_en": str(preset["description_en"]),
+    }
+
+
+def workflow_preset_options() -> list[dict[str, str]]:
+    return [
+        {
+            "id": preset_name,
+            **workflow_preset_copy(preset_name),
+        }
+        for preset_name in preset_names()
+    ]
+
+
 def build_preset_workflow(name: str = "build_first", *, role_models: dict[str, str] | None = None) -> dict:
     preset_name = str(name or "build_first").strip() or "build_first"
     if preset_name not in WORKFLOW_PRESETS:
         raise WorkflowError(f"unknown workflow preset: {preset_name}")
     overrides = normalize_role_models(role_models)
-    preset = json.loads(json.dumps(WORKFLOW_PRESETS[preset_name], ensure_ascii=False))
+    preset = json.loads(json.dumps(WORKFLOW_PRESETS[preset_name]["workflow"], ensure_ascii=False))
     for role in preset["roles"]:
         override = overrides.get(role["id"]) or overrides.get(role["archetype"])
         if override:
@@ -313,7 +436,7 @@ def build_preset_workflow(name: str = "build_first", *, role_models: dict[str, s
 
 def workflow_warnings(workflow: dict) -> list[str]:
     role_by_id = {role["id"]: role for role in workflow.get("roles", [])}
-    steps = [step for step in workflow.get("steps", []) if step.get("enabled", True)]
+    steps = list(workflow.get("steps", []))
     warnings: list[str] = []
     if not has_finish_gatekeeper_step(workflow):
         warnings.append(
@@ -358,8 +481,6 @@ def has_finish_gatekeeper_step(workflow: dict[str, Any] | None) -> bool:
     }
     for raw_step in workflow.get("steps", []):
         if not isinstance(raw_step, dict):
-            continue
-        if not bool(raw_step.get("enabled", True)):
             continue
         role = role_by_id.get(str(raw_step.get("role_id", "")).strip())
         if not role or role.get("archetype") != "gatekeeper":
@@ -429,7 +550,6 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
         if role_id not in role_ids:
             raise WorkflowError(f"workflow step references unknown role_id: {role_id}")
         step_id = str(raw_step.get("id", "")).strip() or f"step_{index:03d}"
-        enabled = bool(raw_step.get("enabled", True))
         role = next(item for item in roles if item["id"] == role_id)
         on_pass = str(raw_step.get("on_pass", "continue") or "continue").strip()
         model = str(raw_step.get("model", "")).strip()
@@ -441,7 +561,6 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
             {
                 "id": step_id,
                 "role_id": role_id,
-                "enabled": enabled,
                 "on_pass": on_pass,
                 "model": model,
             }

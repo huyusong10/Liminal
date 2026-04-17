@@ -269,7 +269,6 @@ def build_run_contract_snapshot(
                 {
                     "id": str(step.get("id") or ""),
                     "role_id": str(step.get("role_id") or ""),
-                    "enabled": bool(step.get("enabled", True)),
                     "on_pass": str(step.get("on_pass") or ""),
                 }
                 for step in workflow.get("steps", [])

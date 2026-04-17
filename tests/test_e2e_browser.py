@@ -399,11 +399,15 @@ def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(
                     tools_desktop = page.evaluate(
                         """() => ({
                           pageStackWidth: document.querySelector(".page-stack").getBoundingClientRect().width,
-                          hasTipsButton: Boolean(document.querySelector(".help-dot--tips"))
+                          hasTipsButton: Boolean(document.querySelector(".help-dot--tips")),
+                          tipsButtonText: document.querySelector(".help-dot--tips")?.textContent?.trim() || "",
+                          nativeTitle: document.querySelector(".help-dot--tips")?.getAttribute("title")
                         })"""
                     )
                     assert abs(tools_desktop["pageStackWidth"] - index_desktop["pageStackWidth"]) <= 2
                     assert tools_desktop["hasTipsButton"] is True
+                    assert tools_desktop["tipsButtonText"] == "i"
+                    assert tools_desktop["nativeTitle"] is None
 
                     page.set_viewport_size({"width": 390, "height": 844})
                     page.goto(f"{base_url}/loops/new", wait_until="networkidle")
@@ -543,6 +547,55 @@ def test_new_loop_page_does_not_restore_pristine_only_browser_defaults(tmp_path:
             pytest.skip(f"Playwright browser launch is unavailable: {exc}")
 
 
+def test_new_loop_page_adapts_runtime_controls_to_selected_orchestration(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LooporaService(
+        repository=repository,
+        settings=settings,
+        executor_factory=lambda: CalculatorPrototypeExecutor(scenario="success"),
+    )
+
+    with serve_app(build_app(service=service)) as base_url:
+        try:
+            with playwright.sync_api.sync_playwright() as playwright_driver:
+                browser = playwright_driver.chromium.launch()
+                page = browser.new_page()
+                try:
+                    page.goto(f"{base_url}/loops/new", wait_until="networkidle")
+
+                    page.locator('select[name="orchestration_id"]').select_option("builtin:fast_lane")
+                    assert page.locator('[data-testid="loop-trigger-window-field"]').is_hidden()
+                    assert page.locator('[data-testid="loop-regression-window-field"]').is_hidden()
+                    assert page.locator('select[name="completion_mode"]').input_value() == "gatekeeper"
+
+                    page.locator('select[name="orchestration_id"]').select_option("builtin:benchmark_loop")
+                    assert page.locator('select[name="completion_mode"]').input_value() == "rounds"
+                    assert page.locator("#completion-mode-note").is_visible()
+                    policy = page.evaluate(
+                        """() => {
+                          const completion = document.querySelector('select[name="completion_mode"]');
+                          const gatekeeperOption = completion.querySelector('option[value="gatekeeper"]');
+                          return {
+                            triggerHidden: document.querySelector('[data-testid="loop-trigger-window-field"]').hidden,
+                            regressionHidden: document.querySelector('[data-testid="loop-regression-window-field"]').hidden,
+                            gatekeeperDisabled: gatekeeperOption.disabled,
+                            gatekeeperHidden: gatekeeperOption.hidden,
+                            note: document.getElementById('completion-mode-note').textContent.trim()
+                          };
+                        }"""
+                    )
+                    assert policy["triggerHidden"] is True
+                    assert policy["regressionHidden"] is True
+                    assert policy["gatekeeperDisabled"] is True
+                    assert policy["gatekeeperHidden"] is True
+                    assert "GateKeeper" in policy["note"] or "守门人" in policy["note"]
+                finally:
+                    browser.close()
+        except Exception as exc:  # pragma: no cover - environment dependent
+            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+
+
 def test_role_definition_page_localizes_archetype_options_without_mixed_labels(tmp_path: Path) -> None:
     repository = LooporaRepository(tmp_path / "app.db")
     settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
@@ -653,6 +706,43 @@ Focus on scoped release work.
                     expect_legend = first_diagram.locator(".workflow-loop-pill")
                     assert expect_svg.count() == 1
                     assert expect_legend.count() >= 2
+
+                    page.goto(f"{base_url}/orchestrations/new", wait_until="networkidle")
+                    assert page.locator(".workflow-step-row").count() == 0
+                    page.select_option("#workflow-starter-select", "triage_first")
+                    page.click("#load-workflow-starter-button")
+                    assert page.locator(".workflow-step-row").count() == 4
+                    builder_card = page.locator(".workflow-step-row").nth(2)
+                    builder_card.click(position={"x": 160, "y": 84})
+                    assert "is-active" in (builder_card.get_attribute("class") or "")
+                    builder_card.locator('[data-testid="workflow-step-settings-button"]').click()
+                    modal = page.locator('[data-testid="workflow-step-settings-modal"]')
+                    assert modal.get_attribute("aria-hidden") == "false"
+                    assert page.locator('[data-testid="workflow-settings-role-name"]').evaluate("node => node.tagName") == "STRONG"
+                    assert "Builder" in (page.locator('[data-testid="workflow-settings-role-name"]').text_content() or "")
+                    step_model_input = page.locator('[data-testid="workflow-settings-step-model"]')
+                    step_model_input.fill("gpt-5.4-mini")
+                    page.click('[data-close-workflow-settings="1"]')
+                    assert "gpt-5.4-mini" in (builder_card.text_content() or "")
+                    guide_pill = page.locator(".workflow-loop-pill").nth(1)
+                    guide_pill.hover()
+                    assert "is-active" in (page.locator(".workflow-step-row").nth(1).get_attribute("class") or "")
+                    guide_pill.click()
+                    assert "is-active" in (page.locator(".workflow-step-row").nth(1).get_attribute("class") or "")
+
+                    page.goto(f"{base_url}/orchestrations/builtin:build_first/edit", wait_until="networkidle")
+                    page.locator('[data-testid="workflow-step-settings-button"]').first.click()
+                    assert page.locator('[data-testid="workflow-step-settings-modal"]').get_attribute("aria-hidden") == "false"
+                    assert page.locator('[data-testid="workflow-settings-step-id"]').is_disabled() is True
+
+                    page.goto(f"{base_url}/orchestrations/new", wait_until="networkidle")
+                    page.locator('button[data-set-locale="en"]').click()
+                    page.wait_for_timeout(50)
+                    assert page.locator('#workflow-starter-select option[value="build_first"]').text_content() == "Build First"
+                    page.select_option("#workflow-starter-select", "triage_first")
+                    page.click("#load-workflow-starter-button")
+                    page.locator('[data-testid="workflow-step-settings-button"]').first.click()
+                    assert page.locator('[data-testid="workflow-settings-step-on-pass"] option[value="continue"]').text_content() == "Continue"
                 finally:
                     browser.close()
         except Exception as exc:  # pragma: no cover - environment dependent

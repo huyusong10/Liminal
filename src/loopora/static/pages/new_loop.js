@@ -9,6 +9,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const orchestrationInput = document.getElementById("orchestration-id-input");
   const orchestrationSummary = document.getElementById("orchestration-summary");
   const completionModeInput = document.getElementById("completion-mode-input");
+  const completionModeField = document.getElementById("completion-mode-field");
+  const completionModeNote = document.getElementById("completion-mode-note");
+  const triggerWindowField = document.getElementById("trigger-window-field");
+  const regressionWindowField = document.getElementById("regression-window-field");
   const browseWorkdirButton = document.getElementById("browse-workdir");
   const browseSpecButton = document.getElementById("browse-spec");
   const createSpecTemplateButton = document.getElementById("create-spec-template");
@@ -212,25 +216,41 @@ document.addEventListener("DOMContentLoaded", () => {
     return orchestrations.find((item) => item.id === orchestrationInput.value) || orchestrations[0] || null;
   }
 
+  function workflowRoles(orchestration) {
+    const workflow = orchestration?.workflow_json || {};
+    return Array.isArray(workflow.roles) ? workflow.roles : [];
+  }
+
+  function workflowSteps(orchestration) {
+    const workflow = orchestration?.workflow_json || {};
+    return Array.isArray(workflow.steps) ? workflow.steps : [];
+  }
+
+  function orchestrationHasRole(orchestration, archetype) {
+    return workflowRoles(orchestration).some((role) => String(role?.archetype || "") === archetype);
+  }
+
   function executorLabel(kind) {
     return executorProfiles.find((profile) => profile.key === kind)?.label || kind || "-";
   }
 
   function orchestrationHasFinishGate(orchestration) {
-    const workflow = orchestration?.workflow_json || {};
-    const roleById = Object.fromEntries((Array.isArray(workflow.roles) ? workflow.roles : []).map((role) => [role.id, role]));
-    return (Array.isArray(workflow.steps) ? workflow.steps : []).some((step) => {
-      if (step.enabled === false) {
-        return false;
-      }
+    const roleById = Object.fromEntries(workflowRoles(orchestration).map((role) => [role.id, role]));
+    return workflowSteps(orchestration).some((step) => {
       const role = roleById[step.role_id];
       return role?.archetype === "gatekeeper" && String(step.on_pass || "continue") === "finish_run";
     });
   }
 
+  function orchestrationPolicy(orchestration) {
+    return {
+      hasGuide: orchestrationHasRole(orchestration, "guide"),
+      supportsGatekeeperCompletion: orchestrationHasFinishGate(orchestration),
+    };
+  }
+
   function roleRuntimeSummary(orchestration) {
-    const workflow = orchestration?.workflow_json || {};
-    const roles = Array.isArray(workflow.roles) ? workflow.roles : [];
+    const roles = workflowRoles(orchestration);
     const counts = new Map();
     roles.forEach((role) => {
       const label = executorLabel(String(role.executor_kind || "codex"));
@@ -242,27 +262,86 @@ document.addEventListener("DOMContentLoaded", () => {
     return Array.from(counts.entries()).map(([label, count]) => (count > 1 ? `${label} x${count}` : label)).join(" · ");
   }
 
+  function syncCompletionModeLabels() {
+    if (!completionModeInput) {
+      return;
+    }
+    Array.from(completionModeInput.querySelectorAll("option[data-label-zh]")).forEach((option) => {
+      option.textContent = localeText(option.dataset.labelZh || "", option.dataset.labelEn || "");
+    });
+  }
+
+  function syncCompletionModeState(policy) {
+    if (!completionModeInput) {
+      return;
+    }
+    const gatekeeperOption = completionModeInput.querySelector('option[value="gatekeeper"]');
+    if (gatekeeperOption) {
+      gatekeeperOption.hidden = !policy.supportsGatekeeperCompletion;
+      gatekeeperOption.disabled = !policy.supportsGatekeeperCompletion;
+    }
+    if (!policy.supportsGatekeeperCompletion) {
+      completionModeInput.value = "rounds";
+    }
+    if (completionModeField) {
+      completionModeField.dataset.modeLocked = String(!policy.supportsGatekeeperCompletion);
+    }
+    if (completionModeNote) {
+      if (policy.supportsGatekeeperCompletion) {
+        completionModeNote.hidden = true;
+        completionModeNote.textContent = "";
+      } else {
+        completionModeNote.hidden = false;
+        completionModeNote.textContent = localeText(
+          "当前编排没有“通过即结束”的 GateKeeper 步骤，所以这里只能使用轮次推进。",
+          "This orchestration has no finish-on-pass GateKeeper step, so rounds is the only completion mode available here.",
+        );
+      }
+    }
+  }
+
+  function applyOrchestrationPolicy() {
+    const selected = currentOrchestration();
+    const policy = orchestrationPolicy(selected);
+    syncCompletionModeLabels();
+    syncCompletionModeState(policy);
+    if (triggerWindowField) {
+      triggerWindowField.hidden = !policy.hasGuide;
+    }
+    if (regressionWindowField) {
+      regressionWindowField.hidden = !policy.hasGuide;
+    }
+    return policy;
+  }
+
   function renderOrchestrationSummary() {
     const selected = currentOrchestration();
     if (!selected) {
+      applyOrchestrationPolicy();
       showStatus(orchestrationSummary, localeText("还没有可用的编排方案，请先去“流程编排”里创建。", "No orchestration is available yet. Create one from the Orchestrations page."), "error");
       return;
     }
     const workflow = selected.workflow_json || {};
     const roles = Array.isArray(workflow.roles) ? workflow.roles.length : 0;
     const steps = Array.isArray(workflow.steps) ? workflow.steps.length : 0;
-    const finishGate = orchestrationHasFinishGate(selected);
+    const policy = applyOrchestrationPolicy();
     const source = selected.source === "builtin"
       ? localeText("内置方案", "Built-in")
       : localeText("自定义方案", "Custom");
     const runtimeSummary = roleRuntimeSummary(selected);
-    const completionMode = completionModeInput?.value || "gatekeeper";
-    if (completionMode === "gatekeeper" && !finishGate) {
+    const notes = [];
+    if (!policy.supportsGatekeeperCompletion) {
+      notes.push(localeText("仅支持轮次推进", "Rounds only"));
+    }
+    if (!policy.hasGuide) {
+      notes.push(localeText("无 Guide，已隐藏触发/回退窗口", "No Guide, trigger/regression windows hidden"));
+    }
+    if (!policy.supportsGatekeeperCompletion) {
       showStatus(
         orchestrationSummary,
         localeText(
-          `当前方案是 ${selected.name} · ${source} · 角色 ${roles} · 步骤 ${steps} · 执行 ${runtimeSummary}，但它没有“通过即结束”的 GateKeeper 步骤。请改成轮次模式，或先去编排页补一个 GateKeeper finish step。`,
-          `The selected orchestration is ${selected.name} · ${source} · Roles ${roles} · Steps ${steps} · Runtime ${runtimeSummary}, but it has no finish-on-pass GateKeeper step. Switch the loop to round-based mode, or add a GateKeeper finish step first.`,
+          `当前方案是 ${selected.name} · ${source} · 角色 ${roles} · 步骤 ${steps} · 执行 ${runtimeSummary}${notes.length ? ` · ${notes.join(" · ")}` : ""}。如果你想用守门裁决收束，请先去编排页补一个“通过即结束”的 GateKeeper 步骤。`,
+          `The selected orchestration is ${selected.name} · ${source} · Roles ${roles} · Steps ${steps} · Runtime ${runtimeSummary}${notes.length ? ` · ${notes.join(" · ")}` : ""}. Add a finish-on-pass GateKeeper step in Orchestrations if you want gate-based completion.`,
         ),
         "warning",
       );
@@ -270,7 +349,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     showStatus(
       orchestrationSummary,
-      `${selected.name} · ${source} · ${localeText("角色", "Roles")} ${roles} · ${localeText("步骤", "Steps")} ${steps} · ${localeText("执行", "Runtime")} ${runtimeSummary}${selected.description ? ` · ${selected.description}` : ""}`,
+      `${selected.name} · ${source} · ${localeText("角色", "Roles")} ${roles} · ${localeText("步骤", "Steps")} ${steps} · ${localeText("执行", "Runtime")} ${runtimeSummary}${notes.length ? ` · ${notes.join(" · ")}` : ""}${selected.description ? ` · ${selected.description}` : ""}`,
       "success",
     );
   }
@@ -479,6 +558,7 @@ document.addEventListener("DOMContentLoaded", () => {
   form.addEventListener("input", saveDraft);
   form.addEventListener("change", saveDraft);
   form.addEventListener("submit", submitForm);
+  document.addEventListener("loopora:localechange", renderOrchestrationSummary);
 
   const restoredDraft = restoreDraftIfAllowed();
   renderOrchestrationSummary();

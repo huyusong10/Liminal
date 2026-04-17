@@ -167,8 +167,12 @@
       const title = currentLocale() === "zh" ? element.dataset.titleZh : element.dataset.titleEn;
       if (title) {
         element.setAttribute("data-tooltip", title);
-        element.setAttribute("title", title);
         element.setAttribute("aria-label", title);
+        element.removeAttribute("title");
+      } else {
+        element.removeAttribute("data-tooltip");
+        element.removeAttribute("aria-label");
+        element.removeAttribute("title");
       }
     });
 
