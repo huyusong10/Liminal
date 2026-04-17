@@ -166,13 +166,6 @@
         <span id="console-line-count">0 lines</span>
       </div>
     </header>
-    <div class="console-legend" aria-label="Console event legend">
-      <span class="console-legend-chip console-legend-chip-command"><span data-lang="zh">命令</span><span data-lang="en">Command</span></span>
-      <span class="console-legend-chip console-legend-chip-stdout"><span data-lang="zh">终端输出</span><span data-lang="en">Stdout</span></span>
-      <span class="console-legend-chip console-legend-chip-system"><span data-lang="zh">系统阶段</span><span data-lang="en">System</span></span>
-      <span class="console-legend-chip console-legend-chip-progress"><span data-lang="zh">模型进度</span><span data-lang="en">Progress</span></span>
-      <span class="console-legend-chip console-legend-chip-error"><span data-lang="zh">错误</span><span data-lang="en">Error</span></span>
-    </div>
     <div class="console-toolbar" aria-label="Console controls">
       <div class="console-toolbar-actions">
         <a
@@ -1148,10 +1141,12 @@
         <div class="timeline-event-rail"><span class="timeline-event-dot"></span></div>
         <div class="timeline-event-body">
           <div class="timeline-event-main">
-            <strong>${escapeHtml(formatted.title)}</strong>
+            <div class="timeline-event-heading">
+              <strong>${escapeHtml(formatted.title)}</strong>
+              ${pillsHtml}
+            </div>
             ${detail}
           </div>
-          ${pillsHtml}
           <div class="timeline-event-timebox">
             <span class="timeline-event-time">${escapeHtml(formatClock(event.created_at))}</span>
             <span class="timeline-event-stamp">${escapeHtml(formatAbsoluteDate(event.created_at))}</span>
@@ -1630,12 +1625,16 @@
     const filterGroup = document.getElementById("console-filters");
     const expandAllButton = document.getElementById("console-expand-all");
     const collapseAllButton = document.getElementById("console-collapse-all");
+    function syncFilterChipState(label, checkbox) {
+      label.classList.toggle("is-active", checkbox.checked);
+      label.classList.toggle("is-inactive", !checkbox.checked);
+    }
     expandAllButton.textContent = localeText("全部展开", "Expand all");
     collapseAllButton.textContent = localeText("全部收缩", "Collapse all");
     filterGroup.innerHTML = "";
     for (const option of CONSOLE_FILTER_OPTIONS) {
       const label = document.createElement("label");
-      label.className = "console-filter-chip";
+      label.className = `console-filter-chip console-filter-chip--${option.key}`;
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.checked = selectedConsoleFilters.has(option.key);
@@ -1645,11 +1644,13 @@
         } else {
           selectedConsoleFilters.delete(option.key);
         }
+        syncFilterChipState(label, checkbox);
         applyConsoleFilters();
       });
       const text = document.createElement("span");
       text.textContent = localeText(option.zh, option.en);
       label.append(checkbox, text);
+      syncFilterChipState(label, checkbox);
       filterGroup.appendChild(label);
     }
     expandAllButton.onclick = () => {

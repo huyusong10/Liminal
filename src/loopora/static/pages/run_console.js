@@ -540,12 +540,16 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function buildFilterControls() {
+    function syncFilterChipState(label, checkbox) {
+      label.classList.toggle("is-active", checkbox.checked);
+      label.classList.toggle("is-inactive", !checkbox.checked);
+    }
     expandAllButton.textContent = localeText("全部展开", "Expand all");
     collapseAllButton.textContent = localeText("全部收缩", "Collapse all");
     filterGroup.innerHTML = "";
     for (const option of FILTER_OPTIONS) {
       const label = document.createElement("label");
-      label.className = "console-filter-chip";
+      label.className = `console-filter-chip console-filter-chip--${option.key}`;
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.checked = selectedFilters.has(option.key);
@@ -555,11 +559,13 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
           selectedFilters.delete(option.key);
         }
+        syncFilterChipState(label, checkbox);
         applyConsoleFilters();
       });
       const text = document.createElement("span");
       text.textContent = localeText(option.zh, option.en);
       label.append(checkbox, text);
+      syncFilterChipState(label, checkbox);
       filterGroup.appendChild(label);
     }
     expandAllButton.onclick = () => {

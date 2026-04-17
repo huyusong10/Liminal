@@ -117,6 +117,7 @@ def test_run_detail_places_run_files_and_console_before_timeline(
     assert "console-popout-link" in response.text
     assert "全屏终端" in response.text
     assert "console-filters" in response.text
+    assert "console-legend" not in response.text
     assert "console-expand-all" in response.text
     assert "console-collapse-all" in response.text
 
@@ -649,7 +650,9 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".loop-card-glance--scenario {" in css
     assert ".artifact-tab-top {" in css
     assert ".artifact-tab-meta {" in css
+    assert ".artifact-preview-box {" in css
     assert ".console-filter-chip input {" in css
+    assert ".timeline-event-heading {" in css
     assert ".timeline-event-main {" in css
     assert ".timeline-event-timebox {" in css
     assert re.search(r"\.role-card-grid--orchestrations\s*{[\s\S]*?justify-items:\s*start;", css)
@@ -658,10 +661,13 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert re.search(r"\.loop-card--running\s*{[\s\S]*?overflow:\s*hidden;", css)
     assert re.search(r"\.loop-grid--created\s*{[\s\S]*?--loop-card-target:\s*430px;", css)
     assert re.search(r"\.artifact-tabs\s*{[\s\S]*?display:\s*flex;[\s\S]*?overflow-x:\s*auto;", css)
+    assert re.search(r"\.artifact-preview-box\s*{[\s\S]*?height:\s*360px;[\s\S]*?max-height:\s*360px;", css)
     assert re.search(r"\.console-filter-chip input\s*{[\s\S]*?width:\s*16px;[\s\S]*?padding:\s*0;", css)
+    assert re.search(r"\.console-line-summary\s*{[\s\S]*?white-space:\s*nowrap;[\s\S]*?text-overflow:\s*ellipsis;", css)
+    assert re.search(r"\.console-line-body\s*{[\s\S]*?max-height:\s*240px;[\s\S]*?overflow:\s*auto;", css)
     assert re.search(r"\.console-line-toggle\s*{[\s\S]*?grid-template-columns:\s*var\(--console-meta-width\)\s+minmax\(0,\s*1fr\)\s+auto;", css)
     assert re.search(r"\.console-line-body\s*{[\s\S]*?padding-left:\s*calc\(var\(--console-meta-width\)\s*\+\s*var\(--console-gap\)\s*\+\s*var\(--console-indent\)\);", css)
-    assert re.search(r"\.timeline-event-body\s*{[\s\S]*?grid-template-columns:\s*minmax\(220px,\s*280px\)\s+minmax\(260px,\s*1fr\)\s+minmax\(180px,\s*260px\)\s+auto;", css)
+    assert re.search(r"\.timeline-event-body\s*{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+132px;", css)
     assert ".top-nav .nav-preferences-toggle {" in css
     assert "@keyframes pageRiseIn {" in css
     assert "@keyframes loopTraceIn {" in css
