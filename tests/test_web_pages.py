@@ -40,6 +40,11 @@ def test_index_page_renders_with_saved_loops(
     assert "/logo/logo-with-text-horizontal-light.svg" in response.text
     assert "page-stack" in response.text
     assert "loop-grid-note" in response.text
+    assert 'data-theme="light"' in response.text
+    assert "loopora:theme" in response.text
+    assert "loopora:locale" in response.text
+    assert response.text.index("loopora:theme") < response.text.index("/static/app.css?v=")
+    assert response.text.index("loopora:locale") < response.text.index("/static/app.css?v=")
     assert "/static/app.css?v=" in response.text
     assert "/static/app.js?v=" in response.text
     _assert_has_testid(response.text, "top-nav")
@@ -48,9 +53,13 @@ def test_index_page_renders_with_saved_loops(
     _assert_has_testid(response.text, "nav-orchestrations-link")
     _assert_has_testid(response.text, "nav-role-definitions-link")
     _assert_has_testid(response.text, "nav-tools-link")
+    _assert_has_testid(response.text, "nav-preferences")
+    _assert_has_testid(response.text, "nav-preferences-toggle")
+    _assert_has_testid(response.text, "nav-preferences-panel")
     _assert_has_testid(response.text, "theme-switch")
     _assert_has_testid(response.text, "theme-light-button")
     _assert_has_testid(response.text, "theme-dark-button")
+    _assert_has_testid(response.text, "locale-switch")
     assert "data-open-card=" in response.text
     assert "id=\"confirm-modal\"" in response.text
     assert "id=\"loops-empty-state\" hidden" in response.text
@@ -430,14 +439,20 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
 
     builtin_edit_response = client.get("/orchestrations/builtin:build_first/edit")
     assert builtin_edit_response.status_code == 200
-    assert "保存为新编排" in builtin_edit_response.text
+    assert "默认编排是固定的" in builtin_edit_response.text
     _assert_has_testid(builtin_edit_response.text, "orchestration-editor-form")
+    assert 'data-readonly="true"' in builtin_edit_response.text
+    assert 'name="name" value="Build First" required readonly' in builtin_edit_response.text
+    assert 'id="workflow-preset-input" name="workflow_preset" data-testid="workflow-preset-input" disabled' in builtin_edit_response.text
+    assert 'id="save-orchestration-button"' not in builtin_edit_response.text
+    assert '/orchestrations/new?workflow_preset=build_first' in builtin_edit_response.text
 
     orchestration = service.create_orchestration(name="Custom", workflow={"preset": "inspect_first"})
     custom_edit_response = client.get(f"/orchestrations/{orchestration['id']}/edit")
     assert custom_edit_response.status_code == 200
     _assert_has_testid(custom_edit_response.text, "orchestration-editor-form")
     assert f'action="/orchestrations/{orchestration["id"]}/edit"' in custom_edit_response.text
+    assert 'data-readonly="false"' in custom_edit_response.text
 
 
 def test_role_definitions_pages_render_as_top_level_feature(service_factory) -> None:
@@ -475,6 +490,7 @@ Focus on scoped release work.
     assert "Built-in role templates" in list_response.text
     assert "Built-in template" in list_response.text
     assert "Built-in template · builder" not in list_response.text
+    assert 'class="loop-grid role-card-grid"' in list_response.text
 
     new_response = client.get("/roles/new")
     assert new_response.status_code == 200
@@ -526,9 +542,15 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     assert response.status_code == 200
     _assert_has_testid(response.text, "tutorial-page")
     _assert_has_testid(response.text, "nav-tutorial-link")
+    _assert_has_testid(response.text, "tutorial-context-flow-panel")
     assert "角色定义" in response.text
     assert "流程编排" in response.text
     assert "创建循环" in response.text
+    assert "上下文如何在流程里流转" in response.text
+    assert "How context moves through a workflow" in response.text
+    assert "contract/run_contract.json" in response.text
+    assert "iterations/iter_000/steps/00__builder/input.context.json" in response.text
+    assert "context/latest_iteration_summary.json" in response.text
 
 
 def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -> None:
@@ -565,12 +587,40 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".skill-download-card {" in css
     assert ".workflow-loop-map {" in css
     assert ".workflow-loop-segment {" in css
+    assert ".tutorial-context-grid {" in css
+    assert ".tutorial-context-detail-grid {" in css
+    assert ".nav-preferences-panel {" in css
+    assert ".nav-preferences-toggle {" in css
+    assert ".role-card-grid {" in css
+    assert ".top-nav .nav-preferences-toggle {" in css
     assert "@keyframes pageRiseIn {" in css
     assert "@keyframes loopTraceIn {" in css
     assert ".workflow-toolbar {" in css
     assert ".workflow-editor-section {" in css
     assert ".workflow-empty-state {" in css
-    assert re.search(r"@media \(max-width: 640px\)\s*{[\s\S]*?\.top-nav\s*{[\s\S]*?flex-wrap:\s*wrap;", css)
-    assert re.search(r"@media \(max-width: 640px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?overflow-x:\s*auto;", css)
+    assert "body:not(.ui-mounted)" not in css
+    assert "body.ui-mounted .hero" not in css
+    assert re.search(r"\.top-nav-link:hover\s*{\s*color:\s*var\(--nav-ink\);\s*transform:\s*translateY\(-1px\);\s*}", css)
+    assert re.search(r"\.top-nav-link.active\s*{\s*color:\s*var\(--nav-ink\);\s*}", css)
+    assert re.search(r"\.top-nav \.nav-preferences-toggle\s*{\s*[\s\S]*?color:\s*var\(--nav-ink\);", css)
+    assert re.search(r"@media \(max-width: 1360px\)\s*{[\s\S]*?\.top-nav\s*{[\s\S]*?flex-wrap:\s*wrap;", css)
+    assert re.search(r"@media \(max-width: 1360px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);", css)
+    assert re.search(r"@media \(max-width: 860px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);", css)
     assert re.search(r"@media \(max-width: 640px\)\s*{[\s\S]*?\.card-actions--loop,\s*\.card-actions--loop-compact\s*{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);", css)
     assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.form-grid,[\s\S]*?\.executor-config-grid,[\s\S]*?grid-template-columns:\s*1fr;", css)
+
+
+def test_static_app_js_bootstraps_theme_and_locale_without_mount_flash(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/static/app.js")
+
+    assert response.status_code == 200
+    script = response.text
+    assert "function readSavedTheme()" in script
+    assert "setTheme(currentTheme(), {persist: false});" in script
+    assert "setLocale(currentLocale(), {persist: false});" in script
+    assert "function bindNavPreferences()" in script
+    assert "data-toggle-nav-preferences" in script
+    assert "ui-mounted" not in script

@@ -30,6 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const addRoleFromDefinitionButton = document.getElementById("add-role-from-definition-button");
   const addStepButton = document.getElementById("add-step-button");
   const saveOrchestrationButton = document.getElementById("save-orchestration-button");
+  const isReadOnly = form.dataset.readonly === "true";
 
   const workflowPresetBundles = JSON.parse(document.getElementById("workflow-preset-bundles-json")?.textContent || "{}");
   const roleDefinitions = JSON.parse(document.getElementById("role-definitions-json")?.textContent || "[]");
@@ -284,7 +285,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <label><span>${localeText("执行配置", "Execution config")}</span><input value="${escapeHtml(roleRuntimeSummary(role))}" readonly /></label>
           <label><span>${localeText("Prompt 文件", "Prompt file")}</span><input value="${escapeHtml(role.prompt_ref || "-")}" readonly /></label>
         </div>
-        <div class="card-actions card-actions-compact">
+        <div class="card-actions card-actions-compact" ${isReadOnly ? "hidden" : ""}>
           <button type="button" class="ghost-button" data-role-action="remove-role" data-role-index="${index}">${localeText("移出编排", "Remove role")}</button>
         </div>
       `;
@@ -323,19 +324,19 @@ document.addEventListener("DOMContentLoaded", () => {
           <strong>${localeText(`步骤 ${index + 1}`, `Step ${index + 1}`)}</strong>
         </div>
         <div class="form-grid">
-          <label><span>${localeText("步骤 ID", "Step ID")}</span><input data-step-field="id" data-step-index="${index}" value="${escapeHtml(step.id)}" /></label>
-          <label><span>${localeText("角色", "Role")}</span><select data-step-field="role_id" data-step-index="${index}">${roleOptions}</select></label>
-          <label><span>${localeText("步骤模型覆盖", "Step model override")}</span><input data-step-field="model" data-step-index="${index}" value="${escapeHtml(step.model || "")}" /></label>
-          <label><span>${localeText("通过后动作", "On pass")}</span><select data-step-field="on_pass" data-step-index="${index}" ${isGate ? "" : "disabled"}>
+          <label><span>${localeText("步骤 ID", "Step ID")}</span><input data-step-field="id" data-step-index="${index}" value="${escapeHtml(step.id)}" ${isReadOnly ? "readonly" : ""} /></label>
+          <label><span>${localeText("角色", "Role")}</span><select data-step-field="role_id" data-step-index="${index}" ${isReadOnly ? "disabled" : ""}>${roleOptions}</select></label>
+          <label><span>${localeText("步骤模型覆盖", "Step model override")}</span><input data-step-field="model" data-step-index="${index}" value="${escapeHtml(step.model || "")}" ${isReadOnly ? "readonly" : ""} /></label>
+          <label><span>${localeText("通过后动作", "On pass")}</span><select data-step-field="on_pass" data-step-index="${index}" ${isReadOnly || !isGate ? "disabled" : ""}>
             <option value="continue" ${step.on_pass === "continue" ? "selected" : ""}>${escapeHtml(onPassLabel("continue"))}</option>
             <option value="finish_run" ${step.on_pass === "finish_run" ? "selected" : ""}>${escapeHtml(onPassLabel("finish_run"))}</option>
           </select></label>
-          <label class="checkbox-row"><input type="checkbox" data-step-field="enabled" data-step-index="${index}" ${step.enabled !== false ? "checked" : ""} /><span>${localeText("启用这个步骤", "Enable this step")}</span></label>
+          <label class="checkbox-row"><input type="checkbox" data-step-field="enabled" data-step-index="${index}" ${step.enabled !== false ? "checked" : ""} ${isReadOnly ? "disabled" : ""} /><span>${localeText("启用这个步骤", "Enable this step")}</span></label>
         </div>
         <p class="workflow-step-note">${isGate
           ? localeText("这个 GateKeeper 可以决定流程是继续推进，还是在满足条件后直接结束。", "This GateKeeper can decide whether the workflow keeps going or ends once it passes.")
           : localeText("只有 GateKeeper 步骤才会出现“通过后动作”的收敛选项。", "Only GateKeeper steps can decide what happens after a passing result.")}</p>
-        <div class="card-actions card-actions-compact">
+        <div class="card-actions card-actions-compact" ${isReadOnly ? "hidden" : ""}>
           <button type="button" class="ghost-button" data-step-action="move-up" data-step-index="${index}">${localeText("上移", "Move up")}</button>
           <button type="button" class="ghost-button" data-step-action="move-down" data-step-index="${index}">${localeText("下移", "Move down")}</button>
           <button type="button" class="ghost-button" data-step-action="remove-step" data-step-index="${index}">${localeText("删除步骤", "Remove step")}</button>
@@ -388,6 +389,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   workflowRolesList.addEventListener("click", (event) => {
+    if (isReadOnly) {
+      return;
+    }
     const action = event.target.dataset.roleAction;
     if (!action) {
       return;
@@ -405,6 +409,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   workflowStepsList.addEventListener("input", (event) => {
+    if (isReadOnly) {
+      return;
+    }
     const index = Number(event.target.dataset.stepIndex);
     const field = event.target.dataset.stepField;
     const step = workflowState.steps[index];
@@ -425,6 +432,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   workflowStepsList.addEventListener("click", (event) => {
+    if (isReadOnly) {
+      return;
+    }
     const action = event.target.dataset.stepAction;
     if (!action) {
       return;
@@ -440,9 +450,22 @@ document.addEventListener("DOMContentLoaded", () => {
     renderWorkflowEditor();
   });
 
-  resetWorkflowPresetButton?.addEventListener("click", () => applyPresetBundle(promptBundleForPreset(workflowPresetInput.value)));
-  addRoleFromDefinitionButton?.addEventListener("click", () => addRoleFromDefinition(roleDefinitionSelect?.value));
+  resetWorkflowPresetButton?.addEventListener("click", () => {
+    if (isReadOnly) {
+      return;
+    }
+    applyPresetBundle(promptBundleForPreset(workflowPresetInput.value));
+  });
+  addRoleFromDefinitionButton?.addEventListener("click", () => {
+    if (isReadOnly) {
+      return;
+    }
+    addRoleFromDefinition(roleDefinitionSelect?.value);
+  });
   addStepButton?.addEventListener("click", () => {
+    if (isReadOnly) {
+      return;
+    }
     if (!workflowState.roles.length) {
       showStatus(workflowValidation, localeText("请先加入至少一个角色定义。", "Add at least one role definition first."), "error");
       return;
@@ -453,6 +476,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   form.addEventListener("submit", (event) => {
+    if (isReadOnly) {
+      event.preventDefault();
+      showStatus(formError, localeText("默认编排是只读的，请新建一条自定义编排。", "Built-in orchestrations are read-only. Create a custom orchestration instead."), "error");
+      return;
+    }
     if (!renderWorkflowValidation()) {
       event.preventDefault();
       showStatus(formError, localeText("编排结构不完整，请先修正。", "The orchestration is incomplete. Please fix it before saving."), "error");

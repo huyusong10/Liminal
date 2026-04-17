@@ -9,8 +9,8 @@
       <span data-lang="en">Orchestrations</span>
     </h1>
     <p class="hero-lede" data-testid="orchestrations-intro-copy">
-      <span data-lang="zh">这里保存角色定义之间的协作顺序、步骤编排和流程收束规则。点开方案会先进入编辑器，确认好之后再去创建 loop。</span>
-      <span data-lang="en">This is where role-definition collaboration order, step orchestration, and completion rules live. Opening a saved orchestration takes you into the editor first, then loops can reuse it later.</span>
+      <span data-lang="zh">这里保存角色定义之间的协作顺序、步骤编排和流程收束规则。自定义编排可以直接编辑；默认编排保持只读，用来查看和直接复用。</span>
+      <span data-lang="en">This is where role-definition collaboration order, step orchestration, and completion rules live. Custom orchestrations open for editing; built-in orchestrations stay read-only for inspection and direct reuse.</span>
     </p>
   </div>
   <div class="card-actions hero-actions">
@@ -36,8 +36,8 @@
           <strong>{{ orchestration.name }}</strong>
           <p class="loop-card-meta">
             {% if orchestration.source == "builtin" %}
-            <span data-lang="zh">内置方案</span>
-            <span data-lang="en">Built-in</span>
+            <span data-lang="zh">内置方案 · 只读</span>
+            <span data-lang="en">Built-in · Read-only</span>
             {% else %}
             <span data-lang="zh">自定义方案</span>
             <span data-lang="en">Custom</span>

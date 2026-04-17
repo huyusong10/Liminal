@@ -94,5 +94,101 @@
       </p>
     </div>
   </section>
+
+  <section class="panel" data-testid="tutorial-context-flow-panel">
+    <header class="panel-header">
+      <h2><span data-lang="zh">上下文如何在流程里流转</span><span data-lang="en">How context moves through a workflow</span></h2>
+    </header>
+    <div class="stacked-copy">
+      <p>
+        <span data-lang="zh">Loopora 不会把每一步都变成一段“自由发挥”的 prompt 拼接。运行开始时会先冻结契约，再在每个步骤前后写出固定结构的 context 与 handoff 文件，让下一步和下一轮都能按代码规则继续消费。</span>
+        <span data-lang="en">Loopora does not rely on free-form prompt drift between steps. It freezes the contract first, then writes structured context and handoff files around every step so the next step and the next round can consume them by code-defined rules.</span>
+      </p>
+    </div>
+
+    <div class="tutorial-context-grid">
+      <article class="tutorial-context-card">
+        <span class="tutorial-context-kicker"><span data-lang="zh">1. 运行开始</span><span data-lang="en">1. Run start</span></span>
+        <h3><span data-lang="zh">冻结全局契约</span><span data-lang="en">Freeze the run contract</span></h3>
+        <p>
+          <span data-lang="zh">spec、workflow、prompt 引用和运行策略会先被收敛成稳定快照，后面的步骤都以这份契约为准。</span>
+          <span data-lang="en">The spec, workflow, prompt refs, and runtime policy are frozen into one stable snapshot that every later step reads from.</span>
+        </p>
+        <code class="tutorial-context-path">contract/run_contract.json</code>
+      </article>
+
+      <article class="tutorial-context-card">
+        <span class="tutorial-context-kicker"><span data-lang="zh">2. 步骤开始前</span><span data-lang="en">2. Before a step</span></span>
+        <h3><span data-lang="zh">装配步骤上下文</span><span data-lang="en">Assemble step context</span></h3>
+        <p>
+          <span data-lang="zh">当前轮次、当前角色、紧邻上一步 handoff、上一轮同 step 摘要和可用 artifacts 会被整理成一个稳定包。</span>
+          <span data-lang="en">The current iteration, current role, immediate previous handoff, prior same-step summary, and available artifacts are assembled into one stable packet.</span>
+        </p>
+        <code class="tutorial-context-path">iterations/iter_000/steps/00__builder/input.context.json</code>
+      </article>
+
+      <article class="tutorial-context-card">
+        <span class="tutorial-context-kicker"><span data-lang="zh">3. 步骤结束后</span><span data-lang="en">3. After a step</span></span>
+        <h3><span data-lang="zh">写回输出与交接</span><span data-lang="en">Write output and handoff</span></h3>
+        <p>
+          <span data-lang="zh">角色原始输出会先归档，再由系统代码提炼出 handoff，交给下一个步骤和下一轮继续使用。</span>
+          <span data-lang="en">The role's raw output is archived first, then Loopora derives a handoff that the next step and the next iteration can reuse.</span>
+        </p>
+        <code class="tutorial-context-path">iterations/iter_000/steps/00__builder/handoff.json</code>
+      </article>
+
+      <article class="tutorial-context-card">
+        <span class="tutorial-context-kicker"><span data-lang="zh">4. 每轮收束</span><span data-lang="en">4. Iteration close</span></span>
+        <h3><span data-lang="zh">生成轮次总结</span><span data-lang="en">Generate iteration summary</span></h3>
+        <p>
+          <span data-lang="zh">每轮会落一份总结，记录关键 handoff、score、stagnation 和最新索引，供下一轮直接承接。</span>
+          <span data-lang="en">Each round writes a summary with the key handoffs, score, stagnation state, and latest indexes so the next round can pick up cleanly.</span>
+        </p>
+        <code class="tutorial-context-path">context/latest_iteration_summary.json</code>
+      </article>
+    </div>
+
+    <div class="tutorial-context-detail-grid">
+      <article class="tutorial-context-detail">
+        <h3><span data-lang="zh">下一步到底会读什么</span><span data-lang="en">What the next step actually reads</span></h3>
+        <ul class="tutorial-context-list">
+          <li>
+            <span data-lang="zh">先读固定契约：`contract/run_contract.json` 提供 spec、workflow 和运行边界。</span>
+            <span data-lang="en">It starts with the fixed contract: `contract/run_contract.json` provides the spec, workflow, and runtime boundaries.</span>
+          </li>
+          <li>
+            <span data-lang="zh">再读当前 step 的 `input.context.json`，里面已经明确写好“现在是第几轮、上一轮发生了什么、紧邻上一步是谁”。</span>
+            <span data-lang="en">Then it reads the current step's `input.context.json`, which already states the iteration number, what happened last round, and who ran immediately before it.</span>
+          </li>
+          <li>
+            <span data-lang="zh">如果上一步产生了 `handoff.json`，当前步骤会优先消费它，而不是自己去猜上一位角色做了什么。</span>
+            <span data-lang="en">If the previous step wrote a `handoff.json`, the current step consumes that first instead of guessing what the prior role did.</span>
+          </li>
+          <li>
+            <span data-lang="zh">跨轮次时，会继续参考 `iterations/iter_000/summary.json` 和 `context/latest_state.json`，避免历史信息散落在长 prompt 里。</span>
+            <span data-lang="en">Across iterations, it also consults `iterations/iter_000/summary.json` and `context/latest_state.json` so history does not sprawl across long prompts.</span>
+          </li>
+        </ul>
+      </article>
+
+      <article class="tutorial-context-detail">
+        <h3><span data-lang="zh">运行中会出现的中间文件</span><span data-lang="en">Intermediate files you will see during a run</span></h3>
+        <div class="preview-box tutorial-context-files">
+          <code>contract/run_contract.json</code>
+          <code>context/latest_state.json</code>
+          <code>context/latest_iteration_summary.json</code>
+          <code>timeline/events.jsonl</code>
+          <code>iterations/iter_000/summary.json</code>
+          <code>iterations/iter_000/steps/00__builder/input.context.json</code>
+          <code>iterations/iter_000/steps/00__builder/output.normalized.json</code>
+          <code>iterations/iter_000/steps/00__builder/handoff.json</code>
+        </div>
+        <p>
+          <span data-lang="zh">这些文件既是白盒观察入口，也是后续步骤继续消费的结构化产物。终端里的系统动作会告诉你它们什么时候被准备、写入和汇总。</span>
+          <span data-lang="en">These files are both white-box observation points and structured artifacts that later steps continue to consume. The console's system actions tell you when they are prepared, written, and summarized.</span>
+        </p>
+      </article>
+    </div>
+  </section>
 </div>
 {% endblock %}

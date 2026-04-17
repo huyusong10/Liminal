@@ -519,6 +519,30 @@ def test_api_can_create_orchestration_and_use_it_for_loop(
     assert loop["workflow_json"]["preset"] == "build_first"
 
 
+def test_builtin_orchestration_form_route_is_read_only(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    builtin = service.get_orchestration("builtin:build_first")
+    custom_before = [item for item in service.list_orchestrations() if item["source"] == "custom"]
+
+    response = client.post(
+        "/orchestrations/builtin:build_first/edit",
+        data={
+            "name": "Attempted Custom Copy",
+            "description": "Should not be created from the built-in edit route.",
+            "workflow_preset": "build_first",
+            "workflow_json": json.dumps(builtin["workflow_json"], ensure_ascii=False),
+            "prompt_files_json": json.dumps(builtin["prompt_files_json"], ensure_ascii=False),
+        },
+    )
+
+    assert response.status_code == 200
+    assert "built-in orchestrations are read-only" in response.text
+    custom_after = [item for item in service.list_orchestrations() if item["source"] == "custom"]
+    assert custom_after == custom_before
+
+
 def test_api_can_create_round_based_loop_without_gatekeeper(
     service_factory,
     sample_spec_file: Path,

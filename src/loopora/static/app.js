@@ -57,6 +57,18 @@
     return null;
   }
 
+  function readSavedTheme() {
+    try {
+      const saved = window.localStorage.getItem("loopora:theme");
+      if (saved === "light" || saved === "dark") {
+        return saved;
+      }
+    } catch (_) {
+      // Ignore storage access issues and fall back to system preferences.
+    }
+    return null;
+  }
+
   function normalizeLocale(value) {
     if (typeof value !== "string") {
       return "";
@@ -112,6 +124,20 @@
 
   function currentLocale() {
     return document.documentElement.dataset.locale || initialLocale();
+  }
+
+  function initialTheme() {
+    const saved = readSavedTheme();
+    if (saved) {
+      return saved;
+    }
+    const prefersDark = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return prefersDark ? "dark" : "light";
+  }
+
+  function currentTheme() {
+    return document.documentElement.dataset.theme || initialTheme();
   }
 
   function pickText(values) {
@@ -178,6 +204,25 @@
     applyLocalizedAttributes(document);
     syncLocaleButtons();
     document.dispatchEvent(new CustomEvent("loopora:localechange", {detail: {locale}}));
+  }
+
+  function setTheme(theme, options = {}) {
+    if (theme !== "light" && theme !== "dark") {
+      return;
+    }
+    const persist = options.persist !== false;
+    document.documentElement.dataset.theme = theme;
+    if (persist) {
+      try {
+        window.localStorage.setItem("loopora:theme", theme);
+      } catch (_) {
+        // Ignore storage access issues.
+      }
+    }
+    document.querySelectorAll("[data-set-theme]").forEach((button) => {
+      button.classList.toggle("active", button.dataset.setTheme === theme);
+    });
+    document.dispatchEvent(new CustomEvent("loopora:themechange", {detail: {theme}}));
   }
 
   function bindDeleteLoopButtons() {
@@ -336,25 +381,81 @@
     });
   }
 
+  function bindNavPreferences() {
+    const root = document.querySelector("[data-testid='nav-preferences']");
+    if (!root || root.dataset.boundPreferences === "1") {
+      return;
+    }
+    root.dataset.boundPreferences = "1";
+
+    const toggle = root.querySelector("[data-toggle-nav-preferences]");
+    const panel = root.querySelector("[data-nav-preferences-panel]");
+    if (!toggle || !panel) {
+      return;
+    }
+
+    const close = () => {
+      root.classList.remove("is-open");
+      panel.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+    };
+
+    const open = () => {
+      root.classList.add("is-open");
+      panel.hidden = false;
+      toggle.setAttribute("aria-expanded", "true");
+    };
+
+    toggle.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (root.classList.contains("is-open")) {
+        close();
+        return;
+      }
+      open();
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!(event.target instanceof Node) || root.contains(event.target)) {
+        return;
+      }
+      close();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        close();
+      }
+    });
+
+    panel.querySelectorAll("[data-set-theme], [data-set-locale]").forEach((button) => {
+      button.addEventListener("click", () => {
+        window.setTimeout(close, 0);
+      });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
-    setLocale(initialLocale(), {persist: false});
+    setLocale(currentLocale(), {persist: false});
+    setTheme(currentTheme(), {persist: false});
     document.querySelectorAll("[data-set-locale]").forEach((button) => {
       button.addEventListener("click", () => setLocale(button.dataset.setLocale));
+    });
+    document.querySelectorAll("[data-set-theme]").forEach((button) => {
+      button.addEventListener("click", () => setTheme(button.dataset.setTheme));
     });
     bindDeleteLoopButtons();
     bindOpenCards();
     bindPrimaryNavigation();
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        document.body.classList.add("ui-mounted");
-      });
-    });
+    bindNavPreferences();
   });
 
   window.LooporaUI = {
     currentLocale,
     detectPreferredLocale,
     setLocale,
+    currentTheme,
+    setTheme,
     pickText,
     translateStatus,
     translateRole,
@@ -363,43 +464,11 @@
     bindOpenCards,
     bindPrimaryNavigation,
   };
-})();
-
-
-
-  // Theme logic
-  function initialTheme() {
-    const saved = window.localStorage.getItem("loopora:theme");
-    if (saved === "light" || saved === "dark") {
-      return saved;
-    }
-    const prefersDark = typeof window.matchMedia === "function"
-      && window.matchMedia("(prefers-color-scheme: dark)").matches;
-    return prefersDark ? "dark" : "light";
-  }
-
-  function setTheme(theme) {
-    if (theme !== "light" && theme !== "dark") return;
-    document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem("loopora:theme", theme);
-    document.querySelectorAll("[data-set-theme]").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.setTheme === theme);
-    });
-  }
-
-  const currentTheme = initialTheme();
-  setTheme(currentTheme);
-
-  document.querySelectorAll("[data-set-theme]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      setTheme(btn.dataset.setTheme);
-    });
-  });
-
   if (typeof window.matchMedia === "function") {
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
-      if (!window.localStorage.getItem("loopora:theme")) {
-        setTheme(e.matches ? "dark" : "light");
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
+      if (!readSavedTheme()) {
+        setTheme(event.matches ? "dark" : "light", {persist: false});
       }
     });
   }
+})();

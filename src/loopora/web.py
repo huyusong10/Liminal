@@ -263,6 +263,10 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             values = _orchestration_form_values_from_record(current_orchestration)
         is_builtin_template = bool(current_orchestration and current_orchestration.get("source") == "builtin")
         is_editing_custom = bool(current_orchestration and current_orchestration.get("source") == "custom")
+        if is_builtin_template and current_orchestration is not None:
+            form_values = _normalize_orchestration_form(_orchestration_form_values_from_record(current_orchestration))
+        else:
+            form_values = _normalize_orchestration_form(values)
         if is_editing_custom:
             page_copy = {
                 "title_zh": "修改编排，让后续 loop 继续沿着新的流程走。",
@@ -275,12 +279,12 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             }
         elif is_builtin_template:
             page_copy = {
-                "title_zh": "从内置编排出发，改成更适合你团队的版本。",
-                "title_en": "Start from the built-in orchestration, then tailor it to your team.",
-                "body_zh": "这是内置方案的可编辑副本。你可以替换角色定义、重排步骤，并决定 GateKeeper 怎样收束流程；角色 prompt 和执行工具配置不在这里改。",
-                "body_en": "This is an editable copy of a built-in orchestration. Swap role definitions, reorder steps, and decide how GateKeeper closes the run; prompts and executor choices live in Role Definitions.",
-                "submit_zh": "保存为新编排",
-                "submit_en": "Save as new orchestration",
+                "title_zh": "查看默认编排，先理解 Loopora 推荐的循环结构。",
+                "title_en": "Inspect the built-in orchestration to understand Loopora's recommended loop shape.",
+                "body_zh": "默认编排是固定的，只用于查看和直接复用，不能在这里修改。若要做自己的版本，请新建一条自定义编排，再按需要调整角色快照、步骤顺序和收束规则。",
+                "body_en": "Built-in orchestrations are fixed. You can inspect and reuse them directly here, but not modify them. To make your own version, create a custom orchestration and then adjust role snapshots, step order, and completion rules there.",
+                "submit_zh": "新建自定义编排",
+                "submit_en": "Create custom orchestration",
                 "action": "/orchestrations/new",
             }
         else:
@@ -298,7 +302,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             "new_orchestration.html",
             {
                 "request": request,
-                "form_values": _normalize_orchestration_form(values),
+                "form_values": form_values,
                 "form_error": form_error,
                 "workflow_preset_options": _workflow_preset_options(),
                 "workflow_preset_bundles": {
@@ -312,6 +316,12 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                 "role_definitions": svc().list_role_definitions(),
                 "page_copy": page_copy,
                 "current_orchestration": current_orchestration,
+                "orchestration_locked": is_builtin_template,
+                "orchestration_create_from_preset_href": (
+                    f"/orchestrations/new?workflow_preset={form_values.get('workflow_preset', 'build_first')}"
+                    if is_builtin_template
+                    else ""
+                ),
                 "access_state": access_state,
             },
         )
@@ -951,8 +961,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         orchestration = svc().get_orchestration(orchestration_id)
         try:
             if orchestration.get("source") == "builtin":
-                created = svc().create_orchestration(**_orchestration_payload_from_mapping(form))
-                return RedirectResponse(url=f"/orchestrations/{created['id']}/edit?saved=1", status_code=303)
+                raise LooporaError("built-in orchestrations are read-only; create a new orchestration to customize one")
             updated = svc().update_orchestration(orchestration_id, **_orchestration_payload_from_mapping(form))
             return RedirectResponse(url=f"/orchestrations/{updated['id']}/edit?saved=1", status_code=303)
         except (LooporaError, FileExistsError, OSError, ValueError) as exc:

@@ -15,18 +15,18 @@
   </div>
 </section>
 
-<form class="panel form-panel form-panel-wide" method="post" action="{{ page_copy.action }}" id="new-orchestration-form" data-testid="orchestration-editor-form">
+<form class="panel form-panel form-panel-wide" method="post" action="{{ page_copy.action }}" id="new-orchestration-form" data-testid="orchestration-editor-form" data-readonly="{{ 'true' if orchestration_locked else 'false' }}">
   <div class="field-status is-error" id="form-error" aria-live="polite" {% if not form_error %}hidden{% endif %}>{{ form_error or "" }}</div>
 
   <div class="form-grid">
     <label>
       <span><span data-lang="zh">名称</span><span data-lang="en">Name</span></span>
-      <input name="name" value="{{ form_values.name }}" required />
+      <input name="name" value="{{ form_values.name }}" required {% if orchestration_locked %}readonly{% endif %} />
     </label>
 
     <label class="wide">
       <span><span data-lang="zh">描述</span><span data-lang="en">Description</span></span>
-      <textarea name="description" rows="3">{{- form_values.description -}}</textarea>
+      <textarea name="description" rows="3" {% if orchestration_locked %}readonly{% endif %}>{{- form_values.description -}}</textarea>
     </label>
 
     <section class="wide panel workflow-editor-panel">
@@ -44,16 +44,22 @@
           <span class="label-row">
             <span><span data-lang="zh">工作流预设</span><span data-lang="en">Workflow preset</span></span>
           </span>
-          <select id="workflow-preset-input" name="workflow_preset" data-testid="workflow-preset-input">
+          <select id="workflow-preset-input" name="workflow_preset" data-testid="workflow-preset-input" {% if orchestration_locked %}disabled{% endif %}>
             {% for option in workflow_preset_options %}
             <option value="{{ option.id }}" {% if form_values.workflow_preset == option.id %}selected{% endif %}>
               {{ option.label_zh }} / {{ option.label_en }}
             </option>
             {% endfor %}
           </select>
+          {% if orchestration_locked %}
+          <small class="field-note">
+            <span data-lang="zh">默认编排保持只读。若要做自己的版本，请新建一条自定义编排。</span>
+            <span data-lang="en">Built-in orchestrations stay read-only. Create a custom orchestration if you need your own variant.</span>
+          </small>
+          {% endif %}
         </label>
         <div class="card-actions card-actions-compact workflow-toolbar-actions">
-          <button class="secondary-button" type="button" id="reset-workflow-preset">
+          <button class="secondary-button" type="button" id="reset-workflow-preset" {% if orchestration_locked %}disabled{% endif %}>
             <span data-lang="zh">按预设重置</span>
             <span data-lang="en">Reset from preset</span>
           </button>
@@ -61,7 +67,7 @@
             <span class="label-row">
               <span><span data-lang="zh">角色定义</span><span data-lang="en">Role definition</span></span>
             </span>
-            <select id="role-definition-select" data-testid="role-definition-select">
+            <select id="role-definition-select" data-testid="role-definition-select" {% if orchestration_locked %}disabled{% endif %}>
               {% for role_definition in role_definitions %}
               <option value="{{ role_definition.id }}">
                 {{ role_definition.name }} · {{ role_definition.archetype }}{% if role_definition.source == "builtin" %} · builtin{% endif %}
@@ -69,7 +75,7 @@
               {% endfor %}
             </select>
           </label>
-          <button class="ghost-button" type="button" id="add-role-from-definition-button" data-testid="add-role-from-definition-button">
+          <button class="ghost-button" type="button" id="add-role-from-definition-button" data-testid="add-role-from-definition-button" {% if orchestration_locked %}disabled{% endif %}>
             <span data-lang="zh">加入已选角色</span>
             <span data-lang="en">Add selected role</span>
           </button>
@@ -77,7 +83,7 @@
             <span data-lang="zh">管理角色</span>
             <span data-lang="en">Manage roles</span>
           </a>
-          <button class="ghost-button" type="button" id="add-step-button">
+          <button class="ghost-button" type="button" id="add-step-button" {% if orchestration_locked %}disabled{% endif %}>
             <span data-lang="zh">添加步骤</span>
             <span data-lang="en">Add step</span>
           </button>
@@ -128,10 +134,17 @@
   </div>
 
   <div class="card-actions">
+    {% if orchestration_locked %}
+    <a class="primary-button" href="{{ orchestration_create_from_preset_href }}">
+      <span data-lang="zh">{{ page_copy.submit_zh }}</span>
+      <span data-lang="en">{{ page_copy.submit_en }}</span>
+    </a>
+    {% else %}
     <button class="primary-button" type="submit" id="save-orchestration-button" data-testid="save-orchestration-button">
       <span data-lang="zh">{{ page_copy.submit_zh }}</span>
       <span data-lang="en">{{ page_copy.submit_en }}</span>
     </button>
+    {% endif %}
     <a class="ghost-button" href="/orchestrations">
       <span data-lang="zh">取消</span>
       <span data-lang="en">Cancel</span>
