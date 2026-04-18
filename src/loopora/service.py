@@ -56,6 +56,7 @@ from loopora.workflows import (
     WorkflowError,
     build_preset_workflow,
     has_finish_gatekeeper_step,
+    prompt_asset_path,
     normalize_role_models as workflow_normalize_role_models,
     role_uses_execution_snapshot,
     resolve_prompt_files,
@@ -65,6 +66,7 @@ from loopora.workflows import (
 logger = get_logger(__name__)
 LOOP_ROLE_NAMES = ARCHETYPES
 COMPLETION_MODES = ("gatekeeper", "rounds")
+TERMINAL_RUN_STATUSES = frozenset({"succeeded", "failed", "stopped"})
 
 
 class LooporaError(RuntimeError):
@@ -507,7 +509,7 @@ class LooporaService:
         prompt_dir = self._prompt_dir(base_dir)
         prompt_dir.mkdir(parents=True, exist_ok=True)
         for prompt_ref, markdown_text in sorted(prompt_files.items()):
-            path = prompt_dir / prompt_ref
+            path = prompt_asset_path(prompt_dir, prompt_ref)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(str(markdown_text), encoding="utf-8")
 
@@ -517,7 +519,7 @@ class LooporaService:
             prompt_ref = str(role.get("prompt_ref", "")).strip()
             if not prompt_ref or prompt_ref in prompt_files:
                 continue
-            path = self._prompt_dir(base_dir) / prompt_ref
+            path = prompt_asset_path(self._prompt_dir(base_dir), prompt_ref)
             if path.exists():
                 prompt_files[prompt_ref] = path.read_text(encoding="utf-8")
         return resolve_prompt_files(workflow, prompt_files)
@@ -551,6 +553,7 @@ class LooporaService:
     def _hydrate_run_files(self, run: dict) -> dict:
         if not run:
             return run
+        self._reap_terminal_thread_handle(run.get("id"), status=run.get("status"))
         workflow = run.get("workflow_json") or self._legacy_workflow_from_loop(run)
         run["workflow_json"] = workflow
         run["workflow_warnings"] = workflow_warnings(workflow)
@@ -564,6 +567,23 @@ class LooporaService:
         except WorkflowError:
             run["prompt_files"] = {}
         return run
+
+    def _reap_terminal_thread_handle(self, run_id: object, *, status: object) -> None:
+        normalized_run_id = str(run_id or "").strip()
+        normalized_status = str(status or "").strip()
+        if not normalized_run_id or normalized_status not in TERMINAL_RUN_STATUSES:
+            return
+        thread = self._threads.get(normalized_run_id)
+        if thread is None:
+            return
+        if thread.ident == threading.get_ident():
+            return
+        if thread.is_alive():
+            # Give a terminal worker a brief chance to finish its finally cleanup
+            # before a read path reports stale in-process bookkeeping.
+            thread.join(timeout=0.1)
+        if not thread.is_alive():
+            self._threads.pop(normalized_run_id, None)
 
     def start_run_async(self, run_id: str) -> None:
         self._mark_run_active(run_id)

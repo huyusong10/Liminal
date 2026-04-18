@@ -9,6 +9,62 @@ from loopora.db import LooporaRepository
 from loopora.settings import app_home, configure_logging
 
 
+def _read_service_log_records() -> list[dict]:
+    return [
+        json.loads(line)
+        for line in (app_home() / "logs" / "service.log").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def _create_run(repository: LooporaRepository, tmp_path: Path, *, run_id: str = "run_test", status: str = "queued") -> dict:
+    workdir = tmp_path / f"{run_id}-workdir"
+    workdir.mkdir()
+    spec_path = tmp_path / f"{run_id}-spec.md"
+    spec_path.write_text("# Goal\n\nShip it.\n", encoding="utf-8")
+    loop = repository.create_loop(
+        {
+            "id": f"loop_{run_id}",
+            "name": f"Loop {run_id}",
+            "workdir": str(workdir),
+            "spec_path": str(spec_path),
+            "spec_markdown": "# Goal\n\nShip it.\n",
+            "compiled_spec": {"goal": "Ship it.", "checks": [], "constraints": ""},
+            "model": "gpt-5.4",
+            "reasoning_effort": "medium",
+            "max_iters": 1,
+            "max_role_retries": 1,
+            "delta_threshold": 0.1,
+            "trigger_window": 1,
+            "regression_window": 1,
+            "role_models": {},
+        }
+    )
+    run_dir = workdir / ".loopora" / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    return repository.create_run(
+        {
+            "id": run_id,
+            "loop_id": loop["id"],
+            "workdir": str(workdir),
+            "spec_path": str(spec_path),
+            "spec_markdown": "# Goal\n\nShip it.\n",
+            "compiled_spec": {"goal": "Ship it.", "checks": [], "constraints": ""},
+            "model": "gpt-5.4",
+            "reasoning_effort": "medium",
+            "max_iters": 1,
+            "max_role_retries": 1,
+            "delta_threshold": 0.1,
+            "trigger_window": 1,
+            "regression_window": 1,
+            "role_models": {},
+            "status": status,
+            "runs_dir": str(run_dir),
+            "summary_md": "# Loopora Run Summary\n\nQueued.\n",
+        }
+    )
+
+
 def test_repository_retries_transient_open_errors(tmp_path: Path, monkeypatch, caplog) -> None:
     target = tmp_path / "app.db"
     real_connect = sqlite3.connect
@@ -30,11 +86,7 @@ def test_repository_retries_transient_open_errors(tmp_path: Path, monkeypatch, c
     assert attempts["count"] >= 2
     assert repository.path == target
     assert repository.path.exists()
-    records = [
-        json.loads(line)
-        for line in (app_home() / "logs" / "service.log").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    records = _read_service_log_records()
     retry_record = next(record for record in records if record["event"] == "db.connect.retry")
     assert retry_record["context"]["attempt"] == 1
     assert retry_record["context"]["retryable"] is True
@@ -42,49 +94,7 @@ def test_repository_retries_transient_open_errors(tmp_path: Path, monkeypatch, c
 
 def test_append_event_tolerates_jsonl_mirror_failures(tmp_path: Path, monkeypatch) -> None:
     repository = LooporaRepository(tmp_path / "app.db")
-    workdir = tmp_path / "workdir"
-    workdir.mkdir()
-    loop = repository.create_loop(
-        {
-            "id": "loop_test",
-            "name": "Loop",
-            "workdir": str(workdir),
-            "spec_path": str(tmp_path / "spec.md"),
-            "spec_markdown": "# Goal\n\nShip it.\n",
-            "compiled_spec": {"goal": "Ship it.", "checks": [], "constraints": ""},
-            "model": "gpt-5.4",
-            "reasoning_effort": "medium",
-            "max_iters": 1,
-            "max_role_retries": 1,
-            "delta_threshold": 0.1,
-            "trigger_window": 1,
-            "regression_window": 1,
-            "role_models": {},
-        }
-    )
-    run_dir = workdir / ".loopora" / "runs" / "run_test"
-    run_dir.mkdir(parents=True)
-    repository.create_run(
-        {
-            "id": "run_test",
-            "loop_id": loop["id"],
-            "workdir": str(workdir),
-            "spec_path": str(tmp_path / "spec.md"),
-            "spec_markdown": "# Goal\n\nShip it.\n",
-            "compiled_spec": {"goal": "Ship it.", "checks": [], "constraints": ""},
-            "model": "gpt-5.4",
-            "reasoning_effort": "medium",
-            "max_iters": 1,
-            "max_role_retries": 1,
-            "delta_threshold": 0.1,
-            "trigger_window": 1,
-            "regression_window": 1,
-            "role_models": {},
-            "status": "queued",
-            "runs_dir": str(run_dir),
-            "summary_md": "# Loopora Run Summary\n\nQueued.\n",
-        }
-    )
+    _create_run(repository, tmp_path)
 
     monkeypatch.setattr(
         "loopora.db.append_jsonl_with_mirrors",
@@ -97,6 +107,31 @@ def test_append_event_tolerates_jsonl_mirror_failures(tmp_path: Path, monkeypatc
     stored = repository.list_events("run_test")
     assert len(stored) == 1
     assert stored[0]["payload"]["status"] == "running"
+
+
+def test_send_stop_signal_clears_stale_child_pid_and_logs_warning(tmp_path: Path, monkeypatch) -> None:
+    configure_logging()
+    repository = LooporaRepository(tmp_path / "app.db")
+    run = _create_run(repository, tmp_path, run_id="run_stale", status="running")
+    repository.update_run(run["id"], child_pid=999999)
+
+    def missing_process(_pid: int, _signal: int) -> None:
+        raise ProcessLookupError
+
+    monkeypatch.setattr("loopora.db.os.kill", missing_process)
+
+    assert repository.send_stop_signal(run["id"]) is True
+
+    refreshed = repository.get_run(run["id"])
+    assert refreshed["child_pid"] is None
+    record = next(
+        item
+        for item in _read_service_log_records()
+        if item["event"] == "db.run.stop_signal_skipped" and item["run_id"] == run["id"]
+    )
+    assert record["level"] == "WARNING"
+    assert record["context"]["child_pid"] == 999999
+    assert record["context"]["reason"] == "process_not_found"
 
 
 def test_role_definition_crud_round_trips_through_repository(tmp_path: Path) -> None:

@@ -7,6 +7,7 @@ from loopora.db import LooporaRepository
 from loopora.utils import make_id
 from loopora.workflows import (
     ARCHETYPES,
+    ROLE_EXECUTION_FIELDS,
     WorkflowError,
     build_preset_workflow,
     builtin_prompt_markdown,
@@ -14,6 +15,7 @@ from loopora.workflows import (
     display_name_for_archetype,
     normalize_role_execution_settings,
     normalize_archetype,
+    normalize_prompt_ref,
     normalize_workflow,
     preset_names,
     resolve_prompt_files,
@@ -102,6 +104,7 @@ class WorkflowAssetCatalog:
 
     def _decorate_orchestration(self, record: dict, *, source: str) -> dict:
         decorated = dict(record)
+        decorated["prompt_files_json"] = self._sanitize_persisted_prompt_files(decorated.get("prompt_files_json"))
         decorated["source"] = source
         decorated["editable"] = source == "custom"
         decorated["deletable"] = source == "custom"
@@ -114,6 +117,90 @@ class WorkflowAssetCatalog:
         decorated["editable"] = source == "custom"
         decorated["deletable"] = source == "custom"
         return decorated
+
+    @staticmethod
+    def _canonical_role_snapshot_field(field: str, value: object) -> object:
+        if field == "archetype":
+            return normalize_archetype(str(value or ""))
+        if field == "prompt_ref":
+            raw_prompt_ref = str(value or "").strip()
+            return normalize_prompt_ref(raw_prompt_ref) if raw_prompt_ref else ""
+        if field == "command_args_text":
+            return str(value or "")
+        return str(value or "").strip()
+
+    @staticmethod
+    def _canonical_prompt_markdown(markdown: object) -> str:
+        return str(markdown or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    @staticmethod
+    def _sanitize_persisted_prompt_files(prompt_files: object) -> dict[str, str]:
+        sanitized: dict[str, str] = {}
+        for prompt_ref, markdown_text in dict(prompt_files or {}).items():
+            candidate = str(prompt_ref).strip()
+            if not candidate:
+                continue
+            try:
+                normalized_prompt_ref = normalize_prompt_ref(candidate)
+            except WorkflowError:
+                continue
+            sanitized[normalized_prompt_ref] = str(markdown_text or "")
+        return sanitized
+
+    def _hydrate_workflow_role_snapshots(
+        self,
+        workflow: dict | None,
+        prompt_files: dict | None,
+    ) -> tuple[dict | None, dict[str, str] | None]:
+        if workflow is None:
+            return None, dict(prompt_files or {}) if prompt_files is not None else None
+
+        hydrated_workflow = deepcopy(workflow)
+        raw_roles = hydrated_workflow.get("roles")
+        if not isinstance(raw_roles, list):
+            return hydrated_workflow, dict(prompt_files or {}) if prompt_files is not None else None
+
+        hydrated_prompt_files = dict(prompt_files or {})
+        hydrated_roles: list[object] = []
+        for raw_role in raw_roles:
+            if not isinstance(raw_role, dict):
+                hydrated_roles.append(raw_role)
+                continue
+            role = dict(raw_role)
+            role_definition_id = str(role.get("role_definition_id", "")).strip()
+            if not role_definition_id:
+                hydrated_roles.append(role)
+                continue
+
+            definition = self.get_role_definition(role_definition_id)
+            snapshot_fields = ("name", "archetype", "prompt_ref", *ROLE_EXECUTION_FIELDS)
+            role_label = str(role.get("id", "")).strip() or role_definition_id
+            for field in snapshot_fields:
+                if field in role:
+                    provided_value = self._canonical_role_snapshot_field(field, role.get(field))
+                    expected_value = self._canonical_role_snapshot_field(field, definition.get(field))
+                    if provided_value != expected_value:
+                        raise WorkflowError(
+                            f"workflow role {role_label} conflicts with role_definition_id {role_definition_id} on {field}"
+                        )
+                if field not in role:
+                    role[field] = definition.get(field, "")
+
+            prompt_ref = str(role.get("prompt_ref", "")).strip()
+            prompt_markdown = str(definition.get("prompt_markdown", ""))
+            if prompt_ref:
+                if prompt_ref in hydrated_prompt_files:
+                    provided_prompt_markdown = hydrated_prompt_files[prompt_ref]
+                    if prompt_markdown and self._canonical_prompt_markdown(provided_prompt_markdown) != self._canonical_prompt_markdown(prompt_markdown):
+                        raise WorkflowError(
+                            f"workflow role {role_label} conflicts with role_definition_id {role_definition_id} on prompt_markdown"
+                        )
+                elif prompt_markdown:
+                    hydrated_prompt_files[prompt_ref] = prompt_markdown
+            hydrated_roles.append(role)
+
+        hydrated_workflow["roles"] = hydrated_roles
+        return hydrated_workflow, hydrated_prompt_files
 
     def _normalize_role_definition_payload(
         self,
@@ -140,7 +227,7 @@ class WorkflowAssetCatalog:
         if not normalized["name"]:
             raise ValueError("name is required")
         normalized["archetype"] = normalize_archetype(archetype)
-        normalized["prompt_ref"] = (
+        resolved_prompt_ref = (
             str(prompt_ref).strip()
             or str(existing_prompt_ref).strip()
             or self._auto_prompt_ref(
@@ -149,6 +236,7 @@ class WorkflowAssetCatalog:
                 role_definition_id=role_definition_id,
             )
         )
+        normalized["prompt_ref"] = normalize_prompt_ref(resolved_prompt_ref)
         validate_prompt_markdown(normalized["prompt_markdown"], expected_archetype=normalized["archetype"])
         normalized.update(
             normalize_role_execution_settings(
@@ -163,6 +251,24 @@ class WorkflowAssetCatalog:
             )
         )
         return normalized
+
+    def _ensure_unique_role_definition_prompt_ref(
+        self,
+        prompt_ref: str,
+        *,
+        exclude_role_definition_id: str = "",
+    ) -> None:
+        try:
+            normalized_prompt_ref = normalize_prompt_ref(prompt_ref)
+        except WorkflowError as exc:
+            raise ValueError(str(exc)) from exc
+        excluded_id = str(exclude_role_definition_id or "").strip()
+        for record in self._builtin_role_definitions:
+            if record["id"] != excluded_id and str(record.get("prompt_ref", "")).strip() == normalized_prompt_ref:
+                raise ValueError(f"prompt_ref already in use: {normalized_prompt_ref}")
+        for record in self.repository.list_role_definitions():
+            if record["id"] != excluded_id and str(record.get("prompt_ref", "")).strip() == normalized_prompt_ref:
+                raise ValueError(f"prompt_ref already in use: {normalized_prompt_ref}")
 
     def list_role_definitions(self) -> list[dict]:
         custom_records = [
@@ -215,6 +321,7 @@ class WorkflowAssetCatalog:
             reasoning_effort=reasoning_effort,
             role_definition_id=role_definition_id,
         )
+        self._ensure_unique_role_definition_prompt_ref(payload["prompt_ref"])
         role_definition = self.repository.create_role_definition(
             {
                 "id": role_definition_id,
@@ -242,11 +349,18 @@ class WorkflowAssetCatalog:
         existing = self.get_role_definition(role_definition_id)
         if existing.get("source") == "builtin":
             raise ValueError("built-in role definitions cannot be updated in place")
+        normalized_archetype = normalize_archetype(archetype)
+        if normalized_archetype != str(existing.get("archetype", "")).strip():
+            raise ValueError("saved role definitions cannot change archetype")
+        existing_prompt_ref = str(existing.get("prompt_ref", "")).strip()
+        normalized_prompt_ref = str(prompt_ref).strip() or existing_prompt_ref
+        if normalized_prompt_ref != existing_prompt_ref:
+            raise ValueError("saved role definitions cannot change prompt_ref")
         payload = self._normalize_role_definition_payload(
             name=name,
             description=description,
-            archetype=archetype,
-            prompt_ref=prompt_ref,
+            archetype=normalized_archetype,
+            prompt_ref=normalized_prompt_ref,
             prompt_markdown=prompt_markdown,
             executor_kind=executor_kind,
             executor_mode=executor_mode,
@@ -255,7 +369,11 @@ class WorkflowAssetCatalog:
             model=model,
             reasoning_effort=reasoning_effort,
             role_definition_id=role_definition_id,
-            existing_prompt_ref=str(existing.get("prompt_ref", "")),
+            existing_prompt_ref=existing_prompt_ref,
+        )
+        self._ensure_unique_role_definition_prompt_ref(
+            payload["prompt_ref"],
+            exclude_role_definition_id=role_definition_id,
         )
         updated = self.repository.update_role_definition(role_definition_id, payload)
         if not updated:
@@ -301,10 +419,14 @@ class WorkflowAssetCatalog:
     ) -> dict:
         if orchestration_id and workflow is None and not prompt_files:
             orchestration = self.get_orchestration(orchestration_id)
-            normalized_workflow = normalize_workflow(orchestration["workflow_json"], role_models=role_models)
+            hydrated_workflow, hydrated_prompt_files = self._hydrate_workflow_role_snapshots(
+                orchestration["workflow_json"],
+                orchestration.get("prompt_files_json") or {},
+            )
+            normalized_workflow = normalize_workflow(hydrated_workflow, role_models=role_models)
             resolved_prompt_files = resolve_prompt_files(
                 normalized_workflow,
-                orchestration.get("prompt_files_json") or {},
+                hydrated_prompt_files,
             )
             return {
                 "id": orchestration["id"],
@@ -313,8 +435,9 @@ class WorkflowAssetCatalog:
                 "prompt_files": resolved_prompt_files,
             }
 
-        normalized_workflow = normalize_workflow(workflow, role_models=role_models)
-        resolved_prompt_files = resolve_prompt_files(normalized_workflow, prompt_files)
+        hydrated_workflow, hydrated_prompt_files = self._hydrate_workflow_role_snapshots(workflow, prompt_files)
+        normalized_workflow = normalize_workflow(hydrated_workflow, role_models=role_models)
+        resolved_prompt_files = resolve_prompt_files(normalized_workflow, hydrated_prompt_files)
         derived_id = str(orchestration_id or "").strip()
         derived_name = ""
         if derived_id:
@@ -384,10 +507,15 @@ class WorkflowAssetCatalog:
         normalized_name = str(name or "").strip()
         if not normalized_name:
             raise ValueError("name is required")
+        current_workflow = deepcopy(current.get("workflow_json") or {})
+        current_prompt_files = dict(current.get("prompt_files_json") or {})
+        effective_workflow = workflow if workflow is not None else current_workflow
+        effective_prompt_files = dict(current_prompt_files)
+        effective_prompt_files.update(dict(prompt_files or {}))
         resolved = self.resolve_orchestration_input(
             orchestration_id=None,
-            workflow=workflow,
-            prompt_files=prompt_files,
+            workflow=effective_workflow,
+            prompt_files=effective_prompt_files,
             role_models=role_models,
         )
         orchestration = self.repository.update_orchestration(

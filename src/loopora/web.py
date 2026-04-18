@@ -753,12 +753,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     @app.get("/api/runs/{run_id}/stream")
     async def api_run_stream(request: Request, run_id: str, after_id: int = 0) -> StreamingResponse:
         svc().get_run(run_id)
-        last_event_header = str(request.headers.get("last-event-id", "")).strip()
-        if last_event_header:
-            try:
-                after_id = max(after_id, int(last_event_header))
-            except ValueError:
-                pass
+        after_id = _resolve_stream_after_id(request, run_id=run_id, after_id=after_id)
 
         def event_stream():
             last_id = after_id
@@ -1005,6 +1000,25 @@ def _log_web_response(request: Request, status_code: int, started_at: float) -> 
     )
 
 
+def _resolve_stream_after_id(request: Request, *, run_id: str, after_id: int) -> int:
+    last_event_header = str(request.headers.get("last-event-id", "")).strip()
+    if not last_event_header:
+        return after_id
+    try:
+        return max(after_id, int(last_event_header))
+    except ValueError:
+        log_event(
+            logger,
+            logging.WARNING,
+            "web.run_stream.resume_cursor_invalid",
+            "Ignored invalid SSE resume cursor and kept the request cursor",
+            run_id=run_id,
+            after_id=after_id,
+            invalid_last_event_id=last_event_header,
+        )
+        return after_id
+
+
 def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str, object], bool]:
     name = str(payload.get("name", "")).strip()
     workdir = str(payload.get("workdir", "")).strip()
@@ -1083,6 +1097,7 @@ def _role_definition_payload_from_mapping(payload: Mapping[str, object]) -> dict
     name = str(payload.get("name", "")).strip()
     description = str(payload.get("description", "")).strip()
     archetype = str(payload.get("archetype", "builder")).strip() or "builder"
+    prompt_ref = str(payload.get("prompt_ref", "")).strip()
     prompt_markdown = str(payload.get("prompt_markdown", ""))
     executor_kind = str(payload.get("executor_kind", "codex")).strip() or "codex"
     executor_mode = str(payload.get("executor_mode", "preset")).strip() or "preset"
@@ -1098,6 +1113,7 @@ def _role_definition_payload_from_mapping(payload: Mapping[str, object]) -> dict
         "name": name,
         "description": description,
         "archetype": archetype,
+        "prompt_ref": prompt_ref,
         "prompt_markdown": prompt_markdown,
         "executor_kind": executor_kind,
         "executor_mode": executor_mode,
@@ -1126,10 +1142,10 @@ def _mapping_from_json_field(value: object, *, field_name: str) -> dict[str, obj
 def _workflow_from_mapping(payload: Mapping[str, object], *, default_to_preset: bool = True) -> dict | None:
     workflow = payload.get("workflow")
     if isinstance(workflow, Mapping):
-        return normalize_workflow(dict(workflow))
+        return dict(workflow)
     workflow_json = _mapping_from_json_field(payload.get("workflow_json"), field_name="workflow_json")
     if workflow_json:
-        return normalize_workflow(workflow_json)
+        return workflow_json
     if not default_to_preset:
         return None
     preset = str(payload.get("workflow_preset", "build_first")).strip() or "build_first"

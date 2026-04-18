@@ -46,6 +46,13 @@
 - 解析 orchestration 或内联 workflow
 - 解析 role definition 选入后的角色快照
 - 让角色快照携带默认执行配置
+- 规范化 step 级布尔与枚举字段；无法稳定解释的值必须在创建时被拒绝
+- 一旦某个角色声明了任意 role 级执行覆盖（如模型），创建时必须把该角色的完整默认执行配置物化到 snapshot 中
+- 若 workflow role 提供 `role_definition_id`，创建时必须用对应 role definition 补齐缺失的名称、prompt 与执行配置；未知 `role_definition_id` 必须直接报错
+- 若 workflow role 同时提供 `role_definition_id` 与冲突的 role 级字段，或通过同名 `prompt_files` 改写该 role definition 的 prompt 内容，必须直接报错，不能静默保留或覆盖冲突值
+- 只有 GateKeeper step 可以声明 `on_pass=finish_run`；其他 step 若尝试声明结束语义，必须在创建时被拒绝
+- 更新 orchestration 时，未显式提供的 workflow 与 prompt 资产必须沿用当前快照，不能静默回退到默认 preset，也不能丢失已有自定义 prompt
+- 读取已保存 orchestration 时，历史遗留但已无法被当前 workflow 合法引用的 prompt 资产条目不得阻塞复用；服务层应先完成内部清洗，再继续对外提供稳定快照
 - 校验 completion mode 与 workflow 是否匹配
 - 冻结运行所需的 spec、workflow 与 prompt 资产
 
@@ -62,6 +69,7 @@
 - 在每个 step 结束后生成稳定的 `StepHandoff`
 - 在每轮结束后生成 `IterationSummary`
 - 角色上下文主键必须以 `step_id` 和 `role_id` 为主，`archetype` 只能作为聚类与回退
+- 同一份 workflow snapshot 内，`role_id` 与 `step_id` 都必须唯一，避免上下文、事件与产物主键冲突
 - 汇聚结构化结果与人类可读摘要
 
 ### 4.3 终态收敛
@@ -72,6 +80,7 @@
 | `rounds` | 达到计划轮数 | `succeeded` |
 
 失败与停止同样必须收敛为明确终态，并带可读原因。
+一旦终态已经对外可观察，服务层本地活动 bookkeeping 也必须同步收敛，不能继续把该 run 保留为活动后台 worker。
 
 ## 5. 模型解析契约
 

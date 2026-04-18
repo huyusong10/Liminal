@@ -12,6 +12,14 @@ from loopora.settings import app_home, configure_logging
 from loopora.web import build_app
 
 
+def _read_service_log_records() -> list[dict]:
+    return [
+        json.loads(line)
+        for line in (app_home() / "logs" / "service.log").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
 def test_api_loop_creation_run_preview_and_stream(
     service_factory,
     sample_spec_file: Path,
@@ -205,6 +213,39 @@ def test_api_run_stream_emits_stream_error_on_backend_failure() -> None:
     assert "database unavailable" in body
 
 
+def test_api_run_stream_logs_invalid_resume_cursor_and_keeps_request_cursor() -> None:
+    configure_logging()
+    captured: dict[str, int] = {}
+
+    class CursorAwareService:
+        def get_run(self, run_id: str) -> dict:
+            return {"id": run_id, "status": "succeeded", "loop_id": "loop_test"}
+
+        def stream_events(self, run_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
+            captured["after_id"] = after_id
+            return []
+
+    client = TestClient(build_app(service=CursorAwareService()))
+
+    with client.stream(
+        "GET",
+        "/api/runs/run_test/stream?after_id=7",
+        headers={"Last-Event-ID": "not-a-number"},
+    ) as response:
+        assert response.status_code == 200
+        assert "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text()) == ""
+
+    assert captured["after_id"] == 7
+    record = next(
+        item
+        for item in _read_service_log_records()
+        if item["event"] == "web.run_stream.resume_cursor_invalid"
+    )
+    assert record["run_id"] == "run_test"
+    assert record["context"]["after_id"] == 7
+    assert record["context"]["invalid_last_event_id"] == "not-a-number"
+
+
 def test_web_logs_completed_requests(service_factory) -> None:
     configure_logging()
     service = service_factory(scenario="success")
@@ -213,11 +254,7 @@ def test_web_logs_completed_requests(service_factory) -> None:
     response = client.get("/tutorial")
 
     assert response.status_code == 200
-    records = [
-        json.loads(line)
-        for line in (app_home() / "logs" / "service.log").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    records = _read_service_log_records()
     record = next(
         item
         for item in records
@@ -519,6 +556,438 @@ def test_api_can_create_orchestration_and_use_it_for_loop(
     assert loop["workflow_json"]["preset"] == "build_first"
 
 
+def test_api_orchestration_hydrates_role_snapshots_from_role_definition_id(service_factory) -> None:
+    service = service_factory(scenario="success")
+    role_definition = service.create_role_definition(
+        name="Release Builder",
+        description="Ships focused release work.",
+        archetype="builder",
+        prompt_ref="release-builder.md",
+        prompt_markdown="""---
+version: 1
+archetype: builder
+---
+
+Focus on safe release work.
+""",
+        executor_kind="claude",
+        executor_mode="preset",
+        model="gpt-5.4-mini",
+        reasoning_effort="high",
+    )
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/orchestrations",
+        json={
+            "name": "Uses Role Definition Snapshot",
+            "description": "Hydrates missing role fields from a role definition.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "role_definition_id": role_definition["id"]},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    orchestration = response.json()["orchestration"]
+    builder_role = orchestration["workflow_json"]["roles"][0]
+    assert builder_role["name"] == "Release Builder"
+    assert builder_role["prompt_ref"] == "release-builder.md"
+    assert builder_role["executor_kind"] == "claude"
+    assert builder_role["model"] == "gpt-5.4-mini"
+    assert orchestration["prompt_files_json"]["release-builder.md"].startswith("---\nversion: 1")
+
+
+def test_api_orchestration_rejects_unknown_role_definition_ids(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/orchestrations",
+        json={
+            "name": "Broken Role Definition Reference",
+            "description": "Should fail fast.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "role_definition_id": "role_missing"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "unknown role definition: role_missing" in response.json()["error"]
+
+
+def test_api_orchestration_rejects_conflicting_role_definition_snapshot_fields(service_factory) -> None:
+    service = service_factory(scenario="success")
+    role_definition = service.create_role_definition(
+        name="Release Builder",
+        description="Ships focused release work.",
+        archetype="builder",
+        prompt_ref="release-builder.md",
+        prompt_markdown="""---
+version: 1
+archetype: builder
+---
+
+Focus on safe release work.
+""",
+        executor_kind="claude",
+        executor_mode="preset",
+        model="gpt-5.4-mini",
+        reasoning_effort="high",
+    )
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/orchestrations",
+        json={
+            "name": "Conflicting Role Snapshot",
+            "description": "Should fail when snapshot fields conflict with the role definition.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {
+                        "id": "builder",
+                        "role_definition_id": role_definition["id"],
+                        "model": "gpt-5.4",
+                    },
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert f"conflicts with role_definition_id {role_definition['id']} on model" in response.json()["error"]
+
+
+def test_api_orchestration_rejects_conflicting_prompt_files_for_role_definition_id(service_factory) -> None:
+    service = service_factory(scenario="success")
+    role_definition = service.create_role_definition(
+        name="Release Builder",
+        description="Ships focused release work.",
+        archetype="builder",
+        prompt_ref="release-builder.md",
+        prompt_markdown="""---
+version: 1
+archetype: builder
+---
+
+Focus on safe release work.
+""",
+        executor_kind="claude",
+        executor_mode="preset",
+        model="gpt-5.4-mini",
+        reasoning_effort="high",
+    )
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/orchestrations",
+        json={
+            "name": "Conflicting Role Prompt Snapshot",
+            "description": "Should fail when prompt_files override a role definition prompt.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {
+                        "id": "builder",
+                        "role_definition_id": role_definition["id"],
+                    },
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+            "prompt_files": {
+                "release-builder.md": """---
+version: 1
+archetype: builder
+---
+
+Focus on risky release work.
+""",
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert f"conflicts with role_definition_id {role_definition['id']} on prompt_markdown" in response.json()["error"]
+
+
+def test_api_orchestration_update_preserves_existing_prompt_files_when_omitted(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    create_response = client.post(
+        "/api/orchestrations",
+        json={
+            "name": "Custom Builder Flow",
+            "description": "Uses a custom builder prompt.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "custom-builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+            "prompt_files": {
+                "custom-builder.md": """---
+version: 1
+archetype: builder
+---
+
+Keep the builder prompt stable.
+""",
+            },
+        },
+    )
+    assert create_response.status_code == 201
+    orchestration_id = create_response.json()["orchestration"]["id"]
+
+    update_response = client.put(
+        f"/api/orchestrations/{orchestration_id}",
+        json={
+            "name": "Custom Builder Flow v2",
+            "description": "Workflow changed, prompt payload omitted.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "custom-builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_retry_step", "role_id": "builder"},
+                ],
+            },
+        },
+    )
+
+    assert update_response.status_code == 200
+    orchestration = update_response.json()["orchestration"]
+    assert orchestration["name"] == "Custom Builder Flow v2"
+    assert orchestration["workflow_json"]["steps"][0]["id"] == "builder_retry_step"
+    assert orchestration["prompt_files_json"]["custom-builder.md"].startswith("---\nversion: 1")
+
+
+def test_api_orchestration_update_prunes_unused_prompt_files(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    create_response = client.post(
+        "/api/orchestrations",
+        json={
+            "name": "Custom Builder Flow",
+            "description": "Uses a custom builder prompt.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "custom-builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+            "prompt_files": {
+                "custom-builder.md": """---
+version: 1
+archetype: builder
+---
+
+Keep the builder prompt stable.
+""",
+            },
+        },
+    )
+    assert create_response.status_code == 201
+    orchestration_id = create_response.json()["orchestration"]["id"]
+
+    update_response = client.put(
+        f"/api/orchestrations/{orchestration_id}",
+        json={
+            "name": "Builtin Builder Flow",
+            "description": "Now uses the built-in builder prompt.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+        },
+    )
+
+    assert update_response.status_code == 200
+    orchestration = update_response.json()["orchestration"]
+    assert orchestration["workflow_json"]["roles"][0]["prompt_ref"] == "builder.md"
+    assert list(orchestration["prompt_files_json"].keys()) == ["builder.md"]
+    assert "custom-builder.md" not in orchestration["prompt_files_json"]
+
+
+def test_api_orchestration_rejects_shared_prompt_ref_with_mismatched_archetype(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/orchestrations",
+        json={
+            "name": "Shared Prompt Ref Mismatch",
+            "description": "Should fail when one prompt ref is reused across incompatible archetypes.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "shared.md"},
+                    {"id": "inspector", "archetype": "inspector", "prompt_ref": "shared.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                    {"id": "inspector_step", "role_id": "inspector"},
+                ],
+            },
+            "prompt_files": {
+                "shared.md": """---
+version: 1
+archetype: builder
+---
+
+Keep the builder prompt stable.
+""",
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "prompt archetype builder does not match expected archetype inspector" in response.json()["error"]
+
+
+def test_api_orchestration_rejects_unsafe_prompt_ref_paths(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/orchestrations",
+        json={
+            "name": "Unsafe Prompt Ref",
+            "description": "Should fail when a prompt ref escapes the asset root.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "../escape.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+            "prompt_files": {
+                "../escape.md": """---
+version: 1
+archetype: builder
+---
+
+This should never be written outside prompts/.
+""",
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "prompt_ref must be a safe relative path" in response.json()["error"]
+
+
+def test_api_orchestration_rejects_invalid_prompt_file_keys(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/orchestrations",
+        json={
+            "name": "Unsafe Prompt Files",
+            "description": "Should reject invalid prompt_files keys instead of ignoring them.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+            "prompt_files": {
+                "../escape.md": """---
+version: 1
+archetype: builder
+---
+
+This key should be rejected instead of silently dropped.
+""",
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "prompt_ref must be a safe relative path" in response.json()["error"]
+
+
+def test_api_get_orchestration_sanitizes_invalid_persisted_prompt_file_keys(service_factory) -> None:
+    service = service_factory(scenario="success")
+    service.repository.create_orchestration(
+        {
+            "id": "orch_legacy",
+            "name": "Legacy Builder Flow",
+            "description": "Contains stale invalid prompt file keys.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+            "prompt_files": {
+                "../escape.md": """---
+version: 1
+archetype: builder
+---
+
+Legacy invalid key.
+""",
+                "builder.md": """---
+version: 1
+archetype: builder
+---
+
+Legit builder prompt.
+""",
+            },
+        }
+    )
+    client = TestClient(build_app(service=service))
+
+    response = client.get("/api/orchestrations/orch_legacy")
+
+    assert response.status_code == 200
+    orchestration = response.json()
+    assert list(orchestration["prompt_files_json"].keys()) == ["builder.md"]
+
+
 def test_builtin_orchestration_form_route_is_read_only(service_factory) -> None:
     service = service_factory(scenario="success")
     client = TestClient(build_app(service=service))
@@ -647,6 +1116,172 @@ def test_api_rejects_gatekeeper_mode_without_finish_gatekeeper(
     assert "gatekeeper completion mode" in response.json()["error"]
 
 
+def test_api_rejects_duplicate_workflow_step_ids(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/loops",
+        json={
+            "name": "Duplicate Step Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "executor_kind": "codex",
+            "model": "gpt-5.4",
+            "reasoning_effort": "medium",
+            "completion_mode": "rounds",
+            "max_iters": 2,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                    {"id": "inspector", "name": "Inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                ],
+                "steps": [
+                    {"id": "shared_step", "role_id": "builder"},
+                    {"id": "shared_step", "role_id": "inspector"},
+                ],
+            },
+            "start_immediately": False,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "duplicate workflow step id" in response.json()["error"]
+
+
+def test_api_normalizes_boolean_like_workflow_step_session_flags(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/loops",
+        json={
+            "name": "Session Flag Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "executor_kind": "codex",
+            "model": "gpt-5.4",
+            "reasoning_effort": "medium",
+            "completion_mode": "rounds",
+            "max_iters": 2,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                    {"id": "inspector", "name": "Inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder", "inherit_session": "false"},
+                    {"id": "inspector_step", "role_id": "inspector", "inherit_session": "true"},
+                ],
+            },
+            "start_immediately": False,
+        },
+    )
+
+    assert response.status_code == 201
+    steps = response.json()["loop"]["workflow_json"]["steps"]
+    assert steps[0]["inherit_session"] is False
+    assert steps[1]["inherit_session"] is True
+
+
+def test_api_rejects_invalid_workflow_step_session_flag(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/loops",
+        json={
+            "name": "Invalid Session Flag Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "executor_kind": "codex",
+            "model": "gpt-5.4",
+            "reasoning_effort": "medium",
+            "completion_mode": "rounds",
+            "max_iters": 2,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder", "inherit_session": "sometimes"},
+                ],
+            },
+            "start_immediately": False,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "inherit_session must be a boolean" in response.json()["error"]
+
+
+def test_api_rejects_finish_run_for_non_gatekeeper_steps(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/loops",
+        json={
+            "name": "Invalid On Pass Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "executor_kind": "codex",
+            "model": "gpt-5.4",
+            "reasoning_effort": "medium",
+            "completion_mode": "rounds",
+            "max_iters": 2,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder", "on_pass": "finish_run"},
+                ],
+            },
+            "start_immediately": False,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "non-gatekeeper steps only support on_pass=continue" in response.json()["error"]
+
+
 def test_api_role_definition_crud(service_factory) -> None:
     service = service_factory(scenario="success")
     client = TestClient(build_app(service=service))
@@ -723,6 +1358,28 @@ Focus on scoped release work with tighter release constraints.
     assert updated_role_definition["model"] == "gpt-5.4"
     assert updated_role_definition["prompt_ref"] == generated_prompt_ref
 
+    invalid_update_response = client.put(
+        f"/api/role-definitions/{role_definition['id']}",
+        json={
+            "name": "Release Inspector",
+            "description": "Should fail.",
+            "archetype": "inspector",
+            "prompt_markdown": """---
+version: 1
+archetype: inspector
+---
+
+Inspect release work instead.
+""",
+            "executor_kind": "codex",
+            "executor_mode": "preset",
+            "model": "",
+            "reasoning_effort": "medium",
+        },
+    )
+    assert invalid_update_response.status_code == 400
+    assert "saved role definitions cannot change archetype" in invalid_update_response.json()["error"]
+
     delete_response = client.delete(f"/api/role-definitions/{role_definition['id']}")
     assert delete_response.status_code == 200
     assert delete_response.json()["deleted"] is True
@@ -756,6 +1413,35 @@ Observe and summarize.
 
     assert response.status_code == 400
     assert "only supports command mode" in response.json()["error"]
+
+
+def test_api_role_definition_rejects_unsafe_prompt_ref(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/role-definitions",
+        json={
+            "name": "Escaping Builder",
+            "description": "Should fail when prompt_ref escapes the asset root.",
+            "archetype": "builder",
+            "prompt_ref": "../escape.md",
+            "prompt_markdown": """---
+version: 1
+archetype: builder
+---
+
+Keep prompt refs inside prompts/.
+""",
+            "executor_kind": "codex",
+            "executor_mode": "preset",
+            "model": "gpt-5.4-mini",
+            "reasoning_effort": "medium",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "prompt_ref must be a safe relative path" in response.json()["error"]
 
 
 def test_api_spec_init_validate_and_delete_loop(service_factory, tmp_path: Path, sample_workdir: Path) -> None:

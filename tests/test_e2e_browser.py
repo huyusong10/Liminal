@@ -194,7 +194,7 @@ def serve_directory(path: Path):
 def serve_app(app):
     host, port = _reserve_local_port()
 
-    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning", ws="none")
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()

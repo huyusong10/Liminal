@@ -21,6 +21,7 @@
 补充说明：
 
 - 内置 prompt 资产允许提供按语言区分的内容变体，只要 front matter 版本与 archetype 契约保持一致。
+- orchestration 保存或更新时，只持久化当前 workflow `roles[].prompt_ref` 实际引用到的 prompt 资产；未被当前 workflow 引用的 `prompt_files` 条目必须被裁掉，以保持 Web、CLI 与 API 的资产视图一致。
 
 ## 3. Workflow 结构
 
@@ -117,7 +118,7 @@ workflow 保持两层结构：
 - 直接命令模式下，`command_cli` 与 `command_args_text` 是真正的执行来源；模型和推理强度只能作为只读参考或占位符输入，不再单独驱动命令装配。
 - 角色定义页的“最终命令预览”必须与运行时实际命令装配保持同一语义顺序。
 - 角色定义页在选择不同角色模板时，必须展示该模板对应的说明、适用建议与约束提醒；这些说明只改变界面引导，不改变底层 archetype 契约。
-- 已保存的 role definition 在编辑页必须保持 archetype 固定；只有新建角色流程才能重新选择角色模板。
+- 已保存的 role definition archetype 必须保持固定；Web、CLI、API 的更新入口都必须拒绝 archetype 变更，只有新建角色流程才能选择角色模板。
 
 ## 5. 验证规则
 
@@ -150,6 +151,9 @@ prompt 资产必须满足：
 - 声明受支持的版本
 - 声明与 role 一致的角色原型
 - 正文非空
+- `prompt_ref` 必须是落在 prompt 资产根目录下的安全相对引用；不允许绝对路径、空段或 `.` / `..` 段
+- `prompt_files` 映射里的每个 key 都必须遵守同一 `prompt_ref` 契约；Web、CLI、API 入口不能静默丢弃非法 key
+- 若同一个 `prompt_ref` 被多个 role 复用，它必须同时满足每个绑定 role 的 archetype 契约；不能借共享引用绕过角色模板校验
 
 ## 6. 模型解析优先级
 
@@ -229,7 +233,7 @@ workflow 与 prompt 资产必须满足：
 - 可通过 Web 编辑与复用
 - 可通过 CLI 或 API 引用、提交或校验
 - 角色定义必须先作为独立资产存在，再被 orchestration 选入
-- role definition 缺失 `prompt_ref` 时，系统会自动生成并稳定保留内部引用
+- role definition 缺失 `prompt_ref` 时，系统会自动生成并稳定保留内部引用；已保存的 `prompt_ref` 不能再变更，且新建时不能与现有 role definition 或内置模板的 `prompt_ref` 冲突
 - step 级模型覆盖不能只在单一入口可表达
 - step 级 session 继承与附加 CLI 参数不能只在单一入口可表达
 - orchestration 不直接维护角色默认 prompt 与执行配置

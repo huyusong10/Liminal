@@ -6,6 +6,7 @@ import pytest
 
 from loopora.asset_catalog import WorkflowAssetCatalog
 from loopora.db import LooporaRepository
+from loopora.workflows import WorkflowError, default_role_execution_settings
 
 
 def _prompt_markdown(archetype: str, body: str) -> str:
@@ -91,6 +92,307 @@ def test_asset_catalog_resolves_builtin_orchestration_input_and_applies_role_ove
     assert "builder.md" in resolved["prompt_files"]
 
 
+def test_asset_catalog_persists_role_execution_defaults_for_model_only_snapshots(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+
+    orchestration = catalog.create_orchestration(
+        name="Model Override Workflow",
+        description="Carries role-level model overrides.",
+        workflow={
+            "version": 1,
+            "roles": [
+                {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md", "model": "gpt-5.4-mini"},
+            ],
+            "steps": [
+                {"id": "builder_step", "role_id": "builder"},
+            ],
+        },
+    )
+
+    builder_role = orchestration["workflow_json"]["roles"][0]
+    defaults = default_role_execution_settings()
+
+    assert builder_role["model"] == "gpt-5.4-mini"
+    assert builder_role["executor_kind"] == defaults["executor_kind"]
+    assert builder_role["executor_mode"] == defaults["executor_mode"]
+    assert builder_role["command_cli"] == defaults["command_cli"]
+    assert builder_role["reasoning_effort"] == defaults["reasoning_effort"]
+
+
+def test_asset_catalog_hydrates_role_snapshots_from_role_definition_id(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+    role_definition = catalog.create_role_definition(
+        name="Release Builder",
+        description="Ships focused release work.",
+        archetype="builder",
+        prompt_ref="release-builder.md",
+        prompt_markdown=_prompt_markdown("builder", "Focus on safe release work."),
+        executor_kind="claude",
+        model="gpt-5.4-mini",
+        reasoning_effort="high",
+    )
+
+    resolved = catalog.resolve_orchestration_input(
+        orchestration_id=None,
+        workflow={
+            "version": 1,
+            "roles": [
+                {"id": "builder", "role_definition_id": role_definition["id"]},
+            ],
+            "steps": [
+                {"id": "builder_step", "role_id": "builder"},
+            ],
+        },
+        prompt_files=None,
+        role_models=None,
+    )
+
+    builder_role = resolved["workflow"]["roles"][0]
+    assert builder_role["name"] == "Release Builder"
+    assert builder_role["archetype"] == "builder"
+    assert builder_role["prompt_ref"] == "release-builder.md"
+    assert builder_role["executor_kind"] == "claude"
+    assert builder_role["model"] == "gpt-5.4-mini"
+    assert builder_role["reasoning_effort"] == "high"
+    assert resolved["prompt_files"]["release-builder.md"].startswith("---\nversion: 1")
+
+
+def test_asset_catalog_rejects_unknown_role_definition_ids_in_workflow(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+
+    with pytest.raises(ValueError, match="unknown role definition: role_missing"):
+        catalog.resolve_orchestration_input(
+            orchestration_id=None,
+            workflow={
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "role_definition_id": "role_missing"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+            prompt_files=None,
+            role_models=None,
+        )
+
+
+def test_asset_catalog_rejects_conflicting_role_snapshot_fields_for_role_definition_id(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+    role_definition = catalog.create_role_definition(
+        name="Release Builder",
+        description="Ships focused release work.",
+        archetype="builder",
+        prompt_ref="release-builder.md",
+        prompt_markdown=_prompt_markdown("builder", "Focus on safe release work."),
+        executor_kind="claude",
+        model="gpt-5.4-mini",
+        reasoning_effort="high",
+    )
+
+    with pytest.raises(
+        WorkflowError,
+        match=f"workflow role builder conflicts with role_definition_id {role_definition['id']} on model",
+    ):
+        catalog.resolve_orchestration_input(
+            orchestration_id=None,
+            workflow={
+                "version": 1,
+                "roles": [
+                    {
+                        "id": "builder",
+                        "role_definition_id": role_definition["id"],
+                        "model": "gpt-5.4",
+                    },
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+            prompt_files=None,
+            role_models=None,
+        )
+
+
+def test_asset_catalog_rejects_conflicting_prompt_files_for_role_definition_id(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+    role_definition = catalog.create_role_definition(
+        name="Release Builder",
+        description="Ships focused release work.",
+        archetype="builder",
+        prompt_ref="release-builder.md",
+        prompt_markdown=_prompt_markdown("builder", "Focus on safe release work."),
+        executor_kind="claude",
+        model="gpt-5.4-mini",
+        reasoning_effort="high",
+    )
+
+    with pytest.raises(
+        WorkflowError,
+        match=f"workflow role builder conflicts with role_definition_id {role_definition['id']} on prompt_markdown",
+    ):
+        catalog.resolve_orchestration_input(
+            orchestration_id=None,
+            workflow={
+                "version": 1,
+                "roles": [
+                    {
+                        "id": "builder",
+                        "role_definition_id": role_definition["id"],
+                    },
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+            prompt_files={
+                "release-builder.md": _prompt_markdown("builder", "Focus on risky release work."),
+            },
+            role_models=None,
+        )
+
+
+def test_asset_catalog_update_preserves_existing_workflow_and_prompt_files_when_omitted(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+    orchestration = catalog.create_orchestration(
+        name="Custom Builder Flow",
+        description="Uses a custom builder prompt.",
+        workflow={
+            "version": 1,
+            "roles": [
+                {"id": "builder", "archetype": "builder", "prompt_ref": "custom-builder.md"},
+            ],
+            "steps": [
+                {"id": "builder_step", "role_id": "builder"},
+            ],
+        },
+        prompt_files={
+            "custom-builder.md": _prompt_markdown("builder", "Keep the builder prompt stable."),
+        },
+    )
+
+    updated = catalog.update_orchestration(
+        orchestration["id"],
+        name="Renamed Builder Flow",
+        description="Updated description only.",
+        workflow=None,
+        prompt_files=None,
+        role_models=None,
+    )
+
+    assert updated["name"] == "Renamed Builder Flow"
+    assert updated["workflow_json"]["roles"][0]["prompt_ref"] == "custom-builder.md"
+    assert updated["workflow_json"]["steps"][0]["id"] == "builder_step"
+    assert updated["prompt_files_json"]["custom-builder.md"].startswith("---\nversion: 1")
+
+
+def test_asset_catalog_update_prunes_prompt_files_not_used_by_current_workflow(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+    orchestration = catalog.create_orchestration(
+        name="Custom Builder Flow",
+        description="Uses a custom builder prompt.",
+        workflow={
+            "version": 1,
+            "roles": [
+                {"id": "builder", "archetype": "builder", "prompt_ref": "custom-builder.md"},
+            ],
+            "steps": [
+                {"id": "builder_step", "role_id": "builder"},
+            ],
+        },
+        prompt_files={
+            "custom-builder.md": _prompt_markdown("builder", "Keep the builder prompt stable."),
+        },
+    )
+
+    updated = catalog.update_orchestration(
+        orchestration["id"],
+        name="Builtin Builder Flow",
+        description="Now uses the built-in builder prompt.",
+        workflow={
+            "version": 1,
+            "roles": [
+                {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            ],
+            "steps": [
+                {"id": "builder_step", "role_id": "builder"},
+            ],
+        },
+        prompt_files=None,
+        role_models=None,
+    )
+
+    assert updated["workflow_json"]["roles"][0]["prompt_ref"] == "builder.md"
+    assert list(updated["prompt_files_json"].keys()) == ["builder.md"]
+    assert "custom-builder.md" not in updated["prompt_files_json"]
+
+
+def test_asset_catalog_rejects_invalid_prompt_file_keys(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+
+    with pytest.raises(WorkflowError, match="prompt_ref must be a safe relative path"):
+        catalog.create_orchestration(
+            name="Unsafe Prompt Files",
+            description="Should reject invalid prompt_files keys instead of ignoring them.",
+            workflow={
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+            prompt_files={
+                "../escape.md": _prompt_markdown("builder", "This should never be silently dropped."),
+            },
+        )
+
+
+def test_asset_catalog_sanitizes_invalid_persisted_prompt_file_keys(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    repository.create_orchestration(
+        {
+            "id": "orch_legacy",
+            "name": "Legacy Builder Flow",
+            "description": "Contains stale invalid prompt file keys.",
+            "workflow": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                ],
+            },
+            "prompt_files": {
+                "../escape.md": _prompt_markdown("builder", "Legacy invalid key."),
+                "builder.md": _prompt_markdown("builder", "Legit builder prompt."),
+            },
+        }
+    )
+    catalog = WorkflowAssetCatalog(repository)
+
+    orchestration = catalog.get_orchestration("orch_legacy")
+    resolved = catalog.resolve_orchestration_input(
+        orchestration_id="orch_legacy",
+        workflow=None,
+        prompt_files=None,
+        role_models=None,
+    )
+
+    assert list(orchestration["prompt_files_json"].keys()) == ["builder.md"]
+    assert list(resolved["prompt_files"].keys()) == ["builder.md"]
+
+
 def test_asset_catalog_role_definition_crud_normalizes_archetypes_and_protects_builtins(tmp_path: Path) -> None:
     repository = LooporaRepository(tmp_path / "app.db")
     catalog = WorkflowAssetCatalog(repository)
@@ -123,6 +425,29 @@ def test_asset_catalog_role_definition_crud_normalizes_archetypes_and_protects_b
     assert updated["executor_kind"] == "opencode"
     assert updated["prompt_ref"] == original_prompt_ref
 
+    with pytest.raises(ValueError, match="saved role definitions cannot change archetype"):
+        catalog.update_role_definition(
+            created["id"],
+            name="Legacy Generator v3",
+            description="Should fail.",
+            archetype="inspector",
+            prompt_markdown=_prompt_markdown("inspector", "Inspect instead of building."),
+            executor_kind="codex",
+            model="",
+        )
+
+    with pytest.raises(ValueError, match="saved role definitions cannot change prompt_ref"):
+        catalog.update_role_definition(
+            created["id"],
+            name="Legacy Generator v4",
+            description="Should fail.",
+            archetype="builder",
+            prompt_ref="renamed-builder.md",
+            prompt_markdown=_prompt_markdown("builder", "Keep changes scoped."),
+            executor_kind="codex",
+            model="",
+        )
+
     with pytest.raises(ValueError, match="built-in role definitions cannot be updated in place"):
         catalog.update_role_definition(
             "builtin:builder",
@@ -135,6 +460,61 @@ def test_asset_catalog_role_definition_crud_normalizes_archetypes_and_protects_b
 
     deleted = catalog.delete_role_definition(created["id"])
     assert deleted == {"id": created["id"], "deleted": True}
+
+
+def test_asset_catalog_rejects_duplicate_role_definition_prompt_refs(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+
+    with pytest.raises(ValueError, match="prompt_ref already in use: builder.md"):
+        catalog.create_role_definition(
+            name="Custom Builder Alias",
+            description="Should not shadow the built-in builder prompt ref.",
+            archetype="builder",
+            prompt_ref="builder.md",
+            prompt_markdown=_prompt_markdown("builder", "Use a custom builder prompt."),
+            executor_kind="codex",
+            model="gpt-5.4-mini",
+        )
+
+    created = catalog.create_role_definition(
+        name="Release Builder",
+        description="Ships focused release work.",
+        archetype="builder",
+        prompt_ref="release-builder.md",
+        prompt_markdown=_prompt_markdown("builder", "Focus on safe release work."),
+        executor_kind="claude",
+        model="gpt-5.4-mini",
+    )
+
+    with pytest.raises(ValueError, match="prompt_ref already in use: release-builder.md"):
+        catalog.create_role_definition(
+            name="Another Release Builder",
+            description="Should not reuse the same prompt ref.",
+            archetype="builder",
+            prompt_ref="release-builder.md",
+            prompt_markdown=_prompt_markdown("builder", "Use a different release strategy."),
+            executor_kind="claude",
+            model="gpt-5.4",
+        )
+
+    assert created["prompt_ref"] == "release-builder.md"
+
+
+def test_asset_catalog_rejects_unsafe_role_definition_prompt_ref(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+
+    with pytest.raises(ValueError, match="prompt_ref must be a safe relative path"):
+        catalog.create_role_definition(
+            name="Escaping Builder",
+            description="Should not write outside the prompt asset root.",
+            archetype="builder",
+            prompt_ref="../escape.md",
+            prompt_markdown=_prompt_markdown("builder", "Keep prompt refs inside the asset root."),
+            executor_kind="codex",
+            model="gpt-5.4-mini",
+        )
 
 
 def test_asset_catalog_rejects_custom_executor_preset_mode(tmp_path: Path) -> None:

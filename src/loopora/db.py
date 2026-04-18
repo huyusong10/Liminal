@@ -927,20 +927,74 @@ class LooporaRepository:
         if not run:
             return False
         pid = run.get("child_pid")
-        if pid:
-            try:
-                os.kill(int(pid), 15)
-            except ProcessLookupError:
-                pass
+        if pid in {None, ""}:
+            log_event(
+                logger,
+                logging.INFO,
+                "db.run.stop_signal_skipped",
+                "Skipped stop signal because the run has no active child process",
+                run_id=run_id,
+                loop_id=run.get("loop_id"),
+                workdir=run.get("workdir"),
+                reason="missing_child_pid",
+            )
+            return True
+
+        try:
+            child_pid = int(pid)
+        except (TypeError, ValueError):
+            self.update_run(run_id, clear_child_pid=True)
+            log_event(
+                logger,
+                logging.WARNING,
+                "db.run.stop_signal_skipped",
+                "Skipped stop signal because the recorded child process id is invalid",
+                run_id=run_id,
+                loop_id=run.get("loop_id"),
+                workdir=run.get("workdir"),
+                child_pid=pid,
+                reason="invalid_child_pid",
+            )
+            return True
+
+        try:
+            os.kill(child_pid, 15)
+        except ProcessLookupError:
+            self.update_run(run_id, clear_child_pid=True)
+            log_event(
+                logger,
+                logging.WARNING,
+                "db.run.stop_signal_skipped",
+                "Skipped stop signal because the child process is no longer running",
+                run_id=run_id,
+                loop_id=run.get("loop_id"),
+                workdir=run.get("workdir"),
+                child_pid=child_pid,
+                reason="process_not_found",
+            )
+            return True
+        except OSError as exc:
+            log_exception(
+                logger,
+                "db.run.stop_signal_failed",
+                "Failed to send stop signal to the active child process",
+                error=exc,
+                run_id=run_id,
+                loop_id=run.get("loop_id"),
+                workdir=run.get("workdir"),
+                child_pid=child_pid,
+            )
+            return False
+
         log_event(
             logger,
             logging.INFO,
             "db.run.stop_signal_sent",
-            "Sent stop signal to the active child process when present",
+            "Sent stop signal to the active child process",
             run_id=run_id,
             loop_id=run.get("loop_id"),
             workdir=run.get("workdir"),
-            child_pid=pid,
+            child_pid=child_pid,
         )
         return True
 

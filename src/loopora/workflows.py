@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -66,14 +66,31 @@ def normalize_prompt_locale(value: str | None) -> str:
     return "zh" if str(value or "").strip().lower().startswith("zh") else "en"
 
 
+def normalize_prompt_ref(value: str | None) -> str:
+    prompt_ref = str(value or "").strip()
+    if not prompt_ref:
+        raise WorkflowError("prompt_ref is required")
+    normalized = prompt_ref.replace("\\", "/")
+    parts = normalized.split("/")
+    if normalized.startswith("/") or any(not part or part in {".", ".."} for part in parts):
+        raise WorkflowError("prompt_ref must be a safe relative path")
+    return PurePosixPath(*parts).as_posix()
+
+
+def prompt_asset_path(root: Path, prompt_ref: str) -> Path:
+    normalized_prompt_ref = normalize_prompt_ref(prompt_ref)
+    return root.joinpath(*PurePosixPath(normalized_prompt_ref).parts)
+
+
 def localized_prompt_ref(prompt_ref: str, locale: str | None = None) -> str:
+    normalized_prompt_ref = normalize_prompt_ref(prompt_ref)
     normalized_locale = normalize_prompt_locale(locale)
     if normalized_locale != "zh":
-        return prompt_ref
-    path = Path(prompt_ref)
-    localized_name = f"{path.stem}.zh{path.suffix}"
-    localized_path = PROMPT_ASSET_DIR / localized_name
-    return localized_name if localized_path.exists() else prompt_ref
+        return normalized_prompt_ref
+    path = PurePosixPath(normalized_prompt_ref)
+    localized_prompt_ref = path.with_name(f"{path.stem}.zh{path.suffix}").as_posix()
+    localized_path = prompt_asset_path(PROMPT_ASSET_DIR, localized_prompt_ref)
+    return localized_prompt_ref if localized_path.exists() else normalized_prompt_ref
 
 
 def default_role_execution_settings(executor_kind: str = "codex") -> dict[str, str]:
@@ -131,13 +148,48 @@ def role_uses_execution_snapshot(role: Mapping[str, Any] | None) -> bool:
         return False
     return any(
         key in role
-        for key in ("executor_kind", "executor_mode", "command_cli", "command_args_text", "reasoning_effort")
+        for key in ("executor_kind", "executor_mode", "command_cli", "command_args_text", "model", "reasoning_effort")
     )
 
 
 def default_step_inherit_session(archetype: str | None) -> bool:
     normalized_archetype = LEGACY_ROLE_TO_ARCHETYPE.get(str(archetype or "").strip().lower(), "")
     return normalized_archetype == "builder"
+
+
+def normalize_step_inherit_session(value: Any, *, archetype: str | None = None) -> bool:
+    default = default_step_inherit_session(archetype)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    raise WorkflowError("workflow step inherit_session must be a boolean")
+
+
+def normalize_step_on_pass(
+    value: Any,
+    *,
+    archetype: str | None = None,
+    default: str = "continue",
+) -> str:
+    normalized_archetype = LEGACY_ROLE_TO_ARCHETYPE.get(str(archetype or "").strip().lower(), "")
+    normalized_default = str(default or "continue").strip() or "continue"
+    normalized_value = str(value if value is not None else normalized_default).strip() or normalized_default
+    if normalized_archetype != "gatekeeper":
+        if normalized_value != "continue":
+            raise WorkflowError("non-gatekeeper steps only support on_pass=continue")
+        return "continue"
+    if normalized_value not in {"continue", "finish_run"}:
+        raise WorkflowError("gatekeeper step on_pass must be continue or finish_run")
+    return normalized_value
 
 
 def default_step_execution_settings(*, archetype: str | None = None) -> dict[str, Any]:
@@ -206,9 +258,16 @@ def _preset_step(
     return {
         "id": step_id,
         "role_id": role_id,
-        "on_pass": on_pass or defaults["on_pass"],
+        "on_pass": normalize_step_on_pass(
+            on_pass,
+            archetype=archetype,
+            default=defaults["on_pass"],
+        ),
         "model": model,
-        "inherit_session": defaults["inherit_session"] if inherit_session is None else bool(inherit_session),
+        "inherit_session": normalize_step_inherit_session(
+            inherit_session,
+            archetype=archetype,
+        ),
         "extra_cli_args": str(extra_cli_args or ""),
     }
 
@@ -420,7 +479,7 @@ def validate_prompt_markdown(markdown_text: str, *, expected_archetype: str | No
 
 
 def builtin_prompt_markdown(prompt_ref: str, *, locale: str | None = None) -> str:
-    path = PROMPT_ASSET_DIR / localized_prompt_ref(prompt_ref, locale)
+    path = prompt_asset_path(PROMPT_ASSET_DIR, localized_prompt_ref(prompt_ref, locale))
     if not path.exists():
         raise WorkflowError(f"unknown built-in prompt template: {prompt_ref}")
     return path.read_text(encoding="utf-8")
@@ -509,12 +568,10 @@ def workflow_warnings(workflow: dict) -> list[str]:
     gate_after_builder_without_inspector = False
     seen_builder = False
     seen_inspector_after_builder = False
-    for step in steps:
+    for index, step in enumerate(steps):
         role = role_by_id.get(step["role_id"], {})
         archetype = role.get("archetype")
         if archetype == "builder":
-            if any(role_by_id.get(next_step["role_id"], {}).get("archetype") == "gatekeeper" for next_step in steps if next_step["id"] == step["id"]):
-                pass
             seen_builder = True
             seen_inspector_after_builder = False
         elif archetype == "inspector" and seen_builder:
@@ -522,7 +579,7 @@ def workflow_warnings(workflow: dict) -> list[str]:
         elif archetype == "gatekeeper":
             if any(
                 role_by_id.get(other["role_id"], {}).get("archetype") == "builder"
-                for other in steps[steps.index(step) + 1 :]
+                for other in steps[index + 1 :]
             ):
                 gate_before_builder = True
             if seen_builder and not seen_inspector_after_builder:
@@ -582,7 +639,7 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
         if role_id in role_ids:
             raise WorkflowError(f"duplicate workflow role id: {role_id}")
         archetype = normalize_archetype(str(raw_role.get("archetype", "")))
-        prompt_ref = str(raw_role.get("prompt_ref", "")).strip() or PROMPT_FILES[archetype]
+        prompt_ref = normalize_prompt_ref(raw_role.get("prompt_ref") or PROMPT_FILES[archetype])
         name = str(raw_role.get("name", "")).strip() or display_name_for_archetype(archetype, locale="en")
         model = str(raw_role.get("model", "")).strip()
         role_definition_id = str(raw_role.get("role_definition_id", "")).strip()
@@ -606,6 +663,7 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
         roles.append(role_entry)
 
     steps: list[dict[str, Any]] = []
+    step_ids: set[str] = set()
     for index, raw_step in enumerate(raw_steps, start=1):
         if not isinstance(raw_step, dict):
             raise WorkflowError("workflow steps must be objects")
@@ -613,15 +671,20 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
         if role_id not in role_ids:
             raise WorkflowError(f"workflow step references unknown role_id: {role_id}")
         step_id = str(raw_step.get("id", "")).strip() or f"step_{index:03d}"
+        if step_id in step_ids:
+            raise WorkflowError(f"duplicate workflow step id: {step_id}")
         role = next(item for item in roles if item["id"] == role_id)
-        on_pass = str(raw_step.get("on_pass", "continue") or "continue").strip()
+        on_pass = normalize_step_on_pass(
+            raw_step.get("on_pass"),
+            archetype=role["archetype"],
+            default="continue",
+        )
         model = str(raw_step.get("model", "")).strip()
-        inherit_session = bool(raw_step.get("inherit_session", default_step_inherit_session(role["archetype"])))
+        inherit_session = normalize_step_inherit_session(
+            raw_step.get("inherit_session"),
+            archetype=role["archetype"],
+        )
         extra_cli_args = str(raw_step.get("extra_cli_args", "") or "").strip()
-        if role["archetype"] != "gatekeeper":
-            on_pass = "continue"
-        elif on_pass not in {"continue", "finish_run"}:
-            raise WorkflowError("gatekeeper step on_pass must be continue or finish_run")
         validate_extra_cli_args_text(extra_cli_args)
         steps.append(
             {
@@ -633,6 +696,7 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
                 "extra_cli_args": extra_cli_args,
             }
         )
+        step_ids.add(step_id)
 
     normalized = {
         "version": int(raw.get("version", 1) or 1),
@@ -648,13 +712,24 @@ def resolve_prompt_files(
     workflow: dict,
     provided_prompt_files: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    resolved = builtin_prompt_files_for_workflow(workflow)
+    provided: dict[str, str] = {}
     for prompt_ref, markdown_text in dict(provided_prompt_files or {}).items():
-        resolved[str(prompt_ref).strip()] = str(markdown_text or "")
+        candidate = str(prompt_ref).strip()
+        if not candidate:
+            continue
+        normalized_prompt_ref = normalize_prompt_ref(candidate)
+        provided[normalized_prompt_ref] = str(markdown_text or "")
+    resolved: dict[str, str] = {}
     for role in workflow.get("roles", []):
         prompt_ref = role["prompt_ref"]
         if prompt_ref not in resolved:
-            raise WorkflowError(f"missing prompt file for role {role['id']}: {prompt_ref}")
+            if prompt_ref in provided:
+                resolved[prompt_ref] = provided[prompt_ref]
+            else:
+                try:
+                    resolved[prompt_ref] = builtin_prompt_markdown(prompt_ref)
+                except WorkflowError as exc:
+                    raise WorkflowError(f"missing prompt file for role {role['id']}: {prompt_ref}") from exc
         validate_prompt_markdown(resolved[prompt_ref], expected_archetype=role["archetype"])
     return resolved
 
