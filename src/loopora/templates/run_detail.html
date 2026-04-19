@@ -60,55 +60,83 @@
         </div>
       </div>
     </header>
+    {% set checks_stage = progress_stages[0] if progress_stages else None %}
+    {% set finished_stage = progress_stages[-1] if progress_stages else None %}
+    {% set workflow_stages = progress_stages[1:-1] if progress_stages|length > 2 else [] %}
     <div class="stage-strip" id="stage-strip">
-      <div class="stage-chip" data-stage="checks" tabindex="0">
-        <div class="stage-chip-head">
-          <span class="stage-chip-label"><span data-lang="zh">检查项</span><span data-lang="en">Checks</span></span>
-          <span class="stage-chip-state" data-stage-state>-</span>
+      {% if checks_stage %}
+      <div class="stage-strip-terminal stage-strip-terminal--entry">
+        <div class="stage-chip stage-chip--terminal" data-stage="{{ checks_stage.key }}" data-stage-kind="{{ checks_stage.kind }}" tabindex="0">
+          <div class="stage-chip-head">
+            <span class="stage-chip-order" data-stage-order>{{ "%02d"|format(checks_stage.sequence or 1) }}</span>
+            <span class="stage-chip-label" data-stage-label>{{ checks_stage.label }}</span>
+            <span class="stage-chip-state" data-stage-state>-</span>
+          </div>
+          <strong class="stage-chip-duration" data-stage-duration>-</strong>
+          <span class="stage-chip-meta" data-stage-meta>-</span>
         </div>
-        <strong class="stage-chip-duration" data-stage-duration>-</strong>
-        <span class="stage-chip-meta" data-stage-meta>-</span>
       </div>
-      <div class="stage-chip" data-stage="generator" tabindex="0">
-        <div class="stage-chip-head">
-          <span class="stage-chip-label"><span data-lang="zh">建造者</span><span data-lang="en">Builder</span></span>
-          <span class="stage-chip-state" data-stage-state>-</span>
+      {% endif %}
+      <div class="stage-loop-shell{% if not workflow_stages %} is-empty{% endif %}">
+        <div class="stage-loop-banner">
+          <span class="stage-loop-eyebrow" id="stage-loop-eyebrow">
+            <span data-lang="zh">Workflow Loop</span>
+            <span data-lang="en">Workflow Loop</span>
+          </span>
+          <strong class="stage-loop-title" id="stage-loop-title">{{ workflow_stages | map(attribute='label') | join(' → ') if workflow_stages else "No workflow steps" }}</strong>
+          <p class="stage-loop-copy" id="stage-loop-copy">
+            <span data-lang="zh">中间步骤按编排顺序重复推进；如果 workflow 里有 GateKeeper finish step，它会作为收敛出口。</span>
+            <span data-lang="en">The arranged middle steps repeat in order. If the workflow includes a GateKeeper finish step, it acts as the exit gate.</span>
+          </p>
         </div>
-        <strong class="stage-chip-duration" data-stage-duration>-</strong>
-        <span class="stage-chip-meta" data-stage-meta>-</span>
-      </div>
-      <div class="stage-chip" data-stage="tester" tabindex="0">
-        <div class="stage-chip-head">
-          <span class="stage-chip-label"><span data-lang="zh">巡检者</span><span data-lang="en">Inspector</span></span>
-          <span class="stage-chip-state" data-stage-state>-</span>
+        <div class="stage-loop-track">
+          <span class="stage-loop-connector stage-loop-connector--entry" aria-hidden="true"></span>
+          <div class="stage-loop-steps">
+            {% if workflow_stages %}
+              {% for stage in workflow_stages %}
+              <div class="stage-chip stage-chip--workflow" data-stage="{{ stage.key }}" data-stage-kind="{{ stage.kind }}" tabindex="0">
+                <div class="stage-chip-head">
+                  <span class="stage-chip-order" data-stage-order>{{ "%02d"|format(stage.sequence or loop.index) }}</span>
+                  <span class="stage-chip-label" data-stage-label>{{ stage.label }}</span>
+                  <span class="stage-chip-state" data-stage-state>-</span>
+                </div>
+                <strong class="stage-chip-duration" data-stage-duration>-</strong>
+                <span class="stage-chip-meta" data-stage-meta>-</span>
+              </div>
+              {% endfor %}
+            {% else %}
+            <div class="stage-loop-empty">
+              <strong>
+                <span data-lang="zh">还没有 workflow steps</span>
+                <span data-lang="en">No workflow steps yet</span>
+              </strong>
+              <p>
+                <span data-lang="zh">这次 run 没有冻结下中间编排步骤，所以这里只显示入口和最终状态。</span>
+                <span data-lang="en">This run has no frozen middle workflow steps, so only the entry and final state remain.</span>
+              </p>
+            </div>
+            {% endif %}
+          </div>
+          <span class="stage-loop-connector stage-loop-connector--exit" aria-hidden="true"></span>
+          <div class="stage-loop-arcs" aria-hidden="true">
+            <span class="stage-loop-arc stage-loop-arc--top"></span>
+            <span class="stage-loop-arc stage-loop-arc--bottom"></span>
+          </div>
         </div>
-        <strong class="stage-chip-duration" data-stage-duration>-</strong>
-        <span class="stage-chip-meta" data-stage-meta>-</span>
       </div>
-      <div class="stage-chip" data-stage="verifier" tabindex="0">
-        <div class="stage-chip-head">
-          <span class="stage-chip-label"><span data-lang="zh">守门人</span><span data-lang="en">GateKeeper</span></span>
-          <span class="stage-chip-state" data-stage-state>-</span>
+      {% if finished_stage %}
+      <div class="stage-strip-terminal stage-strip-terminal--exit">
+        <div class="stage-chip stage-chip--terminal" data-stage="{{ finished_stage.key }}" data-stage-kind="{{ finished_stage.kind }}" tabindex="0">
+          <div class="stage-chip-head">
+            <span class="stage-chip-order" data-stage-order>{{ "%02d"|format(finished_stage.sequence or progress_stages|length) }}</span>
+            <span class="stage-chip-label" data-stage-label>{{ finished_stage.label }}</span>
+            <span class="stage-chip-state" data-stage-state>-</span>
+          </div>
+          <strong class="stage-chip-duration" data-stage-duration>-</strong>
+          <span class="stage-chip-meta" data-stage-meta>-</span>
         </div>
-        <strong class="stage-chip-duration" data-stage-duration>-</strong>
-        <span class="stage-chip-meta" data-stage-meta>-</span>
       </div>
-      <div class="stage-chip" data-stage="challenger" tabindex="0">
-        <div class="stage-chip-head">
-          <span class="stage-chip-label"><span data-lang="zh">向导</span><span data-lang="en">Guide</span></span>
-          <span class="stage-chip-state" data-stage-state>-</span>
-        </div>
-        <strong class="stage-chip-duration" data-stage-duration>-</strong>
-        <span class="stage-chip-meta" data-stage-meta>-</span>
-      </div>
-      <div class="stage-chip" data-stage="finished" tabindex="0">
-        <div class="stage-chip-head">
-          <span class="stage-chip-label"><span data-lang="zh">完成</span><span data-lang="en">Done</span></span>
-          <span class="stage-chip-state" data-stage-state>-</span>
-        </div>
-        <strong class="stage-chip-duration" data-stage-duration>-</strong>
-        <span class="stage-chip-meta" data-stage-meta>-</span>
-      </div>
+      {% endif %}
     </div>
     <article class="progress-live-card" id="progress-live-card">
       <div class="progress-live-head">
@@ -242,21 +270,25 @@
   const initialRun = {{ run|tojson }};
   const initialTimelineRecords = {{ timeline_events|tojson }};
   const initialConsoleEvents = {{ console_events|tojson }};
+  const initialProgressEvents = {{ progress_events|tojson }};
   const initialArtifacts = {{ run_artifacts|tojson }};
-  const roleStageMap = {
-    check_planner: "checks",
-    generator: "generator",
+  const ARCHETYPE_LABELS = {
+    builder: {zh: "Builder", en: "Builder"},
+    inspector: {zh: "Inspector", en: "Inspector"},
+    gatekeeper: {zh: "GateKeeper", en: "GateKeeper"},
+    guide: {zh: "Guide", en: "Guide"},
+    custom: {zh: "Custom Role", en: "Custom Role"},
+  };
+  const LEGACY_RUNTIME_ROLE_BY_ARCHETYPE = {
     builder: "generator",
-    tester: "tester",
     inspector: "tester",
-    verifier: "verifier",
     gatekeeper: "verifier",
-    challenger: "challenger",
     guide: "challenger",
   };
   let currentRun = initialRun;
   let timelineRecords = initialTimelineRecords.slice();
   let consoleEventRecords = initialConsoleEvents.slice();
+  let progressEventRecords = initialProgressEvents.slice();
   let artifactRecords = initialArtifacts.slice();
   let currentArtifactId = null;
   let lastEventId = {{ latest_event_id | tojson }};
@@ -413,52 +445,299 @@
     return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
   }
 
-  function getStageDefinition(stage) {
-    const definitions = {
-      checks: {
+  function stageKeyForStep(stepId) {
+    return `step:${stepId}`;
+  }
+
+  function stepIdFromStageKey(stage) {
+    return typeof stage === "string" && stage.startsWith("step:") ? stage.slice(5) : "";
+  }
+
+  function getWorkflow(run) {
+    if (run?.workflow_json && typeof run.workflow_json === "object") {
+      return run.workflow_json;
+    }
+    return {roles: [], steps: []};
+  }
+
+  function getWorkflowRoleMap(run) {
+    return new Map(
+      (getWorkflow(run).roles || [])
+        .filter((role) => role && typeof role === "object")
+        .map((role) => [String(role.id || "").trim(), role])
+        .filter(([roleId]) => roleId)
+    );
+  }
+
+  function runtimeRoleForWorkflowRole(role) {
+    const roleId = String(role?.id || "").trim();
+    const archetype = String(role?.archetype || "").trim();
+    if (roleId && archetype && roleId === archetype) {
+      return LEGACY_RUNTIME_ROLE_BY_ARCHETYPE[archetype] || roleId;
+    }
+    return roleId || archetype;
+  }
+
+  function displayRoleSnapshotName(role) {
+    const rawName = String(role?.name || "").trim();
+    const archetype = String(role?.archetype || "").trim();
+    const labels = ARCHETYPE_LABELS[archetype];
+    if (!rawName) {
+      return labels ? localeText(labels.zh, labels.en) : localeText("未命名步骤", "Unnamed step");
+    }
+    const normalized = window.LooporaUI?.normalizeRoleName
+      ? window.LooporaUI.normalizeRoleName(rawName, archetype)
+      : rawName;
+    if (labels && normalized) {
+      const lowered = normalized.toLowerCase();
+      if (lowered === labels.zh.toLowerCase() || lowered === labels.en.toLowerCase()) {
+        return localeText(labels.zh, labels.en);
+      }
+    }
+    return normalized || rawName;
+  }
+
+  function resolvedPayloadRoleName(payload = {}, fallbackRole = "") {
+    const roleName = String(payload.role_name || "").trim();
+    const archetype = String(payload.archetype || fallbackRole || payload.role || "").trim();
+    if (roleName && window.LooporaUI?.normalizeRoleName) {
+      return window.LooporaUI.normalizeRoleName(roleName, archetype);
+    }
+    const resolvedRole = String(fallbackRole || payload.role || "").trim();
+    return resolvedRole ? window.LooporaUI.translateRole(resolvedRole) : "-";
+  }
+
+  function workflowStepDetail(role, step) {
+    const archetype = String(role?.archetype || "").trim();
+    const details = {
+      builder: localeText(
+        "真正修改工作区，朝 Goal 和检查项推进实现。",
+        "Actually changes the workspace to move the implementation toward the Goal and Checks."
+      ),
+      inspector: localeText(
+        "运行命令、页面交互或源码检查来收集证据，回答“发生了什么”。",
+        "Runs commands, page interactions, or source inspection to collect evidence and answer 'what happened?'"
+      ),
+      gatekeeper: localeText(
+        "根据 Goal、检查项、Constraints 和测试证据做裁决，回答“算不算通过”。",
+        "Judges the evidence against the Goal, Checks, and Constraints to answer 'does this count as passing?'"
+      ),
+      guide: localeText(
+        "只有在停滞或回退时才触发，用来提出新的方向，不是每轮必跑。",
+        "Only triggers on plateau or regression to suggest a new direction; it does not run on every iteration."
+      ),
+      custom: localeText(
+        "执行当前编排里定义的自定义步骤，并把结果交接给后续阶段。",
+        "Executes the custom workflow step defined in this orchestration and hands its result to the next stage."
+      ),
+    };
+    const base = details[archetype] || details.custom;
+    if (archetype === "gatekeeper" && String(step?.on_pass || "").trim() === "finish_run") {
+      return `${base} ${localeText("通过时可以直接结束本次运行。", "A passing result can finish the run immediately.")}`;
+    }
+    return base;
+  }
+
+  function stageOrderLabel(stage) {
+    const sequence = Number(stage?.sequence || 0);
+    return sequence > 0 ? String(sequence).padStart(2, "0") : "--";
+  }
+
+  function getProgressStages(run) {
+    const workflow = getWorkflow(run);
+    const roleById = getWorkflowRoleMap(run);
+    const stages = [
+      {
+        key: "checks",
+        kind: "checks",
         title: localeText("检查项", "Checks"),
         detail: localeText(
           "决定这次运行到底用哪些检查项。显式检查项会直接采用；否则会自动生成一组并在本次运行内冻结。",
           "Decides which checks this run uses. Explicit Checks are adopted directly; otherwise a frozen set is auto-generated."
         ),
       },
-      generator: {
-        title: localeText("生成", "Generator"),
-        detail: localeText(
-          "真正修改工作区，朝 Goal 和检查项推进实现。",
-          "Actually changes the workspace to move the implementation toward the Goal and Checks."
-        ),
-      },
-      tester: {
-        title: localeText("测试", "Tester"),
-        detail: localeText(
-          "运行命令、页面交互或源码检查来收集证据，回答“发生了什么”。",
-          "Runs commands, page interactions, or source inspection to collect evidence and answer 'what happened?'"
-        ),
-      },
-      verifier: {
-        title: localeText("验证", "Verifier"),
-        detail: localeText(
-          "根据 Goal、检查项、Constraints 和测试证据做裁决，回答“算不算通过”。",
-          "Judges the tester evidence against the Goal, Checks, and Constraints to answer 'does this count as passing?'"
-        ),
-      },
-      challenger: {
-        title: localeText("挑战", "Challenger"),
-        detail: localeText(
-          "只有在停滞或回退时才触发，用来提出新的方向，不是每轮必跑。",
-          "Only triggers on plateau or regression to suggest a new direction; it does not run on every iteration."
-        ),
-      },
-      finished: {
-        title: localeText("完成", "Done"),
-        detail: localeText(
-          "这次 run 已经结束，可能是成功、失败或手动停止。",
-          "The run has ended, whether by success, failure, or manual stop."
-        ),
-      },
+    ];
+    (workflow.steps || []).forEach((step, index) => {
+      const stepId = String(step?.id || "").trim();
+      if (!stepId) {
+        return;
+      }
+      const role = roleById.get(String(step?.role_id || "").trim()) || {};
+      stages.push({
+        key: stageKeyForStep(stepId),
+        kind: "workflow_step",
+        stepId,
+        stepOrder: index,
+        step,
+        role,
+        roleId: String(step?.role_id || "").trim(),
+        runtimeRole: runtimeRoleForWorkflowRole(role),
+        archetype: String(role?.archetype || "").trim(),
+        title: displayRoleSnapshotName(role),
+        detail: workflowStepDetail(role, step),
+      });
+    });
+    stages.push({
+      key: "finished",
+      kind: "finished",
+      title: localeText("完成", "Done"),
+      detail: localeText(
+        "这次 run 已经结束，可能是成功、失败或手动停止。",
+        "The run has ended, whether by success, failure, or manual stop."
+      ),
+    });
+    return stages.map((stage, index) => ({
+      ...stage,
+      sequence: index + 1,
+      chipLabel: stage.title,
+    }));
+  }
+
+  function getStageDefinition(stage, run = currentRun) {
+    const stages = getProgressStages(run);
+    return stages.find((item) => item.key === stage) || stages[0] || {
+      key: "checks",
+      kind: "checks",
+      title: localeText("检查项", "Checks"),
+      chipLabel: localeText("检查项", "Checks"),
+      sequence: 1,
+      detail: "",
     };
-    return definitions[stage] || definitions.checks;
+  }
+
+  function workflowLoopSummary(run = currentRun) {
+    const workflowStages = getProgressStages(run).filter((stage) => stage.kind === "workflow_step");
+    if (!workflowStages.length) {
+      return {
+        eyebrow: localeText("Workflow Loop", "Workflow Loop"),
+        title: localeText("No workflow steps", "No workflow steps"),
+        detail: localeText(
+          "这次 run 没有冻结下中间编排步骤，所以这里只显示入口和最终状态。",
+          "This run has no frozen middle workflow steps, so only the entry and final state remain."
+        ),
+      };
+    }
+    const hasFinishGate = workflowStages.some((stage) => (
+      stage.archetype === "gatekeeper" && String(stage.step?.on_pass || "").trim() === "finish_run"
+    ));
+    return {
+      eyebrow: localeText("Workflow Loop", "Workflow Loop"),
+      title: workflowStages.map((stage) => stage.title).join(" → "),
+      detail: hasFinishGate
+        ? localeText(
+          "中间步骤按编排顺序循环推进，直到 GateKeeper 放行或运行预算耗尽。",
+          "The arranged middle steps repeat in order until GateKeeper passes or the run budget ends."
+        )
+        : localeText(
+          "中间步骤按编排顺序循环推进，直到当前 completion mode 结束本次运行。",
+          "The arranged middle steps repeat in order until the configured completion mode ends the run."
+        ),
+    };
+  }
+
+  function stageChipMarkup(stage) {
+    return `
+      <div class="stage-chip-head">
+        <span class="stage-chip-order" data-stage-order>${escapeHtml(stageOrderLabel(stage))}</span>
+        <span class="stage-chip-label" data-stage-label>${escapeHtml(stage.chipLabel || stage.title)}</span>
+        <span class="stage-chip-state" data-stage-state>-</span>
+      </div>
+      <strong class="stage-chip-duration" data-stage-duration>-</strong>
+      <span class="stage-chip-meta" data-stage-meta>-</span>
+    `;
+  }
+
+  function createStageChip(stage) {
+    const chip = document.createElement("div");
+    chip.className = `stage-chip ${stage.kind === "workflow_step" ? "stage-chip--workflow" : "stage-chip--terminal"}`;
+    chip.dataset.stage = stage.key;
+    chip.dataset.stageKind = stage.kind;
+    chip.tabIndex = 0;
+    chip.innerHTML = stageChipMarkup(stage);
+    return chip;
+  }
+
+  function buildStageStripLayout(stages) {
+    const fragment = document.createDocumentFragment();
+    const checksStage = stages.find((stage) => stage.kind === "checks") || null;
+    const workflowStages = stages.filter((stage) => stage.kind === "workflow_step");
+    const finishedStage = stages.find((stage) => stage.kind === "finished") || null;
+
+    if (checksStage) {
+      const terminal = document.createElement("div");
+      terminal.className = "stage-strip-terminal stage-strip-terminal--entry";
+      terminal.appendChild(createStageChip(checksStage));
+      fragment.appendChild(terminal);
+    }
+
+    const loopShell = document.createElement("div");
+    loopShell.className = `stage-loop-shell${workflowStages.length ? "" : " is-empty"}`;
+    loopShell.innerHTML = `
+      <div class="stage-loop-banner">
+        <span class="stage-loop-eyebrow" id="stage-loop-eyebrow">-</span>
+        <strong class="stage-loop-title" id="stage-loop-title">-</strong>
+        <p class="stage-loop-copy" id="stage-loop-copy">-</p>
+      </div>
+      <div class="stage-loop-track">
+        <span class="stage-loop-connector stage-loop-connector--entry" aria-hidden="true"></span>
+        <div class="stage-loop-steps"></div>
+        <span class="stage-loop-connector stage-loop-connector--exit" aria-hidden="true"></span>
+        <div class="stage-loop-arcs" aria-hidden="true">
+          <span class="stage-loop-arc stage-loop-arc--top"></span>
+          <span class="stage-loop-arc stage-loop-arc--bottom"></span>
+        </div>
+      </div>
+    `;
+    const workflowContainer = loopShell.querySelector(".stage-loop-steps");
+    if (workflowStages.length) {
+      workflowContainer.replaceChildren(...workflowStages.map(createStageChip));
+    } else {
+      workflowContainer.innerHTML = `
+        <div class="stage-loop-empty">
+          <strong>${escapeHtml(localeText("还没有 workflow steps", "No workflow steps yet"))}</strong>
+          <p>${escapeHtml(localeText(
+            "这次 run 没有冻结下中间编排步骤，所以这里只显示入口和最终状态。",
+            "This run has no frozen middle workflow steps, so only the entry and final state remain."
+          ))}</p>
+        </div>
+      `;
+    }
+    fragment.appendChild(loopShell);
+
+    if (finishedStage) {
+      const terminal = document.createElement("div");
+      terminal.className = "stage-strip-terminal stage-strip-terminal--exit";
+      terminal.appendChild(createStageChip(finishedStage));
+      fragment.appendChild(terminal);
+    }
+    return fragment;
+  }
+
+  function updateStageLoopSummary(run = currentRun) {
+    const summary = workflowLoopSummary(run);
+    setTextContentIfChanged("stage-loop-eyebrow", summary.eyebrow);
+    setTextContentIfChanged("stage-loop-title", summary.title);
+    setTextContentIfChanged("stage-loop-copy", summary.detail);
+    const loopShell = document.querySelector("#stage-strip .stage-loop-shell");
+    if (loopShell) {
+      loopShell.classList.toggle("is-empty", !getProgressStages(run).some((stage) => stage.kind === "workflow_step"));
+    }
+  }
+
+  function ensureStageStrip(run) {
+    const stageStrip = document.getElementById("stage-strip");
+    if (!stageStrip) {
+      return;
+    }
+    const stages = getProgressStages(run);
+    const existingKeys = Array.from(stageStrip.querySelectorAll(".stage-chip")).map((chip) => chip.dataset.stage);
+    const expectedKeys = stages.map((stage) => stage.key);
+    if (existingKeys.length === expectedKeys.length && existingKeys.every((key, index) => key === expectedKeys[index])) {
+      updateStageLoopSummary(run);
+      return;
+    }
+    stageStrip.replaceChildren(buildStageStripLayout(stages));
+    updateStageLoopSummary(run);
   }
 
   function formatDurationMs(value) {
@@ -473,33 +752,8 @@
     return seconds >= 10 ? `${seconds.toFixed(1)}s` : `${seconds.toFixed(2)}s`;
   }
 
-  function latestRoleSummary(role) {
-    for (let index = timelineRecords.length - 1; index >= 0; index -= 1) {
-      const event = timelineRecords[index];
-      if (event.event_type === "role_execution_summary" && (event.payload?.role || event.role) === role) {
-        return event;
-      }
-    }
-    return null;
-  }
-
-  function hasTimelineEvent(type) {
-    return timelineRecords.some((event) => event.event_type === type);
-  }
-
-  function roleSummaryEvents(role) {
-    return timelineRecords.filter((event) => (
-      event.event_type === "role_execution_summary"
-      && (event.payload?.role || event.role) === role
-    ));
-  }
-
-  function totalRoleDurationMs(role) {
-    return roleSummaryEvents(role).reduce((total, event) => total + Number(event.payload?.duration_ms || 0), 0);
-  }
-
-  function latestTimelineEventOfType(type) {
-    return findLatestEvent(timelineRecords, (event) => event.event_type === type);
+  function latestProgressEventOfType(type) {
+    return findLatestEvent(progressEventRecords, (event) => event.event_type === type);
   }
 
   function formatStageDuration(ms) {
@@ -523,12 +777,140 @@
     return localeText(`${seconds} 秒`, `${seconds}s`);
   }
 
+  function findAttemptByIter(attempts, iter) {
+    for (let index = attempts.length - 1; index >= 0; index -= 1) {
+      const attempt = attempts[index];
+      if (attempt.iter === iter) {
+        return attempt;
+      }
+    }
+    return null;
+  }
+
+  function attemptDurationMs(attempt) {
+    const explicit = Number(attempt?.durationMs);
+    if (Number.isFinite(explicit) && explicit > 0) {
+      return explicit;
+    }
+    const startedAt = parseTimestamp(attempt?.startedAt);
+    const endedAt = parseTimestamp(attempt?.handoffAt || attempt?.summaryAt);
+    if (startedAt === null || endedAt === null) {
+      return 0;
+    }
+    return Math.max(0, endedAt - startedAt);
+  }
+
+  function workflowStepAttempts(run) {
+    const attemptsByStep = new Map(
+      getProgressStages(run)
+        .filter((stage) => stage.kind === "workflow_step")
+        .map((stage) => [stage.stepId, []])
+    );
+    progressEventRecords.forEach((event) => {
+      const payload = event.payload || {};
+      const stepId = String(payload.step_id || "").trim();
+      if (!stepId || !attemptsByStep.has(stepId)) {
+        return;
+      }
+      const iter = payload.iter === undefined || payload.iter === null ? null : Number(payload.iter);
+      const attempts = attemptsByStep.get(stepId);
+      let attempt = findAttemptByIter(attempts, iter);
+      if (!attempt) {
+        attempt = {
+          iter,
+          stepId,
+          stepOrder: payload.step_order,
+          role: event.role || payload.role || "",
+          roleName: payload.role_name || "",
+          archetype: payload.archetype || "",
+          startedAt: null,
+          summaryAt: null,
+          handoffAt: null,
+          ok: null,
+          attempts: 0,
+          error: "",
+          durationMs: null,
+          handoffStatus: "",
+        };
+        attempts.push(attempt);
+      }
+      attempt.stepOrder = attempt.stepOrder ?? payload.step_order;
+      attempt.role = attempt.role || event.role || payload.role || "";
+      attempt.roleName = attempt.roleName || payload.role_name || "";
+      attempt.archetype = attempt.archetype || payload.archetype || "";
+      if (["role_started", "role_request_prepared", "step_context_prepared"].includes(event.event_type)) {
+        attempt.startedAt = attempt.startedAt || event.created_at;
+      }
+      if (event.event_type === "role_execution_summary") {
+        attempt.summaryAt = event.created_at;
+        attempt.ok = Boolean(payload.ok);
+        attempt.attempts = Number(payload.attempts || 0);
+        attempt.error = String(payload.error || "").trim();
+        attempt.durationMs = Number(payload.duration_ms || 0);
+      }
+      if (event.event_type === "step_handoff_written") {
+        attempt.handoffAt = event.created_at;
+        attempt.handoffStatus = String(payload.status || "").trim();
+      }
+    });
+    return attemptsByStep;
+  }
+
+  function currentWorkflowStepEvent(run) {
+    const activeRole = String(run?.active_role || "").trim();
+    const iter = currentIterValue(run);
+    if (activeRole) {
+      const activeEvent = findLatestEvent(progressEventRecords, (event) => {
+        const payload = event.payload || {};
+        const stepId = String(payload.step_id || "").trim();
+        if (!stepId) {
+          return false;
+        }
+        const eventRole = String(event.role || payload.role || "").trim();
+        if (eventRole && eventRole !== activeRole) {
+          return false;
+        }
+        if (payload.iter !== undefined && payload.iter !== null && Number(payload.iter) !== iter) {
+          return false;
+        }
+        return true;
+      });
+      if (activeEvent) {
+        return activeEvent;
+      }
+    }
+    return findLatestEvent(progressEventRecords, (event) => Boolean(event.payload?.step_id));
+  }
+
+  function getCurrentStage(run) {
+    if (!run) {
+      return "checks";
+    }
+    const checksResolved = latestProgressEventOfType("checks_resolved");
+    if (run.status === "queued" || (!checksResolved && runIsActive(run))) {
+      return "checks";
+    }
+    if (run.status === "succeeded") {
+      return "finished";
+    }
+    const currentStepEvent = currentWorkflowStepEvent(run);
+    const stepId = String(currentStepEvent?.payload?.step_id || "").trim();
+    if (stepId) {
+      return stageKeyForStep(stepId);
+    }
+    if (run.status === "failed" || run.status === "stopped") {
+      return checksResolved ? "finished" : "checks";
+    }
+    return "checks";
+  }
+
   function getStageSnapshots(run) {
+    const stages = getProgressStages(run);
     const runFinished = ["succeeded", "failed", "stopped"].includes(run?.status || "");
     const currentStage = getCurrentStage(run);
     const snapshots = {};
     const runStartTs = parseTimestamp(run?.started_at || run?.queued_at || run?.created_at);
-    const checksResolved = latestTimelineEventOfType("checks_resolved");
+    const checksResolved = latestProgressEventOfType("checks_resolved");
     const checksResolvedTs = parseTimestamp(checksResolved?.created_at);
     const checksLiveMs = runStartTs === null ? null : Math.max(0, Date.now() - runStartTs);
 
@@ -550,6 +932,13 @@
           ? localeText("等待执行槽", "Waiting for a slot")
           : localeText("正在整理检查集", "Resolving checks"),
       };
+    } else if (runFinished && checksResolvedTs === null) {
+      snapshots.checks = {
+        state: "failed",
+        stateLabel: window.LooporaUI.translateStatus(run?.status || "failed"),
+        durationLabel: formatDuration(run?.started_at, run?.finished_at),
+        meta: localeText("运行在检查项冻结前结束了。", "The run ended before checks were resolved."),
+      };
     } else {
       snapshots.checks = {
         state: "pending",
@@ -559,48 +948,68 @@
       };
     }
 
-    ["generator", "tester", "verifier", "challenger"].forEach((role) => {
-      const summaries = roleSummaryEvents(role);
-      const totalMs = totalRoleDurationMs(role);
-      const latestSummary = summaries[summaries.length - 1] || null;
-      if (run?.active_role === role && run?.status === "running") {
-        const stageStart = currentRoleStartEvent(run);
-        const stageStartTs = parseTimestamp(stageStart?.created_at || run?.started_at);
-        const liveMs = stageStartTs === null ? null : Math.max(0, Date.now() - stageStartTs);
-        const totalLabel = formatStageDuration(totalMs);
-        snapshots[role] = {
+    const attemptsByStep = workflowStepAttempts(run);
+    stages.filter((stage) => stage.kind === "workflow_step").forEach((stage) => {
+      const attempts = attemptsByStep.get(stage.stepId) || [];
+      const latestAttempt = attempts[attempts.length - 1] || null;
+      const totalMs = attempts.reduce((total, attempt) => total + attemptDurationMs(attempt), 0);
+      const completedCount = attempts.filter((attempt) => Boolean(attempt.handoffAt || attempt.ok === true)).length;
+
+      if (currentStage === stage.key && run?.status === "running") {
+        const startedAt = parseTimestamp(latestAttempt?.startedAt || currentWorkflowStepEvent(run)?.created_at || run?.started_at);
+        const liveMs = startedAt === null ? null : Math.max(0, Date.now() - startedAt);
+        snapshots[stage.key] = {
           state: "current",
           stateLabel: localeText("处理中", "Active"),
           durationLabel: formatStageDuration(liveMs) || localeText("刚开始", "Just started"),
-          meta: totalLabel
-            ? localeText(`已完成 ${summaries.length} 次`, `Done ${summaries.length}x`)
-            : localeText("当前阶段", "Current stage"),
+          meta: completedCount
+            ? localeText(`已完成 ${completedCount} 次`, `Completed ${completedCount}x`)
+            : localeText("当前步骤", "Current step"),
         };
         return;
       }
-      if (latestSummary) {
-        const totalLabel = formatStageDuration(totalMs || latestSummary.payload?.duration_ms);
-        snapshots[role] = {
-          state: latestSummary.payload?.ok ? "complete" : "failed",
-          stateLabel: latestSummary.payload?.ok ? localeText("已完成", "Done") : localeText("失败", "Failed"),
-          durationLabel: totalLabel || localeText("已执行", "Done"),
-          meta: latestSummary.payload?.ok
-            ? localeText(`已完成 ${summaries.length} 次`, `Completed ${summaries.length}x`)
-            : localeText(`最近一次失败 · 共 ${summaries.length} 次`, `Last attempt failed · ${summaries.length}x`),
+
+      if (latestAttempt && latestAttempt.ok === false && !latestAttempt.handoffAt) {
+        const failedLabel = run?.status === "stopped" && currentStage === stage.key
+          ? window.LooporaUI.translateStatus("stopped")
+          : localeText("失败", "Failed");
+        snapshots[stage.key] = {
+          state: "failed",
+          stateLabel: failedLabel,
+          durationLabel: formatStageDuration(totalMs || attemptDurationMs(latestAttempt)) || localeText("已执行", "Done"),
+          meta: run?.status === "stopped" && currentStage === stage.key
+            ? localeText("在这个步骤被手动停止。", "The run was stopped during this step.")
+            : localeText(`最近一次失败 · 共 ${attempts.length} 次`, `Last attempt failed · ${attempts.length}x`),
         };
         return;
       }
-      if (role === "challenger" && runFinished) {
-        snapshots[role] = {
+
+      if (latestAttempt && (latestAttempt.handoffAt || latestAttempt.ok === true)) {
+        snapshots[stage.key] = {
+          state: "complete",
+          stateLabel: localeText("已完成", "Done"),
+          durationLabel: formatStageDuration(totalMs || attemptDurationMs(latestAttempt)) || localeText("已执行", "Done"),
+          meta: attempts.length > 1
+            ? localeText(`已完成 ${attempts.length} 次`, `Completed ${attempts.length}x`)
+            : localeText("这一阶段已走通。", "This stage completed."),
+        };
+        return;
+      }
+
+      if (runFinished) {
+        snapshots[stage.key] = {
           state: "skipped",
           stateLabel: localeText("未触发", "Skipped"),
           durationLabel: localeText("未触发", "Skipped"),
-          meta: localeText("只有停滞或回退才会运行", "Only on plateau or regression"),
+          meta: stage.archetype === "guide"
+            ? localeText("只有停滞或回退才会运行", "Only on plateau or regression")
+            : localeText("本次运行没有走到这一步。", "This run never reached this step."),
         };
         return;
       }
-      snapshots[role] = {
-        state: currentStage === role && run?.status === "running" ? "current" : "pending",
+
+      snapshots[stage.key] = {
+        state: "pending",
         stateLabel: localeText("未开始", "Pending"),
         durationLabel: localeText("待开始", "Waiting"),
         meta: localeText("还没进入这一阶段", "Not started yet"),
@@ -624,7 +1033,7 @@
   }
 
   function stageTooltipText(stage, run = currentRun, snapshots = getStageSnapshots(run || currentRun)) {
-    const definition = getStageDefinition(stage);
+    const definition = getStageDefinition(stage, run);
     const snapshot = snapshots[stage] || {durationLabel: "-", meta: "-"};
     return [definition.title, snapshot.durationLabel, snapshot.meta, definition.detail].filter(Boolean).join(" · ");
   }
@@ -645,20 +1054,21 @@
   }
 
   function currentRoleStartEvent(run) {
-    const role = run?.active_role;
-    if (!role) {
+    const stepId = stepIdFromStageKey(getCurrentStage(run));
+    if (!stepId) {
       return null;
     }
     const iter = currentIterValue(run);
-    return findLatestEvent(consoleEventRecords, (event) => (
+    return findLatestEvent(progressEventRecords, (event) => (
       event.event_type === "role_started"
-      && (event.payload?.role || event.role) === role
+      && String(event.payload?.step_id || "").trim() === stepId
       && Number(event.payload?.iter ?? iter) === iter
     ));
   }
 
   function latestRoleActivityEvent(run) {
     const role = run?.active_role;
+    const stepId = stepIdFromStageKey(getCurrentStage(run));
     if (!role) {
       return null;
     }
@@ -669,6 +1079,10 @@
       if (eventRole !== role || event.event_type === "role_started") {
         return false;
       }
+      const eventStepId = String(event.payload?.step_id || "").trim();
+      if (stepId && eventStepId && eventStepId !== stepId) {
+        return false;
+      }
       if (stageStartTs === null) {
         return true;
       }
@@ -677,7 +1091,15 @@
     });
   }
 
-  function fallbackActivitySummary(stage) {
+  function activityHintKey(stage, run = currentRun) {
+    const definition = getStageDefinition(stage, run);
+    if (definition.kind === "checks" || definition.kind === "finished") {
+      return definition.kind;
+    }
+    return definition.archetype || "custom";
+  }
+
+  function fallbackActivitySummary(stage, run = currentRun) {
     const hints = {
       checks: {
         title: localeText("正在整理检查项", "Shaping the check list"),
@@ -686,32 +1108,39 @@
           "It is turning the Goal, constraints, and current workspace into a set of checkable checks. As soon as that list freezes, this card will switch to something more concrete."
         ),
       },
-      generator: {
+      builder: {
         title: localeText("正在筹划这轮改动", "Planning this round of changes"),
         detail: localeText(
           "它多半在读代码、决定要改哪些文件；一旦开始落盘或跑命令，这里就会马上显示具体动作。",
           "It is likely reading code and deciding which files to touch. As soon as it writes files or runs commands, the concrete action will appear here."
         ),
       },
-      tester: {
+      inspector: {
         title: localeText("正在收集测试证据", "Collecting test evidence"),
         detail: localeText(
           "它可能在跑命令、看页面，或者对照源码核对行为；第一条命令、输出或结论一出现，这里就会跟着刷新。",
           "It may be running commands, checking the page, or comparing behavior against the source. The first command, output, or conclusion will show up here as soon as it lands."
         ),
       },
-      verifier: {
+      gatekeeper: {
         title: localeText("正在整理验证结论", "Preparing the verification verdict"),
         detail: localeText(
           "它在消化检查项和测试证据，准备判断这一轮到底算不算通过。",
           "It is digesting the checks and test evidence to decide whether this round really passes."
         ),
       },
-      challenger: {
+      guide: {
         title: localeText("正在寻找新方向", "Looking for a new direction"),
         detail: localeText(
           "它在分析为什么会停住，并尝试提出一条更有希望的下一步路线。",
           "It is analyzing why progress stalled and trying to suggest a more promising next move."
+        ),
+      },
+      custom: {
+        title: localeText("正在推进当前步骤", "Advancing the current step"),
+        detail: localeText(
+          "这个步骤已经开始了，只是还没吐出足够具体的新信号。",
+          "This step has started, but it has not emitted a concrete enough signal yet."
         ),
       },
       finished: {
@@ -722,7 +1151,7 @@
         ),
       },
     };
-    return hints[stage] || {
+    return hints[activityHintKey(stage, run)] || {
       title: localeText("正在继续推进", "Still moving forward"),
       detail: localeText(
         "当前阶段已经开始，只是还没吐出足够具体的新信号。",
@@ -731,7 +1160,7 @@
     };
   }
 
-  function commandProgressHint(command, stage) {
+  function commandProgressHint(command, stage, run = currentRun) {
     const text = String(command || "").trim();
     const normalized = text.toLowerCase();
     const generic = {
@@ -826,16 +1255,17 @@
     }
 
     const stageSpecific = {
-      generator: localeText("它现在多半在落地改动，命令跑完后会继续写文件或整理下一步。", "It is likely applying changes right now; once the command ends, it will continue writing files or planning the next step."),
-      tester: localeText("它现在在收集测试证据，命令跑完后通常会给出通过、失败或下一条验证动作。", "It is gathering test evidence right now; once the command ends, it will usually produce a pass/fail signal or the next verification action."),
-      verifier: localeText("它现在在补验证证据，这条命令结束后会更接近最终结论。", "It is filling in verification evidence; once this command ends, it will be closer to the final verdict."),
+      builder: localeText("它现在多半在落地改动，命令跑完后会继续写文件或整理下一步。", "It is likely applying changes right now; once the command ends, it will continue writing files or planning the next step."),
+      inspector: localeText("它现在在收集测试证据，命令跑完后通常会给出通过、失败或下一条验证动作。", "It is gathering test evidence right now; once the command ends, it will usually produce a pass/fail signal or the next verification action."),
+      gatekeeper: localeText("它现在在补验证证据，这条命令结束后会更接近最终结论。", "It is filling in verification evidence; once this command ends, it will be closer to the final verdict."),
       checks: localeText("它在补足检查项上下文，命令跑完后会更快冻结本轮检查集。", "It is collecting context for the checks; once the command ends, it can freeze this run's check set."),
-      challenger: localeText("它在为下一步寻找突破口，命令跑完后会更容易给出新方向。", "It is probing for a better next move; once the command ends, it can suggest a clearer new direction."),
+      guide: localeText("它在为下一步寻找突破口，命令跑完后会更容易给出新方向。", "It is probing for a better next move; once the command ends, it can suggest a clearer new direction."),
+      custom: localeText("它正在执行这个自定义步骤，命令结束后会更接近新的交接结果。", "It is executing this custom step right now; once the command ends, it will be closer to a fresh handoff."),
     };
 
     return {
       title: generic.title,
-      detail: stageSpecific[stage] || generic.detail,
+      detail: stageSpecific[activityHintKey(stage, run)] || generic.detail,
     };
   }
 
@@ -1248,7 +1678,7 @@
     } = {},
   ) {
     const payload = event.payload || {};
-    const resolvedRole = roleLabel || window.LooporaUI.translateRole(event.role || payload.role || "system");
+    const resolvedRole = roleLabel || resolvedPayloadRoleName(payload, event.role || payload.role || "system");
     const normalizedText = String(text ?? "").replaceAll("\r\n", "\n").replace(/\s+$/, "");
     return {
       tone,
@@ -1269,7 +1699,7 @@
     return [
       `iter=${payload.iter !== undefined ? displayIter(payload.iter) : "-"}`,
       `step=${payload.step_id || "-"}`,
-      `role=${payload.role_name || payload.role || "-"}`,
+      `role=${resolvedPayloadRoleName(payload)}`,
       `path=${payload.context_path || payload.handoff_path || payload.summary_path || payload.step_prompt_path || payload.output_path || "-"}`,
     ].join(" · ");
   }
@@ -1399,7 +1829,7 @@
         tone: "system",
         channel: "context",
         filterKey: "context",
-        summary: `${localeText("角色请求已准备", "Role request prepared")} · ${payload.role_name || payload.role || "-"}`,
+        summary: `${localeText("角色请求已准备", "Role request prepared")} · ${resolvedPayloadRoleName(payload)}`,
         text: prettyConsoleJson(payload),
         collapsed: true,
       })];
@@ -1695,7 +2125,7 @@
     if (event.event_type === "role_request_prepared") {
       return {
         title: localeText("角色请求已准备", "Role request prepared"),
-        detail: String(payload.role_name || role || ""),
+        detail: resolvedPayloadRoleName(payload, role),
       };
     }
     if (event.event_type === "step_context_prepared") {
@@ -1778,39 +2208,8 @@
     return {title: event.event_type, detail: ""};
   }
 
-  function getCurrentStage(run) {
-    if (!run) {
-      return "checks";
-    }
-    if (run.status === "succeeded") {
-      return "finished";
-    }
-    if (run.status === "queued") {
-      return "checks";
-    }
-    if (run.active_role && roleStageMap[run.active_role]) {
-      return roleStageMap[run.active_role];
-    }
-    const latestEvent = timelineRecords[timelineRecords.length - 1];
-    if (latestEvent && latestEvent.payload && latestEvent.payload.role && roleStageMap[latestEvent.payload.role]) {
-      return roleStageMap[latestEvent.payload.role];
-    }
-    if (run.status === "failed" || run.status === "stopped") {
-      return "verifier";
-    }
-    return "checks";
-  }
-
-  function stageDisplayName(stage) {
-    const labels = {
-      checks: localeText("检查项", "Checks"),
-      generator: localeText("建造者", "Builder"),
-      tester: localeText("巡检者", "Inspector"),
-      verifier: localeText("守门人", "GateKeeper"),
-      challenger: localeText("向导", "Guide"),
-      finished: localeText("完成", "Done"),
-    };
-    return labels[stage] || stage;
+  function stageDisplayName(stage, run = currentRun) {
+    return getStageDefinition(stage, run).title || stage;
   }
 
   function summarizeVerdict(verdict) {
@@ -1876,8 +2275,10 @@
   }
 
   function updateProgressPanel(run, {liveOnly = false} = {}) {
+    ensureStageStrip(run);
     const stage = getCurrentStage(run);
     const snapshots = getStageSnapshots(run);
+    const stageDefinitions = new Map(getProgressStages(run).map((definition) => [definition.key, definition]));
     const statusBadge = document.getElementById("progress-status-badge");
     const status = run?.status || "draft";
     const liveWork = describeLiveWork(run);
@@ -1918,12 +2319,18 @@
 
     document.querySelectorAll(".stage-chip").forEach((chip) => {
       const snapshot = snapshots[chip.dataset.stage] || {state: "pending", stateLabel: "-", durationLabel: "-", meta: "-"};
+      const definition = stageDefinitions.get(chip.dataset.stage);
       const tooltip = stageTooltipText(chip.dataset.stage, run, snapshots);
-      setClassNameIfChanged(chip, `stage-chip ${snapshot.state}`);
+      const baseClass = chip.dataset.stageKind === "workflow_step"
+        ? "stage-chip stage-chip--workflow"
+        : "stage-chip stage-chip--terminal";
+      setClassNameIfChanged(chip, `${baseClass} ${snapshot.state}`);
       if (chip.dataset.tooltip !== tooltip) {
         chip.dataset.tooltip = tooltip;
       }
       setAttributeIfChanged(chip, "aria-label", tooltip);
+      setTextContentIfChanged(chip.querySelector("[data-stage-order]"), stageOrderLabel(definition));
+      setTextContentIfChanged(chip.querySelector("[data-stage-label]"), definition?.chipLabel || definition?.title || chip.dataset.stage);
       setTextContentIfChanged(chip.querySelector("[data-stage-state]"), snapshot.stateLabel || "-");
       setTextContentIfChanged(chip.querySelector("[data-stage-duration]"), snapshot.durationLabel || "-");
       setTextContentIfChanged(chip.querySelector("[data-stage-meta]"), snapshot.meta || "-");
@@ -1934,7 +2341,7 @@
   function updateHighlights(run) {
     const status = run?.status || "draft";
     const stage = getCurrentStage(run);
-    const focusName = run?.active_role ? window.LooporaUI.translateRole(run.active_role) : stageDisplayName(stage);
+    const focusName = stageDisplayName(stage, run);
     const focusTitle = status === "running"
       ? `${focusName} ${localeText("处理中", "in progress")}`
       : `${window.LooporaUI.translateStatus(status)} · ${focusName}`;
@@ -1984,6 +2391,29 @@
     if (currentRun) {
       updateProgressPanel(currentRun);
       updateHighlights(currentRun);
+    }
+  }
+
+  function isProgressEvent(event) {
+    return [
+      "checks_resolved",
+      "role_started",
+      "role_request_prepared",
+      "step_context_prepared",
+      "role_execution_summary",
+      "step_handoff_written",
+      "run_aborted",
+      "run_finished",
+    ].includes(event?.event_type);
+  }
+
+  function pushProgressEvent(event) {
+    if (!isProgressEvent(event)) {
+      return;
+    }
+    progressEventRecords.push(event);
+    if (progressEventRecords.length > 4000) {
+      progressEventRecords = progressEventRecords.slice(-4000);
     }
   }
 
@@ -2052,6 +2482,7 @@
     if (options.console !== false) {
       pushConsoleEvent(payload);
     }
+    pushProgressEvent(payload);
     if (currentRun && payload.event_type === "role_started") {
       currentRun = {
         ...currentRun,

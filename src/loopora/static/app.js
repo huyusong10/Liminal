@@ -20,30 +20,53 @@
 
   const ROLE_LABELS = {
     zh: {
-      generator: "建造者",
-      builder: "建造者",
-      check_planner: "检查规划",
-      tester: "巡检者",
-      inspector: "巡检者",
-      verifier: "守门人",
-      gatekeeper: "守门人",
-      challenger: "向导",
-      guide: "向导",
-      system: "系统",
-    },
-    en: {
       generator: "Builder",
       builder: "Builder",
-      check_planner: "check planner",
+      check_planner: "Check Planner",
       tester: "Inspector",
       inspector: "Inspector",
       verifier: "GateKeeper",
       gatekeeper: "GateKeeper",
       challenger: "Guide",
       guide: "Guide",
-      system: "system",
+      system: "System",
+    },
+    en: {
+      generator: "Builder",
+      builder: "Builder",
+      check_planner: "Check Planner",
+      tester: "Inspector",
+      inspector: "Inspector",
+      verifier: "GateKeeper",
+      gatekeeper: "GateKeeper",
+      challenger: "Guide",
+      guide: "Guide",
+      system: "System",
     },
   };
+  const ROLE_DISPLAY_BY_ARCHETYPE = {
+    builder: "Builder",
+    inspector: "Inspector",
+    gatekeeper: "GateKeeper",
+    guide: "Guide",
+    custom: "Custom Role",
+  };
+  const ROLE_NAME_ALIASES = {
+    builder: ["建造者", "generator", "builder"],
+    inspector: ["巡检者", "tester", "inspector"],
+    gatekeeper: ["守门人", "verifier", "gatekeeper"],
+    guide: ["向导", "challenger", "guide"],
+    custom: ["自定义角色", "custom role", "custom"],
+  };
+  const ROLE_NAME_LOOKUP = Object.fromEntries(
+    Object.entries(ROLE_NAME_ALIASES).flatMap(([archetype, aliases]) => {
+      const canonical = ROLE_DISPLAY_BY_ARCHETYPE[archetype];
+      return aliases.flatMap((alias) => {
+        const normalized = String(alias || "").trim();
+        return normalized ? [[normalized, canonical], [normalized.toLowerCase(), canonical]] : [];
+      });
+    })
+  );
 
   function readSavedLocale() {
     try {
@@ -152,7 +175,29 @@
     if (!value || value === "-") {
       return "-";
     }
-    return ROLE_LABELS[currentLocale()][value] || value;
+    return ROLE_LABELS[currentLocale()][value] || normalizeRoleName(value);
+  }
+
+  function normalizeRoleName(value, archetype = "") {
+    if (!value || value === "-") {
+      return value || "-";
+    }
+    const text = String(value).trim();
+    if (!text) {
+      return "-";
+    }
+    const canonical = ROLE_DISPLAY_BY_ARCHETYPE[String(archetype || "").trim().toLowerCase()] || "";
+    if (canonical) {
+      const lowered = text.toLowerCase();
+      if (lowered === canonical.toLowerCase()) {
+        return canonical;
+      }
+      if (ROLE_NAME_LOOKUP[text] === canonical || ROLE_NAME_LOOKUP[lowered] === canonical) {
+        return canonical;
+      }
+      return text;
+    }
+    return ROLE_NAME_LOOKUP[text] || ROLE_NAME_LOOKUP[text.toLowerCase()] || text;
   }
 
   function applyLocalizedAttributes(root = document) {
@@ -463,6 +508,7 @@
     pickText,
     translateStatus,
     translateRole,
+    normalizeRoleName,
     applyLocalizedAttributes,
     bindDeleteLoopButtons,
     bindOpenCards,

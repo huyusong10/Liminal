@@ -5,11 +5,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   const ARCHETYPE_LABELS = {
-    builder: {zh: "建造者", en: "Builder"},
-    inspector: {zh: "巡检者", en: "Inspector"},
-    gatekeeper: {zh: "守门人", en: "GateKeeper"},
-    guide: {zh: "向导", en: "Guide"},
-    custom: {zh: "自定义角色", en: "Custom Role"},
+    builder: {zh: "Builder", en: "Builder"},
+    inspector: {zh: "Inspector", en: "Inspector"},
+    gatekeeper: {zh: "GateKeeper", en: "GateKeeper"},
+    guide: {zh: "Guide", en: "Guide"},
+    custom: {zh: "Custom Role", en: "Custom Role"},
   };
   const EXECUTOR_LABELS = {
     codex: "Codex",
@@ -95,6 +95,17 @@ document.addEventListener("DOMContentLoaded", () => {
   function roleLabel(archetype) {
     const labels = ARCHETYPE_LABELS[archetype] || {zh: archetype, en: archetype};
     return localeText(labels.zh, labels.en);
+  }
+
+  function displayRoleSnapshotName(role) {
+    const archetype = String(role?.archetype || "").trim();
+    const rawName = String(role?.name || "").trim();
+    if (!rawName) {
+      return roleLabel(archetype);
+    }
+    return window.LooporaUI?.normalizeRoleName
+      ? window.LooporaUI.normalizeRoleName(rawName, archetype)
+      : rawName;
   }
 
   function roleDefinitionById(roleDefinitionId) {
@@ -215,9 +226,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function normalizeRole(role, index) {
     const archetype = String(role.archetype || "builder").trim() || "builder";
+    const rawName = String(role.name || "").trim();
     return {
       id: String(role.id || `role_${index + 1}`),
-      name: String(role.name || roleLabel(archetype)),
+      name: rawName
+        ? (window.LooporaUI?.normalizeRoleName?.(rawName, archetype) || rawName)
+        : roleLabel(archetype),
       archetype,
       prompt_ref: String(role.prompt_ref || "").trim(),
       role_definition_id: String(role.role_definition_id || ""),
@@ -503,7 +517,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="workflow-step-ident">
             <span class="workflow-step-order-badge">${index + 1}</span>
             <div class="workflow-step-title-stack">
-              <strong>${escapeHtml(role?.name || step.role_id || localeText("未绑定角色", "Unbound role"))}</strong>
+              <strong>${escapeHtml(role ? displayRoleSnapshotName(role) : (step.role_id || localeText("未绑定角色", "Unbound role")))}</strong>
               <p>${escapeHtml(localeText(`步骤 ${index + 1}`, `Step ${index + 1}`))} · ${escapeHtml(step.id)}</p>
             </div>
           </div>
@@ -605,7 +619,7 @@ document.addEventListener("DOMContentLoaded", () => {
     localizeSelectOptions(settingsStepOnPassInput);
 
     settingsStepRoleInput.innerHTML = workflowState.roles
-      .map((entry) => optionHtml(entry.id, entry.name || entry.id, entry.id === step.role_id))
+      .map((entry) => optionHtml(entry.id, displayRoleSnapshotName(entry) || entry.id, entry.id === step.role_id))
       .join("");
 
     settingsStepIdInput.value = step.id || "";
@@ -617,7 +631,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ? (definition ? `${definition.name} · ${roleLabel(definition.archetype)}` : localeText("未绑定角色定义", "Unbound role definition"))
       : localeText("请先给这个步骤绑定角色。", "Bind a role to this step first.");
     settingsRoleRuntime.textContent = role ? roleRuntimeSummary(role) : localeText("当前没有可用的角色快照。", "No role snapshot is available yet.");
-    settingsRoleNameValue.textContent = role ? textOrDash(role.name) : localeText("未绑定", "Unbound");
+    settingsRoleNameValue.textContent = role ? textOrDash(displayRoleSnapshotName(role)) : localeText("未绑定", "Unbound");
     settingsRoleArchetypeValue.textContent = role ? roleLabel(role.archetype) : "-";
     settingsRolePromptValue.textContent = role ? textOrDash(role.prompt_ref) : "-";
     settingsRoleExecutorKindValue.textContent = role

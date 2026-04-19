@@ -105,6 +105,10 @@ def test_run_detail_places_run_files_and_console_before_timeline(
     assert "progress-runtime" in response.text
     assert "stage-chip-duration" in response.text
     assert response.text.index("stage-strip") < response.text.index("progress-live-title")
+    assert "stage-loop-shell" in response.text
+    assert "stage-chip--terminal" in response.text
+    assert "stage-chip--workflow" in response.text
+    assert "Workflow Loop" in response.text
     assert "timeline-count" in response.text
     assert "progress-value" not in response.text
     assert "progress-track-shell" not in response.text
@@ -120,6 +124,47 @@ def test_run_detail_places_run_files_and_console_before_timeline(
     assert "console-legend" not in response.text
     assert "console-expand-all" in response.text
     assert "console-collapse-all" in response.text
+
+
+def test_run_detail_progress_stages_follow_workflow_snapshot(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Repair Flow Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+        workflow={"preset": "repair_loop"},
+    )
+    run = service.rerun(loop["id"])
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/runs/{run['id']}")
+
+    assert response.status_code == 200
+    assert 'data-stage="checks"' in response.text
+    assert 'data-stage="step:builder_step"' in response.text
+    assert 'data-stage="step:inspector_step"' in response.text
+    assert 'data-stage="step:guide_step"' in response.text
+    assert 'data-stage="step:builder_repair_step"' in response.text
+    assert 'data-stage="step:gatekeeper_step"' in response.text
+    assert 'data-stage="finished"' in response.text
+    assert response.text.count('class="stage-chip stage-chip--terminal"') == 2
+    assert 'class="stage-loop-shell"' in response.text
+    assert 'data-stage="generator"' not in response.text
+    assert 'data-stage="tester"' not in response.text
+    assert 'data-stage="verifier"' not in response.text
+    assert 'data-stage="challenger"' not in response.text
 
 
 def test_run_console_page_renders_fullscreen_console_view(
@@ -566,7 +611,7 @@ Focus on scoped release work.
     zh_response = client.get("/roles/new", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
     assert "直接推进实现" in zh_response.text
-    assert "你是 Loopora 内部的建造者" in zh_response.text
+    assert "你是 Loopora 内部的 Builder" in zh_response.text
 
     builtin_edit_response = client.get("/roles/builtin:builder/edit")
     assert builtin_edit_response.status_code == 200

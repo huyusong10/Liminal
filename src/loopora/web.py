@@ -43,6 +43,7 @@ from loopora.workflows import (
     builtin_prompt_markdown_by_locale,
     default_role_execution_settings,
     display_name_for_archetype,
+    normalize_role_display_name,
     normalize_prompt_locale,
     normalize_workflow,
     preset_names,
@@ -100,6 +101,17 @@ TIMELINE_EVENT_TYPES = {
     "iteration_wait_finished",
     "workspace_guard_triggered",
     "stop_requested",
+    "run_aborted",
+    "run_finished",
+}
+
+PROGRESS_EVENT_TYPES = {
+    "checks_resolved",
+    "role_started",
+    "role_request_prepared",
+    "step_context_prepared",
+    "role_execution_summary",
+    "step_handoff_written",
     "run_aborted",
     "run_finished",
 }
@@ -585,8 +597,10 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             {
                 "request": request,
                 "run": run,
+                "progress_stages": _progress_stage_seed(run),
                 "timeline_events": events[-40:],
                 "console_events": seed_events[-160:],
+                "progress_events": [event for event in seed_events if event["event_type"] in PROGRESS_EVENT_TYPES][-2000:],
                 "latest_event_id": latest_event_id,
                 "run_artifacts": _list_run_artifacts(run),
                 "access_state": access_state,
@@ -1658,6 +1672,56 @@ def _decorate_run_overview(run: dict) -> dict:
         "display_iter": _display_iter(run.get("current_iter")),
         "summary_excerpt": _summary_excerpt(run.get("summary_md")),
     }
+
+
+def _progress_stage_seed(run: Mapping[str, object] | None) -> list[dict[str, str]]:
+    workflow = run.get("workflow_json") if isinstance(run, Mapping) else {}
+    roles = workflow.get("roles", []) if isinstance(workflow, Mapping) else []
+    steps = workflow.get("steps", []) if isinstance(workflow, Mapping) else []
+    role_by_id = {
+        str(role.get("id") or "").strip(): role
+        for role in roles
+        if isinstance(role, Mapping) and str(role.get("id") or "").strip()
+    }
+
+    stages = [
+        {
+            "key": "checks",
+            "label": "Checks",
+            "kind": "checks",
+        }
+    ]
+    for step in steps:
+        if not isinstance(step, Mapping):
+            continue
+        step_id = str(step.get("id") or "").strip()
+        if not step_id:
+            continue
+        role = role_by_id.get(str(step.get("role_id") or "").strip(), {})
+        archetype = str(role.get("archetype") or "").strip()
+        fallback_name = display_name_for_archetype(archetype, locale="en") if archetype else step_id
+        label = normalize_role_display_name(str(role.get("name") or "").strip(), archetype) or fallback_name
+        stages.append(
+            {
+                "key": f"step:{step_id}",
+                "label": label,
+                "kind": "workflow_step",
+            }
+        )
+    stages.append(
+        {
+            "key": "finished",
+            "label": "Done",
+            "kind": "finished",
+        }
+    )
+    return [
+        {
+            **stage,
+            "sequence": index + 1,
+        }
+        for index, stage in enumerate(stages)
+    ]
 
 
 def _build_run_summary_snapshot(run: dict) -> dict:

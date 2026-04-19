@@ -40,6 +40,19 @@
     return ROLE_COLORS[String(archetype || "").trim()] || ROLE_COLORS.custom;
   }
 
+  function displayRoleName(role, fallback) {
+    const rawName = String(role?.name || "").trim();
+    const fallbackName = String(fallback || "").trim();
+    const archetype = String(role?.archetype || "").trim();
+    if (rawName && window.LooporaUI?.normalizeRoleName) {
+      return window.LooporaUI.normalizeRoleName(rawName, archetype);
+    }
+    if (fallbackName && window.LooporaUI?.normalizeRoleName) {
+      return window.LooporaUI.normalizeRoleName(fallbackName, archetype);
+    }
+    return rawName || fallbackName;
+  }
+
   function shortLabel(value, maxLength = 14) {
     const text = String(value || "");
     return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
@@ -82,12 +95,13 @@
         const role = roles[String(step.role_id || "")] || {};
         const total = Math.max(sourceSteps.length, 1);
         const angle = total === 1 ? -Math.PI / 2 : (-Math.PI / 2) + ((Math.PI * 2 * index) / total);
+        const label = displayRoleName(role, step.role_id || `Step ${index + 1}`);
         return {
           order: index + 1,
           stepId: String(step.id || `step_${index + 1}`),
           roleId: String(step.role_id || ""),
-          label: String(role.name || step.role_id || `Step ${index + 1}`),
-          shortLabel: shortLabel(String(role.name || step.role_id || `Step ${index + 1}`), variant === "editor" ? 18 : 12),
+          label,
+          shortLabel: shortLabel(label, variant === "editor" ? 18 : 12),
           archetype: String(role.archetype || "custom"),
           finishGate: String(step.on_pass || "") === "finish_run" && String(role.archetype || "") === "gatekeeper",
           x: cx + settings.radiusX * Math.cos(angle),

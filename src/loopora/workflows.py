@@ -25,11 +25,18 @@ LEGACY_ROLE_TO_ARCHETYPE = {
     "custom": "custom",
 }
 ARCHETYPE_DISPLAY = {
-    "builder": {"zh": "建造者", "en": "Builder"},
-    "inspector": {"zh": "巡检者", "en": "Inspector"},
-    "gatekeeper": {"zh": "守门人", "en": "GateKeeper"},
-    "guide": {"zh": "向导", "en": "Guide"},
-    "custom": {"zh": "自定义角色", "en": "Custom Role"},
+    "builder": {"zh": "Builder", "en": "Builder"},
+    "inspector": {"zh": "Inspector", "en": "Inspector"},
+    "gatekeeper": {"zh": "GateKeeper", "en": "GateKeeper"},
+    "guide": {"zh": "Guide", "en": "Guide"},
+    "custom": {"zh": "Custom Role", "en": "Custom Role"},
+}
+ARCHETYPE_DISPLAY_ALIASES = {
+    "builder": {"建造者", "generator", "builder"},
+    "inspector": {"巡检者", "tester", "inspector"},
+    "gatekeeper": {"守门人", "verifier", "gatekeeper"},
+    "guide": {"向导", "challenger", "guide"},
+    "custom": {"自定义角色", "custom role", "custom"},
 }
 LEGACY_ROLE_BY_ARCHETYPE = {
     "builder": "generator",
@@ -445,6 +452,27 @@ def display_name_for_archetype(archetype: str, locale: str = "en") -> str:
     return labels["zh" if locale.lower().startswith("zh") else "en"]
 
 
+def normalize_role_display_name(name: str | None, archetype: str | None = None) -> str:
+    raw_name = str(name or "").strip()
+    if not raw_name:
+        return ""
+    if archetype:
+        normalized_archetype = normalize_archetype(archetype)
+        canonical = display_name_for_archetype(normalized_archetype, locale="en")
+        aliases = {alias.lower() for alias in ARCHETYPE_DISPLAY_ALIASES.get(normalized_archetype, set())}
+        lowered = raw_name.lower()
+        if lowered == canonical.lower() or lowered in aliases:
+            return canonical
+        return raw_name
+    lowered = raw_name.lower()
+    for candidate in ARCHETYPES:
+        canonical = display_name_for_archetype(candidate, locale="en")
+        aliases = {alias.lower() for alias in ARCHETYPE_DISPLAY_ALIASES.get(candidate, set())}
+        if lowered == canonical.lower() or lowered in aliases:
+            return canonical
+    return raw_name
+
+
 def parse_prompt_markdown(markdown_text: str) -> tuple[dict[str, Any], str]:
     text = str(markdown_text or "").strip()
     if not text:
@@ -640,7 +668,8 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
             raise WorkflowError(f"duplicate workflow role id: {role_id}")
         archetype = normalize_archetype(str(raw_role.get("archetype", "")))
         prompt_ref = normalize_prompt_ref(raw_role.get("prompt_ref") or PROMPT_FILES[archetype])
-        name = str(raw_role.get("name", "")).strip() or display_name_for_archetype(archetype, locale="en")
+        raw_name = str(raw_role.get("name", "")).strip()
+        name = normalize_role_display_name(raw_name, archetype) or display_name_for_archetype(archetype, locale="en")
         model = str(raw_role.get("model", "")).strip()
         role_definition_id = str(raw_role.get("role_definition_id", "")).strip()
         override_model = normalized_role_models.get(role_id, normalized_role_models.get(archetype, ""))

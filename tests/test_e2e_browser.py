@@ -650,7 +650,7 @@ def test_role_definition_page_updates_template_guidance_and_builtin_prompt_with_
                     assert "负责做放行判断" in (page.locator("#role-definition-archetype-summary").text_content() or "")
                     assert "建议只放一个" in (page.locator("#role-definition-archetype-recommendation").text_content() or "")
                     assert "不建议把它当成实现角色" in (page.locator("#role-definition-archetype-warning").text_content() or "")
-                    assert "# 守门人 Prompt" in page.locator("#role-definition-prompt-markdown-input").input_value()
+                    assert "# GateKeeper Prompt" in page.locator("#role-definition-prompt-markdown-input").input_value()
 
                     page.locator('button[data-set-locale="en"]').click()
                     page.wait_for_timeout(50)

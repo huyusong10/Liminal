@@ -62,6 +62,7 @@ workflow 保持两层结构：
 补充约束：
 
 - `inherit_session` 的语义按“同一个 step 跨轮次续接自己的会话”解释，不按“当前目录最近一次会话”解释。
+- 当同一个 step 还没有可恢复的历史 session 时，执行器必须回退为该 step 启动一条新会话，而不是改为恢复“最近一次会话”或直接报错。
 - Builder step 默认继承 session；Inspector、GateKeeper、Guide 与 Custom step 默认不继承，除非调用方显式打开。
 - `extra_cli_args` 必须是可被 shell 风格分词解析的字符串。
 
@@ -100,6 +101,11 @@ workflow 保持两层结构：
 | `custom` | 以最低权限读取现状、补充分析并给出建议 |
 
 兼容层仍接受旧别名，但运行时会收敛为上述稳定模板。
+
+补充约束：
+
+- 内置 archetype 的展示名在所有 locale 下都保持英文原文：`Builder`、`Inspector`、`GateKeeper`、`Guide`、`Custom Role`。
+- 用户自定义 role / role snapshot 的名称必须按用户提供的原文展示，不能因为 locale 切换而被系统翻译。
 
 ## 4.1 执行器契约
 
@@ -217,6 +223,7 @@ step 级执行附加项的优先语义固定为：
 补充说明：
 
 - Web 界面可以把 workflow snapshot 投影成循环实例图，只要图中的节点顺序、角色名称和闭环语义仍然严格来自当前 workflow snapshot。
+- Web run 详情页可以把运行进度投影成“Checks terminal → workflow loop lane → Done terminal”的阶段图，但阶段数量、顺序、loop 关系与角色名称必须严格来自当前 run 冻结下来的 workflow snapshot，不能退化成固定 archetype 列表。
 - Web 编排编辑页可以采用上方实例图、下方步骤卡片的布局；实例图节点选择与步骤卡片高亮必须表达同一个 workflow snapshot。
 - Web 编排编辑页可以把角色快照信息直接显示在步骤卡片中，而不要求单独保留角色检查器或角色列表，只要卡片展示的仍是当前 workflow snapshot 中的角色快照。
 - Web 编排编辑页可以只保留一个“添加步骤”入口：当所选角色定义尚未进入当前编排时，先生成角色快照并创建首个步骤；当该角色快照已存在时，直接为它追加新步骤。

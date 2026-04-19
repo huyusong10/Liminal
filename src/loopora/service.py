@@ -7,6 +7,7 @@ import os
 import shutil
 import threading
 import time
+from collections.abc import Mapping
 from datetime import datetime
 from html import escape as escape_html
 from pathlib import Path
@@ -1895,7 +1896,19 @@ class LooporaService:
                 else self.repository.update_run(run["id"], clear_child_pid=True),
             )
 
-        output = self._execute_role(run["id"], iter_id, runtime_role, execute_request, retry_config)
+        output = self._execute_role(
+            run["id"],
+            iter_id,
+            runtime_role,
+            execute_request,
+            retry_config,
+            event_context={
+                "step_id": step["id"],
+                "step_order": step_order,
+                "role_name": role["name"],
+                "archetype": role["archetype"],
+            },
+        )
         session_ref = request.extra_context.get("session_ref")
         if not isinstance(session_ref, dict):
             session_ref = {}
@@ -2943,11 +2956,13 @@ class LooporaService:
         fn: Callable[[], dict],
         retry_config: RetryConfig,
         degrade_once: Callable[[], None] | None = None,
+        event_context: Mapping[str, object] | None = None,
     ) -> dict:
         started_at = time.perf_counter()
         log_context = {"run_id": run_id, "role": role}
         if iter_id is not None:
             log_context["iter"] = iter_id
+        context_payload = dict(event_context or {})
         log_event(
             logger,
             logging.INFO,
@@ -2959,7 +2974,7 @@ class LooporaService:
         def wrapped() -> dict:
             self._ensure_not_stopped(run_id)
             self.repository.update_run(run_id, active_role=role)
-            start_payload = {"role": role}
+            start_payload = {"role": role, **context_payload}
             if iter_id is not None:
                 start_payload["iter"] = iter_id
             self.repository.append_event(run_id, "role_started", start_payload, role=role)
@@ -2969,6 +2984,7 @@ class LooporaService:
         duration_ms = int((time.perf_counter() - started_at) * 1000)
         summary_payload = {
             "role": role,
+            **context_payload,
             "ok": result.ok,
             "attempts": result.attempts,
             "degraded": result.degraded,

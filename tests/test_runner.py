@@ -211,6 +211,44 @@ def test_inspect_first_workflow_runs_inspector_before_builder(
     assert [step["archetype"] for step in workflow_entry["workflow"][:3]] == ["inspector", "builder", "gatekeeper"]
 
 
+def test_workflow_role_events_include_step_metadata(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Repair Loop Metadata",
+        workflow={"preset": "repair_loop"},
+    )
+
+    run = service.rerun(loop["id"])
+
+    events = service.repository.list_events(run["id"], after_id=0, limit=5000)
+    builder_starts = [
+        event
+        for event in events
+        if event["event_type"] == "role_started"
+        and event.get("role") == "generator"
+        and event["payload"].get("step_id") in {"builder_step", "builder_repair_step"}
+    ]
+    assert {event["payload"]["step_id"] for event in builder_starts} == {"builder_step", "builder_repair_step"}
+    assert {event["payload"]["step_order"] for event in builder_starts} == {0, 3}
+
+    repair_summary = next(
+        event
+        for event in events
+        if event["event_type"] == "role_execution_summary"
+        and event.get("role") == "generator"
+        and event["payload"].get("step_id") == "builder_repair_step"
+    )
+    assert repair_summary["payload"]["role_name"] == "Builder"
+    assert repair_summary["payload"]["archetype"] == "builder"
+
+
 def test_benchmark_loop_can_finish_before_builder_runs(
     service_factory,
     sample_spec_file: Path,

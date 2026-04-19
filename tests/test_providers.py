@@ -69,6 +69,19 @@ def test_codex_exec_args_include_output_schema_and_reasoning(tmp_path: Path) -> 
     assert 'model_reasoning_effort="high"' in args
 
 
+def test_codex_exec_args_start_fresh_session_when_resume_id_is_missing(tmp_path: Path) -> None:
+    request = _request(tmp_path, executor_kind="codex", model="gpt-5.4", reasoning_effort="medium")
+    request.inherit_session = True
+    request.resume_session_id = ""
+
+    args = build_codex_exec_args(request, request.run_dir / "schema.json")
+
+    assert args[:3] == ["codex", "exec", "--json"]
+    assert "resume" not in args
+    assert "--last" not in args
+    assert "--cd" in args
+
+
 def test_codex_exec_args_can_resume_previous_session_and_append_extra_args(tmp_path: Path) -> None:
     request = _request(tmp_path, executor_kind="codex", model="gpt-5.4", reasoning_effort="medium")
     request.inherit_session = True

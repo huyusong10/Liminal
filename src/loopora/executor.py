@@ -88,12 +88,9 @@ def build_codex_exec_args(request: RoleRequest, schema_path: Path) -> list[str]:
     reasoning_effort = coerce_reasoning_effort(request.reasoning_effort, request.executor_kind)
     extra_args = parse_extra_cli_args_text(request.extra_cli_args_text)
     args = ["codex", "exec"]
-    if request.inherit_session:
+    if request.inherit_session and request.resume_session_id.strip():
         args.append("resume")
-        if request.resume_session_id.strip():
-            args.append(request.resume_session_id.strip())
-        else:
-            args.append("--last")
+        args.append(request.resume_session_id.strip())
     args.extend(
         [
             "--json",

@@ -469,7 +469,7 @@ def test_prompt_template_download_and_validation_endpoints(service_factory) -> N
 
     localized_template_response = client.get("/api/prompts/templates/builder.md?locale=zh")
     assert localized_template_response.status_code == 200
-    assert "# 建造者 Prompt" in localized_template_response.text
+    assert "# Builder Prompt" in localized_template_response.text
     assert "archetype: builder" in localized_template_response.text
 
     validation_response = client.post(

@@ -118,7 +118,11 @@ document.addEventListener("DOMContentLoaded", () => {
     } = {},
   ) {
     const payload = event.payload || {};
-    const resolvedRole = roleLabel || window.LooporaUI.translateRole(event.role || payload.role || "system");
+    const resolvedRole = roleLabel || (
+      payload.role_name && window.LooporaUI?.normalizeRoleName
+        ? window.LooporaUI.normalizeRoleName(payload.role_name, payload.archetype || payload.role)
+        : window.LooporaUI.translateRole(event.role || payload.role || "system")
+    );
     const normalizedText = String(text ?? "").replaceAll("\r\n", "\n").replace(/\s+$/, "");
     return {
       tone,
@@ -136,10 +140,13 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function buildContextDetail(payload) {
+    const resolvedRole = payload.role_name && window.LooporaUI?.normalizeRoleName
+      ? window.LooporaUI.normalizeRoleName(payload.role_name, payload.archetype || payload.role)
+      : (payload.role || "-");
     return [
       `iter=${payload.iter !== undefined ? displayIter(payload.iter) : "-"}`,
       `step=${payload.step_id || "-"}`,
-      `role=${payload.role_name || payload.role || "-"}`,
+      `role=${resolvedRole}`,
       `path=${payload.context_path || payload.handoff_path || payload.summary_path || payload.step_prompt_path || payload.output_path || "-"}`,
     ].join(" · ");
   }
@@ -165,11 +172,14 @@ document.addEventListener("DOMContentLoaded", () => {
       })];
     }
     if (event.event_type === "role_request_prepared") {
+      const resolvedRole = payload.role_name && window.LooporaUI?.normalizeRoleName
+        ? window.LooporaUI.normalizeRoleName(payload.role_name, payload.archetype || payload.role)
+        : (payload.role || "-");
       return [buildConsoleEntry(event, {
         tone: "system",
         channel: "context",
         filterKey: "context",
-        summary: `${localeText("角色请求已准备", "Role request prepared")} · ${payload.role_name || payload.role || "-"}`,
+        summary: `${localeText("角色请求已准备", "Role request prepared")} · ${resolvedRole}`,
         text: prettyJson(payload),
         collapsed: true,
       })];
