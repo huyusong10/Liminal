@@ -27,6 +27,72 @@
   --glass-rgb: 255, 255, 255;
   --glass-dark-rgb: 31, 26, 20;
   --outline-rgb: 139, 109, 74;
+  --card-copy-muted: var(--muted);
+  --card-glance-bg: rgba(var(--glass-rgb), 0.6);
+  --card-glance-border: rgba(var(--outline-rgb), 0.08);
+  --card-scenario-bg: linear-gradient(180deg, rgba(13, 124, 102, 0.08), rgba(248, 251, 247, 0.96));
+  --card-scenario-border: rgba(13, 124, 102, 0.14);
+  --card-scenario-title: var(--accent-2);
+  --card-scenario-copy: var(--card-copy-muted);
+  --workflow-loop-stroke: rgba(53, 43, 34, 0.68);
+  --workflow-loop-marker: rgba(53, 43, 34, 0.74);
+  --workflow-loop-label: rgba(53, 43, 34, 0.78);
+  --workflow-loop-badge-bg: rgba(255, 247, 238, 0.92);
+  --workflow-loop-badge-stroke: rgba(13, 124, 102, 0.16);
+  --workflow-loop-badge-text: var(--accent-2);
+  --workflow-loop-pill-bg: rgba(var(--glass-rgb), 0.7);
+  --workflow-loop-pill-border: rgba(var(--outline-rgb), 0.12);
+  --workflow-loop-pill-text: var(--muted);
+  --workflow-loop-pill-active-bg: rgba(13, 124, 102, 0.08);
+  --workflow-loop-pill-active-border: rgba(13, 124, 102, 0.3);
+  --workflow-loop-pill-active-text: var(--ink);
+  --workflow-loop-empty-bg: rgba(var(--glass-rgb), 0.56);
+  --workflow-loop-empty-border: rgba(var(--outline-rgb), 0.2);
+  --workflow-loop-node-active-stroke: rgba(53, 43, 34, 0.9);
+  --run-progress-shell-bg:
+    radial-gradient(circle at top right, rgba(214, 106, 54, 0.05), transparent 30%),
+    radial-gradient(circle at bottom left, rgba(13, 124, 102, 0.05), transparent 28%),
+    linear-gradient(180deg, rgba(var(--glass-rgb), 0.84), rgba(250, 246, 239, 0.94));
+  --run-progress-shell-border: rgba(var(--outline-rgb), 0.1);
+  --run-progress-shell-shadow:
+    inset 0 1px 0 rgba(var(--glass-rgb), 0.76),
+    0 14px 28px rgba(var(--outline-rgb), 0.04);
+  --run-progress-eyebrow-bg: rgba(var(--glass-rgb), 0.76);
+  --run-progress-eyebrow-border: rgba(var(--outline-rgb), 0.1);
+  --run-progress-eyebrow-text: var(--muted);
+  --run-progress-copy: var(--muted);
+  --run-progress-rail: linear-gradient(90deg, rgba(214, 106, 54, 0.02), rgba(214, 106, 54, 0.22), rgba(13, 124, 102, 0.18));
+  --run-progress-lane-bg:
+    linear-gradient(180deg, rgba(214, 106, 54, 0.03), rgba(255, 250, 244, 0.02)),
+    rgba(var(--glass-rgb), 0.34);
+  --run-progress-lane-border: rgba(214, 106, 54, 0.12);
+  --run-progress-lane-shadow: inset 0 1px 0 rgba(var(--glass-rgb), 0.56);
+  --run-progress-lane-line: rgba(214, 106, 54, 0.14);
+  --run-progress-entry-line: rgba(214, 106, 54, 0.28);
+  --run-progress-entry-arrow: rgba(214, 106, 54, 0.46);
+  --run-progress-exit-line: rgba(13, 124, 102, 0.28);
+  --run-progress-exit-arrow: rgba(13, 124, 102, 0.42);
+  --run-progress-chip-bg: rgba(255, 251, 245, 0.92);
+  --run-progress-chip-border: rgba(var(--outline-rgb), 0.1);
+  --run-progress-chip-workflow-bg: linear-gradient(180deg, rgba(var(--glass-rgb), 0.96), rgba(255, 251, 246, 0.98));
+  --run-progress-chip-workflow-shadow:
+    inset 0 3px 0 rgba(var(--outline-rgb), 0.06),
+    0 10px 18px rgba(var(--outline-rgb), 0.035);
+  --run-progress-chip-terminal-bg:
+    radial-gradient(circle at top, rgba(var(--glass-rgb), 0.96), rgba(255, 250, 244, 0.98));
+  --run-progress-chip-terminal-shadow:
+    inset 0 0 0 1px rgba(var(--glass-rgb), 0.28),
+    0 12px 24px rgba(var(--outline-rgb), 0.03);
+  --run-progress-chip-badge-bg: rgba(var(--outline-rgb), 0.06);
+  --run-progress-chip-badge-text: var(--muted);
+  --run-progress-highlight-bg: rgba(var(--glass-rgb), 0.52);
+  --run-progress-highlight-border: rgba(var(--outline-rgb), 0.09);
+  --run-progress-highlight-shadow: inset 0 1px 0 rgba(var(--glass-rgb), 0.6);
+  --run-progress-highlight-copy: var(--ink);
+  --run-progress-live-bg: linear-gradient(180deg, rgba(var(--glass-rgb), 0.74), rgba(250, 246, 239, 0.92));
+  --run-progress-live-border: rgba(var(--outline-rgb), 0.12);
+  --run-progress-live-ring: rgba(var(--outline-rgb), 0.08);
+  --run-progress-live-copy: var(--muted);
 }
 
 [data-theme="dark"] {
@@ -54,6 +120,76 @@
   --glass-rgb: 60, 48, 40;
   --glass-dark-rgb: 0, 0, 0;
   --outline-rgb: 255, 255, 255;
+  --card-copy-muted: #c8bbb0;
+  --card-glance-bg: linear-gradient(180deg, rgba(72, 58, 50, 0.86), rgba(54, 43, 38, 0.94));
+  --card-glance-border: rgba(255, 255, 255, 0.08);
+  --card-scenario-bg: linear-gradient(180deg, rgba(12, 84, 72, 0.58), rgba(23, 29, 28, 0.98));
+  --card-scenario-border: rgba(45, 212, 191, 0.24);
+  --card-scenario-title: #57ead3;
+  --card-scenario-copy: #d8e5df;
+  --workflow-loop-stroke: rgba(238, 225, 216, 0.18);
+  --workflow-loop-marker: rgba(238, 225, 216, 0.34);
+  --workflow-loop-label: rgba(238, 225, 216, 0.64);
+  --workflow-loop-badge-bg: rgba(248, 239, 230, 0.94);
+  --workflow-loop-badge-stroke: rgba(45, 212, 191, 0.26);
+  --workflow-loop-badge-text: #0f8e76;
+  --workflow-loop-pill-bg: linear-gradient(180deg, rgba(73, 59, 51, 0.92), rgba(57, 45, 39, 0.98));
+  --workflow-loop-pill-border: rgba(255, 255, 255, 0.1);
+  --workflow-loop-pill-text: #e8ddd4;
+  --workflow-loop-pill-active-bg: rgba(45, 212, 191, 0.14);
+  --workflow-loop-pill-active-border: rgba(45, 212, 191, 0.34);
+  --workflow-loop-pill-active-text: #fbf4ed;
+  --workflow-loop-empty-bg: rgba(61, 48, 41, 0.76);
+  --workflow-loop-empty-border: rgba(255, 255, 255, 0.12);
+  --workflow-loop-node-active-stroke: rgba(255, 247, 238, 0.96);
+  --run-progress-shell-bg:
+    radial-gradient(circle at top right, rgba(242, 139, 85, 0.14), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(45, 212, 191, 0.12), transparent 24%),
+    linear-gradient(180deg, rgba(44, 33, 28, 0.96), rgba(22, 17, 14, 0.99));
+  --run-progress-shell-border: rgba(255, 255, 255, 0.08);
+  --run-progress-shell-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 26px 42px rgba(0, 0, 0, 0.34);
+  --run-progress-eyebrow-bg: rgba(70, 56, 48, 0.9);
+  --run-progress-eyebrow-border: rgba(255, 255, 255, 0.08);
+  --run-progress-eyebrow-text: #ddd1c8;
+  --run-progress-copy: #cdbfb5;
+  --run-progress-rail: linear-gradient(90deg, rgba(242, 139, 85, 0), rgba(242, 139, 85, 0.28), rgba(45, 212, 191, 0.24));
+  --run-progress-lane-bg:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.1)),
+    rgba(29, 22, 19, 0.72);
+  --run-progress-lane-border: rgba(255, 255, 255, 0.08);
+  --run-progress-lane-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 -18px 28px rgba(0, 0, 0, 0.1);
+  --run-progress-lane-line: rgba(255, 255, 255, 0.08);
+  --run-progress-entry-line: rgba(242, 139, 85, 0.32);
+  --run-progress-entry-arrow: rgba(242, 139, 85, 0.54);
+  --run-progress-exit-line: rgba(45, 212, 191, 0.26);
+  --run-progress-exit-arrow: rgba(45, 212, 191, 0.42);
+  --run-progress-chip-bg: linear-gradient(180deg, rgba(61, 48, 41, 0.96), rgba(31, 24, 20, 0.98));
+  --run-progress-chip-border: rgba(255, 255, 255, 0.08);
+  --run-progress-chip-workflow-bg: linear-gradient(180deg, rgba(65, 51, 43, 0.96), rgba(33, 25, 21, 0.98));
+  --run-progress-chip-workflow-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 14px 28px rgba(0, 0, 0, 0.18);
+  --run-progress-chip-terminal-bg:
+    radial-gradient(circle at 50% 28%, rgba(71, 57, 48, 0.98), rgba(27, 21, 18, 0.99));
+  --run-progress-chip-terminal-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 18px 32px rgba(0, 0, 0, 0.22);
+  --run-progress-chip-badge-bg: rgba(255, 255, 255, 0.08);
+  --run-progress-chip-badge-text: #d6cbc2;
+  --run-progress-highlight-bg: linear-gradient(180deg, rgba(58, 44, 37, 0.94), rgba(27, 21, 18, 0.99));
+  --run-progress-highlight-border: rgba(255, 255, 255, 0.08);
+  --run-progress-highlight-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 16px 28px rgba(0, 0, 0, 0.14);
+  --run-progress-highlight-copy: #eee4dc;
+  --run-progress-live-bg: linear-gradient(180deg, rgba(63, 47, 40, 0.95), rgba(28, 22, 19, 0.99));
+  --run-progress-live-border: rgba(255, 255, 255, 0.08);
+  --run-progress-live-ring: rgba(255, 255, 255, 0.06);
+  --run-progress-live-copy: #d8cdc4;
 }
 
 @keyframes pulseGlow {
@@ -811,7 +947,7 @@ html[data-locale="zh"] .output-card h3 {
 
 .loop-card p {
   margin: 0;
-  color: var(--muted);
+  color: var(--card-copy-muted);
   white-space: normal;
   overflow-wrap: anywhere;
 }
@@ -819,27 +955,33 @@ html[data-locale="zh"] .output-card h3 {
 .loop-card-glance {
   padding: 14px 15px;
   border-radius: 0;
-  background: rgba(var(--glass-rgb), 0.6);
-  border: 1px solid rgba(var(--outline-rgb), 0.08);
+  background: var(--card-glance-bg);
+  border: 1px solid var(--card-glance-border);
 }
 
 .loop-card-glance--scenario {
-  background: linear-gradient(180deg, rgba(13, 124, 102, 0.08), rgba(248, 251, 247, 0.96));
-  border-color: rgba(13, 124, 102, 0.14);
+  background: var(--card-scenario-bg);
+  border-color: var(--card-scenario-border);
 }
 
 .loop-card-glance strong {
   display: block;
   margin-bottom: 8px;
   font-size: 0.98rem;
+  color: var(--ink);
 }
 
 .loop-card-glance--scenario strong {
-  color: var(--accent-2);
+  color: var(--card-scenario-title);
 }
 
 .loop-card-glance p {
   font-size: 0.92rem;
+  color: var(--card-copy-muted);
+}
+
+.loop-card-glance--scenario p {
+  color: var(--card-scenario-copy);
 }
 
 .loop-grid-note {
@@ -885,7 +1027,7 @@ html[data-locale="zh"] .tutorial-context-kicker {
 .tutorial-context-card p,
 .tutorial-context-detail p {
   margin: 0;
-  color: var(--muted);
+  color: var(--card-copy-muted);
 }
 
 .tutorial-context-path {
@@ -913,7 +1055,7 @@ html[data-locale="zh"] .tutorial-context-kicker {
   gap: 10px;
   margin: 0;
   padding-left: 20px;
-  color: var(--muted);
+  color: var(--card-copy-muted);
 }
 
 .tutorial-context-list li {
@@ -957,7 +1099,7 @@ html[data-locale="zh"] .tutorial-context-kicker {
 
 .workflow-loop-segment {
   fill: none;
-  stroke: rgba(53, 43, 34, 0.68);
+  stroke: var(--workflow-loop-stroke);
   stroke-width: 2.6;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -990,19 +1132,19 @@ html[data-locale="zh"] .tutorial-context-kicker {
 }
 
 .workflow-loop-node-label {
-  fill: rgba(53, 43, 34, 0.78);
+  fill: var(--workflow-loop-label);
   font-size: 12px;
   font-weight: 700;
 }
 
 .workflow-loop-center-badge rect {
-  fill: rgba(255, 247, 238, 0.92);
-  stroke: rgba(13, 124, 102, 0.16);
+  fill: var(--workflow-loop-badge-bg);
+  stroke: var(--workflow-loop-badge-stroke);
   stroke-width: 1.5;
 }
 
 .workflow-loop-center-badge text {
-  fill: var(--accent-2);
+  fill: var(--workflow-loop-badge-text);
   font-size: 12px;
   font-weight: 800;
   text-anchor: middle;
@@ -1023,9 +1165,9 @@ html[data-locale="zh"] .tutorial-context-kicker {
   gap: 8px;
   min-height: 34px;
   padding: 6px 12px;
-  border: 1px solid rgba(var(--outline-rgb), 0.12);
-  background: rgba(var(--glass-rgb), 0.7);
-  color: var(--muted);
+  border: 1px solid var(--workflow-loop-pill-border);
+  background: var(--workflow-loop-pill-bg);
+  color: var(--workflow-loop-pill-text);
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
@@ -1045,13 +1187,13 @@ html[data-locale="zh"] .tutorial-context-kicker {
 
 .workflow-loop-pill.is-finish {
   border-color: rgba(171, 47, 42, 0.2);
-  color: var(--ink);
+  color: var(--workflow-loop-pill-text);
 }
 
 .workflow-loop-node:hover circle,
 .workflow-loop-node:focus circle,
 .workflow-loop-node.is-active circle {
-  stroke: rgba(53, 43, 34, 0.9);
+  stroke: var(--workflow-loop-node-active-stroke);
   filter: drop-shadow(0 10px 22px rgba(53, 43, 34, 0.2));
   transform: scale(1.05);
 }
@@ -1065,9 +1207,9 @@ html[data-locale="zh"] .tutorial-context-kicker {
 .workflow-loop-pill:hover,
 .workflow-loop-pill:focus,
 .workflow-loop-pill.is-active {
-  border-color: rgba(13, 124, 102, 0.3);
-  background: rgba(13, 124, 102, 0.08);
-  color: var(--ink);
+  border-color: var(--workflow-loop-pill-active-border);
+  background: var(--workflow-loop-pill-active-bg);
+  color: var(--workflow-loop-pill-active-text);
   transform: translateY(-1px);
 }
 
@@ -1077,10 +1219,10 @@ html[data-locale="zh"] .tutorial-context-kicker {
   min-height: 170px;
   place-content: center;
   padding: 18px;
-  border: 1px dashed rgba(var(--outline-rgb), 0.2);
-  background: rgba(var(--glass-rgb), 0.56);
+  border: 1px dashed var(--workflow-loop-empty-border);
+  background: var(--workflow-loop-empty-bg);
   text-align: center;
-  color: var(--muted);
+  color: var(--card-copy-muted);
 }
 
 .workflow-loop-empty strong {
@@ -2575,9 +2717,9 @@ html[data-locale="zh"] .progress-runtime-label {
 
 .progress-live-card {
   --progress-live-accent: var(--muted);
-  --progress-live-border: rgba(var(--outline-rgb), 0.12);
-  --progress-live-bg: linear-gradient(180deg, rgba(var(--glass-rgb), 0.74), rgba(250, 246, 239, 0.92));
-  --progress-live-ring: rgba(var(--outline-rgb), 0.08);
+  --progress-live-border: var(--run-progress-live-border);
+  --progress-live-bg: var(--run-progress-live-bg);
+  --progress-live-ring: var(--run-progress-live-ring);
   margin: 0 0 18px;
   padding: 16px 18px;
   border-radius: 0;
@@ -2661,7 +2803,31 @@ html[data-locale="zh"] .progress-runtime-label {
 
 .progress-live-card p {
   margin: 0;
-  color: var(--muted);
+  color: var(--run-progress-live-copy);
+}
+
+[data-theme="dark"] .progress-live-card--active {
+  --progress-live-border: rgba(242, 139, 85, 0.3);
+  --progress-live-bg: linear-gradient(180deg, rgba(117, 56, 27, 0.6), rgba(30, 23, 19, 0.99));
+  --progress-live-ring: rgba(242, 139, 85, 0.12);
+}
+
+[data-theme="dark"] .progress-live-card--queued {
+  --progress-live-border: rgba(242, 139, 85, 0.26);
+  --progress-live-bg: linear-gradient(180deg, rgba(102, 50, 26, 0.48), rgba(29, 22, 19, 0.99));
+  --progress-live-ring: rgba(242, 139, 85, 0.1);
+}
+
+[data-theme="dark"] .progress-live-card--success {
+  --progress-live-border: rgba(45, 212, 191, 0.28);
+  --progress-live-bg: linear-gradient(180deg, rgba(13, 93, 81, 0.5), rgba(28, 22, 19, 0.99));
+  --progress-live-ring: rgba(45, 212, 191, 0.1);
+}
+
+[data-theme="dark"] .progress-live-card--danger {
+  --progress-live-border: rgba(248, 113, 113, 0.28);
+  --progress-live-bg: linear-gradient(180deg, rgba(107, 41, 41, 0.56), rgba(30, 22, 20, 0.99));
+  --progress-live-ring: rgba(248, 113, 113, 0.12);
 }
 
 .progress-meta-row {
@@ -2701,14 +2867,9 @@ html[data-locale="zh"] .progress-runtime-label {
   gap: 12px;
   min-width: 0;
   padding: 18px 22px 20px;
-  border: 1px solid rgba(var(--outline-rgb), 0.1);
-  background:
-    radial-gradient(circle at top right, rgba(214, 106, 54, 0.05), transparent 30%),
-    radial-gradient(circle at bottom left, rgba(13, 124, 102, 0.05), transparent 28%),
-    linear-gradient(180deg, rgba(var(--glass-rgb), 0.84), rgba(250, 246, 239, 0.94));
-  box-shadow:
-    inset 0 1px 0 rgba(var(--glass-rgb), 0.76),
-    0 14px 28px rgba(var(--outline-rgb), 0.04);
+  border: 1px solid var(--run-progress-shell-border);
+  background: var(--run-progress-shell-bg);
+  box-shadow: var(--run-progress-shell-shadow);
 }
 
 .stage-loop-banner {
@@ -2723,9 +2884,9 @@ html[data-locale="zh"] .progress-runtime-label {
   align-items: center;
   width: fit-content;
   padding: 4px 10px;
-  border: 1px solid rgba(var(--outline-rgb), 0.1);
-  background: rgba(var(--glass-rgb), 0.76);
-  color: var(--muted);
+  border: 1px solid var(--run-progress-eyebrow-border);
+  background: var(--run-progress-eyebrow-bg);
+  color: var(--run-progress-eyebrow-text);
   font-size: 0.76rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -2746,7 +2907,7 @@ html[data-locale="zh"] .stage-loop-eyebrow {
 
 .stage-loop-copy {
   margin: 0;
-  color: var(--muted);
+  color: var(--run-progress-copy);
   max-width: 56rem;
   font-size: 0.9rem;
   line-height: 1.6;
@@ -2769,7 +2930,7 @@ html[data-locale="zh"] .stage-loop-eyebrow {
   right: 78px;
   top: 18px;
   height: 1px;
-  background: linear-gradient(90deg, rgba(214, 106, 54, 0.02), rgba(214, 106, 54, 0.22), rgba(13, 124, 102, 0.18));
+  background: var(--run-progress-rail);
 }
 
 .stage-loop-steps {
@@ -2787,12 +2948,10 @@ html[data-locale="zh"] .stage-loop-eyebrow {
   position: absolute;
   inset: 8px 12px;
   z-index: 0;
-  border: 1px solid rgba(214, 106, 54, 0.12);
+  border: 1px solid var(--run-progress-lane-border);
   border-radius: 28px;
-  background:
-    linear-gradient(180deg, rgba(214, 106, 54, 0.03), rgba(255, 250, 244, 0.02)),
-    rgba(var(--glass-rgb), 0.34);
-  box-shadow: inset 0 1px 0 rgba(var(--glass-rgb), 0.56);
+  background: var(--run-progress-lane-bg);
+  box-shadow: var(--run-progress-lane-shadow);
 }
 
 .stage-loop-steps::after {
@@ -2802,7 +2961,7 @@ html[data-locale="zh"] .stage-loop-eyebrow {
   right: 88px;
   top: 50%;
   z-index: 0;
-  border-top: 1px solid rgba(214, 106, 54, 0.14);
+  border-top: 1px solid var(--run-progress-lane-line);
   transform: translateY(-50%);
 }
 
@@ -2810,7 +2969,7 @@ html[data-locale="zh"] .stage-loop-eyebrow {
   position: relative;
   display: block;
   height: 0;
-  border-top: 2px solid rgba(214, 106, 54, 0.28);
+  border-top: 2px solid var(--run-progress-entry-line);
 }
 
 .stage-loop-connector::after {
@@ -2820,18 +2979,18 @@ html[data-locale="zh"] .stage-loop-eyebrow {
   right: -1px;
   width: 8px;
   height: 8px;
-  border-top: 2px solid rgba(214, 106, 54, 0.46);
-  border-right: 2px solid rgba(214, 106, 54, 0.46);
+  border-top: 2px solid var(--run-progress-entry-arrow);
+  border-right: 2px solid var(--run-progress-entry-arrow);
   transform: translateY(-50%) rotate(45deg);
 }
 
 .stage-loop-connector--exit {
-  border-top-color: rgba(13, 124, 102, 0.28);
+  border-top-color: var(--run-progress-exit-line);
 }
 
 .stage-loop-connector--exit::after {
-  border-top-color: rgba(13, 124, 102, 0.42);
-  border-right-color: rgba(13, 124, 102, 0.42);
+  border-top-color: var(--run-progress-exit-arrow);
+  border-right-color: var(--run-progress-exit-arrow);
 }
 
 .stage-loop-arcs {
@@ -2849,9 +3008,9 @@ html[data-locale="zh"] .stage-loop-eyebrow {
   place-items: center;
   min-height: 124px;
   padding: 22px 18px;
-  border: 1px dashed rgba(var(--outline-rgb), 0.14);
-  background: rgba(var(--glass-rgb), 0.52);
-  color: var(--muted);
+  border: 1px dashed var(--workflow-loop-empty-border);
+  background: var(--workflow-loop-empty-bg);
+  color: var(--run-progress-copy);
   text-align: center;
 }
 
@@ -2869,9 +3028,9 @@ html[data-locale="zh"] .stage-loop-eyebrow {
   min-height: 126px;
   padding: 14px 14px 15px;
   border-radius: 0;
-  border: 1px solid rgba(var(--outline-rgb), 0.1);
-  background: rgba(255, 251, 245, 0.92);
-  color: var(--muted);
+  border: 1px solid var(--run-progress-chip-border);
+  background: var(--run-progress-chip-bg);
+  color: var(--run-progress-copy);
   text-align: left;
   transition: border-color 160ms ease, box-shadow 160ms ease;
   cursor: default;
@@ -2882,10 +3041,8 @@ html[data-locale="zh"] .stage-loop-eyebrow {
   z-index: 1;
   min-height: 148px;
   padding: 16px 16px 18px;
-  background: linear-gradient(180deg, rgba(var(--glass-rgb), 0.96), rgba(255, 251, 246, 0.98));
-  box-shadow:
-    inset 0 3px 0 rgba(var(--outline-rgb), 0.06),
-    0 10px 18px rgba(var(--outline-rgb), 0.035);
+  background: var(--run-progress-chip-workflow-bg);
+  box-shadow: var(--run-progress-chip-workflow-shadow);
 }
 
 .stage-chip--terminal {
@@ -2897,12 +3054,9 @@ html[data-locale="zh"] .stage-loop-eyebrow {
   gap: 8px;
   padding: 18px 14px 16px;
   border-radius: 999px;
-  background:
-    radial-gradient(circle at top, rgba(var(--glass-rgb), 0.96), rgba(255, 250, 244, 0.98));
+  background: var(--run-progress-chip-terminal-bg);
   text-align: center;
-  box-shadow:
-    inset 0 0 0 1px rgba(var(--glass-rgb), 0.28),
-    0 12px 24px rgba(var(--outline-rgb), 0.03);
+  box-shadow: var(--run-progress-chip-terminal-shadow);
 }
 
 .stage-chip-head {
@@ -2927,8 +3081,8 @@ html[data-locale="zh"] .stage-loop-eyebrow {
   height: 28px;
   padding: 0 8px;
   border-radius: 0;
-  background: rgba(var(--outline-rgb), 0.06);
-  color: var(--muted);
+  background: var(--run-progress-chip-badge-bg);
+  color: var(--run-progress-chip-badge-text);
   font-size: 0.76rem;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -2955,8 +3109,8 @@ html[data-locale="zh"] .stage-loop-eyebrow {
   min-height: 24px;
   padding: 0 9px;
   border-radius: 0;
-  background: rgba(var(--outline-rgb), 0.08);
-  color: var(--muted);
+  background: var(--run-progress-chip-badge-bg);
+  color: var(--run-progress-chip-badge-text);
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -3077,6 +3231,10 @@ html[data-locale="zh"] .stage-chip-state {
   opacity: 0.82;
 }
 
+[data-theme="dark"] .stage-chip.pending {
+  opacity: 0.94;
+}
+
 .stage-chip.failed {
   background: linear-gradient(180deg, rgba(171, 47, 42, 0.1), rgba(255, 251, 245, 0.98));
   border-color: rgba(171, 47, 42, 0.24);
@@ -3093,6 +3251,52 @@ html[data-locale="zh"] .stage-chip-state {
 .stage-chip.failed .stage-chip-state {
   background: rgba(171, 47, 42, 0.12);
   color: var(--danger);
+}
+
+[data-theme="dark"] .stage-chip.complete {
+  background: linear-gradient(180deg, rgba(10, 102, 89, 0.42), rgba(28, 22, 19, 0.98));
+  border-color: rgba(45, 212, 191, 0.34);
+  box-shadow: inset 0 1px 0 rgba(110, 239, 218, 0.1), 0 10px 20px rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="dark"] .stage-chip.complete .stage-chip-order,
+[data-theme="dark"] .stage-chip.complete .stage-chip-state {
+  background: rgba(45, 212, 191, 0.16);
+}
+
+[data-theme="dark"] .stage-chip.current {
+  background: linear-gradient(180deg, rgba(133, 63, 29, 0.58), rgba(31, 24, 20, 0.99));
+  border-color: rgba(242, 139, 85, 0.34);
+  box-shadow: inset 0 1px 0 rgba(248, 178, 141, 0.1), 0 12px 22px rgba(0, 0, 0, 0.14);
+}
+
+[data-theme="dark"] .stage-chip.current .stage-chip-order,
+[data-theme="dark"] .stage-chip.current .stage-chip-state {
+  background: rgba(242, 139, 85, 0.16);
+}
+
+[data-theme="dark"] .stage-chip.failed {
+  background: linear-gradient(180deg, rgba(111, 39, 39, 0.6), rgba(31, 23, 21, 0.99));
+  border-color: rgba(248, 113, 113, 0.3);
+  box-shadow: inset 0 1px 0 rgba(252, 160, 160, 0.08), 0 10px 20px rgba(0, 0, 0, 0.14);
+}
+
+[data-theme="dark"] .stage-chip.failed .stage-chip-order,
+[data-theme="dark"] .stage-chip.failed .stage-chip-state {
+  background: rgba(248, 113, 113, 0.14);
+}
+
+[data-theme="dark"] .stage-chip.skipped {
+  background: linear-gradient(180deg, rgba(59, 46, 39, 0.94), rgba(29, 22, 19, 0.98));
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--run-progress-copy);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .stage-chip.skipped .stage-chip-order,
+[data-theme="dark"] .stage-chip.skipped .stage-chip-state {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--run-progress-chip-badge-text);
 }
 
 .stage-chip.skipped {
@@ -3125,10 +3329,10 @@ html[data-locale="zh"] .stage-chip-state {
 .highlight-card {
   padding: 18px 18px 16px;
   border-radius: 0;
-  background: rgba(var(--glass-rgb), 0.52);
-  border: 1px solid rgba(var(--outline-rgb), 0.09);
+  background: var(--run-progress-highlight-bg);
+  border: 1px solid var(--run-progress-highlight-border);
   border-left: 4px solid rgba(var(--outline-rgb), 0.12);
-  box-shadow: inset 0 1px 0 rgba(var(--glass-rgb), 0.6);
+  box-shadow: var(--run-progress-highlight-shadow);
 }
 
 .highlight-label {
@@ -3154,7 +3358,7 @@ html[data-locale="zh"] .highlight-label {
 
 .highlight-card p {
   margin: 0 0 12px;
-  color: var(--ink);
+  color: var(--run-progress-highlight-copy);
 }
 
 .highlight-card.tone-active {
@@ -3180,6 +3384,15 @@ html[data-locale="zh"] .highlight-label {
   color: var(--muted);
   font-size: 0.86rem;
   font-variant-numeric: tabular-nums;
+}
+
+[data-theme="dark"] .progress-panel-copy,
+[data-theme="dark"] .progress-live-subtitle,
+[data-theme="dark"] .progress-meta-row,
+[data-theme="dark"] .stage-chip-meta,
+[data-theme="dark"] .highlight-label,
+[data-theme="dark"] .highlight-meta {
+  color: var(--card-copy-muted);
 }
 
 /* ── Summary Cards ── */
@@ -3524,17 +3737,27 @@ html[data-locale="zh"] .highlight-label {
 }
 
 .console-filter-chip {
+  --console-filter-border: rgba(var(--outline-rgb), 0.12);
+  --console-filter-bg: rgba(var(--glass-rgb), 0.88);
+  --console-filter-text: var(--ink);
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-height: 32px;
-  padding: 0 9px;
-  border: 1px solid rgba(var(--glass-rgb), 0.08);
-  background: rgba(34, 29, 23, 0.82);
-  color: rgba(255, 248, 237, 0.92);
+  padding: 0 10px;
+  border: 1px solid var(--console-filter-border);
+  background: var(--console-filter-bg);
+  color: var(--console-filter-text);
+  box-shadow: inset 0 1px 0 rgba(var(--glass-rgb), 0.76);
   font-size: 0.78rem;
+  font-weight: 700;
   white-space: nowrap;
-  transition: border-color 140ms ease, background 140ms ease, color 140ms ease, opacity 140ms ease;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease,
+    opacity 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .console-filter-chip input {
@@ -3552,45 +3775,56 @@ html[data-locale="zh"] .highlight-label {
 }
 
 .console-filter-chip.is-inactive {
-  opacity: 0.66;
+  opacity: 0.58;
 }
 
-.console-filter-chip.is-active.console-filter-chip--system,
-.console-filter-chip.is-active.console-filter-chip--context {
-  border-color: rgba(149, 216, 197, 0.22);
-  background: rgba(149, 216, 197, 0.12);
-  color: #95d8c5;
+.console-filter-chip.is-active.console-filter-chip--status {
+  --console-filter-border: rgba(108, 86, 69, 0.24);
+  --console-filter-bg: rgba(108, 86, 69, 0.1);
+  --console-filter-text: #5b4637;
 }
 
-.console-filter-chip.is-active.console-filter-chip--command {
-  border-color: rgba(255, 204, 143, 0.24);
-  background: rgba(255, 204, 143, 0.12);
-  color: #ffcc8f;
+.console-filter-chip.is-active.console-filter-chip--actions {
+  --console-filter-border: rgba(13, 124, 102, 0.26);
+  --console-filter-bg: rgba(13, 124, 102, 0.1);
+  --console-filter-text: #0b705d;
 }
 
-.console-filter-chip.is-active.console-filter-chip--stdout {
-  border-color: rgba(255, 248, 237, 0.18);
-  background: rgba(255, 248, 237, 0.09);
-  color: rgba(255, 248, 237, 0.96);
+.console-filter-chip.is-active.console-filter-chip--result {
+  --console-filter-border: rgba(214, 106, 54, 0.28);
+  --console-filter-bg: rgba(214, 106, 54, 0.1);
+  --console-filter-text: #a14d20;
 }
 
-.console-filter-chip.is-active.console-filter-chip--progress,
-.console-filter-chip.is-active.console-filter-chip--file {
-  border-color: rgba(159, 199, 255, 0.22);
-  background: rgba(159, 199, 255, 0.12);
-  color: #9fc7ff;
+[data-theme="light"] .console-filter-chip.is-active.console-filter-chip--result {
+  --console-filter-border: rgba(171, 47, 42, 0.24);
+  --console-filter-bg: rgba(171, 47, 42, 0.08);
+  --console-filter-text: #8f2f2b;
 }
 
-.console-filter-chip.is-active.console-filter-chip--warning {
-  border-color: rgba(243, 194, 111, 0.24);
-  background: rgba(243, 194, 111, 0.12);
-  color: #f3c26f;
+[data-theme="dark"] .console-filter-chip {
+  --console-filter-border: rgba(255, 255, 255, 0.1);
+  --console-filter-bg: rgba(58, 45, 38, 0.92);
+  --console-filter-text: #f4ebe4;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-.console-filter-chip.is-active.console-filter-chip--error {
-  border-color: rgba(240, 155, 149, 0.24);
-  background: rgba(240, 155, 149, 0.12);
-  color: #f09b95;
+[data-theme="dark"] .console-filter-chip.is-active.console-filter-chip--status {
+  --console-filter-border: rgba(255, 234, 214, 0.18);
+  --console-filter-bg: rgba(92, 73, 61, 0.94);
+  --console-filter-text: #fff3e7;
+}
+
+[data-theme="dark"] .console-filter-chip.is-active.console-filter-chip--actions {
+  --console-filter-border: rgba(45, 212, 191, 0.3);
+  --console-filter-bg: rgba(16, 92, 79, 0.94);
+  --console-filter-text: #d9fff7;
+}
+
+[data-theme="dark"] .console-filter-chip.is-active.console-filter-chip--result {
+  --console-filter-border: rgba(242, 139, 85, 0.3);
+  --console-filter-bg: rgba(110, 38, 38, 0.94);
+  --console-filter-text: #ffe3e0;
 }
 
 .console-legend-chip {
@@ -3858,12 +4092,11 @@ html[data-locale="zh"] .console-output {
 
 .console-focus-body {
   margin: 0;
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
   color: var(--ink);
-  background:
-    radial-gradient(circle at top right, rgba(214, 106, 54, 0.08), transparent 18%),
-    radial-gradient(circle at bottom left, rgba(13, 124, 102, 0.05), transparent 18%),
-    linear-gradient(180deg, var(--bg-gradient-start) 0%, var(--bg) 50%, var(--bg-gradient-end) 100%);
+  background: linear-gradient(180deg, #17110e 0%, #0d0907 100%);
 }
 
 .console-focus-shell {
@@ -3875,79 +4108,40 @@ html[data-locale="zh"] .console-output {
   margin: 0 auto;
 }
 
-.console-focus-header {
+.console-focus-shell--immersive {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  min-height: 100dvh;
+  padding: 12px;
+  margin: 0;
+  overflow: hidden;
+}
+
+.console-focus-topbar {
   display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 22px;
-  padding: 18px 0;
-}
-
-.console-focus-copy {
-  display: grid;
-  gap: 8px;
-}
-
-.console-focus-copy h1 {
-  margin: 0;
-  font-size: clamp(2rem, 4vw, 3.2rem);
-  line-height: 0.98;
-}
-
-.console-focus-copy p {
-  margin: 0;
-  max-width: 900px;
-  color: var(--muted);
-}
-
-.console-focus-actions {
-  align-items: start;
-  margin-top: 0;
-  align-self: start;
   justify-content: flex-end;
-}
-
-.console-focus-panel {
+  align-items: center;
   min-height: 0;
-  padding: 18px;
-  border-radius: 0;
-  border: 1px solid var(--line);
-  background: rgba(255, 250, 241, 0.74);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(16px);
 }
 
-.console-focus-meta-row {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-
-.console-focus-meta-card {
-  padding: 12px 14px;
-  border-radius: 0;
-  border: 1px solid var(--line);
-  background: rgba(var(--glass-rgb), 0.56);
-  display: grid;
-  gap: 2px;
-  min-width: 180px;
-}
-
-.console-focus-meta-label {
-  color: var(--muted);
-  font-size: 0.76rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.console-legend-focus {
-  margin-top: 4px;
+.console-focus-back {
+  min-height: 38px;
+  padding-inline: 14px;
 }
 
 .console-shell-focus {
   min-height: 60vh;
   height: 70vh;
+  max-height: none;
+  resize: none;
+}
+
+.console-shell-immersive {
+  min-height: 0;
+  height: 100%;
   max-height: none;
   resize: none;
 }
@@ -4359,11 +4553,6 @@ html[data-locale="zh"] .preview-box {
     grid-template-columns: 1fr;
   }
 
-  .console-focus-header {
-    flex-direction: column;
-  }
-
-  .console-focus-meta-row,
   .console-line-toggle {
     display: grid;
     grid-template-columns: 1fr;

@@ -13,14 +13,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const collapseAllButton = document.getElementById("console-focus-collapse-all");
   const MAX_CONSOLE_LINES = 640;
   const FILTER_OPTIONS = [
-    {key: "system", zh: "系统动作", en: "System"},
-    {key: "context", zh: "上下文流转", en: "Context"},
-    {key: "command", zh: "命令", en: "Command"},
-    {key: "stdout", zh: "终端输出", en: "Stdout"},
-    {key: "progress", zh: "模型进度", en: "Progress"},
-    {key: "file", zh: "文件变更", en: "Files"},
-    {key: "warning", zh: "提醒", en: "Warning"},
-    {key: "error", zh: "错误", en: "Error"},
+    {key: "status", zh: "状态", en: "Status"},
+    {key: "actions", zh: "动作", en: "Actions"},
+    {key: "result", zh: "结果", en: "Result"},
   ];
   const selectedFilters = new Set(FILTER_OPTIONS.map((item) => item.key));
 
@@ -109,7 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
     {
       tone = "info",
       channel = "state",
-      filterKey = "system",
+      filterKey = "status",
       text = "",
       summary = "",
       indent = 0,
@@ -157,7 +152,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "system",
         channel: "state",
-        filterKey: "system",
+        filterKey: "status",
         summary: localeText("运行开始", "Run started"),
         text: localeText("运行开始，Loopora 已进入执行态。", "Run started and Loopora entered execution mode."),
       })];
@@ -166,7 +161,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "system",
         channel: "state",
-        filterKey: "system",
+        filterKey: "status",
         summary: `${localeText("检查项已就绪", "Checks resolved")} (${payload.count || 0})`,
         text: prettyJson(payload),
       })];
@@ -178,7 +173,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "system",
         channel: "context",
-        filterKey: "context",
+        filterKey: "actions",
         summary: `${localeText("角色请求已准备", "Role request prepared")} · ${resolvedRole}`,
         text: prettyJson(payload),
         collapsed: true,
@@ -188,7 +183,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "system",
         channel: "context",
-        filterKey: "context",
+        filterKey: "actions",
         summary: `${localeText("上下文已装配", "Context prepared")} · ${buildContextDetail(payload)}`,
         text: prettyJson(payload),
         collapsed: true,
@@ -199,7 +194,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "system",
         channel: "state",
-        filterKey: "system",
+        filterKey: "status",
         summary: `${localeText("开始执行", "Started")}${iterLabel}`,
         text: prettyJson(payload),
       })];
@@ -208,7 +203,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "warning",
         channel: "warning",
-        filterKey: "warning",
+        filterKey: "result",
         summary: `${localeText("降级到", "Degraded to")} ${payload.mode || "-"}`,
         text: prettyJson(payload),
       })];
@@ -222,7 +217,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone,
         channel: payload.ok ? "state" : "error",
-        filterKey: payload.ok ? "system" : "error",
+        filterKey: "result",
         summary: detail,
         text: prettyJson(payload),
       })];
@@ -231,7 +226,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: payload.status === "blocked" ? "warning" : payload.status === "passed" ? "success" : "system",
         channel: "context",
-        filterKey: "context",
+        filterKey: "actions",
         summary: `${localeText("交接包已写入", "Handoff written")} · ${payload.summary || "-"}`,
         text: prettyJson(payload),
         collapsed: true,
@@ -241,7 +236,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: payload.passed ? "success" : "system",
         channel: "context",
-        filterKey: "context",
+        filterKey: "actions",
         summary: `${localeText("轮次摘要已冻结", "Iteration summary written")} · score=${payload.composite_score ?? "n/a"}`,
         text: prettyJson(payload),
         collapsed: true,
@@ -251,7 +246,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "error",
         channel: "error",
-        filterKey: "error",
+        filterKey: "result",
         summary: `${localeText("运行中止", "Run aborted")} · ${payload.error || payload.role || "-"}`,
         text: prettyJson(payload),
       })];
@@ -260,7 +255,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "error",
         channel: "error",
-        filterKey: "error",
+        filterKey: "result",
         summary: `${localeText("工作区安全守卫触发", "Workspace safety guard triggered")} · ${localeText("删掉原始文件", "Deleted original files")}=${payload.deleted_original_count || 0}`,
         text: prettyJson(payload),
       })];
@@ -269,7 +264,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "warning",
         channel: "warning",
-        filterKey: "warning",
+        filterKey: "status",
         summary: localeText("已请求停止", "Stop requested"),
         text: prettyJson(payload),
       })];
@@ -278,7 +273,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: payload.status === "succeeded" ? "success" : "warning",
         channel: "state",
-        filterKey: "system",
+        filterKey: "result",
         summary: `${localeText("运行结束", "Run finished")} · ${window.LooporaUI.translateStatus(payload.status || "succeeded")}`,
         text: prettyJson(payload),
       })];
@@ -291,7 +286,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "stdout",
         channel: "stdout",
-        filterKey: "stdout",
+        filterKey: "result",
         summary: String(payload.message),
         text: String(payload.message),
         indent: 1,
@@ -301,7 +296,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "command",
         channel: "command",
-        filterKey: "command",
+        filterKey: "actions",
         summary: `$ ${String(payload.message).trim()}`,
         text: `$ ${String(payload.message).trim()}`,
       })];
@@ -311,7 +306,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "error",
         channel: "error",
-        filterKey: "error",
+        filterKey: "result",
         summary: message,
         text: message,
         indent: 1,
@@ -322,7 +317,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "error",
         channel: "error",
-        filterKey: "error",
+        filterKey: "result",
         summary: message,
         text: message,
         indent: 1,
@@ -337,7 +332,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "command",
         channel: "command",
-        filterKey: "command",
+        filterKey: "actions",
         summary: `$ ${item.command || ""}`,
         text: `$ ${item.command || ""}`,
       })];
@@ -347,7 +342,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return [buildConsoleEntry(event, {
           tone: "stdout",
           channel: "stdout",
-          filterKey: "stdout",
+          filterKey: "result",
           summary: String(item.aggregated_output),
           text: String(item.aggregated_output),
           indent: 1,
@@ -357,7 +352,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ? [buildConsoleEntry(event, {
           tone: "error",
           channel: "error",
-          filterKey: "error",
+          filterKey: "result",
           summary: `${localeText("命令退出码", "Command exit code")} ${item.exit_code}`,
           text: `${localeText("命令退出码", "Command exit code")} ${item.exit_code}`,
           indent: 1,
@@ -369,7 +364,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "success",
         channel: "file",
-        filterKey: "file",
+        filterKey: "actions",
         summary: `${localeText("文件变更", "Files changed")}: ${changed || "-"}`,
         text: prettyJson(item),
         indent: 1,
@@ -381,7 +376,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "progress",
         channel: "progress",
-        filterKey: "progress",
+        filterKey: "status",
         summary: `${localeText("待办进度", "Todo progress")}: ${completed}/${total}`,
         text: prettyJson(item),
         indent: 1,
@@ -391,7 +386,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return [buildConsoleEntry(event, {
         tone: "progress",
         channel: "model",
-        filterKey: "progress",
+        filterKey: "result",
         summary: String(item.text),
         text: String(item.text),
         indent: 1,
@@ -412,27 +407,31 @@ document.addEventListener("DOMContentLoaded", () => {
     const rows = output.querySelectorAll(".console-line");
     let visibleCount = 0;
     for (const row of rows) {
-      const visible = selectedFilters.has(row.dataset.filterKey || "system");
+      const visible = selectedFilters.has(row.dataset.filterKey || "status");
       row.classList.toggle("is-hidden", !visible);
       if (visible) {
         visibleCount += 1;
       }
     }
-    lineCountNode.textContent = lineCountLabel(visibleCount, rows.length);
+    if (lineCountNode) {
+      lineCountNode.textContent = lineCountLabel(visibleCount, rows.length);
+    }
   }
 
   function syncConsoleMeta() {
     applyConsoleFilters();
-    const status = currentRun?.status || "draft";
-    statusBadge.className = `status-pill progress-status-pill status-${status}`;
-    statusBadge.dataset.statusLabel = status;
-    statusBadge.textContent = window.LooporaUI.translateStatus(status);
+    if (statusBadge) {
+      const status = currentRun?.status || "draft";
+      statusBadge.className = `status-pill progress-status-pill status-${status}`;
+      statusBadge.dataset.statusLabel = status;
+      statusBadge.textContent = window.LooporaUI.translateStatus(status);
+    }
   }
 
   function buildRow(line) {
     const row = document.createElement("article");
     row.className = `console-line console-line-${line.tone || "info"} console-line-indent-${line.indent || 0}`;
-    row.dataset.filterKey = line.filterKey || "system";
+    row.dataset.filterKey = line.filterKey || "status";
     if (line.mergeKey) {
       row.dataset.mergeKey = line.mergeKey;
     }
@@ -469,7 +468,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     row.append(toggle, body);
     setRowCollapsed(row, Boolean(line.collapsed));
-    row.classList.toggle("is-hidden", !selectedFilters.has(line.filterKey || "system"));
+    row.classList.toggle("is-hidden", !selectedFilters.has(line.filterKey || "status"));
     return row;
   }
 
@@ -550,12 +549,19 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function buildFilterControls() {
+    if (!filterGroup) {
+      return;
+    }
     function syncFilterChipState(label, checkbox) {
       label.classList.toggle("is-active", checkbox.checked);
       label.classList.toggle("is-inactive", !checkbox.checked);
     }
-    expandAllButton.textContent = localeText("全部展开", "Expand all");
-    collapseAllButton.textContent = localeText("全部收缩", "Collapse all");
+    if (expandAllButton) {
+      expandAllButton.textContent = localeText("全部展开", "Expand all");
+    }
+    if (collapseAllButton) {
+      collapseAllButton.textContent = localeText("全部收缩", "Collapse all");
+    }
     filterGroup.innerHTML = "";
     for (const option of FILTER_OPTIONS) {
       const label = document.createElement("label");
@@ -578,12 +584,16 @@ document.addEventListener("DOMContentLoaded", () => {
       syncFilterChipState(label, checkbox);
       filterGroup.appendChild(label);
     }
-    expandAllButton.onclick = () => {
-      output.querySelectorAll(".console-line").forEach((row) => setRowCollapsed(row, false));
-    };
-    collapseAllButton.onclick = () => {
-      output.querySelectorAll(".console-line").forEach((row) => setRowCollapsed(row, true));
-    };
+    if (expandAllButton) {
+      expandAllButton.onclick = () => {
+        output.querySelectorAll(".console-line").forEach((row) => setRowCollapsed(row, false));
+      };
+    }
+    if (collapseAllButton) {
+      collapseAllButton.onclick = () => {
+        output.querySelectorAll(".console-line").forEach((row) => setRowCollapsed(row, true));
+      };
+    }
   }
 
   shell.addEventListener("scroll", (event) => {

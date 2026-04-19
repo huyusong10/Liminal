@@ -124,6 +124,11 @@ def test_run_detail_places_run_files_and_console_before_timeline(
     assert "console-legend" not in response.text
     assert "console-expand-all" in response.text
     assert "console-collapse-all" in response.text
+    assert '{key: "status", zh: "状态", en: "Status"}' in response.text
+    assert '{key: "actions", zh: "动作", en: "Actions"}' in response.text
+    assert '{key: "result", zh: "结果", en: "Result"}' in response.text
+    assert '{key: "context", zh: "上下文", en: "Context"}' not in response.text
+    assert '{key: "progress", zh: "进展", en: "Progress"}' not in response.text
 
 
 def test_run_detail_progress_stages_follow_workflow_snapshot(
@@ -192,13 +197,32 @@ def test_run_console_page_renders_fullscreen_console_view(
     response = client.get(f"/runs/{run['id']}/console")
 
     assert response.status_code == 200
-    assert "Fullscreen Console Loop" in response.text
     assert "console-focus-shell" in response.text
+    assert "console-shell-immersive" in response.text
     assert "console-focus-output" in response.text
-    assert "console-focus-filters" in response.text
-    assert "console-focus-expand-all" in response.text
-    assert "console-focus-collapse-all" in response.text
+    assert "console-focus-topbar" in response.text
+    assert "console-focus-back" in response.text
+    assert "返回运行详情" in response.text
+    assert "console-focus-filters" not in response.text
+    assert "console-focus-expand-all" not in response.text
+    assert "console-focus-collapse-all" not in response.text
+    assert "console-focus-meta-row" not in response.text
+    assert "console-focus-status" not in response.text
     assert "/static/pages/run_console.js?v=" in response.text
+
+
+def test_run_console_script_uses_compact_filter_groups(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/static/pages/run_console.js")
+
+    assert response.status_code == 200
+    assert '{key: "status", zh: "状态", en: "Status"}' in response.text
+    assert '{key: "actions", zh: "动作", en: "Actions"}' in response.text
+    assert '{key: "result", zh: "结果", en: "Result"}' in response.text
+    assert '{key: "context", zh: "上下文", en: "Context"}' not in response.text
+    assert '{key: "progress", zh: "进展", en: "Progress"}' not in response.text
 
 
 def test_loop_detail_uses_summary_cards_for_latest_run(
@@ -670,7 +694,9 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".timeline-event {" in css
     assert ".timeline-empty {" in css
     assert ".summary-card-head {" in css
-    assert ".console-focus-panel {" in css
+    assert ".console-focus-shell--immersive {" in css
+    assert ".console-focus-topbar {" in css
+    assert ".console-shell-immersive {" in css
     assert ".top-nav-brand-lockup {" in css
     assert ".page-stack {" in css
     assert ".card-actions--loop {" in css
@@ -681,6 +707,10 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".skill-download-card {" in css
     assert ".workflow-loop-map {" in css
     assert ".workflow-loop-segment {" in css
+    assert "--workflow-loop-stroke:" in css
+    assert "--card-scenario-bg:" in css
+    assert "--run-progress-shell-bg:" in css
+    assert "--run-progress-live-bg:" in css
     assert ".tutorial-context-grid {" in css
     assert ".tutorial-context-detail-grid {" in css
     assert ".nav-preferences-panel {" in css
@@ -705,6 +735,16 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert re.search(r"\.loop-card\s*{[\s\S]*?overflow:\s*visible;", css)
     assert re.search(r"\.loop-card--running\s*{[\s\S]*?overflow:\s*hidden;", css)
     assert re.search(r"\.loop-grid--created\s*{[\s\S]*?--loop-card-target:\s*430px;", css)
+    assert re.search(r"\.workflow-loop-node-label\s*{[\s\S]*?fill:\s*var\(--workflow-loop-label\);", css)
+    assert re.search(r"\.loop-card-glance--scenario\s*{[\s\S]*?background:\s*var\(--card-scenario-bg\);", css)
+    assert re.search(r"\.stage-loop-shell\s*{[\s\S]*?background:\s*var\(--run-progress-shell-bg\);", css)
+    assert re.search(r"\.stage-chip--terminal\s*{[\s\S]*?background:\s*var\(--run-progress-chip-terminal-bg\);", css)
+    assert re.search(r"\.highlight-card\s*{[\s\S]*?background:\s*var\(--run-progress-highlight-bg\);", css)
+    assert ".console-filter-chip.is-active.console-filter-chip--actions {" in css
+    assert ".console-filter-chip.is-active.console-filter-chip--result {" in css
+    assert "[data-theme=\"dark\"] .console-filter-chip.is-active.console-filter-chip--result {" in css
+    assert "[data-theme=\"dark\"] .progress-live-card--danger {" in css
+    assert "[data-theme=\"dark\"] .stage-chip.failed {" in css
     assert re.search(r"\.artifact-tabs\s*{[\s\S]*?display:\s*flex;[\s\S]*?overflow-x:\s*auto;", css)
     assert re.search(r"\.artifact-preview-box\s*{[\s\S]*?height:\s*360px;[\s\S]*?max-height:\s*360px;", css)
     assert re.search(r"\.console-filter-chip input\s*{[\s\S]*?width:\s*16px;[\s\S]*?padding:\s*0;", css)

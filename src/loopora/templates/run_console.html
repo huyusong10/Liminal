@@ -11,52 +11,16 @@
   <script src="{{ static_asset_url('pages/run_console.js') }}" defer></script>
 </head>
 <body class="console-focus-body">
-  <main class="console-focus-shell">
-    <header class="console-focus-header">
-      <div class="console-focus-copy">
-        <h1>{{ run.loop_name or run.id }}</h1>
-        <p>
-          <span data-lang="zh">把这一轮 run 的命令、输出和阶段信号铺满整页，适合盯长任务或投屏观察。</span>
-          <span data-lang="en">A full-page view of this run's commands, output, and stage signals, suited for long tasks or a wall display.</span>
-        </p>
-      </div>
-      <div class="card-actions console-focus-actions">
-        <span class="status-pill progress-status-pill status-{{ run.status }}" id="console-focus-status" data-status-label="{{ run.status }}"></span>
-        <a class="secondary-button" href="/runs/{{ run.id }}">
-          <span data-lang="zh">返回运行详情</span>
-          <span data-lang="en">Back to run</span>
-        </a>
-      </div>
-    </header>
-
-    <section class="console-focus-panel">
-      <div class="console-focus-meta-row">
-        <div class="console-focus-meta-card">
-          <span class="console-focus-meta-label"><span data-lang="zh">运行 ID</span><span data-lang="en">Run ID</span></span>
-          <strong>{{ run.id }}</strong>
-        </div>
-        <div class="console-focus-meta-card">
-          <span class="console-focus-meta-label"><span data-lang="zh">工作目录</span><span data-lang="en">Workspace</span></span>
-          <strong>{{ run.workdir }}</strong>
-        </div>
-        <div class="console-focus-meta-card">
-          <span class="console-focus-meta-label"><span data-lang="zh">终端行数</span><span data-lang="en">Console lines</span></span>
-          <strong id="console-focus-line-count">0 lines</strong>
-        </div>
-      </div>
-
-      <div class="console-toolbar" aria-label="Console controls">
-        <div class="console-toolbar-actions">
-          <button type="button" class="ghost-button" id="console-focus-expand-all"></button>
-          <button type="button" class="ghost-button" id="console-focus-collapse-all"></button>
-        </div>
-        <div class="console-filter-group" id="console-focus-filters"></div>
-      </div>
-
-      <div class="console-shell console-shell-focus" id="console-focus-shell">
-        <div class="console-output console-output-focus" id="console-focus-output"></div>
-      </div>
-    </section>
+  <main class="console-focus-shell console-focus-shell--immersive">
+    <div class="console-focus-topbar">
+      <a class="secondary-button console-focus-back" href="/runs/{{ run.id }}">
+        <span data-lang="zh">返回运行详情</span>
+        <span data-lang="en">Back to run</span>
+      </a>
+    </div>
+    <div class="console-shell console-shell-focus console-shell-immersive" id="console-focus-shell">
+      <div class="console-output console-output-focus" id="console-focus-output"></div>
+    </div>
   </main>
 
   <script>

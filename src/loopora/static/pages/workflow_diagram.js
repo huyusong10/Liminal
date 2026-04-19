@@ -205,7 +205,7 @@
         <svg class="workflow-loop-svg" viewBox="0 0 ${settings.width} ${settings.height}" role="img" aria-label="${escapeHtml(localeText("循环流程图", "Loop workflow diagram"))}">
           <defs>
             <marker id="${markerId}" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
-              <path d="M 0 0 L 12 6 L 0 12 z" fill="rgba(53, 43, 34, 0.74)"></path>
+              <path d="M 0 0 L 12 6 L 0 12 z" fill="var(--workflow-loop-marker, rgba(53, 43, 34, 0.74))"></path>
             </marker>
           </defs>
           ${singleLoopPath ? `<path d="${singleLoopPath}" class="workflow-loop-segment is-single" style="--workflow-loop-accent:${roleColor(steps[0].archetype)}" marker-end="url(#${markerId})"></path>` : ""}
