@@ -21,6 +21,37 @@
 - application log 与 run event stream 必须并存，不能互相替代。
 - 同一诊断场景优先用共享关联字段串联三者，而不是复制大段内容。
 - Web 终端必须把关键系统动作白盒化投影出来，不能只展示底层命令输出。
+- 面向用户的 run 详情页应优先消费 run artifacts 中已经冻结的 handoff / iteration summary 来生成“关键结论”，而不是把原始 artifact 文件逐个暴露为主界面导航；原始 artifact 仍保留在 `.loopora` 中供追查与下载。
+- 提供给角色 prompt 的 artifact refs 必须能从 workspace 直接定位到 `.loopora/runs/...` 下的真实文件，不能只暴露对 run 目录内部才有意义的短相对路径。
+- 当角色尝试获取浏览器或截图证据失败时，诊断线索必须保留在 run event stream 与 step handoff 中，便于后续角色区分“产品问题”与“宿主环境阻断”。
+
+## 2.1 真实 CLI 集成验证
+
+为了覆盖预设执行器与真实 workspace 的组合，仓库允许存在 opt-in 的真实 CLI 集成测试：
+
+- 必须显式打 `real_cli` 标记，并默认跳过。
+- 必须使用真实 provider CLI 与真实 workspace fixture 副本，不能退化为 `FakeCodexExecutor`。
+- 断言应优先锁定基础设施契约，例如 run 能终结、角色 structured output 可读、resume 命令不再携带无效参数，而不是锁定模型审美或实现细节。
+- 至少保留一个两轮以上的真实用例，用 `completion_mode=rounds` 强制走到第二轮 Builder `resume` 分支，覆盖跨轮次会话续接这条高风险链路。
+- 当前真实 provider E2E 只覆盖 `preset` 模式，不覆盖 `command` 模式；若后续需要扩展，必须单独评估矩阵膨胀成本。
+- 统一开关为 `LOOPORA_ENABLE_REAL_CLI_E2E=1`；默认关闭。
+- `LOOPORA_REAL_CLI_TARGETS=codex,claude,opencode` 可缩小 provider 范围。若未设置，则按本机实际存在的 CLI 自动过滤。
+- `LOOPORA_REAL_CLI_TIMEOUT_SECONDS` 控制单条 run 的最长等待时间。
+- provider 模型覆盖通过可选环境变量注入：`LOOPORA_REAL_CLI_CODEX_MODEL`、`LOOPORA_REAL_CLI_CLAUDE_MODEL`、`LOOPORA_REAL_CLI_OPENCODE_MODEL`。
+- 若环境缺少 CLI、浏览器或宿主权限，这类用例应明确 skip，而不是伪造成功结果。
+
+最小高风险矩阵如下：
+
+| case | provider | workflow | completion mode | 关键断言 |
+|------|----------|----------|-----------------|----------|
+| Baseline pass | `codex / claude / opencode` | `fast_lane` | `gatekeeper` | run 正常结束；Builder / GateKeeper `ok=true`；无 `run_aborted` |
+| Resume regression | `codex / claude / opencode` | `fast_lane` | `rounds` + `max_iters=2` | 第二轮 `builder_step.resume_session_id` 非空；provider resume argv 正确；最终 `rounds_completed` |
+| Step isolation | `codex` | `repair_loop` | `rounds` + `max_iters=2` | `builder_step` 与 `builder_repair_step` 在第二轮分别恢复自己的 session，且不会串线 |
+
+补充约束：
+
+- 这些用例属于重型回归，不进入默认快速测试路径；设计目标是“手动触发或专门 CI 触发”，不是每次改动都跑。
+- fixture 内必须自带可重复执行的本地 proof harness（例如 `tests/contract/*.mjs -> tests/evidence/*.json`）。真实 provider 跑完后，用例仍需重新执行 proof harness，确认工作区证据保持可读且可复验。
 
 ## 3. 标准日志结构
 

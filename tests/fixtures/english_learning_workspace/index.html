@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Loopora English Prototype</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Serif+Text:ital@0;1&family=Manrope:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <nav class="topbar" aria-label="Language switcher">
+          <span class="brand">Loopora</span>
+          <label class="language-switch">
+            <span id="locale-label">Interface</span>
+            <select id="locale-select">
+              <option value="en">English</option>
+              <option value="zh-CN">中文</option>
+            </select>
+          </label>
+        </nav>
+
+        <div class="hero-copy">
+          <p class="eyebrow" id="hero-eyebrow"></p>
+          <h1 id="hero-title"></h1>
+          <p class="hero-description" id="hero-description"></p>
+          <div class="path-nav" aria-label="Primary path">
+            <a class="path-link" href="#content" id="path-link-content"></a>
+            <a class="path-link" href="#practice" id="path-link-practice"></a>
+            <a class="path-link" href="#feedback" id="path-link-feedback"></a>
+          </div>
+          <div class="journey-strip" aria-label="Core learning flow">
+            <article class="journey-step">
+              <span class="journey-index">01</span>
+              <strong id="journey-content-title"></strong>
+              <p id="journey-content-copy"></p>
+            </article>
+            <article class="journey-step">
+              <span class="journey-index">02</span>
+              <strong id="journey-practice-title"></strong>
+              <p id="journey-practice-copy"></p>
+            </article>
+            <article class="journey-step">
+              <span class="journey-index">03</span>
+              <strong id="journey-feedback-title"></strong>
+              <p id="journey-feedback-copy"></p>
+            </article>
+          </div>
+          <div class="hero-stats" aria-label="Prototype highlights">
+            <article>
+              <strong id="stat-content-value"></strong>
+              <span id="stat-content-label"></span>
+            </article>
+            <article>
+              <strong id="stat-practice-value"></strong>
+              <span id="stat-practice-label"></span>
+            </article>
+            <article>
+              <strong id="stat-feedback-value"></strong>
+              <span id="stat-feedback-label"></span>
+            </article>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="panel section-grid" id="content" aria-labelledby="content-title">
+          <div class="section-heading">
+            <p class="section-kicker" id="content-kicker"></p>
+            <h2 id="content-title"></h2>
+            <p id="content-description"></p>
+          </div>
+          <div class="content-cards" id="lesson-cards"></div>
+        </section>
+
+        <section class="panel section-grid practice-panel" id="practice" aria-labelledby="practice-title">
+          <div class="section-heading">
+            <p class="section-kicker" id="practice-kicker"></p>
+            <h2 id="practice-title"></h2>
+            <p id="practice-description"></p>
+          </div>
+          <div class="quiz-card">
+            <p class="quiz-label" id="quiz-label"></p>
+            <p class="quiz-question" id="quiz-question"></p>
+            <p class="quiz-helper" id="quiz-helper"></p>
+            <div class="quiz-options" id="quiz-options" role="group" aria-labelledby="quiz-question"></div>
+            <button class="secondary-button" id="reset-button" type="button"></button>
+          </div>
+        </section>
+
+        <section class="panel section-grid feedback-panel" id="feedback" aria-labelledby="feedback-title">
+          <div class="section-heading">
+            <p class="section-kicker" id="feedback-kicker"></p>
+            <h2 id="feedback-title"></h2>
+            <p id="feedback-description"></p>
+          </div>
+          <div class="feedback-card">
+            <div class="feedback-score">
+              <span id="feedback-badge"></span>
+              <strong id="feedback-score"></strong>
+            </div>
+            <p class="feedback-answer" id="feedback-answer"></p>
+            <p class="feedback-summary" id="feedback-summary"></p>
+            <p class="feedback-detail" id="feedback-detail"></p>
+            <dl class="feedback-breakdown">
+              <div>
+                <dt id="feedback-picked-label"></dt>
+                <dd id="feedback-picked-value"></dd>
+              </div>
+              <div>
+                <dt id="feedback-target-label"></dt>
+                <dd id="feedback-target-value"></dd>
+              </div>
+            </dl>
+            <div class="feedback-next">
+              <span id="feedback-next-label"></span>
+              <p id="feedback-next-step"></p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
