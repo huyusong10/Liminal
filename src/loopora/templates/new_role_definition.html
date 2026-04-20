@@ -253,14 +253,51 @@
       </div>
     </section>
 
-    <label class="wide">
-      <span><span data-lang="zh">Prompt Markdown</span><span data-lang="en">Prompt Markdown</span></span>
-      <textarea name="prompt_markdown" id="role-definition-prompt-markdown-input" rows="20" required data-testid="role-definition-prompt-markdown-input">{{- form_values.prompt_markdown -}}</textarea>
-      <small class="field-note">
-        <span data-lang="zh">Prompt 必须带 YAML front matter，并且 `archetype` 要和上面的角色模板一致。</span>
-        <span data-lang="en">The prompt must include YAML front matter, and its `archetype` must match the selected role template above.</span>
-      </small>
-    </label>
+    <section class="wide markdown-workbench markdown-workbench--inline" data-testid="role-definition-prompt-workbench">
+      <div class="markdown-workbench-toolbar">
+        <div class="markdown-workbench-toolbar-row">
+          <span class="markdown-workbench-panel-label"><span data-lang="zh">Prompt Markdown</span><span data-lang="en">Prompt Markdown</span></span>
+          <span class="markdown-workbench-panel-note">
+            <span data-lang="zh">左侧编辑源码，右侧只预览正文；YAML front matter 仍会按原样提交。</span>
+            <span data-lang="en">Edit the source on the left and preview only the body on the right. YAML front matter is still submitted unchanged.</span>
+          </span>
+        </div>
+      </div>
+      <div class="markdown-workbench-grid">
+        <label class="markdown-workbench-panel">
+          <span class="markdown-workbench-panel-head">
+            <span class="markdown-workbench-panel-label"><span data-lang="zh">源码</span><span data-lang="en">Source</span></span>
+            <span class="markdown-workbench-panel-note"><span data-lang="zh">需要包含 YAML front matter</span><span data-lang="en">YAML front matter is required</span></span>
+          </span>
+          <textarea
+            name="prompt_markdown"
+            id="role-definition-prompt-markdown-input"
+            class="markdown-workbench-source markdown-workbench-source-input"
+            rows="20"
+            required
+            data-testid="role-definition-prompt-markdown-input"
+          >{{- form_values.prompt_markdown -}}</textarea>
+          <small class="field-note">
+            <span data-lang="zh">Prompt 必须带 YAML front matter，并且 `archetype` 要和上面的角色模板一致。</span>
+            <span data-lang="en">The prompt must include YAML front matter, and its `archetype` must match the selected role template above.</span>
+          </small>
+        </label>
+        <section class="markdown-workbench-panel">
+          <div class="markdown-workbench-panel-head">
+            <span class="markdown-workbench-panel-label"><span data-lang="zh">正文预览</span><span data-lang="en">Body preview</span></span>
+            <span class="markdown-workbench-panel-note" id="role-definition-prompt-preview-note">
+              <span data-lang="zh">会自动忽略 front matter，只展示 Markdown 正文。</span>
+              <span data-lang="en">Front matter is ignored here so only the Markdown body is shown.</span>
+            </span>
+          </div>
+          <article
+            class="preview-box markdown-preview markdown-workbench-preview"
+            id="role-definition-prompt-markdown-preview"
+            data-testid="role-definition-prompt-markdown-preview"
+          >{{ initial_prompt_preview_html|safe }}</article>
+        </section>
+      </div>
+    </section>
   </div>
 
   <div class="card-actions">
@@ -276,6 +313,7 @@
 </form>
 <script id="role-definition-builtin-templates-json" type="application/json">{{ builtin_role_templates|tojson }}</script>
 <script id="role-definition-executor-profiles-json" type="application/json">{{ executor_profiles|tojson }}</script>
+<script src="{{ static_asset_url('markdown_workbench.js') }}" defer></script>
 <script src="{{ static_asset_url('pages/new_role_definition.js') }}" defer></script>
 </div>
 {% endblock %}

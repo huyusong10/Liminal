@@ -546,6 +546,90 @@ def test_new_loop_page_does_not_restore_pristine_only_browser_defaults(tmp_path:
             pytest.skip(f"Playwright browser launch is unavailable: {exc}")
 
 
+def test_new_loop_page_can_edit_spec_in_a_markdown_workbench_modal(tmp_path: Path) -> None:
+    spec_path = tmp_path / "spec.md"
+    checklist = "\n".join(f"- Keep line {index:02d} readable inside the modal body." for index in range(1, 41))
+    spec_path.write_text(
+        (
+            textwrap.dedent(
+                """
+            # Goal
+
+            Update the current spec quickly.
+
+            ## Checks
+
+            - Render headings
+            - Save edits back to disk
+            - Escape <script>alert("xss")</script>
+
+            ```js
+            console.log("editor");
+            ```
+            """
+            ).strip()
+            + "\n\n"
+            + checklist
+            + "\n"
+        ),
+        encoding="utf-8",
+    )
+    repository = LooporaRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LooporaService(
+        repository=repository,
+        settings=settings,
+        executor_factory=lambda: CalculatorPrototypeExecutor(scenario="success"),
+    )
+
+    with serve_app(build_app(service=service)) as base_url:
+        try:
+            with playwright.sync_api.sync_playwright() as playwright_driver:
+                browser = playwright_driver.chromium.launch()
+                page = browser.new_page(viewport={"width": 1440, "height": 960})
+                try:
+                    page.goto(f"{base_url}/loops/new", wait_until="networkidle")
+                    page.locator('input[name="spec_path"]').fill(str(spec_path))
+                    page.get_by_test_id("spec-editor-button").click()
+
+                    modal = page.get_by_test_id("spec-editor-modal")
+                    assert modal.get_attribute("aria-hidden") == "false"
+                    assert page.get_by_test_id("spec-editor-validation-pill").is_visible()
+                    assert page.locator("#spec-preview-path").text_content() == str(spec_path)
+                    editor = page.get_by_test_id("spec-editor-input")
+                    assert "# Goal" in editor.input_value()
+                    assert page.locator("#spec-editor-source-panel").is_visible()
+                    assert page.locator("#spec-editor-preview-panel").is_hidden()
+                    header_box = page.locator(".spec-preview-copy").bounding_box()
+                    assert header_box is not None and header_box["width"] > 320
+                    editor.fill("# Goal\n\nUpdated from the modal.\n\n## Checks\n\n- Save to disk\n")
+                    page.get_by_test_id("save-spec-document-button").click()
+                    page.wait_for_timeout(120)
+                    assert "Updated from the modal." in spec_path.read_text(encoding="utf-8")
+                    page.get_by_test_id("spec-editor-preview-toggle-button").click()
+                    assert page.locator("#spec-editor-source-panel").is_hidden()
+                    assert page.locator("#spec-editor-preview-panel").is_visible()
+                    preview_html = page.locator("#spec-preview-content").inner_html()
+                    assert "<script>" not in preview_html
+                    assert "Updated from the modal." in preview_html
+                    preview_metrics = page.locator("#spec-preview-content").evaluate(
+                        """(node) => ({
+                          overflowY: window.getComputedStyle(node).overflowY,
+                          clientHeight: node.clientHeight,
+                          scrollHeight: node.scrollHeight,
+                        })"""
+                    )
+                    assert preview_metrics["overflowY"] == "auto"
+                    assert preview_metrics["scrollHeight"] >= preview_metrics["clientHeight"]
+
+                    page.locator("#spec-preview-close").click()
+                    assert modal.get_attribute("aria-hidden") == "true"
+                finally:
+                    browser.close()
+        except Exception as exc:  # pragma: no cover - environment dependent
+            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+
+
 def test_new_loop_page_adapts_runtime_controls_to_selected_orchestration(tmp_path: Path) -> None:
     repository = LooporaRepository(tmp_path / "app.db")
     settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
@@ -650,6 +734,9 @@ def test_role_definition_page_updates_template_guidance_and_builtin_prompt_with_
                     assert "建议只放一个" in (page.locator("#role-definition-archetype-recommendation").text_content() or "")
                     assert "不建议把它当成实现角色" in (page.locator("#role-definition-archetype-warning").text_content() or "")
                     assert "# GateKeeper Prompt" in page.locator("#role-definition-prompt-markdown-input").input_value()
+                    assert "你是 Loopora 内部的 GateKeeper" in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
+                    assert "version: 1" not in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
+                    assert "archetype: gatekeeper" not in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
 
                     page.locator('button[data-set-locale="en"]').click()
                     page.wait_for_timeout(50)
@@ -659,6 +746,9 @@ def test_role_definition_page_updates_template_guidance_and_builtin_prompt_with_
                     assert "Keep one of these near the end of the workflow" in (page.locator("#role-definition-archetype-recommendation").text_content() or "")
                     assert "Do not use it as an implementation role" in (page.locator("#role-definition-archetype-warning").text_content() or "")
                     assert "# GateKeeper Prompt" in page.locator("#role-definition-prompt-markdown-input").input_value()
+                    assert "You are the GateKeeper inside Loopora" in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
+                    assert "version: 1" not in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
+                    assert "archetype: gatekeeper" not in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
                 finally:
                     browser.close()
         except Exception as exc:  # pragma: no cover - environment dependent

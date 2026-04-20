@@ -162,6 +162,7 @@ prompt 资产必须满足：
 - `prompt_ref` 必须是落在 prompt 资产根目录下的安全相对引用；不允许绝对路径、空段或 `.` / `..` 段
 - `prompt_files` 映射里的每个 key 都必须遵守同一 `prompt_ref` 契约；Web、CLI、API 入口不能静默丢弃非法 key
 - 若同一个 `prompt_ref` 被多个 role 复用，它必须同时满足每个绑定 role 的 archetype 契约；不能借共享引用绕过角色模板校验
+- 角色定义页可以提供共享 Markdown workbench 形式的正文预览，但该预览只能基于“去掉 YAML front matter 后的正文”渲染；真正提交、保存和校验的仍必须是完整 prompt 源文
 
 ## 6. 模型解析优先级
 

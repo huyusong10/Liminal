@@ -229,6 +229,37 @@ def test_run_detail_collapses_empty_workflow_lane(
     assert "置信度" not in response.text
 
 
+def test_run_detail_refreshes_takeaways_with_a_distinct_flag_name(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Takeaway Refresh Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/runs/{run['id']}")
+
+    assert response.status_code == 200
+    assert "async function fetchRun({shouldRefreshTakeaways = false} = {})" in response.text
+    assert "await fetchRun({shouldRefreshTakeaways});" in response.text
+    assert "refreshTakeawaySnapshot().catch(() => {});" in response.text
+    assert "refreshTakeaways().catch(() => {});" not in response.text
+
+
 def test_run_detail_empty_workflow_lane_uses_request_locale_on_first_paint(
     service_factory,
     sample_spec_file: Path,
@@ -418,8 +449,11 @@ def test_loop_detail_uses_summary_cards_for_latest_run(
     assert "hero-inline-meta" in response.text
     assert "loop-detail-copy" in response.text
     assert "loop-detail-spec-shell" in response.text
+    _assert_has_testid(response.text, "loop-detail-spec-workbench")
     assert "loop-detail-spec-path" in response.text
+    assert "loop-detail-spec-source" in response.text
     assert "loop-detail-spec-preview" in response.text
+    assert "markdown-workbench-grid" in response.text
     assert "loop-detail-history-meta" in response.text
     assert "loop-detail-history-time" in response.text
     assert "artifact-copy" not in response.text
@@ -499,7 +533,13 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(response.text, "nav-orchestrations-link")
     _assert_has_testid(response.text, "nav-role-definitions-link")
     _assert_has_testid(response.text, "workdir-browse-button")
+    _assert_has_testid(response.text, "spec-editor-button")
     _assert_has_testid(response.text, "spec-template-button")
+    _assert_has_testid(response.text, "spec-editor-modal")
+    _assert_has_testid(response.text, "spec-editor-preview-toggle-button")
+    _assert_has_testid(response.text, "save-spec-document-button")
+    _assert_has_testid(response.text, "spec-editor-validation-pill")
+    _assert_has_testid(response.text, "spec-editor-workbench")
     _assert_has_testid(response.text, "loop-orchestration-input")
     _assert_has_testid(response.text, "loop-completion-mode-input")
     _assert_has_testid(response.text, "loop-completion-mode-field")
@@ -511,6 +551,12 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "name=\"orchestration_id\"" in response.text
     assert "name=\"completion_mode\"" in response.text
     assert "name=\"iteration_interval_seconds\"" in response.text
+    assert "/static/markdown_workbench.js?v=" in response.text
+    assert "id=\"edit-spec\"" in response.text
+    assert "id=\"toggle-spec-preview\"" in response.text
+    assert "id=\"spec-editor-input\"" in response.text
+    assert "id=\"spec-preview-content\"" in response.text
+    assert "Spec editor" in response.text
     assert "Role runtime reminder" not in response.text
     assert "Spec reminder" not in response.text
     assert "Extra tools" not in response.text
@@ -862,11 +908,14 @@ Focus on scoped release work.
     _assert_has_testid(new_response.text, "role-definition-command-cli-input")
     _assert_has_testid(new_response.text, "role-definition-command-args-input")
     _assert_has_testid(new_response.text, "role-definition-command-preview")
+    _assert_has_testid(new_response.text, "role-definition-prompt-workbench")
     _assert_has_testid(new_response.text, "role-definition-prompt-markdown-input")
+    _assert_has_testid(new_response.text, "role-definition-prompt-markdown-preview")
     _assert_has_testid(new_response.text, "role-definition-archetype-guide")
     _assert_has_testid(new_response.text, "save-role-definition-button")
     assert 'class="panel-header workflow-editor-header role-execution-header"' in new_response.text
     assert 'class="executor-config-grid"' in new_response.text
+    assert "/static/markdown_workbench.js?v=" in new_response.text
     assert "Final command preview" in new_response.text
     assert "Custom Command" in new_response.text
     assert "Prompt file name" not in new_response.text
@@ -987,6 +1036,12 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert response.status_code == 200
     css = response.text
     assert ".preview-box {" in css
+    assert ".spec-preview-dialog {" in css
+    assert ".markdown-workbench {" in css
+    assert ".markdown-workbench-grid {" in css
+    assert ".markdown-workbench-source-input {" in css
+    assert ".markdown-workbench-preview {" in css
+    assert ".spec-preview-markdown {" in css
     assert "white-space: pre-wrap;" in css
     assert ".timeline-event {" in css
     assert ".timeline-empty {" in css
@@ -1007,6 +1062,8 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".workflow-map-panel {" in css
     assert "--workflow-loop-stroke:" in css
     assert "--card-scenario-bg:" in css
+    assert "--running-card-surface:" in css
+    assert "--running-status-bg:" in css
     assert "--run-progress-shell-bg:" in css
     assert "--run-progress-live-bg:" in css
     assert ".stacked-copy {" in css
@@ -1015,6 +1072,7 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".loop-detail-copy {" in css
     assert ".loop-detail-spec-shell {" in css
     assert ".loop-detail-spec-toolbar {" in css
+    assert ".loop-detail-spec-source," in css
     assert ".loop-detail-spec-path {" in css
     assert ".loop-detail-spec-preview {" in css
     assert ".loop-detail-history-time {" in css
@@ -1057,12 +1115,27 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert re.search(r"\.role-card-grid--orchestrations-custom\s*{[\s\S]*?grid-template-columns:\s*repeat\(", css)
     assert re.search(r"\.loop-card\s*{[\s\S]*?overflow:\s*visible;", css)
     assert re.search(r"\.loop-card--running\s*{[\s\S]*?overflow:\s*hidden;", css)
+    assert re.search(r"\.loop-card--running\s*{[\s\S]*?background:\s*var\(--running-card-surface\);", css)
+    assert re.search(r"\.status-running\s*{[\s\S]*?background:\s*var\(--running-status-bg\);", css)
+    assert re.search(r"\.status-running\s*{[\s\S]*?box-shadow:\s*var\(--running-status-shadow\);", css)
+    assert "@keyframes runningSweep" not in css
+    assert "@keyframes pulseGlow" not in css
     assert re.search(r"\.loop-card-link\s*{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;", css)
+    assert re.search(r"\.input-with-multi-actions\s*{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto\s+auto\s+auto;", css)
+    assert re.search(r"\.spec-preview-dialog\s*{[\s\S]*?display:\s*grid;[\s\S]*?height:\s*min\(86vh,\s*920px\);", css)
+    assert re.search(r"\.spec-preview-toolbar\s*{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);", css)
+    assert re.search(r"\.markdown-workbench-grid\s*{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);", css)
+    assert re.search(r"\.spec-preview-workbench\s+\.markdown-workbench-grid\s*{[\s\S]*?grid-template-columns:\s*1fr;", css)
+    assert re.search(r"\.spec-preview-header\s*{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto;[\s\S]*?align-items:\s*end;", css)
+    assert re.search(r"\.spec-preview-actions\s*{[\s\S]*?width:\s*auto;[\s\S]*?flex:\s*0 0 auto;", css)
+    assert re.search(r"\.markdown-workbench-source-input\s*{[\s\S]*?min-height:\s*360px;[\s\S]*?font-family:\s*\"SFMono-Regular\",", css)
+    assert re.search(r"\.markdown-workbench-preview\s*{[\s\S]*?line-height:\s*1\.78;[\s\S]*?overflow:\s*auto;[\s\S]*?scrollbar-gutter:\s*stable both-edges;", css)
+    assert re.search(r"\.(?:markdown-workbench-preview|spec-preview-markdown)\s+h1\s*{[\s\S]*?border-bottom:\s*1px solid", css)
     assert re.search(r"\.card-actions-compact\s*{[\s\S]*?width:\s*100%;[\s\S]*?justify-content:\s*flex-start;", css)
     assert re.search(r"\.loop-grid--created\s*{[\s\S]*?--loop-card-target:\s*430px;", css)
     assert re.search(r"\.stacked-copy\s*{[\s\S]*?display:\s*grid;[\s\S]*?gap:\s*14px;", css)
     assert re.search(r"\.loop-detail-spec-path\s*{[\s\S]*?white-space:\s*nowrap;[\s\S]*?overflow:\s*auto;", css)
-    assert re.search(r"\.loop-detail-spec-preview\s*{[\s\S]*?min-height:\s*220px;[\s\S]*?max-height:\s*420px;", css)
+    assert re.search(r"\.(?:loop-detail-spec-source|loop-detail-spec-preview)\s*{[\s\S]*?min-height:\s*220px;[\s\S]*?max-height:\s*420px;", css)
     assert re.search(r"\.run-history-item:hover\s*{[\s\S]*?transform:\s*translateY\(-2px\);", css)
     assert re.search(r"\.tutorial-guide-grid\s*{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(230px,\s*1fr\)\);", css)
     assert re.search(r"\.tutorial-page-stack\s*{[\s\S]*?--tutorial-page-max:\s*1360px;[\s\S]*?width:\s*min\(var\(--tutorial-page-max\),\s*100%\);", css)

@@ -10,6 +10,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const executorKindInput = document.getElementById("role-definition-executor-kind-input");
   const executorModeInput = document.getElementById("role-definition-executor-mode-input");
   const promptMarkdownInput = document.getElementById("role-definition-prompt-markdown-input");
+  const promptMarkdownPreview = document.getElementById("role-definition-prompt-markdown-preview");
+  const promptMarkdownPreviewNote = document.getElementById("role-definition-prompt-preview-note");
   const modeNote = document.getElementById("role-definition-mode-note");
   const modeButtons = Array.from(document.querySelectorAll("[data-mode-choice]"));
   const modelInput = document.getElementById("role-definition-model-input");
@@ -37,6 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const commandDrafts = new Map();
   let lastExecutorKind = executorKindInput?.value || "";
+  let promptMarkdownWorkbench = null;
 
   function localeText(zh, en) {
     return window.LooporaUI.pickText({zh, en});
@@ -47,6 +50,26 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     element.innerHTML = `<span data-lang="zh">${zh}</span><span data-lang="en">${en}</span>`;
+  }
+
+  function setPromptPreviewNote(kind = "", message = "") {
+    if (!promptMarkdownPreviewNote) {
+      return;
+    }
+    promptMarkdownPreviewNote.className = `markdown-workbench-panel-note${kind ? ` is-${kind}` : ""}`;
+    if (message) {
+      promptMarkdownPreviewNote.textContent = message;
+      return;
+    }
+    setBilingualHtml(
+      promptMarkdownPreviewNote,
+      "会自动忽略 front matter，只展示 Markdown 正文。",
+      "Front matter is ignored here so only the Markdown body is shown.",
+    );
+  }
+
+  function refreshPromptPreview() {
+    promptMarkdownWorkbench?.renderNow().catch(() => {});
   }
 
   function selectedProfile() {
@@ -150,6 +173,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     promptMarkdownInput.value = templateMarkdownForLocale(nextTemplate);
+    refreshPromptPreview();
   }
 
   function defaultCommandArgsText(profile) {
@@ -575,11 +599,38 @@ document.addEventListener("DOMContentLoaded", () => {
     syncArchetypeGuide();
     syncPromptMarkdownForArchetype(archetypeInput?.value || "", archetypeInput?.value || "", {force: false});
     refreshExecutorFields({preserveUserModel: true, preserveUserEffort: true});
+    setPromptPreviewNote();
+    refreshPromptPreview();
   });
+
+  if (window.LooporaMarkdownWorkbench && promptMarkdownInput && promptMarkdownPreview) {
+    promptMarkdownWorkbench = window.LooporaMarkdownWorkbench.create({
+      textarea: promptMarkdownInput,
+      preview: promptMarkdownPreview,
+      stripFrontMatter: true,
+      onStatus(kind, message) {
+        if (kind === "error") {
+          setPromptPreviewNote("is-error", message);
+          return;
+        }
+        setPromptPreviewNote();
+      },
+      emptyMessage: {
+        zh: "这里还没有可显示的 Prompt 正文。",
+        en: "There is no prompt body to preview yet.",
+      },
+      loadingMessage: {
+        zh: "正在渲染 Prompt 预览…",
+        en: "Rendering the prompt preview...",
+      },
+    });
+  }
 
   archetypeInput.dataset.previousArchetype = archetypeInput?.value || "";
   localizeArchetypeOptions();
   syncArchetypeGuide();
   syncPromptMarkdownForArchetype(archetypeInput?.value || "", archetypeInput?.value || "", {force: true});
   refreshExecutorFields({preserveUserModel: true, preserveUserEffort: true});
+  setPromptPreviewNote();
+  refreshPromptPreview();
 });

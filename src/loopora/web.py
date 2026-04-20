@@ -29,11 +29,12 @@ from loopora.branding import (
 )
 from loopora.providers import executor_profile, list_executor_profiles
 from loopora.diagnostics import get_logger, log_event, log_exception
+from loopora.markdown_tools import decode_text_bytes, looks_binary, normalize_markdown_text, render_safe_markdown_html
 from loopora.run_artifacts import list_run_artifacts as _list_run_artifacts
 from loopora.settings import load_recent_workdirs
 from loopora.skills import build_spec_skill_bundle_archive, install_spec_skill, list_spec_skill_targets, load_spec_skill_bundle
 from loopora.service import LooporaError, create_service, normalize_role_models
-from loopora.specs import SpecError, init_spec_file, read_and_compile
+from loopora.specs import SpecError, compile_markdown_spec, init_spec_file, read_and_compile
 from loopora.system_dialogs import SystemDialogError, pick_directory, pick_file, pick_save_file, reveal_path
 from loopora.workflows import (
     ARCHETYPES,
@@ -424,6 +425,10 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                 "executor_profiles": list_executor_profiles(),
                 "builtin_role_templates": _builtin_role_templates(locale=locale),
                 "builtin_prompt_sync_enabled": builtin_prompt_sync_enabled,
+                "initial_prompt_preview_html": render_safe_markdown_html(
+                    str(form_values.get("prompt_markdown", "")),
+                    strip_front_matter=True,
+                ),
                 "access_state": access_state,
             },
         )
@@ -590,6 +595,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                         loop.get("workflow_json") or {},
                         fallback_executor_kind=loop.get("executor_kind", "codex"),
                     ),
+                    "spec_rendered_html": render_safe_markdown_html(loop.get("spec_markdown", "")),
                 },
                 "latest_run": latest_run,
                 "summary_snapshot": _build_run_summary_snapshot(latest_run) if latest_run else None,
@@ -856,6 +862,65 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                 "path": str(spec_path.resolve()),
                 "check_count": len(compiled["checks"]),
                 "check_mode": compiled["check_mode"],
+            }
+        )
+
+    @app.get("/api/specs/preview")
+    async def api_preview_spec(path: str = "") -> JSONResponse:
+        path_text = path.strip()
+        if not path_text:
+            return JSONResponse({"ok": False, "error": "spec path is required"})
+        spec_path = Path(path_text).expanduser()
+        try:
+            raw_bytes = spec_path.read_bytes()
+        except (FileNotFoundError, OSError) as exc:
+            return JSONResponse({"ok": False, "error": str(exc)})
+        if looks_binary(raw_bytes):
+            return JSONResponse({"ok": False, "error": "spec preview only supports text markdown files"})
+        return JSONResponse(_spec_document_payload(spec_path, decode_text_bytes(raw_bytes)))
+
+    @app.get("/api/specs/document")
+    async def api_get_spec_document(path: str = "") -> JSONResponse:
+        path_text = path.strip()
+        if not path_text:
+            return JSONResponse({"ok": False, "error": "spec path is required"})
+        spec_path = Path(path_text).expanduser()
+        try:
+            raw_bytes = spec_path.read_bytes()
+        except (FileNotFoundError, OSError) as exc:
+            return JSONResponse({"ok": False, "error": str(exc)})
+        if looks_binary(raw_bytes):
+            return JSONResponse({"ok": False, "error": "spec editor only supports text markdown files"})
+        return JSONResponse(_spec_document_payload(spec_path, decode_text_bytes(raw_bytes)))
+
+    @app.put("/api/specs/document")
+    async def api_save_spec_document(request: Request) -> JSONResponse:
+        payload = await request.json()
+        path_text = str(payload.get("path", "")).strip()
+        markdown_text = normalize_markdown_text(str(payload.get("content", "")))
+        if not path_text:
+            return JSONResponse({"ok": False, "error": "spec path is required"})
+        spec_path = Path(path_text).expanduser()
+        if not spec_path.parent.exists():
+            return JSONResponse({"ok": False, "error": f"spec parent directory does not exist: {spec_path.parent}"})
+        try:
+            spec_path.write_text(markdown_text, encoding="utf-8")
+        except OSError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)})
+        return JSONResponse(_spec_document_payload(spec_path, markdown_text))
+
+    @app.post("/api/markdown/render")
+    async def api_render_markdown(request: Request) -> JSONResponse:
+        payload = await request.json()
+        markdown_text = str(payload.get("markdown", ""))
+        strip_front_matter = _coerce_bool(payload.get("strip_front_matter", False))
+        return JSONResponse(
+            {
+                "ok": True,
+                "rendered_html": render_safe_markdown_html(
+                    markdown_text,
+                    strip_front_matter=strip_front_matter,
+                ),
             }
         )
 
@@ -1564,6 +1629,34 @@ def _preferred_locale_from_accept_language(accept_language: str | None) -> str:
 
     candidates.sort()
     return candidates[0][2]
+
+
+def _spec_validation_from_markdown(markdown_text: str) -> dict[str, object]:
+    try:
+        compiled = compile_markdown_spec(markdown_text)
+    except SpecError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "check_count": 0,
+            "check_mode": "",
+        }
+    return {
+        "ok": True,
+        "error": "",
+        "check_count": len(compiled["checks"]),
+        "check_mode": compiled["check_mode"],
+    }
+
+
+def _spec_document_payload(spec_path: Path, markdown_text: str) -> dict[str, object]:
+    return {
+        "ok": True,
+        "path": str(spec_path.resolve()),
+        "content": markdown_text,
+        "rendered_html": render_safe_markdown_html(markdown_text),
+        "validation": _spec_validation_from_markdown(markdown_text),
+    }
 
 
 def _decorate_role_definition_overview(role_definition: Mapping[str, object]) -> dict[str, object]:

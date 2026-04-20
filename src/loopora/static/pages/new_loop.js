@@ -15,6 +15,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const regressionWindowField = document.getElementById("regression-window-field");
   const browseWorkdirButton = document.getElementById("browse-workdir");
   const browseSpecButton = document.getElementById("browse-spec");
+  const editSpecButton = document.getElementById("edit-spec");
   const createSpecTemplateButton = document.getElementById("create-spec-template");
   const saveLoopButton = document.getElementById("save-loop-button");
   const formError = document.getElementById("form-error");
@@ -22,6 +23,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const draftActions = document.getElementById("draft-actions");
   const clearDraftButton = document.getElementById("clear-draft-button");
   const specValidation = document.getElementById("spec-validation");
+  const specPreviewModal = document.getElementById("spec-preview-modal");
+  const specPreviewStatus = document.getElementById("spec-preview-status");
+  const specPreviewPath = document.getElementById("spec-preview-path");
+  const specPreviewContent = document.getElementById("spec-preview-content");
+  const specPreviewToggleButton = document.getElementById("toggle-spec-preview");
+  const specEditorInput = document.getElementById("spec-editor-input");
+  const specEditorWorkbenchShell = document.querySelector(".spec-preview-workbench");
+  const specEditorSourcePanel = document.getElementById("spec-editor-source-panel");
+  const specEditorPreviewPanel = document.getElementById("spec-editor-preview-panel");
+  const specEditorSaveButton = document.getElementById("save-spec-document");
+  const specEditorValidationPill = document.getElementById("spec-editor-validation-pill");
+  const specEditorSaveState = document.getElementById("spec-editor-save-state");
   const executorProfiles = JSON.parse(document.getElementById("executor-profiles-json")?.textContent || "[]");
   const orchestrations = JSON.parse(document.getElementById("orchestrations-json")?.textContent || "[]");
   const pristineLoopForm = JSON.parse(document.getElementById("pristine-loop-form-json")?.textContent || "{}");
@@ -29,6 +42,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const DRAFT_STORAGE_KEY = "loopora:new-loop-draft:v2";
   let latestSpecValidationRequest = 0;
+  let lastSpecPreviewTrigger = null;
+  let specEditorWorkbench = null;
+  let specEditorLoadedPath = "";
+  let specEditorSavedText = "";
+  let specEditorLastValidation = null;
+  let specPreviewVisible = false;
 
   function localeText(zh, en) {
     return window.LooporaUI.pickText({zh, en});
@@ -51,6 +70,55 @@ document.addEventListener("DOMContentLoaded", () => {
       return String(error.message);
     }
     return fallbackMessage;
+  }
+
+  function specValidationFeedback(validation) {
+    if (!validation || typeof validation !== "object") {
+      return {
+        message: localeText("Spec 状态未知。", "Spec status is unknown."),
+        kind: "warning",
+        pill: localeText("待检查", "Pending"),
+      };
+    }
+    if (validation.state === "dirty") {
+      return {
+        message: validation.error || localeText("编辑器里有未保存的改动。", "There are unsaved editor changes."),
+        kind: "warning",
+        pill: localeText("未保存", "Unsaved"),
+      };
+    }
+    if (validation.state === "detached") {
+      return {
+        message: validation.error || localeText("当前编辑器还没有绑定新的 spec 文件。", "The editor is not bound to the new spec file yet."),
+        kind: "warning",
+        pill: localeText("需重载", "Reload"),
+      };
+    }
+    if (validation.ok) {
+      const detail = validation.check_mode === "auto_generated"
+        ? localeText("当前内容还没有显式 checks，run 开始时会自动生成并冻结。", "The current text has no explicit checks yet. Loopora will generate and freeze them at run start.")
+        : localeText(`当前内容识别到 ${validation.check_count} 个显式 checks。`, `The current text contains ${validation.check_count} explicit check(s).`);
+      return {
+        message: `${localeText("Spec 校验通过。", "Spec is valid.")} ${detail}`,
+        kind: "success",
+        pill: validation.check_mode === "auto_generated"
+          ? localeText("自动 checks", "Auto checks")
+          : localeText("校验通过", "Valid"),
+      };
+    }
+    return {
+      message: validation.error || localeText("Spec 还没有满足最小结构。", "The spec does not satisfy the minimum structure yet."),
+      kind: "error",
+      pill: localeText("需修正", "Needs fixes"),
+    };
+  }
+
+  function escapeHtml(value) {
+    return String(value || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
   }
 
   function setButtonBusy(button, isBusy) {
@@ -380,10 +448,12 @@ document.addEventListener("DOMContentLoaded", () => {
       return false;
     }
     if (payload.ok) {
-      const modeMessage = payload.check_mode === "auto_generated"
-        ? localeText("未提供显式 checks，run 开始时会自动生成并冻结。", "No explicit checks provided. Loopora will generate and freeze them at run start.")
-        : localeText(`识别到 ${payload.check_count} 个显式 checks。`, `Detected ${payload.check_count} explicit check(s).`);
-      showStatus(specValidation, `${localeText("Spec 校验通过。", "Spec is valid.")} ${modeMessage}`, "success");
+      const feedback = specValidationFeedback({
+        ok: true,
+        check_mode: payload.check_mode,
+        check_count: payload.check_count,
+      });
+      showStatus(specValidation, feedback.message, feedback.kind);
       specPathInput.value = payload.path;
       saveDraft();
       return true;
@@ -451,6 +521,276 @@ document.addEventListener("DOMContentLoaded", () => {
     await validateSpec();
   }
 
+  function setSpecPreviewStatus(message, kind = "") {
+    if (!specPreviewStatus) {
+      return;
+    }
+    specPreviewStatus.textContent = message || "";
+    specPreviewStatus.className = `spec-preview-status${kind ? ` is-${kind}` : ""}`;
+  }
+
+  function setSpecEditorSaveState(message, kind = "") {
+    if (!specEditorSaveState) {
+      return;
+    }
+    specEditorSaveState.textContent = message || "";
+    specEditorSaveState.className = `field-note markdown-workbench-save-state${kind ? ` is-${kind}` : ""}`;
+  }
+
+  function setSpecEditorValidation(validation) {
+    if (!specEditorValidationPill) {
+      return;
+    }
+    const feedback = specValidationFeedback(validation);
+    specEditorValidationPill.textContent = feedback.pill;
+    specEditorValidationPill.className = `status-pill spec-preview-readonly${feedback.kind ? ` is-${feedback.kind}` : ""}`;
+  }
+
+  function specEditorIsDirty() {
+    return Boolean(specEditorInput) && specEditorInput.value !== specEditorSavedText;
+  }
+
+  function specPreviewPlaceholderHtml() {
+    return `<p>${escapeHtml(localeText(
+      "这里只在你手动点击“预览”后显示渲染结果。",
+      "The rendered result appears here only after you click Preview.",
+    ))}</p>`;
+  }
+
+  function syncSpecPreviewToggleButton() {
+    if (!specPreviewToggleButton) {
+      return;
+    }
+    specPreviewToggleButton.textContent = specPreviewVisible
+      ? localeText("返回编辑", "Back to editor")
+      : localeText("预览", "Preview");
+    specPreviewToggleButton.setAttribute("aria-pressed", String(specPreviewVisible));
+  }
+
+  function syncSpecPreviewMode() {
+    specEditorWorkbenchShell?.classList.toggle("is-previewing", specPreviewVisible);
+    if (specEditorSourcePanel) {
+      specEditorSourcePanel.hidden = specPreviewVisible;
+    }
+    if (specEditorPreviewPanel) {
+      specEditorPreviewPanel.hidden = !specPreviewVisible;
+    }
+    syncSpecPreviewToggleButton();
+  }
+
+  function syncSpecPreviewStatusForCurrentMode() {
+    if (specPreviewVisible) {
+      setSpecPreviewStatus(
+        localeText("这是当前文本的渲染结果。要继续修改，请返回编辑。", "This is the rendered result for the current text. Go back to the editor to keep changing it."),
+        "success",
+      );
+      return;
+    }
+    if (specEditorIsDirty()) {
+      setSpecPreviewStatus(
+        localeText("当前先保持在源码编辑态；准备好后再手动点“预览”。", "Stay in source-editing mode for now, then click Preview manually when you are ready."),
+        "warning",
+      );
+      return;
+    }
+    setSpecPreviewStatus(
+      localeText("先专心修改源码，准备好后再手动打开预览。", "Focus on editing first, then open the preview manually when you are ready."),
+      "",
+    );
+  }
+
+  function openSpecPreview(trigger = editSpecButton) {
+    if (!specPreviewModal) {
+      return;
+    }
+    lastSpecPreviewTrigger = trigger instanceof HTMLElement ? trigger : document.activeElement;
+    specPreviewModal.hidden = false;
+    specPreviewModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("modal-open");
+    specPreviewModal.querySelector(".spec-preview-dialog")?.scrollTo({top: 0});
+    syncSpecPreviewMode();
+  }
+
+  function closeSpecPreview() {
+    if (!specPreviewModal) {
+      return;
+    }
+    specPreviewModal.hidden = true;
+    specPreviewModal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("modal-open");
+    if (lastSpecPreviewTrigger instanceof HTMLElement) {
+      lastSpecPreviewTrigger.focus();
+    }
+  }
+
+  function applyLoadedSpecDocument(payload) {
+    if (!payload || !payload.ok || !specEditorInput) {
+      return;
+    }
+    specEditorLoadedPath = payload.path;
+    specEditorSavedText = String(payload.content || "");
+    specEditorLastValidation = payload.validation || null;
+    specPathInput.value = payload.path;
+    specPreviewPath.textContent = payload.path;
+    specEditorWorkbench?.setValue(payload.content || "", {render: false});
+    specEditorWorkbench?.setPreviewHtml(specPreviewPlaceholderHtml());
+    setSpecEditorValidation(payload.validation);
+    showStatus(
+      specValidation,
+      specValidationFeedback(payload.validation).message,
+      specValidationFeedback(payload.validation).kind,
+    );
+    setSpecEditorSaveState(
+      payload.validation?.ok
+        ? localeText("磁盘内容已载入，可以继续修改。", "Disk content loaded. You can keep editing.")
+        : localeText("磁盘内容已载入，但当前 spec 还需要修正。", "Disk content loaded, but the current spec still needs fixes."),
+      payload.validation?.ok ? "success" : "warning",
+    );
+    syncSpecPreviewStatusForCurrentMode();
+    saveDraft();
+  }
+
+  async function loadSpecDocument(options = {}) {
+    const path = specPathInput.value.trim();
+    if (!path) {
+      showStatus(specValidation, localeText("请先提供 spec 路径，再打开编辑器。", "Provide a spec path before opening the editor."), "error");
+      return;
+    }
+    if (!options.force && specEditorLoadedPath === path && specEditorInput?.value) {
+      specPreviewPath.textContent = path;
+      if (!specEditorIsDirty() && specEditorLastValidation) {
+        setSpecEditorValidation(specEditorLastValidation);
+      }
+      syncSpecPreviewStatusForCurrentMode();
+      return;
+    }
+
+    specPreviewPath.textContent = path;
+    setSpecPreviewStatus(localeText("正在读取 spec…", "Loading spec..."));
+    setSpecEditorSaveState(localeText("正在把磁盘内容载入编辑器。", "Loading the file from disk into the editor."));
+
+    const {response, payload, error} = await fetchJson(`/api/specs/document?path=${encodeURIComponent(path)}`);
+    if (error || !response) {
+      specPreviewPath.textContent = path;
+      setSpecPreviewStatus(errorMessage(error, localeText("Spec 编辑器暂时不可用。", "The spec editor is temporarily unavailable.")), "error");
+      setSpecEditorSaveState(errorMessage(error, localeText("暂时无法读取这份 spec。", "This spec cannot be read right now.")), "error");
+      return;
+    }
+    if (!payload.ok) {
+      specPreviewPath.textContent = path;
+      setSpecPreviewStatus(payload.error || localeText("Spec 编辑器加载失败。", "The spec editor could not be loaded."), "error");
+      setSpecEditorSaveState(payload.error || localeText("请检查路径和文件内容。", "Check the path and file contents."), "error");
+      return;
+    }
+    applyLoadedSpecDocument(payload);
+  }
+
+  async function saveSpecDocument(options = {}) {
+    const path = specPathInput.value.trim();
+    if (!path) {
+      showStatus(specValidation, localeText("请先提供 spec 路径，再保存编辑器内容。", "Provide a spec path before saving the editor contents."), "error");
+      return false;
+    }
+    if (!specEditorInput) {
+      return false;
+    }
+    setSpecEditorSaveState(localeText("正在把改动写回磁盘。", "Writing your changes back to disk."));
+    const {response, payload, error} = await fetchJson("/api/specs/document", {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({path, content: specEditorInput.value}),
+    });
+    if (error || !response) {
+      const message = errorMessage(error, localeText("保存 spec 失败。", "Unable to save the spec."));
+      setSpecEditorSaveState(message, "error");
+      if (!options.silent) {
+        showStatus(specValidation, message, "error");
+      }
+      return false;
+    }
+    if (!payload.ok) {
+      const message = payload.error || localeText("保存 spec 失败。", "Unable to save the spec.");
+      setSpecEditorSaveState(message, "error");
+      if (!options.silent) {
+        showStatus(specValidation, message, "error");
+      }
+      return false;
+    }
+    applyLoadedSpecDocument(payload);
+    if (payload.validation?.ok) {
+      setSpecEditorSaveState(localeText("已保存到磁盘，当前 spec 已通过校验。", "Saved to disk. The current spec is valid."), "success");
+    } else {
+      setSpecEditorSaveState(localeText("已保存到磁盘，但当前 spec 还需要修正。", "Saved to disk, but the current spec still needs fixes."), "warning");
+    }
+    if (!options.silent) {
+      showStatus(
+        specValidation,
+        specValidationFeedback(payload.validation).message,
+        specValidationFeedback(payload.validation).kind,
+      );
+    }
+    return true;
+  }
+
+  async function editSpec() {
+    specPreviewVisible = false;
+    openSpecPreview(editSpecButton);
+    syncSpecPreviewMode();
+    if (!specEditorWorkbench && window.LooporaMarkdownWorkbench && specPreviewContent && specEditorInput) {
+      specEditorWorkbench = window.LooporaMarkdownWorkbench.create({
+        textarea: specEditorInput,
+        preview: specPreviewContent,
+        autoRenderOnInput: false,
+        onStatus(kind, message) {
+          if (kind === "loading") {
+            setSpecPreviewStatus(message || localeText("正在生成 Markdown 预览…", "Generating the Markdown preview..."));
+            return;
+          }
+          if (kind === "error") {
+            setSpecPreviewStatus(message || localeText("Markdown 预览失败。", "Markdown preview failed."), "error");
+            return;
+          }
+          syncSpecPreviewStatusForCurrentMode();
+        },
+        emptyMessage: {
+          zh: "这份 spec 目前还是空的。",
+          en: "This spec is currently empty.",
+        },
+        loadingMessage: {
+          zh: "正在渲染 Markdown 预览…",
+          en: "Rendering the Markdown preview...",
+        },
+      });
+      specEditorInput.addEventListener("input", () => {
+        setSpecEditorSaveState(localeText("有未保存的改动。提交 loop 前会先尝试自动保存。", "There are unsaved changes. Loop submission will try to save them first."), "warning");
+        setSpecEditorValidation({
+          state: "dirty",
+          error: localeText("编辑器里有未保存的改动。", "There are unsaved editor changes."),
+          check_count: 0,
+          check_mode: "",
+        });
+        syncSpecPreviewStatusForCurrentMode();
+      });
+    }
+    await loadSpecDocument();
+    syncSpecPreviewMode();
+    syncSpecPreviewStatusForCurrentMode();
+    specEditorInput?.focus();
+  }
+
+  async function toggleSpecPreview() {
+    if (specPreviewVisible) {
+      specPreviewVisible = false;
+      syncSpecPreviewMode();
+      syncSpecPreviewStatusForCurrentMode();
+      specEditorInput?.focus();
+      return;
+    }
+    specPreviewVisible = true;
+    syncSpecPreviewMode();
+    await specEditorWorkbench?.renderNow();
+  }
+
   function parseNumber(value, fallback) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -465,6 +805,21 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!currentOrchestration()) {
       showStatus(formError, localeText("请先选择一个流程编排。", "Choose an orchestration first."), "error");
       return;
+    }
+    if (specEditorIsDirty()) {
+      if (specPathInput.value.trim() !== specEditorLoadedPath) {
+        showStatus(
+          formError,
+          localeText("Spec 路径已经变了，请重新打开编辑器确认要保存哪份文件。", "The spec path changed. Reopen the editor to confirm which file should be saved."),
+          "error",
+        );
+        return;
+      }
+      const saved = await saveSpecDocument({silent: false});
+      if (!saved) {
+        showStatus(formError, localeText("Spec 编辑器里的改动还没有成功保存，请先修复后再提交。", "The editor changes were not saved successfully. Fix that first before submitting."), "error");
+        return;
+      }
     }
     const specValid = await validateSpec();
     if (!specValid) {
@@ -530,6 +885,36 @@ document.addEventListener("DOMContentLoaded", () => {
       },
     ));
   }
+  if (editSpecButton) {
+    editSpecButton.addEventListener("click", () => runAction(
+      editSpecButton,
+      editSpec,
+      {
+        errorTarget: specValidation,
+        fallbackMessage: localeText("无法打开 spec 编辑器。", "Unable to open the spec editor."),
+      },
+    ));
+  }
+  if (specEditorSaveButton) {
+    specEditorSaveButton.addEventListener("click", () => runAction(
+      specEditorSaveButton,
+      () => saveSpecDocument({silent: false}),
+      {
+        errorTarget: specValidation,
+        fallbackMessage: localeText("无法保存 spec。", "Unable to save the spec."),
+      },
+    ));
+  }
+  if (specPreviewToggleButton) {
+    specPreviewToggleButton.addEventListener("click", () => runAction(
+      specPreviewToggleButton,
+      toggleSpecPreview,
+      {
+        errorTarget: specValidation,
+        fallbackMessage: localeText("无法切换 spec 预览。", "Unable to toggle the spec preview."),
+      },
+    ));
+  }
   if (createSpecTemplateButton) {
     createSpecTemplateButton.addEventListener("click", () => runAction(
       createSpecTemplateButton,
@@ -553,14 +938,50 @@ document.addEventListener("DOMContentLoaded", () => {
 
   orchestrationInput?.addEventListener("change", renderOrchestrationSummary);
   completionModeInput?.addEventListener("change", renderOrchestrationSummary);
-  specPathInput.addEventListener("change", () => validateSpec({quiet: false}));
+  specPathInput.addEventListener("change", () => {
+    if (specPathInput.value.trim() !== specEditorLoadedPath) {
+      specEditorLoadedPath = "";
+      specEditorSavedText = "";
+      specEditorLastValidation = null;
+      setSpecEditorSaveState(localeText("路径已经变化，重新打开编辑器后会读取新的 spec 文件。", "The path changed. Reopen the editor to load the new spec file."));
+      setSpecEditorValidation({
+        state: "detached",
+        error: localeText("当前编辑器还没有绑定新的 spec 文件。", "The editor is not bound to the new spec file yet."),
+        check_count: 0,
+        check_mode: "",
+      });
+    }
+    validateSpec({quiet: false});
+  });
   specPathInput.addEventListener("blur", () => validateSpec({quiet: true}));
   form.addEventListener("input", saveDraft);
   form.addEventListener("change", saveDraft);
   form.addEventListener("submit", submitForm);
-  document.addEventListener("loopora:localechange", renderOrchestrationSummary);
+  document.addEventListener("loopora:localechange", () => {
+    renderOrchestrationSummary();
+    syncSpecPreviewToggleButton();
+    syncSpecPreviewStatusForCurrentMode();
+    if (!specPreviewVisible) {
+      specEditorWorkbench?.setPreviewHtml(specPreviewPlaceholderHtml());
+    }
+  });
+  document.querySelectorAll("[data-close-spec-preview]").forEach((element) => {
+    element.addEventListener("click", closeSpecPreview);
+  });
+  specPreviewModal?.addEventListener("click", (event) => {
+    if (event.target === specPreviewModal) {
+      closeSpecPreview();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && specPreviewModal && !specPreviewModal.hidden) {
+      closeSpecPreview();
+    }
+  });
 
   const restoredDraft = restoreDraftIfAllowed();
+  specEditorWorkbench?.setPreviewHtml(specPreviewPlaceholderHtml());
+  syncSpecPreviewMode();
   renderOrchestrationSummary();
   if (specPathInput.value.trim()) {
     validateSpec({quiet: true});

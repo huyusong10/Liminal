@@ -43,6 +43,7 @@
 
 - 人工编写的 `spec.md`
 - Web / CLI 提供的 spec 文件路径
+- Web 可编辑 spec 工作台当前缓冲区中的 Markdown 文本
 
 ### 4.2 Downstream
 
@@ -57,6 +58,7 @@
 3. `Constraints` 只是边界声明，不是执行计划。
 4. 编译结果必须比原始 Markdown 更稳定、更可枚举。
 5. 探索模式的自由度只能发生在 run 开始前，不得延续到 iteration 内部。
+6. UI 可以提供 spec 的读取、编辑与渲染预览，但保存后的内容仍必须回到同一条 `spec.md -> compiled_spec` 编译边界；预览不能绕过编译器直接构造运行期 spec。
 
 ## 6. Invariants
 

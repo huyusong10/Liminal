@@ -156,6 +156,10 @@
           <span data-lang="zh">浏览</span>
           <span data-lang="en">Browse</span>
         </button>
+        <button class="ghost-button" type="button" id="edit-spec" data-testid="spec-editor-button" aria-haspopup="dialog">
+          <span data-lang="zh">编辑</span>
+          <span data-lang="en">Edit</span>
+        </button>
         <button class="secondary-button" type="button" id="create-spec-template" data-testid="spec-template-button" data-native-dialogs-enabled="{{ 'true' if access_state.native_dialogs_enabled else 'false' }}">
           <span data-lang="zh">创建模版</span>
           <span data-lang="en">Create template</span>
@@ -355,9 +359,81 @@
     </a>
   </div>
 </form>
+<div class="confirm-modal spec-preview-modal" id="spec-preview-modal" data-testid="spec-editor-modal" hidden aria-hidden="true">
+  <div class="confirm-modal-backdrop" data-close-spec-preview="1"></div>
+  <div class="confirm-modal-dialog spec-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="spec-preview-title" aria-describedby="spec-preview-status">
+    <div class="spec-preview-shell">
+      <div class="spec-preview-header">
+        <div class="spec-preview-copy">
+          <span class="spec-preview-kicker"><span data-lang="zh">快速编辑</span><span data-lang="en">Quick edit</span></span>
+          <h2 id="spec-preview-title"><span data-lang="zh">Spec 编辑器</span><span data-lang="en">Spec editor</span></h2>
+          <p class="spec-preview-status" id="spec-preview-status"><span data-lang="zh">先专心修改源码，准备好后再手动打开预览。</span><span data-lang="en">Focus on editing first, then open the preview manually when you are ready.</span></p>
+        </div>
+        <div class="card-actions card-actions-compact spec-preview-actions">
+          <span class="status-pill spec-preview-readonly" id="spec-editor-validation-pill" data-testid="spec-editor-validation-pill">
+            <span data-lang="zh">待载入</span>
+            <span data-lang="en">Waiting</span>
+          </span>
+          <button class="ghost-button" type="button" id="toggle-spec-preview" data-testid="spec-editor-preview-toggle-button" aria-pressed="false">
+            <span data-lang="zh">预览</span>
+            <span data-lang="en">Preview</span>
+          </button>
+          <button class="secondary-button" type="button" id="save-spec-document" data-testid="save-spec-document-button">
+            <span data-lang="zh">保存</span>
+            <span data-lang="en">Save</span>
+          </button>
+          <button class="ghost-button" type="button" id="spec-preview-close" data-close-spec-preview="1">
+            <span data-lang="zh">关闭</span>
+            <span data-lang="en">Close</span>
+          </button>
+        </div>
+      </div>
+      <div class="preview-toolbar spec-preview-toolbar">
+        <div class="markdown-workbench-toolbar-row">
+          <span class="loop-detail-spec-label"><span data-lang="zh">当前路径</span><span data-lang="en">Current path</span></span>
+          <code class="loop-detail-spec-path" id="spec-preview-path">-</code>
+        </div>
+        <div class="markdown-workbench-toolbar-row">
+          <span class="loop-detail-spec-label"><span data-lang="zh">保存状态</span><span data-lang="en">Save state</span></span>
+          <span class="field-note markdown-workbench-save-state" id="spec-editor-save-state">
+            <span data-lang="zh">还没有载入文件。</span>
+            <span data-lang="en">No file loaded yet.</span>
+          </span>
+        </div>
+      </div>
+      <div class="markdown-workbench markdown-workbench--editor spec-preview-workbench" data-testid="spec-editor-workbench">
+        <div class="markdown-workbench-grid">
+          <section class="markdown-workbench-panel spec-editor-panel" id="spec-editor-source-panel">
+            <div class="markdown-workbench-panel-head">
+              <span class="markdown-workbench-panel-label"><span data-lang="zh">Markdown 源码</span><span data-lang="en">Markdown source</span></span>
+              <span class="markdown-workbench-panel-note"><span data-lang="zh">修改后点击“保存”写回磁盘</span><span data-lang="en">Click Save to write changes back to disk</span></span>
+            </div>
+            <textarea
+              id="spec-editor-input"
+              class="markdown-workbench-source markdown-workbench-source-input"
+              data-testid="spec-editor-input"
+              rows="18"
+              spellcheck="false"
+            ></textarea>
+          </section>
+          <section class="markdown-workbench-panel spec-preview-panel" id="spec-editor-preview-panel" hidden>
+            <div class="markdown-workbench-panel-head">
+              <span class="markdown-workbench-panel-label"><span data-lang="zh">渲染预览</span><span data-lang="en">Rendered preview</span></span>
+              <span class="markdown-workbench-panel-note"><span data-lang="zh">这里只在你手动点击“预览”后刷新</span><span data-lang="en">This only refreshes after you manually click Preview</span></span>
+            </div>
+            <article class="preview-box markdown-preview markdown-workbench-preview spec-preview-markdown" id="spec-preview-content" data-testid="spec-editor-preview">
+              <p><span data-lang="zh">填好 spec 路径后，点右侧“编辑”即可直接修改文件并预览结果。</span><span data-lang="en">Fill in the spec path and use Edit on the right to update the file and preview the result.</span></p>
+            </article>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 <script id="executor-profiles-json" type="application/json">{{ executor_profiles|tojson }}</script>
 <script id="orchestrations-json" type="application/json">{{ orchestrations|tojson }}</script>
 <script id="pristine-loop-form-json" type="application/json">{{ pristine_loop_form|tojson }}</script>
+<script src="{{ static_asset_url('markdown_workbench.js') }}" defer></script>
 <script src="{{ static_asset_url('pages/new_loop.js') }}" defer></script>
 </div>
 {% endblock %}

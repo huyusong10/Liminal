@@ -9,11 +9,8 @@ import threading
 import time
 from collections.abc import Mapping
 from datetime import datetime
-from html import escape as escape_html
 from pathlib import Path
 from typing import Callable
-
-import markdown as markdown_lib
 
 from loopora.asset_catalog import WorkflowAssetCatalog
 from loopora.branding import LEGACY_APP_STATE_DIRNAME, normalize_file_root, state_dir_for_workdir
@@ -38,6 +35,7 @@ from loopora.executor import (
     normalize_reasoning_effort,
     validate_command_args_text,
 )
+from loopora.markdown_tools import decode_text_bytes, looks_binary, render_safe_markdown_html
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode
 from loopora.recovery import RecoveryResult, RetryConfig, execute_with_recovery
 from loopora.run_artifacts import (
@@ -2743,13 +2741,13 @@ class LooporaService:
         suffix = resolved.suffix.lower()
         raw_bytes = resolved.read_bytes()
         if suffix == ".json" or suffix == ".jsonl":
-            text = raw_bytes.decode("utf-8", errors="replace")
+            text = decode_text_bytes(raw_bytes)
             try:
                 parsed = [json.loads(line) for line in text.splitlines() if line.strip()] if suffix == ".jsonl" else json.loads(text)
                 text = json.dumps(parsed, ensure_ascii=False, indent=2)
             except json.JSONDecodeError:
                 pass
-        elif self._looks_binary(raw_bytes):
+        elif looks_binary(raw_bytes):
             return {
                 "kind": "file",
                 "base": str(base),
@@ -2760,7 +2758,7 @@ class LooporaService:
                 "content": "",
             }
         else:
-            text = raw_bytes.decode("utf-8", errors="replace")
+            text = decode_text_bytes(raw_bytes)
         payload = {
             "kind": "file",
             "base": str(base),
@@ -2771,18 +2769,8 @@ class LooporaService:
             "size_bytes": len(raw_bytes),
         }
         if suffix in {".md", ".markdown"}:
-            payload["rendered_html"] = markdown_lib.markdown(escape_html(text), extensions=["fenced_code"])
+            payload["rendered_html"] = render_safe_markdown_html(text)
         return payload
-
-    def _looks_binary(self, data: bytes) -> bool:
-        if not data:
-            return False
-        sample = data[:4096]
-        if b"\x00" in sample:
-            return True
-        allowed = {9, 10, 13}
-        suspicious = sum(1 for byte in sample if byte < 32 and byte not in allowed)
-        return suspicious / len(sample) > 0.1
 
     def stream_events(self, run_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
         self._reconcile_local_orphaned_runs()

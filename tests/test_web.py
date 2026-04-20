@@ -1560,6 +1560,99 @@ def test_api_spec_validate_reports_auto_generated_check_mode(tmp_path: Path, ser
     assert payload["check_count"] == 0
 
 
+def test_api_spec_preview_returns_rendered_read_only_markdown(tmp_path: Path, service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    spec_path = tmp_path / "preview-spec.md"
+    spec_path.write_text(
+        "# Goal\n\nShip a preview.\n\n## Checks\n\n- Render headings\n- Escape <script>alert('xss')</script>\n\n```js\nconsole.log('ok')\n```\n",
+        encoding="utf-8",
+    )
+
+    preview_response = client.get("/api/specs/preview", params={"path": str(spec_path)})
+
+    assert preview_response.status_code == 200
+    payload = preview_response.json()
+    assert payload["ok"] is True
+    assert payload["path"] == str(spec_path.resolve())
+    assert "# Goal" in payload["content"]
+    assert "<h1>Goal</h1>" in payload["rendered_html"]
+    assert "<script>" not in payload["rendered_html"]
+    assert "&lt;script&gt;alert" in payload["rendered_html"]
+    assert 'class="language-js"' in payload["rendered_html"]
+    assert "console.log" in payload["rendered_html"]
+
+
+def test_api_spec_document_returns_content_rendering_and_validation(tmp_path: Path, service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    spec_path = tmp_path / "editable-spec.md"
+    spec_path.write_text(
+        "# Goal\n\nKeep editing local.\n\n# Checks\n\n### Persist edits\n\n- When: Save inside the editor\n- Expect: The disk file updates\n\n### Show rendered preview\n\n- When: The text changes\n- Expect: The preview updates too\n",
+        encoding="utf-8",
+    )
+
+    response = client.get("/api/specs/document", params={"path": str(spec_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["path"] == str(spec_path.resolve())
+    assert payload["content"].startswith("# Goal")
+    assert "<h1>Goal</h1>" in payload["rendered_html"]
+    assert payload["validation"]["ok"] is True
+    assert payload["validation"]["check_count"] == 2
+    assert payload["validation"]["check_mode"] == "specified"
+
+
+def test_api_spec_document_save_writes_file_and_returns_validation(tmp_path: Path, service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    spec_path = tmp_path / "editable-spec.md"
+    spec_path.write_text("# Goal\n\nInitial\n", encoding="utf-8")
+
+    response = client.put(
+        "/api/specs/document",
+        json={
+            "path": str(spec_path),
+            "content": "# Goal\r\n\r\nSaved copy.\r\n\r\n# Checks\r\n\r\n### Keep disk in sync\r\n\r\n- When: Save finishes\r\n- Expect: The file matches the editor\r\n",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["content"] == "# Goal\n\nSaved copy.\n\n# Checks\n\n### Keep disk in sync\n\n- When: Save finishes\n- Expect: The file matches the editor\n"
+    assert spec_path.read_text(encoding="utf-8") == payload["content"]
+    assert payload["validation"]["ok"] is True
+    assert payload["validation"]["check_count"] == 1
+    assert "<h1>Checks</h1>" in payload["rendered_html"]
+
+
+def test_api_markdown_render_can_strip_prompt_front_matter(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/markdown/render",
+        json={
+            "markdown": "---\nversion: 1\narchetype: builder\n---\n\n# Prompt Body\n\nShip the change.\n",
+            "strip_front_matter": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert "<h1>Prompt Body</h1>" in payload["rendered_html"]
+    assert "version: 1" not in payload["rendered_html"]
+    assert "archetype: builder" not in payload["rendered_html"]
+    assert "Ship the change." in payload["rendered_html"]
+
+
 def test_api_spec_skill_install_targets_and_install(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))

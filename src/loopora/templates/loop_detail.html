@@ -53,11 +53,34 @@
     </div>
   </header>
   <div class="loop-detail-spec-shell">
-    <div class="preview-toolbar loop-detail-spec-toolbar">
-      <span class="loop-detail-spec-label"><span data-lang="zh">已保存路径</span><span data-lang="en">Saved path</span></span>
-      <code class="loop-detail-spec-path">{{ loop.spec_path }}</code>
+    <div class="preview-toolbar loop-detail-spec-toolbar markdown-workbench-toolbar">
+      <div class="markdown-workbench-toolbar-row">
+        <span class="loop-detail-spec-label"><span data-lang="zh">已保存路径</span><span data-lang="en">Saved path</span></span>
+        <code class="loop-detail-spec-path">{{ loop.spec_path }}</code>
+      </div>
+      <div class="markdown-workbench-toolbar-row">
+        <span class="loop-detail-spec-label"><span data-lang="zh">阅读方式</span><span data-lang="en">Reading mode</span></span>
+        <span class="markdown-workbench-panel-note"><span data-lang="zh">左侧保留原文，右侧显示渲染结果</span><span data-lang="en">Source on the left, rendered preview on the right</span></span>
+      </div>
     </div>
-    <pre class="preview-box loop-detail-spec-preview">{{ loop.spec_markdown }}</pre>
+    <div class="markdown-workbench markdown-workbench--readonly" data-testid="loop-detail-spec-workbench">
+      <div class="markdown-workbench-grid">
+        <section class="markdown-workbench-panel">
+          <div class="markdown-workbench-panel-head">
+            <span class="markdown-workbench-panel-label"><span data-lang="zh">原文</span><span data-lang="en">Source</span></span>
+            <span class="markdown-workbench-panel-note"><span data-lang="zh">保持 loop 保存时的原始 Markdown</span><span data-lang="en">The raw Markdown saved with the loop</span></span>
+          </div>
+          <pre class="preview-box markdown-workbench-source loop-detail-spec-source">{{ loop.spec_markdown }}</pre>
+        </section>
+        <section class="markdown-workbench-panel">
+          <div class="markdown-workbench-panel-head">
+            <span class="markdown-workbench-panel-label"><span data-lang="zh">渲染预览</span><span data-lang="en">Rendered preview</span></span>
+            <span class="markdown-workbench-panel-note"><span data-lang="zh">方便直接回看 Goal、Checks 和 Constraints</span><span data-lang="en">Quickly revisit the Goal, Checks, and Constraints</span></span>
+          </div>
+          <article class="preview-box markdown-preview markdown-workbench-preview loop-detail-spec-preview">{{ loop.spec_rendered_html|safe }}</article>
+        </section>
+      </div>
+    </div>
   </div>
 </section>
 
