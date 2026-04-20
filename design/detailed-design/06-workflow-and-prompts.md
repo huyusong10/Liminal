@@ -63,6 +63,8 @@ workflow 保持两层结构：
 
 - `inherit_session` 的语义按“同一个 step 跨轮次续接自己的会话”解释，不按“当前目录最近一次会话”解释。
 - 当同一个 step 还没有可恢复的历史 session 时，执行器必须回退为该 step 启动一条新会话，而不是改为恢复“最近一次会话”或直接报错。
+- Codex 进入 `exec resume` 分支时，系统只能装配该子命令真实支持的参数；新会话专用参数如工作目录、sandbox 与输出 schema 不能继续附加到 resume 子命令上。
+- 当 Codex 进入 `exec resume` 分支后，结构化输出必须回退为“输出契约 + `output-last-message` 文件解析”策略；不能假设 resume 子命令仍支持 schema 强校验。
 - Builder step 默认继承 session；Inspector、GateKeeper、Guide 与 Custom step 默认不继承，除非调用方显式打开。
 - `extra_cli_args` 必须是可被 shell 风格分词解析的字符串。
 
@@ -200,6 +202,9 @@ step 级执行附加项的优先语义固定为：
 - 后续轮次必须显式声明“这是第 N 轮，并给出上一轮关键结果”。
 - prompt 可以被自定义，但系统安全边界、输出契约和 context packet shape 不能被绕开。
 - 当角色定义页加载内置 prompt 时，应优先使用当前语言对应的内置 prompt 变体；若缺失本地化版本，则回退到默认版本。
+- Builder 内置 prompt 在上游 blocker 明确指向“缺少运行时证据”时，必须优先引导角色补最小、可重复执行的验证产物，而不是继续扩大产品改动面。
+- 当当前执行环境阻断浏览器、截图或桌面控制能力时，Builder 内置 prompt 必须明确要求角色切换到“无额外安装的可执行 fallback 证明”路径，并把 richer 证据为何不可用写入 handoff。
+- GateKeeper 内置 prompt 在面对环境级浏览器阻断时，必须允许角色根据最强的可重复 fallback 证据做裁决；这类环境限制可以形成 residual risk，但不能被当成产品本身失败的唯一理由。
 
 ## 8. Context Protocol
 
@@ -209,8 +214,12 @@ step 级执行附加项的优先语义固定为：
 |------|------|----------|
 | `RunContractSnapshot` | 冻结 spec、workflow、prompt refs、runtime 配置 | run 生命周期内不漂移 |
 | `StepContextPacket` | 在 step 开始前装配当前轮次、当前步骤、上游 handoff 与 artifact refs | shape 由代码固定生成 |
-| `StepHandoff` | 在 step 结束后给下游角色消费的结构化交接包 | 由代码从结构化输出派生 |
+| `StepHandoff` | 在 step 结束后给下游角色消费的结构化交接包 | 由代码从结构化输出派生，至少稳定包含 `status / summary / blocking_items / recommended_next_action` |
 | `IterationSummary` | 汇总本轮 handoff、得分、停滞状态与 latest refs | 作为下一轮的统一回看入口 |
+
+补充约束：
+
+- `artifact_refs` 必须同时提供 run 内相对路径与 workspace 可直达路径，保证角色在项目根目录下也能定位 `.loopora/runs/...` 下的冻结产物，而不是只看到对 run 目录有意义的短相对路径。
 
 ## 9. 运行数据流
 
@@ -232,6 +241,7 @@ step 级执行附加项的优先语义固定为：
 - Web 编排编辑页可以通过单个设置浮窗修改 step 级覆盖字段；同一个浮窗里展示的角色快照应作为只读信息查看，不在步骤设置里直接改写 snapshot 本身。
 - Web 角色模板列表与内置编排列表可以把“打开后如何派生”的公共说明收进分区标题的 tips 按钮；这类说明不应在每张卡片里重复出现。内置编排的主说明卡应优先表达适用场景，而不是重复点击行为。
 - Web 角色模板卡片可以为单个 archetype 提供专属 tips，用来解释它与相邻 archetype 的职责差异；例如 GateKeeper 可以额外说明它与 Inspector 的区别。这类 tips 应来自角色元数据，而不是在模板里硬编码散落。
+- 自定义角色的用户 prompt 之外，平台仍会追加系统级输出契约，确保它至少交回稳定的 takeaway 字段；是否提供 `score` 这类评审型字段由角色 archetype 决定，不能要求所有角色一律产出。
 
 ## 10. 跨入口一致性
 

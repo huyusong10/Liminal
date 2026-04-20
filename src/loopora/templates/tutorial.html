@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Loopora Tutorial{% endblock %}
+{% block title %}{{ '使用教程' if page_locale == 'zh' else 'Tutorial' }}{% endblock %}
 {% block content %}
-<div class="page-stack" data-testid="tutorial-page">
+<div class="page-stack tutorial-page-stack" data-testid="tutorial-page">
   <section class="hero hero-tight">
     <div class="hero-copy-stack">
       <h1>
@@ -15,15 +15,74 @@
     </div>
   </section>
 
+  <section class="panel tutorial-guide-panel" data-testid="tutorial-guide-panel">
+    <header class="panel-header">
+      <div>
+        <h2><span data-lang="zh">先判断这次改动属于哪一层</span><span data-lang="en">Start by choosing the right layer</span></h2>
+        <p class="tutorial-panel-copy">
+          <span data-lang="zh">如果你一时只想知道“应该回到哪个页面去改”，先看下面这一排，能更快避开职责混淆。</span>
+          <span data-lang="en">If all you need first is “which page should I go back to?”, start with this row so you can avoid crossing responsibilities.</span>
+        </p>
+      </div>
+    </header>
+    <div class="tutorial-guide-grid">
+      <a class="tutorial-guide-card" href="#tutorial-step-roles" data-testid="tutorial-guide-roles">
+        <span class="tutorial-guide-kicker">
+          <span data-lang="zh">改 prompt / 工具 / 默认模型</span>
+          <span data-lang="en">Changing prompts, tools, or default models</span>
+        </span>
+        <strong class="tutorial-guide-title">
+          <span data-lang="zh">先回到角色定义</span>
+          <span data-lang="en">Go back to Role Definitions</span>
+        </strong>
+        <p>
+          <span data-lang="zh">角色是谁、默认怎么跑、权限边界在哪里，都属于这里。</span>
+          <span data-lang="en">Who the role is, how it runs by default, and where its permission boundary sits all belong here.</span>
+        </p>
+      </a>
+
+      <a class="tutorial-guide-card" href="#tutorial-step-orchestrations" data-testid="tutorial-guide-orchestrations">
+        <span class="tutorial-guide-kicker">
+          <span data-lang="zh">改顺序 / 开关步骤 / 收束逻辑</span>
+          <span data-lang="en">Changing step order, toggles, or completion</span>
+        </span>
+        <strong class="tutorial-guide-title">
+          <span data-lang="zh">去流程编排</span>
+          <span data-lang="en">Go to Orchestrations</span>
+        </strong>
+        <p>
+          <span data-lang="zh">这里决定角色怎样协作，但不改角色自身默认 prompt 和执行配置。</span>
+          <span data-lang="en">This is where roles collaborate, but it does not change the role's own default prompt or execution profile.</span>
+        </p>
+      </a>
+
+      <a class="tutorial-guide-card" href="#tutorial-step-loops" data-testid="tutorial-guide-loops">
+        <span class="tutorial-guide-kicker">
+          <span data-lang="zh">换项目 / spec / 轮次策略</span>
+          <span data-lang="en">Changing project, spec, or run policy</span>
+        </span>
+        <strong class="tutorial-guide-title">
+          <span data-lang="zh">去创建循环</span>
+          <span data-lang="en">Go to Create Loop</span>
+        </strong>
+        <p>
+          <span data-lang="zh">workdir、spec、completion mode、轮次间隔和最大轮数，都在这层决定。</span>
+          <span data-lang="en">Workdir, spec, completion mode, iteration interval, and max rounds are all decided at this layer.</span>
+        </p>
+      </a>
+    </div>
+  </section>
+
   <section class="panel">
     <header class="panel-header">
       <h2><span data-lang="zh">推荐流程</span><span data-lang="en">Recommended flow</span></h2>
     </header>
-    <div class="loop-grid">
-      <article class="loop-card">
-        <div class="loop-card-head">
+    <div class="loop-grid tutorial-step-grid">
+      <article class="loop-card tutorial-step-card" id="tutorial-step-roles" data-testid="tutorial-step-roles">
+        <div class="tutorial-step-title">
+          <span class="tutorial-step-index" aria-hidden="true">1</span>
           <div>
-            <strong><span data-lang="zh">1. 角色定义</span><span data-lang="en">1. Role definitions</span></strong>
+            <strong><span data-lang="zh">角色定义</span><span data-lang="en">Role definitions</span></strong>
             <p class="loop-card-meta"><span data-lang="zh">先定义角色是谁、权限多大、默认用什么工具执行。</span><span data-lang="en">Define who the role is, how much permission it has, and which tool it uses by default.</span></p>
           </div>
         </div>
@@ -31,6 +90,10 @@
           <span data-lang="zh">这里负责角色名、角色模板、默认 prompt、执行工具、模型和推理配置。完全自定义角色也在这里创建，但它默认是最低权限，只负责读、分析和建议。</span>
           <span data-lang="en">This is where role names, role templates, default prompts, executors, models, and reasoning settings live. Fully custom roles are created here too, but they stay low-permission by default and focus on reading, analysis, and recommendations.</span>
         </p>
+        <ul class="tutorial-step-checklist">
+          <li><span data-lang="zh">改 prompt、执行工具、默认模型和推理力度。</span><span data-lang="en">Change prompts, executors, default models, and reasoning effort.</span></li>
+          <li><span data-lang="zh">创建自定义角色，或重新界定一个角色默认能做什么。</span><span data-lang="en">Create a custom role or redefine what a role can do by default.</span></li>
+        </ul>
         <div class="card-actions">
           <a class="secondary-button" href="/roles">
             <span data-lang="zh">打开角色定义</span>
@@ -39,10 +102,11 @@
         </div>
       </article>
 
-      <article class="loop-card">
-        <div class="loop-card-head">
+      <article class="loop-card tutorial-step-card" id="tutorial-step-orchestrations" data-testid="tutorial-step-orchestrations">
+        <div class="tutorial-step-title">
+          <span class="tutorial-step-index" aria-hidden="true">2</span>
           <div>
-            <strong><span data-lang="zh">2. 流程编排</span><span data-lang="en">2. Orchestrations</span></strong>
+            <strong><span data-lang="zh">流程编排</span><span data-lang="en">Orchestrations</span></strong>
             <p class="loop-card-meta"><span data-lang="zh">再把角色定义串成步骤顺序和收束逻辑。</span><span data-lang="en">Then wire those role definitions into step order and completion rules.</span></p>
           </div>
         </div>
@@ -50,6 +114,10 @@
           <span data-lang="zh">编排页只负责选哪些角色、每轮按什么顺序跑、哪些步骤启用，以及 GateKeeper 通过后是否结束。角色 prompt 和执行工具不在这里改。</span>
           <span data-lang="en">The orchestration page only chooses roles, defines iteration order, enables or disables steps, and decides whether GateKeeper finishes the run. Prompt and executor changes do not happen here.</span>
         </p>
+        <ul class="tutorial-step-checklist">
+          <li><span data-lang="zh">调整角色顺序、是否启用某一步，以及通过后如何收束。</span><span data-lang="en">Adjust role order, whether a step is enabled, and how the workflow converges.</span></li>
+          <li><span data-lang="zh">只在步骤层做覆盖项，例如 step model、session 继承和附加 CLI 参数。</span><span data-lang="en">Keep overrides at the step level only, such as step model, session inheritance, and extra CLI args.</span></li>
+        </ul>
         <div class="card-actions">
           <a class="secondary-button" href="/orchestrations">
             <span data-lang="zh">打开流程编排</span>
@@ -58,10 +126,11 @@
         </div>
       </article>
 
-      <article class="loop-card">
-        <div class="loop-card-head">
+      <article class="loop-card tutorial-step-card" id="tutorial-step-loops" data-testid="tutorial-step-loops">
+        <div class="tutorial-step-title">
+          <span class="tutorial-step-index" aria-hidden="true">3</span>
           <div>
-            <strong><span data-lang="zh">3. 创建循环</span><span data-lang="en">3. Create loops</span></strong>
+            <strong><span data-lang="zh">创建循环</span><span data-lang="en">Create loops</span></strong>
             <p class="loop-card-meta"><span data-lang="zh">最后把编排放进具体项目里运行。</span><span data-lang="en">Finally, apply the orchestration to a concrete project.</span></p>
           </div>
         </div>
@@ -69,6 +138,10 @@
           <span data-lang="zh">创建循环页只关心 workdir、spec、选哪套编排，以及运行策略，比如按守门裁决结束，还是按固定轮次推进、轮次之间等待多久。</span>
           <span data-lang="en">The create-loop page only cares about workdir, spec, which orchestration to use, and runtime policy such as GateKeeper completion, round-based completion, and the wait between rounds.</span>
         </p>
+        <ul class="tutorial-step-checklist">
+          <li><span data-lang="zh">切换项目 workdir、spec、completion mode、最大轮次和轮次间隔。</span><span data-lang="en">Change project workdir, spec, completion mode, max rounds, and iteration interval.</span></li>
+          <li><span data-lang="zh">把同一套编排放进不同项目跑，但不在这里改角色默认配置。</span><span data-lang="en">Apply the same orchestration to a different project without redefining role defaults here.</span></li>
+        </ul>
         <div class="card-actions">
           <a class="secondary-button" href="/loops/new">
             <span data-lang="zh">打开创建循环</span>

@@ -1,7 +1,7 @@
 <!doctype html>
 <html
-  lang="{% if 'zh' in request.headers.get('accept-language', '').lower() %}zh-CN{% else %}en{% endif %}"
-  data-locale="{% if 'zh' in request.headers.get('accept-language', '').lower() %}zh{% else %}en{% endif %}"
+  lang="{{ page_lang }}"
+  data-locale="{{ page_locale }}"
   data-theme="light"
 >
 <head>
@@ -10,55 +10,14 @@
   <title>{% block title %}Loopora{% endblock %}</title>
   <link rel="icon" href="/logo/logo.svg" sizes="any" type="image/svg+xml" />
   <link rel="shortcut icon" href="/logo/logo.svg" type="image/svg+xml" />
-  <script>
-    (() => {
-      const root = document.documentElement;
-      const readStored = (key, allowed) => {
-        try {
-          const value = window.localStorage.getItem(key);
-          return allowed.includes(value) ? value : "";
-        } catch (_) {
-          return "";
-        }
-      };
-      const normalizeLocale = (value) => String(value || "").trim().replace(/_/g, "-").toLowerCase();
-      const isChineseLocale = (value) => {
-        const locale = normalizeLocale(value);
-        return locale === "zh" || locale.startsWith("zh-") || locale.includes("-hans") || locale.includes("-hant");
-      };
-
-      const theme = readStored("loopora:theme", ["light", "dark"])
-        || ((typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light");
-      root.dataset.theme = theme;
-
-      const savedLocale = readStored("loopora:locale", ["zh", "en"]);
-      const localeCandidates = [];
-      if (!savedLocale) {
-        try {
-          const intlLocale = Intl.DateTimeFormat().resolvedOptions().locale;
-          if (intlLocale) {
-            localeCandidates.push(intlLocale);
-          }
-        } catch (_) {
-          // Ignore Intl availability issues during first-paint bootstrap.
-        }
-        if (Array.isArray(navigator.languages) && navigator.languages.length > 0) {
-          localeCandidates.push(navigator.languages[0]);
-        }
-        localeCandidates.push(navigator.language, navigator.userLanguage, navigator.browserLanguage, navigator.systemLanguage);
-      }
-      const locale = savedLocale || (localeCandidates.some(isChineseLocale) ? "zh" : "en");
-      root.dataset.locale = locale;
-      root.lang = locale === "zh" ? "zh-CN" : "en";
-    })();
-  </script>
+  {% include "_display_preferences_bootstrap.html" %}
   <link rel="stylesheet" href="{{ static_asset_url('app.css') }}" />
   <script src="{{ static_asset_url('app.js') }}" defer></script>
 </head>
 <body>
   <div class="page-shell">
     <nav class="top-nav" data-testid="top-nav">
-      <a class="top-nav-brand" href="/" aria-label="Loopora home" data-testid="nav-home-brand">
+      <a class="top-nav-brand" href="/" aria-label="{{ 'Loopora 首页' if page_locale == 'zh' else 'Loopora home' }}" data-testid="nav-home-brand">
         <img class="top-nav-brand-lockup" src="/logo/logo-with-text-horizontal-light.svg" alt="" aria-hidden="true" />
       </a>
       <div class="top-nav-links">
@@ -114,9 +73,9 @@
                 <strong><span data-lang="zh">主题</span><span data-lang="en">Theme</span></strong>
                 <p><span data-lang="zh">切换浅色或深色界面。</span><span data-lang="en">Switch between light and dark appearance.</span></p>
               </div>
-              <div class="locale-switch theme-switch" role="group" aria-label="Theme switch" data-testid="theme-switch">
-                <button class="ghost-button locale-button theme-button" type="button" data-set-theme="light" aria-label="Light mode" data-testid="theme-light-button">☼ <span data-lang="zh">浅色</span><span data-lang="en">Light</span></button>
-                <button class="ghost-button locale-button theme-button" type="button" data-set-theme="dark" aria-label="Dark mode" data-testid="theme-dark-button">☾ <span data-lang="zh">深色</span><span data-lang="en">Dark</span></button>
+              <div class="locale-switch theme-switch" role="group" aria-label="{{ '主题切换' if page_locale == 'zh' else 'Theme switch' }}" data-testid="theme-switch">
+                <button class="ghost-button locale-button theme-button" type="button" data-set-theme="light" aria-label="{{ '浅色模式' if page_locale == 'zh' else 'Light mode' }}" data-testid="theme-light-button">☼ <span data-lang="zh">浅色</span><span data-lang="en">Light</span></button>
+                <button class="ghost-button locale-button theme-button" type="button" data-set-theme="dark" aria-label="{{ '深色模式' if page_locale == 'zh' else 'Dark mode' }}" data-testid="theme-dark-button">☾ <span data-lang="zh">深色</span><span data-lang="en">Dark</span></button>
               </div>
             </section>
             <section class="nav-preferences-section">
@@ -124,7 +83,7 @@
                 <strong><span data-lang="zh">语言</span><span data-lang="en">Language</span></strong>
                 <p><span data-lang="zh">切换界面文案语言。</span><span data-lang="en">Switch the interface language.</span></p>
               </div>
-              <div class="locale-switch" role="group" aria-label="Language switch" data-testid="locale-switch">
+              <div class="locale-switch" role="group" aria-label="{{ '语言切换' if page_locale == 'zh' else 'Language switch' }}" data-testid="locale-switch">
                 <button class="ghost-button locale-button" type="button" data-set-locale="zh">中文</button>
                 <button class="ghost-button locale-button" type="button" data-set-locale="en">EN</button>
               </div>

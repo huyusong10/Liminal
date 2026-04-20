@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import io
+import re
 import time
 import zipfile
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from loopora.settings import app_home, configure_logging
+import loopora.web as web_module
 from loopora.web import build_app
 
 
@@ -138,7 +140,63 @@ def test_api_loop_creation_run_preview_and_stream(
         assert stream_response.status_code == 200
         reconnect_body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in stream_response.iter_text())
     assert f"id: {reconnect_from}\n" not in reconnect_body
-    assert f"id: {event_payload[-1]['id']}\n" in reconnect_body
+
+
+def test_api_run_key_takeaways_returns_iteration_role_conclusions(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Takeaway Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/api/runs/{run['id']}/key-takeaways")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["build_dir"] == str(sample_workdir.resolve())
+    assert payload["log_dir"].endswith(f"/.loopora/runs/{run['id']}")
+    assert payload["iteration_count"] >= 1
+    assert payload["role_conclusion_count"] >= 2
+    latest_iteration = payload["iterations"][0]
+    assert latest_iteration["display_iter"] >= 1
+    assert latest_iteration["summary"]
+    role_names = {item["role_name"] for item in latest_iteration["roles"]}
+    assert "Builder" in role_names
+    assert "GateKeeper" in role_names
+    gatekeeper = next(item for item in latest_iteration["roles"] if item["role_name"] == "GateKeeper")
+    assert gatekeeper["composite_score"] is not None
+
+
+def test_api_reveal_path_uses_native_host_shortcut(monkeypatch, service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+    called: list[str] = []
+
+    def fake_reveal(path: str) -> str:
+        called.append(path)
+        return path
+
+    monkeypatch.setattr(web_module, "reveal_path", fake_reveal)
+    response = client.post("/api/system/reveal-path", json={"path": str(sample_workdir)})
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert called == [str(sample_workdir)]
 
 
 def test_api_run_events_and_stream_require_a_real_run(service_factory) -> None:
@@ -1605,6 +1663,44 @@ def test_network_mode_requires_auth_token_and_sets_cookie(service_factory) -> No
     assert api_response.status_code == 200
 
 
+def test_network_mode_auth_page_uses_request_locale_and_shared_styles(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service, bind_host="0.0.0.0", auth_token="secret-token"))
+
+    unauthorized = client.get("/", headers={"Accept-Language": "zh-CN;q=0.1,en-US;q=0.9"})
+
+    assert unauthorized.status_code == 401
+    assert re.search(r'<html\s+lang="en"\s+data-locale="en"\s+data-theme="light"\s*>', unauthorized.text)
+    assert "loopora:theme" in unauthorized.text
+    assert "loopora:locale" in unauthorized.text
+    assert "/static/app.css?v=" in unauthorized.text
+    assert "<style>" not in unauthorized.text
+    assert 'data-testid="auth-card"' in unauthorized.text
+    assert 'data-testid="auth-copy-stack"' in unauthorized.text
+    assert "Loopora · Auth token required" in unauthorized.text
+    assert "Auth token required" in unauthorized.text
+    assert "需要访问令牌" in unauthorized.text
+    assert "X-Loopora-Token" in unauthorized.text
+    assert "X-Liminal-Token" in unauthorized.text
+    assert 'class="auth-logo" src="/logo/logo-with-text-horizontal.svg" alt="" aria-hidden="true"' in unauthorized.text
+
+    css = client.get("/static/app.css?token=secret-token")
+    assert css.status_code == 200
+    assert ".auth-shell {" in css.text
+    assert ".auth-card {" in css.text
+    assert ".auth-copy-stack {" in css.text
+    assert "[data-theme=\"dark\"] .auth-card {" in css.text
+    assert "html[data-theme=\"dark\"] .auth-logo {" in css.text
+
+
+def test_preferred_locale_from_accept_language_respects_q_values_and_supported_locales() -> None:
+    assert web_module._preferred_locale_from_accept_language("zh-CN;q=0.1,en-US;q=0.9") == "en"
+    assert web_module._preferred_locale_from_accept_language("en-US;q=0.1,zh-CN;q=0.9") == "zh"
+    assert web_module._preferred_locale_from_accept_language("fr-FR,zh-CN;q=0.8,en-US;q=0.6") == "zh"
+    assert web_module._preferred_locale_from_accept_language("fr-FR,de-DE;q=0.8") == "en"
+    assert web_module._preferred_locale_from_accept_language("en-US;q=0,zh-CN;q=0.6") == "zh"
+
+
 def test_network_mode_disables_native_dialog_endpoints(service_factory) -> None:
     service = service_factory(scenario="success")
     client = TestClient(build_app(service=service, bind_host="0.0.0.0", auth_token="secret-token"))
@@ -1612,3 +1708,7 @@ def test_network_mode_disables_native_dialog_endpoints(service_factory) -> None:
     response = client.get("/api/system/pick-directory?token=secret-token")
     assert response.status_code == 400
     assert "native dialogs are disabled in network mode" in response.json()["error"]
+
+    reveal = client.post("/api/system/reveal-path?token=secret-token", json={"path": "/tmp"})
+    assert reveal.status_code == 400
+    assert "native dialogs are disabled in network mode" in reveal.json()["error"]

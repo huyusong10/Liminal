@@ -922,7 +922,6 @@ class LooporaService:
                     }
                 ],
                 "feedback_to_generator": "Execution aborted. Fix the failing role before retrying.",
-                "verifier_confidence": "high",
             }
             write_json(run_dir / "verifier_verdict.json", verdict)
             summary = (
@@ -981,7 +980,6 @@ class LooporaService:
                 "feedback_to_generator": (
                     "Do not bulk-delete existing user files. Keep original files in place and prefer targeted edits."
                 ),
-                "verifier_confidence": "high",
             }
             write_json(run_dir / "verifier_verdict.json", verdict)
             deleted_preview = ", ".join(exc.deleted_paths[:5]) if exc.deleted_paths else "none"
@@ -1574,8 +1572,6 @@ class LooporaService:
                 ],
                 "feedback_to_builder": "Fix the failing workflow step before retrying.",
                 "feedback_to_generator": "Fix the failing workflow step before retrying.",
-                "confidence": "high",
-                "verifier_confidence": "high",
             }
             write_json(run_dir / "gatekeeper_verdict.json", verdict)
             write_json(run_dir / "verifier_verdict.json", verdict)
@@ -1637,8 +1633,6 @@ class LooporaService:
                 ],
                 "feedback_to_builder": "Do not bulk-delete existing user files. Prefer narrow in-place edits.",
                 "feedback_to_generator": "Do not bulk-delete existing user files. Prefer narrow in-place edits.",
-                "confidence": "high",
-                "verifier_confidence": "high",
             }
             write_json(run_dir / "gatekeeper_verdict.json", verdict)
             write_json(run_dir / "verifier_verdict.json", verdict)
@@ -2095,7 +2089,6 @@ class LooporaService:
     def _coerce_gatekeeper_output(self, output: dict) -> dict:
         result = dict(output)
         feedback = str(result.get("feedback_to_builder") or result.get("feedback_to_generator") or "").strip()
-        confidence = str(result.get("confidence") or result.get("verifier_confidence") or "medium").strip() or "medium"
         blocking_issues = list(result.get("blocking_issues") or result.get("hard_constraint_violations") or [])
         metric_scores = result.get("metric_scores")
         if not isinstance(metric_scores, dict):
@@ -2129,8 +2122,6 @@ class LooporaService:
         )
         result["feedback_to_builder"] = feedback
         result["feedback_to_generator"] = feedback
-        result["confidence"] = confidence
-        result["verifier_confidence"] = confidence
         result["blocking_issues"] = blocking_issues
         result["hard_constraint_violations"] = blocking_issues
         result["metric_scores"] = metric_scores
@@ -3913,7 +3904,7 @@ class LooporaService:
             "Inside `metric_scores`, provide exactly `check_pass_rate` and `quality_score`, each with `value`, `threshold`, and `passed`.\n"
             "For every `priority_failures` item, return `error_code` and `summary`.\n"
             "Return JSON with passed, composite_score, metric_scores, hard_constraint_violations, "
-            "failed_check_ids, priority_failures, feedback_to_generator, and verifier_confidence."
+            "failed_check_ids, priority_failures, and feedback_to_generator."
         )
 
     def _challenger_prompt(self, compiled_spec: dict, stagnation: dict, iter_id: int) -> str:
@@ -4166,8 +4157,6 @@ VERIFIER_SCHEMA = {
         "priority_failures",
         "feedback_to_builder",
         "feedback_to_generator",
-        "confidence",
-        "verifier_confidence",
     ],
     "properties": {
         "passed": {"type": "boolean"},
@@ -4231,8 +4220,6 @@ VERIFIER_SCHEMA = {
         },
         "feedback_to_builder": {"type": "string"},
         "feedback_to_generator": {"type": "string"},
-        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
-        "verifier_confidence": {"type": "string", "enum": ["low", "medium", "high"]},
     },
     "additionalProperties": False,
 }
@@ -4262,9 +4249,21 @@ CHALLENGER_SCHEMA = {
 
 CUSTOM_SCHEMA = {
     "type": "object",
-    "required": ["summary", "observations", "recommendations", "risks", "handoff_note"],
+    "required": [
+        "status",
+        "summary",
+        "blocking_items",
+        "recommended_next_action",
+        "observations",
+        "recommendations",
+        "risks",
+        "handoff_note",
+    ],
     "properties": {
+        "status": {"type": "string"},
         "summary": {"type": "string"},
+        "blocking_items": {"type": "array", "items": {"type": "string"}},
+        "recommended_next_action": {"type": "string"},
         "observations": {"type": "array", "items": {"type": "string"}},
         "recommendations": {"type": "array", "items": {"type": "string"}},
         "risks": {"type": "array", "items": {"type": "string"}},

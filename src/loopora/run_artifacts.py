@@ -120,6 +120,13 @@ class RunArtifactLayout:
     run_dir: Path
 
     @property
+    def workdir_path(self) -> Path:
+        try:
+            return self.run_dir.parents[2]
+        except IndexError:
+            return self.run_dir.parent
+
+    @property
     def summary_path(self) -> Path:
         return self.run_dir / "summary.md"
 
@@ -264,6 +271,12 @@ class RunArtifactLayout:
     def relative(self, path: Path) -> str:
         return path.relative_to(self.run_dir).as_posix()
 
+    def workspace_relative(self, path: Path) -> str:
+        try:
+            return path.relative_to(self.workdir_path).as_posix()
+        except ValueError:
+            return path.resolve().as_posix()
+
     def initialize(self) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.contract_prompts_dir.mkdir(parents=True, exist_ok=True)
@@ -304,6 +317,8 @@ def artifact_ref(layout: RunArtifactLayout, path: Path, *, kind: str, label: str
         "kind": kind,
         "label": label,
         "relative_path": layout.relative(path),
+        "workspace_path": layout.workspace_relative(path),
+        "absolute_path": str(path.resolve()),
     }
 
 

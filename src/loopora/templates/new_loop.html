@@ -5,10 +5,11 @@
   type="button"
   data-title-zh="{{ zh }}"
   data-title-en="{{ en }}"
+  aria-label="{{ ('查看提示：' ~ zh) if page_locale == 'zh' else ('Show tip: ' ~ en) }}"
   {% if testid %}data-testid="{{ testid }}"{% endif %}
 >i</button>
 {%- endmacro %}
-{% block title %}Create Loop{% endblock %}
+{% block title %}{{ "创建循环" if page_locale == "zh" else "Create Loop" }}{% endblock %}
 {% block content %}
 <div class="page-stack" data-testid="loop-create-page">
 <section class="hero hero-tight hero-form">
@@ -235,13 +236,13 @@
           data-label-zh="守门裁决"
           data-label-en="GateKeeper"
           {% if form_values.completion_mode == "gatekeeper" %}selected{% endif %}
-        >GateKeeper</option>
+        >{{ "守门裁决" if page_locale == "zh" else "GateKeeper" }}</option>
         <option
           value="rounds"
           data-label-zh="轮次推进"
           data-label-en="Rounds"
           {% if form_values.completion_mode == "rounds" %}selected{% endif %}
-        >Rounds</option>
+        >{{ "轮次推进" if page_locale == "zh" else "Rounds" }}</option>
       </select>
       <small class="field-note" id="completion-mode-note" hidden></small>
     </label>

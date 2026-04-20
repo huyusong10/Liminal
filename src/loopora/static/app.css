@@ -532,6 +532,87 @@ pre,
   box-sizing: border-box;
 }
 
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: min(640px, 100%);
+  padding: 32px;
+  border-radius: 0;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(16px);
+}
+
+.auth-card h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 3vw, 2.15rem);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+html[data-locale="zh"] .auth-card h1 {
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 650;
+}
+
+.auth-copy-stack {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.auth-card p {
+  margin: 0;
+  line-height: 1.72;
+  color: var(--muted);
+}
+
+.auth-card code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 0;
+  background: rgba(var(--glass-dark-rgb), 0.12);
+  color: var(--accent);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+.auth-card-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.auth-logo {
+  height: 32px;
+  width: auto;
+}
+
+.auth-card-brand-line {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+[data-theme="dark"] .auth-card {
+  background: linear-gradient(180deg, rgba(48, 38, 33, 0.96), rgba(25, 20, 17, 0.99));
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .auth-logo {
+  content: url("/logo/logo-with-text-horizontal-light.svg");
+}
+
 .page-stack {
   width: min(1360px, 100%);
   margin-inline: auto;
@@ -768,6 +849,16 @@ html[data-locale="zh"] .eyebrow {
   font-size: 0.9rem;
 }
 
+.stacked-copy {
+  display: grid;
+  gap: 14px;
+  max-width: 920px;
+}
+
+.stacked-copy > * {
+  margin: 0;
+}
+
 html[data-locale="zh"] .panel-header h2,
 html[data-locale="zh"] .loop-card h3,
 html[data-locale="zh"] .output-card h3 {
@@ -939,6 +1030,12 @@ html[data-locale="zh"] .output-card h3 {
   flex: 1 1 auto;
 }
 
+.loop-card-link {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
 .loop-card h3,
 .output-card h3 {
   margin: 0 0 8px;
@@ -950,6 +1047,12 @@ html[data-locale="zh"] .output-card h3 {
   color: var(--card-copy-muted);
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.loop-card-meta {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.65;
 }
 
 .loop-card-glance {
@@ -986,6 +1089,121 @@ html[data-locale="zh"] .output-card h3 {
 
 .loop-grid-note {
   padding-left: 2px;
+}
+
+.tutorial-page-stack {
+  --tutorial-page-max: 1360px;
+  width: min(var(--tutorial-page-max), 100%);
+}
+
+.tutorial-guide-panel {
+  margin-top: -4px;
+}
+
+.tutorial-panel-copy {
+  margin: 8px 0 0;
+  max-width: 880px;
+  color: var(--muted);
+}
+
+.tutorial-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.tutorial-guide-card {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid rgba(var(--outline-rgb), 0.12);
+  background: rgba(var(--glass-rgb), 0.68);
+  color: inherit;
+  text-decoration: none;
+  box-shadow: 0 10px 24px rgba(53, 43, 34, 0.06);
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.tutorial-guide-card:hover,
+.tutorial-guide-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(13, 124, 102, 0.24);
+  box-shadow: 0 16px 30px rgba(53, 43, 34, 0.1);
+}
+
+.tutorial-guide-card:focus-visible {
+  outline: 3px solid rgba(13, 124, 102, 0.18);
+  outline-offset: 3px;
+}
+
+.tutorial-guide-kicker {
+  color: var(--accent-2);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html[data-locale="zh"] .tutorial-guide-kicker {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.tutorial-guide-title {
+  font-size: 1.02rem;
+  line-height: 1.4;
+}
+
+.tutorial-guide-card p {
+  margin: 0;
+  color: var(--card-copy-muted);
+  line-height: 1.68;
+}
+
+.tutorial-step-grid {
+  align-items: stretch;
+}
+
+.tutorial-step-card {
+  gap: 18px;
+  scroll-margin-top: 88px;
+}
+
+.tutorial-step-title {
+  display: flex;
+  align-items: start;
+  gap: 12px;
+}
+
+.tutorial-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(13, 124, 102, 0.16);
+  background: rgba(13, 124, 102, 0.1);
+  color: var(--accent-2);
+  font-size: 0.86rem;
+  font-family: "SFMono-Regular", "IBM Plex Mono", monospace;
+  font-weight: 700;
+}
+
+.tutorial-step-title strong {
+  display: block;
+}
+
+.tutorial-step-checklist {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--card-copy-muted);
+}
+
+.tutorial-step-checklist li {
+  line-height: 1.62;
 }
 
 .tutorial-context-grid {
@@ -1072,12 +1290,30 @@ html[data-locale="zh"] .tutorial-context-kicker {
   overflow-wrap: anywhere;
 }
 
+[data-theme="dark"] .tutorial-guide-card {
+  background: linear-gradient(180deg, rgba(58, 45, 39, 0.96), rgba(31, 25, 21, 0.99));
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="dark"] .tutorial-guide-card:hover,
+[data-theme="dark"] .tutorial-guide-card:focus-visible {
+  border-color: rgba(110, 239, 218, 0.28);
+}
+
+[data-theme="dark"] .tutorial-step-index {
+  background: rgba(45, 212, 191, 0.14);
+  border-color: rgba(45, 212, 191, 0.24);
+  color: #8cf7e3;
+}
+
 .orchestration-loop-shell {
   min-height: 228px;
 }
 
 .workflow-map-panel {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
 }
 
@@ -1322,6 +1558,24 @@ html[data-locale="zh"] .meta-grid dt {
 
 .card-actions--loop-compact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.card-actions-compact {
+  width: 100%;
+  margin-top: auto;
+  padding-top: 4px;
+  justify-content: flex-start;
+}
+
+.card-actions-compact form {
+  display: flex;
+  margin: 0;
+}
+
+.card-actions-compact .ghost-button,
+.card-actions-compact .secondary-button,
+.card-actions-compact .primary-button {
+  min-width: 112px;
 }
 
 .card-actions--loop > * {
@@ -1603,6 +1857,30 @@ body.modal-open {
   margin-top: 0;
 }
 
+.workflow-editor-header {
+  align-items: start;
+  gap: 16px 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(var(--outline-rgb), 0.08);
+}
+
+.workflow-editor-header > * {
+  min-width: 0;
+}
+
+.workflow-editor-header .field-note {
+  margin: 6px 0 0;
+  max-width: 72ch;
+}
+
+.workflow-editor-header .card-actions-compact {
+  width: auto;
+  margin-top: 0;
+  padding-top: 0;
+  justify-content: flex-end;
+  align-self: start;
+}
+
 .workflow-editor-header-tight {
   margin-bottom: 4px;
 }
@@ -1624,6 +1902,14 @@ body.modal-open {
   color: var(--muted);
   font-size: 0.88rem;
   line-height: 1.55;
+}
+
+.workflow-steps-panel {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.workflow-steps-panel .workflow-steps-list {
+  align-content: start;
 }
 
 .workflow-steps-list {
@@ -2626,6 +2912,18 @@ html[data-locale="zh"] .callout {
 
 .run-history-item {
   position: relative;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.run-history-item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(13, 124, 102, 0.18);
+  box-shadow: 0 16px 30px rgba(var(--glass-dark-rgb), 0.08);
+}
+
+.run-history-item:focus-visible {
+  outline: 3px solid rgba(13, 124, 102, 0.18);
+  outline-offset: 3px;
 }
 
 .run-history-item::before {
@@ -2684,35 +2982,6 @@ html[data-locale="zh"] .callout {
 .progress-status-pill.status-running,
 #console-live-badge.status-running {
   animation: none;
-}
-
-.progress-runtime-stack {
-  min-width: 132px;
-  padding: 10px 14px;
-  border-radius: 0;
-  border: 1px solid rgba(var(--outline-rgb), 0.08);
-  background: rgba(var(--glass-rgb), 0.6);
-  display: grid;
-  gap: 2px;
-}
-
-.progress-runtime-label {
-  color: var(--muted);
-  font-size: 0.76rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-html[data-locale="zh"] .progress-runtime-label {
-  letter-spacing: 0.02em;
-  text-transform: none;
-}
-
-.progress-runtime {
-  font-size: 1.3rem;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
 }
 
 .progress-live-card {
@@ -2861,6 +3130,14 @@ html[data-locale="zh"] .progress-runtime-label {
   justify-content: center;
 }
 
+.stage-strip-terminal--entry {
+  justify-content: flex-end;
+}
+
+.stage-strip-terminal--exit {
+  justify-content: flex-start;
+}
+
 .stage-loop-shell {
   position: relative;
   display: grid;
@@ -2994,11 +3271,45 @@ html[data-locale="zh"] .stage-loop-eyebrow {
 }
 
 .stage-loop-arcs {
-  display: none;
+  position: absolute;
+  inset: 10px 46px 10px;
+  display: block;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.stage-loop-arc {
+  position: absolute;
+  left: 88px;
+  right: 88px;
+  height: 18px;
+  opacity: 0.85;
+}
+
+.stage-loop-arc--top {
+  top: 2px;
+  border-top: 1px solid var(--run-progress-lane-line);
+  border-left: 1px solid var(--run-progress-lane-line);
+  border-right: 1px solid var(--run-progress-lane-line);
+  border-radius: 18px 18px 0 0;
+}
+
+.stage-loop-arc--bottom {
+  bottom: 2px;
+  border-bottom: 1px solid var(--run-progress-lane-line);
+  border-left: 1px solid var(--run-progress-lane-line);
+  border-right: 1px solid var(--run-progress-lane-line);
+  border-radius: 0 0 18px 18px;
 }
 
 .stage-loop-shell.is-empty .stage-loop-connector,
 .stage-loop-shell.is-empty .stage-loop-arcs {
+  display: none;
+}
+
+.stage-loop-shell.is-empty .stage-loop-track::before,
+.stage-loop-shell.is-empty .stage-loop-steps::before,
+.stage-loop-shell.is-empty .stage-loop-steps::after {
   display: none;
 }
 
@@ -3465,148 +3776,484 @@ html[data-locale="zh"] .highlight-label {
   background: linear-gradient(180deg, rgba(var(--outline-rgb), 0.04), rgba(var(--glass-rgb), 0.74));
 }
 
+.loop-detail-copy {
+  margin: 8px 0 0;
+  max-width: 760px;
+  color: var(--muted);
+}
+
+.loop-detail-spec-shell {
+  display: grid;
+  gap: 0;
+  padding: 14px;
+  border-radius: 0;
+  border: 1px solid var(--line);
+  background: rgba(var(--glass-rgb), 0.44);
+}
+
+.loop-detail-spec-toolbar {
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.loop-detail-spec-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html[data-locale="zh"] .loop-detail-spec-label {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.loop-detail-spec-path {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid rgba(var(--outline-rgb), 0.12);
+  background: rgba(var(--glass-rgb), 0.72);
+  color: var(--ink);
+  font-size: 0.84rem;
+  font-family: "SFMono-Regular", "IBM Plex Mono", monospace;
+  white-space: nowrap;
+  overflow: auto;
+  text-overflow: clip;
+}
+
+.loop-detail-spec-preview {
+  min-height: 220px;
+  max-height: 420px;
+}
+
+.loop-detail-history-meta,
+.loop-detail-history-time {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.loop-detail-history-time {
+  text-align: right;
+}
+
 /* ── Console Panel ── */
 
 .console-panel {
   grid-column: 1 / -1;
 }
 
-.artifact-panel {
+.takeaway-panel {
   grid-column: 1 / -1;
 }
 
-.artifact-panel-header {
+.takeaway-panel-header {
   align-items: start;
 }
 
-.artifact-copy {
+.takeaway-copy {
   margin: 8px 0 0;
   color: var(--muted);
 }
 
-.artifact-meta {
+.takeaway-meta {
   color: var(--muted);
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
-.artifact-tabs {
-  display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  gap: 10px;
+.takeaway-shortcuts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
   margin-bottom: 16px;
-  padding-bottom: 4px;
-  scroll-snap-type: x proximity;
+  align-items: start;
 }
 
-.artifact-tab {
-  flex: 0 0 248px;
-  min-height: 92px;
-  padding: 12px 14px;
+.takeaway-path-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.takeaway-path-card {
+  padding: 14px 16px;
   border-radius: 0;
   border: 1px solid var(--line);
-  background: rgba(var(--glass-rgb), 0.58);
-  text-align: left;
+  background: rgba(var(--glass-rgb), 0.62);
   display: grid;
-  gap: 10px;
-  align-content: start;
-  scroll-snap-align: start;
+  gap: 8px;
+  min-width: 0;
 }
 
-.artifact-tab.active {
-  background: rgba(13, 124, 102, 0.12);
-  border-color: rgba(13, 124, 102, 0.24);
+.takeaway-path-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.artifact-tab-top {
+html[data-locale="zh"] .takeaway-path-label {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.takeaway-path-card code {
+  min-width: 0;
+  display: block;
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-family: "SFMono-Regular", "IBM Plex Mono", monospace;
+  white-space: nowrap;
+  overflow: auto;
+  text-overflow: clip;
+}
+
+.takeaway-actions {
   display: flex;
-  align-items: start;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 10px;
+  align-items: center;
 }
 
-.artifact-tab-copy {
+.takeaway-feedback {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.2rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.takeaway-selector-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.takeaway-selector-label {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.takeaway-iteration-select {
+  width: min(100%, 360px);
+  padding: 10px 14px;
+  border-radius: 0;
+  border: 1px solid var(--line);
+  background: rgba(var(--glass-rgb), 0.72);
+  color: var(--ink);
+  font: inherit;
+  box-shadow: var(--shadow-soft);
+}
+
+.takeaway-iteration-view {
+  display: grid;
+  gap: 14px;
+}
+
+.takeaway-iteration-card {
+  padding: 18px;
+  border-radius: 0;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(var(--glass-rgb), 0.82), rgba(var(--glass-rgb), 0.62));
+  box-shadow: var(--shadow-soft);
+  display: grid;
+  gap: 14px;
+}
+
+.takeaway-iteration-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+
+.takeaway-iteration-copy {
   min-width: 0;
   display: grid;
   gap: 6px;
 }
 
-.artifact-tab-label {
-  display: block;
-  color: var(--ink);
-  font-weight: 600;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.artifact-tab-meta {
+.takeaway-iteration-label {
+  display: inline-flex;
   color: var(--muted);
-  font-size: 0.76rem;
-  line-height: 1.45;
-  font-family: "SFMono-Regular", "IBM Plex Mono", monospace;
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.artifact-tab-state {
+html[data-locale="zh"] .takeaway-iteration-label {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.takeaway-iteration-title {
+  display: block;
+  font-size: 1.08rem;
+  line-height: 1.35;
+}
+
+.takeaway-iteration-note,
+.takeaway-role-summary,
+.takeaway-role-support {
+  margin: 0;
+  line-height: 1.58;
+}
+
+.takeaway-iteration-note {
+  max-height: 120px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.takeaway-iteration-meta,
+.takeaway-role-meta {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.takeaway-role-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.takeaway-role-card {
+  padding: 14px 16px;
+  border-radius: 0;
+  border: 1px solid rgba(var(--outline-rgb), 0.12);
+  background: rgba(var(--glass-rgb), 0.76);
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.takeaway-role-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 10px;
+}
+
+.takeaway-role-chip {
+  min-width: 0;
   display: inline-flex;
   align-items: center;
-  border-radius: 0;
-  padding: 4px 10px;
-  font-size: 0.8rem;
-  flex: 0 0 auto;
+  gap: 10px;
 }
 
-.artifact-tab-state.is-ready {
+.takeaway-role-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 8px;
+  background: rgba(var(--outline-rgb), 0.08);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-family: "SFMono-Regular", "IBM Plex Mono", monospace;
+  font-weight: 700;
+}
+
+.takeaway-role-name {
+  min-width: 0;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.takeaway-role-body {
+  display: grid;
+  gap: 10px;
+  max-height: 180px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.takeaway-role-support {
+  color: var(--muted);
+}
+
+.takeaway-empty {
+  padding: 20px;
+  border-radius: 0;
+  border: 1px dashed rgba(var(--outline-rgb), 0.18);
+  background: rgba(var(--glass-rgb), 0.42);
+}
+
+.takeaway-empty p {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.takeaway-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--outline-rgb), 0.12);
+  background: rgba(var(--outline-rgb), 0.05);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.takeaway-status-pill--passed {
   background: rgba(13, 124, 102, 0.12);
+  border-color: rgba(13, 124, 102, 0.22);
   color: var(--accent-2);
 }
 
-.artifact-tab-state.is-missing {
-  background: rgba(var(--outline-rgb), 0.08);
-  color: var(--muted);
+.takeaway-status-pill--completed {
+  background: rgba(34, 120, 110, 0.08);
+  border-color: rgba(34, 120, 110, 0.16);
+  color: #166a5f;
 }
 
-/* ── Artifact Preview ── */
-
-.artifact-preview-shell {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  gap: 0;
-  border-radius: 0;
-  border: 1px solid var(--line);
-  background: rgba(var(--glass-rgb), 0.44);
-  padding: 14px;
+.takeaway-status-pill--blocked {
+  background: rgba(214, 106, 54, 0.12);
+  border-color: rgba(214, 106, 54, 0.2);
+  color: #9a4b24;
 }
 
-.loop-spec-shell {
-  padding-bottom: 16px;
+.takeaway-status-pill--failed {
+  background: rgba(171, 47, 42, 0.12);
+  border-color: rgba(171, 47, 42, 0.2);
+  color: var(--danger);
 }
 
-.artifact-toolbar {
-  align-items: center;
-  margin-bottom: 12px;
+.takeaway-status-pill--running {
+  background: rgba(214, 106, 54, 0.12);
+  border-color: rgba(214, 106, 54, 0.16);
+  color: var(--accent-1);
 }
 
-#artifact-path {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
+.takeaway-status-pill--advisory {
+  background: rgba(74, 105, 189, 0.1);
+  border-color: rgba(74, 105, 189, 0.18);
+  color: #4257b6;
 }
 
-.artifact-preview-box {
-  height: 360px;
-  min-height: 360px;
-  max-height: 360px;
+.takeaway-iteration-card--passed,
+.takeaway-role-card--passed {
+  border-color: rgba(13, 124, 102, 0.18);
+}
+
+.takeaway-iteration-card--blocked,
+.takeaway-role-card--blocked {
+  border-color: rgba(214, 106, 54, 0.18);
+}
+
+.takeaway-iteration-card--failed,
+.takeaway-role-card--failed {
+  border-color: rgba(171, 47, 42, 0.2);
+}
+
+[data-theme="dark"] .takeaway-path-card {
+  background: linear-gradient(180deg, rgba(61, 47, 40, 0.94), rgba(34, 27, 23, 0.98));
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .loop-detail-spec-shell {
+  background: linear-gradient(180deg, rgba(43, 34, 29, 0.94), rgba(28, 22, 19, 0.99));
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .loop-detail-spec-path {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #f5ebe2;
+}
+
+[data-theme="dark"] .takeaway-iteration-card {
+  background: linear-gradient(180deg, rgba(56, 43, 37, 0.96), rgba(30, 24, 20, 0.99));
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="dark"] .takeaway-iteration-select {
+  background: linear-gradient(180deg, rgba(56, 43, 37, 0.96), rgba(30, 24, 20, 0.99));
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #f5ebe2;
+}
+
+[data-theme="dark"] .takeaway-role-card {
+  background: linear-gradient(180deg, rgba(48, 38, 33, 0.98), rgba(29, 23, 20, 1));
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .takeaway-role-order {
+  background: rgba(255, 255, 255, 0.08);
+  color: #dbcfc5;
+}
+
+[data-theme="dark"] .takeaway-empty {
+  background: rgba(44, 35, 30, 0.9);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .takeaway-status-pill {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f5ebe2;
+}
+
+[data-theme="dark"] .takeaway-status-pill--passed {
+  background: rgba(45, 212, 191, 0.14);
+  border-color: rgba(45, 212, 191, 0.26);
+  color: #7ef2db;
+}
+
+[data-theme="dark"] .takeaway-status-pill--completed {
+  background: rgba(110, 239, 218, 0.12);
+  border-color: rgba(110, 239, 218, 0.2);
+  color: #b8fff2;
+}
+
+[data-theme="dark"] .takeaway-status-pill--blocked,
+[data-theme="dark"] .takeaway-status-pill--running {
+  background: rgba(242, 139, 85, 0.16);
+  border-color: rgba(242, 139, 85, 0.24);
+  color: #ffbe95;
+}
+
+[data-theme="dark"] .takeaway-status-pill--failed {
+  background: rgba(248, 113, 113, 0.16);
+  border-color: rgba(248, 113, 113, 0.24);
+  color: #ffb5b5;
+}
+
+[data-theme="dark"] .takeaway-status-pill--advisory {
+  background: rgba(129, 140, 248, 0.16);
+  border-color: rgba(129, 140, 248, 0.24);
+  color: #c6ccff;
+}
+
+@media (max-width: 1120px) {
+  .takeaway-shortcuts {
+    grid-template-columns: 1fr;
+  }
+
+  .takeaway-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .takeaway-path-grid,
+  .takeaway-role-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .preview-box {
@@ -4351,13 +4998,6 @@ html[data-locale="zh"] .preview-box {
     linear-gradient(135deg, transparent 0 64%, rgba(255, 248, 237, 0.5) 64% 74%, transparent 74% 100%);
 }
 
-/* ── Artifact Copy ── */
-
-.artifact-copy {
-  margin: 8px 0 0;
-  color: var(--muted);
-}
-
 /* ── Responsive ── */
 
 @media (max-width: 960px) {
@@ -4496,6 +5136,10 @@ html[data-locale="zh"] .preview-box {
     width: min(1680px, 100%);
   }
 
+  .tutorial-page-stack {
+    --tutorial-page-max: 1480px;
+  }
+
   .role-card-grid--definitions {
     --catalog-card-min: 320px;
     --catalog-card-max: 450px;
@@ -4510,6 +5154,10 @@ html[data-locale="zh"] .preview-box {
 @media (min-width: 1920px) {
   .page-stack--catalog {
     width: min(1820px, 100%);
+  }
+
+  .tutorial-page-stack {
+    --tutorial-page-max: 1600px;
   }
 
   .role-card-grid--definitions {
@@ -4607,6 +5255,10 @@ html[data-locale="zh"] .preview-box {
     align-items: start;
   }
 
+  .loop-detail-spec-toolbar {
+    align-items: start;
+  }
+
   .skill-download-card {
     flex-direction: column;
     align-items: stretch;
@@ -4618,6 +5270,11 @@ html[data-locale="zh"] .preview-box {
   .workflow-settings-header {
     flex-direction: column;
     align-items: start;
+  }
+
+  .workflow-editor-header .card-actions-compact {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .workflow-loop-node-label {

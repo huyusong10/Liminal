@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import time
+from collections import defaultdict
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -33,7 +34,7 @@ from loopora.settings import load_recent_workdirs
 from loopora.skills import build_spec_skill_bundle_archive, install_spec_skill, list_spec_skill_targets, load_spec_skill_bundle
 from loopora.service import LooporaError, create_service, normalize_role_models
 from loopora.specs import SpecError, init_spec_file, read_and_compile
-from loopora.system_dialogs import SystemDialogError, pick_directory, pick_file, pick_save_file
+from loopora.system_dialogs import SystemDialogError, pick_directory, pick_file, pick_save_file, reveal_path
 from loopora.workflows import (
     ARCHETYPES,
     WorkflowError,
@@ -124,7 +125,18 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     app.state.access_state = access_state
     package_root = Path(__file__).parent
     static_root = package_root / "static"
-    templates = Jinja2Templates(directory=str(package_root / "templates"))
+
+    def template_context(request: Request) -> dict[str, str]:
+        locale = _preferred_request_locale(request)
+        return {
+            "page_locale": locale,
+            "page_lang": "zh-CN" if locale == "zh" else "en",
+        }
+
+    templates = Jinja2Templates(
+        directory=str(package_root / "templates"),
+        context_processors=[template_context],
+    )
     templates.env.auto_reload = True
     app.mount("/static", StaticFiles(directory=str(package_root / "static")), name="static")
     app.mount("/logo", StaticFiles(directory=str(package_root / "assets" / "logo")), name="logo")
@@ -587,6 +599,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
 
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
     async def run_detail(request: Request, run_id: str) -> HTMLResponse:
+        locale = _preferred_request_locale(request)
         run = svc().get_run(run_id)
         seed_events = svc().stream_events(run_id, limit=5000)
         latest_event_id = seed_events[-1]["id"] if seed_events else 0
@@ -597,12 +610,13 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             {
                 "request": request,
                 "run": run,
+                "page_locale": locale,
                 "progress_stages": _progress_stage_seed(run),
                 "timeline_events": events[-40:],
                 "console_events": seed_events[-160:],
                 "progress_events": [event for event in seed_events if event["event_type"] in PROGRESS_EVENT_TYPES][-2000:],
                 "latest_event_id": latest_event_id,
-                "run_artifacts": _list_run_artifacts(run),
+                "key_takeaways": _build_run_key_takeaways(run),
                 "access_state": access_state,
             },
         )
@@ -730,6 +744,11 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     async def api_run_artifacts(run_id: str) -> JSONResponse:
         run = svc().get_run(run_id)
         return JSONResponse(_list_run_artifacts(run))
+
+    @app.get("/api/runs/{run_id}/key-takeaways")
+    async def api_run_key_takeaways(run_id: str) -> JSONResponse:
+        run = svc().get_run(run_id)
+        return JSONResponse(_build_run_key_takeaways(run))
 
     @app.get("/api/runs/{run_id}/artifacts/{artifact_id}")
     async def api_run_artifact_preview(run_id: str, artifact_id: str) -> JSONResponse:
@@ -924,6 +943,16 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             return json_error("native dialogs are disabled in network mode; paste a server-side absolute path instead")
         selected = pick_save_file(start_path or None, default_name="spec.md")
         return JSONResponse({"path": selected or "", "cancelled": not selected})
+
+    @app.post("/api/system/reveal-path")
+    async def api_reveal_path(request: Request) -> JSONResponse:
+        if not access_state["native_dialogs_enabled"]:
+            return json_error("native dialogs are disabled in network mode; paste a server-side absolute path instead")
+        payload = await request.json()
+        target = str(payload.get("path") or "").strip()
+        if not target:
+            return json_error("path is required")
+        return JSONResponse({"path": reveal_path(target), "ok": True})
 
     @app.post("/loops/new")
     async def create_loop_from_form(request: Request):
@@ -1493,11 +1522,48 @@ def _builtin_role_templates(*, locale: str = "en") -> dict[str, dict[str, object
 
 
 def _preferred_request_locale(request: Request) -> str:
-    accept_language = str(request.headers.get("accept-language", "")).strip()
-    if not accept_language:
+    return _preferred_locale_from_accept_language(request.headers.get("accept-language"))
+
+
+def _preferred_locale_from_accept_language(accept_language: str | None) -> str:
+    header = str(accept_language or "").strip()
+    if not header:
         return "en"
-    first_choice = accept_language.split(",", 1)[0].split(";", 1)[0]
-    return normalize_prompt_locale(first_choice)
+
+    candidates: list[tuple[float, int, str]] = []
+    for position, raw_item in enumerate(header.split(",")):
+        item = raw_item.strip()
+        if not item:
+            continue
+        language_tag, *params = [segment.strip() for segment in item.split(";")]
+        normalized_tag = str(language_tag or "").strip().lower().replace("_", "-")
+        if not normalized_tag:
+            continue
+        if normalized_tag.startswith("zh"):
+            locale = "zh"
+        elif normalized_tag.startswith("en"):
+            locale = "en"
+        else:
+            continue
+
+        q_value = 1.0
+        for param in params:
+            key, sep, value = param.partition("=")
+            if sep and key.strip().lower() == "q":
+                try:
+                    q_value = float(value.strip())
+                except ValueError:
+                    q_value = 0.0
+                break
+        if q_value <= 0:
+            continue
+        candidates.append((-q_value, position, locale))
+
+    if not candidates:
+        return "en"
+
+    candidates.sort()
+    return candidates[0][2]
 
 
 def _decorate_role_definition_overview(role_definition: Mapping[str, object]) -> dict[str, object]:
@@ -1582,6 +1648,14 @@ def _artifact_record_or_404(run: dict, artifact_id: str) -> dict:
     raise HTTPException(status_code=404, detail="unknown artifact")
 
 
+LEGACY_RUNTIME_ROLE_TO_ARCHETYPE = {
+    "generator": "builder",
+    "tester": "inspector",
+    "verifier": "gatekeeper",
+    "challenger": "guide",
+}
+
+
 def _display_iter(iter_value: object | None) -> int | None:
     if iter_value is None:
         return None
@@ -1613,6 +1687,276 @@ def _summary_excerpt(summary_md: str | None) -> str:
     text = _strip_markdown(summary_md)
     text = strip_run_summary_title(text)
     return _truncate_text(text, max_length=170) if text else ""
+
+
+def _safe_read_json_file(path: Path) -> dict | None:
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _clean_takeaway_text(value: object, *, max_length: int = 240) -> str:
+    text = _truncate_text(_strip_markdown(str(value or "").strip()), max_length=max_length)
+    return text.strip()
+
+
+def _display_role_name(name: object, *, archetype: object = "", runtime_role: object = "") -> str:
+    cleaned_name = str(name or "").strip()
+    cleaned_runtime = str(runtime_role or "").strip().lower()
+    cleaned_archetype = str(archetype or "").strip().lower() or LEGACY_RUNTIME_ROLE_TO_ARCHETYPE.get(cleaned_runtime, "")
+    normalized_name = normalize_role_display_name(cleaned_name, cleaned_archetype)
+    if normalized_name:
+        return normalized_name
+    if cleaned_archetype in ARCHETYPES:
+        return display_name_for_archetype(cleaned_archetype, locale="en")
+    return cleaned_name or cleaned_runtime or "-"
+
+
+def _normalize_takeaway_status(status: object) -> str:
+    normalized = str(status or "").strip().lower()
+    if normalized in {"passed", "completed", "blocked", "failed", "running", "advisory", "pending"}:
+        return normalized
+    if normalized in {"complete", "succeeded", "success"}:
+        return "completed"
+    if normalized in {"queued", "waiting", "idle"}:
+        return "pending"
+    return "pending"
+
+
+def _build_role_takeaway_from_handoff(handoff: Mapping[str, object], *, composite_score: object = None) -> dict:
+    source = handoff.get("source") if isinstance(handoff.get("source"), Mapping) else {}
+    try:
+        iter_id = int(source.get("iter", 0))
+    except (TypeError, ValueError):
+        iter_id = 0
+    try:
+        step_order = int(source.get("step_order") or 0)
+    except (TypeError, ValueError):
+        step_order = 0
+    role_name = _display_role_name(
+        source.get("role_name"),
+        archetype=source.get("archetype"),
+        runtime_role=source.get("runtime_role"),
+    )
+    blocking_items = [
+        _clean_takeaway_text(item, max_length=520)
+        for item in list(handoff.get("blocking_items") or [])
+        if _clean_takeaway_text(item, max_length=520)
+    ]
+    next_action = _clean_takeaway_text(handoff.get("recommended_next_action"), max_length=520)
+    return {
+        "id": f"iter-{iter_id}-{str(source.get('step_id') or role_name).strip() or role_name}",
+        "step_id": str(source.get("step_id") or "").strip(),
+        "step_order": step_order,
+        "role_name": role_name,
+        "archetype": str(source.get("archetype") or "").strip().lower(),
+        "status": _normalize_takeaway_status(handoff.get("status")),
+        "summary": _clean_takeaway_text(handoff.get("summary"), max_length=1200),
+        "blocking_item": " · ".join(blocking_items),
+        "next_action": next_action,
+        "composite_score": composite_score,
+    }
+
+
+def _build_structured_iteration_takeaways(run: dict) -> list[dict]:
+    runs_dir_value = str(run.get("runs_dir") or "").strip()
+    if not runs_dir_value:
+        return []
+    runs_dir = Path(runs_dir_value)
+    if not runs_dir.exists():
+        return []
+
+    summaries_by_iter: dict[int, dict] = {}
+    for summary_path in sorted(runs_dir.glob("iterations/iter_*/summary.json")):
+        summary_payload = _safe_read_json_file(summary_path)
+        if not summary_payload:
+            continue
+        try:
+            iter_id = int(summary_payload.get("iter", -1))
+        except (TypeError, ValueError):
+            continue
+        summaries_by_iter[iter_id] = summary_payload
+
+    handoffs_by_iter: dict[int, list[dict]] = defaultdict(list)
+    for handoff_path in sorted(runs_dir.glob("iterations/iter_*/steps/*/handoff.json")):
+        handoff_payload = _safe_read_json_file(handoff_path)
+        if not handoff_payload:
+            continue
+        source = handoff_payload.get("source") if isinstance(handoff_payload.get("source"), Mapping) else {}
+        try:
+            iter_id = int(source.get("iter", -1))
+        except (TypeError, ValueError):
+            continue
+        if iter_id < 0:
+            continue
+        handoffs_by_iter[iter_id].append(handoff_payload)
+
+    iter_ids = sorted(set(summaries_by_iter) | set(handoffs_by_iter))
+    current_iter = run.get("current_iter")
+    try:
+        current_iter_id = int(current_iter) if current_iter is not None else None
+    except (TypeError, ValueError):
+        current_iter_id = None
+
+    iterations: list[dict] = []
+    for iter_id in iter_ids:
+        summary_payload = summaries_by_iter.get(iter_id) or {}
+        score_payload = summary_payload.get("score") if isinstance(summary_payload.get("score"), Mapping) else {}
+        composite_score = score_payload.get("composite")
+        handoffs = sorted(
+            handoffs_by_iter.get(iter_id, []),
+            key=lambda item: int(((item.get("source") if isinstance(item.get("source"), Mapping) else {}) or {}).get("step_order") or 0),
+        )
+        roles = [_build_role_takeaway_from_handoff(handoff, composite_score=composite_score) for handoff in handoffs]
+        primary_role = next((item for item in roles if item.get("archetype") == "gatekeeper"), roles[-1] if roles else None)
+        summary_text = (
+            primary_role.get("summary")
+            if isinstance(primary_role, Mapping)
+            else ""
+        ) or _clean_takeaway_text(run.get("summary_md"), max_length=220)
+        passed = score_payload.get("passed")
+        if passed is True:
+            iteration_status = "passed"
+        elif passed is False:
+            iteration_status = "blocked"
+        elif current_iter_id == iter_id and str(run.get("status") or "").strip() == "running":
+            iteration_status = "running"
+        elif roles:
+            iteration_status = _normalize_takeaway_status(roles[-1].get("status"))
+        else:
+            iteration_status = "pending"
+        iterations.append(
+            {
+                "iter": iter_id,
+                "display_iter": _display_iter(iter_id),
+                "status": iteration_status,
+                "phase": str(summary_payload.get("phase") or "").strip(),
+                "summary": summary_text,
+                "timestamp": str(summary_payload.get("timestamp") or "").strip(),
+                "composite_score": composite_score,
+                "role_count": len(roles),
+                "roles": roles,
+            }
+        )
+    return iterations
+
+
+def _build_legacy_iteration_takeaway(run: dict) -> dict | None:
+    runs_dir_value = str(run.get("runs_dir") or "").strip()
+    runs_dir = Path(runs_dir_value) if runs_dir_value else None
+    verdict = run.get("last_verdict_json") or {}
+    if not verdict and runs_dir is not None:
+        verdict = _safe_read_json_file(runs_dir / "verifier_verdict.json") or _safe_read_json_file(runs_dir / "gatekeeper_verdict.json") or {}
+
+    summary_excerpt = _summary_excerpt(run.get("summary_md"))
+    roles: list[dict] = []
+    priority_failures = verdict.get("priority_failures") if isinstance(verdict, Mapping) else []
+    if isinstance(priority_failures, list):
+        for index, failure in enumerate(priority_failures, start=1):
+            if not isinstance(failure, Mapping):
+                continue
+            runtime_role = str(failure.get("role") or "").strip().lower()
+            role_name = _display_role_name("", runtime_role=runtime_role)
+            error_code = _clean_takeaway_text(failure.get("error_code"), max_length=80)
+            attempts = failure.get("attempts")
+            degraded = bool(failure.get("degraded"))
+            support_bits = []
+            if error_code:
+                support_bits.append(error_code)
+            if attempts not in {None, ""}:
+                support_bits.append(f"attempts={attempts}")
+            if degraded:
+                support_bits.append("degraded")
+            roles.append(
+                {
+                    "id": f"legacy-failure-{index}",
+                    "step_id": "",
+                    "step_order": index - 1,
+                    "role_name": role_name,
+                    "archetype": LEGACY_RUNTIME_ROLE_TO_ARCHETYPE.get(runtime_role, ""),
+                    "status": "failed",
+                    "summary": "Execution aborted before this role could produce a stable handoff.",
+                    "blocking_item": " · ".join(support_bits),
+                    "next_action": _clean_takeaway_text(
+                        verdict.get("feedback_to_builder") or verdict.get("feedback_to_generator"),
+                        max_length=520,
+                    ),
+                    "composite_score": None,
+                }
+            )
+
+    if verdict:
+        blocking_note = (
+            _clean_takeaway_text((verdict.get("blocking_issues") or [""])[0], max_length=140)
+            or _clean_takeaway_text((verdict.get("hard_constraint_violations") or [""])[0], max_length=140)
+        )
+        roles.append(
+            {
+                "id": "legacy-gatekeeper",
+                "step_id": "",
+                "step_order": len(roles),
+                "role_name": "GateKeeper",
+                "archetype": "gatekeeper",
+                "status": "passed" if verdict.get("passed") is True else "blocked",
+                "summary": _clean_takeaway_text(verdict.get("decision_summary"), max_length=220) or summary_excerpt,
+                "blocking_item": blocking_note,
+                "next_action": _clean_takeaway_text(
+                    verdict.get("feedback_to_builder") or verdict.get("feedback_to_generator"),
+                    max_length=520,
+                ),
+                "composite_score": verdict.get("composite_score"),
+            }
+        )
+
+    if not roles and not summary_excerpt:
+        return None
+
+    run_status = str(run.get("status") or "").strip().lower()
+    if verdict.get("passed") is True:
+        status = "passed"
+    elif run_status == "running":
+        status = "running"
+    elif roles and roles[0].get("status") == "failed":
+        status = "failed"
+    elif verdict:
+        status = "blocked"
+    else:
+        status = _normalize_takeaway_status(run_status)
+    return {
+        "iter": int(run.get("current_iter") or 0),
+        "display_iter": _display_iter(run.get("current_iter")) or 1,
+        "status": status,
+        "phase": run_status,
+        "summary": summary_excerpt or _clean_takeaway_text(verdict.get("decision_summary"), max_length=220),
+        "timestamp": "",
+        "composite_score": verdict.get("composite_score"),
+        "role_count": len(roles),
+        "roles": roles,
+    }
+
+
+def _build_run_key_takeaways(run: dict) -> dict:
+    iterations = _build_structured_iteration_takeaways(run)
+    if not iterations:
+        legacy_iteration = _build_legacy_iteration_takeaway(run)
+        if legacy_iteration:
+            iterations = [legacy_iteration]
+    iterations = sorted(iterations, key=lambda item: int(item.get("iter") or -1), reverse=True)
+    latest = iterations[0] if iterations else None
+    return {
+        "build_dir": str(Path(str(run.get("workdir") or "")).expanduser().resolve()) if run.get("workdir") else "",
+        "log_dir": str(Path(str(run.get("runs_dir") or "")).expanduser().resolve()) if run.get("runs_dir") else "",
+        "iteration_count": len(iterations),
+        "role_conclusion_count": sum(len(list(iteration.get("roles") or [])) for iteration in iterations),
+        "latest_display_iter": latest.get("display_iter") if latest else None,
+        "latest_status": latest.get("status") if latest else _normalize_takeaway_status(run.get("status")),
+        "latest_summary": latest.get("summary") if latest else _summary_excerpt(run.get("summary_md")),
+        "iterations": iterations,
+    }
 
 
 def _workflow_role_executor_summary(workflow: Mapping[str, object] | None, *, fallback_executor_kind: str = "codex") -> str:

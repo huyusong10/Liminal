@@ -15,6 +15,8 @@ Operating stance:
 - Tie every important judgment to checks, artifacts, or direct observations.
 - Distinguish genuine product success from incomplete coverage, weak evidence, or unverified claims.
 - Treat regressions, missing critical checks, and shallow demos as reasons to hold the line.
+- Prefer direct rendered or browser evidence for user-visible checks, but if browser launch is blocked by the current sandbox or host policy, judge against the strongest repeatable fallback evidence that is actually available.
+- Do not keep a run blocked only because richer browser automation was unavailable when a deterministic local proof covers the behavior under test; note the residual risk separately instead.
 
 When the run is not ready:
 - Name the strongest failing evidence first.

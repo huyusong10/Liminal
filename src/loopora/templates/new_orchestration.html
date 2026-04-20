@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ page_copy.submit_en }}{% endblock %}
+{% block title %}{{ page_copy.submit_zh if page_locale == 'zh' else page_copy.submit_en }}{% endblock %}
 {% block content %}
 <div class="page-stack" data-testid="orchestration-editor-page">
 <section class="hero hero-tight hero-form orchestration-hero">
@@ -69,15 +69,15 @@
               <label class="workflow-toolbar-inline">
                 <span><span data-lang="zh">起手模板</span><span data-lang="en">Starter</span></span>
                 <select id="workflow-starter-select" data-testid="workflow-starter-select" {% if orchestration_locked %}disabled{% endif %}>
-                  <option value="" data-label-zh="空白开始 / Start blank" data-label-en="Start blank">Start blank</option>
+                  <option value="" data-label-zh="空白开始" data-label-en="Start blank">{{ "空白开始" if page_locale == "zh" else "Start blank" }}</option>
                   {% for option in workflow_preset_options %}
                   <option
                     value="{{ option.id }}"
-                    data-label-zh="{{ option.label_zh }} / {{ option.label_en }}"
+                    data-label-zh="{{ option.label_zh }}"
                     data-label-en="{{ option.label_en }}"
                     {% if form_values.workflow_preset == option.id %}selected{% endif %}
                   >
-                    {{ option.label_en }}
+                    {{ option.label_zh if page_locale == "zh" else option.label_en }}
                   </option>
                   {% endfor %}
                 </select>
@@ -180,8 +180,8 @@
           <label>
             <span><span data-lang="zh">通过后动作</span><span data-lang="en">On pass</span></span>
             <select id="workflow-settings-step-on-pass" data-step-field="on_pass" data-testid="workflow-settings-step-on-pass">
-              <option value="continue" data-label-zh="继续后续步骤" data-label-en="Continue">Continue</option>
-              <option value="finish_run" data-label-zh="通过后结束流程" data-label-en="Finish run">Finish run</option>
+              <option value="continue" data-label-zh="继续后续步骤" data-label-en="Continue">{{ "继续后续步骤" if page_locale == "zh" else "Continue" }}</option>
+              <option value="finish_run" data-label-zh="通过后结束流程" data-label-en="Finish run">{{ "通过后结束流程" if page_locale == "zh" else "Finish run" }}</option>
             </select>
           </label>
           <label class="workflow-settings-toggle-row wide">

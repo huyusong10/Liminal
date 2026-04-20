@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ page_copy.submit_en }}{% endblock %}
+{% block title %}{{ page_copy.submit_zh if page_locale == 'zh' else page_copy.submit_en }}{% endblock %}
 {% block content %}
 <div class="page-stack" data-testid="role-definition-editor-page">
 <section class="hero hero-tight hero-form">
@@ -63,9 +63,18 @@
       </small>
       {% endif %}
       <div class="role-template-guide" id="role-definition-archetype-guide" data-testid="role-definition-archetype-guide" aria-live="polite">
-        <p class="role-template-guide-summary" id="role-definition-archetype-summary">{{ selected_archetype_option.summary_zh if page_locale == 'zh' else selected_archetype_option.summary_en }}</p>
-        <p class="role-template-guide-recommendation" id="role-definition-archetype-recommendation">{{ selected_archetype_option.recommendation_zh if page_locale == 'zh' else selected_archetype_option.recommendation_en }}</p>
-        <p class="role-template-guide-warning" id="role-definition-archetype-warning" {% if not (selected_archetype_option.warning_zh if page_locale == 'zh' else selected_archetype_option.warning_en) %}hidden{% endif %}>{{ selected_archetype_option.warning_zh if page_locale == 'zh' else selected_archetype_option.warning_en }}</p>
+        <p class="role-template-guide-summary" id="role-definition-archetype-summary">
+          <span data-lang="zh">{{ selected_archetype_option.summary_zh }}</span>
+          <span data-lang="en">{{ selected_archetype_option.summary_en }}</span>
+        </p>
+        <p class="role-template-guide-recommendation" id="role-definition-archetype-recommendation">
+          <span data-lang="zh">{{ selected_archetype_option.recommendation_zh }}</span>
+          <span data-lang="en">{{ selected_archetype_option.recommendation_en }}</span>
+        </p>
+        <p class="role-template-guide-warning" id="role-definition-archetype-warning" {% if not (selected_archetype_option.warning_zh or selected_archetype_option.warning_en) %}hidden{% endif %}>
+          <span data-lang="zh">{{ selected_archetype_option.warning_zh }}</span>
+          <span data-lang="en">{{ selected_archetype_option.warning_en }}</span>
+        </p>
       </div>
     </label>
 
@@ -100,7 +109,7 @@
             <span class="label-row">
               <span><span data-lang="zh">配置方式</span><span data-lang="en">Configuration mode</span></span>
             </span>
-            <div class="executor-mode-switch" data-testid="role-definition-executor-mode-switch" role="group" aria-label="Execution mode switch">
+            <div class="executor-mode-switch" data-testid="role-definition-executor-mode-switch" role="group" aria-label="{{ '执行模式切换' if page_locale == 'zh' else 'Execution mode switch' }}">
               <button
                 class="executor-mode-chip"
                 type="button"

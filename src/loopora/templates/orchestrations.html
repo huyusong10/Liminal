@@ -5,10 +5,11 @@
   type="button"
   data-title-zh="{{ zh }}"
   data-title-en="{{ en }}"
+  aria-label="{{ ('查看提示：' ~ zh) if page_locale == 'zh' else ('Show tip: ' ~ en) }}"
   {% if testid %}data-testid="{{ testid }}"{% endif %}
 >i</button>
 {%- endmacro %}
-{% block title %}Orchestrations{% endblock %}
+{% block title %}{{ '流程编排' if page_locale == 'zh' else 'Orchestrations' }}{% endblock %}
 {% block content %}
 <div class="page-stack page-stack--catalog" data-testid="orchestrations-page">
 <section class="hero hero-tight">
@@ -39,7 +40,7 @@
   <div class="loop-grid role-card-grid role-card-grid--orchestrations role-card-grid--orchestrations-custom">
     {% for orchestration in custom_orchestrations %}
     <article class="loop-card is-clickable" data-open-card="/orchestrations/{{ orchestration.id }}/edit" tabindex="0">
-      <a class="loop-card-link" href="/orchestrations/{{ orchestration.id }}/edit"></a>
+      <a class="loop-card-link" href="/orchestrations/{{ orchestration.id }}/edit" tabindex="-1" aria-hidden="true"></a>
       <div class="loop-card-head">
         <div class="loop-card-copy">
           <strong>{{ orchestration.name }}</strong>
@@ -96,7 +97,7 @@
   <div class="loop-grid role-card-grid role-card-grid--orchestrations">
     {% for orchestration in builtin_orchestrations %}
     <article class="loop-card is-clickable" data-open-card="/orchestrations/{{ orchestration.id }}/edit" tabindex="0">
-      <a class="loop-card-link" href="/orchestrations/{{ orchestration.id }}/edit"></a>
+      <a class="loop-card-link" href="/orchestrations/{{ orchestration.id }}/edit" tabindex="-1" aria-hidden="true"></a>
       <div class="loop-card-head">
         <div class="loop-card-copy">
           <strong>{{ orchestration.name }}</strong>

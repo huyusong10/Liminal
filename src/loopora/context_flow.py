@@ -7,11 +7,13 @@ from loopora.run_artifacts import RunArtifactLayout, artifact_ref
 
 ARTIFACT_REF_SCHEMA = {
     "type": "object",
-    "required": ["kind", "label", "relative_path"],
+    "required": ["kind", "label", "relative_path", "workspace_path", "absolute_path"],
     "properties": {
         "kind": {"type": "string"},
         "label": {"type": "string"},
         "relative_path": {"type": "string"},
+        "workspace_path": {"type": "string"},
+        "absolute_path": {"type": "string"},
     },
     "additionalProperties": False,
 }
@@ -24,7 +26,6 @@ STEP_HANDOFF_SCHEMA = {
         "summary",
         "blocking_items",
         "recommended_next_action",
-        "confidence",
         "artifact_refs",
     ],
     "properties": {
@@ -46,7 +47,6 @@ STEP_HANDOFF_SCHEMA = {
         "summary": {"type": "string"},
         "blocking_items": {"type": "array", "items": {"type": "string"}},
         "recommended_next_action": {"type": "string"},
-        "confidence": {"type": "string"},
         "artifact_refs": {"type": "array", "items": ARTIFACT_REF_SCHEMA},
     },
     "additionalProperties": False,
@@ -380,7 +380,6 @@ def build_step_handoff(
     summary = ""
     blocking_items: list[str] = []
     recommended_next_action = ""
-    confidence = "medium"
     status = "completed"
     archetype = str(role["archetype"])
 
@@ -406,7 +405,6 @@ def build_step_handoff(
             _clean_text(output.get("feedback_to_builder") or output.get("feedback_to_generator"))
             or "Continue only after the blocking issues are resolved."
         )
-        confidence = _confidence_value(output.get("confidence") or output.get("verifier_confidence"))
         status = "passed" if bool(output.get("passed")) else "blocked"
     elif archetype == "guide":
         analysis = output.get("analysis") if isinstance(output.get("analysis"), dict) else {}
@@ -418,12 +416,15 @@ def build_step_handoff(
         status = "advisory"
     else:
         summary = _clean_text(output.get("summary") or output.get("handoff_note")) or "Custom role prepared a scoped handoff."
-        blocking_items = [item for item in _string_list(output.get("risks")) if item]
+        blocking_items = [item for item in _string_list(output.get("blocking_items")) if item]
+        if not blocking_items:
+            blocking_items = [item for item in _string_list(output.get("risks")) if item]
         recommended_next_action = (
-            _clean_text((_string_list(output.get("recommendations")) or [""])[0] or output.get("handoff_note"))
+            _clean_text(output.get("recommended_next_action"))
+            or _clean_text((_string_list(output.get("recommendations")) or [""])[0] or output.get("handoff_note"))
             or "Use this handoff in a Builder or Inspector step."
         )
-        status = "advisory"
+        status = _clean_text(output.get("status")).lower() or "advisory"
 
     return {
         "source": {
@@ -439,7 +440,6 @@ def build_step_handoff(
         "summary": summary,
         "blocking_items": blocking_items,
         "recommended_next_action": recommended_next_action,
-        "confidence": confidence,
         "artifact_refs": [
             artifact_ref(layout, layout.step_output_raw_path(iter_id, step_order, step["id"]), kind="step", label="output-raw"),
             artifact_ref(
@@ -625,7 +625,8 @@ def system_prompt_prefix(archetype: str) -> str:
             "System safety rules:\n"
             "- You are a low-permission supporting role.\n"
             "- Read the workspace and evidence, but do not claim write actions or final authority.\n"
-            "- Prefer concrete observations and next-step recommendations."
+            "- Prefer concrete observations and next-step recommendations.\n"
+            "- Always return a stable takeaway with status, summary, blocking_items, and recommended_next_action."
         )
     return (
         "System safety rules:\n"
@@ -642,11 +643,14 @@ def output_contract_prompt(archetype: str) -> str:
         return "Output contract: return JSON with execution_summary, check_results, dynamic_checks, and tester_observations."
     if archetype == "gatekeeper":
         return (
-            "Output contract: return JSON with passed, decision_summary, feedback_to_builder, confidence, blocking_issues, "
+            "Output contract: return JSON with passed, decision_summary, feedback_to_builder, blocking_issues, "
             "metrics, failed_check_ids, priority_failures, and composite_score."
         )
     if archetype == "custom":
-        return "Output contract: return JSON with summary, observations, recommendations, risks, and handoff_note."
+        return (
+            "Output contract: return JSON with status, summary, blocking_items, recommended_next_action, "
+            "observations, recommendations, risks, and handoff_note."
+        )
     return "Output contract: return JSON with created_at_iter, mode, consumed, analysis, seed_question, and meta_note."
 
 
@@ -700,8 +704,7 @@ def render_handoff_section(title: str, handoff: dict | None, *, empty_text: str)
         f"- Status: {handoff['status']}\n"
         f"- Summary: {handoff['summary']}\n"
         f"- Blocking items: {json.dumps(handoff['blocking_items'], ensure_ascii=False)}\n"
-        f"- Recommended next action: {handoff['recommended_next_action']}\n"
-        f"- Confidence: {handoff['confidence']}"
+        f"- Recommended next action: {handoff['recommended_next_action']}"
     )
 
 
@@ -743,7 +746,12 @@ def render_previous_iteration_summary(summary: dict | None) -> str:
 def render_artifact_refs(refs: list[dict]) -> str:
     lines = ["Artifact refs:"]
     for ref in refs:
-        lines.append(f"- {ref['label']}: {ref['relative_path']}")
+        workspace_path = str(ref.get("workspace_path") or ref.get("relative_path") or "").strip()
+        relative_path = str(ref.get("relative_path") or "").strip()
+        if relative_path and workspace_path and workspace_path != relative_path:
+            lines.append(f"- {ref['label']}: {workspace_path} (run-local: {relative_path})")
+        else:
+            lines.append(f"- {ref['label']}: {workspace_path or relative_path}")
     return "\n".join(lines)
 
 
@@ -755,13 +763,6 @@ def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
-
-
-def _confidence_value(value: object) -> str:
-    confidence = str(value or "medium").strip().lower()
-    if confidence not in {"low", "medium", "high"}:
-        return "medium"
-    return confidence
 
 
 def _inspector_blockers(output: dict) -> list[str]:

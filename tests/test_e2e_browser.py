@@ -152,7 +152,6 @@ class CalculatorPrototypeExecutor(FakeCodexExecutor):
                 "failed_check_ids": [],
                 "priority_failures": [],
                 "feedback_to_generator": "The prototype satisfies the requested calculator scope.",
-                "verifier_confidence": "high",
             }
 
         return super()._build_payload(request)

@@ -1,80 +1,43 @@
 <!doctype html>
-<html lang="zh-CN" data-locale="zh">
+<html
+  lang="{{ page_lang }}"
+  data-locale="{{ page_locale }}"
+  data-theme="light"
+>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Loopora · Auth required</title>
+  <title>Loopora · {{ "需要访问令牌" if page_locale == "zh" else "Auth token required" }}</title>
   <link rel="icon" href="/logo/logo.svg" sizes="any" type="image/svg+xml" />
   <link rel="shortcut icon" href="/logo/logo.svg" type="image/svg+xml" />
+  {% include "_display_preferences_bootstrap.html" %}
   <link rel="stylesheet" href="{{ static_asset_url('app.css') }}" />
-  <style>
-    .auth-shell {
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 24px;
-    }
-    .auth-card {
-      width: min(640px, 100%);
-      padding: 32px;
-      border-radius: 0;
-      border: 1px solid var(--line);
-      background: var(--panel);
-      box-shadow: var(--shadow-lg);
-      backdrop-filter: blur(16px);
-    }
-    .auth-card h1 {
-      margin: 0 0 16px;
-      font-size: 2rem;
-      line-height: 1.1;
-      letter-spacing: -0.03em;
-    }
-    .auth-card p {
-      margin: 0 0 10px;
-      line-height: 1.7;
-      color: var(--muted);
-    }
-    .auth-card code {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 0;
-      background: rgba(var(--glass-dark-rgb), 0.12);
-      color: var(--accent);
-      font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-      font-size: 0.86rem;
-    }
-    .auth-card-brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-    .auth-card-brand img {
-      height: 32px;
-      width: auto;
-    }
-    .auth-card-brand-line {
-      flex: 1;
-      height: 1px;
-      background: var(--line);
-    }
-    html[data-theme="dark"] .auth-logo {
-      content: url("/logo/logo-with-text-horizontal-light.svg");
-    }
-  </style>
 </head>
 <body>
   <div class="auth-shell">
-    <div class="auth-card">
+    <div class="auth-card" data-testid="auth-card">
       <div class="auth-card-brand">
-        <img class="auth-logo" src="/logo/logo-with-text-horizontal.svg" alt="Loopora" />
+        <img class="auth-logo" src="/logo/logo-with-text-horizontal.svg" alt="" aria-hidden="true" />
         <span class="auth-card-brand-line" />
       </div>
-      <h1>需要访问令牌 / Auth token required</h1>
-      <p>这个 Loopora 实例正在网络模式下运行，所以先带上令牌再进来比较稳妥。</p>
-      <p>This Loopora instance is exposed over the network, so it expects an auth token before letting requests through.</p>
-      <p>把令牌加到地址后面访问一次即可，例如：<code>{{ url_path }}?token=&lt;your-token&gt;</code></p>
-      <p>You can also send it as <code>Authorization: Bearer &lt;your-token&gt;</code> or <code>X-Loopora-Token</code>.</p>
+      <h1>
+        <span data-lang="zh">需要访问令牌</span>
+        <span data-lang="en">Auth token required</span>
+      </h1>
+      <div class="auth-copy-stack" data-testid="auth-copy-stack">
+        <p>
+          <span data-lang="zh">这个 Loopora 实例正在网络模式下运行，所以先带上令牌再进来比较稳妥。</span>
+          <span data-lang="en">This Loopora instance is exposed over the network, so it expects an auth token before letting requests through.</span>
+        </p>
+        <p>
+          <span data-lang="zh">把令牌加到地址后面访问一次即可，例如：<code>{{ url_path }}?token=&lt;your-token&gt;</code></span>
+          <span data-lang="en">Add the token to the URL once, for example: <code>{{ url_path }}?token=&lt;your-token&gt;</code></span>
+        </p>
+        <p>
+          <span data-lang="zh">你也可以通过请求头发送：<code>Authorization: Bearer &lt;your-token&gt;</code>、<code>X-Loopora-Token</code>，或兼容旧实例的 <code>X-Liminal-Token</code>。</span>
+          <span data-lang="en">You can also send it via headers: <code>Authorization: Bearer &lt;your-token&gt;</code>, <code>X-Loopora-Token</code>, or the legacy-compatible <code>X-Liminal-Token</code>.</span>
+        </p>
+      </div>
     </div>
   </div>
 </body>

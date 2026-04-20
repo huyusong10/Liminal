@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +20,59 @@ def pick_file(start_path: str | None = None) -> str | None:
 
 def pick_save_file(start_path: str | None = None, *, default_name: str = "spec.md") -> str | None:
     return _run_dialog("save", start_path=start_path, default_name=default_name)
+
+
+def reveal_path(path: str) -> str:
+    resolved = Path(path).expanduser().resolve()
+    if not resolved.exists():
+        raise SystemDialogError(f"path does not exist: {resolved}")
+
+    if sys.platform == "darwin":
+        target = _escape_applescript(str(resolved))
+        script = (
+            f'tell application "Finder"\n'
+            f'  open POSIX file "{target}"\n'
+            f'  activate\n'
+            f'end tell'
+        )
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            fallback = subprocess.run(
+                ["open", str(resolved)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if fallback.returncode != 0:
+                raise SystemDialogError(
+                    result.stderr.strip()
+                    or fallback.stderr.strip()
+                    or fallback.stdout.strip()
+                    or "failed to reveal path"
+                )
+        return str(resolved)
+
+    if sys.platform.startswith("win"):
+        try:
+            os.startfile(str(resolved))  # type: ignore[attr-defined]
+        except OSError as exc:
+            raise SystemDialogError(str(exc)) from exc
+        return str(resolved)
+
+    result = subprocess.run(
+        ["xdg-open", str(resolved)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemDialogError(result.stderr.strip() or result.stdout.strip() or "failed to reveal path")
+    return str(resolved)
 
 
 def _run_dialog(kind: str, *, start_path: str | None = None, default_name: str = "spec.md") -> str | None:

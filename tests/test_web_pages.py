@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -46,6 +47,10 @@ def test_index_page_renders_with_saved_loops(
     assert "loopora:locale" in response.text
     assert response.text.index("loopora:theme") < response.text.index("/static/app.css?v=")
     assert response.text.index("loopora:locale") < response.text.index("/static/app.css?v=")
+    assert '<title>Created loops</title>' in response.text
+    assert 'class="loop-card-link"' in response.text
+    assert 'tabindex="-1"' in response.text
+    assert 'aria-hidden="true"' in response.text
     assert "/static/app.css?v=" in response.text
     assert "/static/app.js?v=" in response.text
     _assert_has_testid(response.text, "top-nav")
@@ -61,12 +66,44 @@ def test_index_page_renders_with_saved_loops(
     _assert_has_testid(response.text, "theme-light-button")
     _assert_has_testid(response.text, "theme-dark-button")
     _assert_has_testid(response.text, "locale-switch")
+    assert 'aria-label="Loopora home"' in response.text
+    assert 'aria-label="Theme switch"' in response.text
+    assert 'aria-label="Light mode"' in response.text
+    assert 'aria-label="Dark mode"' in response.text
+    assert 'aria-label="Language switch"' in response.text
+    empty_state_markup = response.text.split('class="empty-state" id="loops-empty-state" hidden>', 1)[1].split("</div>", 1)[0]
+    assert 'class="empty-state-logo"' in empty_state_markup
+    assert 'alt=""' in empty_state_markup
+    assert 'aria-hidden="true"' in empty_state_markup
     assert "data-open-card=" in response.text
     assert "id=\"confirm-modal\"" in response.text
     assert "id=\"loops-empty-state\" hidden" in response.text
 
+    zh_response = client.get("/", headers={"accept-language": "zh-CN,zh;q=0.9"})
+    assert zh_response.status_code == 200
+    assert '<title>已创建的循环</title>' in zh_response.text
+    assert 'aria-label="Loopora 首页"' in zh_response.text
+    assert 'aria-label="主题切换"' in zh_response.text
+    assert 'aria-label="浅色模式"' in zh_response.text
+    assert 'aria-label="深色模式"' in zh_response.text
+    assert 'aria-label="语言切换"' in zh_response.text
 
-def test_run_detail_places_run_files_and_console_before_timeline(
+
+def test_index_page_shell_prefers_primary_request_locale_on_first_paint(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/", headers={"Accept-Language": "zh-CN;q=0.1,en-US;q=0.9"})
+
+    assert response.status_code == 200
+    assert re.search(r'<html\s+lang="en"\s+data-locale="en"\s+data-theme="light"\s*>', response.text)
+    assert "loopora:theme" in response.text
+    assert "loopora:locale" in response.text
+    assert response.text.index("loopora:theme") < response.text.index("/static/app.css?v=")
+    assert response.text.index("loopora:locale") < response.text.index("/static/app.css?v=")
+
+
+def test_run_detail_places_takeaways_and_console_before_timeline(
     service_factory,
     sample_spec_file: Path,
     sample_workdir: Path,
@@ -94,18 +131,24 @@ def test_run_detail_places_run_files_and_console_before_timeline(
     assert "Run Detail Loop" in response.text
     assert run["id"] in response.text
     assert "hero-run-detail" in response.text
-    assert response.text.index("Progress") < response.text.index("Console")
-    assert response.text.index("Console") < response.text.index("Run files")
+    assert response.text.index("Progress") < response.text.index("Key takeaways")
+    assert response.text.index("Key takeaways") < response.text.index("Console")
     assert response.text.index("Console") < response.text.index("Timeline")
     assert "stage-explainer" not in response.text
     assert "直播中" not in response.text
     assert "实时输出" in response.text
-    assert "Original spec" in response.text
+    assert "Original spec" not in response.text
     assert "progress-live-title" in response.text
-    assert "progress-runtime" in response.text
+    assert "progress-runtime" not in response.text
     assert "stage-chip-duration" in response.text
     assert response.text.index("stage-strip") < response.text.index("progress-live-title")
     assert "stage-loop-shell" in response.text
+    assert "stage-strip-terminal--entry" in response.text
+    assert "stage-strip-terminal--exit" in response.text
+    assert "stage-loop-connector--entry" in response.text
+    assert "stage-loop-connector--exit" in response.text
+    assert "stage-loop-arc--top" in response.text
+    assert "stage-loop-arc--bottom" in response.text
     assert "stage-chip--terminal" in response.text
     assert "stage-chip--workflow" in response.text
     assert "Workflow Loop" in response.text
@@ -114,12 +157,59 @@ def test_run_detail_places_run_files_and_console_before_timeline(
     assert "progress-track-shell" not in response.text
     assert "最近更新" not in response.text
     assert "还没冒出第一条具体输出" in response.text
+
+
+def test_run_detail_collapses_empty_workflow_lane(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Empty Workflow Run",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+
+    with service.repository.transaction() as connection:
+        connection.execute(
+            "UPDATE loop_runs SET workflow_json = ? WHERE id = ?",
+            (json.dumps({"roles": [], "steps": []}, ensure_ascii=False), run["id"]),
+        )
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/runs/{run['id']}")
+    stage_markup = response.text.split('<div class="stage-strip" id="stage-strip">', 1)[1].split(
+        '<article class="progress-live-card"',
+        1,
+    )[0]
+
+    assert response.status_code == 200
+    assert 'class="stage-loop-shell is-empty"' in stage_markup
+    assert '<strong class="stage-loop-title" id="stage-loop-title">No workflow steps yet</strong>' in stage_markup
+    assert "No workflow steps yet" in stage_markup
+    assert "only the entry and final state remain" in stage_markup
+    assert "stage-strip-terminal--entry" in stage_markup
+    assert "stage-strip-terminal--exit" in stage_markup
+    assert "stage-loop-empty" in stage_markup
+    assert 'data-stage-kind="workflow_step"' not in stage_markup
     assert "正在收集测试证据" in response.text
     assert "正在安装依赖" in response.text
     assert "正在启动本地服务" in response.text
     assert "正在准备浏览器环境" in response.text
     assert "console-popout-link" in response.text
     assert "全屏终端" in response.text
+    assert 'aria-label="Console controls"' in response.text
+    assert 'aria-label="Open fullscreen console"' in response.text
     assert "console-filters" in response.text
     assert "console-legend" not in response.text
     assert "console-expand-all" in response.text
@@ -129,6 +219,60 @@ def test_run_detail_places_run_files_and_console_before_timeline(
     assert '{key: "result", zh: "结果", en: "Result"}' in response.text
     assert '{key: "context", zh: "上下文", en: "Context"}' not in response.text
     assert '{key: "progress", zh: "进展", en: "Progress"}' not in response.text
+    assert "takeaway-iteration-select" in response.text
+    assert "takeaway-iteration-view" in response.text
+    assert "takeaway-iteration-list" not in response.text
+    assert "takeaway-open-build" in response.text
+    assert "takeaway-open-logs" in response.text
+    assert ".loopora" in response.text
+    assert "Run files" not in response.text
+    assert "置信度" not in response.text
+
+
+def test_run_detail_empty_workflow_lane_uses_request_locale_on_first_paint(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Localized Empty Workflow Run",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+
+    with service.repository.transaction() as connection:
+        connection.execute(
+            "UPDATE loop_runs SET workflow_json = ? WHERE id = ?",
+            (json.dumps({"roles": [], "steps": []}, ensure_ascii=False), run["id"]),
+        )
+
+    client = TestClient(build_app(service=service))
+    response = client.get(
+        f"/runs/{run['id']}",
+        headers={"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"},
+    )
+    stage_markup = response.text.split('<div class="stage-strip" id="stage-strip">', 1)[1].split(
+        '<article class="progress-live-card"',
+        1,
+    )[0]
+
+    assert response.status_code == 200
+    assert 'data-locale="zh"' in response.text
+    assert '<strong class="stage-loop-title" id="stage-loop-title">还没有 workflow steps</strong>' in stage_markup
+    assert "这次 run 没有冻结下中间编排步骤，所以这里只显示入口和最终状态。" in stage_markup
+    assert 'aria-label="控制台操作"' in response.text
+    assert 'aria-label="打开全屏终端"' in response.text
+    assert "No workflow steps yet" in stage_markup
 
 
 def test_run_detail_progress_stages_follow_workflow_snapshot(
@@ -194,14 +338,24 @@ def test_run_console_page_renders_fullscreen_console_view(
     run = service.rerun(loop["id"])
 
     client = TestClient(build_app(service=service))
-    response = client.get(f"/runs/{run['id']}/console")
+    response = client.get(
+        f"/runs/{run['id']}/console",
+        headers={"Accept-Language": "zh-CN;q=0.1,en-US;q=0.9"},
+    )
 
     assert response.status_code == 200
+    assert re.search(r'<html\s+lang="en"\s+data-locale="en"\s+data-theme="light"\s*>', response.text)
+    assert "loopora:theme" in response.text
+    assert "loopora:locale" in response.text
+    assert response.text.index("loopora:theme") < response.text.index("/static/app.css?v=")
+    assert response.text.index("loopora:locale") < response.text.index("/static/app.css?v=")
     assert "console-focus-shell" in response.text
     assert "console-shell-immersive" in response.text
     assert "console-focus-output" in response.text
     assert "console-focus-topbar" in response.text
     assert "console-focus-back" in response.text
+    assert "Fullscreen Console Loop · Console" in response.text
+    assert "Back to run" in response.text
     assert "返回运行详情" in response.text
     assert "console-focus-filters" not in response.text
     assert "console-focus-expand-all" not in response.text
@@ -250,11 +404,26 @@ def test_loop_detail_uses_summary_cards_for_latest_run(
     response = client.get(f"/loops/{loop['id']}")
 
     assert response.status_code == 200
+    _assert_has_testid(response.text, "loop-detail-config-panel")
+    _assert_has_testid(response.text, "loop-detail-spec-panel")
+    _assert_has_testid(response.text, "loop-detail-history-panel")
+    _assert_has_testid(response.text, "loop-detail-summary-panel")
     assert "Original spec" in response.text
     assert "Ship the requested behavior." in response.text
+    assert response.text.index("Configuration") < response.text.index("Original spec")
+    assert response.text.index("Original spec") < response.text.index("Run history")
+    assert response.text.index("Run history") < response.text.index("Latest summary")
     assert "summary-grid" in response.text
     assert "summary-card-status summary-card-status-" in response.text
     assert "hero-inline-meta" in response.text
+    assert "loop-detail-copy" in response.text
+    assert "loop-detail-spec-shell" in response.text
+    assert "loop-detail-spec-path" in response.text
+    assert "loop-detail-spec-preview" in response.text
+    assert "loop-detail-history-meta" in response.text
+    assert "loop-detail-history-time" in response.text
+    assert "artifact-copy" not in response.text
+    assert "artifact-preview-shell" not in response.text
     assert "一句话摘要" in response.text
     assert "Latest verdict" in response.text
 
@@ -296,6 +465,7 @@ def test_tools_page_renders_skill_install_cards(service_factory) -> None:
     response = client.get("/tools")
 
     assert response.status_code == 200
+    assert '<title>Tools</title>' in response.text
     assert "Spec skill install" in response.text
     assert "/static/pages/tools.js?v=" in response.text
     assert "data-install-skill=\"codex\"" in response.text
@@ -305,9 +475,15 @@ def test_tools_page_renders_skill_install_cards(service_factory) -> None:
     assert "wake-lock-toggle" in response.text
     assert "Prevent sleep while running" in response.text
     assert "help-dot--tips" in response.text
+    assert 'aria-label="Show tip: The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock."' in response.text
     assert ">i</button>" in response.text
     assert "/api/skills/loopora-spec/download" in response.text
     assert "下载 Skill 包" in response.text
+
+    zh_response = client.get("/tools", headers={"accept-language": "zh-CN,zh;q=0.9"})
+    assert zh_response.status_code == 200
+    assert '<title>工具</title>' in zh_response.text
+    assert 'aria-label="查看提示：只会在检测到有 run 正在执行时请求浏览器保持屏幕唤醒，没有运行中的任务会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收 wake lock，页面也会在重新可见后自动重试。"' in zh_response.text
 
 
 def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
@@ -338,6 +514,13 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "Role runtime reminder" not in response.text
     assert "Spec reminder" not in response.text
     assert "Extra tools" not in response.text
+    assert 'class="panel-header workflow-editor-header"' in response.text
+    assert 'class="card-actions card-actions-compact"' in response.text
+    assert '<title>Create Loop</title>' in response.text
+    assert 'data-label-zh="守门裁决"' in response.text
+    assert '>GateKeeper</option>' in response.text
+    assert '>Rounds</option>' in response.text
+    assert 'aria-label="Show tip:' in response.text
     _assert_has_testid(response.text, "loop-orchestration-panel-tip")
     _assert_has_testid(response.text, "loop-completion-mode-tip")
     _assert_has_testid(response.text, "loop-trigger-window-tip")
@@ -345,6 +528,16 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "workflow-json-input" not in response.text
     assert "角色定义" in response.text
     _assert_has_testid(response.text, "nav-tutorial-link")
+
+    zh_response = client.get("/loops/new", headers={"accept-language": "zh-CN,zh;q=0.9"})
+    assert zh_response.status_code == 200
+    assert '<title>创建循环</title>' in zh_response.text
+    assert 'aria-label="查看提示：' in zh_response.text
+    zh_completion_mode = zh_response.text.split('id="completion-mode-input"', 1)[1].split("</select>", 1)[0]
+    assert ">守门裁决</option>" in zh_completion_mode
+    assert ">轮次推进</option>" in zh_completion_mode
+    assert ">GateKeeper</option>" not in zh_completion_mode
+    assert ">Rounds</option>" not in zh_completion_mode
 
 
 def test_new_loop_page_surfaces_recent_workdirs_and_browser_draft_controls(
@@ -486,6 +679,7 @@ def test_deleting_loop_refreshes_recent_workdir_suggestions(
 
 def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> None:
     service = service_factory(scenario="success")
+    service.create_orchestration(name="Release Flow", workflow={"preset": "inspect_first"})
 
     client = TestClient(build_app(service=service))
     list_response = client.get("/orchestrations")
@@ -497,6 +691,7 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     _assert_has_testid(list_response.text, "builtin-orchestrations-list")
     _assert_has_testid(list_response.text, "builtin-orchestrations-tip")
     _assert_has_testid(list_response.text, "builtin-orchestration-scenario")
+    assert '<title>Orchestrations</title>' in list_response.text
     assert "Orchestrations" in list_response.text
     assert 'data-open-card="/orchestrations/builtin:build_first/edit"' in list_response.text
     assert "Create loop" not in list_response.text
@@ -506,8 +701,13 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     assert "/static/pages/orchestrations.js?v=" in list_response.text
     assert "点进去可以查看结构，并从这个预设派生一个新的自定义编排。" not in list_response.text
     assert "适用场景" in list_response.text
+    assert 'class="loop-card-link"' in list_response.text
+    assert 'class="card-actions card-actions-compact"' in list_response.text
+    assert 'tabindex="-1"' in list_response.text
+    assert 'aria-hidden="true"' in list_response.text
     assert 'data-testid="builtin-orchestrations-tip"' in list_response.text
     assert list_response.text.count('data-testid="builtin-orchestrations-tip"') == 1
+    assert 'aria-label="Show tip: Built-in starters are read-only.' in list_response.text
     custom_section = re.search(
         r'<section class="panel" data-testid="custom-orchestrations-list">(.*?)</section>',
         list_response.text,
@@ -516,6 +716,11 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     assert custom_section is not None
     assert "loop-card-glance--scenario" not in custom_section.group(1)
     assert "适用场景" not in custom_section.group(1)
+
+    zh_list_response = client.get("/orchestrations", headers={"accept-language": "zh-CN,zh;q=0.9"})
+    assert zh_list_response.status_code == 200
+    assert '<title>流程编排</title>' in zh_list_response.text
+    assert 'aria-label="查看提示：内置预设本身是只读的；打开后可以查看结构，并从这个默认流程派生一个新的自定义编排。"' in zh_list_response.text
 
     new_response = client.get("/orchestrations/new")
     assert new_response.status_code == 200
@@ -537,6 +742,10 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     _assert_has_testid(new_response.text, "workflow-settings-role-name")
     _assert_has_testid(new_response.text, "workflow-settings-step-inherit-session")
     _assert_has_testid(new_response.text, "workflow-settings-step-extra-cli-args")
+    assert 'class="panel-header workflow-editor-header workflow-editor-header-tight"' in new_response.text
+    assert 'class="workflow-editor-section workflow-map-panel"' in new_response.text
+    assert 'class="workflow-editor-section workflow-steps-panel"' in new_response.text
+    assert 'class="workflow-toolbar workflow-toolbar-compact"' in new_response.text
     assert 'data-role-field=' not in new_response.text
     assert 'data-testid="workflow-settings-step-enabled"' not in new_response.text
     assert 'data-testid="workflow-role-inspector-panel"' not in new_response.text
@@ -545,6 +754,24 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     assert 'data-testid="workflow-roles-list"' not in new_response.text
     assert 'option value="build_first" selected' not in new_response.text
     assert "role-definitions-json" in new_response.text
+    assert '<title>Save orchestration</title>' in new_response.text
+    assert 'data-label-zh="空白开始"' in new_response.text
+    assert "空白开始 / Start blank" not in new_response.text
+
+    zh_new_response = client.get("/orchestrations/new", headers={"accept-language": "zh-CN,zh;q=0.9"})
+    assert zh_new_response.status_code == 200
+    assert '<title>保存编排</title>' in zh_new_response.text
+    assert 'data-label-zh="空白开始"' in zh_new_response.text
+    assert ">空白开始</option>" in zh_new_response.text
+    assert 'data-label-zh="先构建，再验收"' in zh_new_response.text
+    assert "先构建，再验收" in zh_new_response.text
+    assert "空白开始 / Start blank" not in zh_new_response.text
+    assert "先构建，再验收 / Build First" not in zh_new_response.text
+    zh_on_pass_markup = zh_new_response.text.split('id="workflow-settings-step-on-pass"', 1)[1].split("</select>", 1)[0]
+    assert ">继续后续步骤</option>" in zh_on_pass_markup
+    assert ">通过后结束流程</option>" in zh_on_pass_markup
+    assert ">Continue</option>" not in zh_on_pass_markup
+    assert ">Finish run</option>" not in zh_on_pass_markup
 
     builtin_edit_response = client.get("/orchestrations/builtin:build_first/edit")
     assert builtin_edit_response.status_code == 200
@@ -593,6 +820,7 @@ Focus on scoped release work.
     _assert_has_testid(list_response.text, "builtin-role-templates-list")
     _assert_has_testid(list_response.text, "builtin-role-templates-tip")
     _assert_has_testid(list_response.text, "gatekeeper-role-tip")
+    assert '<title>Role Definitions</title>' in list_response.text
     assert "Role Definitions" in list_response.text
     assert "Release Builder" in list_response.text
     assert "/roles/new" in list_response.text
@@ -603,10 +831,22 @@ Focus on scoped release work.
     assert "Built-in template · builder" not in list_response.text
     assert 'class="page-stack page-stack--catalog"' in list_response.text
     assert 'class="loop-grid role-card-grid role-card-grid--definitions"' in list_response.text
+    assert 'class="loop-card-link"' in list_response.text
+    assert 'class="card-actions card-actions-compact"' in list_response.text
+    assert 'tabindex="-1"' in list_response.text
+    assert 'aria-hidden="true"' in list_response.text
     assert "点进去会以这个模板为基础，派生一个新的团队角色版本。" not in list_response.text
     assert list_response.text.count('data-testid="builtin-role-templates-tip"') == 1
     assert list_response.text.count('data-testid="gatekeeper-role-tip"') == 1
+    assert 'aria-label="Show tip: Built-in templates are read-only.' in list_response.text
+    assert 'aria-label="Show tip:' in list_response.text
     assert "GateKeeper uses that evidence to make the final pass/fail call" in list_response.text
+
+    zh_list_response = client.get("/roles", headers={"accept-language": "zh-CN,zh;q=0.9"})
+    assert zh_list_response.status_code == 200
+    assert '<title>角色定义</title>' in zh_list_response.text
+    assert 'aria-label="查看提示：内置模板本身是只读的；打开后会以它为基础派生一个新的团队角色版本，而不是直接修改默认模板。"' in zh_list_response.text
+    assert 'aria-label="查看提示：' in zh_list_response.text
 
     new_response = client.get("/roles/new")
     assert new_response.status_code == 200
@@ -625,15 +865,24 @@ Focus on scoped release work.
     _assert_has_testid(new_response.text, "role-definition-prompt-markdown-input")
     _assert_has_testid(new_response.text, "role-definition-archetype-guide")
     _assert_has_testid(new_response.text, "save-role-definition-button")
+    assert 'class="panel-header workflow-editor-header role-execution-header"' in new_response.text
+    assert 'class="executor-config-grid"' in new_response.text
     assert "Final command preview" in new_response.text
     assert "Custom Command" in new_response.text
     assert "Prompt file name" not in new_response.text
     assert "巡检者 / Inspector" not in new_response.text
     assert "Pushes the implementation forward" in new_response.text
     assert "Use it where the workflow needs actual workspace edits" in new_response.text
+    assert '<title>Save role</title>' in new_response.text
+    assert 'aria-label="Execution mode switch"' in new_response.text
+    assert 'id="role-definition-archetype-summary">' in new_response.text
+    assert '<span data-lang="zh">直接推进实现，适合把 spec 和 handoff 落成真实代码与文件改动。</span>' in new_response.text
+    assert '<span data-lang="en">Pushes the implementation forward and turns specs plus handoffs into real code changes.</span>' in new_response.text
 
     zh_response = client.get("/roles/new", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
+    assert '<title>保存角色</title>' in zh_response.text
+    assert 'aria-label="执行模式切换"' in zh_response.text
     assert "直接推进实现" in zh_response.text
     assert "你是 Loopora 内部的 Builder" in zh_response.text
 
@@ -649,6 +898,34 @@ Focus on scoped release work.
     assert "Save changes" in custom_edit_response.text
 
 
+def test_role_definition_editor_script_localizes_archetype_labels_and_guide(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/static/pages/new_role_definition.js")
+
+    assert response.status_code == 200
+    assert 'const locale = window.LooporaUI.currentLocale();' in response.text
+    assert 'const label = locale === "zh" ? option.dataset.labelZh : option.dataset.labelEn;' in response.text
+    assert 'option.textContent = label || option.dataset.labelEn || option.dataset.labelZh || option.textContent || "";' in response.text
+    assert 'setBilingualHtml(archetypeSummary, option.dataset.summaryZh || "", option.dataset.summaryEn || "");' in response.text
+    assert 'setBilingualHtml(archetypeRecommendation, option.dataset.recommendationZh || "", option.dataset.recommendationEn || "");' in response.text
+    assert 'setBilingualHtml(archetypeWarning, option.dataset.warningZh || "", option.dataset.warningEn || "");' in response.text
+
+
+def test_workflow_diagram_script_localizes_step_assistive_labels(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/static/pages/workflow_diagram.js")
+
+    assert response.status_code == 200
+    assert 'function stepAriaLabel(step) {' in response.text
+    assert 'return localeText(`第 ${step.order} 步：${step.label}`, `Step ${step.order}: ${step.label}`);' in response.text
+    assert 'aria-label="${escapeHtml(stepAriaLabel(step))}"' in response.text
+    assert 'aria-label="${escapeHtml(localeText("循环流程图", "Loop workflow diagram"))}"' in response.text
+
+
 def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -> None:
     service = service_factory(scenario="success")
 
@@ -656,17 +933,37 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     response = client.get("/tutorial")
 
     assert response.status_code == 200
+    assert '<title>Tutorial</title>' in response.text
     _assert_has_testid(response.text, "tutorial-page")
+    assert 'class="page-stack tutorial-page-stack"' in response.text
     _assert_has_testid(response.text, "nav-tutorial-link")
+    _assert_has_testid(response.text, "tutorial-guide-panel")
+    _assert_has_testid(response.text, "tutorial-guide-roles")
+    _assert_has_testid(response.text, "tutorial-guide-orchestrations")
+    _assert_has_testid(response.text, "tutorial-guide-loops")
+    _assert_has_testid(response.text, "tutorial-step-roles")
+    _assert_has_testid(response.text, "tutorial-step-orchestrations")
+    _assert_has_testid(response.text, "tutorial-step-loops")
     _assert_has_testid(response.text, "tutorial-context-flow-panel")
+    assert 'href="#tutorial-step-roles"' in response.text
+    assert 'href="#tutorial-step-orchestrations"' in response.text
+    assert 'href="#tutorial-step-loops"' in response.text
     assert "角色定义" in response.text
     assert "流程编排" in response.text
     assert "创建循环" in response.text
+    assert "先判断这次改动属于哪一层" in response.text
+    assert "改 prompt / 工具 / 默认模型" in response.text
+    assert "改顺序 / 开关步骤 / 收束逻辑" in response.text
+    assert "换项目 / spec / 轮次策略" in response.text
     assert "上下文如何在流程里流转" in response.text
     assert "How context moves through a workflow" in response.text
     assert "contract/run_contract.json" in response.text
     assert "iterations/iter_000/steps/00__builder/input.context.json" in response.text
     assert "context/latest_iteration_summary.json" in response.text
+
+    zh_response = client.get("/tutorial", headers={"accept-language": "zh-CN,zh;q=0.9"})
+    assert zh_response.status_code == 200
+    assert '<title>使用教程</title>' in zh_response.text
 
 
 def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -> None:
@@ -707,10 +1004,25 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".skill-download-card {" in css
     assert ".workflow-loop-map {" in css
     assert ".workflow-loop-segment {" in css
+    assert ".workflow-map-panel {" in css
     assert "--workflow-loop-stroke:" in css
     assert "--card-scenario-bg:" in css
     assert "--run-progress-shell-bg:" in css
     assert "--run-progress-live-bg:" in css
+    assert ".stacked-copy {" in css
+    assert ".loop-card-meta {" in css
+    assert ".loop-card-link {" in css
+    assert ".loop-detail-copy {" in css
+    assert ".loop-detail-spec-shell {" in css
+    assert ".loop-detail-spec-toolbar {" in css
+    assert ".loop-detail-spec-path {" in css
+    assert ".loop-detail-spec-preview {" in css
+    assert ".loop-detail-history-time {" in css
+    assert ".tutorial-guide-grid {" in css
+    assert ".tutorial-page-stack {" in css
+    assert ".tutorial-guide-card {" in css
+    assert ".tutorial-step-title {" in css
+    assert ".tutorial-step-checklist {" in css
     assert ".tutorial-context-grid {" in css
     assert ".tutorial-context-detail-grid {" in css
     assert ".nav-preferences-panel {" in css
@@ -721,23 +1033,54 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".role-card-grid--orchestrations {" in css
     assert ".role-card-grid--orchestrations-custom {" in css
     assert ".role-card-grid > .loop-card {" in css
+    assert ".card-actions-compact {" in css
     assert ".loop-grid--created {" in css
     assert ".loop-card-glance--scenario {" in css
-    assert ".artifact-tab-top {" in css
-    assert ".artifact-tab-meta {" in css
-    assert ".artifact-preview-box {" in css
+    assert ".takeaway-shortcuts {" in css
+    assert ".takeaway-selector-row {" in css
+    assert ".takeaway-iteration-select {" in css
+    assert ".takeaway-iteration-view {" in css
+    assert ".takeaway-role-grid {" in css
+    assert ".takeaway-role-card {" in css
+    assert ".takeaway-role-body {" in css
+    assert ".takeaway-status-pill--passed {" in css
     assert ".console-filter-chip input {" in css
     assert ".timeline-event-heading {" in css
     assert ".timeline-event-main {" in css
     assert ".timeline-event-timebox {" in css
+    assert ".stage-strip-terminal--entry {" in css
+    assert ".stage-strip-terminal--exit {" in css
+    assert ".stage-loop-arc {" in css
+    assert ".stage-loop-arc--top {" in css
+    assert ".stage-loop-arc--bottom {" in css
     assert re.search(r"\.role-card-grid--orchestrations\s*{[\s\S]*?justify-items:\s*start;", css)
     assert re.search(r"\.role-card-grid--orchestrations-custom\s*{[\s\S]*?grid-template-columns:\s*repeat\(", css)
     assert re.search(r"\.loop-card\s*{[\s\S]*?overflow:\s*visible;", css)
     assert re.search(r"\.loop-card--running\s*{[\s\S]*?overflow:\s*hidden;", css)
+    assert re.search(r"\.loop-card-link\s*{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;", css)
+    assert re.search(r"\.card-actions-compact\s*{[\s\S]*?width:\s*100%;[\s\S]*?justify-content:\s*flex-start;", css)
     assert re.search(r"\.loop-grid--created\s*{[\s\S]*?--loop-card-target:\s*430px;", css)
+    assert re.search(r"\.stacked-copy\s*{[\s\S]*?display:\s*grid;[\s\S]*?gap:\s*14px;", css)
+    assert re.search(r"\.loop-detail-spec-path\s*{[\s\S]*?white-space:\s*nowrap;[\s\S]*?overflow:\s*auto;", css)
+    assert re.search(r"\.loop-detail-spec-preview\s*{[\s\S]*?min-height:\s*220px;[\s\S]*?max-height:\s*420px;", css)
+    assert re.search(r"\.run-history-item:hover\s*{[\s\S]*?transform:\s*translateY\(-2px\);", css)
+    assert re.search(r"\.tutorial-guide-grid\s*{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(230px,\s*1fr\)\);", css)
+    assert re.search(r"\.tutorial-page-stack\s*{[\s\S]*?--tutorial-page-max:\s*1360px;[\s\S]*?width:\s*min\(var\(--tutorial-page-max\),\s*100%\);", css)
+    assert re.search(r"\.tutorial-step-checklist\s*{[\s\S]*?padding-left:\s*20px;", css)
     assert re.search(r"\.workflow-loop-node-label\s*{[\s\S]*?fill:\s*var\(--workflow-loop-label\);", css)
+    assert re.search(r"\.workflow-map-panel\s*{[\s\S]*?grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\);", css)
+    assert re.search(r"\.workflow-editor-header\s*{[\s\S]*?align-items:\s*start;[\s\S]*?border-bottom:\s*1px solid", css)
+    assert re.search(r"\.workflow-editor-header \.card-actions-compact\s*{[\s\S]*?margin-top:\s*0;[\s\S]*?justify-content:\s*flex-end;", css)
+    assert re.search(r"\.workflow-steps-panel\s*{[\s\S]*?grid-template-rows:\s*auto\s+auto\s+minmax\(0,\s*1fr\);", css)
     assert re.search(r"\.loop-card-glance--scenario\s*{[\s\S]*?background:\s*var\(--card-scenario-bg\);", css)
     assert re.search(r"\.stage-loop-shell\s*{[\s\S]*?background:\s*var\(--run-progress-shell-bg\);", css)
+    assert re.search(r"\.stage-strip-terminal--entry\s*{[\s\S]*?justify-content:\s*flex-end;", css)
+    assert re.search(r"\.stage-strip-terminal--exit\s*{[\s\S]*?justify-content:\s*flex-start;", css)
+    assert re.search(r"\.stage-loop-arcs\s*{[\s\S]*?position:\s*absolute;[\s\S]*?display:\s*block;", css)
+    assert re.search(r"\.stage-loop-arc--top\s*{[\s\S]*?border-top:\s*1px solid var\(--run-progress-lane-line\);", css)
+    assert re.search(r"\.stage-loop-arc--bottom\s*{[\s\S]*?border-bottom:\s*1px solid var\(--run-progress-lane-line\);", css)
+    assert re.search(r"\.stage-loop-shell\.is-empty \.stage-loop-connector,\s*\.stage-loop-shell\.is-empty \.stage-loop-arcs\s*{[\s\S]*?display:\s*none;", css)
+    assert re.search(r"\.stage-loop-shell\.is-empty \.stage-loop-track::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::after\s*{[\s\S]*?display:\s*none;", css)
     assert re.search(r"\.stage-chip--terminal\s*{[\s\S]*?background:\s*var\(--run-progress-chip-terminal-bg\);", css)
     assert re.search(r"\.highlight-card\s*{[\s\S]*?background:\s*var\(--run-progress-highlight-bg\);", css)
     assert ".console-filter-chip.is-active.console-filter-chip--actions {" in css
@@ -745,8 +1088,16 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert "[data-theme=\"dark\"] .console-filter-chip.is-active.console-filter-chip--result {" in css
     assert "[data-theme=\"dark\"] .progress-live-card--danger {" in css
     assert "[data-theme=\"dark\"] .stage-chip.failed {" in css
-    assert re.search(r"\.artifact-tabs\s*{[\s\S]*?display:\s*flex;[\s\S]*?overflow-x:\s*auto;", css)
-    assert re.search(r"\.artifact-preview-box\s*{[\s\S]*?height:\s*360px;[\s\S]*?max-height:\s*360px;", css)
+    assert re.search(r"\.takeaway-shortcuts\s*{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto;", css)
+    assert re.search(r"\.takeaway-iteration-select\s*{[\s\S]*?width:\s*min\(100%,\s*360px\);", css)
+    assert re.search(r"\.takeaway-role-grid\s*{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(230px,\s*1fr\)\);", css)
+    assert re.search(r"\.takeaway-role-body\s*{[\s\S]*?max-height:\s*180px;[\s\S]*?overflow:\s*auto;", css)
+    assert "[data-theme=\"dark\"] .takeaway-iteration-select {" in css
+    assert "[data-theme=\"dark\"] .takeaway-role-card {" in css
+    assert "[data-theme=\"dark\"] .loop-detail-spec-shell {" in css
+    assert "[data-theme=\"dark\"] .loop-detail-spec-path {" in css
+    assert "[data-theme=\"dark\"] .tutorial-guide-card {" in css
+    assert "[data-theme=\"dark\"] .tutorial-step-index {" in css
     assert re.search(r"\.console-filter-chip input\s*{[\s\S]*?width:\s*16px;[\s\S]*?padding:\s*0;", css)
     assert re.search(r"\.console-line-summary\s*{[\s\S]*?white-space:\s*nowrap;[\s\S]*?text-overflow:\s*ellipsis;", css)
     assert re.search(r"\.console-line-body\s*{[\s\S]*?max-height:\s*240px;[\s\S]*?overflow:\s*auto;", css)
@@ -758,7 +1109,9 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert "@keyframes loopTraceIn {" in css
     assert ".workflow-toolbar {" in css
     assert ".workflow-toolbar-compact {" in css
+    assert ".workflow-editor-header {" in css
     assert ".workflow-editor-section {" in css
+    assert ".workflow-steps-panel {" in css
     assert ".workflow-empty-state {" in css
     assert ".workflow-step-row {" in css
     assert ".workflow-settings-dialog {" in css
@@ -772,6 +1125,9 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert re.search(r"@media \(max-width: 1360px\)\s*{[\s\S]*?\.top-nav\s*{[\s\S]*?flex-wrap:\s*wrap;", css)
     assert re.search(r"@media \(max-width: 1360px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);", css)
     assert re.search(r"@media \(max-width: 860px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);", css)
+    assert re.search(r"@media \(min-width: 1440px\)\s*{[\s\S]*?\.tutorial-page-stack\s*{[\s\S]*?--tutorial-page-max:\s*1480px;", css)
+    assert re.search(r"@media \(min-width: 1920px\)\s*{[\s\S]*?\.tutorial-page-stack\s*{[\s\S]*?--tutorial-page-max:\s*1600px;", css)
+    assert re.search(r"@media \(max-width: 720px\)\s*{[\s\S]*?\.workflow-editor-header \.card-actions-compact\s*{[\s\S]*?width:\s*100%;", css)
     assert re.search(r"@media \(max-width: 640px\)\s*{[\s\S]*?\.card-actions--loop,\s*\.card-actions--loop-compact\s*{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);", css)
     assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.form-grid,[\s\S]*?\.executor-config-grid,[\s\S]*?grid-template-columns:\s*1fr;", css)
 

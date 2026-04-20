@@ -165,6 +165,10 @@
     return delta < 0 ? {anchor: "end", dx: -24} : {anchor: "start", dx: 24};
   }
 
+  function stepAriaLabel(step) {
+    return localeText(`第 ${step.order} 步：${step.label}`, `Step ${step.order}: ${step.label}`);
+  }
+
   function render(workflow, options = {}) {
     const variant = options.variant || "card";
     const {steps, settings, cx, cy} = buildNodes(workflow, variant);
@@ -181,7 +185,7 @@
     const singleLoopPath = steps.length === 1 ? buildSingleLoop(steps[0], settings) : "";
     const segments = steps.length === 1 ? [] : buildSegments(steps, cx, cy, settings);
     const legend = steps.map((step) => `
-      <li class="workflow-loop-pill${step.finishGate ? " is-finish" : ""}" data-role-id="${escapeHtml(step.roleId)}" tabindex="0" aria-label="${escapeHtml(step.label)}">
+      <li class="workflow-loop-pill${step.finishGate ? " is-finish" : ""}" data-role-id="${escapeHtml(step.roleId)}" tabindex="0" aria-label="${escapeHtml(stepAriaLabel(step))}">
         <span class="workflow-loop-pill-order" style="--workflow-loop-accent:${roleColor(step.archetype)}">${step.order}</span>
         <span>${escapeHtml(step.label)}</span>
       </li>
@@ -189,7 +193,7 @@
     const nodes = steps.map((step) => {
       const anchor = labelAnchor(step, cx);
       return `
-        <g class="workflow-loop-node${step.finishGate ? " is-finish" : ""}" data-role-id="${escapeHtml(step.roleId)}" tabindex="0" focusable="true" role="button" aria-label="${escapeHtml(step.label)}">
+        <g class="workflow-loop-node${step.finishGate ? " is-finish" : ""}" data-role-id="${escapeHtml(step.roleId)}" tabindex="0" focusable="true" role="button" aria-label="${escapeHtml(stepAriaLabel(step))}">
           <circle cx="${step.x.toFixed(1)}" cy="${step.y.toFixed(1)}" r="${settings.nodeRadius}" fill="${roleColor(step.archetype)}"></circle>
           <text x="${step.x.toFixed(1)}" y="${(step.y + 1).toFixed(1)}" class="workflow-loop-node-order">${step.order}</text>
           <text x="${(step.x + anchor.dx).toFixed(1)}" y="${(step.y + settings.nodeRadius + 22).toFixed(1)}" class="workflow-loop-node-label" text-anchor="${anchor.anchor}">${escapeHtml(step.shortLabel)}</text>

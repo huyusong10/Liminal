@@ -26,7 +26,7 @@
   </form>
 </section>
 
-<section class="panel">
+<section class="panel" data-testid="loop-detail-config-panel">
   <header class="panel-header">
     <h2><span data-lang="zh">配置</span><span data-lang="en">Configuration</span></h2>
   </header>
@@ -42,28 +42,29 @@
   </dl>
 </section>
 
-<section class="panel">
+<section class="panel" data-testid="loop-detail-spec-panel">
   <header class="panel-header">
     <div>
       <h2><span data-lang="zh">原始 Spec</span><span data-lang="en">Original spec</span></h2>
-      <p class="artifact-copy">
+      <p class="loop-detail-copy">
         <span data-lang="zh">这里展示 loop 最初保存下来的 spec 定义，方便随时回看目标、Checks 和 Constraints。</span>
         <span data-lang="en">This shows the original spec saved with the loop so you can revisit the Goal, Checks, and Constraints at any time.</span>
       </p>
     </div>
   </header>
-  <div class="artifact-preview-shell loop-spec-shell">
-    <div class="preview-toolbar artifact-toolbar">
-      <span>{{ loop.spec_path }}</span>
+  <div class="loop-detail-spec-shell">
+    <div class="preview-toolbar loop-detail-spec-toolbar">
+      <span class="loop-detail-spec-label"><span data-lang="zh">已保存路径</span><span data-lang="en">Saved path</span></span>
+      <code class="loop-detail-spec-path">{{ loop.spec_path }}</code>
     </div>
-    <pre class="preview-box loop-spec-preview">{{ loop.spec_markdown }}</pre>
+    <pre class="preview-box loop-detail-spec-preview">{{ loop.spec_markdown }}</pre>
   </div>
 </section>
 
-<section class="panel">
+<section class="panel" data-testid="loop-detail-history-panel">
   <header class="panel-header">
     <h2><span data-lang="zh">运行历史</span><span data-lang="en">Run history</span></h2>
-    <span>{{ loop.runs|length }} <span data-lang="zh">条</span><span data-lang="en">stored</span></span>
+    <span class="loop-detail-history-meta">{{ loop.runs|length }} <span data-lang="zh">条</span><span data-lang="en">stored</span></span>
   </header>
   {% if loop.runs %}
     <div class="timeline">
@@ -73,7 +74,7 @@
           <strong>{{ run_item.id }}</strong>
           <p><span data-status-label="{{ run_item.status }}"></span> · <span data-lang="zh">迭代</span><span data-lang="en">iter</span> {{ run_item.display_iter }}</p>
         </div>
-        <span>{{ run_item.updated_at }}</span>
+        <span class="loop-detail-history-time">{{ run_item.updated_at }}</span>
       </a>
       {% endfor %}
     </div>
@@ -82,11 +83,11 @@
       <h3><span data-lang="zh">还没有运行</span><span data-lang="en">No runs yet</span></h3>
       <p><span data-lang="zh">开始第一次运行后，这里会显示时间线。</span><span data-lang="en">Start the first run to populate the timeline.</span></p>
     </div>
-  {% endif %}
+{% endif %}
 </section>
 
 {% if latest_run %}
-<section class="panel">
+<section class="panel" data-testid="loop-detail-summary-panel">
   <header class="panel-header">
     <h2><span data-lang="zh">最近摘要</span><span data-lang="en">Latest summary</span></h2>
     <a class="ghost-button" href="/runs/{{ latest_run.id }}">

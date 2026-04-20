@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Loopora Created{% endblock %}
+{% block title %}{{ '已创建的循环' if page_locale == 'zh' else 'Created loops' }}{% endblock %}
 {% block content %}
 <div class="page-stack">
   <section class="hero hero-tight">
@@ -35,6 +35,7 @@
           data-open-card="{{ loop_item.card_href }}"
           tabindex="0"
         >
+          <a class="loop-card-link" href="{{ loop_item.card_href }}" tabindex="-1" aria-hidden="true"></a>
           <div class="loop-card-head">
             <div class="loop-card-copy">
               <h3>{{ loop_item.name }}</h3>
@@ -99,7 +100,7 @@
         <span data-lang="en">Click the body of a card to jump to the latest run. If the loop has no run yet, it opens the loop details instead.</span>
       </p>
       <div class="empty-state" id="loops-empty-state" hidden>
-        <img class="empty-state-logo" src="/logo/logo.svg" alt="Loopora logo" />
+        <img class="empty-state-logo" src="/logo/logo.svg" alt="" aria-hidden="true" />
         <h3>
           <span data-lang="zh">还没有 loop</span>
           <span data-lang="en">No loops yet</span>
@@ -116,7 +117,7 @@
         <span data-lang="en">Click the body of a card to jump to the latest run. If the loop has no run yet, it opens the loop details instead.</span>
       </p>
       <div class="empty-state" id="loops-empty-state">
-        <img class="empty-state-logo" src="/logo/logo.svg" alt="Loopora logo" />
+        <img class="empty-state-logo" src="/logo/logo.svg" alt="" aria-hidden="true" />
         <h3>
           <span data-lang="zh">还没有 loop</span>
           <span data-lang="en">No loops yet</span>

@@ -50,3 +50,6 @@ loopora = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "real_cli: opt-in integration coverage that uses the real Codex CLI and a realistic workspace fixture",
+]

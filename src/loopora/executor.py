@@ -87,24 +87,39 @@ def coerce_reasoning_effort(value: str | None, executor_kind: str = "codex") -> 
 def build_codex_exec_args(request: RoleRequest, schema_path: Path) -> list[str]:
     reasoning_effort = coerce_reasoning_effort(request.reasoning_effort, request.executor_kind)
     extra_args = parse_extra_cli_args_text(request.extra_cli_args_text)
-    args = ["codex", "exec"]
-    if request.inherit_session and request.resume_session_id.strip():
-        args.append("resume")
-        args.append(request.resume_session_id.strip())
-    args.extend(
-        [
+    resume_session_id = request.resume_session_id.strip()
+    if request.inherit_session and resume_session_id:
+        args = [
+            "codex",
+            "exec",
+            "resume",
             "--json",
             "--skip-git-repo-check",
-            "--cd",
-            str(request.workdir),
-            "--sandbox",
-            request.sandbox,
-            "--output-schema",
-            str(schema_path),
             "--output-last-message",
             str(request.output_path),
         ]
-    )
+        if request.model.strip():
+            args.extend(["--model", request.model.strip()])
+        args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
+        args.extend(extra_args)
+        args.append(resume_session_id)
+        args.append(request.prompt)
+        return args
+
+    args = [
+        "codex",
+        "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "--cd",
+        str(request.workdir),
+        "--sandbox",
+        request.sandbox,
+        "--output-schema",
+        str(schema_path),
+        "--output-last-message",
+        str(request.output_path),
+    ]
     if request.model.strip():
         args.extend(["--model", request.model.strip()])
     args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
@@ -391,6 +406,9 @@ class RealCodexExecutor(CodexExecutor):
         try:
             return json.loads(request.output_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
+            payload = self._parse_structured_output_from_text(request.output_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                return payload
             raise ExecutorError(f"role={request.role} produced invalid JSON output") from exc
 
     def _execute_claude(
@@ -986,8 +1004,6 @@ class FakeCodexExecutor(CodexExecutor):
                 "priority_failures": [],
                 "feedback_to_builder": "Improve the most visible failing checks without widening scope.",
                 "feedback_to_generator": "Improve the most visible failing checks without widening scope.",
-                "confidence": "high",
-                "verifier_confidence": "high",
             }
 
         if archetype in {"challenger", "guide"}:
@@ -1006,7 +1022,12 @@ class FakeCodexExecutor(CodexExecutor):
 
         if archetype == "custom":
             return {
+                "status": "advisory",
                 "summary": "Collected read-only evidence and prepared a scoped handoff.",
+                "blocking_items": [
+                    "A restricted role can guide the next move but cannot close the loop alone.",
+                ],
+                "recommended_next_action": "Use the strongest evidence path for the next change.",
                 "observations": [
                     "The custom role stayed inside the current workspace evidence.",
                     "No write action was claimed from this restricted role.",

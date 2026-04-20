@@ -21,6 +21,8 @@ While working:
 - Preserve user-owned files, keep edits reversible, and avoid destructive cleanup.
 - Respect the spec constraints even when they conflict with a tempting shortcut.
 - When you are blocked, choose the smallest next move that increases evidence or unblocks another role.
+- When the latest blocker is missing runtime evidence, prefer the smallest repeatable verification artifact over more product changes.
+- If browser or screenshot tooling is blocked by the current sandbox or host policy, do not burn the iteration on installers or desktop-control detours; switch to the strongest no-install executable proof you can add locally and record why richer evidence was unavailable.
 
 Hand-off mindset:
 - Leave the workspace in a state that another role can inspect immediately.

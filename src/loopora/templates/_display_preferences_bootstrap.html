@@ -1,0 +1,42 @@
+<script>
+  (() => {
+    const root = document.documentElement;
+    const readStored = (key, allowed) => {
+      try {
+        const value = window.localStorage.getItem(key);
+        return allowed.includes(value) ? value : "";
+      } catch (_) {
+        return "";
+      }
+    };
+    const normalizeLocale = (value) => String(value || "").trim().replace(/_/g, "-").toLowerCase();
+    const isChineseLocale = (value) => {
+      const locale = normalizeLocale(value);
+      return locale === "zh" || locale.startsWith("zh-") || locale.includes("-hans") || locale.includes("-hant");
+    };
+
+    const theme = readStored("loopora:theme", ["light", "dark"])
+      || ((typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light");
+    root.dataset.theme = theme;
+
+    const savedLocale = readStored("loopora:locale", ["zh", "en"]);
+    const localeCandidates = [];
+    if (!savedLocale) {
+      try {
+        const intlLocale = Intl.DateTimeFormat().resolvedOptions().locale;
+        if (intlLocale) {
+          localeCandidates.push(intlLocale);
+        }
+      } catch (_) {
+        // Ignore Intl availability issues during first-paint bootstrap.
+      }
+      if (Array.isArray(navigator.languages) && navigator.languages.length > 0) {
+        localeCandidates.push(navigator.languages[0]);
+      }
+      localeCandidates.push(navigator.language, navigator.userLanguage, navigator.browserLanguage, navigator.systemLanguage);
+    }
+    const locale = savedLocale || (localeCandidates.some(isChineseLocale) ? "zh" : "en");
+    root.dataset.locale = locale;
+    root.lang = locale === "zh" ? "zh-CN" : "en";
+  })();
+</script>

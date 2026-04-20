@@ -92,6 +92,10 @@ def test_codex_exec_args_can_resume_previous_session_and_append_extra_args(tmp_p
 
     assert args[:3] == ["codex", "exec", "resume"]
     assert "codex-session-123" in args
+    assert "--cd" not in args
+    assert "--sandbox" not in args
+    assert "--output-schema" not in args
+    assert "--output-last-message" in args
     assert "--search" in args
     assert "--verbose" in args
     assert args[-1] == "Return JSON only."

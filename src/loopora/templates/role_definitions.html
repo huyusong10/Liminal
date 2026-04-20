@@ -5,10 +5,11 @@
   type="button"
   data-title-zh="{{ zh }}"
   data-title-en="{{ en }}"
+  aria-label="{{ ('查看提示：' ~ zh) if page_locale == 'zh' else ('Show tip: ' ~ en) }}"
   {% if testid %}data-testid="{{ testid }}"{% endif %}
 >i</button>
 {%- endmacro %}
-{% block title %}Role Definitions{% endblock %}
+{% block title %}{{ '角色定义' if page_locale == 'zh' else 'Role Definitions' }}{% endblock %}
 {% block content %}
 <div class="page-stack page-stack--catalog" data-testid="role-definitions-page">
 <section class="hero hero-tight">
@@ -39,7 +40,7 @@
   <div class="loop-grid role-card-grid role-card-grid--definitions">
     {% for role_definition in custom_role_definitions %}
     <article class="loop-card is-clickable" data-open-card="/roles/{{ role_definition.id }}/edit" data-testid="role-definition-card" data-role-definition-id="{{ role_definition.id }}" tabindex="0">
-      <a class="loop-card-link" href="/roles/{{ role_definition.id }}/edit"></a>
+      <a class="loop-card-link" href="/roles/{{ role_definition.id }}/edit" tabindex="-1" aria-hidden="true"></a>
       <div class="loop-card-head">
         <div>
           <strong>{{ role_definition.name }}</strong>
@@ -94,7 +95,7 @@
   <div class="loop-grid role-card-grid role-card-grid--definitions">
     {% for role_definition in builtin_role_templates %}
     <article class="loop-card is-clickable" data-open-card="/roles/{{ role_definition.id }}/edit" data-testid="builtin-role-template-card" data-role-definition-id="{{ role_definition.id }}" tabindex="0">
-      <a class="loop-card-link" href="/roles/{{ role_definition.id }}/edit"></a>
+      <a class="loop-card-link" href="/roles/{{ role_definition.id }}/edit" tabindex="-1" aria-hidden="true"></a>
       <div class="loop-card-head">
         <div class="loop-card-copy">
           <div class="label-with-help">

@@ -107,9 +107,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function localizeArchetypeOptions() {
+    const locale = window.LooporaUI.currentLocale();
     Array.from(archetypeInput?.options || []).forEach((option) => {
-      const en = option.dataset.labelEn || option.textContent || "";
-      option.textContent = en;
+      const label = locale === "zh" ? option.dataset.labelZh : option.dataset.labelEn;
+      option.textContent = label || option.dataset.labelEn || option.dataset.labelZh || option.textContent || "";
     });
   }
 
@@ -125,9 +126,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const summary = locale === "zh" ? option.dataset.summaryZh : option.dataset.summaryEn;
     const recommendation = locale === "zh" ? option.dataset.recommendationZh : option.dataset.recommendationEn;
     const warning = locale === "zh" ? option.dataset.warningZh : option.dataset.warningEn;
-    archetypeSummary.textContent = summary || "";
-    archetypeRecommendation.textContent = recommendation || "";
-    archetypeWarning.textContent = warning || "";
+    setBilingualHtml(archetypeSummary, option.dataset.summaryZh || "", option.dataset.summaryEn || "");
+    setBilingualHtml(archetypeRecommendation, option.dataset.recommendationZh || "", option.dataset.recommendationEn || "");
+    setBilingualHtml(archetypeWarning, option.dataset.warningZh || "", option.dataset.warningEn || "");
     archetypeWarning.hidden = !warning;
   }
 

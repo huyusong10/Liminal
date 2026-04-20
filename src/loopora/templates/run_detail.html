@@ -51,13 +51,6 @@
       </div>
       <div class="progress-status-cluster">
         <span class="status-pill progress-status-pill" id="progress-status-badge" data-status-label="{{ run.status }}"></span>
-        <div class="progress-runtime-stack">
-          <span class="progress-runtime-label" id="progress-runtime-label">
-            <span data-lang="zh">当前阶段耗时</span>
-            <span data-lang="en">Current stage</span>
-          </span>
-          <strong class="progress-runtime" id="progress-runtime">-</strong>
-        </div>
       </div>
     </header>
     {% set checks_stage = progress_stages[0] if progress_stages else None %}
@@ -83,7 +76,7 @@
             <span data-lang="zh">Workflow Loop</span>
             <span data-lang="en">Workflow Loop</span>
           </span>
-          <strong class="stage-loop-title" id="stage-loop-title">{{ workflow_stages | map(attribute='label') | join(' → ') if workflow_stages else "No workflow steps" }}</strong>
+          <strong class="stage-loop-title" id="stage-loop-title">{{ workflow_stages | map(attribute='label') | join(' → ') if workflow_stages else ("还没有 workflow steps" if page_locale == "zh" else "No workflow steps yet") }}</strong>
           <p class="stage-loop-copy" id="stage-loop-copy">
             <span data-lang="zh">中间步骤按编排顺序重复推进；如果 workflow 里有 GateKeeper finish step，它会作为收敛出口。</span>
             <span data-lang="en">The arranged middle steps repeat in order. If the workflow includes a GateKeeper finish step, it acts as the exit gate.</span>
@@ -177,6 +170,70 @@
     </div>
   </article>
 
+  <article class="panel takeaway-panel">
+    <header class="panel-header takeaway-panel-header">
+      <div>
+        <h2><span data-lang="zh">关键结论</span><span data-lang="en">Key takeaways</span></h2>
+        <p class="takeaway-copy">
+          <span data-lang="zh">只保留每轮角色的结论与最终 verdict；原始 prompt、context、output 继续沉到 <code>.loopora</code> 日志里。</span>
+          <span data-lang="en">Only the per-iteration role conclusions and final verdict stay here. Raw prompts, context, and outputs remain in the <code>.loopora</code> logs.</span>
+        </p>
+      </div>
+      <div class="takeaway-meta" id="takeaway-meta">-</div>
+    </header>
+    <div class="takeaway-shortcuts">
+      <div class="takeaway-path-grid">
+        <article class="takeaway-path-card">
+          <span class="takeaway-path-label"><span data-lang="zh">构建目录</span><span data-lang="en">Build folder</span></span>
+          <code id="takeaway-build-path">{{ run.workdir }}</code>
+        </article>
+        <article class="takeaway-path-card">
+          <span class="takeaway-path-label"><span data-lang="zh">原始日志</span><span data-lang="en">Raw logs</span></span>
+          <code id="takeaway-log-path">{{ run.runs_dir }}</code>
+        </article>
+      </div>
+      <div class="takeaway-actions">
+        <button
+          type="button"
+          class="ghost-button"
+          id="takeaway-open-build"
+          {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}
+        >
+          <span data-lang="zh">打开构建目录</span>
+          <span data-lang="en">Open build folder</span>
+        </button>
+        <button
+          type="button"
+          class="ghost-button"
+          id="takeaway-open-logs"
+          {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}
+        >
+          <span data-lang="zh">打开 .loopora 日志</span>
+          <span data-lang="en">Open .loopora logs</span>
+        </button>
+        <span class="takeaway-feedback" id="takeaway-feedback"></span>
+      </div>
+    </div>
+    <div class="takeaway-selector-row" id="takeaway-selector-row" hidden>
+      <label class="takeaway-selector-label" for="takeaway-iteration-select">
+        <span data-lang="zh">查看轮次</span>
+        <span data-lang="en">View iteration</span>
+      </label>
+      <select class="takeaway-iteration-select" id="takeaway-iteration-select"></select>
+    </div>
+    <div class="takeaway-iteration-view" id="takeaway-iteration-view"></div>
+    <div class="takeaway-empty" id="takeaway-empty" hidden>
+      <strong>
+        <span data-lang="zh">还没有稳定结论</span>
+        <span data-lang="en">No stable takeaways yet</span>
+      </strong>
+      <p>
+        <span data-lang="zh">角色 handoff 或 iteration summary 写出后，这里会自动收敛成简洁结论。</span>
+        <span data-lang="en">As soon as a role handoff or iteration summary lands, this area condenses it into concise takeaways.</span>
+      </p>
+    </div>
+  </article>
+
   <article class="panel console-panel">
     <header class="panel-header console-panel-header">
       <div>
@@ -194,7 +251,7 @@
         <span id="console-line-count">0 lines</span>
       </div>
     </header>
-    <div class="console-toolbar" aria-label="Console controls">
+    <div class="console-toolbar" aria-label="{{ '控制台操作' if page_locale == 'zh' else 'Console controls' }}">
       <div class="console-toolbar-actions">
         <a
           class="ghost-button console-popout-button"
@@ -202,7 +259,7 @@
           href="/runs/{{ run.id }}/console"
           target="_blank"
           rel="noreferrer"
-          aria-label="Open fullscreen console"
+          aria-label="{{ '打开全屏终端' if page_locale == 'zh' else 'Open fullscreen console' }}"
         >
           <span data-lang="zh">打开全屏终端</span>
           <span data-lang="en">Open fullscreen console</span>
@@ -215,33 +272,6 @@
     <div class="console-shell-frame">
       <div class="console-shell" id="console-shell">
         <div class="console-output" id="console-output"></div>
-      </div>
-    </div>
-  </article>
-
-  <article class="panel artifact-panel">
-    <header class="panel-header artifact-panel-header">
-      <div>
-        <h2><span data-lang="zh">关键产物</span><span data-lang="en">Run files</span></h2>
-        <p class="artifact-copy">
-          <span data-lang="zh">直接切换这次运行的几个固定输出文件，不再浏览整棵目录。</span>
-          <span data-lang="en">Switch directly between the fixed run outputs instead of browsing the whole directory tree.</span>
-        </p>
-      </div>
-      <div class="artifact-meta" id="artifact-meta">-</div>
-    </header>
-    <div class="artifact-tabs" id="artifact-tabs"></div>
-    <div class="artifact-preview-shell">
-      <div class="preview-toolbar artifact-toolbar">
-        <span id="artifact-path">-</span>
-        <a class="ghost-button" id="artifact-download-link" href="#" target="_blank">
-          <span data-lang="zh">下载</span>
-          <span data-lang="en">Download</span>
-        </a>
-      </div>
-      <div class="preview-box artifact-preview-box" id="artifact-preview">
-        <span data-lang="zh">正在准备关键产物预览。</span>
-        <span data-lang="en">Preparing the run file preview.</span>
       </div>
     </div>
   </article>
@@ -271,7 +301,7 @@
   const initialTimelineRecords = {{ timeline_events|tojson }};
   const initialConsoleEvents = {{ console_events|tojson }};
   const initialProgressEvents = {{ progress_events|tojson }};
-  const initialArtifacts = {{ run_artifacts|tojson }};
+  const initialTakeaways = {{ key_takeaways|tojson }};
   const ARCHETYPE_LABELS = {
     builder: {zh: "Builder", en: "Builder"},
     inspector: {zh: "Inspector", en: "Inspector"},
@@ -289,13 +319,13 @@
   let timelineRecords = initialTimelineRecords.slice();
   let consoleEventRecords = initialConsoleEvents.slice();
   let progressEventRecords = initialProgressEvents.slice();
-  let artifactRecords = initialArtifacts.slice();
-  let currentArtifactId = null;
+  let takeawaySnapshot = initialTakeaways;
+  let selectedTakeawayIter = null;
   let lastEventId = {{ latest_event_id | tojson }};
   let refreshTimer = null;
   let refreshInFlight = false;
   let refreshQueued = false;
-  let refreshArtifactsQueued = false;
+  let refreshTakeawaysQueued = false;
   let autoScrollConsole = true;
   let pollTimer = null;
   let heartbeatTimer = null;
@@ -371,9 +401,9 @@
       : localeText(`${hours} 小时前`, `${hours}h ago`);
   }
 
-  function scheduleRunRefresh({immediate = false, refreshArtifacts = false} = {}) {
-    if (refreshArtifacts) {
-      refreshArtifactsQueued = true;
+  function scheduleRunRefresh({immediate = false, refreshTakeaways = false} = {}) {
+    if (refreshTakeaways) {
+      refreshTakeawaysQueued = true;
     }
     if (refreshTimer) {
       return;
@@ -385,15 +415,15 @@
         return;
       }
       refreshInFlight = true;
-      const shouldRefreshArtifacts = refreshArtifactsQueued;
-      refreshArtifactsQueued = false;
+      const shouldRefreshTakeaways = refreshTakeawaysQueued;
+      refreshTakeawaysQueued = false;
       try {
-        await fetchRun({refreshArtifacts: shouldRefreshArtifacts});
+        await fetchRun({refreshTakeaways: shouldRefreshTakeaways});
       } finally {
         refreshInFlight = false;
         if (refreshQueued) {
           refreshQueued = false;
-          scheduleRunRefresh({immediate: true, refreshArtifacts: refreshArtifactsQueued});
+          scheduleRunRefresh({immediate: true, refreshTakeaways: refreshTakeawaysQueued});
         }
       }
     }, immediate ? 0 : 140);
@@ -610,7 +640,7 @@
     if (!workflowStages.length) {
       return {
         eyebrow: localeText("Workflow Loop", "Workflow Loop"),
-        title: localeText("No workflow steps", "No workflow steps"),
+        title: localeText("还没有 workflow steps", "No workflow steps yet"),
         detail: localeText(
           "这次 run 没有冻结下中间编排步骤，所以这里只显示入口和最终状态。",
           "This run has no frozen middle workflow steps, so only the entry and final state remain."
@@ -1372,144 +1402,248 @@
     };
   }
 
-  function renderArtifactTabs() {
-    const tabs = document.getElementById("artifact-tabs");
-    function artifactTabParts(artifact) {
-      const label = window.LooporaUI.currentLocale() === "zh" ? artifact.label_zh : artifact.label_en;
-      const normalized = String(label || "").trim();
-      const separator = normalized.includes(" · ") ? " · " : (normalized.includes(" • ") ? " • " : null);
-      const relativePath = String(artifact.relative_path || artifact.filename || artifact.path || "").trim();
-      const stepMatch = relativePath.match(/^iterations\/iter_(\d+)\/steps\/([^/]+)\/([^/]+)$/);
-      const promptMatch = relativePath.match(/^contract\/prompts\/(.+)$/);
-
-      if (stepMatch) {
-        const iterNumber = Number(stepMatch[1]) + 1;
-        const stepFolder = stepMatch[2].replace(/^\d+__/, "");
-        const fileName = stepMatch[3];
-        return {
-          primary: normalized || localeText("步骤产物", "Step artifact"),
-          secondary: localeText(`第 ${iterNumber} 轮 · ${stepFolder} · ${fileName}`, `Iter ${iterNumber} · ${stepFolder} · ${fileName}`),
-        };
-      }
-
-      if (promptMatch) {
-        return {
-          primary: normalized || localeText("Prompt", "Prompt"),
-          secondary: promptMatch[1],
-        };
-      }
-
-      if (separator) {
-        const [primary, ...rest] = normalized.split(separator);
-        return {
-          primary: primary || normalized,
-          secondary: rest.join(separator) || relativePath,
-        };
-      }
-      return {
-        primary: normalized || "-",
-        secondary: relativePath,
-      };
+  function takeawayStatusLabel(status) {
+    switch (status) {
+      case "passed":
+        return localeText("已通过", "Passed");
+      case "completed":
+        return localeText("已完成", "Completed");
+      case "blocked":
+        return localeText("待继续", "Needs another pass");
+      case "failed":
+        return localeText("失败", "Failed");
+      case "running":
+        return localeText("进行中", "Running");
+      case "advisory":
+        return localeText("建议", "Advisory");
+      default:
+        return localeText("待生成", "Pending");
     }
-    tabs.innerHTML = artifactRecords.map((artifact) => `
-      <button
-        class="artifact-tab ${artifact.id === currentArtifactId ? "active" : ""}"
-        data-artifact-id="${artifact.id}"
-        type="button"
-      >
-        ${(() => {
-          const parts = artifactTabParts(artifact);
-          return `
-            <span class="artifact-tab-top">
-              <span class="artifact-tab-copy">
-                <span class="artifact-tab-label">${escapeHtml(parts.primary)}</span>
-                <span class="artifact-tab-meta">${escapeHtml(parts.secondary || localeText("当前没有附加路径。", "No extra path for this artifact."))}</span>
-              </span>
-              <span class="artifact-tab-state ${artifact.available ? "is-ready" : "is-missing"}">
-                ${artifact.available ? localeText("可用", "Ready") : localeText("未生成", "Missing")}
-              </span>
-            </span>
-          `;
-        })()}
-      </button>
-    `).join("");
-    tabs.querySelectorAll(".artifact-tab").forEach((button) => {
-      button.addEventListener("click", () => openArtifact(button.dataset.artifactId));
-    });
   }
 
-  async function refreshArtifacts({preserveSelection = true} = {}) {
-    const response = await fetch(`/api/runs/${runId}/artifacts`);
-    const previousRecords = artifactRecords.slice();
-    const previousSelectedId = currentArtifactId;
-    const previousSelected = previousRecords.find((artifact) => artifact.id === previousSelectedId) || null;
-    artifactRecords = await response.json();
-    const availableIds = artifactRecords.filter((artifact) => artifact.available).map((artifact) => artifact.id);
-    if (!preserveSelection || !currentArtifactId || !artifactRecords.some((artifact) => artifact.id === currentArtifactId)) {
-      currentArtifactId = availableIds[0] || artifactRecords[0]?.id || null;
+  function takeawayHeadline(iteration) {
+    switch (iteration?.status) {
+      case "passed":
+        return localeText("这一轮已经通过", "This round passed");
+      case "blocked":
+        return localeText("这一轮还需要继续修正", "This round needs another pass");
+      case "failed":
+        return localeText("这一轮执行失败", "This round failed");
+      case "running":
+        return localeText("这一轮仍在推进", "This round is still moving");
+      case "completed":
+        return localeText("这一轮已经收口", "This round finished");
+      case "advisory":
+        return localeText("这一轮给出了建议", "This round produced guidance");
+      default:
+        return localeText("等待第一个稳定结论", "Waiting for the first stable takeaway");
     }
-    const nextSelected = artifactRecords.find((artifact) => artifact.id === currentArtifactId) || null;
-    renderArtifactTabs();
-    return {
-      selectionChanged: previousSelectedId !== currentArtifactId,
-      selectedAvailabilityChanged: previousSelected?.available !== nextSelected?.available,
-    };
   }
 
-  function renderMissingArtifact(artifact) {
-    const preview = document.getElementById("artifact-preview");
-    const downloadLink = document.getElementById("artifact-download-link");
-    preview.classList.remove("markdown-preview");
-    document.getElementById("artifact-path").textContent = artifact.path || artifact.filename || "-";
-    document.getElementById("artifact-meta").textContent = localeText("这个文件在当前阶段还没有生成。", "This file has not been generated at the current stage.");
-    preview.innerHTML = `
-      <div class="artifact-missing">
-        <strong>${localeText("当前还没有这个文件。", "This file does not exist yet.")}</strong>
-        <p>${escapeHtml(window.LooporaUI.currentLocale() === "zh" ? artifact.description_zh : artifact.description_en)}</p>
-      </div>
-    `;
-    downloadLink.style.visibility = "hidden";
-    downloadLink.removeAttribute("href");
+  function formatScore(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return "";
+    }
+    return numeric.toFixed(numeric >= 1 ? 0 : 2);
   }
 
-  async function openArtifact(artifactId) {
-    if (!artifactId) {
-      return;
+  function takeawayRoleSupport(role) {
+    if (role?.blocking_item) {
+      return localeText(`阻塞：${role.blocking_item}`, `Blocker: ${role.blocking_item}`);
     }
-    currentArtifactId = artifactId;
-    renderArtifactTabs();
-    const response = await fetch(`/api/runs/${runId}/artifacts/${encodeURIComponent(artifactId)}`);
-    const payload = await response.json();
-    const preview = document.getElementById("artifact-preview");
-    const downloadLink = document.getElementById("artifact-download-link");
-    const artifact = payload.artifact || artifactRecords.find((entry) => entry.id === artifactId) || {};
-
-    if (payload.kind === "missing") {
-      renderMissingArtifact(artifact);
-      return;
+    if (role?.next_action) {
+      return localeText(`下一步：${role.next_action}`, `Next: ${role.next_action}`);
     }
+    return "";
+  }
 
-    document.getElementById("artifact-path").textContent = artifact.path || payload.path || "-";
-    document.getElementById("artifact-meta").textContent = window.LooporaUI.currentLocale() === "zh"
-      ? artifact.description_zh
-      : artifact.description_en;
-    if (payload.is_binary) {
-      preview.classList.remove("markdown-preview");
-      preview.innerHTML = `
-        <div class="binary-preview">
-          <strong>${localeText("二进制文件，无法直接预览。", "Binary file cannot be previewed directly.")}</strong>
-          <p>${localeText("可以下载后查看原文件。", "Download the file to inspect it directly.")}</p>
+  function takeawayRoleMeta(role) {
+    const bits = [];
+    if (role?.composite_score !== null && role?.composite_score !== undefined && role?.archetype === "gatekeeper") {
+      bits.push(localeText(`综合分 ${formatScore(role.composite_score)}`, `Composite ${formatScore(role.composite_score)}`));
+    }
+    return bits.join(" · ");
+  }
+
+  function takeawayIterationMeta(iteration) {
+    const bits = [];
+    if (iteration?.composite_score !== null && iteration?.composite_score !== undefined) {
+      bits.push(localeText(`综合分 ${formatScore(iteration.composite_score)}`, `Composite ${formatScore(iteration.composite_score)}`));
+    }
+    if (iteration?.role_count) {
+      bits.push(localeText(`${iteration.role_count} 条角色结论`, `${iteration.role_count} role conclusion${iteration.role_count === 1 ? "" : "s"}`));
+    }
+    if (iteration?.timestamp) {
+      bits.push(formatAbsoluteDate(iteration.timestamp));
+    }
+    return bits.join(" · ");
+  }
+
+  function takeawayIterationKey(iteration) {
+    if (!iteration || typeof iteration !== "object") {
+      return "";
+    }
+    const raw = iteration.iter ?? iteration.display_iter ?? "";
+    return raw === null || raw === undefined ? "" : String(raw);
+  }
+
+  function takeawayIterationOptionLabel(iteration) {
+    const bits = [localeText(`第 ${iteration.display_iter || 1} 轮`, `Iter ${iteration.display_iter || 1}`)];
+    const statusLabel = takeawayStatusLabel(iteration?.status);
+    if (statusLabel) {
+      bits.push(statusLabel);
+    }
+    if (iteration?.role_count) {
+      bits.push(
+        localeText(
+          `${iteration.role_count} 条角色结论`,
+          `${iteration.role_count} role conclusion${iteration.role_count === 1 ? "" : "s"}`
+        )
+      );
+    }
+    return bits.join(" · ");
+  }
+
+  function ensureSelectedTakeawayIter(iterations) {
+    if (!Array.isArray(iterations) || !iterations.length) {
+      selectedTakeawayIter = null;
+      return null;
+    }
+    const hasSelected = iterations.some((iteration) => takeawayIterationKey(iteration) === selectedTakeawayIter);
+    if (!hasSelected) {
+      selectedTakeawayIter = takeawayIterationKey(iterations[0]);
+    }
+    return iterations.find((iteration) => takeawayIterationKey(iteration) === selectedTakeawayIter) || iterations[0];
+  }
+
+  function renderTakeawayIterationCard(iteration) {
+    return `
+      <article class="takeaway-iteration-card takeaway-iteration-card--${escapeHtml(iteration.status || "pending")}">
+        <div class="takeaway-iteration-head">
+          <div class="takeaway-iteration-copy">
+            <span class="takeaway-iteration-label">${escapeHtml(localeText(`第 ${iteration.display_iter || 1} 轮`, `Iter ${iteration.display_iter || 1}`))}</span>
+            <strong class="takeaway-iteration-title">${escapeHtml(takeawayHeadline(iteration))}</strong>
+          </div>
+          <span class="takeaway-status-pill takeaway-status-pill--${escapeHtml(iteration.status || "pending")}">${escapeHtml(takeawayStatusLabel(iteration.status))}</span>
         </div>
-      `;
-    } else if (payload.rendered_html) {
-      preview.classList.add("markdown-preview");
-      preview.innerHTML = payload.rendered_html;
-    } else {
-      preview.classList.remove("markdown-preview");
-      preview.textContent = payload.content || "";
+        <p class="takeaway-iteration-note">${escapeHtml(iteration.summary || localeText("这一轮还没有可用结论。", "This round does not have a stable takeaway yet."))}</p>
+        <div class="takeaway-iteration-meta">${escapeHtml(takeawayIterationMeta(iteration))}</div>
+        <div class="takeaway-role-grid">
+          ${(iteration.roles || []).map((role) => `
+            <article class="takeaway-role-card takeaway-role-card--${escapeHtml(role.status || "pending")}">
+              <div class="takeaway-role-head">
+                <div class="takeaway-role-chip">
+                  <span class="takeaway-role-order">${escapeHtml(String((Number(role.step_order) || 0) + 1).padStart(2, "0"))}</span>
+                  <strong class="takeaway-role-name">${escapeHtml(role.role_name || "-")}</strong>
+                </div>
+                <span class="takeaway-status-pill takeaway-status-pill--${escapeHtml(role.status || "pending")}">${escapeHtml(takeawayStatusLabel(role.status))}</span>
+              </div>
+              <div class="takeaway-role-body">
+                <p class="takeaway-role-summary">${escapeHtml(role.summary || localeText("这个角色还没有稳定结论。", "This role has no stable takeaway yet."))}</p>
+                ${takeawayRoleSupport(role) ? `<p class="takeaway-role-support">${escapeHtml(takeawayRoleSupport(role))}</p>` : ""}
+              </div>
+              ${takeawayRoleMeta(role) ? `<div class="takeaway-role-meta">${escapeHtml(takeawayRoleMeta(role))}</div>` : ""}
+            </article>
+          `).join("")}
+        </div>
+      </article>
+    `;
+  }
+
+  function renderTakeaways() {
+    const selectorRow = document.getElementById("takeaway-selector-row");
+    const selector = document.getElementById("takeaway-iteration-select");
+    const view = document.getElementById("takeaway-iteration-view");
+    const empty = document.getElementById("takeaway-empty");
+    const meta = document.getElementById("takeaway-meta");
+    const iterations = Array.isArray(takeawaySnapshot?.iterations) ? takeawaySnapshot.iterations : [];
+    const latestIter = takeawaySnapshot?.latest_display_iter;
+    setTextContentIfChanged("takeaway-build-path", takeawaySnapshot?.build_dir || "-");
+    setTextContentIfChanged("takeaway-log-path", takeawaySnapshot?.log_dir || "-");
+    meta.textContent = latestIter
+      ? localeText(
+        `最近到第 ${latestIter} 轮 · ${takeawaySnapshot.role_conclusion_count || 0} 条角色结论`,
+        `Up to iter ${latestIter} · ${takeawaySnapshot.role_conclusion_count || 0} role conclusions`
+      )
+      : localeText("角色 handoff 写出来后，这里会自动更新。", "This updates as soon as the first role handoff lands.");
+    if (!iterations.length) {
+      selectorRow.hidden = true;
+      selector.innerHTML = "";
+      view.innerHTML = "";
+      empty.hidden = false;
+      return;
     }
-    downloadLink.style.visibility = "visible";
-    downloadLink.href = `/api/runs/${runId}/artifacts/${encodeURIComponent(artifactId)}/download`;
+    const activeIteration = ensureSelectedTakeawayIter(iterations);
+    empty.hidden = true;
+    selectorRow.hidden = false;
+    selector.innerHTML = iterations.map((iteration) => {
+      const value = takeawayIterationKey(iteration);
+      const selected = value === selectedTakeawayIter ? ' selected="selected"' : "";
+      return `<option value="${escapeHtml(value)}"${selected}>${escapeHtml(takeawayIterationOptionLabel(iteration))}</option>`;
+    }).join("");
+    view.innerHTML = activeIteration ? renderTakeawayIterationCard(activeIteration) : "";
+  }
+
+  async function refreshTakeaways() {
+    const response = await fetch(`/api/runs/${runId}/key-takeaways`);
+    takeawaySnapshot = await response.json();
+    renderTakeaways();
+  }
+
+  let takeawayFeedbackTimer = null;
+
+  function setTakeawayFeedback(message) {
+    const node = document.getElementById("takeaway-feedback");
+    if (!node) {
+      return;
+    }
+    node.textContent = message || "";
+    if (takeawayFeedbackTimer) {
+      window.clearTimeout(takeawayFeedbackTimer);
+      takeawayFeedbackTimer = null;
+    }
+    if (message) {
+      takeawayFeedbackTimer = window.setTimeout(() => {
+        node.textContent = "";
+      }, 2400);
+    }
+  }
+
+  async function revealPath(path) {
+    if (!path) {
+      return;
+    }
+    try {
+      const response = await fetch("/api/system/reveal-path", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({path}),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "failed");
+      }
+      setTakeawayFeedback(localeText("已打开目录。", "Opened the folder."));
+      return;
+    } catch (error) {
+      try {
+        await navigator.clipboard.writeText(path);
+        setTakeawayFeedback(localeText("无法自动打开，路径已复制。", "Could not open automatically. The path was copied."));
+        return;
+      } catch (copyError) {
+        setTakeawayFeedback(localeText("无法自动打开目录。", "Unable to open the folder automatically."));
+      }
+    }
+  }
+
+  function bindTakeawayActions() {
+    document.getElementById("takeaway-open-build")?.addEventListener("click", () => revealPath(takeawaySnapshot?.build_dir));
+    document.getElementById("takeaway-open-logs")?.addEventListener("click", () => revealPath(takeawaySnapshot?.log_dir));
+    document.getElementById("takeaway-iteration-select")?.addEventListener("change", (event) => {
+      selectedTakeawayIter = String(event?.target?.value || "");
+      renderTakeaways();
+    });
   }
 
   function timelineTone(event) {
@@ -2251,12 +2385,6 @@
     const resolvedSnapshots = snapshots || getStageSnapshots(run);
     const resolvedLiveWork = liveWork || describeLiveWork(run);
     setTextContentIfChanged(
-      "progress-runtime",
-      runIsActive(run)
-        ? (resolvedSnapshots[resolvedStage]?.durationLabel || localeText("刚开始", "Just started"))
-        : formatDuration(run?.started_at, run?.finished_at)
-    );
-    setTextContentIfChanged(
       "progress-live-duration",
       resolvedLiveWork.duration
         ? localeText(`已持续 ${resolvedLiveWork.duration}`, `${resolvedLiveWork.duration} elapsed`)
@@ -2277,7 +2405,6 @@
     const statusBadge = document.getElementById("progress-status-badge");
     const status = run?.status || "draft";
     const liveWork = describeLiveWork(run);
-    const runtimeLabel = document.getElementById("progress-runtime-label");
     const progressLiveCard = document.getElementById("progress-live-card");
     const progressTone = status === "running"
       ? "active"
@@ -2297,9 +2424,6 @@
     setTextContentIfChanged(statusBadge, window.LooporaUI.translateStatus(status));
     setClassNameIfChanged(statusBadge, `status-pill progress-status-pill status-${status}`);
     setClassNameIfChanged(progressLiveCard, `progress-live-card progress-live-card--${progressTone}`);
-    setTextContentIfChanged(runtimeLabel, runIsActive(run)
-      ? localeText("当前阶段耗时", "Current stage")
-      : localeText("总耗时", "Total elapsed"));
     updateProgressLiveTimers(run, {stage, snapshots, liveWork});
     setTextContentIfChanged("progress-live-title", liveWork.title);
     setTextContentIfChanged("progress-live-subtitle", localeText(
@@ -2309,7 +2433,7 @@
     setTextContentIfChanged("progress-live-detail", liveWork.detail);
     setTextContentIfChanged("progress-stage-label", liveWork.metaLeft);
     setTextContentIfChanged("progress-caption", status === "running"
-      ? localeText("不再猜一个虚假的百分比，只保留当前阶段、实时耗时和已经走过的阶段耗时。", "No fake percentage here anymore. This view keeps the current stage, its live duration, and the time already spent in completed stages.")
+      ? localeText("不再猜一个虚假的百分比，只保留当前阶段和已经走过的阶段耗时痕迹。", "No fake percentage here anymore. This view keeps the current stage and the time traces already left on completed stages.")
       : localeText("这一轮已经收尾，下面保留最终阶段结果和整条路径的耗时痕迹。", "This run has settled, and the stage flow below now shows the final outcome with the time spent along the way."));
 
     document.querySelectorAll(".stage-chip").forEach((chip) => {
@@ -2362,22 +2486,17 @@
     document.getElementById("event-card").className = "highlight-card tone-neutral";
   }
 
-  async function fetchRun({refreshArtifacts = false} = {}) {
+  async function fetchRun({refreshTakeaways = false} = {}) {
     const response = await fetch(`/api/runs/${runId}`);
     const payload = await response.json();
     currentRun = payload;
     updateProgressPanel(payload);
     updateHighlights(payload);
     syncConsoleMeta();
-    if (!refreshArtifacts) {
+    if (!refreshTakeaways) {
       return;
     }
-    refreshArtifacts({preserveSelection: true}).then((state) => {
-      if (currentArtifactId && (state.selectionChanged || state.selectedAvailabilityChanged)) {
-        return openArtifact(currentArtifactId);
-      }
-      return null;
-    }).catch(() => {});
+    refreshTakeaways().catch(() => {});
   }
 
   function pushTimelineEvent(event) {
@@ -2517,7 +2636,7 @@
     if (options.refresh) {
       scheduleRunRefresh({
         immediate: options.immediate === true,
-        refreshArtifacts: options.refreshArtifacts === true,
+        refreshTakeaways: options.refreshTakeaways === true,
       });
     }
     return payload;
@@ -2534,7 +2653,7 @@
       console: true,
       timeline: true,
       refresh: true,
-      refreshArtifacts: true,
+      refreshTakeaways: true,
       immediate: true,
     });
     if (!payload) {
@@ -2548,7 +2667,7 @@
         console: true,
         timeline: true,
         refresh: true,
-        refreshArtifacts: ["checks_resolved", "role_execution_summary", "challenger_done", "run_aborted", "workspace_guard_triggered", "step_handoff_written", "iteration_summary_written"].includes(eventName),
+        refreshTakeaways: ["checks_resolved", "role_execution_summary", "challenger_done", "run_aborted", "workspace_guard_triggered", "step_handoff_written", "iteration_summary_written"].includes(eventName),
       });
     });
   });
@@ -2556,29 +2675,23 @@
   document.addEventListener("loopora:localechange", () => {
     window.LooporaUI.applyLocalizedAttributes(document);
     buildConsoleControls();
-    renderArtifactTabs();
+    renderTakeaways();
     if (currentRun) {
       updateProgressPanel(currentRun);
       updateHighlights(currentRun);
     }
     renderTimeline();
     renderConsole();
-    if (currentArtifactId) {
-      openArtifact(currentArtifactId);
-    }
   });
 
   renderTimeline();
   buildConsoleControls();
+  bindTakeawayActions();
   renderConsole();
+  renderTakeaways();
   updateProgressPanel(currentRun);
   updateHighlights(currentRun);
   syncConsoleMeta();
-  renderArtifactTabs();
-  currentArtifactId = artifactRecords.find((artifact) => artifact.available)?.id || artifactRecords[0]?.id || null;
-  if (currentArtifactId) {
-    openArtifact(currentArtifactId);
-  }
   fetchRun();
 </script>
 {% endblock %}
