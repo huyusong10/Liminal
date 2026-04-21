@@ -20,7 +20,6 @@ from loopora.branding import (
     APP_AUTH_HEADER,
     APP_NAME,
     FILE_ROOT_QUERY_PATTERN,
-    SPEC_SKILL_SLUG,
     strip_run_summary_title,
 )
 from loopora.providers import executor_profile, list_executor_profiles
@@ -28,9 +27,8 @@ from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.markdown_tools import decode_text_bytes, looks_binary, normalize_markdown_text, render_safe_markdown_html
 from loopora.run_artifacts import list_run_artifacts as _list_run_artifacts
 from loopora.settings import load_recent_workdirs
-from loopora.skills import build_spec_skill_bundle_archive, install_spec_skill, list_spec_skill_targets, load_spec_skill_bundle
 from loopora.service import LooporaError, create_service, normalize_role_models
-from loopora.specs import SpecError, compile_markdown_spec, init_spec_file, read_and_compile
+from loopora.specs import SpecError, compile_markdown_spec, init_spec_file_for_workflow, read_and_compile, render_spec_template
 from loopora.system_dialogs import SystemDialogError, pick_directory, pick_file, pick_save_file, reveal_path
 from loopora.workflows import (
     ARCHETYPES,
@@ -265,6 +263,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         form_error: str | None = None,
         orchestration: Mapping[str, object] | None = None,
     ) -> HTMLResponse:
+        page_locale = _preferred_request_locale(request)
         current_orchestration = dict(orchestration) if orchestration else None
         if values is None and current_orchestration is not None:
             values = _orchestration_form_values_from_record(current_orchestration)
@@ -304,6 +303,33 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                 "submit_en": "Save orchestration",
                 "action": "/orchestrations/new",
             }
+        try:
+            spec_template_workflow = _workflow_for_spec_template(form_values)
+        except LooporaError:
+            spec_template_workflow = None
+        generated_spec_template = render_spec_template(locale=page_locale, workflow=spec_template_workflow)
+        spec_practice_markdown = ""
+        spec_practice_summary = ""
+        spec_practice_markdown_zh = ""
+        spec_practice_markdown_en = ""
+        spec_practice_summary_zh = ""
+        spec_practice_summary_en = ""
+        if current_orchestration and current_orchestration.get("source") == "builtin":
+            spec_practice_markdown_zh = str(current_orchestration.get("spec_practice_markdown_zh", ""))
+            spec_practice_markdown_en = str(current_orchestration.get("spec_practice_markdown_en", ""))
+            spec_practice_summary_zh = str(current_orchestration.get("spec_practice_summary_zh", ""))
+            spec_practice_summary_en = str(current_orchestration.get("spec_practice_summary_en", ""))
+            spec_practice_markdown = spec_practice_markdown_zh if page_locale == "zh" else spec_practice_markdown_en
+            spec_practice_summary = spec_practice_summary_zh if page_locale == "zh" else spec_practice_summary_en
+        workflow_preset_option_names = list(preset_names())
+        selected_workflow_preset = str(form_values.get("workflow_preset", "")).strip()
+        if (
+            selected_workflow_preset
+            and selected_workflow_preset not in workflow_preset_option_names
+            and selected_workflow_preset in preset_names(include_hidden=True)
+        ):
+            workflow_preset_option_names.append(selected_workflow_preset)
+        workflow_preset_option_values = [workflow_preset_copy(preset_name) for preset_name in workflow_preset_option_names]
         return templates.TemplateResponse(
             request,
             "new_orchestration.html",
@@ -311,19 +337,35 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                 "request": request,
                 "form_values": form_values,
                 "form_error": form_error,
-                "workflow_preset_options": workflow_preset_options(),
+                "workflow_preset_options": [
+                    {
+                        "id": preset_name,
+                        **copy,
+                    }
+                    for preset_name, copy in zip(workflow_preset_option_names, workflow_preset_option_values, strict=False)
+                ],
                 "workflow_preset_bundles": {
                     preset_name: {
-                        "copy": workflow_preset_copy(preset_name),
+                        "copy": copy,
                         "workflow": build_preset_workflow(preset_name),
                         "prompt_files": resolve_prompt_files(build_preset_workflow(preset_name)),
                     }
-                    for preset_name in preset_names()
+                    for preset_name, copy in zip(workflow_preset_option_names, workflow_preset_option_values, strict=False)
                 },
                 "prompt_templates": available_prompt_templates(),
                 "role_definitions": svc().list_role_definitions(),
                 "page_copy": page_copy,
                 "current_orchestration": current_orchestration,
+                "generated_spec_template_rendered_html": render_safe_markdown_html(generated_spec_template),
+                "spec_practice_summary": spec_practice_summary,
+                "spec_practice_markdown": spec_practice_markdown,
+                "spec_practice_summary_zh": spec_practice_summary_zh,
+                "spec_practice_summary_en": spec_practice_summary_en,
+                "spec_practice_markdown_zh": spec_practice_markdown_zh,
+                "spec_practice_markdown_en": spec_practice_markdown_en,
+                "spec_practice_rendered_html": render_safe_markdown_html(spec_practice_markdown) if spec_practice_markdown else "",
+                "spec_practice_rendered_html_zh": render_safe_markdown_html(spec_practice_markdown_zh) if spec_practice_markdown_zh else "",
+                "spec_practice_rendered_html_en": render_safe_markdown_html(spec_practice_markdown_en) if spec_practice_markdown_en else "",
                 "orchestration_locked": is_builtin_template,
                 "orchestration_create_from_preset_href": (
                     f"/orchestrations/new?workflow_preset={form_values.get('workflow_preset', 'build_first')}"
@@ -389,7 +431,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             page_copy = {
                 "title_zh": "先把角色定义好，后面的编排就能直接拿来用。",
                 "title_en": "Define the role once, then let orchestrations reuse it directly.",
-                "body_zh": "角色定义保存的是角色名、角色模板、权限边界、默认执行工具、模型和 prompt 模版。编排里选中后，会把这些字段带进去作为角色快照。",
+                "body_zh": "角色定义保存的是角色名、角色模板、权限边界、默认执行工具、模型和 prompt 模板。编排里选中后，会把这些字段带进去作为角色快照。",
                 "body_en": "A role definition stores the role name, role template, permission boundary, default executor, model, and prompt template. When an orchestration selects it, those values are copied in as a role snapshot.",
                 "submit_zh": "保存角色",
                 "submit_en": "Save role",
@@ -430,11 +472,48 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         )
 
     def render_tutorial(request: Request) -> HTMLResponse:
+        orchestrations = svc().list_orchestrations()
+        builtin_orchestrations = [dict(item) for item in orchestrations if item.get("source") == "builtin"]
+        tutorial_order = {
+            "build_first": 0,
+            "inspect_first": 1,
+            "triage_first": 2,
+            "repair_loop": 3,
+            "benchmark_loop": 4,
+        }
+        builtin_orchestrations.sort(key=lambda item: tutorial_order.get(str(item.get("preset", "")), 99))
+        tutorial_spec_practices: dict[str, dict[str, str]] = {}
+
+        def tutorial_teaser(summary: str, *, locale: str) -> str:
+            text = str(summary or "").strip()
+            if locale == "zh" and text.startswith("场景："):
+                return text.removeprefix("场景：").strip()
+            if locale == "en" and text.lower().startswith("scenario:"):
+                _, _, remainder = text.partition(":")
+                return remainder.strip()
+            return text
+
+        for orchestration in builtin_orchestrations:
+            summary_zh = str(orchestration.get("spec_practice_summary_zh", "")).strip()
+            summary_en = str(orchestration.get("spec_practice_summary_en", "")).strip()
+            markdown_zh = str(orchestration.get("spec_practice_markdown_zh", "")).strip()
+            markdown_en = str(orchestration.get("spec_practice_markdown_en", "")).strip()
+            orchestration["tutorial_teaser_zh"] = tutorial_teaser(summary_zh, locale="zh")
+            orchestration["tutorial_teaser_en"] = tutorial_teaser(summary_en, locale="en")
+            tutorial_spec_practices[str(orchestration.get("id", ""))] = {
+                "name": str(orchestration.get("name", "")).strip(),
+                "summary_zh": summary_zh,
+                "summary_en": summary_en,
+                "rendered_html_zh": render_safe_markdown_html(markdown_zh) if markdown_zh else "",
+                "rendered_html_en": render_safe_markdown_html(markdown_en) if markdown_en else "",
+            }
         return templates.TemplateResponse(
             request,
             "tutorial.html",
             {
                 "request": request,
+                "builtin_orchestrations": builtin_orchestrations,
+                "tutorial_spec_practices": tutorial_spec_practices,
                 "access_state": access_state,
             },
         )
@@ -445,8 +524,6 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             "tools.html",
             {
                 "request": request,
-                "skill_bundle": load_spec_skill_bundle(),
-                "skill_targets": list_spec_skill_targets(),
                 "access_state": access_state,
             },
         )
@@ -953,32 +1030,49 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             return json_error("spec path is required")
         locale = str(payload.get("locale", "zh"))
         try:
-            created = init_spec_file(Path(path_text).expanduser(), locale=locale)
+            workflow = _workflow_for_spec_template(payload)
+        except LooporaError as exc:
+            return json_error(str(exc))
+        try:
+            created = init_spec_file_for_workflow(Path(path_text).expanduser(), locale=locale, workflow=workflow)
         except (FileExistsError, OSError) as exc:
             return json_error(str(exc))
         return JSONResponse({"path": str(created.resolve())}, status_code=201)
 
-    @app.get(f"/api/skills/{SPEC_SKILL_SLUG}")
-    async def api_spec_skill_targets() -> JSONResponse:
-        return JSONResponse({"skill_name": SPEC_SKILL_SLUG, "targets": list_spec_skill_targets()})
-
-    @app.post(f"/api/skills/{SPEC_SKILL_SLUG}/install")
-    async def api_install_spec_skill(request: Request) -> JSONResponse:
+    @app.post("/api/specs/template")
+    async def api_spec_template(request: Request) -> JSONResponse:
         payload = await request.json()
-        target = str(payload.get("target", "")).strip().lower()
         try:
-            result = install_spec_skill(target)
-        except ValueError as exc:
+            workflow = _workflow_for_spec_template(payload)
+        except LooporaError as exc:
             return json_error(str(exc))
-        return JSONResponse({"result": result, "targets": list_spec_skill_targets()}, status_code=201)
-
-    @app.get(f"/api/skills/{SPEC_SKILL_SLUG}/download")
-    async def api_download_spec_skill_bundle() -> Response:
-        filename, archive_bytes = build_spec_skill_bundle_archive()
-        return Response(
-            content=archive_bytes,
-            media_type="application/zip",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        locale = str(payload.get("locale", "zh"))
+        markdown_text = render_spec_template(locale=locale, workflow=workflow)
+        role_note_sections = []
+        if workflow:
+            seen: set[str] = set()
+            for role in workflow.get("roles", []):
+                if not isinstance(role, dict):
+                    continue
+                label = normalize_role_display_name(role.get("name"), archetype=role.get("archetype")) or str(role.get("name", "")).strip()
+                normalized = label.lower()
+                if not label or normalized in seen:
+                    continue
+                seen.add(normalized)
+                role_note_sections.append(
+                    {
+                        "heading": f"{label} Notes",
+                        "role_name": label,
+                        "archetype": str(role.get("archetype", "")).strip(),
+                    }
+                )
+        return JSONResponse(
+            {
+                "ok": True,
+                "content": markdown_text,
+                "rendered_html": render_safe_markdown_html(markdown_text),
+                "role_note_sections": role_note_sections,
+            }
         )
 
     @app.get("/api/system/pick-directory")
@@ -1034,7 +1128,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         try:
             orchestration = svc().create_orchestration(**_orchestration_payload_from_mapping(form, default_to_preset=False))
             return RedirectResponse(url=f"/orchestrations/{orchestration['id']}/edit?saved=1", status_code=303)
-        except (LooporaError, FileExistsError, OSError, ValueError) as exc:
+        except (LooporaError, WorkflowError, FileExistsError, OSError, ValueError) as exc:
             return render_new_orchestration(request, values=values, form_error=str(exc))
 
     @app.post("/orchestrations/{orchestration_id}/edit")
@@ -1047,7 +1141,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
                 raise LooporaError("built-in orchestrations are read-only; create a new orchestration to customize one")
             updated = svc().update_orchestration(orchestration_id, **_orchestration_payload_from_mapping(form, default_to_preset=False))
             return RedirectResponse(url=f"/orchestrations/{updated['id']}/edit?saved=1", status_code=303)
-        except (LooporaError, FileExistsError, OSError, ValueError) as exc:
+        except (LooporaError, WorkflowError, FileExistsError, OSError, ValueError) as exc:
             return render_new_orchestration(request, values=values, form_error=str(exc), orchestration=orchestration)
 
     @app.post("/roles/new")
@@ -1251,6 +1345,30 @@ def _workflow_from_mapping(payload: Mapping[str, object], *, default_to_preset: 
         return None
     preset = str(payload.get("workflow_preset", "build_first")).strip() or "build_first"
     return build_preset_workflow(preset)
+
+
+def _workflow_for_spec_template(payload: Mapping[str, object]) -> dict | None:
+    workflow = payload.get("workflow")
+    if isinstance(workflow, Mapping):
+        workflow_mapping = dict(workflow)
+        if not workflow_mapping.get("roles") and not workflow_mapping.get("steps"):
+            return None
+        return normalize_workflow(workflow_mapping)
+    raw_workflow_json = payload.get("workflow_json")
+    if isinstance(raw_workflow_json, Mapping):
+        workflow_mapping = dict(raw_workflow_json)
+        if not workflow_mapping.get("roles") and not workflow_mapping.get("steps"):
+            return None
+        return normalize_workflow(workflow_mapping)
+    workflow_json = _mapping_from_json_field(payload.get("workflow_json"), field_name="workflow_json")
+    if workflow_json:
+        if not workflow_json.get("roles") and not workflow_json.get("steps"):
+            return None
+        return normalize_workflow(workflow_json)
+    preset = str(payload.get("workflow_preset", "")).strip()
+    if preset:
+        return build_preset_workflow(preset)
+    return None
 
 
 def _prompt_files_from_mapping(payload: Mapping[str, object]) -> dict[str, str]:

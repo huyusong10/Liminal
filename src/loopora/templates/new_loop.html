@@ -132,14 +132,14 @@
         <span class="label-with-help">
           <span><span data-lang="zh">Spec 路径</span><span data-lang="en">Spec path</span></span>
           {{ tip_button(
-            "Spec 至少需要 # Goal。可选提供 # Checks 和 # Constraints；如果没写显式 checks，Loopora 会在 run 开始时自动生成一组并只在本次运行内冻结。需要起草 spec 时，可以去“工具”页安装 loopora-spec skill。",
-            "A spec must include # Goal. You can optionally add # Checks and # Constraints. If checks are omitted, Loopora generates and freezes one set for that run. If you need help drafting a spec, install the loopora-spec skill from the Tools page.",
+            "如果不知道 spec 该怎么写，先去流程编排里找最接近的例子，再按你的需求改。要是暂时还不想把成功条件写死，也可以先省略 Done When，让系统在 run 开始时自动冻结 checks。",
+            "If you're not sure how to write the spec, start from the closest example in Orchestrations and adapt it to your case. If you're not ready to lock the success conditions yet, you can omit Done When and let the system freeze checks at run start.",
             "loop-spec-tip"
           ) }}
         </span>
-        <a class="inline-hint-link" href="/tools">
-          <span data-lang="zh">不确定怎么写？先用 Spec Skill 把想法整理成可跑的 spec。</span>
-          <span data-lang="en">Not sure how to write it yet? Use Spec Skill to turn the idea into a runnable spec.</span>
+        <a class="inline-hint-link" href="/orchestrations">
+          <span data-lang="zh">不知道怎么写？先去流程编排看样例。</span>
+          <span data-lang="en">Not sure how to write it yet? Start with an example in Orchestrations.</span>
         </a>
       </span>
       <div class="input-with-action input-with-multi-actions">
@@ -161,8 +161,8 @@
           <span data-lang="en">Edit</span>
         </button>
         <button class="secondary-button" type="button" id="create-spec-template" data-testid="spec-template-button" data-native-dialogs-enabled="{{ 'true' if access_state.native_dialogs_enabled else 'false' }}">
-          <span data-lang="zh">创建模版</span>
-          <span data-lang="en">Create template</span>
+          <span data-lang="zh">按流程生成模板</span>
+          <span data-lang="en">Generate from orchestration</span>
         </button>
       </div>
       <div class="field-status" id="spec-validation" aria-live="polite" hidden></div>

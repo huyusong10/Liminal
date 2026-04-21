@@ -236,23 +236,16 @@ def test_e2e_calculator_loop_runs_and_works_in_browser(tmp_path: Path) -> None:
     spec_path.write_text(
         textwrap.dedent(
             """
-            # Goal
+            # Task
 
             开发一个计算器。
 
-            # Checks
+            # Done When
 
-            ### 基础加法可用
-            - When: 用户点击 7、+、5、=
-            - Expect: 显示 12
-            - Fail if: 结果错误或页面没有响应
+            - 用户点击 7、+、5、= 后显示 12。
+            - 用户点击 C 后显示重置为 0。
 
-            ### 清空操作可用
-            - When: 用户点击 C
-            - Expect: 显示重置为 0
-            - Fail if: 旧表达式仍残留在显示区
-
-            # Constraints
+            # Guardrails
 
             - 只需要纯前端
             """
@@ -447,11 +440,11 @@ def test_new_loop_page_restores_saved_browser_draft(tmp_path: Path) -> None:
     spec_path.write_text(
         textwrap.dedent(
             """
-            # Goal
+            # Task
 
             Keep an unfinished loop draft around.
 
-            # Constraints
+            # Guardrails
 
             - Stay focused.
             """
@@ -501,7 +494,7 @@ def test_new_loop_page_does_not_restore_pristine_only_browser_defaults(tmp_path:
     spec_path.write_text(
         textwrap.dedent(
             """
-            # Goal
+            # Task
 
             Avoid treating default form values as a real draft.
             """
@@ -553,11 +546,11 @@ def test_new_loop_page_can_edit_spec_in_a_markdown_workbench_modal(tmp_path: Pat
         (
             textwrap.dedent(
                 """
-            # Goal
+            # Task
 
             Update the current spec quickly.
 
-            ## Checks
+            # Done When
 
             - Render headings
             - Save edits back to disk
@@ -597,12 +590,12 @@ def test_new_loop_page_can_edit_spec_in_a_markdown_workbench_modal(tmp_path: Pat
                     assert page.get_by_test_id("spec-editor-validation-pill").is_visible()
                     assert page.locator("#spec-preview-path").text_content() == str(spec_path)
                     editor = page.get_by_test_id("spec-editor-input")
-                    assert "# Goal" in editor.input_value()
+                    assert "# Task" in editor.input_value()
                     assert page.locator("#spec-editor-source-panel").is_visible()
                     assert page.locator("#spec-editor-preview-panel").is_hidden()
                     header_box = page.locator(".spec-preview-copy").bounding_box()
                     assert header_box is not None and header_box["width"] > 320
-                    editor.fill("# Goal\n\nUpdated from the modal.\n\n## Checks\n\n- Save to disk\n")
+                    editor.fill("# Task\n\nUpdated from the modal.\n\n# Done When\n\n- Save to disk\n")
                     page.get_by_test_id("save-spec-document-button").click()
                     page.wait_for_timeout(120)
                     assert "Updated from the modal." in spec_path.read_text(encoding="utf-8")
@@ -647,9 +640,9 @@ def test_new_loop_page_adapts_runtime_controls_to_selected_orchestration(tmp_pat
                 try:
                     page.goto(f"{base_url}/loops/new", wait_until="networkidle")
 
-                    page.locator('select[name="orchestration_id"]').select_option("builtin:fast_lane")
-                    assert page.locator('[data-testid="loop-trigger-window-field"]').is_hidden()
-                    assert page.locator('[data-testid="loop-regression-window-field"]').is_hidden()
+                    page.locator('select[name="orchestration_id"]').select_option("builtin:build_first")
+                    assert page.locator('[data-testid="loop-trigger-window-field"]').is_visible()
+                    assert page.locator('[data-testid="loop-regression-window-field"]').is_visible()
                     assert page.locator('select[name="completion_mode"]').input_value() == "gatekeeper"
 
                     page.locator('select[name="orchestration_id"]').select_option("builtin:benchmark_loop")

@@ -541,16 +541,16 @@
     const archetype = String(role?.archetype || "").trim();
     const details = {
       builder: localeText(
-        "真正修改工作区，朝 Goal 和检查项推进实现。",
-        "Actually changes the workspace to move the implementation toward the Goal and Checks."
+        "真正修改工作区，朝 Task 和检查项推进实现。",
+        "Actually changes the workspace to move the implementation toward the Task and checks."
       ),
       inspector: localeText(
         "运行命令、页面交互或源码检查来收集证据，回答“发生了什么”。",
         "Runs commands, page interactions, or source inspection to collect evidence and answer 'what happened?'"
       ),
       gatekeeper: localeText(
-        "根据 Goal、检查项、Constraints 和测试证据做裁决，回答“算不算通过”。",
-        "Judges the evidence against the Goal, Checks, and Constraints to answer 'does this count as passing?'"
+        "根据 Task、检查项、Guardrails 和测试证据做裁决，回答“算不算通过”。",
+        "Judges the evidence against the Task, checks, and Guardrails to answer 'does this count as passing?'"
       ),
       guide: localeText(
         "只有在停滞或回退时才触发，用来提出新的方向，不是每轮必跑。",
@@ -1134,8 +1134,8 @@
       checks: {
         title: localeText("正在整理检查项", "Shaping the check list"),
         detail: localeText(
-          "它正在把 Goal、约束和当前工作区收拢成一组可判定的检查项；清单冻结后，这里会立刻换成更具体的细节。",
-          "It is turning the Goal, constraints, and current workspace into a set of checkable checks. As soon as that list freezes, this card will switch to something more concrete."
+          "它正在把 Task、Guardrails 和当前工作区收拢成一组可判定的检查项；清单冻结后，这里会立刻换成更具体的细节。",
+          "It is turning the Task, Guardrails, and current workspace into a set of checkable checks. As soon as that list freezes, this card will switch to something more concrete."
         ),
       },
       builder: {

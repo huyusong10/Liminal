@@ -29,6 +29,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const workflowJsonInput = document.getElementById("workflow-json-input");
   const promptFilesJsonInput = document.getElementById("prompt-files-json-input");
   const saveOrchestrationButton = document.getElementById("save-orchestration-button");
+  const openSpecPracticeButton = document.getElementById("open-orchestration-spec-practice-modal");
+  const specPracticeModal = document.getElementById("orchestration-spec-practice-modal");
+  const specPracticeModalStatus = document.getElementById("orchestration-spec-practice-status");
+  const specPracticePreviewLabel = document.getElementById("orchestration-spec-practice-preview-label");
+  const specPracticeSummary = document.getElementById("orchestration-spec-practice-summary");
+  const specPracticePreview = document.getElementById("orchestration-spec-practice-preview");
   const isReadOnly = form.dataset.readonly === "true";
 
   const settingsModal = document.getElementById("workflow-step-settings-modal");
@@ -54,6 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const workflowPresetBundles = JSON.parse(document.getElementById("workflow-preset-bundles-json")?.textContent || "{}");
   const roleDefinitions = JSON.parse(document.getElementById("role-definitions-json")?.textContent || "[]");
+  const specPracticeCopy = JSON.parse(document.getElementById("spec-practice-copy-json")?.textContent || "{}");
 
   let workflowState = null;
   let promptFilesState = null;
@@ -62,6 +69,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let openSettingsStepIndex = -1;
   let submitAttempted = false;
   let lastModalTrigger = null;
+  let lastSpecPracticeTrigger = null;
 
   function localeText(zh, en) {
     return window.LooporaUI.pickText({zh, en});
@@ -81,6 +89,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function showStatus(element, message, kind = "") {
+    if (!element) {
+      return;
+    }
     if (!message) {
       element.hidden = true;
       element.textContent = "";
@@ -90,6 +101,24 @@ document.addEventListener("DOMContentLoaded", () => {
     element.hidden = false;
     element.textContent = message;
     element.className = `field-status${kind ? ` is-${kind}` : ""}`;
+  }
+
+  function setSpecPracticeModalStatus(message, kind = "") {
+    if (!specPracticeModalStatus) {
+      return;
+    }
+    specPracticeModalStatus.textContent = message || "";
+    specPracticeModalStatus.className = `spec-preview-status${kind ? ` is-${kind}` : ""}`;
+  }
+
+  async function fetchJson(url, options = {}) {
+    try {
+      const response = await fetch(url, options);
+      const payload = await response.json().catch(() => ({}));
+      return {response, payload, error: null};
+    } catch (error) {
+      return {response: null, payload: {}, error};
+    }
   }
 
   function roleLabel(archetype) {
@@ -131,6 +160,62 @@ document.addEventListener("DOMContentLoaded", () => {
   function textOrDash(value) {
     const text = String(value ?? "").trim();
     return text || "-";
+  }
+
+  function hasCuratedSpecPractice() {
+    return Boolean(specPracticeCopy?.has_curated_example);
+  }
+
+  function syncBuiltinSpecPracticePreview() {
+    if (!specPracticePreviewLabel || !specPracticeSummary || !specPracticePreview) {
+      return false;
+    }
+    const locale = window.LooporaUI.currentLocale();
+    const summary = locale === "zh" ? specPracticeCopy.summary_zh : specPracticeCopy.summary_en;
+    const renderedHtml = locale === "zh" ? specPracticeCopy.rendered_html_zh : specPracticeCopy.rendered_html_en;
+    if (!hasCuratedSpecPractice()) {
+      return false;
+    }
+    specPracticePreviewLabel.textContent = localeText("真实场景样例", "Real scenario example");
+    specPracticeSummary.textContent = String(summary || "");
+    specPracticePreview.innerHTML = String(renderedHtml || "");
+    return true;
+  }
+
+  function syncGeneratedTemplatePreview(renderedHtml) {
+    if (!specPracticePreviewLabel || !specPracticeSummary || !specPracticePreview) {
+      return;
+    }
+    specPracticePreviewLabel.textContent = localeText("当前 workflow 模板", "Current workflow template");
+    specPracticeSummary.textContent = localeText(
+      "按当前 workflow 即时生成，只读展示。",
+      "Generated from the current workflow for read-only preview.",
+    );
+    specPracticePreview.innerHTML = String(renderedHtml || "");
+  }
+
+  function specPracticeLocationRequested() {
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash;
+    return params.get("show") === "spec" || hash === "#spec-practice" || hash === "#spec-practice-panel";
+  }
+
+  function clearSpecPracticeLocationRequest() {
+    const url = new URL(window.location.href);
+    let changed = false;
+    if (url.searchParams.get("show") === "spec") {
+      url.searchParams.delete("show");
+      changed = true;
+    }
+    if (url.hash === "#spec-practice" || url.hash === "#spec-practice-panel") {
+      url.hash = "";
+      changed = true;
+    }
+    if (!changed) {
+      return;
+    }
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    window.history.replaceState({}, "", nextUrl);
   }
 
   function localizeSelectOptions(select) {
@@ -662,6 +747,34 @@ document.addEventListener("DOMContentLoaded", () => {
     renderWorkflowValidation({forceErrors: forceValidation});
   }
 
+  async function refreshGeneratedSpecTemplate(options = {}) {
+    if (!specPracticePreview) {
+      return;
+    }
+    const loadingMessage = options.loadingMessage || localeText(
+      "正在按当前流程刷新 spec 预览…",
+      "Refreshing the spec preview for the current workflow...",
+    );
+    const successMessage = options.successMessage || localeText(
+      "已刷新当前 workflow 的只读模板。",
+      "Refreshed the read-only template for the current workflow.",
+    );
+    setSpecPracticeModalStatus(loadingMessage, "");
+    const {response, payload, error} = await fetchJson("/api/specs/template", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        locale: window.LooporaUI.currentLocale(),
+        workflow_json: workflowState,
+      }),
+    });
+    if (error || !response || !payload.ok) {
+      throw new Error(payload.error || localeText("无法生成 spec 模板。", "Unable to generate the spec template."));
+    }
+    syncGeneratedTemplatePreview(payload.rendered_html || "");
+    setSpecPracticeModalStatus(successMessage, "success");
+  }
+
   function closeWorkflowSettingsModal({restoreFocus = true, refresh = false} = {}) {
     if (!settingsModal) {
       return;
@@ -690,6 +803,56 @@ document.addEventListener("DOMContentLoaded", () => {
     renderWorkflowSettingsModal();
     const firstFocusable = isReadOnly ? settingsModal.querySelector("[data-close-workflow-settings]") : settingsStepIdInput;
     firstFocusable?.focus?.();
+  }
+
+  function closeSpecPracticeModal() {
+    if (!specPracticeModal) {
+      return;
+    }
+    specPracticeModal.hidden = true;
+    specPracticeModal.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("modal-open");
+    clearSpecPracticeLocationRequest();
+    if (lastSpecPracticeTrigger instanceof HTMLElement) {
+      lastSpecPracticeTrigger.focus();
+    }
+    lastSpecPracticeTrigger = null;
+  }
+
+  function openSpecPracticeModal(trigger = openSpecPracticeButton) {
+    if (!specPracticeModal) {
+      return;
+    }
+    lastSpecPracticeTrigger = trigger instanceof HTMLElement ? trigger : document.activeElement;
+    specPracticeModal.hidden = false;
+    specPracticeModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("modal-open");
+    specPracticeModal.querySelector(".spec-preview-dialog")?.scrollTo({top: 0});
+    if (syncBuiltinSpecPracticePreview()) {
+      setSpecPracticeModalStatus(
+        localeText(
+          "这里展示一个适合当前内置流程的真实需求样例，以及对应的示例 spec。",
+          "This dialog shows a real request that fits the current built-in workflow, followed by a sample spec.",
+        ),
+        "",
+      );
+      return;
+    }
+    setSpecPracticeModalStatus(
+      localeText(
+        "这里直接展示按当前 workflow 生成的只读模板。",
+        "This dialog shows the read-only template generated from the current workflow.",
+      ),
+      "",
+    );
+    refreshGeneratedSpecTemplate().catch((error) => {
+      setSpecPracticeModalStatus(
+        error instanceof Error && error.message
+          ? error.message
+          : localeText("无法生成 spec 模板。", "Unable to generate the spec template."),
+        "error",
+      );
+    });
   }
 
   function applyStarterBundle(bundle) {
@@ -881,9 +1044,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  specPracticeModal?.addEventListener("click", (event) => {
+    const closeTarget = event.target.closest("[data-close-orchestration-spec-practice]");
+    if (closeTarget) {
+      closeSpecPracticeModal();
+    }
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && settingsModal && !settingsModal.hidden) {
       closeWorkflowSettingsModal({refresh: true});
+      return;
+    }
+    if (event.key === "Escape" && specPracticeModal && !specPracticeModal.hidden) {
+      closeSpecPracticeModal();
     }
   });
 
@@ -943,7 +1117,30 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  document.addEventListener("loopora:localechange", () => renderWorkflowEditor({forceValidation: submitAttempted}));
+  document.addEventListener("loopora:localechange", () => {
+    renderWorkflowEditor({forceValidation: submitAttempted});
+    if (specPracticeModal && !specPracticeModal.hidden) {
+      if (syncBuiltinSpecPracticePreview()) {
+        setSpecPracticeModalStatus(
+          localeText(
+            "这里展示一个适合当前内置流程的真实需求样例，以及对应的示例 spec。",
+            "This dialog shows a real request that fits the current built-in workflow, followed by a sample spec.",
+          ),
+          "",
+        );
+        return;
+      }
+      refreshGeneratedSpecTemplate({
+        loadingMessage: localeText("正在切换当前语言下的 spec 预览…", "Switching the spec preview to the current locale..."),
+        successMessage: localeText("已切换到当前语言下的模板。", "Switched the template to the current locale."),
+      }).catch(() => {
+        setSpecPracticeModalStatus(
+          localeText("语言切换后暂时无法刷新 spec 预览。", "Unable to refresh the spec preview after the locale change."),
+          "error",
+        );
+      });
+    }
+  });
 
   try {
     normalizeWorkflowState(
@@ -955,4 +1152,15 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   renderWorkflowEditor();
+  if (hasCuratedSpecPractice()) {
+    syncBuiltinSpecPracticePreview();
+  }
+
+  openSpecPracticeButton?.addEventListener("click", () => {
+    openSpecPracticeModal(openSpecPracticeButton);
+  });
+
+  if (specPracticeLocationRequested()) {
+    openSpecPracticeModal();
+  }
 });

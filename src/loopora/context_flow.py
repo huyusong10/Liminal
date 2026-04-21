@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from loopora.specs import resolve_role_note
+
 from loopora.run_artifacts import RunArtifactLayout, artifact_ref
 
 ARTIFACT_REF_SCHEMA = {
@@ -564,12 +566,18 @@ def render_step_prompt(
     packet: dict,
     compiled_spec: dict,
 ) -> str:
+    role_note = resolve_role_note(
+        compiled_spec,
+        role_name=str(role.get("name") or ""),
+        archetype=str(role.get("archetype") or ""),
+    )
     sections = [
         f"You are {role['name']} inside Loopora.",
         system_prompt_prefix(role["archetype"]),
         output_contract_prompt(role["archetype"]),
         prompt_body.strip(),
         render_run_contract_section(packet["contract"], compiled_spec),
+        render_role_note_section(role_note),
         render_iteration_section(packet),
         render_handoff_section(
             "Immediate upstream handoff",
@@ -666,6 +674,12 @@ def render_run_contract_section(contract: dict, compiled_spec: dict) -> str:
         f"Checks:\n{json.dumps(compiled_spec.get('checks', []), ensure_ascii=False, indent=2)}\n\n"
         f"Constraints:\n{constraints}"
     )
+
+
+def render_role_note_section(role_note: str) -> str:
+    if not str(role_note or "").strip():
+        return ""
+    return f"Role notes for the current role:\n{str(role_note).strip()}"
 
 
 def render_iteration_section(packet: dict) -> str:

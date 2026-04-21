@@ -46,7 +46,7 @@ from loopora.run_artifacts import (
     write_text_with_mirrors,
 )
 from loopora.settings import AppSettings, configure_logging, db_path, load_settings, save_recent_workdirs
-from loopora.specs import SpecError, compile_markdown_spec, read_and_compile
+from loopora.specs import SpecError, compile_markdown_spec, read_and_compile, resolve_role_note
 from loopora.stagnation import update_stagnation
 from loopora.utils import append_jsonl, make_id, read_json, utc_now, write_json
 from loopora.workflows import (
@@ -3755,6 +3755,12 @@ class LooporaService:
             "Use empty strings only when a field truly cannot be made more specific."
         )
 
+    def _role_note_block(self, compiled_spec: dict, *, role_name: str, archetype: str) -> str:
+        role_note = resolve_role_note(compiled_spec, role_name=role_name, archetype=archetype)
+        if not role_note:
+            return ""
+        return f"Role notes for this role:\n{role_note}\n\n"
+
     def _generator_prompt(
         self,
         compiled_spec: dict,
@@ -3768,6 +3774,7 @@ class LooporaService:
         previous_challenger_result: dict | None = None,
     ) -> str:
         constraints = compiled_spec.get("constraints") or "No explicit constraints were provided."
+        role_note = self._role_note_block(compiled_spec, role_name="Builder", archetype="builder")
         bootstrap_guidance = ""
         action_guidance = (
             "This role must end with a concrete attempt, not only repo inspection.\n"
@@ -3808,6 +3815,7 @@ class LooporaService:
             f"Spec goal:\n{compiled_spec['goal']}\n\n"
             f"Checks:\n{self._render_checks(compiled_spec['checks'])}\n\n"
             f"Constraints:\n{constraints}\n\n"
+            f"{role_note}"
             "Return JSON with attempted, abandoned, assumption, summary, and changed_files."
         )
 
@@ -3860,6 +3868,7 @@ class LooporaService:
 
     def _tester_prompt(self, compiled_spec: dict, iter_id: int, mode: str) -> str:
         checks = json.dumps(compiled_spec["checks"], ensure_ascii=False, indent=2)
+        role_note = self._role_note_block(compiled_spec, role_name="Inspector", archetype="inspector")
         return (
             "You are the Tester role inside Loopora.\n"
             "Inspect the workdir, run the most relevant commands, and evaluate the listed checks.\n"
@@ -3870,12 +3879,14 @@ class LooporaService:
             f"Iteration: {iter_id}\n"
             f"Mode: {mode}\n"
             f"Checks:\n{checks}\n\n"
+            f"{role_note}"
             "For every `check_results` item and every `dynamic_checks` item, return `id`, `title`, `status`, and `notes`.\n"
             "Return JSON with execution_summary, check_results, dynamic_checks, and tester_observations."
         )
 
     def _verifier_prompt(self, compiled_spec: dict, tester_output: dict, iter_id: int, mode: str) -> str:
         constraints = compiled_spec.get("constraints") or "No explicit constraints were provided."
+        role_note = self._role_note_block(compiled_spec, role_name="GateKeeper", archetype="gatekeeper")
         return (
             "You are the Verifier role inside Loopora.\n"
             "Judge the tester output conservatively against the goal, checks, and constraints.\n"
@@ -3887,6 +3898,7 @@ class LooporaService:
             f"Goal:\n{compiled_spec['goal']}\n\n"
             f"Checks:\n{self._render_checks(compiled_spec['checks'])}\n\n"
             f"Constraints:\n{constraints}\n\n"
+            f"{role_note}"
             f"Tester output:\n{json.dumps(tester_output, ensure_ascii=False, indent=2)}\n\n"
             "Inside `metric_scores`, provide exactly `check_pass_rate` and `quality_score`, each with `value`, `threshold`, and `passed`.\n"
             "For every `priority_failures` item, return `error_code` and `summary`.\n"
@@ -3896,6 +3908,7 @@ class LooporaService:
 
     def _challenger_prompt(self, compiled_spec: dict, stagnation: dict, iter_id: int) -> str:
         constraints = compiled_spec.get("constraints") or "No explicit constraints were provided."
+        role_note = self._role_note_block(compiled_spec, role_name="Guide", archetype="guide")
         return (
             "You are the Challenger role inside Loopora.\n"
             "Suggest the smallest high-leverage direction change when progress stalls.\n"
@@ -3903,6 +3916,7 @@ class LooporaService:
             f"Spec goal:\n{compiled_spec['goal']}\n\n"
             f"Checks:\n{self._render_checks(compiled_spec['checks'])}\n\n"
             f"Constraints:\n{constraints}\n\n"
+            f"{role_note}"
             f"Stagnation state:\n{json.dumps(stagnation, ensure_ascii=False, indent=2)}\n\n"
             "Inside `analysis`, return `stagnation_pattern`, `recommended_shift`, and `risk_note`.\n"
             "Return JSON with created_at_iter, mode, consumed, analysis, seed_question, and meta_note."

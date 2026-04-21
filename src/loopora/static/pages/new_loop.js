@@ -96,13 +96,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (validation.ok) {
       const detail = validation.check_mode === "auto_generated"
-        ? localeText("当前内容还没有显式 checks，run 开始时会自动生成并冻结。", "The current text has no explicit checks yet. Loopora will generate and freeze them at run start.")
-        : localeText(`当前内容识别到 ${validation.check_count} 个显式 checks。`, `The current text contains ${validation.check_count} explicit check(s).`);
+        ? localeText(
+          "当前内容还没有固定 Done When，run 开始时会自动生成并冻结 checks。",
+          "This spec does not lock Done When yet. Loopora will generate and freeze checks at run start.",
+        )
+        : localeText(
+          `当前内容识别到 ${validation.check_count} 条 Done When 结果。`,
+          `This spec contains ${validation.check_count} Done When outcome(s).`,
+        );
       return {
         message: `${localeText("Spec 校验通过。", "Spec is valid.")} ${detail}`,
         kind: "success",
         pill: validation.check_mode === "auto_generated"
-          ? localeText("自动 checks", "Auto checks")
+          ? localeText("自动生成", "Auto-generated")
           : localeText("校验通过", "Valid"),
       };
     }
@@ -491,7 +497,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let targetPath = specPathInput.value.trim();
     if (!targetPath) {
       if (createSpecTemplateButton.dataset.nativeDialogsEnabled === "false") {
-        showStatus(specValidation, localeText("网络模式下请先手动填好服务端上的 spec 路径，再创建模版。", "In network mode, enter a server-side spec path first and then create the template."), "error");
+        showStatus(specValidation, localeText("网络模式下请先手动填好服务端上的 spec 路径，再创建模板。", "In network mode, enter a server-side spec path first and then create the template."), "error");
         return;
       }
       const startPath = workdirInput.value.trim();
@@ -508,13 +514,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const {response, payload, error} = await fetchJson("/api/specs/init", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({path: targetPath, locale: window.LooporaUI.currentLocale()}),
+      body: JSON.stringify({
+        path: targetPath,
+        locale: window.LooporaUI.currentLocale(),
+        workflow_json: currentOrchestration()?.workflow_json || null,
+      }),
     });
     if (error || !response) {
-      throw new Error(errorMessage(error, localeText("无法创建 spec 模版。", "Unable to create the spec template.")));
+      throw new Error(errorMessage(error, localeText("无法创建 spec 模板。", "Unable to create the spec template.")));
     }
     if (!response.ok) {
-      showStatus(specValidation, payload.error || localeText("无法创建 spec 模版。", "Unable to create the spec template."), "error");
+      showStatus(specValidation, payload.error || localeText("无法创建 spec 模板。", "Unable to create the spec template."), "error");
       return;
     }
     specPathInput.value = payload.path;
@@ -921,7 +931,7 @@ document.addEventListener("DOMContentLoaded", () => {
       createSpecTemplate,
       {
         errorTarget: specValidation,
-        fallbackMessage: localeText("无法创建 spec 模版。", "Unable to create the spec template."),
+        fallbackMessage: localeText("无法创建 spec 模板。", "Unable to create the spec template."),
       },
     ));
   }

@@ -28,8 +28,8 @@ RUN_ARTIFACT_SPECS = (
         "relative_path": "contract/compiled_spec.json",
         "label_zh": "编译后 Spec",
         "label_en": "Compiled spec",
-        "description_zh": "本次 run 实际使用的 Goal、Checks 和 Constraints。",
-        "description_en": "The Goal, Checks, and Constraints used by this run.",
+        "description_zh": "本次 run 实际使用的 Task、checks、Guardrails 和 role notes。",
+        "description_en": "The Task, checks, Guardrails, and role notes used by this run.",
     },
     {
         "id": "workflow-manifest",

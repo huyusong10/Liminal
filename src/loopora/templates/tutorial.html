@@ -5,263 +5,239 @@
   <section class="hero hero-tight">
     <div class="hero-copy-stack">
       <h1>
-        <span data-lang="zh">按正确顺序使用 Loopora：先定义角色，再编排流程，最后创建循环。</span>
-        <span data-lang="en">Use Loopora in the right order: define roles first, orchestrate the flow second, then create loops.</span>
+        <span data-lang="zh">当一次 Builder 还不够，而且下一步得看新证据时，再用 Loopora。</span>
+        <span data-lang="en">Use Loopora when one Builder pass is not enough and the next move depends on fresh evidence.</span>
       </h1>
       <p>
-        <span data-lang="zh">Loopora 现在把“角色是谁、怎么执行”和“流程怎么串起来”拆开了。照着下面三步走，后面的循环会清爽很多。</span>
-        <span data-lang="en">Loopora now separates role identity and execution from orchestration wiring. Follow the three steps below and your loops stay much easier to reason about.</span>
+        <span data-lang="zh">Loopora 不是为了让 agent 一直跑下去，而是为了让 Builder、Inspector、GateKeeper 和 Guide 围绕新证据，一轮轮把任务收敛下来。</span>
+        <span data-lang="en">Loopora is not for keeping an agent running longer. It is for helping Builder, Inspector, GateKeeper, and Guide converge round by round around fresh evidence.</span>
       </p>
     </div>
   </section>
 
   <section class="panel tutorial-guide-panel" data-testid="tutorial-guide-panel">
     <header class="panel-header">
+      <h2><span data-lang="zh">核心精神</span><span data-lang="en">Core idea</span></h2>
+    </header>
+    <div class="tutorial-guide-grid tutorial-guide-grid-compact">
+      <article class="tutorial-guide-card" data-testid="tutorial-core-spec">
+        <strong class="tutorial-guide-title"><span data-lang="zh">为什么要 loop</span><span data-lang="en">Why loop</span></strong>
+        <p>
+          <span data-lang="zh">只有当这一轮行动会改变下一步判断时，loop 才有意义。否则只是让 Builder 围着旧假设越跑越偏。</span>
+          <span data-lang="en">A loop only matters when this round should change the next decision. Otherwise Builder is just drifting farther on the same stale assumption.</span>
+        </p>
+      </article>
+      <article class="tutorial-guide-card" data-testid="tutorial-core-workflow">
+        <strong class="tutorial-guide-title"><span data-lang="zh">角色分工</span><span data-lang="en">Role story</span></strong>
+        <p>
+          <span data-lang="zh">Builder 负责推进改动，Inspector 负责拿证据，GateKeeper 负责判断能不能过，Guide 只在卡住或明显走偏时介入。</span>
+          <span data-lang="en">Builder moves the work forward, Inspector gathers evidence, GateKeeper decides whether it passes, and Guide only steps in when the loop stalls or starts drifting.</span>
+        </p>
+      </article>
+      <article class="tutorial-guide-card" data-testid="tutorial-core-loop">
+        <strong class="tutorial-guide-title"><span data-lang="zh">什么时候别用</span><span data-lang="en">When not to use it</span></strong>
+        <p>
+          <span data-lang="zh">如果只是改小文案、补一个小按钮，或者一轮就能安全做完的功能，就别开 loop。那种任务直接单次执行更省事。</span>
+          <span data-lang="en">If it is just a copy tweak, a tiny button, or a feature slice one agent can finish safely in a single pass, skip the loop. A one-shot run is simpler.</span>
+        </p>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel" id="tutorial-decision-tree-panel" data-testid="tutorial-decision-tree-panel">
+    <header class="panel-header">
+      <h2><span data-lang="zh">先用这张决策树</span><span data-lang="en">Start with this decision tree</span></h2>
+    </header>
+    <div class="tutorial-decision-tree-shell">
+      <section class="tutorial-decision-tree-canvas" data-testid="tutorial-decision-tree-canvas" aria-label="{{ 'Loopora 使用决策树' if page_locale == 'zh' else 'Loopora decision tree' }}">
+        <div class="tutorial-decision-tree-kicker" data-testid="tutorial-decision-tree-kicker">Builder · Inspector · GateKeeper · Guide</div>
+        <div class="tutorial-decision-tree-intro">
+          <span class="tutorial-decision-tree-eyebrow">
+            <span data-lang="zh">先判断值不值得开 loop，再判断该让谁先拿到关键东西。</span>
+            <span data-lang="en">First decide whether the task deserves a loop, then decide who should get the first crucial signal.</span>
+          </span>
+          <h3>
+            <span data-lang="zh">这件事值得进 Loopora 吗？</span>
+            <span data-lang="en">Does this task belong in Loopora?</span>
+          </h3>
+          <p>
+            <span data-lang="zh">只有当这一轮拿到的新证据，会改变下一步判断时，loop 才值得开。</span>
+            <span data-lang="en">Use a loop only when fresh evidence should change the next move.</span>
+          </p>
+        </div>
+        <div class="tutorial-decision-tree-stage">
+          <article class="tutorial-decision-tree-question tutorial-decision-tree-question--primary" data-testid="tutorial-decision-tree-primary-question">
+            <span class="tutorial-decision-tree-step-badge">01</span>
+            <div class="tutorial-decision-tree-question-copy">
+              <h4>
+                <span data-lang="zh">这一轮的新证据，会不会改变下一步？</span>
+                <span data-lang="en">Will fresh evidence change the next move?</span>
+              </h4>
+              <p>
+                <span data-lang="zh">先只回答这一句：如果答案是不会，通常就不该开 loop。</span>
+                <span data-lang="en">Answer this first: if the answer is no, a loop usually adds more drift than value.</span>
+              </p>
+            </div>
+          </article>
+          <div class="tutorial-decision-tree-stage-grid">
+            <article class="tutorial-decision-tree-stop-card" data-testid="tutorial-decision-tree-stop-card">
+              <span class="tutorial-decision-tree-branch-pill">
+                <span data-lang="zh">不会</span>
+                <span data-lang="en">No</span>
+              </span>
+              <h4>
+                <span data-lang="zh">先别用 Loopora</span>
+                <span data-lang="en">Skip Loopora</span>
+              </h4>
+              <p>
+                <span data-lang="zh">一次做完、短链路修复，或者直接实现，通常更省事。</span>
+                <span data-lang="en">A one-shot run, short repair, or direct build is usually the better fit.</span>
+              </p>
+            </article>
+            <article class="tutorial-decision-tree-question tutorial-decision-tree-question--secondary" data-testid="tutorial-decision-tree-secondary-question">
+              <div class="tutorial-decision-tree-question-header">
+                <span class="tutorial-decision-tree-branch-pill tutorial-decision-tree-branch-pill--yes">
+                  <span data-lang="zh">会</span>
+                  <span data-lang="en">Yes</span>
+                </span>
+                <span class="tutorial-decision-tree-step-badge tutorial-decision-tree-step-badge--secondary">02</span>
+              </div>
+              <h4>
+                <span data-lang="zh">如果要用，最先缺的是什么？</span>
+                <span data-lang="en">If it belongs in Loopora, what is missing first?</span>
+              </h4>
+              <p>
+                <span data-lang="zh">别先背流程名。直接看下面这张匹配表：最先缺什么，就选谁先上场的流程。</span>
+                <span data-lang="en">Do not start from workflow names. Use the matching board below: choose the workflow that puts the missing signal on stage first.</span>
+              </p>
+            </article>
+          </div>
+        </div>
+        <div class="tutorial-decision-tree-flow-stack" data-testid="tutorial-decision-tree-flow-stack">
+          <div class="tutorial-decision-tree-flow-stack-header">
+            <span class="tutorial-decision-tree-flow-stack-label">
+              <span data-lang="zh">最先缺的东西</span>
+              <span data-lang="en">What is missing first</span>
+            </span>
+            <span class="tutorial-decision-tree-flow-stack-label">
+              <span data-lang="zh">更适合的流程</span>
+              <span data-lang="en">Closer workflow fit</span>
+            </span>
+          </div>
+          {% for orchestration in builtin_orchestrations %}
+          <article class="tutorial-decision-tree-flow-card tutorial-decision-tree-flow-card--{{ orchestration.preset | replace('_', '-') }}{% if orchestration.preset == 'benchmark_loop' %} is-accent{% endif %}" data-testid="tutorial-decision-tree-flow-card">
+            <div class="tutorial-decision-tree-flow-copy">
+              <span data-lang="zh">{{ orchestration.decision_zh }}</span>
+              <span data-lang="en">{{ orchestration.decision_en }}</span>
+            </div>
+            <div class="tutorial-decision-tree-flow-choice">
+              <span class="tutorial-decision-tree-flow-pill">{{ orchestration.name }}</span>
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <section class="panel" data-testid="tutorial-workflow-scenarios-panel">
+    <header class="panel-header">
       <div>
-        <h2><span data-lang="zh">先判断这次改动属于哪一层</span><span data-lang="en">Start by choosing the right layer</span></h2>
+        <h2><span data-lang="zh">默认先看这 5 类核心流程</span><span data-lang="en">Start with these 5 core workflows</span></h2>
         <p class="tutorial-panel-copy">
-          <span data-lang="zh">如果你一时只想知道“应该回到哪个页面去改”，先看下面这一排，能更快避开职责混淆。</span>
-          <span data-lang="en">If all you need first is “which page should I go back to?”, start with this row so you can avoid crossing responsibilities.</span>
+          <span data-lang="zh">它们覆盖了 Loopora 最常见的 5 类任务：明确交付、接手排障、模糊探索、多轮修复和长期优化。</span>
+          <span data-lang="en">These five cover Loopora's most common job shapes: clear delivery, evidence-first debugging, fuzzy exploration, multi-pass repair, and benchmark-driven optimization.</span>
         </p>
       </div>
     </header>
-    <div class="tutorial-guide-grid">
-      <a class="tutorial-guide-card" href="#tutorial-step-roles" data-testid="tutorial-guide-roles">
-        <span class="tutorial-guide-kicker">
-          <span data-lang="zh">改 prompt / 工具 / 默认模型</span>
-          <span data-lang="en">Changing prompts, tools, or default models</span>
-        </span>
-        <strong class="tutorial-guide-title">
-          <span data-lang="zh">先回到角色定义</span>
-          <span data-lang="en">Go back to Role Definitions</span>
-        </strong>
-        <p>
-          <span data-lang="zh">角色是谁、默认怎么跑、权限边界在哪里，都属于这里。</span>
-          <span data-lang="en">Who the role is, how it runs by default, and where its permission boundary sits all belong here.</span>
+    <div class="tutorial-guide-grid tutorial-guide-grid-compact">
+      {% for orchestration in builtin_orchestrations %}
+      <article class="tutorial-guide-card" data-testid="tutorial-workflow-card">
+        <strong class="tutorial-guide-title">{{ orchestration.name }}</strong>
+        <p class="loop-card-meta">
+          <span data-lang="zh">{{ orchestration.description_zh or orchestration.description or "-" }}</span>
+          <span data-lang="en">{{ orchestration.description_en or orchestration.description or "-" }}</span>
         </p>
-      </a>
-
-      <a class="tutorial-guide-card" href="#tutorial-step-orchestrations" data-testid="tutorial-guide-orchestrations">
-        <span class="tutorial-guide-kicker">
-          <span data-lang="zh">改顺序 / 开关步骤 / 收束逻辑</span>
-          <span data-lang="en">Changing step order, toggles, or completion</span>
-        </span>
-        <strong class="tutorial-guide-title">
-          <span data-lang="zh">去流程编排</span>
-          <span data-lang="en">Go to Orchestrations</span>
-        </strong>
         <p>
-          <span data-lang="zh">这里决定角色怎样协作，但不改角色自身默认 prompt 和执行配置。</span>
-          <span data-lang="en">This is where roles collaborate, but it does not change the role's own default prompt or execution profile.</span>
+          <span data-lang="zh">{{ orchestration.tutorial_teaser_zh }}</span>
+          <span data-lang="en">{{ orchestration.tutorial_teaser_en }}</span>
         </p>
-      </a>
-
-      <a class="tutorial-guide-card" href="#tutorial-step-loops" data-testid="tutorial-guide-loops">
-        <span class="tutorial-guide-kicker">
-          <span data-lang="zh">换项目 / spec / 轮次策略</span>
-          <span data-lang="en">Changing project, spec, or run policy</span>
-        </span>
-        <strong class="tutorial-guide-title">
-          <span data-lang="zh">去创建循环</span>
-          <span data-lang="en">Go to Create Loop</span>
-        </strong>
-        <p>
-          <span data-lang="zh">workdir、spec、completion mode、轮次间隔和最大轮数，都在这层决定。</span>
-          <span data-lang="en">Workdir, spec, completion mode, iteration interval, and max rounds are all decided at this layer.</span>
+        <p class="tutorial-choice-note">
+          <strong><span data-lang="zh">为什么选它</span><span data-lang="en">Why this one</span></strong>
+          <span data-lang="zh">{{ orchestration.choice_zh }}</span>
+          <span data-lang="en">{{ orchestration.choice_en }}</span>
         </p>
-      </a>
+        <button
+          class="inline-hint-link inline-hint-link-button"
+          type="button"
+          data-open-tutorial-spec-practice="{{ orchestration.id }}"
+          data-testid="tutorial-open-spec-practice-button"
+          aria-haspopup="dialog"
+        >
+          <span data-lang="zh">看这个流程的样例</span>
+          <span data-lang="en">See this workflow example</span>
+        </button>
+      </article>
+      {% endfor %}
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel" data-testid="tutorial-actions-panel">
     <header class="panel-header">
-      <h2><span data-lang="zh">推荐流程</span><span data-lang="en">Recommended flow</span></h2>
+      <h2><span data-lang="zh">从哪里开始</span><span data-lang="en">Where to start</span></h2>
     </header>
-    <div class="loop-grid tutorial-step-grid">
-      <article class="loop-card tutorial-step-card" id="tutorial-step-roles" data-testid="tutorial-step-roles">
-        <div class="tutorial-step-title">
-          <span class="tutorial-step-index" aria-hidden="true">1</span>
-          <div>
-            <strong><span data-lang="zh">角色定义</span><span data-lang="en">Role definitions</span></strong>
-            <p class="loop-card-meta"><span data-lang="zh">先定义角色是谁、权限多大、默认用什么工具执行。</span><span data-lang="en">Define who the role is, how much permission it has, and which tool it uses by default.</span></p>
-          </div>
-        </div>
-        <p>
-          <span data-lang="zh">这里负责角色名、角色模板、默认 prompt、执行工具、模型和推理配置。完全自定义角色也在这里创建，但它默认是最低权限，只负责读、分析和建议。</span>
-          <span data-lang="en">This is where role names, role templates, default prompts, executors, models, and reasoning settings live. Fully custom roles are created here too, but they stay low-permission by default and focus on reading, analysis, and recommendations.</span>
-        </p>
-        <ul class="tutorial-step-checklist">
-          <li><span data-lang="zh">改 prompt、执行工具、默认模型和推理力度。</span><span data-lang="en">Change prompts, executors, default models, and reasoning effort.</span></li>
-          <li><span data-lang="zh">创建自定义角色，或重新界定一个角色默认能做什么。</span><span data-lang="en">Create a custom role or redefine what a role can do by default.</span></li>
-        </ul>
-        <div class="card-actions">
-          <a class="secondary-button" href="/roles">
-            <span data-lang="zh">打开角色定义</span>
-            <span data-lang="en">Open roles</span>
-          </a>
-        </div>
-      </article>
-
-      <article class="loop-card tutorial-step-card" id="tutorial-step-orchestrations" data-testid="tutorial-step-orchestrations">
-        <div class="tutorial-step-title">
-          <span class="tutorial-step-index" aria-hidden="true">2</span>
-          <div>
-            <strong><span data-lang="zh">流程编排</span><span data-lang="en">Orchestrations</span></strong>
-            <p class="loop-card-meta"><span data-lang="zh">再把角色定义串成步骤顺序和收束逻辑。</span><span data-lang="en">Then wire those role definitions into step order and completion rules.</span></p>
-          </div>
-        </div>
-        <p>
-          <span data-lang="zh">编排页只负责选哪些角色、每轮按什么顺序跑、哪些步骤启用，以及 GateKeeper 通过后是否结束。角色 prompt 和执行工具不在这里改。</span>
-          <span data-lang="en">The orchestration page only chooses roles, defines iteration order, enables or disables steps, and decides whether GateKeeper finishes the run. Prompt and executor changes do not happen here.</span>
-        </p>
-        <ul class="tutorial-step-checklist">
-          <li><span data-lang="zh">调整角色顺序、是否启用某一步，以及通过后如何收束。</span><span data-lang="en">Adjust role order, whether a step is enabled, and how the workflow converges.</span></li>
-          <li><span data-lang="zh">只在步骤层做覆盖项，例如 step model、session 继承和附加 CLI 参数。</span><span data-lang="en">Keep overrides at the step level only, such as step model, session inheritance, and extra CLI args.</span></li>
-        </ul>
-        <div class="card-actions">
-          <a class="secondary-button" href="/orchestrations">
-            <span data-lang="zh">打开流程编排</span>
-            <span data-lang="en">Open orchestrations</span>
-          </a>
-        </div>
-      </article>
-
-      <article class="loop-card tutorial-step-card" id="tutorial-step-loops" data-testid="tutorial-step-loops">
-        <div class="tutorial-step-title">
-          <span class="tutorial-step-index" aria-hidden="true">3</span>
-          <div>
-            <strong><span data-lang="zh">创建循环</span><span data-lang="en">Create loops</span></strong>
-            <p class="loop-card-meta"><span data-lang="zh">最后把编排放进具体项目里运行。</span><span data-lang="en">Finally, apply the orchestration to a concrete project.</span></p>
-          </div>
-        </div>
-        <p>
-          <span data-lang="zh">创建循环页只关心 workdir、spec、选哪套编排，以及运行策略，比如按守门裁决结束，还是按固定轮次推进、轮次之间等待多久。</span>
-          <span data-lang="en">The create-loop page only cares about workdir, spec, which orchestration to use, and runtime policy such as GateKeeper completion, round-based completion, and the wait between rounds.</span>
-        </p>
-        <ul class="tutorial-step-checklist">
-          <li><span data-lang="zh">切换项目 workdir、spec、completion mode、最大轮次和轮次间隔。</span><span data-lang="en">Change project workdir, spec, completion mode, max rounds, and iteration interval.</span></li>
-          <li><span data-lang="zh">把同一套编排放进不同项目跑，但不在这里改角色默认配置。</span><span data-lang="en">Apply the same orchestration to a different project without redefining role defaults here.</span></li>
-        </ul>
-        <div class="card-actions">
-          <a class="secondary-button" href="/loops/new">
-            <span data-lang="zh">打开创建循环</span>
-            <span data-lang="en">Open loop creation</span>
-          </a>
-        </div>
-      </article>
-    </div>
-  </section>
-
-  <section class="panel">
-    <header class="panel-header">
-      <h2><span data-lang="zh">关键原则</span><span data-lang="en">Key principles</span></h2>
-    </header>
-    <div class="stacked-copy">
-      <p>
-        <span data-lang="zh">角色定义回答“这个角色是谁、能做什么、默认怎么跑”。流程编排回答“这些角色怎样协作”。创建循环回答“这套流程在这个项目里怎么持续运行”。</span>
-        <span data-lang="en">Role definitions answer “who is this role and how does it run by default”. Orchestrations answer “how do these roles collaborate”. Loop creation answers “how should this collaboration keep running in this project”.</span>
-      </p>
-      <p>
-        <span data-lang="zh">如果你发现自己想在编排里改 prompt 或执行工具，通常说明这项改动应该回到“角色定义”。如果你只是想调整运行频率、最大轮数或 completion mode，那就是“创建循环”的职责。</span>
-        <span data-lang="en">If you find yourself trying to change prompts or executors inside an orchestration, that usually means the change belongs back in Role Definitions. If you only want to tune cadence, max rounds, or completion mode, that belongs in Create Loop.</span>
-      </p>
-    </div>
-  </section>
-
-  <section class="panel" data-testid="tutorial-context-flow-panel">
-    <header class="panel-header">
-      <h2><span data-lang="zh">上下文如何在流程里流转</span><span data-lang="en">How context moves through a workflow</span></h2>
-    </header>
-    <div class="stacked-copy">
-      <p>
-        <span data-lang="zh">Loopora 不会把每一步都变成一段“自由发挥”的 prompt 拼接。运行开始时会先冻结契约，再在每个步骤前后写出固定结构的 context 与 handoff 文件，让下一步和下一轮都能按代码规则继续消费。</span>
-        <span data-lang="en">Loopora does not rely on free-form prompt drift between steps. It freezes the contract first, then writes structured context and handoff files around every step so the next step and the next round can consume them by code-defined rules.</span>
-      </p>
-    </div>
-
-    <div class="tutorial-context-grid">
-      <article class="tutorial-context-card">
-        <span class="tutorial-context-kicker"><span data-lang="zh">1. 运行开始</span><span data-lang="en">1. Run start</span></span>
-        <h3><span data-lang="zh">冻结全局契约</span><span data-lang="en">Freeze the run contract</span></h3>
-        <p>
-          <span data-lang="zh">spec、workflow、prompt 引用和运行策略会先被收敛成稳定快照，后面的步骤都以这份契约为准。</span>
-          <span data-lang="en">The spec, workflow, prompt refs, and runtime policy are frozen into one stable snapshot that every later step reads from.</span>
-        </p>
-        <code class="tutorial-context-path">contract/run_contract.json</code>
-      </article>
-
-      <article class="tutorial-context-card">
-        <span class="tutorial-context-kicker"><span data-lang="zh">2. 步骤开始前</span><span data-lang="en">2. Before a step</span></span>
-        <h3><span data-lang="zh">装配步骤上下文</span><span data-lang="en">Assemble step context</span></h3>
-        <p>
-          <span data-lang="zh">当前轮次、当前角色、紧邻上一步 handoff、上一轮同 step 摘要和可用 artifacts 会被整理成一个稳定包。</span>
-          <span data-lang="en">The current iteration, current role, immediate previous handoff, prior same-step summary, and available artifacts are assembled into one stable packet.</span>
-        </p>
-        <code class="tutorial-context-path">iterations/iter_000/steps/00__builder/input.context.json</code>
-      </article>
-
-      <article class="tutorial-context-card">
-        <span class="tutorial-context-kicker"><span data-lang="zh">3. 步骤结束后</span><span data-lang="en">3. After a step</span></span>
-        <h3><span data-lang="zh">写回输出与交接</span><span data-lang="en">Write output and handoff</span></h3>
-        <p>
-          <span data-lang="zh">角色原始输出会先归档，再由系统代码提炼出 handoff，交给下一个步骤和下一轮继续使用。</span>
-          <span data-lang="en">The role's raw output is archived first, then Loopora derives a handoff that the next step and the next iteration can reuse.</span>
-        </p>
-        <code class="tutorial-context-path">iterations/iter_000/steps/00__builder/handoff.json</code>
-      </article>
-
-      <article class="tutorial-context-card">
-        <span class="tutorial-context-kicker"><span data-lang="zh">4. 每轮收束</span><span data-lang="en">4. Iteration close</span></span>
-        <h3><span data-lang="zh">生成轮次总结</span><span data-lang="en">Generate iteration summary</span></h3>
-        <p>
-          <span data-lang="zh">每轮会落一份总结，记录关键 handoff、score、stagnation 和最新索引，供下一轮直接承接。</span>
-          <span data-lang="en">Each round writes a summary with the key handoffs, score, stagnation state, and latest indexes so the next round can pick up cleanly.</span>
-        </p>
-        <code class="tutorial-context-path">context/latest_iteration_summary.json</code>
-      </article>
-    </div>
-
-    <div class="tutorial-context-detail-grid">
-      <article class="tutorial-context-detail">
-        <h3><span data-lang="zh">下一步到底会读什么</span><span data-lang="en">What the next step actually reads</span></h3>
-        <ul class="tutorial-context-list">
-          <li>
-            <span data-lang="zh">先读固定契约：`contract/run_contract.json` 提供 spec、workflow 和运行边界。</span>
-            <span data-lang="en">It starts with the fixed contract: `contract/run_contract.json` provides the spec, workflow, and runtime boundaries.</span>
-          </li>
-          <li>
-            <span data-lang="zh">再读当前 step 的 `input.context.json`，里面已经明确写好“现在是第几轮、上一轮发生了什么、紧邻上一步是谁”。</span>
-            <span data-lang="en">Then it reads the current step's `input.context.json`, which already states the iteration number, what happened last round, and who ran immediately before it.</span>
-          </li>
-          <li>
-            <span data-lang="zh">如果上一步产生了 `handoff.json`，当前步骤会优先消费它，而不是自己去猜上一位角色做了什么。</span>
-            <span data-lang="en">If the previous step wrote a `handoff.json`, the current step consumes that first instead of guessing what the prior role did.</span>
-          </li>
-          <li>
-            <span data-lang="zh">跨轮次时，会继续参考 `iterations/iter_000/summary.json` 和 `context/latest_state.json`，避免历史信息散落在长 prompt 里。</span>
-            <span data-lang="en">Across iterations, it also consults `iterations/iter_000/summary.json` and `context/latest_state.json` so history does not sprawl across long prompts.</span>
-          </li>
-        </ul>
-      </article>
-
-      <article class="tutorial-context-detail">
-        <h3><span data-lang="zh">运行中会出现的中间文件</span><span data-lang="en">Intermediate files you will see during a run</span></h3>
-        <div class="preview-box tutorial-context-files">
-          <code>contract/run_contract.json</code>
-          <code>context/latest_state.json</code>
-          <code>context/latest_iteration_summary.json</code>
-          <code>timeline/events.jsonl</code>
-          <code>iterations/iter_000/summary.json</code>
-          <code>iterations/iter_000/steps/00__builder/input.context.json</code>
-          <code>iterations/iter_000/steps/00__builder/output.normalized.json</code>
-          <code>iterations/iter_000/steps/00__builder/handoff.json</code>
-        </div>
-        <p>
-          <span data-lang="zh">这些文件既是白盒观察入口，也是后续步骤继续消费的结构化产物。终端里的系统动作会告诉你它们什么时候被准备、写入和汇总。</span>
-          <span data-lang="en">These files are both white-box observation points and structured artifacts that later steps continue to consume. The console's system actions tell you when they are prepared, written, and summarized.</span>
-        </p>
-      </article>
+    <div class="card-actions">
+      <a class="secondary-button" href="/orchestrations">
+        <span data-lang="zh">看流程编排</span>
+        <span data-lang="en">Open orchestrations</span>
+      </a>
+      <a class="ghost-button" href="/loops/new">
+        <span data-lang="zh">创建 loop</span>
+        <span data-lang="en">Create loop</span>
+      </a>
     </div>
   </section>
 </div>
+
+<div class="confirm-modal spec-preview-modal" id="tutorial-spec-practice-modal" data-testid="tutorial-spec-practice-modal" hidden aria-hidden="true">
+  <div class="confirm-modal-backdrop" data-close-tutorial-spec-practice="1"></div>
+  <div class="confirm-modal-dialog spec-preview-dialog tutorial-spec-practice-dialog" role="dialog" aria-modal="true" aria-labelledby="tutorial-spec-practice-title" aria-describedby="tutorial-spec-practice-status">
+    <div class="spec-preview-shell">
+      <div class="spec-preview-header">
+        <div class="spec-preview-copy">
+          <span class="spec-preview-kicker"><span data-lang="zh">只读参考</span><span data-lang="en">Read-only reference</span></span>
+          <h2 id="tutorial-spec-practice-title"><span data-lang="zh">流程样例</span><span data-lang="en">Workflow example</span></h2>
+          <p class="spec-preview-status" id="tutorial-spec-practice-status">
+            <span data-lang="zh">这里展示的是一条真实需求样例，以及为什么它更适合这条流程。</span>
+            <span data-lang="en">This dialog shows a real task example and why it fits this workflow better than the nearby alternatives.</span>
+          </p>
+        </div>
+        <div class="card-actions card-actions-compact spec-preview-actions">
+          <span class="status-pill spec-preview-readonly">
+            <span data-lang="zh">只读</span>
+            <span data-lang="en">Read-only</span>
+          </span>
+          <button class="ghost-button" type="button" data-close-tutorial-spec-practice="1">
+            <span data-lang="zh">关闭</span>
+            <span data-lang="en">Close</span>
+          </button>
+        </div>
+      </div>
+      <div class="tutorial-spec-practice-content">
+        <section class="markdown-workbench-panel tutorial-spec-practice-preview-shell" data-testid="tutorial-spec-practice-preview-shell">
+          <div class="markdown-workbench-panel-head">
+            <span class="markdown-workbench-panel-label">
+              <span data-lang="zh">真实需求样例</span><span data-lang="en">Real task example</span>
+            </span>
+            <span class="markdown-workbench-panel-note" id="tutorial-spec-practice-summary"></span>
+          </div>
+          <article class="preview-box markdown-preview markdown-workbench-preview" id="tutorial-spec-practice-preview" data-testid="tutorial-spec-practice-preview"></article>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script id="tutorial-spec-practices-json" type="application/json">{{ tutorial_spec_practices|tojson }}</script>
+<script src="{{ static_asset_url('pages/tutorial.js') }}" defer></script>
 {% endblock %}

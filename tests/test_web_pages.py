@@ -492,7 +492,7 @@ def test_run_detail_surfaces_workspace_guard_failures(
     assert "workspace_guard_triggered" in response.text
 
 
-def test_tools_page_renders_skill_install_cards(service_factory) -> None:
+def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     service = service_factory(scenario="success")
 
     client = TestClient(build_app(service=service))
@@ -500,19 +500,14 @@ def test_tools_page_renders_skill_install_cards(service_factory) -> None:
 
     assert response.status_code == 200
     assert '<title>Tools</title>' in response.text
-    assert "Spec skill install" in response.text
     assert "/static/pages/tools.js?v=" in response.text
-    assert "data-install-skill=\"codex\"" in response.text
-    assert "data-install-skill=\"claude\"" in response.text
-    assert "data-install-skill=\"opencode\"" in response.text
     assert "顺手的小外挂" in response.text
     assert "wake-lock-toggle" in response.text
     assert "Prevent sleep while running" in response.text
     assert "help-dot--tips" in response.text
     assert 'aria-label="Show tip: The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock."' in response.text
     assert ">i</button>" in response.text
-    assert "/api/skills/loopora-spec/download" in response.text
-    assert "下载 Skill 包" in response.text
+    assert "Spec skill install" not in response.text
 
     zh_response = client.get("/tools", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
@@ -557,9 +552,11 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "id=\"spec-editor-input\"" in response.text
     assert "id=\"spec-preview-content\"" in response.text
     assert "Spec editor" in response.text
+    assert "Generate from orchestration" in response.text
     assert "Role runtime reminder" not in response.text
     assert "Spec reminder" not in response.text
     assert "Extra tools" not in response.text
+    assert 'data-testid="loop-spec-practice-hint"' not in response.text
     assert 'class="panel-header workflow-editor-header"' in response.text
     assert 'class="card-actions card-actions-compact"' in response.text
     assert '<title>Create Loop</title>' in response.text
@@ -754,6 +751,10 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     assert 'data-testid="builtin-orchestrations-tip"' in list_response.text
     assert list_response.text.count('data-testid="builtin-orchestrations-tip"') == 1
     assert 'aria-label="Show tip: Built-in starters are read-only.' in list_response.text
+    assert 'data-testid="builtin-orchestration-spec-practice-summary"' not in list_response.text
+    assert 'data-testid="builtin-orchestration-spec-practice-link"' not in list_response.text
+    assert "Fast Lane" not in list_response.text
+    assert "Quality Gate" not in list_response.text
     custom_section = re.search(
         r'<section class="panel" data-testid="custom-orchestrations-list">(.*?)</section>',
         list_response.text,
@@ -828,6 +829,15 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     assert 'id="workflow-starter-select" data-testid="workflow-starter-select" disabled' in builtin_edit_response.text
     assert 'id="save-orchestration-button"' not in builtin_edit_response.text
     assert '/orchestrations/new?workflow_preset=build_first' in builtin_edit_response.text
+    _assert_has_testid(builtin_edit_response.text, "open-orchestration-spec-practice-modal-button")
+    _assert_has_testid(builtin_edit_response.text, "orchestration-spec-practice-modal")
+    _assert_has_testid(builtin_edit_response.text, "orchestration-spec-practice-preview-shell")
+    _assert_has_testid(builtin_edit_response.text, "orchestration-spec-practice-preview")
+    assert "Real scenario example" in builtin_edit_response.text
+    assert "workspace import flow" in builtin_edit_response.text
+    assert "# Task" in builtin_edit_response.text
+    assert 'data-testid="orchestration-spec-practice-curated"' not in builtin_edit_response.text
+    assert 'data-testid="orchestration-spec-practice-template-workbench"' not in builtin_edit_response.text
 
     orchestration = service.create_orchestration(name="Custom", workflow={"preset": "inspect_first"})
     custom_edit_response = client.get(f"/orchestrations/{orchestration['id']}/edit")
@@ -835,6 +845,12 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     _assert_has_testid(custom_edit_response.text, "orchestration-editor-form")
     assert f'action="/orchestrations/{orchestration["id"]}/edit"' in custom_edit_response.text
     assert 'data-readonly="false"' in custom_edit_response.text
+    _assert_has_testid(custom_edit_response.text, "open-orchestration-spec-practice-modal-button")
+    _assert_has_testid(custom_edit_response.text, "orchestration-spec-practice-modal")
+    _assert_has_testid(custom_edit_response.text, "orchestration-spec-practice-preview-shell")
+    _assert_has_testid(custom_edit_response.text, "orchestration-spec-practice-preview")
+    assert 'data-testid="orchestration-spec-practice-curated"' not in custom_edit_response.text
+    assert 'data-testid="orchestration-spec-practice-template-workbench"' not in custom_edit_response.text
 
 
 def test_role_definitions_pages_render_as_top_level_feature(service_factory) -> None:
@@ -987,32 +1003,53 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     assert 'class="page-stack tutorial-page-stack"' in response.text
     _assert_has_testid(response.text, "nav-tutorial-link")
     _assert_has_testid(response.text, "tutorial-guide-panel")
-    _assert_has_testid(response.text, "tutorial-guide-roles")
-    _assert_has_testid(response.text, "tutorial-guide-orchestrations")
-    _assert_has_testid(response.text, "tutorial-guide-loops")
-    _assert_has_testid(response.text, "tutorial-step-roles")
-    _assert_has_testid(response.text, "tutorial-step-orchestrations")
-    _assert_has_testid(response.text, "tutorial-step-loops")
-    _assert_has_testid(response.text, "tutorial-context-flow-panel")
-    assert 'href="#tutorial-step-roles"' in response.text
-    assert 'href="#tutorial-step-orchestrations"' in response.text
-    assert 'href="#tutorial-step-loops"' in response.text
-    assert "角色定义" in response.text
-    assert "流程编排" in response.text
-    assert "创建循环" in response.text
-    assert "先判断这次改动属于哪一层" in response.text
-    assert "改 prompt / 工具 / 默认模型" in response.text
-    assert "改顺序 / 开关步骤 / 收束逻辑" in response.text
-    assert "换项目 / spec / 轮次策略" in response.text
-    assert "上下文如何在流程里流转" in response.text
-    assert "How context moves through a workflow" in response.text
-    assert "contract/run_contract.json" in response.text
-    assert "iterations/iter_000/steps/00__builder/input.context.json" in response.text
-    assert "context/latest_iteration_summary.json" in response.text
+    _assert_has_testid(response.text, "tutorial-core-spec")
+    _assert_has_testid(response.text, "tutorial-core-workflow")
+    _assert_has_testid(response.text, "tutorial-core-loop")
+    _assert_has_testid(response.text, "tutorial-decision-tree-panel")
+    _assert_has_testid(response.text, "tutorial-workflow-scenarios-panel")
+    _assert_has_testid(response.text, "tutorial-actions-panel")
+    _assert_has_testid(response.text, "tutorial-decision-tree-canvas")
+    _assert_has_testid(response.text, "tutorial-decision-tree-kicker")
+    _assert_has_testid(response.text, "tutorial-decision-tree-primary-question")
+    _assert_has_testid(response.text, "tutorial-decision-tree-secondary-question")
+    _assert_has_testid(response.text, "tutorial-decision-tree-flow-stack")
+    _assert_has_testid(response.text, "tutorial-decision-tree-stop-card")
+    _assert_has_testid(response.text, "tutorial-spec-practice-modal")
+    _assert_has_testid(response.text, "tutorial-spec-practice-preview")
+    assert "Use Loopora when one Builder pass is not enough and the next move depends on fresh evidence." in response.text
+    assert "Builder, Inspector, GateKeeper, and Guide converge round by round around fresh evidence." in response.text
+    assert "Builder moves the work forward" in response.text
+    assert "If it is just a copy tweak" in response.text
+    assert "Start with this decision tree" in response.text
+    assert "Start with these 5 core workflows" in response.text
+    assert "Inspect First" in response.text
+    assert "Build First" in response.text
+    assert "Triage First" in response.text
+    assert "Repair Loop" in response.text
+    assert "Benchmark Loop" in response.text
+    assert "Fast Lane" not in response.text
+    assert "Quality Gate" not in response.text
+    assert "Loopora decision tree" in response.text
+    assert "tutorial-decision-tree-copy" not in response.text
+    assert "tutorial-decision-tree-image" not in response.text
+    assert "Why this one" in response.text
+    assert "the first real working slice" in response.text
+    assert "incomplete invoice archives" in response.text
+    assert "full-text reindexing" in response.text
+    assert 'data-open-tutorial-spec-practice="builtin:build_first"' in response.text
+    assert 'data-open-tutorial-spec-practice="builtin:inspect_first"' in response.text
+    assert 'id="tutorial-spec-practices-json"' in response.text
+    assert "/static/pages/tutorial.js?v=" in response.text
+    assert "/orchestrations" in response.text
+    assert "/loops/new" in response.text
+    assert 'data-testid="tutorial-context-flow-panel"' not in response.text
+    assert 'data-testid="tutorial-flow-examples-panel"' not in response.text
 
     zh_response = client.get("/tutorial", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
     assert '<title>使用教程</title>' in zh_response.text
+    assert "发票归档不完整" in zh_response.text
 
 
 def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -> None:
@@ -1078,6 +1115,8 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".loop-detail-history-time {" in css
     assert ".tutorial-guide-grid {" in css
     assert ".tutorial-page-stack {" in css
+    assert ".tutorial-decision-tree-canvas {" in css
+    assert ".tutorial-decision-tree-flow-card {" in css
     assert ".tutorial-guide-card {" in css
     assert ".tutorial-step-title {" in css
     assert ".tutorial-step-checklist {" in css

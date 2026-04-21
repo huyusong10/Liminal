@@ -70,23 +70,25 @@ workflow 保持两层结构：
 
 ### 3.3 内置预设编排目录
 
-系统内置以下可复用 starter orchestration：
+系统对外默认展示以下 5 条核心 starter orchestration：
 
 | 预设 | 稳定流程 |
 |------|----------|
 | `build_first` | `Builder → Inspector → GateKeeper → Guide` |
 | `inspect_first` | `Inspector → Builder → GateKeeper → Guide` |
 | `benchmark_loop` | `GateKeeper (benchmark) → Builder` |
-| `quality_gate` | `Builder → Inspector → GateKeeper(finish)` |
 | `triage_first` | `Inspector → Guide → Builder → GateKeeper(finish)` |
 | `repair_loop` | `Builder → Inspector → Guide → Builder → GateKeeper(finish)` |
-| `fast_lane` | `Builder → GateKeeper(finish)` |
 
 补充约束：
 
 - 这些 starter orchestration 是内置资产，只能复制后再形成自定义编排。
+- `quality_gate` 与 `fast_lane` 继续作为兼容旧数据的内置 preset 保留，但不再属于默认推荐目录，也不应继续作为教程与主流程里的核心推荐。
 - `workflow.preset` 继续作为内置 starter 的稳定标识存在，供 Web、CLI 与 API 共享引用语义。
 - starter 元数据可以附带本地化的列表卡片说明，例如“适用场景”；这类文案属于预设元数据的一部分，应从统一元数据源提供。
+- starter 元数据应同时提供一条简短的“为什么选它而不是相邻流程”的说明，用于教程、流程卡片和选择提示。
+- starter 元数据也可以附带本地化的 spec 最佳实践摘要与完整 Markdown 范例；这类内容属于预设元数据的一部分，应从统一资产源提供。
+- 这些 starter 场景说明与 spec 范例必须描述“值得进入 loop 的任务”，并解释为什么当前角色顺序有意义，以及为什么它比附近的其他流程更合适；不能退化成单次 Builder 就能安全完成的小需求示例。
 - Web 编排编辑器允许默认从空白 workflow 开始；只有在显式载入 starter 或复制内置编排时，才写入对应的 `workflow.preset`。
 - 内置 starter 中的 Builder step 默认打开 `inherit_session`，其他 step 默认关闭；所有 starter 的 `extra_cli_args` 默认留空。
 
@@ -195,13 +197,14 @@ step 级执行附加项的优先语义固定为：
 
 运行时 prompt 由稳定协议装配，顺序固定为：
 
-`系统安全约束 → 输出契约 → 用户 prompt → run contract 摘要 → 当前轮次/当前 step 说明 → 紧邻上一步 handoff → 本轮已完成步骤摘要 → 上一轮同 step / 同 role handoff → 上一轮总结 → artifact refs`
+`系统安全约束 → 输出契约 → 用户 prompt → run contract 摘要 → 当前角色 role note（若存在）→ 当前轮次/当前 step 说明 → 紧邻上一步 handoff → 本轮已完成步骤摘要 → 上一轮同 step / 同 role handoff → 上一轮总结 → artifact refs`
 
 补充约束：
 
 - 首轮必须显式声明“这是第一轮，没有上一轮结果”。
 - 后续轮次必须显式声明“这是第 N 轮，并给出上一轮关键结果”。
 - prompt 可以被自定义，但系统安全边界、输出契约和 context packet shape 不能被绕开。
+- `Role Notes` 只允许作为当前角色 prompt 的附加块注入；它不能新增全局成功标准，也不能放宽 `Task / Done When / Guardrails` 的约束。
 - 当角色定义页加载内置 prompt 时，应优先使用当前语言对应的内置 prompt 变体；若缺失本地化版本，则回退到默认版本。
 - Builder 内置 prompt 在上游 blocker 明确指向“缺少运行时证据”时，必须优先引导角色补最小、可重复执行的验证产物，而不是继续扩大产品改动面。
 - 当当前执行环境阻断浏览器、截图或桌面控制能力时，Builder 内置 prompt 必须明确要求角色切换到“无额外安装的可执行 fallback 证明”路径，并把 richer 证据为何不可用写入 handoff。

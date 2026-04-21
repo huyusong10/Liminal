@@ -38,7 +38,7 @@ class WorkflowAssetCatalog:
 
     def _build_builtin_orchestration_records(self) -> list[dict]:
         records = []
-        for preset_name in preset_names():
+        for preset_name in preset_names(include_hidden=True):
             workflow = build_preset_workflow(preset_name)
             prompt_files = resolve_prompt_files(workflow)
             copy = workflow_preset_copy(preset_name)
@@ -51,6 +51,15 @@ class WorkflowAssetCatalog:
                     "description_en": copy["description_en"],
                     "scenario_zh": copy["scenario_zh"],
                     "scenario_en": copy["scenario_en"],
+                    "choice_zh": copy["choice_zh"],
+                    "choice_en": copy["choice_en"],
+                    "decision_zh": copy["decision_zh"],
+                    "decision_en": copy["decision_en"],
+                    "spec_practice_summary_zh": copy["spec_practice_summary_zh"],
+                    "spec_practice_summary_en": copy["spec_practice_summary_en"],
+                    "spec_practice_markdown_zh": copy["spec_practice_markdown_zh"],
+                    "spec_practice_markdown_en": copy["spec_practice_markdown_en"],
+                    "visible": copy["visible"] == "true",
                     "source": "builtin",
                     "preset": preset_name,
                     "editable": False,
@@ -393,7 +402,12 @@ class WorkflowAssetCatalog:
             self._decorate_orchestration(record, source="custom")
             for record in self.repository.list_orchestrations()
         ]
-        return self._clone_records(self._builtin_orchestrations) + custom_records
+        builtin_records = [
+            record
+            for record in self._builtin_orchestrations
+            if bool(record.get("visible", True))
+        ]
+        return self._clone_records(builtin_records) + custom_records
 
     def get_orchestration(self, orchestration_id: str) -> dict:
         orchestration_key = str(orchestration_id or "").strip()

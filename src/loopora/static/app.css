@@ -304,7 +304,6 @@ pre,
   background: var(--nav-bg);
   color: var(--nav-ink);
   box-shadow: 0 4px 24px rgba(var(--glass-dark-rgb), 0.24);
-  backdrop-filter: blur(12px);
   overflow: visible;
 }
 
@@ -442,7 +441,6 @@ pre,
   border: 1px solid rgba(255, 249, 241, 0.08);
   background: rgba(31, 26, 20, 0.96);
   box-shadow: 0 22px 56px rgba(0, 0, 0, 0.28);
-  backdrop-filter: blur(16px);
 }
 
 [data-theme="dark"] .nav-preferences-panel {
@@ -533,7 +531,6 @@ pre,
   border: 1px solid var(--line);
   background: var(--panel);
   box-shadow: var(--shadow-lg);
-  backdrop-filter: blur(16px);
 }
 
 .auth-card h1 {
@@ -813,7 +810,6 @@ html[data-locale="zh"] .eyebrow {
   border-radius: 0;
   background: var(--panel);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(16px);
 }
 
 .panel-header {
@@ -1134,6 +1130,291 @@ html[data-locale="zh"] .tutorial-guide-kicker {
   line-height: 1.68;
 }
 
+.tutorial-choice-note {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(var(--outline-rgb), 0.12);
+}
+
+.tutorial-choice-note strong {
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.tutorial-decision-tree-shell {
+  display: flex;
+  justify-content: center;
+}
+
+.tutorial-decision-tree-canvas {
+  width: min(1140px, 100%);
+  display: grid;
+  gap: 16px;
+  padding: 28px clamp(18px, 3vw, 34px) 30px;
+  border: 1px solid rgba(var(--outline-rgb), 0.1);
+  background:
+    radial-gradient(circle at top right, rgba(13, 124, 102, 0.05), transparent 24%),
+    radial-gradient(circle at bottom left, rgba(235, 110, 47, 0.04), transparent 20%),
+    linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(251, 244, 234, 0.98));
+  box-shadow: 0 22px 46px rgba(var(--outline-rgb), 0.06);
+}
+
+.tutorial-decision-tree-kicker {
+  justify-self: center;
+  padding: 6px 14px;
+  border: 1px solid rgba(var(--outline-rgb), 0.1);
+  background: rgba(var(--glass-rgb), 0.72);
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.tutorial-decision-tree-intro {
+  display: grid;
+  gap: 6px;
+  text-align: center;
+}
+
+.tutorial-decision-tree-eyebrow {
+  color: color-mix(in srgb, var(--muted) 88%, var(--accent-2));
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.tutorial-decision-tree-intro h3 {
+  margin: 0;
+  font-size: clamp(2.15rem, 3.6vw, 3.35rem);
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+}
+
+.tutorial-decision-tree-intro p {
+  margin: 0;
+  color: color-mix(in srgb, var(--ink) 72%, var(--muted));
+  font-size: clamp(0.98rem, 1.15vw, 1.14rem);
+  line-height: 1.45;
+}
+
+.tutorial-decision-tree-stage {
+  display: grid;
+  gap: 12px;
+}
+
+.tutorial-decision-tree-stage-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.tutorial-decision-tree-question {
+  display: grid;
+  gap: 8px;
+  padding: 18px 20px;
+  border: 1px solid rgba(var(--outline-rgb), 0.12);
+  background: linear-gradient(180deg, rgba(var(--glass-rgb), 0.92), rgba(255, 250, 244, 0.96));
+  box-shadow: inset 3px 0 0 rgba(13, 124, 102, 0.72);
+}
+
+.tutorial-decision-tree-question--primary {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.tutorial-decision-tree-question-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.tutorial-decision-tree-question-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tutorial-decision-tree-question h4 {
+  margin: 0;
+  font-size: clamp(1.3rem, 1.95vw, 1.85rem);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+.tutorial-decision-tree-question p,
+.tutorial-decision-tree-stop-card p,
+.tutorial-decision-tree-flow-copy {
+  margin: 0;
+  color: color-mix(in srgb, var(--ink) 72%, var(--muted));
+  font-size: 0.98rem;
+  line-height: 1.48;
+}
+
+.tutorial-decision-tree-step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid rgba(13, 124, 102, 0.18);
+  background: rgba(238, 250, 245, 0.96);
+  color: var(--accent-2);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.tutorial-decision-tree-stop-card {
+  display: grid;
+  gap: 10px;
+  padding: 18px 20px;
+  border: 1px solid rgba(214, 106, 54, 0.22);
+  background: linear-gradient(180deg, rgba(255, 244, 239, 0.96), rgba(255, 250, 246, 0.98));
+  box-shadow: inset 3px 0 0 rgba(214, 106, 54, 0.72);
+}
+
+.tutorial-decision-tree-stop-card h4 {
+  margin: 0;
+  font-size: clamp(1.4rem, 1.95vw, 1.75rem);
+  line-height: 1.1;
+  color: #6c362b;
+}
+
+.tutorial-decision-tree-branch-pill {
+  justify-self: start;
+  padding: 5px 10px;
+  border: 1px solid rgba(214, 106, 54, 0.18);
+  background: rgba(255, 245, 239, 0.96);
+  color: #a4522f;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.tutorial-decision-tree-branch-pill--yes {
+  border-color: rgba(13, 124, 102, 0.18);
+  background: rgba(238, 250, 245, 0.98);
+  color: var(--accent-2);
+}
+
+.tutorial-decision-tree-flow-stack {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  border: 1px solid rgba(var(--outline-rgb), 0.1);
+  background: rgba(var(--glass-rgb), 0.58);
+}
+
+.tutorial-decision-tree-flow-stack-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px;
+  gap: 12px;
+  padding: 0 2px 2px;
+}
+
+.tutorial-decision-tree-flow-stack-label {
+  color: color-mix(in srgb, var(--muted) 90%, var(--accent-2));
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tutorial-decision-tree-flow-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px;
+  gap: 12px;
+  align-items: stretch;
+  padding: 14px 16px;
+  border: 1px solid rgba(var(--outline-rgb), 0.1);
+  background: linear-gradient(180deg, rgba(var(--glass-rgb), 0.98), rgba(250, 251, 249, 0.98));
+  box-shadow: inset 2px 0 0 var(--decision-tree-flow-accent);
+}
+
+.tutorial-decision-tree-flow-card.is-accent {
+  --decision-tree-flow-accent: rgba(128, 110, 255, 0.5);
+}
+
+.tutorial-decision-tree-flow-card--build-first {
+  --decision-tree-flow-accent: rgba(235, 110, 47, 0.72);
+}
+
+.tutorial-decision-tree-flow-card--inspect-first {
+  --decision-tree-flow-accent: rgba(13, 124, 102, 0.72);
+}
+
+.tutorial-decision-tree-flow-card--triage-first {
+  --decision-tree-flow-accent: rgba(166, 112, 39, 0.58);
+}
+
+.tutorial-decision-tree-flow-card--repair-loop {
+  --decision-tree-flow-accent: rgba(153, 86, 52, 0.64);
+}
+
+.tutorial-decision-tree-flow-card--benchmark-loop {
+  --decision-tree-flow-accent: rgba(128, 110, 255, 0.5);
+}
+
+.tutorial-decision-tree-flow-copy {
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+}
+
+.tutorial-decision-tree-flow-choice {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.tutorial-decision-tree-flow-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 164px;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--outline-rgb), 0.12);
+  background: rgba(var(--panel-strong), 0.96);
+  font-size: 0.98rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+@media (max-width: 980px) {
+  .tutorial-decision-tree-canvas {
+    width: 100%;
+    padding: 22px 16px 24px;
+  }
+
+  .tutorial-decision-tree-stage-grid,
+  .tutorial-decision-tree-flow-stack-header,
+  .tutorial-decision-tree-flow-card {
+    grid-template-columns: 1fr;
+  }
+
+  .tutorial-decision-tree-question--primary {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .tutorial-decision-tree-intro h3 {
+    font-size: clamp(1.8rem, 9vw, 2.2rem);
+  }
+
+  .tutorial-decision-tree-question h4 {
+    font-size: clamp(1.2rem, 7vw, 1.5rem);
+  }
+
+  .tutorial-decision-tree-flow-pill {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
 .tutorial-step-grid {
   align-items: stretch;
 }
@@ -1273,6 +1554,10 @@ html[data-locale="zh"] .tutorial-context-kicker {
 [data-theme="dark"] .tutorial-guide-card:hover,
 [data-theme="dark"] .tutorial-guide-card:focus-visible {
   border-color: rgba(110, 239, 218, 0.28);
+}
+
+[data-theme="dark"] .tutorial-choice-note {
+  border-top-color: rgba(255, 255, 255, 0.08);
 }
 
 [data-theme="dark"] .tutorial-step-index {
@@ -1871,6 +2156,22 @@ html[data-locale="zh"] .spec-preview-kicker {
 
 .spec-preview-workbench .markdown-workbench-panel-note {
   text-align: left;
+}
+
+.orchestration-spec-practice-content,
+.tutorial-spec-practice-content {
+  display: grid;
+  min-height: 0;
+  padding: 18px 26px 26px;
+  overflow: auto;
+}
+
+.orchestration-spec-practice-preview-shell,
+.tutorial-spec-practice-preview-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
 }
 
 .spec-editor-panel,
@@ -2475,6 +2776,15 @@ body.modal-open {
   color: var(--accent-2);
   font-size: 0.88rem;
   line-height: 1.5;
+}
+
+.inline-hint-link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .inline-hint-link:hover {

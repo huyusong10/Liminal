@@ -156,7 +156,7 @@ def test_generator_prompt_uses_bootstrap_guidance_for_spec_only_workspace(
     service = service_factory()
     workdir = tmp_path / "workdir"
     workdir.mkdir()
-    (workdir / "spec.md").write_text("# Goal\n\nBuild something useful.\n", encoding="utf-8")
+    (workdir / "spec.md").write_text("# Task\n\nBuild something useful.\n", encoding="utf-8")
     compiled_spec = {
         "goal": "Build something useful.",
         "checks": [

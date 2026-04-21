@@ -15,7 +15,7 @@ from loopora.branding import APP_AUTH_ENV, APP_NAME, RUN_SUMMARY_TITLE
 from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.service import LooporaError, create_service, normalize_role_models
 from loopora.settings import configure_logging
-from loopora.specs import SpecError, init_spec_file, read_and_compile
+from loopora.specs import SpecError, init_spec_file_for_workflow, read_and_compile
 from loopora.utils import utc_now
 from loopora.web import _is_loopback_host, build_app
 from loopora.workflows import load_workflow_file, preset_names
@@ -478,10 +478,12 @@ def serve(
 def spec_init(
     path: Path = typer.Argument(..., help="Where to create the Markdown template."),
     locale: LocaleOption = "zh",
+    workflow_preset: WorkflowPresetOption = "",
 ) -> None:
     """Create a starter Markdown spec."""
     try:
-        created = init_spec_file(path, locale=locale)
+        workflow = {"preset": workflow_preset} if workflow_preset else None
+        created = init_spec_file_for_workflow(path, locale=locale, workflow=workflow)
         log_event(
             logger,
             logging.INFO,
@@ -489,6 +491,7 @@ def spec_init(
             "Initialized a new spec file",
             path=created,
             locale=locale,
+            workflow_preset=workflow_preset or "",
         )
         typer.echo(f"created: {created}")
     except (FileExistsError, OSError) as exc:

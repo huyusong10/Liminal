@@ -46,7 +46,6 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
     builtin_role = next(item for item in role_definitions if item["id"] == "builtin:builder")
     custom_role = next(item for item in role_definitions if item["id"] == role_definition["id"])
     builtin_orchestration = next(item for item in orchestrations if item["id"] == "builtin:build_first")
-    fast_lane = next(item for item in orchestrations if item["id"] == "builtin:fast_lane")
     custom_orchestration = next(item for item in orchestrations if item["id"] == orchestration["id"])
 
     assert builtin_role["source"] == "builtin"
@@ -64,12 +63,40 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
     assert builtin_orchestration["workflow_json"]["steps"][0]["extra_cli_args"] == ""
     assert builtin_orchestration["scenario_zh"]
     assert builtin_orchestration["scenario_en"]
-    assert len(builtin_orchestrations) == 7
-    assert fast_lane["name"] == "Fast Lane"
-    assert fast_lane["workflow_json"]["preset"] == "fast_lane"
+    for item in builtin_orchestrations:
+        assert item["spec_practice_summary_zh"].startswith("场景：")
+        assert item["spec_practice_summary_en"].startswith("Scenario:")
+        assert "## 场景" in item["spec_practice_markdown_zh"]
+        assert "## 需求" in item["spec_practice_markdown_zh"]
+        assert "## 适合这个流程，因为" in item["spec_practice_markdown_zh"]
+        assert "## 为什么不是其他流程" in item["spec_practice_markdown_zh"]
+        assert "## 示例 spec" in item["spec_practice_markdown_zh"]
+        assert "## Scenario" in item["spec_practice_markdown_en"]
+        assert "## Request" in item["spec_practice_markdown_en"]
+        assert "## Why this workflow fits" in item["spec_practice_markdown_en"]
+        assert "## Why not the other workflows" in item["spec_practice_markdown_en"]
+        assert "## Example spec" in item["spec_practice_markdown_en"]
+        assert "# Task" in item["spec_practice_markdown_zh"]
+        assert "# Task" in item["spec_practice_markdown_en"]
+        assert "# Role Notes" in item["spec_practice_markdown_zh"]
+        assert "# Role Notes" in item["spec_practice_markdown_en"]
+        assert "Builder Notes" in item["spec_practice_markdown_zh"]
+        assert "Builder Notes" in item["spec_practice_markdown_en"]
+        assert "GateKeeper Notes" in item["spec_practice_markdown_zh"]
+        assert "GateKeeper Notes" in item["spec_practice_markdown_en"]
+    assert len(builtin_orchestrations) == 5
+    assert all(item["id"] != "builtin:fast_lane" for item in builtin_orchestrations)
+    assert all(item["id"] != "builtin:quality_gate" for item in builtin_orchestrations)
     assert custom_orchestration["source"] == "custom"
     assert custom_orchestration["workflow_json"]["preset"] == "inspect_first"
     assert isinstance(custom_orchestration["workflow_warnings"], list)
+
+    hidden_fast_lane = catalog.get_orchestration("builtin:fast_lane")
+    hidden_quality_gate = catalog.get_orchestration("builtin:quality_gate")
+    assert hidden_fast_lane["name"] == "Fast Lane"
+    assert hidden_fast_lane["workflow_json"]["preset"] == "fast_lane"
+    assert hidden_quality_gate["name"] == "Quality Gate"
+    assert hidden_quality_gate["workflow_json"]["preset"] == "quality_gate"
 
 
 def test_asset_catalog_resolves_builtin_orchestration_input_and_applies_role_overrides(tmp_path: Path) -> None:

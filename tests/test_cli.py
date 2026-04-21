@@ -11,7 +11,7 @@ from loopora.settings import app_home
 
 def test_cli_run_allows_zero_max_iters(monkeypatch, tmp_path: Path) -> None:
     spec_path = tmp_path / "spec.md"
-    spec_path.write_text("# Goal\n\nKeep going.\n", encoding="utf-8")
+    spec_path.write_text("# Task\n\nKeep going.\n", encoding="utf-8")
     workdir = tmp_path / "workdir"
     workdir.mkdir()
 
@@ -51,7 +51,7 @@ def test_cli_run_allows_zero_max_iters(monkeypatch, tmp_path: Path) -> None:
 
 def test_cli_loop_creation_emits_structured_logs(monkeypatch, tmp_path: Path) -> None:
     spec_path = tmp_path / "spec.md"
-    spec_path.write_text("# Goal\n\nKeep going.\n", encoding="utf-8")
+    spec_path.write_text("# Task\n\nKeep going.\n", encoding="utf-8")
     workdir = tmp_path / "workdir"
     workdir.mkdir()
 
@@ -92,7 +92,7 @@ def test_cli_loop_creation_emits_structured_logs(monkeypatch, tmp_path: Path) ->
 
 def test_cli_run_supports_command_mode_background_and_role_models(monkeypatch, tmp_path: Path) -> None:
     spec_path = tmp_path / "spec.md"
-    spec_path.write_text("# Goal\n\nKeep going.\n", encoding="utf-8")
+    spec_path.write_text("# Task\n\nKeep going.\n", encoding="utf-8")
     workdir = tmp_path / "workdir"
     workdir.mkdir()
 
@@ -181,7 +181,7 @@ def test_cli_run_supports_command_mode_background_and_role_models(monkeypatch, t
 
 def test_cli_run_supports_round_completion_and_iteration_interval(monkeypatch, tmp_path: Path) -> None:
     spec_path = tmp_path / "spec.md"
-    spec_path.write_text("# Goal\n\nKeep going.\n", encoding="utf-8")
+    spec_path.write_text("# Task\n\nKeep going.\n", encoding="utf-8")
     workdir = tmp_path / "workdir"
     workdir.mkdir()
 
@@ -256,7 +256,7 @@ def test_cli_loops_rerun_background_spawns_worker(monkeypatch, tmp_path: Path) -
 
 def test_cli_loops_create_can_save_without_starting(monkeypatch, tmp_path: Path) -> None:
     spec_path = tmp_path / "spec.md"
-    spec_path.write_text("# Goal\n\nKeep going.\n", encoding="utf-8")
+    spec_path.write_text("# Task\n\nKeep going.\n", encoding="utf-8")
     workdir = tmp_path / "workdir"
     workdir.mkdir()
 
@@ -295,7 +295,7 @@ def test_cli_loops_create_can_save_without_starting(monkeypatch, tmp_path: Path)
 
 def test_cli_loops_create_accepts_orchestration_id(monkeypatch, tmp_path: Path) -> None:
     spec_path = tmp_path / "spec.md"
-    spec_path.write_text("# Goal\n\nKeep going.\n", encoding="utf-8")
+    spec_path.write_text("# Task\n\nKeep going.\n", encoding="utf-8")
     workdir = tmp_path / "workdir"
     workdir.mkdir()
     calls: dict[str, object] = {}
@@ -378,7 +378,11 @@ def test_cli_spec_init_accepts_locale_and_validate_reports_check_mode(tmp_path: 
 
     assert init_result.exit_code == 0, init_result.stdout
     created_text = spec_path.read_text(encoding="utf-8")
-    assert "Delete the whole `# Checks` section" in created_text
+    assert "# Task" in created_text
+    assert "# Done When" in created_text
+    assert "# Guardrails" in created_text
+    assert "# Role Notes" in created_text
+    assert "delete `# Done When`" in created_text
 
     validate_result = runner.invoke(cli.app, ["spec", "validate", str(spec_path)])
 
@@ -386,3 +390,18 @@ def test_cli_spec_init_accepts_locale_and_validate_reports_check_mode(tmp_path: 
     payload = json.loads(validate_result.stdout)
     assert payload["ok"] is True
     assert payload["check_mode"] == "specified"
+
+
+def test_cli_spec_init_accepts_workflow_preset(tmp_path: Path) -> None:
+    spec_path = tmp_path / "repair-loop-spec.md"
+    runner = CliRunner()
+
+    result = runner.invoke(cli.app, ["spec", "init", "--locale", "en", "--workflow-preset", "repair_loop", str(spec_path)])
+
+    assert result.exit_code == 0, result.stdout
+    created_text = spec_path.read_text(encoding="utf-8")
+    assert "## Builder Notes" in created_text
+    assert "## Inspector Notes" in created_text
+    assert "## Guide Notes" in created_text
+    assert "## GateKeeper Notes" in created_text
+    assert created_text.count("## Builder Notes") == 1

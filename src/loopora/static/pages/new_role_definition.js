@@ -466,13 +466,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (profile.command_only) {
       setBilingualHtml(
         modeNote,
-        "自定义执行工具只支持“直接命令”模式。Loopora 会按你的 CLI 模版执行，并从 `{output_path}` 回收结构化结果。",
+        "自定义执行工具只支持“直接命令”模式。Loopora 会按你的 CLI 模板执行，并从 `{output_path}` 回收结构化结果。",
         "Custom execution tools only support direct-command mode. Loopora will execute your CLI template as-is and recover structured output from `{output_path}`.",
       );
     } else if (commandMode) {
       setBilingualHtml(
         modeNote,
-        "现在由直接命令接管。模型和推理强度会冻结成只读参考，真正的执行细节以右侧 CLI 模版为准。",
+        "现在由直接命令接管。模型和推理强度会冻结成只读参考，真正的执行细节以右侧 CLI 模板为准。",
         "Direct command now owns the execution. Model and reasoning freeze into a read-only reference while the CLI template on the right becomes the source of truth.",
       );
     } else {

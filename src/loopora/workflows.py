@@ -53,6 +53,7 @@ PROMPT_FILES = {
     "custom": "custom.md",
 }
 PROMPT_ASSET_DIR = Path(__file__).parent / "assets" / "prompts"
+SPEC_PRACTICE_ASSET_DIR = Path(__file__).parent / "assets" / "spec_practices"
 ROLE_EXECUTION_FIELDS = (
     "executor_kind",
     "executor_mode",
@@ -234,6 +235,11 @@ def _workflow_preset_definition(
     description_en: str,
     scenario_zh: str,
     scenario_en: str,
+    choice_zh: str = "",
+    choice_en: str = "",
+    decision_zh: str = "",
+    decision_en: str = "",
+    visible: bool = True,
     roles: list[dict[str, str]],
     steps: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -244,6 +250,11 @@ def _workflow_preset_definition(
         "description_en": description_en,
         "scenario_zh": scenario_zh,
         "scenario_en": scenario_en,
+        "choice_zh": choice_zh,
+        "choice_en": choice_en,
+        "decision_zh": decision_zh,
+        "decision_en": decision_en,
+        "visible": visible,
         "workflow": {
             "roles": roles,
             "steps": steps,
@@ -285,8 +296,12 @@ WORKFLOW_PRESETS = {
         label_en="Build First",
         description_zh="Builder -> Inspector -> GateKeeper -> Guide",
         description_en="Builder -> Inspector -> GateKeeper -> Guide",
-        scenario_zh="适合目标明确、先快速落地实现，再补检查与最终收束的常规开发任务。",
-        scenario_en="Best for straightforward implementation work where you want code first, then checks, then a final verdict.",
+        scenario_zh="适合目标已经明确，应该先让 Builder 把第一版真正跑起来，再由 Inspector 补证据、GateKeeper 收口，只有卡住时才需要 Guide 指方向的任务。",
+        scenario_en="Best when the target is already clear and Builder should get the first real integration slice working before Inspector, GateKeeper, and Guide take over.",
+        choice_zh="选它，而不是 Inspect First 或 Triage First，因为现在真正缺的不是更多诊断，而是第一条能跑通的真实路径。",
+        choice_en="Choose this over Inspect First or Triage First when the missing piece is not more diagnosis, but the first real working slice.",
+        decision_zh="Builder 先把第一条真实可用的路径跑起来。",
+        decision_en="Builder should land the first real working slice.",
         roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
@@ -305,8 +320,12 @@ WORKFLOW_PRESETS = {
         label_en="Inspect First",
         description_zh="Inspector -> Builder -> GateKeeper -> Guide",
         description_en="Inspector -> Builder -> GateKeeper -> Guide",
-        scenario_zh="适合先摸清现状、先拿到失败证据，再决定怎么修改的排障和接手类任务。",
-        scenario_en="Best for debugging or takeover work where you want evidence and failures before touching implementation.",
+        scenario_zh="适合还不能急着改代码，得先让 Inspector 把失败现状和证据摸清，再交给 Builder 修、GateKeeper 判断的排障或接手任务。",
+        scenario_en="Best when Builder should not touch code yet and Inspector must first pin down the failure with evidence before Builder repairs it and GateKeeper closes the loop.",
+        choice_zh="选它，而不是 Build First，因为现在最缺的是证据；也不是 Triage First，因为失败路径已经大致清楚，只差把根因钉住。",
+        choice_en="Choose this over Build First when evidence is missing, and over Triage First when the failing path is already known but the root cause is not.",
+        decision_zh="Inspector 先把失败证据和根因钉住。",
+        decision_en="Inspector should pin down failure evidence and root cause first.",
         roles=[
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
@@ -325,8 +344,12 @@ WORKFLOW_PRESETS = {
         label_en="Benchmark Loop",
         description_zh="GateKeeper (benchmark) -> Builder",
         description_en="GateKeeper (benchmark) -> Builder",
-        scenario_zh="适合先做基线评估或 benchmark，再让 Builder 围绕对比结果推进优化。",
-        scenario_en="Best for benchmark-driven work where you want a baseline verdict before the Builder starts optimizing.",
+        scenario_zh="适合每一轮都要先看 benchmark 或评测结果，再决定 Builder 下一步怎么改的长期优化任务。",
+        scenario_en="Best when every round should begin with a benchmark or evaluation result, and Builder should only optimize against the latest measured outcome.",
+        choice_zh="选它，而不是 Build First 或 Repair Loop，因为这里决定下一步的不是直觉，而是最新分数和评测结果。",
+        choice_en="Choose this over Build First or Repair Loop when the next move must be decided by the latest score, not by intuition.",
+        decision_zh="先看 GateKeeper 的 benchmark 结果，再决定 Builder 下一步。",
+        decision_en="Let GateKeeper read the benchmark before Builder moves again.",
         roles=[
             _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper-benchmark"], role_definition_id="builtin:gatekeeper"),
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
@@ -341,8 +364,11 @@ WORKFLOW_PRESETS = {
         label_en="Quality Gate",
         description_zh="Builder -> Inspector -> GateKeeper(finish)",
         description_en="Builder -> Inspector -> GateKeeper(finish)",
-        scenario_zh="适合交付目标清晰、希望在一轮实现和验收后直接由 GateKeeper 收束的任务。",
-        scenario_en="Best for delivery-focused work where one implementation pass and one inspection pass should lead straight to a final gate.",
+        scenario_zh="适合发布前最后一轮收口：Builder 补完已知缺口，Inspector 按验收点检查，GateKeeper 给出可发或不可发判断。",
+        scenario_en="Best for the final release pass: Builder closes known gaps, Inspector checks the acceptance surface, and GateKeeper makes the release call.",
+        choice_zh="当实现已经基本齐了，只差最后一轮交付与放行判断时才选它。它不是默认核心流程，只保留给兼容旧流程或少数发布前场景。",
+        choice_en="Use this only when the implementation is already nearly complete and the remaining job is a final release decision. It stays for compatibility, not as a default core flow.",
+        visible=False,
         roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
@@ -359,8 +385,12 @@ WORKFLOW_PRESETS = {
         label_en="Triage First",
         description_zh="Inspector -> Guide -> Builder -> GateKeeper(finish)",
         description_en="Inspector -> Guide -> Builder -> GateKeeper(finish)",
-        scenario_zh="适合问题定义还不稳定、需要先诊断和定方向，再推进修复并做最终裁决的任务。",
-        scenario_en="Best for ambiguous problems where you want diagnosis and direction first, then implementation and a final decision.",
+        scenario_zh="适合问题还说不清楚，得先让 Inspector 收拢现状，再由 Guide 给出推进方向，最后交给 Builder 修、GateKeeper 收口的任务。",
+        scenario_en="Best when the problem is still fuzzy, Inspector must narrow it down, Guide must turn that diagnosis into a concrete next move, and only then should Builder and GateKeeper act.",
+        choice_zh="选它，而不是 Inspect First，因为这里连问题定义都还没收窄；先让 Guide 把模糊现状翻成行动方向更重要。",
+        choice_en="Choose this over Inspect First when even the problem statement is still fuzzy and Guide needs to turn diagnosis into the first concrete move.",
+        decision_zh="先让 Inspector 和 Guide 把问题收窄成一个可行动的方向。",
+        decision_en="Let Inspector and Guide narrow the problem into one actionable direction.",
         roles=[
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
             _preset_role(role_id="guide", archetype="guide", prompt_ref=PROMPT_FILES["guide"], role_definition_id="builtin:guide"),
@@ -379,8 +409,12 @@ WORKFLOW_PRESETS = {
         label_en="Repair Loop",
         description_zh="Builder -> Inspector -> Guide -> Builder -> GateKeeper(finish)",
         description_en="Builder -> Inspector -> Guide -> Builder -> GateKeeper(finish)",
-        scenario_zh="适合顽固问题或复杂改动：先修一轮、再复查、再修一次，最后再集中收束。",
-        scenario_en="Best for stubborn issues or complex fixes where you expect one repair pass, one re-check, another repair, then a final gate.",
+        scenario_zh="适合一轮修复大概率不够的顽固问题：Builder 先打一轮，Inspector 和 Guide 看剩余缺口，再做第二轮修复和最终裁决。",
+        scenario_en="Best when one repair pass is unlikely to be enough, so Builder needs a first pass before Inspector and Guide shape the second one and GateKeeper makes the final call.",
+        choice_zh="选它，而不是 Build First，因为你已经预期一轮修复不够；也不是 Inspect First，因为第一轮改动本身就是拿下一轮证据的必要前提。",
+        choice_en="Choose this over Build First when you already expect one repair pass not to be enough, and over Inspect First when the first code change is itself required to expose the next evidence.",
+        decision_zh="Builder 修一轮后，再用复查结果决定第二轮怎么修。",
+        decision_en="Use the first Builder pass to shape a second, evidence-backed repair pass.",
         roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
@@ -400,8 +434,11 @@ WORKFLOW_PRESETS = {
         label_en="Fast Lane",
         description_zh="Builder -> GateKeeper(finish)",
         description_en="Builder -> GateKeeper(finish)",
-        scenario_zh="适合范围小、反馈快，只需要快速实现加快速裁决的轻量任务。",
-        scenario_en="Best for small, fast-feedback tasks where a quick build-and-judge loop is enough.",
+        scenario_zh="适合范围不大但很紧急的热修：让 Builder 快速修掉，再由 GateKeeper 立刻判断，同时把证据链留下来。",
+        scenario_en="Best for narrow but urgent hotfixes where Builder can patch quickly, GateKeeper can judge immediately, and the team still wants the evidence trail.",
+        choice_zh="它更像兼容旧用法的短回路，不再作为默认核心流程推荐；如果任务真这么短，很多时候直接单次执行更合适。",
+        choice_en="This stays mainly as a compatibility short loop, not a default core flow. If the task is really that short, a one-shot run is often better.",
+        visible=False,
         roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
@@ -520,6 +557,33 @@ def builtin_prompt_markdown_by_locale(prompt_ref: str) -> dict[str, str]:
     }
 
 
+def builtin_spec_practice(name: str, *, locale: str | None = None) -> dict[str, str]:
+    preset_name = str(name or "").strip()
+    if preset_name not in WORKFLOW_PRESETS:
+        raise WorkflowError(f"unknown workflow preset: {name}")
+    normalized_locale = normalize_prompt_locale(locale)
+    localized_path = SPEC_PRACTICE_ASSET_DIR / f"{preset_name}.zh.md"
+    default_path = SPEC_PRACTICE_ASSET_DIR / f"{preset_name}.md"
+    path = localized_path if normalized_locale == "zh" and localized_path.exists() else default_path
+    if not path.exists():
+        raise WorkflowError(f"missing built-in spec practice: {preset_name}")
+    markdown_text = path.read_text(encoding="utf-8").strip()
+    match = PROMPT_FRONT_MATTER_RE.match(markdown_text)
+    if not match:
+        raise WorkflowError(f"invalid built-in spec practice: {preset_name}")
+    try:
+        metadata = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError as exc:
+        raise WorkflowError(f"invalid built-in spec practice front matter: {preset_name}") from exc
+    if not isinstance(metadata, dict):
+        raise WorkflowError(f"built-in spec practice front matter must decode to a mapping: {preset_name}")
+    summary = str(metadata.get("summary", "")).strip()
+    practice_markdown = match.group(2).strip()
+    if not summary or not practice_markdown:
+        raise WorkflowError(f"built-in spec practice requires summary and markdown body: {preset_name}")
+    return {"summary": summary, "markdown": practice_markdown}
+
+
 def available_prompt_templates() -> list[dict[str, str]]:
     templates = []
     for prompt_ref in sorted(PROMPT_FILES.values()):
@@ -542,8 +606,12 @@ def builtin_prompt_files_for_workflow(workflow: dict) -> dict[str, str]:
     return prompt_files
 
 
-def preset_names() -> list[str]:
-    return list(WORKFLOW_PRESETS.keys())
+def preset_names(*, include_hidden: bool = False) -> list[str]:
+    names: list[str] = []
+    for preset_name, preset in WORKFLOW_PRESETS.items():
+        if include_hidden or bool(preset.get("visible", True)):
+            names.append(preset_name)
+    return names
 
 
 def workflow_preset_copy(name: str) -> dict[str, str]:
@@ -551,6 +619,8 @@ def workflow_preset_copy(name: str) -> dict[str, str]:
     preset = WORKFLOW_PRESETS.get(preset_name)
     if not preset:
         raise WorkflowError(f"unknown workflow preset: {name}")
+    practice_en = builtin_spec_practice(preset_name, locale="en")
+    practice_zh = builtin_spec_practice(preset_name, locale="zh")
     return {
         "label_zh": str(preset["label_zh"]),
         "label_en": str(preset["label_en"]),
@@ -558,16 +628,25 @@ def workflow_preset_copy(name: str) -> dict[str, str]:
         "description_en": str(preset["description_en"]),
         "scenario_zh": str(preset["scenario_zh"]),
         "scenario_en": str(preset["scenario_en"]),
+        "choice_zh": str(preset.get("choice_zh", "")),
+        "choice_en": str(preset.get("choice_en", "")),
+        "decision_zh": str(preset.get("decision_zh", "")),
+        "decision_en": str(preset.get("decision_en", "")),
+        "visible": "true" if bool(preset.get("visible", True)) else "false",
+        "spec_practice_summary_zh": practice_zh["summary"],
+        "spec_practice_summary_en": practice_en["summary"],
+        "spec_practice_markdown_zh": practice_zh["markdown"],
+        "spec_practice_markdown_en": practice_en["markdown"],
     }
 
 
-def workflow_preset_options() -> list[dict[str, str]]:
+def workflow_preset_options(*, include_hidden: bool = False) -> list[dict[str, str]]:
     return [
         {
             "id": preset_name,
             **workflow_preset_copy(preset_name),
         }
-        for preset_name in preset_names()
+        for preset_name in preset_names(include_hidden=include_hidden)
     ]
 
 

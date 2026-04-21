@@ -23,27 +23,24 @@ def isolate_loopora_home(monkeypatch, tmp_path: Path) -> None:
 
 @pytest.fixture()
 def sample_spec_text() -> str:
-    return """# Goal
+    return """# Task
 
 Ship the requested behavior.
 
-# Checks
+# Done When
 
-### Main flow works
+- The primary experience completes successfully.
+- The edge path stays safe and understandable.
 
-- When: The user follows the main path.
-- Expect: The primary experience completes successfully.
-- Fail if: The main path breaks or becomes unclear.
-
-### Edge case stays safe
-
-- When: The workflow hits an edge case.
-- Expect: The edge path stays safe and understandable.
-- Fail if: The system crashes or leaves the user stuck.
-
-# Constraints
+# Guardrails
 
 - Keep changes focused.
+
+# Role Notes
+
+## Builder Notes
+
+Move the workspace toward a verifiable state with focused edits.
 """
 
 
@@ -56,11 +53,11 @@ def sample_spec_file(tmp_path: Path, sample_spec_text: str) -> Path:
 
 @pytest.fixture()
 def exploratory_spec_text() -> str:
-    return """# Goal
+    return """# Task
 
 Build a rough prototype that proves the main interaction is promising.
 
-# Constraints
+# Guardrails
 
 - Stay inside the existing workspace.
 - Prefer small, visible improvements over broad rewrites.

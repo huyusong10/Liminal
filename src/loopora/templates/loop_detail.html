@@ -5,8 +5,8 @@
   <div class="hero-copy-stack">
     <h1>{{ loop.name }}</h1>
     <p>
-      <span data-lang="zh">目标、Checks 和运行历史都住在这里，算是这条 loop 的小基地。</span>
-      <span data-lang="en">Goals, checks, and run history all live here. Think of it as this loop's tiny base camp.</span>
+      <span data-lang="zh">Task contract、运行历史和关键配置都住在这里，算是这条 loop 的小基地。</span>
+      <span data-lang="en">The task contract, run history, and key configuration all live here. Think of it as this loop's tiny base camp.</span>
     </p>
     <p class="hero-path">{{ loop.workdir }}</p>
     {% if latest_run %}
@@ -47,8 +47,8 @@
     <div>
       <h2><span data-lang="zh">原始 Spec</span><span data-lang="en">Original spec</span></h2>
       <p class="loop-detail-copy">
-        <span data-lang="zh">这里展示 loop 最初保存下来的 spec 定义，方便随时回看目标、Checks 和 Constraints。</span>
-        <span data-lang="en">This shows the original spec saved with the loop so you can revisit the Goal, Checks, and Constraints at any time.</span>
+        <span data-lang="zh">这里展示 loop 最初保存下来的 spec 定义，方便随时回看 Task、Done When、Guardrails 和 Role Notes。</span>
+        <span data-lang="en">This shows the original spec saved with the loop so you can revisit Task, Done When, Guardrails, and Role Notes at any time.</span>
       </p>
     </div>
   </header>
@@ -75,7 +75,7 @@
         <section class="markdown-workbench-panel">
           <div class="markdown-workbench-panel-head">
             <span class="markdown-workbench-panel-label"><span data-lang="zh">渲染预览</span><span data-lang="en">Rendered preview</span></span>
-            <span class="markdown-workbench-panel-note"><span data-lang="zh">方便直接回看 Goal、Checks 和 Constraints</span><span data-lang="en">Quickly revisit the Goal, Checks, and Constraints</span></span>
+            <span class="markdown-workbench-panel-note"><span data-lang="zh">方便直接回看 Task、Done When、Guardrails 和 Role Notes</span><span data-lang="en">Quickly revisit Task, Done When, Guardrails, and Role Notes</span></span>
           </div>
           <article class="preview-box markdown-preview markdown-workbench-preview loop-detail-spec-preview">{{ loop.spec_rendered_html|safe }}</article>
         </section>

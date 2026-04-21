@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import io
 import re
 import time
-import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -1506,15 +1504,23 @@ def test_api_spec_init_validate_and_delete_loop(service_factory, tmp_path: Path,
     client = TestClient(build_app(service=service))
 
     spec_path = tmp_path / "created-spec.md"
-    init_response = client.post("/api/specs/init", json={"path": str(spec_path), "locale": "en"})
+    init_response = client.post(
+        "/api/specs/init",
+        json={"path": str(spec_path), "locale": "en", "workflow_preset": "build_first"},
+    )
     assert init_response.status_code == 201
     assert spec_path.exists()
     created_text = spec_path.read_text(encoding="utf-8")
-    assert "Delete the whole `# Checks` section" in created_text
+    assert "delete `# Done When`" in created_text
     assert "preserve existing user files" in created_text
-    assert "# Goal" in created_text
-    assert "# Checks" in created_text
-    assert "# Constraints" in created_text
+    assert "# Task" in created_text
+    assert "# Done When" in created_text
+    assert "# Guardrails" in created_text
+    assert "# Role Notes" in created_text
+    assert "## Builder Notes" in created_text
+    assert "## Inspector Notes" in created_text
+    assert "## GateKeeper Notes" in created_text
+    assert "## Guide Notes" in created_text
 
     validate_response = client.get("/api/specs/validate", params={"path": str(spec_path)})
     assert validate_response.status_code == 200
@@ -1541,13 +1547,45 @@ def test_api_spec_init_validate_and_delete_loop(service_factory, tmp_path: Path,
     assert service.list_loops() == []
 
 
+def test_api_spec_template_accepts_workflow_json_mapping(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/specs/template",
+        json={
+            "locale": "en",
+            "workflow_json": {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                    {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+                ],
+                "steps": [
+                    {"id": "build", "role_id": "builder"},
+                    {"id": "gate", "role_id": "gatekeeper", "on_pass": "finish_run"},
+                ],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert "# Task" in payload["content"]
+    assert "## Builder Notes" in payload["content"]
+    assert "## GateKeeper Notes" in payload["content"]
+    assert [item["role_name"] for item in payload["role_note_sections"]] == ["Builder", "GateKeeper"]
+    assert "<h1>Task</h1>" in payload["rendered_html"]
+
+
 def test_api_spec_validate_reports_auto_generated_check_mode(tmp_path: Path, service_factory) -> None:
     service = service_factory(scenario="success")
     client = TestClient(build_app(service=service))
 
     spec_path = tmp_path / "exploratory-spec.md"
     spec_path.write_text(
-        "# Goal\n\nExplore a promising prototype direction.\n\n# Constraints\n\n- Stay focused.\n",
+        "# Task\n\nExplore a promising prototype direction.\n\n# Guardrails\n\n- Stay focused.\n",
         encoding="utf-8",
     )
 
@@ -1559,13 +1597,27 @@ def test_api_spec_validate_reports_auto_generated_check_mode(tmp_path: Path, ser
     assert payload["check_count"] == 0
 
 
+def test_api_spec_validate_rejects_legacy_headings(tmp_path: Path, service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    spec_path = tmp_path / "legacy-spec.md"
+    spec_path.write_text("# Goal\n\nLegacy format.\n", encoding="utf-8")
+
+    response = client.get("/api/specs/validate", params={"path": str(spec_path)})
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+    assert "legacy spec headings" in response.json()["error"]
+
+
 def test_api_spec_preview_returns_rendered_read_only_markdown(tmp_path: Path, service_factory) -> None:
     service = service_factory(scenario="success")
     client = TestClient(build_app(service=service))
 
     spec_path = tmp_path / "preview-spec.md"
     spec_path.write_text(
-        "# Goal\n\nShip a preview.\n\n## Checks\n\n- Render headings\n- Escape <script>alert('xss')</script>\n\n```js\nconsole.log('ok')\n```\n",
+        "# Task\n\nShip a preview.\n\n# Done When\n\n- Render headings\n- Escape <script>alert('xss')</script>\n\n```js\nconsole.log('ok')\n```\n",
         encoding="utf-8",
     )
 
@@ -1575,8 +1627,8 @@ def test_api_spec_preview_returns_rendered_read_only_markdown(tmp_path: Path, se
     payload = preview_response.json()
     assert payload["ok"] is True
     assert payload["path"] == str(spec_path.resolve())
-    assert "# Goal" in payload["content"]
-    assert "<h1>Goal</h1>" in payload["rendered_html"]
+    assert "# Task" in payload["content"]
+    assert "<h1>Task</h1>" in payload["rendered_html"]
     assert "<script>" not in payload["rendered_html"]
     assert "&lt;script&gt;alert" in payload["rendered_html"]
     assert 'class="language-js"' in payload["rendered_html"]
@@ -1589,7 +1641,7 @@ def test_api_spec_document_returns_content_rendering_and_validation(tmp_path: Pa
 
     spec_path = tmp_path / "editable-spec.md"
     spec_path.write_text(
-        "# Goal\n\nKeep editing local.\n\n# Checks\n\n### Persist edits\n\n- When: Save inside the editor\n- Expect: The disk file updates\n\n### Show rendered preview\n\n- When: The text changes\n- Expect: The preview updates too\n",
+        "# Task\n\nKeep editing local.\n\n# Done When\n\n- The disk file updates after save.\n- The rendered preview updates too.\n",
         encoding="utf-8",
     )
 
@@ -1599,8 +1651,8 @@ def test_api_spec_document_returns_content_rendering_and_validation(tmp_path: Pa
     payload = response.json()
     assert payload["ok"] is True
     assert payload["path"] == str(spec_path.resolve())
-    assert payload["content"].startswith("# Goal")
-    assert "<h1>Goal</h1>" in payload["rendered_html"]
+    assert payload["content"].startswith("# Task")
+    assert "<h1>Task</h1>" in payload["rendered_html"]
     assert payload["validation"]["ok"] is True
     assert payload["validation"]["check_count"] == 2
     assert payload["validation"]["check_mode"] == "specified"
@@ -1611,24 +1663,24 @@ def test_api_spec_document_save_writes_file_and_returns_validation(tmp_path: Pat
     client = TestClient(build_app(service=service))
 
     spec_path = tmp_path / "editable-spec.md"
-    spec_path.write_text("# Goal\n\nInitial\n", encoding="utf-8")
+    spec_path.write_text("# Task\n\nInitial\n", encoding="utf-8")
 
     response = client.put(
         "/api/specs/document",
         json={
             "path": str(spec_path),
-            "content": "# Goal\r\n\r\nSaved copy.\r\n\r\n# Checks\r\n\r\n### Keep disk in sync\r\n\r\n- When: Save finishes\r\n- Expect: The file matches the editor\r\n",
+            "content": "# Task\r\n\r\nSaved copy.\r\n\r\n# Done When\r\n\r\n- The file matches the editor after save.\r\n",
         },
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
-    assert payload["content"] == "# Goal\n\nSaved copy.\n\n# Checks\n\n### Keep disk in sync\n\n- When: Save finishes\n- Expect: The file matches the editor\n"
+    assert payload["content"] == "# Task\n\nSaved copy.\n\n# Done When\n\n- The file matches the editor after save.\n"
     assert spec_path.read_text(encoding="utf-8") == payload["content"]
     assert payload["validation"]["ok"] is True
     assert payload["validation"]["check_count"] == 1
-    assert "<h1>Checks</h1>" in payload["rendered_html"]
+    assert "<h1>Done When</h1>" in payload["rendered_html"]
 
 
 def test_api_markdown_render_can_strip_prompt_front_matter(service_factory) -> None:
@@ -1650,79 +1702,6 @@ def test_api_markdown_render_can_strip_prompt_front_matter(service_factory) -> N
     assert "version: 1" not in payload["rendered_html"]
     assert "archetype: builder" not in payload["rendered_html"]
     assert "Ship the change." in payload["rendered_html"]
-
-
-def test_api_spec_skill_install_targets_and_install(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
-
-    client = TestClient(build_app())
-
-    targets_response = client.get("/api/skills/loopora-spec")
-    assert targets_response.status_code == 200
-    targets = {item["target"]: item for item in targets_response.json()["targets"]}
-    assert targets["codex"]["installed"] is False
-    assert targets["codex"]["install_state"] == "missing"
-    assert targets["claude"]["installed"] is False
-    assert targets["opencode"]["installed"] is False
-    assert targets["codex"]["install_paths"] == [str(tmp_path / ".codex" / "skills" / "loopora-spec" / "SKILL.md")]
-
-    invalid_targets_response = client.get("/api/skills/retired-spec")
-    assert invalid_targets_response.status_code == 404
-
-    install_response = client.post("/api/skills/loopora-spec/install", json={"target": "codex"})
-    assert install_response.status_code == 201
-    install_payload = install_response.json()
-    assert install_payload["result"]["action"] == "installed"
-    codex_targets = {item["target"]: item for item in install_payload["targets"]}
-    assert codex_targets["codex"]["installed"] is True
-    assert codex_targets["codex"]["install_state"] == "installed"
-
-    skill_dir = tmp_path / ".codex" / "skills" / "loopora-spec"
-    skill_path = skill_dir / "SKILL.md"
-    reference_path = skill_dir / "references" / "loopora-spec-format.md"
-    original_skill_text = skill_path.read_text(encoding="utf-8")
-
-    assert skill_path.exists()
-    assert reference_path.exists()
-    assert not (tmp_path / ".agents" / "skills" / "loopora-spec" / "SKILL.md").exists()
-
-    skill_path.write_text("tampered", encoding="utf-8")
-    stale_file = skill_dir / "stale-note.txt"
-    stale_file.write_text("old", encoding="utf-8")
-
-    stale_targets_response = client.get("/api/skills/loopora-spec")
-    assert stale_targets_response.status_code == 200
-    stale_targets = {item["target"]: item for item in stale_targets_response.json()["targets"]}
-    assert stale_targets["codex"]["installed"] is False
-    assert stale_targets["codex"]["install_state"] == "stale"
-
-    reinstall_response = client.post("/api/skills/loopora-spec/install", json={"target": "codex"})
-    assert reinstall_response.status_code == 201
-    reinstall_payload = reinstall_response.json()
-    assert reinstall_payload["result"]["action"] == "reinstalled"
-    refreshed_targets = {item["target"]: item for item in reinstall_payload["targets"]}
-    assert refreshed_targets["codex"]["installed"] is True
-    assert refreshed_targets["codex"]["install_state"] == "installed"
-    assert skill_path.read_text(encoding="utf-8") == original_skill_text
-    assert not stale_file.exists()
-
-
-def test_api_spec_skill_bundle_download_returns_zip(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
-
-    client = TestClient(build_app())
-    response = client.get("/api/skills/loopora-spec/download")
-
-    assert response.status_code == 200
-    assert response.headers["content-type"] == "application/zip"
-    assert response.headers["content-disposition"] == 'attachment; filename="loopora-spec.zip"'
-
-    archive = zipfile.ZipFile(io.BytesIO(response.content))
-    names = set(archive.namelist())
-    assert "loopora-spec/SKILL.md" in names
-    assert "loopora-spec/references/loopora-spec-format.md" in names
 
 
 def test_logo_assets_are_served(service_factory) -> None:

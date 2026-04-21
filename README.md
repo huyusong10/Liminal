@@ -11,65 +11,88 @@
   <a href="https://fastapi.tiangolo.com/">
     <img alt="FastAPI" src="https://img.shields.io/badge/web-FastAPI-009688?logo=fastapi&logoColor=white">
   </a>
-  <img alt="Local first" src="https://img.shields.io/badge/local--first-loop%20orchestration-0D7C66">
+  <img alt="Local first" src="https://img.shields.io/badge/local--first-loop%20orchestration%20platform-0D7C66">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-D66A36">
 </p>
 
+## What if the hard part is not writing the patch?
+
+What if the real difficulty is not “run the agent one more time,” but learning what the world says after that round lands?
+
+What if one `Builder` pass is not enough, and what you really need is:
+
+- `Inspector` to reopen the evidence
+- `GateKeeper` to decide whether this round truly crossed the line
+- `Guide` to step in only when the loop starts to stall or drift
+
+Then the problem is no longer “agent automation.” It is orchestration.
+
+**Loopora is a local-first loop orchestration platform for evidence-driven agent work.**
+
+It exists for tasks that cannot be settled in one pass, where the next move should change after new evidence arrives, and where `Builder`, `Inspector`, `GateKeeper`, and `Guide` should each play a distinct role in convergence.
+
 <p align="center">
-  Loopora is a local-first orchestration tool for agentic build loops.
-  You give it a Markdown spec and a workdir, and it runs a
-  <strong>Generator → Tester → Verifier → Challenger</strong> cycle with a live web console.
+  <img src="./.github/assets/readme-decision-tree.en.png" alt="Loopora decision board" width="1120" />
 </p>
 
-![Loopora overview](./.github/assets/readme-overview.svg)
+## What Loopora is for
 
-## Why Loopora
+Many loop systems are controversial for a fair reason: if an agent keeps running on the same stale assumption, the loop becomes drift, not progress.
 
-- Keep the goal stable while each run iterates against concrete checks.
-- Support both explicit checks and exploratory runs with auto-generated frozen checks.
-- Persist run artifacts under `.loopora/` so every iteration is inspectable and reproducible.
-- Expose the same run state in a local web console with progress, console logs, timeline, and key artifacts.
-- Run the same loop definition with Codex, Claude Code, or OpenCode, with provider-aware model and effort settings.
-- Treat role definitions and orchestration workflows as first-class assets, including step-level model overrides.
+Loopora is built for the opposite shape:
 
-## How It Works
+- `Builder` pushes the workspace forward
+- `Inspector` gathers new evidence from the updated state
+- `GateKeeper` decides pass or fail from that evidence
+- `Guide` only redirects when the loop is stuck or leaning the wrong way
 
-![Loopora flow](./.github/assets/readme-flow.svg)
+That is the point of the loop: not “let the agent think longer,” but **let the next step depend on what really changed.**
 
-Each run compiles the Markdown spec into a frozen snapshot, updates the workspace, collects evidence, judges pass/fail, and only invokes the Challenger when the loop stalls or regresses.
+## When it is worth using
 
-## Features
+Use Loopora when:
 
-- Local FastAPI console for loop creation, run monitoring, artifact inspection, and skill installation
-- First-class role definitions plus orchestration editing, including per-step model overrides
-- Loop completion can be GateKeeper-driven or round-based, and non-zero iteration intervals let a loop wait between rounds
-- The loop creation page remembers unfinished browser drafts and surfaces recent workdirs without changing the underlying loop model
-- Canonical run artifacts under `contract/`, `context/`, `timeline/`, and `iterations/`, with legacy root mirrors kept for compatibility
-- CLI commands for `run`, `serve`, `loops create`, `loops list`, `loops status`, `loops stop`, `loops rerun`, `loops delete`, `spec init`, and `spec validate`
-- Optional fake executor mode for smoke tests and demos
-- Bundled `loopora-spec` skill that helps draft valid `spec.md` files
+- the root cause is still ungrounded and `Inspector` should go first
+- one repair pass is expected to expose the second bottleneck
+- progress must be judged by a benchmark or evaluation harness, not by intuition
+- the work will span multiple rounds and you want every handoff, verdict, and artifact to stay inspectable
 
-## Install
+Do not use Loopora for:
+
+- tiny copy edits
+- small buttons
+- obvious feature slices a single agent can land safely in one pass
+
+## Start with these 5 core workflows
+
+Loopora deliberately defaults to 5 core workflows, because most real loop-worthy tasks fall into 5 kinds of uncertainty.
+
+- `Build First`
+  Use it when the missing piece is the first real working slice. Think of a multi-surface import flow that touches UI, API, and storage, where the target is clear but nothing end to end is running yet.
+
+- `Inspect First`
+  Use it when the missing piece is evidence. Think of a billing-close pipeline where some enterprise tenants now get incomplete invoice archives and nobody knows whether the gap begins in aggregation, rendering, bundling, or upload.
+
+- `Triage First`
+  Use it when even the problem statement is still fuzzy. Think of a handoff ticket that only says “the system sometimes sends duplicate emails,” and the job is first to collapse that into one actionable defect.
+
+- `Repair Loop`
+  Use it when you already expect one repair pass not to be enough. Think of large-tenant full-text reindexing that blows the release window, where the first repair will likely expose a second system bottleneck.
+
+- `Benchmark Loop`
+  Use it when the next move should come from the latest benchmark, not from taste. Think of pulling an evaluation score from 61% to 70% without overfitting the prompt to the benchmark itself.
+
+The tutorial starts with the decision board, and each workflow card can open its example in place. You do not need to memorize rules first; start from the nearest real task.
+
+## Quick start
+
+1. Install
 
 ```bash
 python3 -m pip install -e .
 ```
 
-For real execution, make sure the CLI you want to use is available in your environment:
-
-- `codex`
-- `claude`
-- `opencode`
-
-## Recommended Start: Web UI
-
-1. If you have not installed it yet:
-
-```bash
-python3 -m pip install -e .
-```
-
-2. Start the local web console:
+2. Start the local web console
 
 ```bash
 loopora serve --host 127.0.0.1 --port 8742
@@ -77,47 +100,32 @@ loopora serve --host 127.0.0.1 --port 8742
 
 Then open [http://127.0.0.1:8742](http://127.0.0.1:8742).
 
-If you want to expose the Web UI on your LAN, bind a public host and protect it with a token:
+3. Open the tutorial and orchestration pages first
 
-```bash
-loopora serve --host 0.0.0.0 --port 8742 --auth-token your-secret
-```
+Use the decision board to answer two questions: should this task enter Loopora at all, and if it should, which workflow should get the first crucial signal. Then open the closest built-in example. The example itself explains why `Builder`, `Inspector`, `GateKeeper`, and `Guide` are arranged that way.
 
-Then open `http://<server-ip>:8742/?token=your-secret` once in the browser. After that, the browser keeps a session cookie. In network mode, paste absolute paths from the server machine directly into the form because native file dialogs are intentionally disabled.
+4. Adapt the spec, then create a loop
 
-3. Create a starter spec:
+Loopora specs stay short. They only need:
 
-```bash
-loopora spec init ./demo-spec.md
-```
+- `# Task`
+- `# Done When`
+- `# Guardrails`
+- `# Role Notes`
 
-4. Edit it into something concrete:
+The easiest path is to start from the closest built-in example instead of writing one from scratch.
 
-```md
-# Goal
+## Web UI first, CLI still available
 
-Build a useful landing page for an English learning site.
+The Web UI is the recommended entry point because it keeps the full loop in one place:
 
-# Checks
+- choose a workflow
+- open a real scenario example
+- adapt the spec
+- create the loop
+- watch the round-by-round artifacts, evidence, and GateKeeper verdicts
 
-### Main path is clear
-- When: A new user opens the page and tries to start learning
-- Expect: The main action is obvious and the first step is easy to begin
-- Fail if: The page feels ambiguous or the user cannot tell what to do next
-
-# Constraints
-
-- Start with a front-end prototype
-- Preserve the existing project files and prefer focused in-place edits
-```
-
-5. In the Web UI, create a loop, point it at your `workdir` and `spec.md`, choose an execution tool, and start the run.
-
-The Web UI is the recommended workflow because it gives you live progress, console streaming, timeline milestones, and fixed artifact tabs in one place.
-
-## CLI Supplement
-
-If you want to start a run directly from the terminal, you can still do that:
+If you already know the loop you want, the CLI is still there:
 
 ```bash
 loopora run \
@@ -128,104 +136,9 @@ loopora run \
   --max-iters 8
 ```
 
-You can switch tools with `--executor claude` or `--executor opencode`. Claude Code uses `low/medium/high/max`. For more tool-specific or fast-moving CLI flags, the Web UI now also supports direct command parameters.
-The CLI now exposes the same core loop creation surface as the Web UI: `--executor-mode command`, repeated `--command-arg` entries for direct argv templates, `loops create` when you want to save without starting, and `spec validate` for a quick structural check.
-
-## Spec Model
-
-Loopora uses a Markdown spec with these top-level sections:
-
-- `# Goal` required
-- `# Checks` optional
-- `# Constraints` optional
-
-When `# Checks` is omitted, Loopora generates a frozen exploratory check set at run start. When checks are provided explicitly, each check should use a `###` heading and include `When`, `Expect`, and `Fail if`.
-For existing projects, it is a good idea to use `# Constraints` to say what must stay untouched and to make it explicit that existing user files should be preserved.
-
-For long-running benchmark or evaluation loops, specs work better when they make the owned workflow explicit:
-
-- Put the real success condition in `# Goal`, not just "run the benchmark". Name the project-owned harness and the stop condition if you already know them.
-- Use `# Checks` for judgeable outcomes such as fresh score/report artifacts, thresholded scores, or a clearly evidenced architecture-blocked stop condition.
-- Use `# Constraints` for forbidden shortcuts, preserved directories, and the only acceptable sources of improvement.
-- If the run will take a while, name the project-owned status or report artifacts that should be observed while waiting so silence is not the only progress signal.
-
-## Web Console
-
-The local console includes:
-
-- Saved loop list with status, model, latest run, and direct actions
-- Loop creation page with spec validation, recent workdir suggestions, completion mode and iteration interval controls, and browser-local draft recovery
-- Role definitions page for reusable archetype-backed role templates
-- Run detail page with live progress, stage explanations, console streaming, timeline, fixed artifact tabs, and white-box terminal controls for filtering plus collapse/expand
-- Tool page for installing the bundled `loopora-spec` skill
-
-## Storage
-
-Global state lives under `~/.loopora/` by default. Set `LOOPORA_HOME=/custom/path` to relocate it when you need an isolated or sandbox-friendly home:
-
-`settings.json` is treated as self-healing state: if it is missing, corrupted, or contains unknown or out-of-range values, Loopora falls back to safe defaults and rewrites the file into a normalized shape on the next load.
-
-`recent_workdirs.json` is best-effort UI state: Loopora only projects non-empty path strings back into suggestions and ignores corrupted or non-string entries.
-
-- `app.db`
-- `settings.json`
-- `logs/service.log`
-- `recent_workdirs.json`
-
-Per-project state lives under `<workdir>/.loopora/`.
-
-Canonical run layout:
-
-- `loops/<loop_id>/spec.md`
-- `loops/<loop_id>/compiled_spec.json`
-- `runs/<run_id>/summary.md`
-- `runs/<run_id>/contract/spec.md`
-- `runs/<run_id>/contract/compiled_spec.json`
-- `runs/<run_id>/contract/workflow.json`
-- `runs/<run_id>/contract/run_contract.json`
-- `runs/<run_id>/contract/prompts/<prompt_ref>.md`
-- `runs/<run_id>/context/role_requests.jsonl`
-- `runs/<run_id>/context/latest_state.json`
-- `runs/<run_id>/context/latest_iteration_summary.json`
-- `runs/<run_id>/timeline/events.jsonl`
-- `runs/<run_id>/timeline/iterations.jsonl`
-- `runs/<run_id>/timeline/metrics.jsonl`
-- `runs/<run_id>/timeline/stagnation.json`
-- `runs/<run_id>/iterations/iter_000/summary.json`
-- `runs/<run_id>/iterations/iter_000/steps/00__<step_id>/input.context.json`
-- `runs/<run_id>/iterations/iter_000/steps/00__<step_id>/handoff.json`
-
-Compatibility mirrors such as `events.jsonl`, `iteration_log.jsonl`, `metrics_history.jsonl`, `tester_output.json`, and `verifier_verdict.json` are still written at the run root, but they are no longer the canonical source of context flow.
-
-## Fake Executor
-
-For smoke tests or demos, you can switch to the fake executor:
-
-```bash
-LOOPORA_FAKE_EXECUTOR=success loopora run --spec ./demo-spec.md --workdir /tmp/project
-```
-
-Supported fake scenarios:
-
-- `success`
-- `plateau`
-- `role_failure`
-
-Optional delay per role:
-
-```bash
-LOOPORA_FAKE_EXECUTOR=success LOOPORA_FAKE_DELAY=0.5 loopora serve
-```
-
-## Project Layout
-
-- `src/loopora/`: product package, templates, static files, bundled skills, and logo assets
-- `tests/`: parser, runner, recovery, web, and browser coverage
-- `pyproject.toml`: packaging, CLI entry point, and test configuration
-
 ## Development
 
-Run the test suite:
+Run the tests:
 
 ```bash
 python3 -m pytest -q

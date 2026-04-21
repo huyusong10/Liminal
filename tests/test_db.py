@@ -21,15 +21,16 @@ def _create_run(repository: LooporaRepository, tmp_path: Path, *, run_id: str = 
     workdir = tmp_path / f"{run_id}-workdir"
     workdir.mkdir()
     spec_path = tmp_path / f"{run_id}-spec.md"
-    spec_path.write_text("# Goal\n\nShip it.\n", encoding="utf-8")
+    spec_markdown = "# Task\n\nShip it.\n"
+    spec_path.write_text(spec_markdown, encoding="utf-8")
     loop = repository.create_loop(
         {
             "id": f"loop_{run_id}",
             "name": f"Loop {run_id}",
             "workdir": str(workdir),
             "spec_path": str(spec_path),
-            "spec_markdown": "# Goal\n\nShip it.\n",
-            "compiled_spec": {"goal": "Ship it.", "checks": [], "constraints": ""},
+            "spec_markdown": spec_markdown,
+            "compiled_spec": {"goal": "Ship it.", "checks": [], "constraints": "", "role_notes": {}},
             "model": "gpt-5.4",
             "reasoning_effort": "medium",
             "max_iters": 1,
@@ -48,8 +49,8 @@ def _create_run(repository: LooporaRepository, tmp_path: Path, *, run_id: str = 
             "loop_id": loop["id"],
             "workdir": str(workdir),
             "spec_path": str(spec_path),
-            "spec_markdown": "# Goal\n\nShip it.\n",
-            "compiled_spec": {"goal": "Ship it.", "checks": [], "constraints": ""},
+            "spec_markdown": spec_markdown,
+            "compiled_spec": {"goal": "Ship it.", "checks": [], "constraints": "", "role_notes": {}},
             "model": "gpt-5.4",
             "reasoning_effort": "medium",
             "max_iters": 1,

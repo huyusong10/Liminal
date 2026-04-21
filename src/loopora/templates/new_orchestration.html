@@ -39,6 +39,12 @@
             <span data-lang="en">Use the map above for orientation, manage steps through cards below, and open the settings modal only when you need to edit.</span>
           </p>
         </div>
+        <div class="card-actions card-actions-compact">
+          <button class="secondary-button" type="button" id="open-orchestration-spec-practice-modal" data-testid="open-orchestration-spec-practice-modal-button" aria-haspopup="dialog">
+            <span data-lang="zh">查看 Spec 样例</span>
+            <span data-lang="en">View spec example</span>
+          </button>
+        </div>
       </header>
       <div class="field-status" id="workflow-validation" aria-live="polite" hidden></div>
       <div class="workflow-editor-grid workflow-editor-stack">
@@ -133,6 +139,67 @@
     </a>
   </div>
 </form>
+
+<div class="confirm-modal spec-preview-modal" id="orchestration-spec-practice-modal" data-testid="orchestration-spec-practice-modal" hidden aria-hidden="true">
+  <div class="confirm-modal-backdrop" data-close-orchestration-spec-practice="1"></div>
+  <div class="confirm-modal-dialog spec-preview-dialog orchestration-spec-practice-dialog" role="dialog" aria-modal="true" aria-labelledby="orchestration-spec-practice-title" aria-describedby="orchestration-spec-practice-status">
+    <div class="spec-preview-shell">
+      <div class="spec-preview-header">
+        <div class="spec-preview-copy">
+          <span class="spec-preview-kicker"><span data-lang="zh">只读参考</span><span data-lang="en">Read-only reference</span></span>
+          <h2 id="orchestration-spec-practice-title"><span data-lang="zh">Spec 样例</span><span data-lang="en">Spec example</span></h2>
+          <p class="spec-preview-status" id="orchestration-spec-practice-status">
+            {% if spec_practice_markdown %}
+            <span data-lang="zh">这里展示的是一条适合当前内置流程的真实场景，以及对应的 spec 样例。</span>
+            <span data-lang="en">This dialog shows a real scenario that fits the current built-in workflow, followed by a sample spec.</span>
+            {% else %}
+            <span data-lang="zh">这里展示按当前 workflow 生成的只读模板。</span>
+            <span data-lang="en">This dialog shows the read-only template generated from the current workflow.</span>
+            {% endif %}
+          </p>
+        </div>
+        <div class="card-actions card-actions-compact spec-preview-actions">
+          <span class="status-pill spec-preview-readonly" data-testid="orchestration-spec-practice-mode-pill">
+            <span data-lang="zh">只读</span>
+            <span data-lang="en">Read-only</span>
+          </span>
+          <button class="ghost-button" type="button" id="close-orchestration-spec-practice" data-close-orchestration-spec-practice="1">
+            <span data-lang="zh">关闭</span>
+            <span data-lang="en">Close</span>
+          </button>
+        </div>
+      </div>
+      <div class="orchestration-spec-practice-content">
+        <section class="markdown-workbench-panel orchestration-spec-practice-preview-shell" data-testid="orchestration-spec-practice-preview-shell">
+          <div class="markdown-workbench-panel-head">
+            <span class="markdown-workbench-panel-label" id="orchestration-spec-practice-preview-label">
+              {% if spec_practice_markdown %}
+              <span data-lang="zh">真实场景示例</span><span data-lang="en">Real scenario example</span>
+              {% else %}
+              <span data-lang="zh">当前 workflow 模板</span><span data-lang="en">Current workflow template</span>
+              {% endif %}
+            </span>
+            <span class="markdown-workbench-panel-note" id="orchestration-spec-practice-summary">
+              {% if spec_practice_markdown %}
+              {{ spec_practice_summary }}
+              {% else %}
+              <span data-lang="zh">按当前 workflow 即时生成，只读展示。</span>
+              <span data-lang="en">Generated from the current workflow for read-only preview.</span>
+              {% endif %}
+            </span>
+          </div>
+          <article class="preview-box markdown-preview markdown-workbench-preview" id="orchestration-spec-practice-preview" data-testid="orchestration-spec-practice-preview">
+            {% if spec_practice_markdown %}
+            {{ spec_practice_rendered_html|safe }}
+            {% else %}
+            {{ generated_spec_template_rendered_html|safe }}
+            {% endif %}
+          </article>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div class="workflow-settings-modal confirm-modal" id="workflow-step-settings-modal" data-testid="workflow-step-settings-modal" hidden aria-hidden="true">
   <div class="confirm-modal-backdrop" data-close-workflow-settings="1"></div>
@@ -278,6 +345,13 @@
 
 <script id="workflow-preset-bundles-json" type="application/json">{{ workflow_preset_bundles|tojson }}</script>
 <script id="role-definitions-json" type="application/json">{{ role_definitions|tojson }}</script>
+<script id="spec-practice-copy-json" type="application/json">{{ {
+  "summary_zh": spec_practice_summary_zh,
+  "summary_en": spec_practice_summary_en,
+  "rendered_html_zh": spec_practice_rendered_html_zh,
+  "rendered_html_en": spec_practice_rendered_html_en,
+  "has_curated_example": spec_practice_markdown_zh or spec_practice_markdown_en,
+}|tojson }}</script>
 <script src="{{ static_asset_url('pages/workflow_diagram.js') }}" defer></script>
 <script src="{{ static_asset_url('pages/new_orchestration.js') }}" defer></script>
 </div>
