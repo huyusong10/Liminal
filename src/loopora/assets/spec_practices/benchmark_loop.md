@@ -1,48 +1,53 @@
 ---
-summary: "Scenario: the support-answer benchmark sits at 61% pass rate, and release requires at least 70% without hardcoded shortcuts."
+summary: "Scenario: before wider rollout, the hybrid-search project needs one benchmark-driven round to decide whether the next human check-in should still focus on retrieval, reranking, or query rewrite."
 ---
 
 ## Scenario
 
-The project already ships a support-answer evaluation harness. The current baseline is 61% pass rate, and the release target is 70% or better. The team explicitly does not want benchmark-only tricks that would make the real product worse.
+The hybrid-search rollout is getting close to the point where the team must decide whether to expand beyond the first domain. Release is gated by a relevance benchmark and a locked score threshold. The work is no longer about one defect; it is about deciding, round by round, whether the next improvement should target retrieval, reranking, or query rewrite. This loop exists to turn the latest benchmark evidence into the next concrete move.
 
 ## Request
 
-Raise the evaluation result to the release target while keeping the live retrieval and ranking behavior honest.
+Run one benchmark-guided improvement round that leaves fresh evidence about whether the next effort should stay on the same subsystem or move elsewhere.
 
 ## Why this workflow fits
 
-Every iteration should stay anchored to benchmark evidence, not intuition. GateKeeper reads the benchmark first, Builder reacts to that verdict, and the next round only exists if the latest score changed the decision surface.
+Every round should begin with measured evidence, not taste. GateKeeper reads the benchmark artifacts first, Builder reacts to that verdict, and the loop only continues when the latest score breakdown changes what should happen next.
 
 ## Why not the other workflows
 
-This is not `Build First` because implementation is not the primary loop driver here. It is not `Inspect First` because a failing path is not the main object of study. It is also not `Repair Loop`, because the key question each round is whether the measured score changed enough to justify the next move.
+This is not `Build First` because the system already exists and the deciding signal is no longer “can it run.” It is not `Inspect First` because the goal is not to pin down one failing path but to choose the next optimization target from benchmark evidence. It is also not `Repair Loop`, because the main driver is still the latest evaluation result rather than the residue of a specific repair pass.
+
+## Why not just let a strong agent do it
+
+Without Loopora, a strong agent could keep optimizing in one direction, but humans would need to return after every benchmark run to decide whether the score moved for the right reason, whether the remaining loss is still in the same subsystem, and whether the next round should change direction. Loopora reduces those repeated human check-ins by giving `GateKeeper` the benchmark first, letting `Builder` act on that verdict, and preserving the evidence needed for the next decision without making the human restate the whole context each time.
 
 ## Example spec
 
 # Task
 
-Raise the project-owned support-answer benchmark from the current 61% baseline to at least 70%, without introducing benchmark-only shortcuts.
+Use one benchmark-guided improvement round to advance hybrid-search quality and leave fresh score evidence that decides whether the next round should stay on the same subsystem or move elsewhere.
 
 # Done When
 
-- The benchmark harness can be rerun end to end from the repository.
-- The latest evaluation artifacts are fresh, inspectable, and tied to the current workspace.
-- The latest benchmark result is at least 70%.
-- Claimed gains can be traced to project changes that also improve the live system or the harness reliability.
+- The relevance benchmark can be rerun end to end from the repository.
+- Fresh evaluation artifacts are produced from the current workspace and remain inspectable.
+- This round either improves the benchmark over the locked baseline or narrows the dominant remaining loss to one verified subsystem.
+- The benchmark breakdown is specific enough to decide whether the next round should target retrieval, reranking, or query rewrite.
+- Claimed gains can be traced to product improvements rather than benchmark-only shortcuts.
 
 # Guardrails
 
-- Do not hardcode benchmark answers, label mappings, or one-off caches.
-- Preserve the public product surface while optimizing.
-- Keep benchmark inputs, reports, and score artifacts inspectable.
+- Do not hardcode benchmark answers, labels, or one-off caches.
+- Preserve the live search contract while optimizing.
+- Keep reports, score breakdowns, and benchmark inputs inspectable so the next round can build on them.
 
 # Role Notes
 
 ## GateKeeper Notes
 
-Start from benchmark evidence, not intuition, and fail closed when the harness itself is not trustworthy yet.
+Start from the latest benchmark artifacts and fail closed if the harness itself is not trustworthy yet.
 
 ## Builder Notes
 
-Prefer changes that improve the real system or harness reliability instead of chasing one-off score spikes.
+Make changes that improve a real subsystem, not one-off score spikes with no rollout value.

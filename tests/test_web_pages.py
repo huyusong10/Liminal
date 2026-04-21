@@ -834,7 +834,8 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     _assert_has_testid(builtin_edit_response.text, "orchestration-spec-practice-preview-shell")
     _assert_has_testid(builtin_edit_response.text, "orchestration-spec-practice-preview")
     assert "Real scenario example" in builtin_edit_response.text
-    assert "workspace import flow" in builtin_edit_response.text
+    assert "knowledge-base product is replacing keyword-only search with hybrid search" in builtin_edit_response.text
+    assert "help-center slice ready for shadow traffic" in builtin_edit_response.text
     assert "# Task" in builtin_edit_response.text
     assert 'data-testid="orchestration-spec-practice-curated"' not in builtin_edit_response.text
     assert 'data-testid="orchestration-spec-practice-template-workbench"' not in builtin_edit_response.text
@@ -1017,10 +1018,10 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     _assert_has_testid(response.text, "tutorial-decision-tree-stop-card")
     _assert_has_testid(response.text, "tutorial-spec-practice-modal")
     _assert_has_testid(response.text, "tutorial-spec-practice-preview")
-    assert "Use Loopora when one Builder pass is not enough and the next move depends on fresh evidence." in response.text
-    assert "Builder, Inspector, GateKeeper, and Guide converge round by round around fresh evidence." in response.text
-    assert "Builder moves the work forward" in response.text
-    assert "If it is just a copy tweak" in response.text
+    assert "humans should not have to keep coming back to confirm and redirect it" in response.text
+    assert "humans keep getting pulled back in to inspect, judge, and redirect the work" in response.text
+    assert "Together they absorb the supervision work" in response.text
+    assert "one strong agent pass plus one human review is enough" in response.text
     assert "Start with this decision tree" in response.text
     assert "Start with these 5 core workflows" in response.text
     assert "Inspect First" in response.text
@@ -1034,9 +1035,9 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     assert "tutorial-decision-tree-copy" not in response.text
     assert "tutorial-decision-tree-image" not in response.text
     assert "Why this one" in response.text
-    assert "the first real working slice" in response.text
-    assert "incomplete invoice archives" in response.text
-    assert "full-text reindexing" in response.text
+    assert "help-center slice ready for shadow traffic" in response.text
+    assert "high-value queries regress" in response.text
+    assert "full search reindexing" in response.text
     assert 'data-open-tutorial-spec-practice="builtin:build_first"' in response.text
     assert 'data-open-tutorial-spec-practice="builtin:inspect_first"' in response.text
     assert 'id="tutorial-spec-practices-json"' in response.text
@@ -1049,7 +1050,8 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     zh_response = client.get("/tutorial", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
     assert '<title>使用教程</title>' in zh_response.text
-    assert "发票归档不完整" in zh_response.text
+    assert "反复回来确认" in zh_response.text
+    assert "帮助中心" in zh_response.text
 
 
 def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -> None:

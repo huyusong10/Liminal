@@ -5,12 +5,12 @@
   <section class="hero hero-tight">
     <div class="hero-copy-stack">
       <h1>
-        <span data-lang="zh">当一次 Builder 还不够，而且下一步得看新证据时，再用 Loopora。</span>
-        <span data-lang="en">Use Loopora when one Builder pass is not enough and the next move depends on fresh evidence.</span>
+        <span data-lang="zh">当强 Agent 能做，但人类不该反复回来确认时，再用 Loopora。</span>
+        <span data-lang="en">Use Loopora when a strong agent could do the work, but humans should not have to keep coming back to confirm and redirect it.</span>
       </h1>
       <p>
-        <span data-lang="zh">Loopora 不是为了让 agent 一直跑下去，而是为了让 Builder、Inspector、GateKeeper 和 Guide 围绕新证据，一轮轮把任务收敛下来。</span>
-        <span data-lang="en">Loopora is not for keeping an agent running longer. It is for helping Builder, Inspector, GateKeeper, and Guide converge round by round around fresh evidence.</span>
+        <span data-lang="zh">Loopora 不是因为 agent 完全做不到，而是因为如果没有一条 `Builder → Inspector → GateKeeper → Guide` 的流程，人类就得在每个关键阶段反复回来检查、裁决和纠偏。它把这些高频确认点编排进 loop，减少人工介入次数。</span>
+        <span data-lang="en">Loopora is not here because the agent is helpless. It is here because, without a `Builder → Inspector → GateKeeper → Guide` flow, humans keep getting pulled back in to inspect, judge, and redirect the work after every meaningful step.</span>
       </p>
     </div>
   </section>
@@ -21,24 +21,24 @@
     </header>
     <div class="tutorial-guide-grid tutorial-guide-grid-compact">
       <article class="tutorial-guide-card" data-testid="tutorial-core-spec">
-        <strong class="tutorial-guide-title"><span data-lang="zh">为什么要 loop</span><span data-lang="en">Why loop</span></strong>
+        <strong class="tutorial-guide-title"><span data-lang="zh">减少人工反复介入</span><span data-lang="en">Reduce repeated human check-ins</span></strong>
         <p>
-          <span data-lang="zh">只有当这一轮行动会改变下一步判断时，loop 才有意义。否则只是让 Builder 围着旧假设越跑越偏。</span>
-          <span data-lang="en">A loop only matters when this round should change the next decision. Otherwise Builder is just drifting farther on the same stale assumption.</span>
+          <span data-lang="zh">如果没有 loop，人类会在每个关键阶段回来问同一类问题：这轮到底算不算过、下一步该盯哪一层、是不是该转方向。Loopora 的价值，就是把这些反复出现的确认点交给流程本身处理。</span>
+          <span data-lang="en">Without a loop, humans keep returning to ask the same questions: did this round actually cross the line, which layer matters next, and should the work change direction? Loopora turns those repeated checkpoints into workflow structure.</span>
         </p>
       </article>
       <article class="tutorial-guide-card" data-testid="tutorial-core-workflow">
         <strong class="tutorial-guide-title"><span data-lang="zh">角色分工</span><span data-lang="en">Role story</span></strong>
         <p>
-          <span data-lang="zh">Builder 负责推进改动，Inspector 负责拿证据，GateKeeper 负责判断能不能过，Guide 只在卡住或明显走偏时介入。</span>
-          <span data-lang="en">Builder moves the work forward, Inspector gathers evidence, GateKeeper decides whether it passes, and Guide only steps in when the loop stalls or starts drifting.</span>
+          <span data-lang="zh">Builder 推进实现，Inspector 重看证据，GateKeeper 替团队做通过与否的裁决，Guide 只在停滞或走偏时收窄下一步。它们一起替人类吸收本来要反复介入的监督工作。</span>
+          <span data-lang="en">Builder pushes the implementation, Inspector reopens the evidence, GateKeeper makes the pass-or-no-pass call, and Guide only narrows the next move when the loop stalls or drifts. Together they absorb the supervision work that would otherwise keep dragging humans back in.</span>
         </p>
       </article>
       <article class="tutorial-guide-card" data-testid="tutorial-core-loop">
         <strong class="tutorial-guide-title"><span data-lang="zh">什么时候别用</span><span data-lang="en">When not to use it</span></strong>
         <p>
-          <span data-lang="zh">如果只是改小文案、补一个小按钮，或者一轮就能安全做完的功能，就别开 loop。那种任务直接单次执行更省事。</span>
-          <span data-lang="en">If it is just a copy tweak, a tiny button, or a feature slice one agent can finish safely in a single pass, skip the loop. A one-shot run is simpler.</span>
+          <span data-lang="zh">如果一位强 Agent 加上一轮人工 review 就够了，就别开 loop。Loopora 只该用在那些本来会把人类反复拉回来确认和纠偏的长程任务上。</span>
+          <span data-lang="en">If one strong agent pass plus one human review is enough, skip the loop. Use Loopora only for long tasks that would otherwise keep pulling humans back in to confirm and redirect them.</span>
         </p>
       </article>
     </div>
@@ -53,16 +53,16 @@
         <div class="tutorial-decision-tree-kicker" data-testid="tutorial-decision-tree-kicker">Builder · Inspector · GateKeeper · Guide</div>
         <div class="tutorial-decision-tree-intro">
           <span class="tutorial-decision-tree-eyebrow">
-            <span data-lang="zh">先判断值不值得开 loop，再判断该让谁先拿到关键东西。</span>
-            <span data-lang="en">First decide whether the task deserves a loop, then decide who should get the first crucial signal.</span>
+            <span data-lang="zh">先判断这件事会不会反复把人拉回来，再判断该让谁先替人拿到关键证据。</span>
+            <span data-lang="en">First ask whether the task would keep dragging humans back in, then decide which role should surface the first crucial signal for them.</span>
           </span>
           <h3>
-            <span data-lang="zh">这件事值得进 Loopora 吗？</span>
-            <span data-lang="en">Does this task belong in Loopora?</span>
+            <span data-lang="zh">这件事需要 Loopora 吗？</span>
+            <span data-lang="en">Does this task need Loopora?</span>
           </h3>
           <p>
-            <span data-lang="zh">只有当这一轮拿到的新证据，会改变下一步判断时，loop 才值得开。</span>
-            <span data-lang="en">Use a loop only when fresh evidence should change the next move.</span>
+            <span data-lang="zh">如果一位强 Agent 加上一轮人工复核就够，别开 loop。只有当人类本来会被反复拉回来确认和纠偏时，Loopora 才真正省事。</span>
+            <span data-lang="en">If one strong agent plus one human review is enough, skip the loop. Loopora earns its keep only when humans would otherwise keep getting pulled back in to confirm and redirect the work.</span>
           </p>
         </div>
         <div class="tutorial-decision-tree-stage">
@@ -70,12 +70,12 @@
             <span class="tutorial-decision-tree-step-badge">01</span>
             <div class="tutorial-decision-tree-question-copy">
               <h4>
-                <span data-lang="zh">这一轮的新证据，会不会改变下一步？</span>
-                <span data-lang="en">Will fresh evidence change the next move?</span>
+                <span data-lang="zh">如果不用 Loopora，人类会不会被反复拉回来确认下一步？</span>
+                <span data-lang="en">Without Loopora, would humans keep getting pulled back in to confirm the next move?</span>
               </h4>
               <p>
-                <span data-lang="zh">先只回答这一句：如果答案是不会，通常就不该开 loop。</span>
-                <span data-lang="en">Answer this first: if the answer is no, a loop usually adds more drift than value.</span>
+                <span data-lang="zh">先只回答这一句：如果不会，一位强 Agent 加一次人工 review 通常就够了。</span>
+                <span data-lang="en">Answer this first: if the answer is no, one strong agent pass plus one human review is usually enough.</span>
               </p>
             </div>
           </article>
@@ -90,8 +90,8 @@
                 <span data-lang="en">Skip Loopora</span>
               </h4>
               <p>
-                <span data-lang="zh">一次做完、短链路修复，或者直接实现，通常更省事。</span>
-                <span data-lang="en">A one-shot run, short repair, or direct build is usually the better fit.</span>
+                <span data-lang="zh">一次做完、短链路修复，或者直接实现，通常更省事。别把本来只需要一次人工 review 的任务硬拉进 loop。</span>
+                <span data-lang="en">A one-shot run, short repair, or direct build is usually the better fit. Do not pull a task into a loop if it only needs one human review anyway.</span>
               </p>
             </article>
             <article class="tutorial-decision-tree-question tutorial-decision-tree-question--secondary" data-testid="tutorial-decision-tree-secondary-question">
@@ -103,12 +103,12 @@
                 <span class="tutorial-decision-tree-step-badge tutorial-decision-tree-step-badge--secondary">02</span>
               </div>
               <h4>
-                <span data-lang="zh">如果要用，最先缺的是什么？</span>
-                <span data-lang="en">If it belongs in Loopora, what is missing first?</span>
+                <span data-lang="zh">如果值得用，最先该让谁替人类拿到关键判断？</span>
+                <span data-lang="en">If it is worth using, which role should surface the first key judgment for humans?</span>
               </h4>
               <p>
-                <span data-lang="zh">别先背流程名。直接看下面这张匹配表：最先缺什么，就选谁先上场的流程。</span>
-                <span data-lang="en">Do not start from workflow names. Use the matching board below: choose the workflow that puts the missing signal on stage first.</span>
+                <span data-lang="zh">别先背流程名。直接看下面这张匹配表：哪一种信号最能减少下一次人工回场，就让谁先上场。</span>
+                <span data-lang="en">Do not start from workflow names. Use the matching board below: choose the workflow that surfaces the signal most likely to prevent the next human interruption.</span>
               </p>
             </article>
           </div>
@@ -116,8 +116,8 @@
         <div class="tutorial-decision-tree-flow-stack" data-testid="tutorial-decision-tree-flow-stack">
           <div class="tutorial-decision-tree-flow-stack-header">
             <span class="tutorial-decision-tree-flow-stack-label">
-              <span data-lang="zh">最先缺的东西</span>
-              <span data-lang="en">What is missing first</span>
+              <span data-lang="zh">最先要替人类拿到的信号</span>
+              <span data-lang="en">The first signal humans need surfaced</span>
             </span>
             <span class="tutorial-decision-tree-flow-stack-label">
               <span data-lang="zh">更适合的流程</span>
@@ -145,8 +145,8 @@
       <div>
         <h2><span data-lang="zh">默认先看这 5 类核心流程</span><span data-lang="en">Start with these 5 core workflows</span></h2>
         <p class="tutorial-panel-copy">
-          <span data-lang="zh">它们覆盖了 Loopora 最常见的 5 类任务：明确交付、接手排障、模糊探索、多轮修复和长期优化。</span>
-          <span data-lang="en">These five cover Loopora's most common job shapes: clear delivery, evidence-first debugging, fuzzy exploration, multi-pass repair, and benchmark-driven optimization.</span>
+          <span data-lang="zh">下面不是 5 个互不相干的行业故事，而是同一个搜索升级项目里最常见的 5 种长程任务形状：建第一条路径、钉根因、收窄问题、做双轮修复、再用 benchmark 决定下一步。</span>
+          <span data-lang="en">These are not five unrelated industries. They are five long-task shapes from one search-system rollout: landing the first path, pinning the root cause, narrowing the problem, running a two-pass repair, and letting benchmark results pick the next move.</span>
         </p>
       </div>
     </header>
@@ -208,8 +208,8 @@
           <span class="spec-preview-kicker"><span data-lang="zh">只读参考</span><span data-lang="en">Read-only reference</span></span>
           <h2 id="tutorial-spec-practice-title"><span data-lang="zh">流程样例</span><span data-lang="en">Workflow example</span></h2>
           <p class="spec-preview-status" id="tutorial-spec-practice-status">
-            <span data-lang="zh">这里展示的是一条真实需求样例，以及为什么它更适合这条流程。</span>
-            <span data-lang="en">This dialog shows a real task example and why it fits this workflow better than the nearby alternatives.</span>
+            <span data-lang="zh">这里展示的是同一个搜索升级项目里的真实长程任务切片，以及为什么这条流程能替人类少回来确认几次。</span>
+            <span data-lang="en">This dialog shows a long task slice from the same search rollout, and why this workflow saves humans from coming back to confirm it over and over.</span>
           </p>
         </div>
         <div class="card-actions card-actions-compact spec-preview-actions">

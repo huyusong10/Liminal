@@ -15,74 +15,76 @@
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-D66A36">
 </p>
 
-## What if the hard part is not writing the patch?
+## What if the scarce resource is not model capability, but human attention?
 
-What if the real difficulty is not “run the agent one more time,” but learning what the world says after that round lands?
+A strong agent can often write the patch.
 
-What if one `Builder` pass is not enough, and what you really need is:
+The bottleneck appears one step later.
 
-- `Inspector` to reopen the evidence
-- `GateKeeper` to decide whether this round truly crossed the line
-- `Guide` to step in only when the loop starts to stall or drift
+Someone has to come back and ask:
 
-Then the problem is no longer “agent automation.” It is orchestration.
+- is this first path real enough to trust?
+- did we actually fix the right layer?
+- should we keep pushing, stop here, or redirect the next round?
 
-**Loopora is a local-first loop orchestration platform for evidence-driven agent work.**
+Do that once and it is fine.
+Do it after every meaningful step and human attention becomes the traffic bottleneck.
 
-It exists for tasks that cannot be settled in one pass, where the next move should change after new evidence arrives, and where `Builder`, `Inspector`, `GateKeeper`, and `Guide` should each play a distinct role in convergence.
+**Loopora is a local-first loop orchestration platform for long, evidence-driven agent work.**
+
+It does not exist because the agent is helpless. It exists because some end-to-end tasks keep pulling humans back in to confirm, judge, and steer the work. Loopora turns those repeated checkpoints into a `Builder → Inspector → GateKeeper → Guide` workflow so humans can step in less often, but step in with better evidence when they do.
 
 <p align="center">
   <img src="./.github/assets/readme-decision-tree.en.png" alt="Loopora decision board" width="1120" />
 </p>
 
-## What Loopora is for
+## Why Loopora exists
 
-Many loop systems are controversial for a fair reason: if an agent keeps running on the same stale assumption, the loop becomes drift, not progress.
+Many loop systems deserve the skepticism they get. If an agent keeps running on the same stale assumption, the loop becomes drift, not progress.
 
-Loopora is built for the opposite shape:
+Loopora is built for a narrower and more useful shape:
 
-- `Builder` pushes the workspace forward
-- `Inspector` gathers new evidence from the updated state
-- `GateKeeper` decides pass or fail from that evidence
-- `Guide` only redirects when the loop is stuck or leaning the wrong way
+- `Builder` moves the workspace forward
+- `Inspector` reopens the evidence from the updated state
+- `GateKeeper` decides whether this round actually crossed the line
+- `Guide` only redirects when the work stalls or starts leaning the wrong way
 
-That is the point of the loop: not “let the agent think longer,” but **let the next step depend on what really changed.**
+The point is not infinite autonomy. The point is to remove the human attention bottleneck by encoding the check-ins humans would otherwise perform over and over.
 
-## When it is worth using
+## A concrete project, five different loops
 
-Use Loopora when:
-
-- the root cause is still ungrounded and `Inspector` should go first
-- one repair pass is expected to expose the second bottleneck
-- progress must be judged by a benchmark or evaluation harness, not by intuition
-- the work will span multiple rounds and you want every handoff, verdict, and artifact to stay inspectable
-
-Do not use Loopora for:
-
-- tiny copy edits
-- small buttons
-- obvious feature slices a single agent can land safely in one pass
-
-## Start with these 5 core workflows
-
-Loopora deliberately defaults to 5 core workflows, because most real loop-worthy tasks fall into 5 kinds of uncertainty.
+Imagine one knowledge-base product replacing its old keyword-only search with a new hybrid search stack. Same product, same rollout, five different long tasks:
 
 - `Build First`
-  Use it when the missing piece is the first real working slice. Think of a multi-surface import flow that touches UI, API, and storage, where the target is clear but nothing end to end is running yet.
+  Get the first help-center slice fully wired end to end so `GateKeeper` can decide whether it is finally ready for shadow traffic.
 
 - `Inspect First`
-  Use it when the missing piece is evidence. Think of a billing-close pipeline where some enterprise tenants now get incomplete invoice archives and nobody knows whether the gap begins in aggregation, rendering, bundling, or upload.
+  After shadow begins, a small set of high-value queries regress. `Inspector` must prove whether the first real gap is ingestion freshness, indexing, retrieval, reranking, or permissions before `Builder` repairs it.
 
 - `Triage First`
-  Use it when even the problem statement is still fuzzy. Think of a handoff ticket that only says “the system sometimes sends duplicate emails,” and the job is first to collapse that into one actionable defect.
+  The rollout expands and multiple symptoms appear at once: stale results, ranking drift, broken filters, permission leaks. This round is not about fixing everything; it is about narrowing the one blocker slice that should own the next round.
 
 - `Repair Loop`
-  Use it when you already expect one repair pass not to be enough. Think of large-tenant full-text reindexing that blows the release window, where the first repair will likely expose a second system bottleneck.
+  Full reindexing blows the maintenance window. Everyone already knows one repair pass will not be enough, so the first fix must be followed by a fresh inspection before the second fix is chosen.
 
 - `Benchmark Loop`
-  Use it when the next move should come from the latest benchmark, not from taste. Think of pulling an evaluation score from 61% to 70% without overfitting the prompt to the benchmark itself.
+  The system is close, but the release line is still gated by relevance benchmark results. Each round starts with `GateKeeper` reading the latest evaluation before `Builder` decides whether the next push belongs in retrieval, reranking, or query rewrite.
 
-The tutorial starts with the decision board, and each workflow card can open its example in place. You do not need to memorize rules first; start from the nearest real task.
+These are not five tiny tickets. They are five long, end-to-end tasks where a strong agent could help a lot, but humans would otherwise need to keep stepping back in to confirm and redirect the work.
+
+The tutorial starts with the decision board, and each workflow card can open its example in place. Start from the nearest real task, not from an abstract rulebook.
+
+## When to skip Loopora
+
+Do not open a loop if one strong agent pass plus one human review is enough.
+
+Skip Loopora for:
+
+- tiny copy edits
+- small UI affordances
+- obvious feature slices a single agent can land safely in one pass
+
+Use Loopora when the work is long enough, stateful enough, and uncertain enough that humans would otherwise keep coming back after every meaningful round.
 
 ## Quick start
 
@@ -102,7 +104,7 @@ Then open [http://127.0.0.1:8742](http://127.0.0.1:8742).
 
 3. Open the tutorial and orchestration pages first
 
-Use the decision board to answer two questions: should this task enter Loopora at all, and if it should, which workflow should get the first crucial signal. Then open the closest built-in example. The example itself explains why `Builder`, `Inspector`, `GateKeeper`, and `Guide` are arranged that way.
+Use the decision board to answer two questions: should this task enter Loopora at all, and if it should, which workflow should surface the first crucial signal so humans do not need to step back in immediately. Then open the closest built-in example. The example itself explains why `Builder`, `Inspector`, `GateKeeper`, and `Guide` are arranged that way.
 
 4. Adapt the spec, then create a loop
 
