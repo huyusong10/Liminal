@@ -11,7 +11,7 @@ from typing import Annotated
 import typer
 import uvicorn
 
-from loopora.branding import APP_AUTH_ENV, APP_NAME, LEGACY_APP_AUTH_ENV, RUN_SUMMARY_TITLE
+from loopora.branding import APP_AUTH_ENV, APP_NAME, RUN_SUMMARY_TITLE
 from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.service import LooporaError, create_service, normalize_role_models
 from loopora.settings import configure_logging
@@ -433,7 +433,7 @@ def serve(
     auth_token: str = typer.Option(
         "",
         "--auth-token",
-        envvar=[APP_AUTH_ENV, LEGACY_APP_AUTH_ENV],
+        envvar=APP_AUTH_ENV,
         help="Optional token required for all web and API requests.",
     ),
     allow_unsafe_open: bool = typer.Option(False, "--allow-unsafe-open", help="Allow non-loopback hosts without an auth token. Dangerous on shared networks."),

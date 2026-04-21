@@ -17,9 +17,6 @@ from loopora.branding import (
     APP_STATE_DIRNAME,
     FAKE_DELAY_ENV,
     FAKE_EXECUTOR_ENV,
-    LEGACY_APP_STATE_DIRNAME,
-    LEGACY_FAKE_DELAY_ENV,
-    LEGACY_FAKE_EXECUTOR_ENV,
 )
 from loopora.providers import (
     coerce_reasoning_setting,
@@ -863,7 +860,7 @@ class FakeCodexExecutor(CodexExecutor):
             or (self.scenario == "destructive_tester" and archetype in {"tester", "inspector"})
         ):
             for child in request.workdir.iterdir():
-                if child.name in {APP_STATE_DIRNAME, LEGACY_APP_STATE_DIRNAME}:
+                if child.name == APP_STATE_DIRNAME:
                     continue
                 if child.is_dir():
                     for nested in sorted(child.rglob("*"), key=lambda path: len(path.parts), reverse=True):
@@ -1045,8 +1042,8 @@ class FakeCodexExecutor(CodexExecutor):
 
 
 def executor_from_environment() -> CodexExecutor:
-    scenario = os.environ.get(FAKE_EXECUTOR_ENV, "").strip() or os.environ.get(LEGACY_FAKE_EXECUTOR_ENV, "").strip()
+    scenario = os.environ.get(FAKE_EXECUTOR_ENV, "").strip()
     if scenario:
-        delay = float(os.environ.get(FAKE_DELAY_ENV, "").strip() or os.environ.get(LEGACY_FAKE_DELAY_ENV, "0").strip())
+        delay = float(os.environ.get(FAKE_DELAY_ENV, "0").strip())
         return FakeCodexExecutor(scenario=scenario, role_delay=delay)
     return RealCodexExecutor()

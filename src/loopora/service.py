@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 from loopora.asset_catalog import WorkflowAssetCatalog
-from loopora.branding import LEGACY_APP_STATE_DIRNAME, normalize_file_root, state_dir_for_workdir
+from loopora.branding import APP_STATE_DIRNAME, state_dir_for_workdir
 from loopora.context_flow import (
     build_iteration_summary,
     build_run_contract_snapshot,
@@ -2715,9 +2715,8 @@ class LooporaService:
     def preview_file(self, run_id: str, root: str, relative_path: str = "") -> dict:
         run = self.get_run(run_id)
         workdir = Path(run["workdir"])
-        normalized_root = normalize_file_root(root)
-        base = state_dir_for_workdir(workdir) if normalized_root == "loopora" else workdir
-        if normalized_root == "loopora":
+        base = state_dir_for_workdir(workdir) if root == "loopora" else workdir
+        if root == "loopora":
             base.mkdir(parents=True, exist_ok=True)
         base_resolved = base.resolve()
         resolved = (base_resolved / relative_path).resolve()
@@ -3800,8 +3799,8 @@ class LooporaService:
             f"Iteration: {iter_id}\n"
             f"Mode: {mode}\n"
             f"Check mode: {compiled_spec.get('check_mode', 'specified')}\n"
-            "You may edit files inside the workdir. Do not write into .loopora or .liminal except for explicitly requested outputs.\n"
-            "Treat existing non-.loopora and non-.liminal files as user-owned. Never wipe the whole workdir, bulk-delete existing files, or reset the project from scratch.\n"
+            "You may edit files inside the workdir. Do not write into .loopora except for explicitly requested outputs.\n"
+            "Treat existing non-.loopora files as user-owned. Never wipe the whole workdir, bulk-delete existing files, or reset the project from scratch.\n"
             "Prefer targeted in-place edits and additive changes. Delete a file only when that deletion is narrowly necessary to your change.\n"
             f"{action_guidance}"
             f"{bootstrap_guidance}"
@@ -3943,7 +3942,7 @@ class LooporaService:
         return json.dumps(checks, ensure_ascii=False, indent=2)
 
     def _is_bootstrap_workspace(self, workdir: Path) -> bool:
-        ignored_dirs = {".git", ".loopora", LEGACY_APP_STATE_DIRNAME, ".venv", "venv", "node_modules", "dist", "build", "__pycache__"}
+        ignored_dirs = {".git", APP_STATE_DIRNAME, ".venv", "venv", "node_modules", "dist", "build", "__pycache__"}
         scanned_files = 0
         for root, dirs, files in os.walk(workdir):
             dirs[:] = [name for name in dirs if name not in ignored_dirs]
@@ -3968,7 +3967,7 @@ class LooporaService:
         }
 
     def _iter_user_workspace_files(self, workdir: Path):
-        ignored_dirs = {".git", ".loopora", LEGACY_APP_STATE_DIRNAME, ".venv", "venv", "node_modules", "dist", "build", "__pycache__"}
+        ignored_dirs = {".git", APP_STATE_DIRNAME, ".venv", "venv", "node_modules", "dist", "build", "__pycache__"}
         ignored_files = {".DS_Store"}
         for root, dirs, files in os.walk(workdir):
             dirs[:] = [name for name in dirs if name not in ignored_dirs]

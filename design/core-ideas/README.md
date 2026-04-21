@@ -35,10 +35,10 @@
 ## 2. 不变量
 
 - 单个 workdir 同一时刻最多允许一个活动 run。
-- run 的主要事实源必须可从 `.loopora/` 与 `app.db` 还原；兼容期内如果工作区仍保留 `.liminal/`，实现也必须能从该保留目录恢复同等事实。
+- run 的主要事实源必须可从 `.loopora/` 与 `app.db` 还原。
 - `Inspector` / `GateKeeper` / `Guide` 默认不应修改源文件。
 - `GateKeeper` 的通过结论必须可映射到 checks、metrics 或约束。
-- `.loopora/` 是系统保留空间；业务改动不应写入该目录。兼容期内 `.liminal/` 也视为同类保留空间。
+- `.loopora/` 是系统保留空间；业务改动不应写入该目录。
 
 ## 3. 反例
 

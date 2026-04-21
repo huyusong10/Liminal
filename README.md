@@ -161,7 +161,7 @@ The local console includes:
 
 ## Storage
 
-Global state lives under `~/.loopora/` by default. Set `LOOPORA_HOME=/custom/path` to relocate it when you need an isolated or sandbox-friendly home. For upgrade safety, Loopora still honors `LIMINAL_HOME` and will keep using an existing `~/.liminal/` home until you migrate it:
+Global state lives under `~/.loopora/` by default. Set `LOOPORA_HOME=/custom/path` to relocate it when you need an isolated or sandbox-friendly home:
 
 `settings.json` is treated as self-healing state: if it is missing, corrupted, or contains unknown or out-of-range values, Loopora falls back to safe defaults and rewrites the file into a normalized shape on the next load.
 
@@ -172,7 +172,7 @@ Global state lives under `~/.loopora/` by default. Set `LOOPORA_HOME=/custom/pat
 - `logs/service.log`
 - `recent_workdirs.json`
 
-Per-project state lives under `<workdir>/.loopora/`. Existing workdirs that already use `.liminal/` remain readable and writable.
+Per-project state lives under `<workdir>/.loopora/`.
 
 Canonical run layout:
 

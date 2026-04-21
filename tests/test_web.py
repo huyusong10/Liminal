@@ -67,9 +67,8 @@ def test_api_loop_creation_run_preview_and_stream(
     assert loopora_dir.status_code == 200
     assert loopora_dir.json()["kind"] == "directory"
 
-    legacy_dir = client.get(f"/api/files?run_id={run_id}&root=liminal")
-    assert legacy_dir.status_code == 200
-    assert legacy_dir.json()["kind"] == "directory"
+    invalid_root = client.get(f"/api/files?run_id={run_id}&root=archive")
+    assert invalid_root.status_code == 422
 
     artifacts = client.get(f"/api/runs/{run_id}/artifacts")
     assert artifacts.status_code == 200
@@ -1668,9 +1667,8 @@ def test_api_spec_skill_install_targets_and_install(tmp_path: Path, monkeypatch)
     assert targets["opencode"]["installed"] is False
     assert targets["codex"]["install_paths"] == [str(tmp_path / ".codex" / "skills" / "loopora-spec" / "SKILL.md")]
 
-    legacy_targets_response = client.get("/api/skills/liminal-spec")
-    assert legacy_targets_response.status_code == 200
-    assert legacy_targets_response.json()["skill_name"] == "loopora-spec"
+    invalid_targets_response = client.get("/api/skills/retired-spec")
+    assert invalid_targets_response.status_code == 404
 
     install_response = client.post("/api/skills/loopora-spec/install", json={"target": "codex"})
     assert install_response.status_code == 201
@@ -1744,9 +1742,8 @@ def test_network_mode_requires_auth_token_and_sets_cookie(service_factory) -> No
     assert unauthorized.status_code == 401
     assert "Auth token required" in unauthorized.text
 
-    legacy_header_authorized = client.get("/", headers={"X-Liminal-Token": "secret-token"})
-    assert legacy_header_authorized.status_code == 200
-    assert client.cookies.get("loopora_auth") == "secret-token"
+    unsupported_header = client.get("/", headers={"X-Other-Token": "secret-token"})
+    assert unsupported_header.status_code == 401
 
     authorized = client.get("/?token=secret-token")
     assert authorized.status_code == 200
@@ -1774,7 +1771,7 @@ def test_network_mode_auth_page_uses_request_locale_and_shared_styles(service_fa
     assert "Auth token required" in unauthorized.text
     assert "需要访问令牌" in unauthorized.text
     assert "X-Loopora-Token" in unauthorized.text
-    assert "X-Liminal-Token" in unauthorized.text
+    assert "X-Other-Token" not in unauthorized.text
     assert 'class="auth-logo" src="/logo/logo-with-text-horizontal.svg" alt="" aria-hidden="true"' in unauthorized.text
 
     css = client.get("/static/app.css?token=secret-token")

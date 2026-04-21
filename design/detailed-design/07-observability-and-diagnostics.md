@@ -22,6 +22,7 @@
 - 同一诊断场景优先用共享关联字段串联三者，而不是复制大段内容。
 - Web 终端必须把关键系统动作白盒化投影出来，不能只展示底层命令输出。
 - 面向用户的 run 详情页应优先消费 run artifacts 中已经冻结的 handoff / iteration summary 来生成“关键结论”，而不是把原始 artifact 文件逐个暴露为主界面导航；原始 artifact 仍保留在 `.loopora` 中供追查与下载。
+- 当新的 `step_handoff_written`、`iteration_summary_written` 或 `run_finished` 事件到达时，run 详情页里的“关键结论”必须在当前会话内自动拉取最新 artifacts 并刷新；不能要求用户手动刷新整页后才能看到最新轮次结论。
 - 提供给角色 prompt 的 artifact refs 必须能从 workspace 直接定位到 `.loopora/runs/...` 下的真实文件，不能只暴露对 run 目录内部才有意义的短相对路径。
 - 当角色尝试获取浏览器或截图证据失败时，诊断线索必须保留在 run event stream 与 step handoff 中，便于后续角色区分“产品问题”与“宿主环境阻断”。
 

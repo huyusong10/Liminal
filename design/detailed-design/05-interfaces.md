@@ -40,6 +40,8 @@
 | 编辑 role definition | 角色模版、权限边界、执行配置与 prompt 语义一致 |
 | 启动、重跑、停止、删除 run | 生命周期语义一致 |
 | 校验 spec 与 prompt | 校验规则一致 |
+| 暴露 spec 起草辅助能力 | 对外只使用规范名 `loopora-spec`，不再把旧品牌别名作为当前接口契约的一部分 |
+| 暴露状态目录与认证入口 | 只接受 `loopora` 根目录语义与 `X-Loopora-Token` 品牌化入口，不再把旧品牌别名作为接口契约的一部分 |
 | 浏览 run artifacts | 都以 canonical artifact 集合作为主视图 |
 | 观察终端 | 都把系统动作、context 流转、命令和输出投影到同一事件语义 |
 

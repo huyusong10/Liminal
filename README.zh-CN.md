@@ -163,7 +163,7 @@ Loopora 使用 Markdown spec，顶层结构如下：
 
 ## 存储结构
 
-全局状态默认位于 `~/.loopora/`。如果需要隔离目录或适配受限环境，可以设置 `LOOPORA_HOME=/custom/path` 覆盖位置。为了平滑升级，Loopora 仍然兼容 `LIMINAL_HOME`，并且在发现已有 `~/.liminal/` 状态目录时继续沿用：
+全局状态默认位于 `~/.loopora/`。如果需要隔离目录或适配受限环境，可以设置 `LOOPORA_HOME=/custom/path` 覆盖位置：
 
 其中 `settings.json` 被视为可自愈状态：如果文件缺失、损坏、混入未知字段，或者字段值越界，Loopora 会回退到安全默认值，并在下一次加载时把文件重写成规范化后的内容。
 
@@ -174,7 +174,7 @@ Loopora 使用 Markdown spec，顶层结构如下：
 - `logs/service.log`
 - `recent_workdirs.json`
 
-项目内状态位于 `<workdir>/.loopora/`。如果老项目已经在使用 `.liminal/`，当前版本也会继续识别并复用它。
+项目内状态位于 `<workdir>/.loopora/`。
 
 canonical run 布局：
 

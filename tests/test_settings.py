@@ -12,16 +12,6 @@ def test_app_home_uses_loopora_home_override(monkeypatch, tmp_path: Path) -> Non
     assert app_home() == custom_home
     assert custom_home.is_dir()
 
-
-def test_app_home_accepts_legacy_liminal_home_override(monkeypatch, tmp_path: Path) -> None:
-    legacy_home = tmp_path / "legacy-home"
-    monkeypatch.delenv("LOOPORA_HOME", raising=False)
-    monkeypatch.setenv("LIMINAL_HOME", str(legacy_home))
-
-    assert app_home() == legacy_home
-    assert legacy_home.is_dir()
-
-
 def test_recent_workdirs_round_trip_filters_duplicates_and_limits(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LOOPORA_HOME", str(tmp_path / "loopora-home"))
 

@@ -1,7 +1,7 @@
 __pycache__/
 .pytest_cache/
 .loopora/
-.liminal/
+.log/
 .DS_Store
 *.egg-info/
 build/

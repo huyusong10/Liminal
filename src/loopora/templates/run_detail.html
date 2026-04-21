@@ -325,7 +325,7 @@
   let refreshTimer = null;
   let refreshInFlight = false;
   let refreshQueued = false;
-  let refreshTakeawaysQueued = false;
+  let takeawayRefreshQueued = false;
   let autoScrollConsole = true;
   let pollTimer = null;
   let heartbeatTimer = null;
@@ -403,7 +403,7 @@
 
   function scheduleRunRefresh({immediate = false, refreshTakeaways = false} = {}) {
     if (refreshTakeaways) {
-      refreshTakeawaysQueued = true;
+      takeawayRefreshQueued = true;
     }
     if (refreshTimer) {
       return;
@@ -415,15 +415,15 @@
         return;
       }
       refreshInFlight = true;
-      const shouldRefreshTakeaways = refreshTakeawaysQueued;
-      refreshTakeawaysQueued = false;
+      const shouldRefreshTakeaways = takeawayRefreshQueued;
+      takeawayRefreshQueued = false;
       try {
-        await fetchRun({refreshTakeaways: shouldRefreshTakeaways});
+        await fetchRun({shouldRefreshTakeaways});
       } finally {
         refreshInFlight = false;
         if (refreshQueued) {
           refreshQueued = false;
-          scheduleRunRefresh({immediate: true, refreshTakeaways: refreshTakeawaysQueued});
+          scheduleRunRefresh({immediate: true, refreshTakeaways: takeawayRefreshQueued});
         }
       }
     }, immediate ? 0 : 140);
@@ -1585,7 +1585,7 @@
     view.innerHTML = activeIteration ? renderTakeawayIterationCard(activeIteration) : "";
   }
 
-  async function refreshTakeaways() {
+  async function refreshTakeawaySnapshot() {
     const response = await fetch(`/api/runs/${runId}/key-takeaways`);
     takeawaySnapshot = await response.json();
     renderTakeaways();
@@ -2486,17 +2486,17 @@
     document.getElementById("event-card").className = "highlight-card tone-neutral";
   }
 
-  async function fetchRun({refreshTakeaways = false} = {}) {
+  async function fetchRun({shouldRefreshTakeaways = false} = {}) {
     const response = await fetch(`/api/runs/${runId}`);
     const payload = await response.json();
     currentRun = payload;
     updateProgressPanel(payload);
     updateHighlights(payload);
     syncConsoleMeta();
-    if (!refreshTakeaways) {
+    if (!shouldRefreshTakeaways) {
       return;
     }
-    refreshTakeaways().catch(() => {});
+    refreshTakeawaySnapshot().catch(() => {});
   }
 
   function pushTimelineEvent(event) {

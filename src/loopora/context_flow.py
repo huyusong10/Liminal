@@ -603,7 +603,7 @@ def system_prompt_prefix(archetype: str) -> str:
         return (
             "System safety rules:\n"
             "- You may edit files inside the workdir.\n"
-            "- Preserve existing non-.loopora files and avoid destructive rewrites. Treat .liminal as reserved legacy state too.\n"
+            "- Preserve existing non-.loopora files and avoid destructive rewrites.\n"
             "- Prefer focused, incremental changes over broad resets."
         )
     if archetype == "inspector":

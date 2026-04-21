@@ -65,7 +65,7 @@ run 目录使用统一 canonical layout：
 - `iterations/iter_XXX/summary.json`
 - `iterations/iter_XXX/steps/NN__<step_id>/{metadata,input.context,prompt,output.raw,output.normalized,handoff}.json|md`
 
-兼容策略：
+兼容镜像策略：
 
 - `events.jsonl`
 - `iteration_log.jsonl`

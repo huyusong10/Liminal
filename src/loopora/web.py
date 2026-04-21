@@ -20,11 +20,7 @@ from loopora.branding import (
     APP_AUTH_HEADER,
     APP_NAME,
     FILE_ROOT_QUERY_PATTERN,
-    LEGACY_APP_AUTH_COOKIE,
-    LEGACY_APP_AUTH_HEADER,
-    LEGACY_SPEC_SKILL_SLUG,
     SPEC_SKILL_SLUG,
-    normalize_file_root,
     strip_run_summary_title,
 )
 from loopora.providers import executor_profile, list_executor_profiles
@@ -831,7 +827,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         root: str = Query(default="workdir", pattern=FILE_ROOT_QUERY_PATTERN),
         path: str = "",
     ) -> JSONResponse:
-        return JSONResponse(svc().preview_file(run_id, root=normalize_file_root(root), relative_path=path))
+        return JSONResponse(svc().preview_file(run_id, root=root, relative_path=path))
 
     @app.get("/api/files/download")
     async def api_download_file(
@@ -839,7 +835,7 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         root: str = Query(default="workdir", pattern=FILE_ROOT_QUERY_PATTERN),
         path: str = "",
     ) -> FileResponse:
-        preview = svc().preview_file(run_id, root=normalize_file_root(root), relative_path=path)
+        preview = svc().preview_file(run_id, root=root, relative_path=path)
         if preview["kind"] != "file":
             raise HTTPException(status_code=400, detail="path is not a file")
         base = Path(preview["base"])
@@ -963,12 +959,10 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         return JSONResponse({"path": str(created.resolve())}, status_code=201)
 
     @app.get(f"/api/skills/{SPEC_SKILL_SLUG}")
-    @app.get(f"/api/skills/{LEGACY_SPEC_SKILL_SLUG}")
     async def api_spec_skill_targets() -> JSONResponse:
         return JSONResponse({"skill_name": SPEC_SKILL_SLUG, "targets": list_spec_skill_targets()})
 
     @app.post(f"/api/skills/{SPEC_SKILL_SLUG}/install")
-    @app.post(f"/api/skills/{LEGACY_SPEC_SKILL_SLUG}/install")
     async def api_install_spec_skill(request: Request) -> JSONResponse:
         payload = await request.json()
         target = str(payload.get("target", "")).strip().lower()
@@ -979,7 +973,6 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         return JSONResponse({"result": result, "targets": list_spec_skill_targets()}, status_code=201)
 
     @app.get(f"/api/skills/{SPEC_SKILL_SLUG}/download")
-    @app.get(f"/api/skills/{LEGACY_SPEC_SKILL_SLUG}/download")
     async def api_download_spec_skill_bundle() -> Response:
         filename, archive_bytes = build_spec_skill_bundle_archive()
         return Response(
@@ -1702,7 +1695,7 @@ def _extract_request_token(request: Request) -> str | None:
         if token:
             return token
 
-    header_token = request.headers.get(APP_AUTH_HEADER, "").strip() or request.headers.get(LEGACY_APP_AUTH_HEADER, "").strip()
+    header_token = request.headers.get(APP_AUTH_HEADER, "").strip()
     if header_token:
         return header_token
 
@@ -1710,7 +1703,7 @@ def _extract_request_token(request: Request) -> str | None:
     if query_token:
         return query_token
 
-    cookie_token = request.cookies.get(APP_AUTH_COOKIE, "").strip() or request.cookies.get(LEGACY_APP_AUTH_COOKIE, "").strip()
+    cookie_token = request.cookies.get(APP_AUTH_COOKIE, "").strip()
     if cookie_token:
         return cookie_token
     return None
