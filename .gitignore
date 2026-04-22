@@ -2,6 +2,7 @@ __pycache__/
 .pytest_cache/
 .loopora/
 .log/
+artifacts/real_search_loop_e2e/
 .DS_Store
 *.egg-info/
 build/

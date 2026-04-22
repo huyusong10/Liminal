@@ -40,6 +40,8 @@
 - `LOOPORA_REAL_CLI_TIMEOUT_SECONDS` 控制单条 run 的最长等待时间。
 - provider 模型覆盖通过可选环境变量注入：`LOOPORA_REAL_CLI_CODEX_MODEL`、`LOOPORA_REAL_CLI_CLAUDE_MODEL`、`LOOPORA_REAL_CLI_OPENCODE_MODEL`。
 - 若环境缺少 CLI、浏览器或宿主权限，这类用例应明确 skip，而不是伪造成功结果。
+- 除基础设施矩阵外，仓库还允许保留 scenario-driven 的真实 workflow 用例；这类用例应围绕教程里的真实样例场景组织，并把复制后的 workspace、`.loopora` 运行目录、proof 结果和 review 摘要落到 `artifacts/real_search_loop_e2e/<run-id>/...`，避免真实 run 结束后被清理。
+- 这类 scenario fixture 可以是小型但真实的多模块 workspace，而不是单文件谜题；proof 应同时要求代码结果、设计说明和方向/复盘产物成立，避免模型只靠补报告或单点 hack 通过。
 
 最小高风险矩阵如下：
 

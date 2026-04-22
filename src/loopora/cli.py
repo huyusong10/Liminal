@@ -13,20 +13,36 @@ import uvicorn
 
 from loopora.branding import APP_AUTH_ENV, APP_NAME, RUN_SUMMARY_TITLE
 from loopora.diagnostics import get_logger, log_event, log_exception
+from loopora.markdown_tools import normalize_markdown_text, render_safe_markdown_html
 from loopora.service import LooporaError, create_service, normalize_role_models
 from loopora.settings import configure_logging
-from loopora.specs import SpecError, init_spec_file_for_workflow, read_and_compile
+from loopora.specs import SpecError, compile_markdown_spec, init_spec_file_for_workflow, read_and_compile, render_spec_template
 from loopora.utils import utc_now
 from loopora.web import _is_loopback_host, build_app
-from loopora.workflows import load_workflow_file, preset_names
+from loopora.workflows import (
+    PROMPT_FILES,
+    WorkflowError,
+    available_prompt_templates,
+    builtin_prompt_markdown,
+    load_workflow_file,
+    normalize_archetype,
+    normalize_role_display_name,
+    normalize_workflow,
+    preset_names,
+    validate_prompt_markdown,
+)
 
 app = typer.Typer(help=f"{APP_NAME} CLI")
 loops_app = typer.Typer(help="Inspect and control saved loops")
 orchestrations_app = typer.Typer(help="Create and inspect orchestrations")
+roles_app = typer.Typer(help="Create and inspect role definitions")
 spec_app = typer.Typer(help="Work with Markdown loop specs")
+prompts_app = typer.Typer(help="Validate and inspect prompt templates")
 app.add_typer(loops_app, name="loops")
 app.add_typer(orchestrations_app, name="orchestrations")
+app.add_typer(roles_app, name="roles")
 app.add_typer(spec_app, name="spec")
+app.add_typer(prompts_app, name="prompts")
 logger = get_logger(__name__)
 
 
@@ -110,6 +126,35 @@ WorkflowFileOption = Annotated[
 StartOption = Annotated[bool, typer.Option("--start", help="Start a run immediately after creating the loop definition.")]
 BackgroundOption = Annotated[bool, typer.Option("--background", help="Queue the run and return immediately instead of waiting for it to finish.")]
 LocaleOption = Annotated[str, typer.Option("--locale", help="Template locale: zh or en.")]
+PromptFileOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--prompt-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        help="Path to a Markdown prompt file.",
+    ),
+]
+PromptTemplateOption = Annotated[
+    str,
+    typer.Option("--prompt-template", help="Built-in prompt template ref such as builder.md."),
+]
+ArchetypeOption = Annotated[
+    str,
+    typer.Option("--archetype", help="Role archetype: builder, inspector, gatekeeper, guide, or custom."),
+]
+JsonOutputOption = Annotated[bool, typer.Option("--json", help="Print structured JSON instead of plain text.")]
+FromFileOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--from-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        help="Read Markdown content from this file.",
+    ),
+]
 
 
 def _command_args_text_from_values(values: list[str] | None) -> str:
@@ -128,6 +173,87 @@ def _parse_role_models(values: list[str] | None) -> dict[str, str]:
         role, model = item.split("=", 1)
         parsed[role.strip()] = model.strip()
     return normalize_role_models(parsed)
+
+
+def _spec_validation_from_markdown(markdown_text: str) -> dict[str, object]:
+    try:
+        compiled = compile_markdown_spec(markdown_text)
+    except SpecError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            "check_count": 0,
+            "check_mode": "",
+        }
+    return {
+        "ok": True,
+        "error": "",
+        "check_count": len(compiled["checks"]),
+        "check_mode": compiled["check_mode"],
+    }
+
+
+def _spec_document_payload(path: Path, markdown_text: str) -> dict[str, object]:
+    return {
+        "ok": True,
+        "path": str(path.resolve()),
+        "content": markdown_text,
+        "rendered_html": render_safe_markdown_html(markdown_text),
+        "validation": _spec_validation_from_markdown(markdown_text),
+    }
+
+
+def _resolve_spec_template_workflow(
+    *,
+    orchestration_id: str,
+    workflow_preset: str,
+    workflow_file: Path | None,
+) -> dict | None:
+    if workflow_file is not None:
+        workflow, _ = load_workflow_file(workflow_file)
+        return normalize_workflow(workflow) if workflow else None
+    if orchestration_id.strip():
+        orchestration = create_service().get_orchestration(orchestration_id.strip())
+        workflow = orchestration.get("workflow_json") or None
+        return normalize_workflow(workflow) if workflow else None
+    if workflow_preset.strip():
+        return normalize_workflow({"preset": workflow_preset.strip()})
+    return None
+
+
+def _role_note_sections_for_workflow(workflow: dict | None) -> list[dict[str, str]]:
+    if not workflow:
+        return []
+    sections: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for role in workflow.get("roles", []):
+        if not isinstance(role, dict):
+            continue
+        label = normalize_role_display_name(role.get("name"), archetype=role.get("archetype")) or str(role.get("name", "")).strip()
+        normalized = label.lower()
+        if not label or normalized in seen:
+            continue
+        seen.add(normalized)
+        sections.append({"heading": f"{label} Notes", "role_name": label})
+    return sections
+
+
+def _read_prompt_markdown(
+    *,
+    prompt_file: Path | None,
+    prompt_template: str,
+    locale: str,
+    archetype: str,
+    fallback: str = "",
+) -> str:
+    if prompt_file is not None:
+        return prompt_file.read_text(encoding="utf-8")
+    if prompt_template.strip():
+        return builtin_prompt_markdown(prompt_template.strip(), locale=locale)
+    if fallback:
+        return fallback
+    normalized_archetype = normalize_archetype(archetype)
+    return builtin_prompt_markdown(PROMPT_FILES[normalized_archetype], locale=locale)
 
 
 def _build_loop_kwargs(
@@ -528,6 +654,68 @@ def spec_validate(path: Path = typer.Argument(..., exists=True, help="Path to th
         _handle_error(exc)
 
 
+@spec_app.command("template")
+def spec_template(
+    locale: LocaleOption = "zh",
+    orchestration_id: OrchestrationIdOption = "",
+    workflow_preset: WorkflowPresetOption = "",
+    workflow_file: WorkflowFileOption = None,
+    json_output: JsonOutputOption = False,
+) -> None:
+    """Render a spec template without writing it to disk."""
+    try:
+        workflow = _resolve_spec_template_workflow(
+            orchestration_id=orchestration_id,
+            workflow_preset=workflow_preset,
+            workflow_file=workflow_file,
+        )
+        markdown_text = render_spec_template(locale=locale, workflow=workflow)
+        if json_output:
+            typer.echo(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "locale": locale,
+                        "markdown": markdown_text,
+                        "role_note_sections": _role_note_sections_for_workflow(workflow),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return
+        typer.echo(markdown_text)
+    except (LooporaError, WorkflowError, OSError) as exc:
+        _handle_error(exc)
+
+
+@spec_app.command("read")
+def spec_read(path: Path = typer.Argument(..., exists=True, help="Path to the Markdown spec to read.")) -> None:
+    """Read a spec document together with rendered HTML and validation status."""
+    try:
+        markdown_text = path.read_text(encoding="utf-8")
+        typer.echo(json.dumps(_spec_document_payload(path, markdown_text), ensure_ascii=False, indent=2))
+    except (FileNotFoundError, OSError) as exc:
+        _handle_error(exc)
+
+
+@spec_app.command("write")
+def spec_write(
+    path: Path = typer.Argument(..., help="Spec path to overwrite."),
+    from_file: FromFileOption = None,
+) -> None:
+    """Overwrite a spec document from another Markdown file."""
+    try:
+        if from_file is None:
+            raise LooporaError("--from-file is required")
+        markdown_text = normalize_markdown_text(from_file.read_text(encoding="utf-8"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(markdown_text, encoding="utf-8")
+        typer.echo(json.dumps(_spec_document_payload(path, markdown_text), ensure_ascii=False, indent=2))
+    except (LooporaError, OSError) as exc:
+        _handle_error(exc)
+
+
 @loops_app.command("create")
 def create_loop(
     spec: SpecOption,
@@ -622,12 +810,22 @@ def list_orchestrations() -> None:
         _handle_error(exc)
 
 
+@orchestrations_app.command("get")
+def get_orchestration(orchestration_id: str = typer.Argument(..., help="Saved orchestration id.")) -> None:
+    """Show one orchestration as JSON."""
+    try:
+        typer.echo(json.dumps(create_service().get_orchestration(orchestration_id), ensure_ascii=False, indent=2))
+    except LooporaError as exc:
+        _handle_error(exc)
+
+
 @orchestrations_app.command("create")
 def create_orchestration(
     name: str = typer.Option(..., help="Orchestration name."),
     description: str = typer.Option("", help="Optional orchestration description."),
     workflow_preset: WorkflowPresetOption = "build_first",
     workflow_file: WorkflowFileOption = None,
+    role_model: RoleModelOption = None,
 ) -> None:
     """Create a saved orchestration."""
     try:
@@ -643,6 +841,7 @@ def create_orchestration(
             description=description,
             workflow=workflow,
             prompt_files=prompt_files,
+            role_models=_parse_role_models(role_model),
         )
         log_event(
             logger,
@@ -654,6 +853,279 @@ def create_orchestration(
         )
         typer.echo(json.dumps(orchestration, ensure_ascii=False, indent=2))
     except LooporaError as exc:
+        _handle_error(exc)
+
+
+@orchestrations_app.command("update")
+def update_orchestration(
+    orchestration_id: str = typer.Argument(..., help="Custom orchestration id."),
+    name: str | None = typer.Option(None, help="Override the orchestration name."),
+    description: str | None = typer.Option(None, help="Override the orchestration description."),
+    workflow_preset: WorkflowPresetOption = "",
+    workflow_file: WorkflowFileOption = None,
+    role_model: RoleModelOption = None,
+) -> None:
+    """Update a saved custom orchestration."""
+    try:
+        service = create_service()
+        current = service.get_orchestration(orchestration_id)
+        workflow = current.get("workflow_json")
+        prompt_files = current.get("prompt_files_json") or current.get("prompt_files") or {}
+        if workflow_file is not None:
+            workflow, prompt_files = load_workflow_file(workflow_file)
+        elif workflow_preset.strip():
+            workflow = {"preset": workflow_preset.strip()}
+            prompt_files = {}
+        orchestration = service.update_orchestration(
+            orchestration_id,
+            name=name if name is not None else current["name"],
+            description=description if description is not None else str(current.get("description", "")),
+            workflow=workflow,
+            prompt_files=prompt_files,
+            role_models=_parse_role_models(role_model) or current.get("role_models_json") or current.get("role_models") or {},
+        )
+        typer.echo(json.dumps(orchestration, ensure_ascii=False, indent=2))
+    except (LooporaError, WorkflowError) as exc:
+        _handle_error(exc)
+
+
+@orchestrations_app.command("derive")
+def derive_orchestration(
+    source_id: str = typer.Argument(..., help="Built-in or custom orchestration id to derive from."),
+    name: str | None = typer.Option(None, help="Name for the new derived orchestration."),
+    description: str | None = typer.Option(None, help="Description for the new derived orchestration."),
+    workflow_preset: WorkflowPresetOption = "",
+    workflow_file: WorkflowFileOption = None,
+    role_model: RoleModelOption = None,
+) -> None:
+    """Create a new orchestration derived from an existing one."""
+    try:
+        service = create_service()
+        source = service.get_orchestration(source_id)
+        workflow = source.get("workflow_json")
+        prompt_files = source.get("prompt_files_json") or source.get("prompt_files") or {}
+        if workflow_file is not None:
+            workflow, prompt_files = load_workflow_file(workflow_file)
+        elif workflow_preset.strip():
+            workflow = {"preset": workflow_preset.strip()}
+            prompt_files = {}
+        orchestration = service.create_orchestration(
+            name=name or f"{source['name']} Copy",
+            description=description if description is not None else str(source.get("description", "")),
+            workflow=workflow,
+            prompt_files=prompt_files,
+            role_models=_parse_role_models(role_model) or source.get("role_models_json") or source.get("role_models") or {},
+        )
+        typer.echo(json.dumps(orchestration, ensure_ascii=False, indent=2))
+    except (LooporaError, WorkflowError) as exc:
+        _handle_error(exc)
+
+
+@orchestrations_app.command("delete")
+def delete_orchestration(orchestration_id: str = typer.Argument(..., help="Custom orchestration id.")) -> None:
+    """Delete a saved custom orchestration."""
+    try:
+        typer.echo(json.dumps(create_service().delete_orchestration(orchestration_id), ensure_ascii=False, indent=2))
+    except LooporaError as exc:
+        _handle_error(exc)
+
+
+@roles_app.command("list")
+def list_roles() -> None:
+    """List built-in and custom role definitions."""
+    try:
+        definitions = create_service().list_role_definitions()
+        for item in definitions:
+            typer.echo(
+                f"{item['id']}  {item['name']}  source={item.get('source', 'custom')}  "
+                f"archetype={item.get('archetype', 'builder')}  executor={item.get('executor_kind', 'codex')}"
+            )
+    except LooporaError as exc:
+        _handle_error(exc)
+
+
+@roles_app.command("get")
+def get_role(role_definition_id: str = typer.Argument(..., help="Built-in or custom role definition id.")) -> None:
+    """Show one role definition as JSON."""
+    try:
+        typer.echo(json.dumps(create_service().get_role_definition(role_definition_id), ensure_ascii=False, indent=2))
+    except LooporaError as exc:
+        _handle_error(exc)
+
+
+@roles_app.command("create")
+def create_role(
+    name: str = typer.Option(..., help="Role definition name."),
+    archetype: ArchetypeOption = "builder",
+    description: str = typer.Option("", help="Optional role description."),
+    prompt_file: PromptFileOption = None,
+    prompt_template: PromptTemplateOption = "",
+    locale: LocaleOption = "zh",
+    executor_kind: ExecutorOption = "codex",
+    executor_mode: ExecutorModeOption = "preset",
+    command_cli: CommandCliOption = "",
+    command_arg: CommandArgOption = None,
+    model: ModelOption = "",
+    reasoning_effort: ReasoningOption = "",
+) -> None:
+    """Create a saved role definition."""
+    try:
+        normalized_archetype = normalize_archetype(archetype)
+        prompt_markdown = _read_prompt_markdown(
+            prompt_file=prompt_file,
+            prompt_template=prompt_template,
+            locale=locale,
+            archetype=normalized_archetype,
+        )
+        role_definition = create_service().create_role_definition(
+            name=name,
+            description=description,
+            archetype=normalized_archetype,
+            prompt_markdown=prompt_markdown,
+            executor_kind=executor_kind,
+            executor_mode=executor_mode,
+            command_cli=command_cli,
+            command_args_text=_command_args_text_from_values(command_arg),
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+        typer.echo(json.dumps(role_definition, ensure_ascii=False, indent=2))
+    except (LooporaError, WorkflowError, OSError, ValueError) as exc:
+        _handle_error(exc)
+
+
+@roles_app.command("derive")
+def derive_role(
+    source_id: str = typer.Argument(..., help="Built-in or custom role definition id to derive from."),
+    name: str | None = typer.Option(None, help="Name for the new role definition."),
+    description: str | None = typer.Option(None, help="Description for the new role definition."),
+    prompt_file: PromptFileOption = None,
+    prompt_template: PromptTemplateOption = "",
+    locale: LocaleOption = "zh",
+    executor_kind: ExecutorOption = "",
+    executor_mode: ExecutorModeOption = "",
+    command_cli: CommandCliOption = "",
+    command_arg: CommandArgOption = None,
+    model: ModelOption = "",
+    reasoning_effort: ReasoningOption = "",
+) -> None:
+    """Create a new role definition derived from an existing one."""
+    try:
+        service = create_service()
+        source = service.get_role_definition(source_id)
+        archetype = str(source.get("archetype", "builder") or "builder")
+        prompt_markdown = _read_prompt_markdown(
+            prompt_file=prompt_file,
+            prompt_template=prompt_template,
+            locale=locale,
+            archetype=archetype,
+            fallback=str(source.get("prompt_markdown", "")),
+        )
+        role_definition = service.create_role_definition(
+            name=name or f"{source['name']} Copy",
+            description=description if description is not None else str(source.get("description", "")),
+            archetype=archetype,
+            prompt_markdown=prompt_markdown,
+            executor_kind=executor_kind or str(source.get("executor_kind", "codex") or "codex"),
+            executor_mode=executor_mode or str(source.get("executor_mode", "preset") or "preset"),
+            command_cli=command_cli or str(source.get("command_cli", "")),
+            command_args_text=_command_args_text_from_values(command_arg)
+            if command_arg is not None
+            else str(source.get("command_args_text", "")),
+            model=model or str(source.get("model", "")),
+            reasoning_effort=reasoning_effort or str(source.get("reasoning_effort", "")),
+        )
+        typer.echo(json.dumps(role_definition, ensure_ascii=False, indent=2))
+    except (LooporaError, WorkflowError, OSError, ValueError) as exc:
+        _handle_error(exc)
+
+
+@roles_app.command("update")
+def update_role(
+    role_definition_id: str = typer.Argument(..., help="Custom role definition id."),
+    name: str | None = typer.Option(None, help="Override the role name."),
+    description: str | None = typer.Option(None, help="Override the role description."),
+    prompt_file: PromptFileOption = None,
+    prompt_template: PromptTemplateOption = "",
+    locale: LocaleOption = "zh",
+    executor_kind: ExecutorOption = "",
+    executor_mode: ExecutorModeOption = "",
+    command_cli: CommandCliOption = "",
+    command_arg: CommandArgOption = None,
+    model: ModelOption = "",
+    reasoning_effort: ReasoningOption = "",
+) -> None:
+    """Update a saved custom role definition."""
+    try:
+        service = create_service()
+        current = service.get_role_definition(role_definition_id)
+        archetype = str(current.get("archetype", "builder") or "builder")
+        prompt_markdown = _read_prompt_markdown(
+            prompt_file=prompt_file,
+            prompt_template=prompt_template,
+            locale=locale,
+            archetype=archetype,
+            fallback=str(current.get("prompt_markdown", "")),
+        )
+        role_definition = service.update_role_definition(
+            role_definition_id,
+            name=name if name is not None else current["name"],
+            description=description if description is not None else str(current.get("description", "")),
+            archetype=archetype,
+            prompt_markdown=prompt_markdown,
+            prompt_ref=str(current.get("prompt_ref", "")),
+            executor_kind=executor_kind or str(current.get("executor_kind", "codex") or "codex"),
+            executor_mode=executor_mode or str(current.get("executor_mode", "preset") or "preset"),
+            command_cli=command_cli or str(current.get("command_cli", "")),
+            command_args_text=_command_args_text_from_values(command_arg)
+            if command_arg is not None
+            else str(current.get("command_args_text", "")),
+            model=model or str(current.get("model", "")),
+            reasoning_effort=reasoning_effort or str(current.get("reasoning_effort", "")),
+        )
+        typer.echo(json.dumps(role_definition, ensure_ascii=False, indent=2))
+    except (LooporaError, WorkflowError, OSError, ValueError) as exc:
+        _handle_error(exc)
+
+
+@roles_app.command("delete")
+def delete_role(role_definition_id: str = typer.Argument(..., help="Custom role definition id.")) -> None:
+    """Delete a saved custom role definition."""
+    try:
+        typer.echo(json.dumps(create_service().delete_role_definition(role_definition_id), ensure_ascii=False, indent=2))
+    except LooporaError as exc:
+        _handle_error(exc)
+
+
+@prompts_app.command("list")
+def list_prompts() -> None:
+    """List built-in prompt templates."""
+    try:
+        typer.echo(json.dumps(available_prompt_templates(), ensure_ascii=False, indent=2))
+    except WorkflowError as exc:
+        _handle_error(exc)
+
+
+@prompts_app.command("template")
+def prompt_template(prompt_ref: str = typer.Argument(..., help="Built-in prompt template ref."), locale: LocaleOption = "zh") -> None:
+    """Print one built-in prompt template."""
+    try:
+        typer.echo(builtin_prompt_markdown(prompt_ref, locale=locale))
+    except WorkflowError as exc:
+        _handle_error(exc)
+
+
+@prompts_app.command("validate")
+def prompt_validate(
+    path: Path = typer.Argument(..., exists=True, help="Path to the prompt Markdown file to validate."),
+    archetype: ArchetypeOption = "",
+) -> None:
+    """Validate prompt Markdown and print parsed metadata."""
+    try:
+        markdown_text = path.read_text(encoding="utf-8")
+        metadata, body = validate_prompt_markdown(markdown_text, expected_archetype=archetype or None)
+        typer.echo(json.dumps({"ok": True, "metadata": metadata, "body": body}, ensure_ascii=False, indent=2))
+    except (WorkflowError, OSError) as exc:
         _handle_error(exc)
 
 
