@@ -1381,12 +1381,14 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".workflow-chip-code {" in css
     assert "body:not(.ui-mounted)" not in css
     assert "body.ui-mounted .hero" not in css
-    assert re.search(r"\.top-nav-link:hover\s*{\s*color:\s*var\(--nav-ink\);\s*transform:\s*translateY\(-1px\);\s*}", css)
-    assert re.search(r"\.top-nav-link.active\s*{\s*color:\s*var\(--nav-ink\);\s*}", css)
+    assert "/* ── Deep Visual Polish ── */" in css
+    polished_css = css.split("/* ── Deep Visual Polish ── */", 1)[1]
+    assert re.search(r"\.top-nav-link:hover\s*{[\s\S]*?background:\s*rgba\(var\(--outline-rgb\),\s*0\.055\);[\s\S]*?transform:\s*none;", polished_css)
+    assert re.search(r"\.top-nav-link\.active\s*{[\s\S]*?background:\s*rgba\(0,\s*113,\s*227,\s*0\.09\);[\s\S]*?font-weight:\s*650;", polished_css)
     assert re.search(r"\.top-nav \.nav-preferences-toggle\s*{\s*[\s\S]*?color:\s*var\(--nav-ink\);", css)
-    assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.top-nav\s*{[\s\S]*?flex-wrap:\s*wrap;", css)
-    assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);", css)
-    assert re.search(r"@media \(max-width: 860px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);", css)
+    assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.top-nav\s*{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto;", polished_css)
+    assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?display:\s*flex;[\s\S]*?overflow-x:\s*auto;", polished_css)
+    assert re.search(r"@media \(max-width: 860px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?grid-template-columns:\s*none;", polished_css)
     assert re.search(r"@media \(min-width: 1440px\)\s*{[\s\S]*?\.tutorial-page-stack\s*{[\s\S]*?--tutorial-page-max:\s*1480px;", css)
     assert re.search(r"@media \(min-width: 1920px\)\s*{[\s\S]*?\.tutorial-page-stack\s*{[\s\S]*?--tutorial-page-max:\s*1600px;", css)
     assert re.search(r"@media \(max-width: 720px\)\s*{[\s\S]*?\.workflow-editor-header \.card-actions-compact\s*{[\s\S]*?width:\s*100%;", css)
