@@ -15,13 +15,23 @@
 <section class="hero hero-tight hero-form">
   <div class="hero-copy-stack">
     <h1>
-      <span data-lang="zh">选一套编排，把它放进具体项目里持续推进。</span>
-      <span data-lang="en">Pick an orchestration and let it keep moving inside a real project.</span>
+      <span data-lang="zh">创建循环：从 bundle 开始，也可以手动专家编排。</span>
+      <span data-lang="en">Create a loop: start from a bundle, or use manual expert mode.</span>
     </h1>
     <p>
-      <span data-lang="zh">这一步只关心 workdir、spec、选哪套编排，以及 loop 的运行策略。每个角色默认用什么工具执行，已经在“角色定义”里定好了。</span>
-      <span data-lang="en">This step only cares about workdir, spec, which orchestration to use, and the loop runtime policy. Each role’s default executor already lives in Role Definitions.</span>
+      <span data-lang="zh">推荐路径是把外部 Agent 对齐出的 bundle 直接导入，Loopora 会一次性物化 spec、角色定义、流程编排和可运行 loop。已经熟悉内部资产时，再展开下面的手动创建。</span>
+      <span data-lang="en">The recommended path is importing a bundle aligned by an external Agent. Loopora materializes the spec, role definitions, orchestration, and runnable loop together. Use the manual form below when you already know the asset details.</span>
     </p>
+  </div>
+  <div class="card-actions">
+    <a class="primary-button" href="#bundle-import-form">
+      <span data-lang="zh">导入 Bundle 创建循环</span>
+      <span data-lang="en">Import Bundle</span>
+    </a>
+    <a class="ghost-button" href="#manual-loop-form">
+      <span data-lang="zh">手动专家模式</span>
+      <span data-lang="en">Manual Expert Mode</span>
+    </a>
   </div>
 </section>
 
@@ -35,6 +45,83 @@
 </div>
 {% endif %}
 
+<section class="panel form-panel form-panel-wide" data-testid="loop-bundle-create-panel">
+  <header class="panel-header">
+    <div>
+      <h2><span data-lang="zh">导入 Bundle 创建循环</span><span data-lang="en">Import a Bundle to Create a Loop</span></h2>
+      <p class="panel-note">
+        <span data-lang="zh">这里接收 Skill 或外部 Agent 生成的单文件 YAML。导入成功后，bundle、角色定义、流程编排和 loop 会作为同一组资产落地；后续删除和 revision 也按整包管理。</span>
+        <span data-lang="en">Use the single YAML file produced by the Skill or another external Agent. Importing it creates the bundle, role definitions, orchestration, and loop as one managed asset group.</span>
+      </p>
+    </div>
+    <div class="card-actions card-actions-compact">
+      <a class="ghost-button" href="/tools">
+        <span data-lang="zh">安装对齐 Skill</span>
+        <span data-lang="en">Install Alignment Skill</span>
+      </a>
+      <a class="ghost-button" href="/bundles">
+        <span data-lang="zh">管理已有 Bundles</span>
+        <span data-lang="en">Manage Bundles</span>
+      </a>
+    </div>
+  </header>
+  {% if import_values.replace_bundle_id %}
+  <div class="field-status is-success" data-testid="bundle-revision-target-note">
+    <span data-lang="zh">当前会把导入结果作为 bundle <code>{{ import_values.replace_bundle_id }}</code> 的下一版 revision 导入。</span>
+    <span data-lang="en">The next import will replace bundle <code>{{ import_values.replace_bundle_id }}</code> in place as the next revision.</span>
+  </div>
+  {% endif %}
+  <form class="form-panel" id="bundle-import-form" method="post" action="/loops/new/import-bundle" data-testid="loop-bundle-import-form">
+    <div class="field-status is-error" aria-live="polite" {% if not import_error %}hidden{% endif %}>{{ import_error or "" }}</div>
+    <div class="form-grid">
+      <label class="wide">
+        <span><span data-lang="zh">Bundle 路径</span><span data-lang="en">Bundle path</span></span>
+        <div class="field-inline-row">
+          <input id="bundle-import-path" name="bundle_path" value="{{ import_values.bundle_path }}" placeholder="/absolute/path/to/bundle.yml" />
+          {% if access_state.native_dialogs_enabled %}
+          <button
+            class="ghost-button"
+            type="button"
+            data-pick-file
+            data-pick-endpoint="/api/system/pick-bundle-file"
+            data-target-input="bundle-import-path"
+          >
+            <span data-lang="zh">浏览</span>
+            <span data-lang="en">Browse</span>
+          </button>
+          {% endif %}
+        </div>
+      </label>
+      <label>
+        <span><span data-lang="zh">替换已有 Bundle ID</span><span data-lang="en">Replace bundle id</span></span>
+        <input name="replace_bundle_id" value="{{ import_values.replace_bundle_id }}" />
+      </label>
+      <label class="wide">
+        <span><span data-lang="zh">Bundle YAML</span><span data-lang="en">Bundle YAML</span></span>
+        <textarea name="bundle_yaml" rows="14">{{- import_values.bundle_yaml -}}</textarea>
+      </label>
+    </div>
+    <label class="checkbox-row">
+      <input type="checkbox" name="start_immediately" value="1" {% if import_values.start_immediately %}checked{% endif %} />
+      <span class="label-with-help">
+        <span><span data-lang="zh">导入后立即开始运行</span><span data-lang="en">Start immediately after import</span></span>
+        {{ tip_button(
+          "勾选后会在 bundle 物化为 loop 后立刻排队运行；不勾选则只创建循环，稍后从详情页手动启动。",
+          "When checked, the loop is queued immediately after the bundle is materialized. When unchecked, the loop is created and can be started later from its detail page.",
+          "bundle-start-immediately-tip"
+        ) }}
+      </span>
+    </label>
+    <div class="card-actions">
+      <button class="primary-button" type="submit">
+        <span data-lang="zh">导入并创建循环</span>
+        <span data-lang="en">Import and create loop</span>
+      </button>
+    </div>
+  </form>
+</section>
+
+<div id="manual-loop-form" class="section-anchor"></div>
 <form
   class="panel form-panel form-panel-wide"
   method="post"
@@ -43,6 +130,15 @@
   data-testid="loop-create-form"
   data-restore-draft="{{ 'true' if allow_draft_restore else 'false' }}"
 >
+  <header class="panel-header">
+    <div>
+      <h2><span data-lang="zh">手动专家模式</span><span data-lang="en">Manual Expert Mode</span></h2>
+      <p class="panel-note">
+        <span data-lang="zh">如果你已经准备好了 spec、角色定义和流程编排，可以直接用这张表单创建 loop。它仍然是完整能力，不是降级路径。</span>
+        <span data-lang="en">If the spec, role definitions, and orchestration are already prepared, create the loop directly here. This remains the full expert path, not a reduced mode.</span>
+      </p>
+    </div>
+  </header>
   <div
     class="field-status is-error"
     id="form-error"

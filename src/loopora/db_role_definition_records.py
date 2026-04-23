@@ -14,10 +14,10 @@ class RepositoryRoleDefinitionRecordsMixin:
             connection.execute(
                 """
                 INSERT INTO role_definitions (
-                    id, name, description, archetype, prompt_ref, prompt_markdown,
+                    id, name, description, archetype, prompt_ref, prompt_markdown, posture_notes,
                     executor_kind, executor_mode, command_cli, command_args_text, model, reasoning_effort,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload["id"],
@@ -26,6 +26,7 @@ class RepositoryRoleDefinitionRecordsMixin:
                     payload["archetype"],
                     payload["prompt_ref"],
                     payload["prompt_markdown"],
+                    payload.get("posture_notes", ""),
                     payload.get("executor_kind", "codex"),
                     payload.get("executor_mode", "preset"),
                     payload.get("command_cli", "codex"),
@@ -58,7 +59,7 @@ class RepositoryRoleDefinitionRecordsMixin:
             connection.execute(
                 """
                 UPDATE role_definitions
-                SET name = ?, description = ?, archetype = ?, prompt_ref = ?, prompt_markdown = ?,
+                SET name = ?, description = ?, archetype = ?, prompt_ref = ?, prompt_markdown = ?, posture_notes = ?,
                     executor_kind = ?, executor_mode = ?, command_cli = ?, command_args_text = ?, model = ?, reasoning_effort = ?,
                     updated_at = ?
                 WHERE id = ?
@@ -69,6 +70,7 @@ class RepositoryRoleDefinitionRecordsMixin:
                     payload["archetype"],
                     payload["prompt_ref"],
                     payload["prompt_markdown"],
+                    payload.get("posture_notes", ""),
                     payload.get("executor_kind", "codex"),
                     payload.get("executor_mode", "preset"),
                     payload.get("command_cli", "codex"),

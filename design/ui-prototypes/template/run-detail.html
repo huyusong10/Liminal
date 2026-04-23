@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run #04 — Loopora</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app">
+        <nav class="navbar">
+            <div class="navbar-left">
+                <a href="index.html" class="brand">
+                    <div class="brand-logo">
+                        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="2"/>
+                            <circle cx="16" cy="16" r="9" stroke="currentColor" stroke-width="2"/>
+                            <circle cx="16" cy="16" r="4" fill="currentColor"/>
+                        </svg>
+                    </div>
+                    <span class="brand-name">Loopora</span>
+                </a>
+                <div class="navbar-nav">
+                    <a href="index.html" class="nav-link active">Loops</a>
+                    <a href="orchestrations.html" class="nav-link">Orchestrations</a>
+                    <a href="roles.html" class="nav-link">Roles</a>
+                    <a href="tools.html" class="nav-link">Tools</a>
+                    <a href="tutorial.html" class="nav-link">Tutorial</a>
+                </div>
+            </div>
+            <div class="navbar-right">
+                <div class="user-menu">
+                    <div class="user-avatar">JD</div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="main-container">
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <div class="section-header">Navigation</div>
+                    <nav class="sidebar-nav">
+                        <a href="loop-detail.html" class="nav-item">
+                            <span class="nav-icon">‹</span>
+                            <span class="nav-label">Back to Loop</span>
+                        </a>
+                        <a href="index.html" class="nav-item">
+                            <span class="nav-icon">◈</span>
+                            <span class="nav-label">All Loops</span>
+                        </a>
+                    </nav>
+                </div>
+                <div class="sidebar-section">
+                    <div class="section-header">Quick Stats</div>
+                    <div style="padding: 0 12px;">
+                        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">Duration</div>
+                        <div style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">12:34</div>
+                        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">Iterations</div>
+                        <div style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">4/8</div>
+                        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">Tokens Used</div>
+                        <div style="font-size: 18px; font-weight: 600;">24.5K</div>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="content">
+                <a href="loop-detail.html" class="back-nav">‹ Back to Loop</a>
+
+                <div class="card" style="margin-bottom: 24px;">
+                    <div class="card-body" style="padding: 24px;">
+                        <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">
+                            <div style="width: 52px; height: 52px; display: flex; align-items: center; justify-content: center; background: var(--accent); color: white; border-radius: var(--radius); font-size: 18px; font-weight: 700; flex-shrink: 0;">04</div>
+                            <div style="flex: 1;">
+                                <h1 style="font-size: 22px; font-weight: 700; margin-bottom: 4px;">Run #04</h1>
+                                <div style="font-size: 13px; color: var(--text-secondary);">Search Rollout Migration • Started 12 minutes ago</div>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <span class="status-pill running">
+                                    <span class="status-dot"></span>
+                                    Live
+                                </span>
+                                <a href="run-console.html" class="btn btn-secondary">Console</a>
+                                <button class="btn btn-primary">Pause</button>
+                            </div>
+                        </div>
+
+                        <div class="timeline">
+                            <div class="timeline-node completed">
+                                <div class="node-circle">B</div>
+                                <div class="node-label">Builder</div>
+                            </div>
+                            <div class="timeline-connector completed"></div>
+                            <div class="timeline-node completed">
+                                <div class="node-circle">I</div>
+                                <div class="node-label">Inspector</div>
+                            </div>
+                            <div class="timeline-connector completed"></div>
+                            <div class="timeline-node active">
+                                <div class="node-circle">G</div>
+                                <div class="node-label">GateKeeper</div>
+                            </div>
+                            <div class="timeline-connector"></div>
+                            <div class="timeline-node">
+                                <div class="node-circle">Gu</div>
+                                <div class="node-label">Guide</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tabs">
+                    <div class="tab active">Overview</div>
+                    <div class="tab">Timeline</div>
+                    <a href="run-console.html" class="tab">Console</a>
+                    <div class="tab">Artifacts</div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 300px 1fr; gap: 20px;">
+                    <div>
+                        <div class="panel" style="margin-bottom: 16px;">
+                            <div class="panel-header">
+                                <span>Artifacts</span>
+                                <span style="font-size: 11px; color: var(--text-tertiary);">3 files</span>
+                            </div>
+                            <div class="panel-body">
+                                <div class="artifact-list">
+                                    <div class="artifact-item">
+                                        <div class="artifact-icon">📄</div>
+                                        <div class="artifact-info">
+                                            <div class="artifact-name">build-report.md</div>
+                                            <div class="artifact-meta">2.4 KB • 10m ago</div>
+                                        </div>
+                                        <a href="#" class="artifact-link">Open</a>
+                                    </div>
+                                    <div class="artifact-item">
+                                        <div class="artifact-icon">🔍</div>
+                                        <div class="artifact-info">
+                                            <div class="artifact-name">inspection-results.json</div>
+                                            <div class="artifact-meta">15.8 KB • 8m ago</div>
+                                        </div>
+                                        <a href="#" class="artifact-link">Open</a>
+                                    </div>
+                                    <div class="artifact-item">
+                                        <div class="artifact-icon">📊</div>
+                                        <div class="artifact-info">
+                                            <div class="artifact-name">test-coverage.html</div>
+                                            <div class="artifact-meta">45.2 KB • 5m ago</div>
+                                        </div>
+                                        <a href="#" class="artifact-link">Open</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="panel">
+                            <div class="panel-header">Current Agent</div>
+                            <div class="panel-body">
+                                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                                    <div style="width: 40px; height: 40px; background: var(--accent-light); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 15px; color: var(--accent); font-weight: 600;">GK</div>
+                                    <div>
+                                        <div style="font-weight: 600; font-size: 14px;">GateKeeper</div>
+                                        <div style="font-size: 12px; color: var(--text-secondary);">Evaluating artifacts</div>
+                                    </div>
+                                </div>
+                                <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">Reviewing build output, test results, and code changes to determine if this iteration meets the criteria for deployment.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <div class="panel-header">
+                            <span>Live Output</span>
+                            <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 500;">● streaming</span>
+                        </div>
+                        <div class="terminal">
+                            <div class="terminal-line">
+                                <span class="terminal-time">12:34:05</span>
+                                <span class="terminal-role builder">[builder]</span>
+                                <span class="terminal-message">Search index build complete: 45,230 documents indexed</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-time">12:34:12</span>
+                                <span class="terminal-role builder">[builder]</span>
+                                <span class="terminal-message">API endpoints updated: /search, /suggest, /index</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-time">12:34:45</span>
+                                <span class="terminal-role builder">[builder]</span>
+                                <span class="terminal-message">Build artifacts generated in ./dist/</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-time">12:35:02</span>
+                                <span class="terminal-role inspector">[inspector]</span>
+                                <span class="terminal-message">Evidence collection initiated</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-time">12:35:48</span>
+                                <span class="terminal-role inspector">[inspector]</span>
+                                <span class="terminal-message">Running regression test suite...</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-time">12:36:15</span>
+                                <span class="terminal-role inspector">[inspector]</span>
+                                <span class="terminal-message">Test queries: 150/150 passed ✓</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-time">12:36:42</span>
+                                <span class="terminal-role inspector">[inspector]</span>
+                                <span class="terminal-message">Performance delta: +3.2% (within threshold)</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-time">12:37:01</span>
+                                <span class="terminal-role gatekeeper">[gatekeeper]</span>
+                                <span class="terminal-message">Reviewing build artifacts...</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-time">12:37:28</span>
+                                <span class="terminal-role gatekeeper">[gatekeeper]</span>
+                                <span class="terminal-message">Analyzing integration test coverage</span>
+                            </div>
+                            <div class="terminal-line">
+                                <span class="terminal-time">12:37:45</span>
+                                <span class="terminal-role gatekeeper">[gatekeeper]</span>
+                                <span class="terminal-message">Checking security compliance rules<span class="terminal-cursor"></span></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+</body>
+</html>

@@ -13,18 +13,20 @@
 | 对象 | 用户目的 | 稳定语义 |
 |------|----------|----------|
 | `loop` | 保存一套可重复执行的配置 | 绑定 workdir、spec、runtime 策略与 orchestration |
+| `bundle` | 以整包方式导入、导出或派生任务对齐结果 | 把 spec、role definitions、workflow / orchestration 和 loop 组织成单文件 YAML 的生命周期单元 |
 | `orchestration` | 编辑可复用 workflow | 管理角色快照、步骤顺序与收敛规则 |
 | `role definition` | 预先定义可复用角色模版 | 供 orchestration 选择并复制成角色快照；同时定义默认执行配置 |
 | `run` | 观察一次具体执行 | 提供状态、事件、摘要、canonical artifacts 与终端白盒输出 |
+| `skill installer` | 把 repo-local Skill 安装到外部 Agent 工具 | 只复制 / 下载 Loopora 随仓库版本化的 Skill，不在 Loopora 内部执行对话能力 |
 | `tutorial` | 学习正确写 spec 与选择流程 | 用最短路径解释 task contract → orchestration → create loop 的推荐顺序，并坚持 example-first：先用决策板帮助用户判断“该不该用 Loopora、该选哪类流程”，再引导用户看 5 条核心流程附带的真实需求样例；这些样例应优先表现长期任务里的当前 loop 切片，而不是孤立的小 bug，并明确说明：任务不是强 Agent 做不到，而是如果没有 loop，人类会反复回来确认、裁决和纠偏 |
 
 ## 3. 入口职责
 
 | 入口 | 面向对象 | 负责内容 | 不负责内容 |
 |------|----------|----------|------------|
-| CLI | 终端与脚本 | 参数收集、同步/后台启动、结构化输出，以及对 loop / orchestration / role definition / spec / prompt 模板的程序化读写与校验 | 维护独立业务状态 |
-| Web UI | 可视化操作与观测 | 页面表单、列表、编辑器与实时观察 | 直接实现编排逻辑 |
-| HTTP API | Web UI 与集成调用方 | 程序化创建、更新、查询与流式事件 | 暴露底层存储实现 |
+| CLI | 终端与脚本 | 参数收集、同步/后台启动、结构化输出，以及对 bundle / loop / orchestration / role definition / spec / prompt 模板的程序化读写与校验 | 维护独立业务状态 |
+| Web UI | 可视化操作与观测 | 页面表单、列表、在创建 loop 入口消费 bundle、bundle 导出 / 派生 / 管理、编辑器与实时观察 | 直接实现编排逻辑 |
+| HTTP API | Web UI 与集成调用方 | 程序化创建、更新、查询、bundle 交换与流式事件 | 暴露底层存储实现 |
 
 ## 4. 跨入口一致性
 
@@ -32,6 +34,7 @@
 
 | 能力 | 一致性要求 |
 |------|------------|
+| bundle 导入 / 导出 / 派生 / 删除 | 三个入口都表达同一 bundle 生命周期语义；Web 可以把导入放在“创建 loop”入口，因为导入 bundle 的用户目的就是物化一条可运行 loop |
 | 创建 loop | 相同参数表达相同 loop definition |
 | 选择 orchestration | 引用同一编排资产 |
 | 配置 completion mode | `gatekeeper` 与 `rounds` 的语义一致 |
@@ -42,6 +45,8 @@
 | 校验 spec 与 prompt | 校验规则一致 |
 | 暴露 spec 起草辅助能力 | 通过统一的 spec template/init 接口暴露按 workflow 生成模板的能力，并共享同一套 `Task / Done When / Guardrails / Role Notes` 语义 |
 | 暴露对象管理能力 | CLI、Web UI 与 HTTP API 都必须能覆盖角色定义、编排、spec 模板与 prompt 模板这组核心对象的创建、派生、更新、读取、删除或校验；允许交互形态不同，但不能出现“只有 Web 才能做”的语义级能力缺口 |
+| 暴露 guided entry 的物化结果 | Loopora 本体不负责与用户对话，但必须能稳定消费外部 Agent + Skill 产出的 bundle，并在 Web / CLI / API 中提供同一组 bundle 生命周期动作 |
+| 暴露 repo-local Skill 安装辅助 | Web UI 与 HTTP API 可以提供 `loopora-task-alignment` 的安装状态、目标工具安装与 zip 下载；该能力只是文件分发辅助，不能让 Loopora 本体承担对话或 bundle 生成职责 |
 | 暴露状态目录与认证入口 | 只接受 `loopora` 根目录语义与 `X-Loopora-Token` 品牌化入口，不再把旧品牌别名作为接口契约的一部分 |
 | 浏览 run artifacts | 都以 canonical artifact 集合作为主视图 |
 | 观察终端 | 都把系统动作、context 流转、命令和输出投影到同一事件语义 |
@@ -54,6 +59,8 @@
 |------|----------|
 | Web UI | 提供可视化 workflow 编辑器、角色选择器、教程入口与实时页面导航 |
 | CLI | 提供同步等待与后台执行开关 |
+| Web UI | 可以把 bundle 导入与创建 loop 合并为同一页：bundle-first 作为默认创建路径，手动创建 loop 保留为 expert mode；bundle 列表 / 详情页可以退到管理、导出、派生、删除和 revision 入口，只要 bundle、loop、orchestration、role definition 的底层语义保持一致 |
+| Web UI | 当 loop 属于某个 bundle 时，可以在 loop 列表里把危险操作直接重定向到 bundle 删除，而不是继续暴露会拆坏 bundle 的局部删除路径 |
 | Web UI | 可保存浏览器本地草稿、最近使用建议，以及用户选择的明暗主题；这些都是 best-effort |
 | Web UI | 终端可以提供折叠/展开、全局展开/收缩、按类别筛选的观察控件 |
 | Web UI | 角色定义页可以把预设模式与直接命令模式做成不同的视觉分区，并在界面上提供最终命令预览，只要提交语义与实际执行保持一致 |
@@ -92,6 +99,7 @@
 以下差异不可接受：
 
 - 只有某一入口能表达核心 loop 配置
+- 只有某一入口能导入、导出、派生或删除 bundle
 - 只有某一入口能创建或编辑 orchestration / role definition
 - 同名配置项在不同入口含义不同
 - 预览行为与实际提交行为不一致

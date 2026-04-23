@@ -61,6 +61,13 @@ class ServiceLoopRecordMixin:
                 "id": loop.get("orchestration_id"),
                 "name": loop.get("orchestration_name") or loop.get("orchestration_id"),
             }
+        if hasattr(self, "_bundle_record_for_loop_id"):
+            bundle = self._bundle_record_for_loop_id(loop["id"])
+            if bundle:
+                loop["bundle"] = {
+                    "id": bundle["id"],
+                    "name": bundle.get("name") or bundle["id"],
+                }
         try:
             loop["prompt_files"] = self._read_prompt_files_for_loop(loop["workdir"], loop["id"], workflow)
         except WorkflowError:

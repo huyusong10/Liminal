@@ -2752,6 +2752,24 @@ body.modal-open {
   gap: 8px;
 }
 
+.field-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.field-inline-row > input {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.field-inline-row > .ghost-button,
+.field-inline-row > .secondary-button,
+.field-inline-row > .primary-button {
+  flex: 0 0 auto;
+}
+
 .label-row {
   display: flex;
   align-items: center;

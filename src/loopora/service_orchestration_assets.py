@@ -4,6 +4,7 @@ import logging
 
 from loopora.diagnostics import log_event
 from loopora.service_asset_common import logger
+from loopora.service_types import LooporaError
 
 
 class ServiceOrchestrationAssetMixin:
@@ -53,6 +54,12 @@ class ServiceOrchestrationAssetMixin:
         prompt_files: dict | None = None,
         role_models: dict | None = None,
     ) -> dict:
+        bundle = None
+        previous_orchestration = None
+        if hasattr(self, "_bundle_record_for_orchestration_id"):
+            bundle = self._bundle_record_for_orchestration_id(orchestration_id)
+            if bundle:
+                previous_orchestration = self.get_orchestration(orchestration_id)
         orchestration = self._asset_call(
             self.asset_catalog.update_orchestration,
             orchestration_id,
@@ -62,6 +69,26 @@ class ServiceOrchestrationAssetMixin:
             prompt_files=prompt_files,
             role_models=role_models,
         )
+        if bundle and hasattr(self, "_touch_bundle_for_orchestration"):
+            try:
+                self._touch_bundle_for_orchestration(orchestration_id)
+            except LooporaError:
+                if previous_orchestration:
+                    self.repository.update_orchestration(
+                        orchestration_id,
+                        {
+                            "name": previous_orchestration["name"],
+                            "description": previous_orchestration.get("description", ""),
+                            "workflow": previous_orchestration.get("workflow_json") or {},
+                            "prompt_files": previous_orchestration.get("prompt_files_json") or {},
+                        },
+                    )
+                    if hasattr(self, "_sync_bundle_loop_snapshot"):
+                        try:
+                            self._sync_bundle_loop_snapshot(bundle["id"])
+                        except LooporaError:
+                            pass
+                raise
         log_event(
             logger,
             logging.INFO,
@@ -74,7 +101,11 @@ class ServiceOrchestrationAssetMixin:
         )
         return orchestration
 
-    def delete_orchestration(self, orchestration_id: str) -> dict:
+    def delete_orchestration(self, orchestration_id: str, *, allow_bundle_owned: bool = False) -> dict:
+        if not allow_bundle_owned and hasattr(self, "_bundle_record_for_orchestration_id"):
+            bundle = self._bundle_record_for_orchestration_id(orchestration_id)
+            if bundle:
+                raise LooporaError(f"orchestration {orchestration_id} is managed by bundle {bundle['id']}; delete the bundle instead")
         result = self._asset_call(self.asset_catalog.delete_orchestration, orchestration_id)
         log_event(
             logger,

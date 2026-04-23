@@ -66,6 +66,25 @@ WorkflowFileOption = Annotated[
         help="Path to a JSON or YAML workflow bundle. Supports {workflow, prompt_files} or a raw workflow object.",
     ),
 ]
+BundleFileOption = Annotated[
+    Path,
+    typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        help="Path to a single YAML bundle file.",
+    ),
+]
+BundleOutputOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--output",
+        file_okay=True,
+        dir_okay=False,
+        help="Write the YAML bundle to this path instead of printing it.",
+    ),
+]
 StartOption = Annotated[bool, typer.Option("--start", help="Start a run immediately after creating the loop definition.")]
 BackgroundOption = Annotated[bool, typer.Option("--background", help="Queue the run and return immediately instead of waiting for it to finish.")]
 LocaleOption = Annotated[str, typer.Option("--locale", help="Template locale: zh or en.")]

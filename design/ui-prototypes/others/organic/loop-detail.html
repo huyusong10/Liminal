@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loop Detail - Loopora Organic</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .breadcrumb { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; font-size: 0.875rem; color: var(--color-text-muted); }
+        .breadcrumb a { color: var(--color-text-secondary); text-decoration: none; }
+        .breadcrumb a:hover { color: var(--color-accent); }
+        .detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--color-border); }
+        .detail-title { display: flex; align-items: center; gap: 1rem; }
+        .detail-title h1 { font-family: var(--font-display); font-size: 1.75rem; }
+        .detail-actions { display: flex; gap: 0.75rem; }
+        .detail-grid { display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; }
+        .sidebar-card { background: var(--color-surface); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; box-shadow: var(--shadow-soft); }
+        .sidebar-card h3 { font-family: var(--font-display); font-size: 0.875rem; color: var(--color-text-muted); margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--color-border); }
+        .info-row { display: flex; justify-content: space-between; padding: 0.625rem 0; border-bottom: 1px solid var(--color-border); }
+        .info-row:last-child { border-bottom: none; }
+        .info-label { font-size: 0.75rem; color: var(--color-text-muted); }
+        .info-value { font-size: 0.875rem; font-weight: 600; color: var(--color-text); }
+        .role-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0; }
+        .role-avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.625rem; font-weight: 700; color: white; }
+        .role-avatar.builder { background: linear-gradient(135deg, #65a30d, #84cc16); }
+        .role-avatar.inspector { background: linear-gradient(135deg, #0d9488, #14b8a6); }
+        .role-avatar.gatekeeper { background: linear-gradient(135deg, #8b5cf6, #a78bfa); }
+        .role-avatar.guide { background: linear-gradient(135deg, #0ea5e9, #38bdf8); }
+        .main-card { background: var(--color-surface); border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1rem; box-shadow: var(--shadow-soft); }
+        .main-card h3 { font-family: var(--font-display); font-size: 0.875rem; color: var(--color-text-muted); margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--color-border); }
+        .spec-content h4 { font-family: var(--font-display); font-size: 1rem; color: var(--color-text); margin: 1.25rem 0 0.5rem; }
+        .spec-content h4:first-child { margin-top: 0; }
+        .spec-content p, .spec-content ul { color: var(--color-text-secondary); font-size: 0.9375rem; line-height: 1.7; }
+        .spec-content ul { list-style: none; padding-left: 0; }
+        .spec-content li { padding: 0.25rem 0; padding-left: 1.5rem; position: relative; }
+        .spec-content li::before { content: '🌱'; position: absolute; left: 0; }
+        .run-item { display: flex; align-items: center; gap: 1rem; padding: 1rem; background: var(--color-surface-soft); border-radius: var(--radius-md); margin-bottom: 0.75rem; border: 1px solid transparent; transition: var(--transition); }
+        .run-item:hover { border-color: var(--color-border-strong); }
+        .run-item.active { border-color: var(--color-running); background: rgba(13, 148, 136, 0.05); }
+        .run-number { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, var(--color-running), #14b8a6); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.875rem; }
+        .run-info { flex: 1; }
+        .run-meta { display: flex; gap: 1rem; font-size: 0.75rem; color: var(--color-text-muted); margin-bottom: 0.25rem; }
+        .run-desc { font-weight: 600; color: var(--color-text); }
+        @media (max-width: 768px) { .detail-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <div class="nav-brand">
+            <svg class="logo" viewBox="0 0 512 512" width="40" height="40">
+                <circle cx="256" cy="256" r="240" fill="#f0fdf4" />
+                <path d="M 130 256 C 130 140, 245 140, 256 256 C 267 372, 382 372, 382 256 C 382 140, 267 140, 256 256 C 245 372, 130 372, 130 256 Z" fill="none" stroke="#65a30d" stroke-width="40" stroke-linecap="round" />
+                <circle cx="256" cy="256" r="24" fill="#fff" stroke="#14b8a6" stroke-width="4" />
+            </svg>
+            <span class="brand-text">Loopora</span>
+        </div>
+        <div class="nav-links">
+            <a href="index.html" class="active">Loops</a>
+            <a href="orchestrations.html">Orchestrations</a>
+            <a href="roles.html">Roles</a>
+            <a href="tutorial.html">Tutorial</a>
+        </div>
+    </nav>
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">Loops</a>
+            <span>/</span>
+            <span>Search Rollout Migration</span>
+        </div>
+        <header class="detail-header">
+            <div class="detail-title">
+                <h1>Search Rollout Migration</h1>
+                <span class="status-badge"><span class="status-dot"></span><span>Growing</span></span>
+            </div>
+            <div class="detail-actions">
+                <button class="btn-ghost">Pause</button>
+                <button class="btn-primary">Next Round</button>
+            </div>
+        </header>
+        <div class="detail-grid">
+            <aside>
+                <div class="sidebar-card">
+                    <h3>Configuration</h3>
+                    <div class="info-row"><span class="info-label">Loop ID</span><span class="info-value">loop_8x2k9m</span></div>
+                    <div class="info-row"><span class="info-label">Orchestration</span><span class="info-value">Build First</span></div>
+                    <div class="info-row"><span class="info-label">Workdir</span><span class="info-value">/workspace</span></div>
+                    <div class="info-row"><span class="info-label">Max Iter</span><span class="info-value">8</span></div>
+                </div>
+                <div class="sidebar-card">
+                    <h3>Gardeners</h3>
+                    <div class="role-row"><div class="role-avatar builder">B</div><span>Builder</span></div>
+                    <div class="role-row"><div class="role-avatar inspector">I</div><span>Inspector</span></div>
+                    <div class="role-row"><div class="role-avatar gatekeeper">G</div><span>GateKeeper</span></div>
+                    <div class="role-row"><div class="role-avatar guide">Gu</div><span>Guide</span></div>
+                </div>
+            </aside>
+            <div>
+                <div class="main-card">
+                    <h3>Specification</h3>
+                    <div class="spec-content">
+                        <h4>🌿 Task</h4>
+                        <p>Migrate the knowledge-base product from old keyword-only search to new hybrid search stack.</p>
+                        <h4>🌸 Done When</h4>
+                        <ul><li>End-to-end search is functional</li><li>GateKeeper approves for shadow traffic</li><li>All integration tests pass</li></ul>
+                        <h4>🌱 Guardrails</h4>
+                        <ul><li>No breaking changes to existing API</li><li>Maintain backwards compatibility</li></ul>
+                    </div>
+                </div>
+                <div class="main-card">
+                    <h3>Growth History</h3>
+                    <div class="run-item active">
+                        <div class="run-number">4</div>
+                        <div class="run-info">
+                            <div class="run-meta"><span>Running</span><span>12 min ago</span></div>
+                            <div class="run-desc">GateKeeper evaluating build artifacts</div>
+                        </div>
+                        <a href="run-detail.html" class="btn-ghost">View</a>
+                    </div>
+                    <div class="run-item">
+                        <div class="run-number" style="background: linear-gradient(135deg, #22c55e, #4ade80);">3</div>
+                        <div class="run-info">
+                            <div class="run-meta"><span>Completed</span><span>2 hours ago</span></div>
+                            <div class="run-desc">Builder completed indexing implementation</div>
+                        </div>
+                        <a href="#" class="btn-ghost">View</a>
+                    </div>
+                    <div class="run-item">
+                        <div class="run-number" style="background: linear-gradient(135deg, #22c55e, #4ade80);">2</div>
+                        <div class="run-info">
+                            <div class="run-meta"><span>Completed</span><span>5 hours ago</span></div>
+                            <div class="run-desc">Inspector identified query parsing issues</div>
+                        </div>
+                        <a href="#" class="btn-ghost">View</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    <div class="leaf-decoration leaf-1">🍃</div>
+    <div class="leaf-decoration leaf-2">🌿</div>
+</body>
+</html>

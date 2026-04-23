@@ -1,20 +1,19 @@
 本用例由Agent自行进行模拟
 
-# 场景：新用户通过教程页判断改动应该落在哪一层
+# 场景：新用户通过教程页理解 bundle-first 创建路径
 
-**前置**：首次进入 Loopora Web UI，还没有形成“角色定义 / 流程编排 / 创建循环”的职责心智模型
+**前置**：首次进入 Loopora Web UI，还不了解 collaboration posture、bundle、创建循环三者的关系。
 
 **步骤**：
 1. 分别用英文和中文打开“使用教程”页面，确认浏览器页签标题与页内主标题在首帧就和当前界面语言一致。
-2. 先阅读顶部的快速分流卡片。
-3. 假设自己要修改默认 prompt、执行工具或模型，确认页面明确把这类改动指向“角色定义”。
-4. 假设自己要调整角色顺序、开关某一步或改变收束逻辑，确认页面明确把这类改动指向“流程编排”。
-5. 假设自己要更换 workdir、spec、completion mode、轮次间隔或最大轮数，确认页面明确把这类改动指向“创建循环”。
-6. 继续阅读下方三张步骤卡片，确认它们和顶部快速分流卡片表达的是同一套职责边界，而不是互相冲突。
-7. 进入“上下文如何在流程里流转”区域，确认仍能看懂 `contract/run_contract.json`、`input.context.json`、`handoff.json` 和 `latest_iteration_summary.json` 各自出现在哪个阶段。
+2. 先阅读顶部核心精神卡片，确认页面说明 Loopora 编译的是 task-scoped collaboration posture，而不是要求用户先写完整 workflow rule。
+3. 确认教程说明 posture 由 `spec`、角色定义和 workflow 共同承载，不把姿态误导成单个 prompt。
+4. 继续阅读决策树，确认用户先判断“该不该用 Loopora”，再判断哪条流程最能减少下一次人工回场。
+5. 滚到行动入口，确认默认路径是安装对齐 Skill、导入 bundle 创建循环；手动编排被明确标为 expert mode。
+6. 打开任意流程样例弹窗，确认样例仍帮助用户理解 workflow 如何承载姿态，而不是把流程名当成静态规则。
 
 **预期结果**：
 - 教程页的文档标题与正文主标题在首帧就保持 locale 一致，不会先闪回默认英文。
-- 新用户不用先读完整段散文，也能快速判断当前改动应该回到哪个页面
-- 顶部快速分流与下方三步流程保持一致，不会出现职责重叠或前后矛盾
-- 教程页仍然保留 context / handoff / iteration summary 的解释，不会因为新增导航而弱化结构化运行心智
+- 新用户不用先理解所有内部资产，也能知道默认应该从外部 Agent + Skill 生成 bundle，再到“创建循环”导入运行。
+- 教程不会把 working agreement 描述成运行期资产；最终运行输入仍然落在 bundle 编译出的 `spec / roles / workflow`。
+- 手动入口仍然清晰可见，但不会盖过 bundle-first 的推荐路径。

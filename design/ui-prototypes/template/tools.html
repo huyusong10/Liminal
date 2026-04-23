@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tools — Loopora</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app">
+        <nav class="navbar">
+            <div class="navbar-left">
+                <a href="index.html" class="brand">
+                    <div class="brand-logo">
+                        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="2"/>
+                            <circle cx="16" cy="16" r="9" stroke="currentColor" stroke-width="2"/>
+                            <circle cx="16" cy="16" r="4" fill="currentColor"/>
+                        </svg>
+                    </div>
+                    <span class="brand-name">Loopora</span>
+                </a>
+                <div class="navbar-nav">
+                    <a href="index.html" class="nav-link">Loops</a>
+                    <a href="orchestrations.html" class="nav-link">Orchestrations</a>
+                    <a href="roles.html" class="nav-link">Roles</a>
+                    <a href="tools.html" class="nav-link active">Tools</a>
+                    <a href="tutorial.html" class="nav-link">Tutorial</a>
+                </div>
+            </div>
+            <div class="navbar-right">
+                <div class="user-menu">
+                    <div class="user-avatar">JD</div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="main-container">
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <div class="section-header">Library</div>
+                    <nav class="sidebar-nav">
+                        <a href="orchestrations.html" class="nav-item">
+                            <span class="nav-icon">⚙</span>
+                            <span class="nav-label">Orchestrations</span>
+                        </a>
+                        <a href="roles.html" class="nav-item">
+                            <span class="nav-icon">◧</span>
+                            <span class="nav-label">Roles</span>
+                        </a>
+                        <a href="tools.html" class="nav-item active">
+                            <span class="nav-icon">🛠</span>
+                            <span class="nav-label">Tools</span>
+                        </a>
+                    </nav>
+                </div>
+            </aside>
+
+            <main class="content">
+                <div class="content-header">
+                    <h1>Tools</h1>
+                    <button class="btn btn-primary">+ New Tool</button>
+                </div>
+
+                <div class="tool-grid">
+                    <div class="tool-card">
+                        <div class="tool-icon">📁</div>
+                        <div class="tool-name">file_read</div>
+                        <div class="tool-desc">Read the contents of a file in the workspace. Supports text files, code files, and markdown.</div>
+                    </div>
+
+                    <div class="tool-card">
+                        <div class="tool-icon">✏️</div>
+                        <div class="tool-name">file_write</div>
+                        <div class="tool-desc">Write or overwrite a file in the workspace. Creates parent directories if needed.</div>
+                    </div>
+
+                    <div class="tool-card">
+                        <div class="tool-icon">🗑️</div>
+                        <div class="tool-name">file_delete</div>
+                        <div class="tool-desc">Delete a file or directory from the workspace. Use with caution.</div>
+                    </div>
+
+                    <div class="tool-card">
+                        <div class="tool-icon">🔍</div>
+                        <div class="tool-name">file_search</div>
+                        <div class="tool-desc">Search for files in the workspace by name pattern or content.</div>
+                    </div>
+
+                    <div class="tool-card">
+                        <div class="tool-icon">💻</div>
+                        <div class="tool-name">shell</div>
+                        <div class="tool-desc">Execute shell commands in the workspace. Output is captured and returned.</div>
+                    </div>
+
+                    <div class="tool-card">
+                        <div class="tool-icon">🌐</div>
+                        <div class="tool-name">web_search</div>
+                        <div class="tool-desc">Search the web for information. Returns search results with snippets.</div>
+                    </div>
+
+                    <div class="tool-card">
+                        <div class="tool-icon">📊</div>
+                        <div class="tool-name">web_fetch</div>
+                        <div class="tool-desc">Fetch the content of a web page. Returns the page text content.</div>
+                    </div>
+
+                    <div class="tool-card">
+                        <div class="tool-icon">🧪</div>
+                        <div class="tool-name">test_run</div>
+                        <div class="tool-desc">Run tests in the workspace. Supports various test frameworks.</div>
+                    </div>
+
+                    <div class="tool-card">
+                        <div class="tool-icon">📦</div>
+                        <div class="tool-name">git_status</div>
+                        <div class="tool-desc">Check the git status of the workspace. Shows modified and untracked files.</div>
+                    </div>
+
+                    <div class="tool-card">
+                        <div class="tool-icon">🔀</div>
+                        <div class="tool-name">git_diff</div>
+                        <div class="tool-desc">Show the git diff of changes in the workspace. Useful for reviewing modifications.</div>
+                    </div>
+
+                    <div class="tool-card">
+                        <div class="tool-icon">⏱️</div>
+                        <div class="tool-name">sleep</div>
+                        <div class="tool-desc">Pause execution for a specified duration. Useful for rate limiting.</div>
+                    </div>
+
+                    <div class="tool-card">
+                        <div class="tool-icon">📝</div>
+                        <div class="tool-name">ask_user</div>
+                        <div class="tool-desc">Ask the user a question and wait for a response. Use for human-in-the-loop decisions.</div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+</body>
+</html>

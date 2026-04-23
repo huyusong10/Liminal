@@ -83,6 +83,19 @@
       <textarea name="description" rows="3">{{- form_values.description -}}</textarea>
     </label>
 
+    <label class="wide">
+      <span><span data-lang="zh">协作姿态提示</span><span data-lang="en">Posture Notes</span></span>
+      <textarea
+        name="posture_notes"
+        rows="4"
+        data-testid="role-definition-posture-notes-input"
+      >{{- form_values.posture_notes -}}</textarea>
+      <small class="field-note">
+        <span data-lang="zh">这里写本次任务里这个角色应采取的协作姿态，例如更重视证据、重构质量、风险控制或推进速度。这不是角色身份本身，而是任务级的 posture 注入点。</span>
+        <span data-lang="en">Use this field for task-scoped collaboration posture, such as weighing evidence, refactor quality, risk control, or speed more heavily for this role. It shapes the role’s stance for the task, not its core identity.</span>
+      </small>
+    </label>
+
     <section class="wide panel role-execution-panel">
       <header class="panel-header workflow-editor-header role-execution-header">
         <div>

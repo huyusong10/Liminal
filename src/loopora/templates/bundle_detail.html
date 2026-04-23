@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}{{ bundle.name }}{% endblock %}
+{% block content %}
+<div class="page-stack" data-testid="bundle-detail-page">
+  <section class="hero hero-tight hero-form">
+    <div class="hero-copy-stack">
+      <h1>{{ bundle.name }}</h1>
+      <p>{{ bundle.collaboration_summary }}</p>
+      <p class="field-note">
+        <span data-lang="zh">Bundle ID: {{ bundle.id }} · Revision {{ bundle.revision }}</span>
+        <span data-lang="en">Bundle ID: {{ bundle.id }} · Revision {{ bundle.revision }}</span>
+      </p>
+    </div>
+    <div class="card-actions">
+      <a class="primary-button" href="/api/bundles/{{ bundle.id }}/export">
+        <span data-lang="zh">导出 YAML</span>
+        <span data-lang="en">Export YAML</span>
+      </a>
+      <a class="secondary-button" href="/loops/new?replace_bundle_id={{ bundle.id }}#bundle-import-form" data-testid="bundle-import-revision-link">
+        <span data-lang="zh">导入下一版 Revision</span>
+        <span data-lang="en">Import next revision</span>
+      </a>
+      {% if bundle.loop %}
+      <a class="ghost-button" href="/loops/{{ bundle.loop.id }}">
+        <span data-lang="zh">打开 Loop</span>
+        <span data-lang="en">Open Loop</span>
+      </a>
+      {% endif %}
+      <button
+        class="ghost-button danger-button"
+        type="button"
+        data-delete-bundle="{{ bundle.id }}"
+        data-bundle-name="{{ bundle.name }}"
+      >
+        <span data-lang="zh">删除 Bundle</span>
+        <span data-lang="en">Delete Bundle</span>
+      </button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <header class="panel-header">
+      <h2><span data-lang="zh">关联资源</span><span data-lang="en">Linked Assets</span></h2>
+    </header>
+    <p class="panel-note">
+      <span data-lang="zh">Bundle 的协作姿态由 spec、角色定义和流程编排共同承载。你可以分别微调它们；保存后 bundle revision 会同步前进，并重新导出同一份 YAML。</span>
+      <span data-lang="en">The collaboration posture is carried jointly by the spec, role definitions, and orchestration. You can tweak them separately; saving any of them advances the bundle revision and regenerates the same YAML package.</span>
+    </p>
+    <div class="form-grid">
+      <div class="panel">
+        <h3><span data-lang="zh">Loop</span><span data-lang="en">Loop</span></h3>
+        {% if bundle.loop %}
+        <p>{{ bundle.loop.name }}</p>
+        <div class="card-actions">
+          <a class="secondary-button" href="/loops/{{ bundle.loop.id }}">
+            <span data-lang="zh">查看 Loop</span>
+            <span data-lang="en">View Loop</span>
+          </a>
+        </div>
+        {% else %}
+        <p>-</p>
+        {% endif %}
+      </div>
+      <div class="panel">
+        <h3><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></h3>
+        {% if bundle.orchestration %}
+        <p>{{ bundle.orchestration.name }}</p>
+        <div class="card-actions">
+          <a class="secondary-button" href="/orchestrations/{{ bundle.orchestration.id }}/edit?return_to=/bundles/{{ bundle.id }}">
+            <span data-lang="zh">编辑编排</span>
+            <span data-lang="en">Edit orchestration</span>
+          </a>
+        </div>
+        {% else %}
+        <p>-</p>
+        {% endif %}
+      </div>
+    </div>
+    <div class="panel" style="margin-top: 1rem;">
+      <h3><span data-lang="zh">角色定义</span><span data-lang="en">Role Definitions</span></h3>
+      {% if bundle.role_definitions %}
+      <div class="card-actions">
+        {% for role_definition in bundle.role_definitions %}
+        <a class="ghost-button" href="/roles/{{ role_definition.id }}/edit?return_to=/bundles/{{ bundle.id }}">
+          <span>{{ role_definition.name }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p>-</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <form class="panel form-panel form-panel-wide" method="post" action="/bundles/{{ bundle.id }}/edit" data-testid="bundle-detail-form">
+    <div class="field-status is-error" aria-live="polite" {% if not form_error %}hidden{% endif %}>{{ form_error or "" }}</div>
+    {% if request.query_params.get("saved") == "1" %}
+    <div class="field-status is-success">
+      <span data-lang="zh">Bundle 已更新。</span>
+      <span data-lang="en">Bundle updated.</span>
+    </div>
+    {% endif %}
+    {% if request.query_params.get("surface_updated") == "workflow" %}
+    <div class="field-status is-success" data-testid="bundle-surface-updated-workflow">
+      <span data-lang="zh">流程编排已保存，bundle revision 也已同步更新。</span>
+      <span data-lang="en">The orchestration was saved, and the bundle revision was updated in sync.</span>
+    </div>
+    {% endif %}
+    {% if request.query_params.get("surface_updated", "").startswith("role:") %}
+    <div class="field-status is-success" data-testid="bundle-surface-updated-role">
+      <span data-lang="zh">角色定义已保存，bundle revision 也已同步更新。</span>
+      <span data-lang="en">The role definition was saved, and the bundle revision was updated in sync.</span>
+    </div>
+    {% endif %}
+
+    <div class="form-grid">
+      <label class="wide">
+        <span><span data-lang="zh">描述</span><span data-lang="en">Description</span></span>
+        <textarea name="description" rows="3">{{- form_values.description -}}</textarea>
+      </label>
+
+      <label class="wide">
+        <span><span data-lang="zh">协作摘要</span><span data-lang="en">Collaboration summary</span></span>
+        <textarea name="collaboration_summary" rows="4">{{- form_values.collaboration_summary -}}</textarea>
+        <small class="field-note">
+          <span data-lang="zh">这里保留对本次任务协作姿态的高层概括，应该让人直接看懂“为什么是这套 bundle”。</span>
+          <span data-lang="en">Keep the high-level collaboration posture summary here so someone can quickly see why this bundle is shaped this way.</span>
+        </small>
+      </label>
+
+      <label class="wide">
+        <span><span data-lang="zh">Spec Markdown</span><span data-lang="en">Spec Markdown</span></span>
+        <textarea name="spec_markdown" rows="18">{{- form_values.spec_markdown -}}</textarea>
+      </label>
+    </div>
+
+    <div class="card-actions">
+      <button class="primary-button" type="submit">
+        <span data-lang="zh">保存 Bundle</span>
+        <span data-lang="en">Save Bundle</span>
+      </button>
+    </div>
+  </form>
+
+  <section class="panel" data-testid="bundle-spec-preview">
+    <header class="panel-header">
+      <h2><span data-lang="zh">Spec 预览</span><span data-lang="en">Spec Preview</span></h2>
+    </header>
+    <div class="markdown-body">{{ spec_rendered_html | safe }}</div>
+  </section>
+
+  <section class="panel" data-testid="bundle-yaml-preview">
+    <header class="panel-header">
+      <h2><span data-lang="zh">当前 Bundle YAML</span><span data-lang="en">Current Bundle YAML</span></h2>
+      <div class="card-actions">
+        {% if access_state.native_dialogs_enabled %}
+        <button class="ghost-button" type="button" data-reveal-path="{{ bundle.managed_dir }}" data-testid="bundle-reveal-dir-button">
+          <span data-lang="zh">打开 Bundle 目录</span>
+          <span data-lang="en">Reveal bundle folder</span>
+        </button>
+        {% endif %}
+        <a class="secondary-button" href="/api/bundles/{{ bundle.id }}/export">
+          <span data-lang="zh">下载当前 YAML</span>
+          <span data-lang="en">Download current YAML</span>
+        </a>
+      </div>
+    </header>
+    <p class="panel-note">
+      <span data-lang="zh">这里展示的是当前 revision 的完整 YAML。外部 agent 产出新版本后，可以用上面的“导入下一版 Revision”直接替换。</span>
+      <span data-lang="en">This is the full YAML for the current revision. When an external agent produces the next version, use “Import next revision” above to replace it in place.</span>
+    </p>
+    <label class="wide">
+      <span><span data-lang="zh">Bundle 文件位置</span><span data-lang="en">Bundle file path</span></span>
+      <input value="{{ bundle.bundle_yaml_path }}" readonly />
+    </label>
+    <label class="wide">
+      <span><span data-lang="zh">YAML 预览</span><span data-lang="en">YAML preview</span></span>
+      <textarea rows="20" readonly>{{- bundle_yaml -}}</textarea>
+    </label>
+  </section>
+</div>
+{% endblock %}

@@ -62,6 +62,7 @@ ROLE_EXECUTION_FIELDS = (
     "model",
     "reasoning_effort",
 )
+ROLE_POSTURE_FIELDS = ("posture_notes",)
 STEP_EXECUTION_FIELDS = (
     "on_pass",
     "model",
@@ -223,6 +224,7 @@ def _preset_role(
         "archetype": archetype,
         "prompt_ref": prompt_ref,
         "role_definition_id": role_definition_id,
+        "posture_notes": "",
         **default_role_execution_settings(),
     }
 
@@ -256,6 +258,7 @@ def _workflow_preset_definition(
         "decision_en": decision_en,
         "visible": visible,
         "workflow": {
+            "collaboration_intent": decision_en,
             "roles": roles,
             "steps": steps,
         },
@@ -762,6 +765,7 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
             "prompt_ref": prompt_ref,
             "model": model,
             "role_definition_id": role_definition_id,
+            "posture_notes": str(raw_role.get("posture_notes", "") or "").strip(),
         }
         if role_uses_execution_snapshot(raw_role):
             execution_settings = normalize_role_execution_settings(raw_role)
@@ -809,6 +813,7 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
     normalized = {
         "version": int(raw.get("version", 1) or 1),
         "preset": str(raw.get("preset", "")).strip(),
+        "collaboration_intent": str(raw.get("collaboration_intent", "") or "").strip(),
         "roles": roles,
         "steps": steps,
     }

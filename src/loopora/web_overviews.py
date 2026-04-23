@@ -453,6 +453,8 @@ def _decorate_loop_overview(loop: dict) -> dict:
         "stopped": ("最近一次运行已停止。", "The latest run was stopped."),
     }
     hint_zh, hint_en = hints.get(latest_status, hints["draft"])
+    bundle = loop.get("bundle") if isinstance(loop.get("bundle"), Mapping) else None
+    managed_by_bundle = bool(bundle and bundle.get("id"))
     return {
         **loop,
         "role_executor_summary": _workflow_role_executor_summary(workflow, fallback_executor_kind=loop.get("executor_kind", "codex")),
@@ -463,6 +465,9 @@ def _decorate_loop_overview(loop: dict) -> dict:
         "card_hint_zh": hint_zh,
         "card_hint_en": hint_en,
         "card_excerpt": summary_excerpt,
+        "managed_by_bundle": managed_by_bundle,
+        "bundle_id": str((bundle or {}).get("id", "") or "").strip(),
+        "bundle_name": str((bundle or {}).get("name", "") or "").strip(),
     }
 
 

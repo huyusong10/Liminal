@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loopora - Minimalist</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="nav">
+        <div class="nav-brand">
+            <svg class="logo" viewBox="0 0 512 512" width="32" height="32">
+                <rect width="512" height="512" rx="128" fill="#1f1a14"/>
+                <path d="M 130 256 C 130 140, 245 140, 256 256 C 267 372, 382 372, 382 256 C 382 140, 267 140, 256 256 C 245 372, 130 372, 130 256 Z"
+                      fill="none" stroke="url(#loop-grad)" stroke-width="44" stroke-linecap="round"/>
+                <circle cx="256" cy="256" r="28" fill="#1f1a14" stroke="#f09057" stroke-width="6"/>
+                <defs>
+                    <linearGradient id="loop-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#d66a36"/>
+                        <stop offset="50%" stop-color="#f09057"/>
+                        <stop offset="100%" stop-color="#0d7c66"/>
+                    </linearGradient>
+                </defs>
+            </svg>
+            <span class="brand-text">Loopora</span>
+        </div>
+        <div class="nav-links">
+            <a href="index.html" class="active">Loops</a>
+            <a href="orchestrations.html">Orchestrations</a>
+            <a href="roles.html">Roles</a>
+            <a href="tutorial.html">Tutorial</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <header class="page-header">
+            <div>
+                <h1>Keep the loops moving.</h1>
+                <p>Pick up any loop and see its latest run at a glance.</p>
+            </div>
+            <a href="create-loop.html" class="btn-primary">Create Loop</a>
+        </header>
+
+        <section class="loops-section">
+            <div class="section-title">
+                <h2>Active Loops</h2>
+                <span class="count">3 total</span>
+            </div>
+
+            <div class="loops-grid">
+                <article class="loop-card">
+                    <div class="card-header">
+                        <h3>Search Rollout Migration</h3>
+                        <span class="status running">Running</span>
+                    </div>
+                    <div class="card-meta">
+                        <div class="meta-item">
+                            <span class="label">ID</span>
+                            <span class="value">loop_8x2k9m</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">Orchestration</span>
+                            <span class="value">Build First</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">Iteration</span>
+                            <span class="value">4 / 8</span>
+                        </div>
+                    </div>
+                    <div class="card-hint">
+                        <strong>Current focus:</strong> GateKeeper evaluating build artifacts
+                    </div>
+                    <div class="card-actions">
+                        <a href="loop-detail.html" class="btn-secondary">View Loop</a>
+                        <a href="run-detail.html" class="btn-ghost">Latest Run</a>
+                    </div>
+                </article>
+
+                <article class="loop-card">
+                    <div class="card-header">
+                        <h3>API Documentation Update</h3>
+                        <span class="status completed">Completed</span>
+                    </div>
+                    <div class="card-meta">
+                        <div class="meta-item">
+                            <span class="label">ID</span>
+                            <span class="value">loop_3p7q2r</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">Orchestration</span>
+                            <span class="value">Inspect First</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">Iteration</span>
+                            <span class="value">6 / 6</span>
+                        </div>
+                    </div>
+                    <div class="card-hint">
+                        <strong>Result:</strong> All endpoints documented and verified
+                    </div>
+                    <div class="card-actions">
+                        <a href="#" class="btn-secondary">View Loop</a>
+                        <a href="#" class="btn-ghost">View Report</a>
+                    </div>
+                </article>
+
+                <article class="loop-card">
+                    <div class="card-header">
+                        <h3>Database Migration</h3>
+                        <span class="status draft">Draft</span>
+                    </div>
+                    <div class="card-meta">
+                        <div class="meta-item">
+                            <span class="label">ID</span>
+                            <span class="value">loop_9w4e5t</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">Orchestration</span>
+                            <span class="value">Triage First</span>
+                        </div>
+                        <div class="meta-item">
+                            <span class="label">Iteration</span>
+                            <span class="value">—</span>
+                        </div>
+                    </div>
+                    <div class="card-hint">
+                        <strong>Ready to start:</strong> Spec finalized, awaiting first run
+                    </div>
+                    <div class="card-actions">
+                        <a href="#" class="btn-secondary">View Loop</a>
+                        <button class="btn-ghost">Start Run</button>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section class="tutorial-section">
+            <h2>New here?</h2>
+            <p>Start with the tutorial to understand the workflow.</p>
+            <a href="tutorial.html" class="btn-secondary">Open Tutorial</a>
+        </section>
+    </main>
+</body>
+</html>

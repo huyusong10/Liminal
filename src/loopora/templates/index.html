@@ -5,18 +5,24 @@
   <section class="hero hero-tight">
     <div class="hero-copy-stack">
       <h1>
-        <span data-lang="zh">继续推进已经跑起来的 loop。</span>
-        <span data-lang="en">Keep the loops you already started moving.</span>
+        <span data-lang="zh">先导入一个 bundle，再把这次协作方式跑起来。</span>
+        <span data-lang="en">Start from a bundle, then run the collaboration shape you aligned for this task.</span>
       </h1>
       <p>
-        <span data-lang="zh">从这里挑一条 loop 继续跟进，最近一次运行和当前状态都能一眼看到。</span>
-        <span data-lang="en">Pick up any loop from here and see its latest run and current state at a glance.</span>
+        <span data-lang="zh">推荐入口是 bundle: 先由外部 agent 和用户对齐，再导入 spec、角色定义和流程编排一键运行。手动创建 loop 仍然保留，适合已经很熟悉编排细节的时候直接进入 expert mode。</span>
+        <span data-lang="en">The recommended path is bundle-first: align through an external agent, then import the spec, role definitions, and orchestration as one runnable package. Manual loop creation still stays here for expert-mode editing.</span>
       </p>
     </div>
-    <a class="primary-button" href="/loops/new">
-      <span data-lang="zh">创建循环</span>
-      <span data-lang="en">Create a loop</span>
-    </a>
+    <div class="card-actions">
+      <a class="primary-button" href="/loops/new#bundle-import-form" data-testid="index-import-bundle-link">
+        <span data-lang="zh">导入 Bundle</span>
+        <span data-lang="en">Import Bundle</span>
+      </a>
+      <a class="ghost-button" href="/loops/new#manual-loop-form" data-testid="index-create-loop-link">
+        <span data-lang="zh">手动创建循环</span>
+        <span data-lang="en">Create Loop Manually</span>
+      </a>
+    </div>
   </section>
 
   <section class="panel">
@@ -70,6 +76,12 @@
               <span data-lang="en">{{ loop_item.card_hint_en }}</span>
             </strong>
             <p>{{ loop_item.card_excerpt or "-" }}</p>
+            {% if loop_item.managed_by_bundle %}
+            <p class="field-note">
+              <span data-lang="zh">这条 loop 由 bundle “{{ loop_item.bundle_name or loop_item.bundle_id }}” 管理，删除时会走整包清理。</span>
+              <span data-lang="en">This loop is managed by bundle “{{ loop_item.bundle_name or loop_item.bundle_id }}”, so deletion follows the bundle lifecycle.</span>
+            </p>
+            {% endif %}
           </div>
           <div class="card-actions card-actions--loop{% if not loop_item.latest_run_id %} card-actions--loop-compact{% endif %}">
             <a class="secondary-button" href="/loops/{{ loop_item.id }}">
@@ -82,6 +94,17 @@
               <span data-lang="en">Latest run</span>
             </a>
             {% endif %}
+            {% if loop_item.managed_by_bundle %}
+            <button
+              class="ghost-button danger-button"
+              type="button"
+              data-delete-bundle="{{ loop_item.bundle_id }}"
+              data-bundle-name="{{ loop_item.bundle_name or loop_item.name }}"
+            >
+              <span data-lang="zh">删除 Bundle</span>
+              <span data-lang="en">Delete Bundle</span>
+            </button>
+            {% else %}
             <button
               class="ghost-button danger-button"
               type="button"
@@ -91,6 +114,7 @@
               <span data-lang="zh">删除</span>
               <span data-lang="en">Delete</span>
             </button>
+            {% endif %}
           </div>
         </article>
         {% endfor %}

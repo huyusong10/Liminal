@@ -79,3 +79,49 @@ def test_render_spec_template_renders_unique_role_note_sections() -> None:
     assert "# Role Notes" in template
     assert template.count("## Builder Notes") == 1
     assert template.count("## GateKeeper Notes") == 1
+
+
+def test_compile_markdown_spec_extracts_task_contract_sections() -> None:
+    compiled = compile_markdown_spec(
+        """# Task
+
+Ship the requested behavior without creating a maintenance mess.
+
+# Done When
+
+- The primary flow works end to end.
+
+# Guardrails
+
+- Keep changes focused.
+
+# Success Surface
+
+- The surrounding structure stays understandable.
+- The implementation is easy to extend next round.
+
+# Fake Done
+
+- A patch that passes the happy path but leaves obvious duplication behind.
+
+# Evidence Preferences
+
+- Prefer real project commands and reproducible tests over screenshots alone.
+
+# Residual Risk
+
+Minor copy polish can wait, but structural regressions should fail closed.
+"""
+    )
+
+    assert compiled["success_surface"] == [
+        "The surrounding structure stays understandable.",
+        "The implementation is easy to extend next round.",
+    ]
+    assert compiled["fake_done_states"] == [
+        "A patch that passes the happy path but leaves obvious duplication behind.",
+    ]
+    assert compiled["evidence_preferences"] == [
+        "Prefer real project commands and reproducible tests over screenshots alone.",
+    ]
+    assert compiled["residual_risk"] == "Minor copy polish can wait, but structural regressions should fail closed."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loopora Task Alignment"
+  short_description: "Turn task dialogue into a Loopora bundle"
+  default_prompt: "Use $loopora-task-alignment to interview me about this task and produce a Loopora bundle."

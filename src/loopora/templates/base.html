@@ -33,7 +33,7 @@
           <span data-lang="zh">流程编排</span>
           <span data-lang="en">Orchestrations</span>
         </a>
-        <a class="top-nav-link {% if request.url.path == '/loops/new' %}active{% endif %}" href="/loops/new" data-testid="nav-create-loop-link">
+        <a class="top-nav-link {% if request.url.path == '/loops/new' or request.url.path.startswith('/bundles') %}active{% endif %}" href="/loops/new" data-testid="nav-create-loop-link">
           <span data-lang="zh">创建循环</span>
           <span data-lang="en">Create Loop</span>
         </a>
@@ -99,10 +99,10 @@
   <div class="confirm-modal" id="confirm-modal" hidden aria-hidden="true">
     <div class="confirm-modal-backdrop" data-close-confirm-modal="1"></div>
     <div class="confirm-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
-      <div class="confirm-modal-copy">
+    <div class="confirm-modal-copy">
         <h2 id="confirm-modal-title">
-          <span data-lang="zh">要删除这条 loop 吗？</span>
-          <span data-lang="en">Delete this loop?</span>
+          <span data-lang="zh">要删除这个项目吗？</span>
+          <span data-lang="en">Delete this item?</span>
         </h2>
         <p id="confirm-modal-detail"></p>
       </div>

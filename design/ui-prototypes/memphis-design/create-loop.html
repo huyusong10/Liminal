@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Loop — LOOPORA</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .create-header {
+            margin-bottom: 48px;
+            padding: 32px;
+            background: linear-gradient(135deg, var(--pink) 50%, var(--yellow) 50%);
+            border: 4px solid var(--black);
+            text-align: center;
+            position: relative;
+        }
+
+        .create-header::before {
+            content: '';
+            position: absolute;
+            top: -15px;
+            left: 40px;
+            width: 50px;
+            height: 25px;
+            background: var(--blue);
+            border: 3px solid var(--black);
+            border-radius: 25px;
+        }
+
+        .create-header::after {
+            content: '';
+            position: absolute;
+            bottom: -20px;
+            right: 60px;
+            width: 0;
+            height: 0;
+            border-left: 20px solid transparent;
+            border-right: 20px solid transparent;
+            border-bottom: 35px solid var(--cyan);
+        }
+
+        .create-header h1 {
+            font-family: var(--font-display);
+            font-size: 48px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            text-shadow: 3px 3px 0 var(--white);
+        }
+
+        .create-header p {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .form-section {
+            margin-bottom: 32px;
+            background: var(--white);
+            border: 4px solid var(--black);
+            position: relative;
+        }
+
+        .form-section:nth-child(odd)::before {
+            content: '';
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 100%;
+            height: 100%;
+            background: var(--cyan);
+            border: 3px solid var(--black);
+            z-index: -1;
+        }
+
+        .form-section:nth-child(even)::before {
+            content: '';
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            width: 100%;
+            height: 100%;
+            background: var(--yellow);
+            border: 3px solid var(--black);
+            z-index: -1;
+        }
+
+        .section-header {
+            padding: 16px 24px;
+            background: var(--blue);
+            border-bottom: 4px solid var(--black);
+            font-family: var(--font-display);
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--white);
+        }
+
+        .section-body {
+            padding: 32px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .form-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .form-group label {
+            font-family: var(--font-display);
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            padding: 16px;
+            border: 3px solid var(--black);
+            background: var(--white);
+            font-family: var(--font-body);
+            font-size: 15px;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            background: var(--yellow);
+        }
+
+        .form-group textarea {
+            min-height: 200px;
+            resize: vertical;
+        }
+
+        .orch-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 16px;
+        }
+
+        .orch-option {
+            position: relative;
+        }
+
+        .orch-option input {
+            position: absolute;
+            opacity: 0;
+        }
+
+        .orch-card {
+            padding: 24px 16px;
+            border: 3px solid var(--black);
+            text-align: center;
+            cursor: pointer;
+            background: var(--white);
+            transition: all 0.2s ease;
+        }
+
+        .orch-option input:checked + .orch-card {
+            background: var(--pink);
+            color: var(--white);
+            transform: translate(-4px, -4px);
+            box-shadow: 6px 6px 0 var(--black);
+        }
+
+        .orch-card:hover {
+            background: var(--yellow);
+        }
+
+        .orch-option input:checked + .orch-card:hover {
+            background: var(--pink);
+        }
+
+        .orch-letter {
+            width: 50px;
+            height: 50px;
+            margin: 0 auto 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--black);
+            font-family: var(--font-display);
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--white);
+        }
+
+        .orch-option input:checked + .orch-card .orch-letter {
+            background: var(--white);
+            color: var(--black);
+        }
+
+        .orch-name {
+            font-family: var(--font-display);
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .orch-desc {
+            font-size: 11px;
+            opacity: 0.8;
+        }
+
+        .editor-box {
+            border: 3px solid var(--black);
+        }
+
+        .editor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: var(--gray);
+            border-bottom: 3px solid var(--black);
+        }
+
+        .editor-header span {
+            font-family: var(--font-display);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .editor-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .editor-btn {
+            padding: 8px 16px;
+            font-family: var(--font-display);
+            font-size: 11px;
+            font-weight: 700;
+            border: 3px solid var(--black);
+            background: var(--white);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .editor-btn:hover {
+            background: var(--cyan);
+        }
+
+        .form-actions {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            padding: 32px;
+        }
+
+        .btn {
+            padding: 16px 40px;
+            font-family: var(--font-display);
+            font-size: 16px;
+            font-weight: 700;
+            border: 4px solid var(--black);
+            background: var(--white);
+            color: var(--black);
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            background: var(--gray);
+            transform: translate(-2px, -2px);
+            box-shadow: 4px 4px 0 var(--black);
+        }
+
+        .btn-primary {
+            background: var(--cyan);
+        }
+
+        .btn-primary:hover {
+            background: var(--blue);
+            color: var(--white);
+        }
+
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .orch-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .create-header h1 {
+                font-size: 32px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-pattern"></div>
+    <div class="dot-pattern"></div>
+
+    <nav class="nav">
+        <a href="index.html" class="logo">
+            <div class="logo-shape">
+                <div class="shape-circle"></div>
+                <div class="shape-triangle"></div>
+            </div>
+            <span class="logo-text">LOOPORA</span>
+        </a>
+        <div class="nav-links">
+            <a href="index.html" class="active">LOOPS</a>
+            <a href="#">ORCH</a>
+            <a href="#">ROLES</a>
+            <a href="#">FUN!</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <header class="create-header">
+            <h1>NEW LOOP!</h1>
+            <p>Create your next AI workflow adventure ✨</p>
+        </header>
+
+        <form>
+            <div class="form-section">
+                <div class="section-header">BASIC INFORMATION</div>
+                <div class="section-body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>LOOP NAME</label>
+                            <input type="text" placeholder="e.g., Search Rollout Migration">
+                        </div>
+                        <div class="form-group">
+                            <label>WORKING DIRECTORY</label>
+                            <input type="text" placeholder="/absolute/path/to/project">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <div class="section-header">ORCHESTRATION</div>
+                <div class="section-body">
+                    <div class="orch-grid">
+                        <label class="orch-option">
+                            <input type="radio" name="orch" value="build" checked>
+                            <div class="orch-card">
+                                <div class="orch-letter">B</div>
+                                <div class="orch-name">BUILD FIRST</div>
+                                <div class="orch-desc">Initial implementations</div>
+                            </div>
+                        </label>
+                        <label class="orch-option">
+                            <input type="radio" name="orch" value="inspect">
+                            <div class="orch-card">
+                                <div class="orch-letter">I</div>
+                                <div class="orch-name">INSPECT FIRST</div>
+                                <div class="orch-desc">Regression analysis</div>
+                            </div>
+                        </label>
+                        <label class="orch-option">
+                            <input type="radio" name="orch" value="triage">
+                            <div class="orch-card">
+                                <div class="orch-letter">T</div>
+                                <div class="orch-name">TRIAGE FIRST</div>
+                                <div class="orch-desc">Multi-issue diagnosis</div>
+                            </div>
+                        </label>
+                        <label class="orch-option">
+                            <input type="radio" name="orch" value="repair">
+                            <div class="orch-card">
+                                <div class="orch-letter">R</div>
+                                <div class="orch-name">REPAIR LOOP</div>
+                                <div class="orch-desc">Iterative repairs</div>
+                            </div>
+                        </label>
+                        <label class="orch-option">
+                            <input type="radio" name="orch" value="benchmark">
+                            <div class="orch-card">
+                                <div class="orch-letter">BM</div>
+                                <div class="orch-name">BENCHMARK</div>
+                                <div class="orch-desc">Metrics-driven work</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <div class="section-header">SPECIFICATION</div>
+                <div class="section-body">
+                    <div class="form-group full-width">
+                        <div class="editor-box">
+                            <div class="editor-header">
+                                <span>MARKDOWN</span>
+                                <div class="editor-actions">
+                                    <button type="button" class="editor-btn">LOAD TEMPLATE</button>
+                                    <button type="button" class="editor-btn">PREVIEW</button>
+                                </div>
+                            </div>
+                            <textarea class="editor" placeholder="# Task
+
+Describe what needs to be done...
+
+# Done When
+
+- [ ] Criterion 1
+- [ ] Criterion 2
+
+# Guardrails
+
+- Constraint 1
+- Constraint 2"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <div class="section-header">CONFIGURATION</div>
+                <div class="section-body">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>MAX ITERATIONS</label>
+                            <input type="number" value="8" min="1" max="50">
+                        </div>
+                        <div class="form-group">
+                            <label>EXECUTOR</label>
+                            <select>
+                                <option>codex</option>
+                                <option>claude</option>
+                                <option>gpt-4</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>MODEL</label>
+                            <select>
+                                <option>gpt-5.4</option>
+                                <option>claude-opus</option>
+                                <option>gpt-4-turbo</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <a href="index.html" class="btn">CANCEL</a>
+                <button type="submit" class="btn btn-primary">CREATE LOOP →</button>
+            </div>
+        </form>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-grid"></div>
+        <span>LOOPORA v2.0 — KEEP IT FUN!</span>
+    </footer>
+</body>
+</html>

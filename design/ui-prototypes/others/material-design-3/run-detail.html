@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run #04 — Material Design 3</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="top-app-bar">
+        <div class="leading">
+            <button class="icon-btn">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+                </svg>
+            </button>
+            <span class="headline-small">Run #04</span>
+        </div>
+        <div class="trailing">
+            <button class="tonal-btn">View Logs</button>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <div class="content-wrapper">
+            <div class="progress-header">
+                <h1 class="display-small">Running</h1>
+                <div class="progress-indicator">
+                    <div class="progress-track">
+                        <div class="progress-fill" style="width: 75%"></div>
+                    </div>
+                    <span class="label-large">75%</span>
+                </div>
+            </div>
+
+            <div class="tabs">
+                <button class="tab active">Active Agent</button>
+                <button class="tab">Logs</button>
+                <button class="tab">Artifacts</button>
+            </div>
+
+            <div class="card elevated">
+                <div class="card-header">
+                    <div class="agent-avatar" style="background: #6750A4;">GK</div>
+                    <div class="agent-info">
+                        <h2 class="title-large">GateKeeper</h2>
+                        <p class="body-medium" style="color: var(--md-on-surface-variant);">Evaluating build artifacts for production readiness</p>
+                    </div>
+                    <span class="badge status-running">
+                        <span class="badge-dot"></span>
+                        Running
+                    </span>
+                </div>
+            </div>
+
+            <h3 class="title-medium" style="margin: 24px 16px 16px;">Timeline</h3>
+
+            <div class="timeline">
+                <div class="timeline-item completed">
+                    <div class="timeline-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                        </svg>
+                    </div>
+                    <div class="timeline-content">
+                        <div class="timeline-title">Build Completed</div>
+                        <div class="timeline-meta">Builder • 3 min ago</div>
+                    </div>
+                </div>
+                <div class="timeline-item completed">
+                    <div class="timeline-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                        </svg>
+                    </div>
+                    <div class="timeline-content">
+                        <div class="timeline-title">Tests Passed</div>
+                        <div class="timeline-meta">Tester • 2 min ago</div>
+                    </div>
+                </div>
+                <div class="timeline-item active">
+                    <div class="timeline-icon" style="background: var(--md-primary); animation: pulse 2s infinite;">
+                        <span style="width: 8px; height: 8px; background: white; border-radius: 50%;"></span>
+                    </div>
+                    <div class="timeline-content">
+                        <div class="timeline-title">Gate Review</div>
+                        <div class="timeline-meta">GateKeeper • In progress</div>
+                    </div>
+                </div>
+                <div class="timeline-item pending">
+                    <div class="timeline-icon">
+                        <span style="width: 8px; height: 8px; background: var(--md-outline); border-radius: 50%;"></span>
+                    </div>
+                    <div class="timeline-content">
+                        <div class="timeline-title">Deploy to Production</div>
+                        <div class="timeline-meta">Deployer • Pending</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="fab-container">
+                <button class="fab">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    Continue
+                </button>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

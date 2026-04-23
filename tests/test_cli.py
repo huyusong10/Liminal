@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from loopora import cli
+from loopora.bundles import bundle_to_yaml
 from loopora.settings import app_home
 
 
@@ -612,3 +613,157 @@ def test_cli_prompts_list_template_and_validate(tmp_path: Path) -> None:
     payload = json.loads(validate_result.stdout)
     assert payload["ok"] is True
     assert payload["metadata"]["archetype"] == "builder"
+
+
+def test_cli_bundles_import_export_derive_and_delete(monkeypatch, tmp_path: Path) -> None:
+    calls: dict[str, object] = {}
+    runner = CliRunner()
+    bundle_path = tmp_path / "task-bundle.yml"
+    bundle_path.write_text(
+        bundle_to_yaml(
+            {
+                "version": 1,
+                "metadata": {"name": "CLI Bundle", "description": "", "revision": 1},
+                "collaboration_summary": "Prefer evidence over rush.",
+                "loop": {
+                    "name": "CLI Bundle Loop",
+                    "workdir": str(tmp_path / "workdir"),
+                    "completion_mode": "gatekeeper",
+                    "executor_kind": "codex",
+                    "executor_mode": "preset",
+                    "command_cli": "codex",
+                    "command_args_text": "",
+                    "model": "",
+                    "reasoning_effort": "",
+                    "iteration_interval_seconds": 0,
+                    "max_iters": 2,
+                    "max_role_retries": 1,
+                    "delta_threshold": 0.005,
+                    "trigger_window": 2,
+                    "regression_window": 2,
+                },
+                "spec": {"markdown": "# Task\n\nShip the change.\n\n# Done When\n- It works.\n"},
+                "role_definitions": [
+                    {
+                        "key": "builder",
+                        "name": "Builder",
+                        "description": "",
+                        "archetype": "builder",
+                        "prompt_ref": "builder.md",
+                        "prompt_markdown": "---\nversion: 1\narchetype: builder\n---\nBuild it.\n",
+                        "posture_notes": "Favor maintainability when possible.",
+                        "executor_kind": "codex",
+                        "executor_mode": "preset",
+                        "command_cli": "codex",
+                        "command_args_text": "",
+                        "model": "",
+                        "reasoning_effort": "",
+                    }
+                ],
+                "workflow": {
+                    "version": 1,
+                    "preset": "",
+                    "collaboration_intent": "Verify before sign-off.",
+                    "roles": [{"id": "builder", "role_definition_key": "builder"}],
+                    "steps": [{"id": "builder_step", "role_id": "builder", "on_pass": "continue"}],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeService:
+        def import_bundle_file(self, path: Path, *, replace_bundle_id=None):
+            calls["import"] = {"path": str(path), "replace_bundle_id": replace_bundle_id}
+            return {"id": "bundle_cli", "name": "CLI Bundle"}
+
+        def export_bundle_yaml(self, bundle_id: str):
+            calls["export"] = bundle_id
+            return "version: 1\nmetadata:\n  name: CLI Bundle\n"
+
+        def write_bundle_file(self, bundle_id: str, path: Path):
+            calls["write"] = {"bundle_id": bundle_id, "path": str(path)}
+            path.write_text("version: 1\nmetadata:\n  name: CLI Bundle\n", encoding="utf-8")
+            return path
+
+        def derive_bundle_from_loop(self, loop_id: str, **kwargs):
+            calls["derive"] = {"loop_id": loop_id, **kwargs}
+            return {
+                "version": 1,
+                "metadata": {"name": kwargs.get("name") or "Derived CLI Bundle", "description": "", "revision": 1},
+                "collaboration_summary": kwargs.get("collaboration_summary") or "Derived from an existing loop.",
+                "loop": {
+                    "name": "Derived CLI Bundle",
+                    "workdir": str(tmp_path / "workdir"),
+                    "completion_mode": "gatekeeper",
+                    "executor_kind": "codex",
+                    "executor_mode": "preset",
+                    "command_cli": "codex",
+                    "command_args_text": "",
+                    "model": "",
+                    "reasoning_effort": "",
+                    "iteration_interval_seconds": 0,
+                    "max_iters": 2,
+                    "max_role_retries": 1,
+                    "delta_threshold": 0.005,
+                    "trigger_window": 2,
+                    "regression_window": 2,
+                },
+                "spec": {"markdown": "# Task\n\nDerived.\n\n# Done When\n- Ready.\n"},
+                "role_definitions": [
+                    {
+                        "key": "builder",
+                        "name": "Builder",
+                        "description": "",
+                        "archetype": "builder",
+                        "prompt_ref": "builder.md",
+                        "prompt_markdown": "---\nversion: 1\narchetype: builder\n---\nBuild it.\n",
+                        "posture_notes": "",
+                        "executor_kind": "codex",
+                        "executor_mode": "preset",
+                        "command_cli": "codex",
+                        "command_args_text": "",
+                        "model": "",
+                        "reasoning_effort": "",
+                    }
+                ],
+                "workflow": {
+                    "version": 1,
+                    "preset": "",
+                    "collaboration_intent": "",
+                    "roles": [{"id": "builder", "role_definition_key": "builder"}],
+                    "steps": [{"id": "builder_step", "role_id": "builder", "on_pass": "continue"}],
+                },
+            }
+
+        def delete_bundle(self, bundle_id: str):
+            calls["delete"] = bundle_id
+            return {"id": bundle_id, "deleted": True}
+
+    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+
+    import_result = runner.invoke(
+        cli.app,
+        ["bundles", "import", str(bundle_path), "--replace-bundle-id", "bundle_old"],
+    )
+    assert import_result.exit_code == 0, import_result.stdout
+    assert calls["import"] == {"path": str(bundle_path), "replace_bundle_id": "bundle_old"}
+
+    export_path = tmp_path / "exported.yml"
+    export_result = runner.invoke(cli.app, ["bundles", "export", "bundle_cli", "--output", str(export_path)])
+    assert export_result.exit_code == 0, export_result.stdout
+    assert calls["write"] == {"bundle_id": "bundle_cli", "path": str(export_path)}
+    assert export_path.read_text(encoding="utf-8").startswith("version: 1")
+
+    derive_result = runner.invoke(
+        cli.app,
+        ["bundles", "derive", "loop_saved", "--name", "Derived CLI Bundle"],
+    )
+    assert derive_result.exit_code == 0, derive_result.stdout
+    assert calls["derive"]["loop_id"] == "loop_saved"
+    assert calls["derive"]["name"] == "Derived CLI Bundle"
+    assert "Derived CLI Bundle" in derive_result.stdout
+
+    delete_result = runner.invoke(cli.app, ["bundles", "delete", "bundle_cli"])
+    assert delete_result.exit_code == 0, delete_result.stdout
+    assert calls["delete"] == "bundle_cli"

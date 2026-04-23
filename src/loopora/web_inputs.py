@@ -51,10 +51,25 @@ DEFAULT_ORCHESTRATION_FORM = {
 DEFAULT_ROLE_DEFINITION_FORM = {
     "name": "",
     "description": "",
+    "posture_notes": "",
     "archetype": "builder",
     "prompt_ref": "builder.md",
     "prompt_markdown": builtin_prompt_markdown("builder.md", locale="en"),
     **default_role_execution_settings(),
+}
+
+DEFAULT_BUNDLE_IMPORT_FORM = {
+    "bundle_path": "",
+    "bundle_yaml": "",
+    "replace_bundle_id": "",
+    "start_immediately": True,
+}
+
+DEFAULT_BUNDLE_DERIVE_FORM = {
+    "loop_id": "",
+    "name": "",
+    "description": "",
+    "collaboration_summary": "",
 }
 
 
@@ -135,6 +150,7 @@ def _orchestration_payload_from_mapping(
 def _role_definition_payload_from_mapping(payload: Mapping[str, object]) -> dict[str, object]:
     name = str(payload.get("name", "")).strip()
     description = str(payload.get("description", "")).strip()
+    posture_notes = str(payload.get("posture_notes", ""))
     archetype = str(payload.get("archetype", "builder")).strip() or "builder"
     prompt_ref = str(payload.get("prompt_ref", "")).strip()
     prompt_markdown = str(payload.get("prompt_markdown", ""))
@@ -151,6 +167,7 @@ def _role_definition_payload_from_mapping(payload: Mapping[str, object]) -> dict
     return {
         "name": name,
         "description": description,
+        "posture_notes": posture_notes,
         "archetype": archetype,
         "prompt_ref": prompt_ref,
         "prompt_markdown": prompt_markdown,
@@ -325,6 +342,27 @@ def _normalize_role_definition_form(values: Mapping[str, object] | None, *, loca
     return normalized
 
 
+def _normalize_bundle_import_form(values: Mapping[str, object] | None) -> dict[str, object]:
+    normalized = dict(DEFAULT_BUNDLE_IMPORT_FORM)
+    if not values:
+        return normalized
+    for key in normalized:
+        if key in values:
+            normalized[key] = values[key]
+    normalized["start_immediately"] = _coerce_bool(normalized.get("start_immediately", True))
+    return normalized
+
+
+def _normalize_bundle_derive_form(values: Mapping[str, object] | None) -> dict[str, object]:
+    normalized = dict(DEFAULT_BUNDLE_DERIVE_FORM)
+    if not values:
+        return normalized
+    for key in normalized:
+        if key in values:
+            normalized[key] = values[key]
+    return normalized
+
+
 def _archetype_ui_copy() -> dict[str, dict[str, str]]:
     return {
         "builder": {
@@ -426,6 +464,7 @@ def _role_definition_form_values_from_record(role_definition: Mapping[str, objec
     return {
         "name": str(role_definition.get("name", "")),
         "description": str(role_definition.get("description", "")),
+        "posture_notes": str(role_definition.get("posture_notes", "")),
         "archetype": str(role_definition.get("archetype", "builder") or "builder"),
         "prompt_ref": prompt_ref,
         "prompt_markdown": prompt_markdown,
@@ -604,6 +643,8 @@ def _coerce_bool(value: object) -> bool:
 
 
 __all__ = [
+    "DEFAULT_BUNDLE_DERIVE_FORM",
+    "DEFAULT_BUNDLE_IMPORT_FORM",
     "DEFAULT_LOOP_FORM",
     "DEFAULT_ORCHESTRATION_FORM",
     "DEFAULT_ROLE_DEFINITION_FORM",
@@ -615,6 +656,8 @@ __all__ = [
     "_extract_request_token",
     "_loop_form_is_pristine",
     "_loop_payload_from_mapping",
+    "_normalize_bundle_derive_form",
+    "_normalize_bundle_import_form",
     "_normalize_loop_form",
     "_normalize_orchestration_form",
     "_normalize_role_definition_form",

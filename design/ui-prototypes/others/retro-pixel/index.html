@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOOPORA - Retro Pixel</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="crt-overlay"></div>
+    <div class="scanlines"></div>
+
+    <nav class="nav">
+        <div class="nav-brand">
+            <div class="pixel-logo">
+                <div class="pixel-grid">
+                    <div class="p-cell on"></div><div class="p-cell on"></div><div class="p-cell on"></div><div class="p-cell on"></div>
+                    <div class="p-cell on"></div><div class="p-cell off"></div><div class="p-cell off"></div><div class="p-cell on"></div>
+                    <div class="p-cell on"></div><div class="p-cell off"></div><div class="p-cell off"></div><div class="p-cell on"></div>
+                    <div class="p-cell on"></div><div class="p-cell on"></div><div class="p-cell on"></div><div class="p-cell on"></div>
+                </div>
+            </div>
+            <span class="brand-text">LOOPORA</span>
+        </div>
+        <div class="nav-links">
+            <a href="index.html" class="active">[LOOPS]</a>
+            <a href="#">[ORCH]</a>
+            <a href="#">[ROLES]</a>
+            <a href="#">[HELP]</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <header class="page-header">
+            <div>
+                <h1>◆ ACTIVE LOOPS ◆</h1>
+                <p class="blink">PRESS START TO CONTINUE...</p>
+            </div>
+            <a href="create-loop.html" class="btn-primary">
+                <span class="plus">+</span>
+                <span>NEW GAME</span>
+            </a>
+        </header>
+
+        <div class="loops-grid">
+            <article class="loop-card running">
+                <div class="card-header">
+                    <div class="status-badge">▶ RUNNING</div>
+                    <div class="level">LV.4</div>
+                </div>
+                <h3>SEARCH MIGRATION</h3>
+                <div class="hp-bar">
+                    <div class="hp-label">HP</div>
+                    <div class="hp-track">
+                        <div class="hp-fill" style="width: 50%"></div>
+                    </div>
+                    <div class="hp-value">50/100</div>
+                </div>
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">ITER</span>
+                        <span class="stat-value">04/08</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">TIME</span>
+                        <span class="stat-value">12M</span>
+                    </div>
+                </div>
+                <div class="party">
+                    <span class="member active">B</span>
+                    <span class="member active">I</span>
+                    <span class="member current">G</span>
+                    <span class="member">Gu</span>
+                </div>
+                <div class="card-actions">
+                    <a href="loop-detail.html" class="btn-pixel">SELECT</a>
+                    <a href="run-detail.html" class="btn-pixel secondary">VIEW</a>
+                </div>
+            </article>
+
+            <article class="loop-card cleared">
+                <div class="card-header">
+                    <div class="status-badge cleared">✓ CLEARED</div>
+                </div>
+                <h3>API DOCUMENTATION</h3>
+                <div class="hp-bar">
+                    <div class="hp-label">HP</div>
+                    <div class="hp-track">
+                        <div class="hp-fill complete"></div>
+                    </div>
+                    <div class="hp-value">100/100</div>
+                </div>
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">ITER</span>
+                        <span class="stat-value">06/06</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">TIME</span>
+                        <span class="stat-value">2H</span>
+                    </div>
+                </div>
+                <div class="party">
+                    <span class="member cleared">B</span>
+                    <span class="member cleared">I</span>
+                    <span class="member cleared">G</span>
+                    <span class="member cleared">Gu</span>
+                </div>
+                <div class="card-actions">
+                    <a href="#" class="btn-pixel">SELECT</a>
+                    <a href="#" class="btn-pixel secondary">VIEW</a>
+                </div>
+            </article>
+
+            <article class="loop-card new">
+                <div class="card-header">
+                    <div class="status-badge new">? NEW</div>
+                </div>
+                <h3>DATABASE MIGRATION</h3>
+                <div class="hp-bar">
+                    <div class="hp-label">HP</div>
+                    <div class="hp-track">
+                        <div class="hp-fill" style="width: 0%"></div>
+                    </div>
+                    <div class="hp-value">0/100</div>
+                </div>
+                <div class="stats">
+                    <div class="stat">
+                        <span class="stat-label">ITER</span>
+                        <span class="stat-value">--/--</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">TIME</span>
+                        <span class="stat-value">--</span>
+                    </div>
+                </div>
+                <div class="party">
+                    <span class="member">B</span>
+                    <span class="member">I</span>
+                    <span class="member">G</span>
+                    <span class="member">Gu</span>
+                </div>
+                <div class="card-actions">
+                    <a href="#" class="btn-pixel">SELECT</a>
+                    <button class="btn-pixel secondary">START</button>
+                </div>
+            </article>
+        </div>
+
+        <section class="tutorial-cta">
+            <div class="icon">?</div>
+            <div class="content">
+                <h2>TUTORIAL MODE</h2>
+                <p>Learn the basics of loop orchestration</p>
+            </div>
+            <a href="#" class="btn-pixel">START</a>
+        </section>
+    </main>
+</body>
+</html>

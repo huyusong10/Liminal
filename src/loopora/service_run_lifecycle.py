@@ -127,7 +127,11 @@ class ServiceRunLifecycleMixin:
             return run
         return self.execute_run(run["id"])
 
-    def delete_loop(self, loop_id: str) -> dict:
+    def delete_loop(self, loop_id: str, *, allow_bundle_owned: bool = False) -> dict:
+        if not allow_bundle_owned and hasattr(self, "_bundle_record_for_loop_id"):
+            bundle = self._bundle_record_for_loop_id(loop_id)
+            if bundle:
+                raise LooporaError(f"loop {loop_id} is managed by bundle {bundle['id']}; delete the bundle instead")
         loop = self.get_loop(loop_id)
         active_runs = [run["id"] for run in loop["runs"] if run["status"] in {"queued", "running"}]
         if active_runs:

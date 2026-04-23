@@ -295,6 +295,11 @@ class ServiceWorkflowRuntimeMixin:
                     "check_count": len(compiled_spec.get("checks") or []),
                     "completion_mode": "gatekeeper",
                     "workflow_preset": "custom",
+                    "workflow_collaboration_intent": "",
+                    "success_surface": list(compiled_spec.get("success_surface") or []),
+                    "fake_done_states": list(compiled_spec.get("fake_done_states") or []),
+                    "evidence_preferences": list(compiled_spec.get("evidence_preferences") or []),
+                    "residual_risk": str(compiled_spec.get("residual_risk") or "").strip(),
                 },
                 "iteration": {
                     "iter_index": iter_id,

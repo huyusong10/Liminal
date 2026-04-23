@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tutorial — Loopora</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app">
+        <nav class="navbar">
+            <div class="navbar-left">
+                <a href="index.html" class="brand">
+                    <div class="brand-logo">
+                        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="2"/>
+                            <circle cx="16" cy="16" r="9" stroke="currentColor" stroke-width="2"/>
+                            <circle cx="16" cy="16" r="4" fill="currentColor"/>
+                        </svg>
+                    </div>
+                    <span class="brand-name">Loopora</span>
+                </a>
+                <div class="navbar-nav">
+                    <a href="index.html" class="nav-link">Loops</a>
+                    <a href="orchestrations.html" class="nav-link">Orchestrations</a>
+                    <a href="roles.html" class="nav-link">Roles</a>
+                    <a href="tools.html" class="nav-link">Tools</a>
+                    <a href="tutorial.html" class="nav-link active">Tutorial</a>
+                </div>
+            </div>
+            <div class="navbar-right">
+                <div class="user-menu">
+                    <div class="user-avatar">JD</div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="main-container">
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <div class="section-header">Tutorial</div>
+                    <nav class="sidebar-nav">
+                        <a href="#intro" class="nav-item active">
+                            <span class="nav-icon">1</span>
+                            <span class="nav-label">Introduction</span>
+                        </a>
+                        <a href="#workflow" class="nav-item">
+                            <span class="nav-icon">2</span>
+                            <span class="nav-label">Workflow</span>
+                        </a>
+                        <a href="#roles" class="nav-item">
+                            <span class="nav-icon">3</span>
+                            <span class="nav-label">Roles</span>
+                        </a>
+                        <a href="#orchestrations" class="nav-item">
+                            <span class="nav-icon">4</span>
+                            <span class="nav-label">Orchestrations</span>
+                        </a>
+                        <a href="#spec" class="nav-item">
+                            <span class="nav-icon">5</span>
+                            <span class="nav-label">Writing Specs</span>
+                        </a>
+                    </nav>
+                </div>
+            </aside>
+
+            <main class="content">
+                <div style="max-width: 720px;">
+                    <h1 style="font-size: 32px; font-weight: 700; margin-bottom: 12px;">Getting Started with Loopora</h1>
+                    <p style="color: var(--text-secondary); font-size: 16px; margin-bottom: 32px;">Learn how to use Loopora for long, evidence-driven agent work.</p>
+
+                    <div class="card" style="margin-bottom: 24px;" id="intro">
+                        <div class="card-header">
+                            <div class="card-title">What is Loopora?</div>
+                        </div>
+                        <div class="card-body">
+                            <p style="font-size: 15px; line-height: 1.7; color: var(--text-secondary); margin-bottom: 16px;">
+                                Loopora is a local-first loop orchestration platform for long, evidence-driven agent work. It exists because some end-to-end tasks keep pulling humans back in to confirm, judge, and steer the work.
+                            </p>
+                            <p style="font-size: 15px; line-height: 1.7; color: var(--text-secondary);">
+                                Instead of humans stepping in after every meaningful step, Loopora turns those repeated checkpoints into a structured workflow so humans can step in less often, but step in with better evidence when they do.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="card" style="margin-bottom: 24px;" id="workflow">
+                        <div class="card-header">
+                            <div class="card-title">The Workflow</div>
+                        </div>
+                        <div class="card-body">
+                            <p style="font-size: 15px; line-height: 1.7; color: var(--text-secondary); margin-bottom: 20px;">
+                                Loopora uses a four-role workflow that mirrors how experienced teams actually work:
+                            </p>
+
+                            <div class="workflow-diagram" style="margin-bottom: 24px;">
+                                <div class="workflow-node">
+                                    <div class="workflow-box" style="border-top: 3px solid #0071e3;">Builder</div>
+                                </div>
+                                <div class="workflow-arrow">→</div>
+                                <div class="workflow-node">
+                                    <div class="workflow-box" style="border-top: 3px solid #34c759;">Inspector</div>
+                                </div>
+                                <div class="workflow-arrow">→</div>
+                                <div class="workflow-node">
+                                    <div class="workflow-box" style="border-top: 3px solid #ff9500;">GateKeeper</div>
+                                </div>
+                                <div class="workflow-arrow">→</div>
+                                <div class="workflow-node">
+                                    <div class="workflow-box" style="border-top: 3px solid #af52de;">Guide</div>
+                                </div>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                                <div style="padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-sm);">
+                                    <div style="font-weight: 600; margin-bottom: 4px; color: #0071e3;">🔨 Builder</div>
+                                    <div style="font-size: 13px; color: var(--text-secondary);">Moves the workspace forward</div>
+                                </div>
+                                <div style="padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-sm);">
+                                    <div style="font-weight: 600; margin-bottom: 4px; color: #34c759;">🔍 Inspector</div>
+                                    <div style="font-size: 13px; color: var(--text-secondary);">Reopens evidence from updated state</div>
+                                </div>
+                                <div style="padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-sm);">
+                                    <div style="font-weight: 600; margin-bottom: 4px; color: #ff9500;">🛡️ GateKeeper</div>
+                                    <div style="font-size: 13px; color: var(--text-secondary);">Decides if work crossed the line</div>
+                                </div>
+                                <div style="padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-sm);">
+                                    <div style="font-weight: 600; margin-bottom: 4px; color: #af52de;">🧭 Guide</div>
+                                    <div style="font-size: 13px; color: var(--text-secondary);">Redirects when work stalls</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card" style="margin-bottom: 24px;" id="orchestrations">
+                        <div class="card-header">
+                            <div class="card-title">Choosing an Orchestration</div>
+                        </div>
+                        <div class="card-body">
+                            <p style="font-size: 15px; line-height: 1.7; color: var(--text-secondary); margin-bottom: 20px;">
+                                Loopora provides five built-in orchestrations for different types of tasks. Choose the one that matches your situation:
+                            </p>
+
+                            <div style="display: flex; flex-direction: column; gap: 12px;">
+                                <div style="padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border-left: 3px solid var(--accent);">
+                                    <div style="font-weight: 600; margin-bottom: 4px;">Build First</div>
+                                    <div style="font-size: 13px; color: var(--text-secondary);">For initial implementations and getting things working end-to-end</div>
+                                </div>
+                                <div style="padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border-left: 3px solid var(--success);">
+                                    <div style="font-weight: 600; margin-bottom: 4px;">Inspect First</div>
+                                    <div style="font-size: 13px; color: var(--text-secondary);">For diagnosing regressions and understanding what broke</div>
+                                </div>
+                                <div style="padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border-left: 3px solid var(--warning);">
+                                    <div style="font-weight: 600; margin-bottom: 4px;">Triage First</div>
+                                    <div style="font-size: 13px; color: var(--text-secondary);">For multi-issue diagnosis and narrowing down blockers</div>
+                                </div>
+                                <div style="padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border-left: 3px solid #af52de;">
+                                    <div style="font-weight: 600; margin-bottom: 4px;">Repair Loop</div>
+                                    <div style="font-size: 13px; color: var(--text-secondary);">For iterative repairs that need inspection between fixes</div>
+                                </div>
+                                <div style="padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border-left: 3px solid #ff3b30;">
+                                    <div style="font-weight: 600; margin-bottom: 4px;">Benchmark Loop</div>
+                                    <div style="font-size: 13px; color: var(--text-secondary);">For metrics-driven work gated by benchmark results</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card" style="margin-bottom: 24px;" id="spec">
+                        <div class="card-header">
+                            <div class="card-title">Writing Good Specs</div>
+                        </div>
+                        <div class="card-body">
+                            <p style="font-size: 15px; line-height: 1.7; color: var(--text-secondary); margin-bottom: 16px;">
+                                Loopora specs stay short. They only need four sections:
+                            </p>
+
+                            <div class="code-block" style="margin-bottom: 20px;"># Task
+
+Describe what needs to be done. Be specific about the scope
+and what success looks like.
+
+# Done When
+
+- [ ] Criterion 1: Specific, measurable outcome
+- [ ] Criterion 2: Another specific outcome
+- [ ] Criterion 3: Final success condition
+
+# Guardrails
+
+- Constraint 1: What not to do or avoid
+- Constraint 2: Important boundaries or limits
+
+# Role Notes
+
+Builder: Specific guidance for the Builder
+Inspector: What the Inspector should focus on
+GateKeeper: Approval criteria and standards</div>
+
+                            <div style="display: flex; gap: 12px; margin-top: 20px;">
+                                <a href="create-loop.html" class="btn btn-primary">Create Your First Loop</a>
+                                <a href="orchestrations.html" class="btn btn-secondary">Explore Orchestrations</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+</body>
+</html>

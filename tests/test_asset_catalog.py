@@ -188,6 +188,36 @@ def test_asset_catalog_hydrates_role_snapshots_from_role_definition_id(tmp_path:
     assert resolved["prompt_files"]["release-builder.md"].startswith("---\nversion: 1")
 
 
+def test_asset_catalog_hydrates_role_posture_notes_from_role_definition_id(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+    role_definition = catalog.create_role_definition(
+        name="Focused Builder",
+        description="Ships focused release work.",
+        archetype="builder",
+        prompt_ref="focused-builder.md",
+        prompt_markdown=_prompt_markdown("builder", "Focus on safe release work."),
+        posture_notes="Treat maintainability debt as first-class in this task.",
+    )
+
+    resolved = catalog.resolve_orchestration_input(
+        orchestration_id=None,
+        workflow={
+            "version": 1,
+            "roles": [
+                {"id": "builder", "role_definition_id": role_definition["id"]},
+            ],
+            "steps": [
+                {"id": "builder_step", "role_id": "builder"},
+            ],
+        },
+        prompt_files=None,
+        role_models=None,
+    )
+
+    assert resolved["workflow"]["roles"][0]["posture_notes"] == "Treat maintainability debt as first-class in this task."
+
+
 def test_asset_catalog_rejects_unknown_role_definition_ids_in_workflow(tmp_path: Path) -> None:
     repository = LooporaRepository(tmp_path / "app.db")
     catalog = WorkflowAssetCatalog(repository)

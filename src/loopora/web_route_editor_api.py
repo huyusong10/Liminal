@@ -7,6 +7,11 @@ from fastapi.responses import JSONResponse, Response
 
 from loopora.markdown_tools import decode_text_bytes, looks_binary, normalize_markdown_text, render_safe_markdown_html
 from loopora.service import LooporaError
+from loopora.skills import (
+    build_task_alignment_skill_archive,
+    install_task_alignment_skill,
+    list_task_alignment_skill_targets,
+)
 from loopora.specs import SpecError, init_spec_file_for_workflow, read_and_compile, render_spec_template
 from loopora.web_inputs import (
     _coerce_bool,
@@ -25,6 +30,99 @@ from loopora.workflows import (
 
 
 def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+    @app.get("/api/bundles")
+    async def api_list_bundles() -> JSONResponse:
+        return JSONResponse(ctx.svc().list_bundles())
+
+    @app.get("/api/bundles/{bundle_id}")
+    async def api_get_bundle(bundle_id: str) -> JSONResponse:
+        return JSONResponse(ctx.svc().get_bundle(bundle_id))
+
+    @app.put("/api/bundles/{bundle_id}")
+    async def api_update_bundle(bundle_id: str, request: Request) -> JSONResponse:
+        payload = await ctx.read_json_mapping(request)
+        bundle = ctx.svc().update_bundle(
+            bundle_id,
+            description=payload.get("description"),
+            collaboration_summary=payload.get("collaboration_summary"),
+            spec_markdown=payload.get("spec_markdown"),
+        )
+        return JSONResponse({"bundle": bundle, "redirect_url": f"/bundles/{bundle['id']}"})
+
+    @app.post("/api/bundles/import")
+    async def api_import_bundle(request: Request) -> JSONResponse:
+        payload = await ctx.read_json_mapping(request)
+        bundle_yaml = str(payload.get("bundle_yaml", ""))
+        bundle_path = str(payload.get("bundle_path", "")).strip()
+        replace_bundle_id = str(payload.get("replace_bundle_id", "")).strip() or None
+        if bundle_yaml.strip():
+            bundle = ctx.svc().import_bundle_text(bundle_yaml, replace_bundle_id=replace_bundle_id)
+        elif bundle_path:
+            bundle = ctx.svc().import_bundle_file(Path(bundle_path), replace_bundle_id=replace_bundle_id)
+        else:
+            return ctx.json_error("bundle path or bundle YAML is required")
+        return JSONResponse({"bundle": bundle, "redirect_url": f"/bundles/{bundle['id']}"}, status_code=201)
+
+    @app.post("/api/bundles/derive")
+    async def api_derive_bundle(request: Request) -> JSONResponse:
+        payload = await ctx.read_json_mapping(request)
+        loop_id = str(payload.get("loop_id", "")).strip()
+        if not loop_id:
+            return ctx.json_error("loop id is required")
+        bundle = ctx.svc().derive_bundle_from_loop(
+            loop_id,
+            name=str(payload.get("name", "")).strip() or None,
+            description=str(payload.get("description", "")),
+            collaboration_summary=str(payload.get("collaboration_summary", "")),
+        )
+        return JSONResponse({"bundle": bundle})
+
+    @app.get("/api/bundles/{bundle_id}/export")
+    async def api_export_bundle(bundle_id: str) -> Response:
+        bundle = ctx.svc().export_bundle(bundle_id)
+        from loopora.bundles import bundle_to_yaml
+
+        return Response(
+            content=bundle_to_yaml(bundle),
+            media_type="application/yaml; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{bundle["metadata"]["name"] or bundle_id}.yml"'},
+        )
+
+    @app.delete("/api/bundles/{bundle_id}")
+    async def api_delete_bundle(bundle_id: str) -> JSONResponse:
+        return JSONResponse(ctx.svc().delete_bundle(bundle_id))
+
+    @app.get("/api/skills/loopora-task-alignment")
+    async def api_task_alignment_skill_targets() -> JSONResponse:
+        return JSONResponse(
+            {
+                "skill_name": "loopora-task-alignment",
+                "targets": list_task_alignment_skill_targets(),
+            }
+        )
+
+    @app.post("/api/skills/loopora-task-alignment/install")
+    async def api_install_task_alignment_skill(request: Request) -> JSONResponse:
+        payload = await ctx.read_json_mapping(request)
+        target = str(payload.get("target", "")).strip().lower()
+        try:
+            result = install_task_alignment_skill(target)
+        except ValueError as exc:
+            return ctx.json_error(str(exc))
+        return JSONResponse(
+            {"result": result, "targets": list_task_alignment_skill_targets()},
+            status_code=201,
+        )
+
+    @app.get("/api/skills/loopora-task-alignment/download")
+    async def api_download_task_alignment_skill_bundle() -> Response:
+        filename, archive_bytes = build_task_alignment_skill_archive()
+        return Response(
+            content=archive_bytes,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
     @app.get("/api/orchestrations")
     async def api_list_orchestrations() -> JSONResponse:
         return JSONResponse(ctx.svc().list_orchestrations())
@@ -239,6 +337,13 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
 
     @app.get("/api/system/pick-spec-file")
     async def api_pick_spec_file(start_path: str = "") -> JSONResponse:
+        if not ctx.access_state["native_dialogs_enabled"]:
+            return ctx.json_error("native dialogs are disabled in network mode; paste a server-side absolute path instead")
+        selected = ctx.pick_file_dialog(start_path or None)
+        return JSONResponse({"path": selected or "", "cancelled": not selected})
+
+    @app.get("/api/system/pick-bundle-file")
+    async def api_pick_bundle_file(start_path: str = "") -> JSONResponse:
         if not ctx.access_state["native_dialogs_enabled"]:
             return ctx.json_error("native dialogs are disabled in network mode; paste a server-side absolute path instead")
         selected = ctx.pick_file_dialog(start_path or None)

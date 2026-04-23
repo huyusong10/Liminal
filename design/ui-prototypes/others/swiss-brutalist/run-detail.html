@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RUN DETAIL — Swiss Brutalist</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .breadcrumb { font-family: var(--font-mono); font-size: 11px; margin-bottom: 32px; color: var(--text-secondary); text-transform: uppercase; }
+        .breadcrumb a { color: var(--text-secondary); text-decoration: none; }
+        .run-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 48px; padding-bottom: 24px; border-bottom: 4px solid var(--border); }
+        .run-title { display: flex; align-items: baseline; gap: 16px; }
+        .run-title .section-num { color: var(--accent); font-family: var(--font-mono); font-weight: bold; }
+        .run-title h1 { font-size: 40px; font-weight: 900; letter-spacing: -0.03em; }
+        .live-indicator { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--accent); color: white; font-family: var(--font-mono); font-size: 11px; font-weight: bold; text-transform: uppercase; }
+        .live-dot { width: 8px; height: 8px; background: white; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+        .stats-bar { display: flex; gap: 2px; background: var(--border); }
+        .stat-box { padding: 24px 32px; background: var(--bg); text-align: center; }
+        .stat-value { font-size: 32px; font-weight: 900; font-family: var(--font-mono); }
+        .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-secondary); margin-top: 4px; }
+        .workflow-timeline { display: flex; justify-content: center; align-items: center; gap: 0; margin: 48px 0; padding: 48px; background: var(--bg); border: 2px solid var(--border); }
+        .timeline-node { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+        .node-circle { width: 80px; height: 80px; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 900; border: 4px solid var(--grid); background: var(--bg); }
+        .timeline-node.completed .node-circle { border-color: var(--accent-secondary); background: var(--accent-secondary); color: white; }
+        .timeline-node.active .node-circle { border-color: var(--accent); background: var(--accent); color: white; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,0,0,0.4); } 50% { box-shadow: 0 0 0 20px rgba(255,0,0,0); } }
+        .node-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+        .timeline-node.active .node-label { color: var(--accent); }
+        .timeline-connector { width: 100px; height: 4px; background: var(--grid); margin-bottom: 32px; }
+        .timeline-connector.completed { background: var(--accent-secondary); }
+        .timeline-connector.active { background: linear-gradient(90deg, var(--accent-secondary), var(--accent)); }
+        .content-grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 2px; background: var(--border); }
+        .panel { background: var(--bg); padding: 32px; }
+        .panel h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 24px; padding-bottom: 8px; border-bottom: 2px solid var(--border); }
+        .artifact { display: flex; align-items: center; gap: 16px; padding: 20px; background: var(--bg); border: 2px solid var(--grid); margin-bottom: 12px; transition: all 0.2s ease; }
+        .artifact:hover { border-color: var(--border); }
+        .artifact-icon { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: var(--text); color: var(--bg); font-size: 24px; }
+        .artifact-info { flex: 1; }
+        .artifact-name { font-weight: 700; text-transform: uppercase; }
+        .artifact-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+        .terminal { font-family: var(--font-mono); font-size: 13px; line-height: 1.8; background: var(--text); color: var(--bg); padding: 24px; max-height: 400px; overflow-y: auto; }
+        .terminal-line { display: flex; gap: 16px; margin-bottom: 8px; }
+        .timestamp { color: var(--text-secondary); }
+        .actor { font-weight: bold; }
+        .actor.builder { color: #ff6b6b; }
+        .actor.inspector { color: #4ecdc4; }
+        .actor.gatekeeper { color: #ffe66d; }
+        .current-line { animation: blink 1s infinite; }
+        @media (max-width: 768px) { .content-grid { grid-template-columns: 1fr; } .workflow-timeline { flex-wrap: wrap; gap: 24px; } .timeline-connector { display: none; } }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <div class="nav-brand">
+            <div class="logo-mark">
+                <svg viewBox="0 0 100 100" width="48" height="48">
+                    <rect x="10" y="10" width="80" height="80" fill="none" stroke="currentColor" stroke-width="8"/>
+                    <path d="M 25 50 Q 25 25, 50 25 Q 75 25, 75 50 Q 75 75, 50 75 Q 25 75, 25 50" fill="none" stroke="currentColor" stroke-width="8"/>
+                    <circle cx="50" cy="50" r="10" fill="currentColor"/>
+                </svg>
+            </div>
+            <span class="brand-text">LOOPORA</span>
+        </div>
+        <div class="nav-links">
+            <a href="index.html" class="active">01 — LOOPS</a>
+            <a href="#">02 — ORCH</a>
+            <a href="#">03 — ROLES</a>
+            <a href="#">04 — HELP</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">LOOPS</a> / <a href="loop-detail.html">SEARCH MIGRATION</a> / <span>RUN #04</span>
+        </div>
+
+        <header class="run-header">
+            <div class="run-title">
+                <span class="section-num">04</span>
+                <h1>RUN #04</h1>
+                <div class="live-indicator"><span class="live-dot"></span>LIVE</div>
+            </div>
+            <div class="stats-bar">
+                <div class="stat-box"><div class="stat-value">12:34</div><div class="stat-label">Duration</div></div>
+                <div class="stat-box"><div class="stat-value">4/4</div><div class="stat-label">Roles</div></div>
+            </div>
+        </header>
+
+        <div class="workflow-timeline">
+            <div class="timeline-node completed">
+                <div class="node-circle">B</div>
+                <div class="node-label">Builder</div>
+            </div>
+            <div class="timeline-connector completed"></div>
+            <div class="timeline-node completed">
+                <div class="node-circle">I</div>
+                <div class="node-label">Inspector</div>
+            </div>
+            <div class="timeline-connector active"></div>
+            <div class="timeline-node active">
+                <div class="node-circle">G</div>
+                <div class="node-label">GateKeeper</div>
+            </div>
+            <div class="timeline-connector"></div>
+            <div class="timeline-node">
+                <div class="node-circle">Gu</div>
+                <div class="node-label">Guide</div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <div class="panel">
+                <h3>Artifacts</h3>
+                <div class="artifact">
+                    <div class="artifact-icon">📄</div>
+                    <div class="artifact-info">
+                        <div class="artifact-name">build-report.md</div>
+                        <div class="artifact-meta">2.4 KB — Builder</div>
+                    </div>
+                    <a href="#" class="run-action">VIEW →</a>
+                </div>
+                <div class="artifact">
+                    <div class="artifact-icon" style="background: var(--accent-secondary);">🔍</div>
+                    <div class="artifact-info">
+                        <div class="artifact-name">inspection-results.json</div>
+                        <div class="artifact-meta">15.8 KB — Inspector</div>
+                    </div>
+                    <a href="#" class="run-action">VIEW →</a>
+                </div>
+            </div>
+
+            <div class="panel" style="padding: 0;">
+                <h3 style="padding: 32px 32px 0;">Live Output</h3>
+                <div class="terminal">
+                    <div class="terminal-line"><span class="timestamp">12:34:05</span><span class="actor builder">[Builder]</span><span>Search index build complete: 45,230 documents indexed</span></div>
+                    <div class="terminal-line"><span class="timestamp">12:34:12</span><span class="actor builder">[Builder]</span><span>API endpoints updated: /search, /suggest, /index</span></div>
+                    <div class="terminal-line"><span class="timestamp">12:35:48</span><span class="actor inspector">[Inspector]</span><span>Evidence collection initiated</span></div>
+                    <div class="terminal-line"><span class="timestamp">12:36:02</span><span class="actor inspector">[Inspector]</span><span>Test queries: 150/150 PASSED</span></div>
+                    <div class="terminal-line"><span class="timestamp">12:37:01</span><span class="actor gatekeeper">[GateKeeper]</span><span>Reviewing build artifacts...</span></div>
+                    <div class="terminal-line current-line"><span class="timestamp">12:37:45</span><span class="actor gatekeeper">[GateKeeper]</span><span>Analyzing integration test coverage..._</span></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <span>LOOPORA v2.0</span>
+            <span>LOCAL-FIRST LOOP ORCHESTRATION</span>
+        </div>
+    </footer>
+</body>
+</html>

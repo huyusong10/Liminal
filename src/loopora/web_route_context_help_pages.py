@@ -4,6 +4,7 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse
 
 from loopora.markdown_tools import render_safe_markdown_html
+from loopora.skills import list_task_alignment_skill_targets, load_task_alignment_skill_bundle
 
 
 class WebRouteHelpPagesMixin:
@@ -60,6 +61,8 @@ class WebRouteHelpPagesMixin:
             "tools.html",
             {
                 "request": request,
+                "skill_bundle": load_task_alignment_skill_bundle(),
+                "skill_targets": list_task_alignment_skill_targets(),
                 "access_state": self.access_state,
             },
         )

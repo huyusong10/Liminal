@@ -69,6 +69,41 @@ class RepositoryLoopRecordsMixin:
             row = connection.execute("SELECT * FROM loop_definitions WHERE id = ?", (loop_id,)).fetchone()
         return self._decode_row(row) if row else None
 
+    def update_loop_contract(self, loop_id: str, payload: dict) -> dict | None:
+        now = utc_now()
+        with self.transaction() as connection:
+            row = connection.execute("SELECT 1 FROM loop_definitions WHERE id = ?", (loop_id,)).fetchone()
+            if row is None:
+                return None
+            connection.execute(
+                """
+                UPDATE loop_definitions
+                SET orchestration_id = ?, orchestration_name = ?, spec_path = ?, spec_markdown = ?,
+                    compiled_spec_json = ?, workflow_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    payload.get("orchestration_id", ""),
+                    payload.get("orchestration_name", ""),
+                    payload["spec_path"],
+                    payload["spec_markdown"],
+                    json.dumps(payload["compiled_spec"], ensure_ascii=False),
+                    json.dumps(payload["workflow"], ensure_ascii=False),
+                    now,
+                    loop_id,
+                ),
+            )
+        loop = self.get_loop(loop_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "db.loop.contract_updated",
+            "Updated persisted loop contract snapshot",
+            loop_id=loop_id,
+            orchestration_id=payload.get("orchestration_id", ""),
+        )
+        return loop
+
     def list_loops(self) -> list[dict]:
         query = """
             SELECT

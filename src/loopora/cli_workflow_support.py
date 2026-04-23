@@ -79,6 +79,7 @@ def build_role_definition_kwargs(
     prompt_file: Path | None,
     prompt_template: str,
     locale: str,
+    posture_notes: str,
     executor_kind: str,
     executor_mode: str,
     command_cli: str,
@@ -99,6 +100,7 @@ def build_role_definition_kwargs(
     return {
         "archetype": normalized_archetype,
         "prompt_markdown": prompt_markdown,
+        "posture_notes": posture_notes if posture_notes else str(current.get("posture_notes", "")),
         "executor_kind": executor_kind or str(current.get("executor_kind", "codex") or "codex"),
         "executor_mode": executor_mode or str(current.get("executor_mode", "preset") or "preset"),
         "command_cli": command_cli or str(current.get("command_cli", "")),

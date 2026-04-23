@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loopora - Organic</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="nav">
+        <div class="nav-brand">
+            <svg class="logo" viewBox="0 0 512 512" width="40" height="40">
+                <defs>
+                    <linearGradient id="nature-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#65a30d" />
+                        <stop offset="50%" stop-color="#84cc16" />
+                        <stop offset="100%" stop-color="#14b8a6" />
+                    </linearGradient>
+                </defs>
+                <circle cx="256" cy="256" r="240" fill="#f0fdf4" />
+                <path d="M 130 256 C 130 140, 245 140, 256 256 C 267 372, 382 372, 382 256 C 382 140, 267 140, 256 256 C 245 372, 130 372, 130 256 Z"
+                      fill="none" stroke="url(#nature-grad)" stroke-width="40" stroke-linecap="round" />
+                <circle cx="256" cy="256" r="24" fill="#fff" stroke="#14b8a6" stroke-width="4" />
+            </svg>
+            <span class="brand-text">Loopora</span>
+        </div>
+        <div class="nav-links">
+            <a href="index.html" class="active">Loops</a>
+            <a href="orchestrations.html">Orchestrations</a>
+            <a href="roles.html">Roles</a>
+            <a href="tutorial.html">Tutorial</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <header class="page-header">
+            <div>
+                <h1>Your loops are growing.</h1>
+                <p>Nurture your projects and watch them flourish.</p>
+            </div>
+            <a href="create-loop.html" class="btn-primary">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14" stroke-linecap="round"/>
+                </svg>
+                <span>Create Loop</span>
+            </a>
+        </header>
+
+        <section class="loops-section">
+            <div class="section-header">
+                <h2>Active Gardens</h2>
+                <span class="count">3 growing</span>
+            </div>
+
+            <div class="loops-grid">
+                <article class="loop-card growing">
+                    <div class="card-glow"></div>
+                    <div class="card-content">
+                        <div class="card-header">
+                            <div class="status-badge">
+                                <span class="status-dot"></span>
+                                <span>Growing</span>
+                            </div>
+                            <div class="growth-stage">
+                                <span class="stage-icon">🌿</span>
+                                <span>Stage 4 of 8</span>
+                            </div>
+                        </div>
+
+                        <h3>Search Rollout Migration</h3>
+                        <p class="card-description">Migrating knowledge base to hybrid search</p>
+
+                        <div class="progress-ring">
+                            <svg viewBox="0 0 36 36">
+                                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                      fill="none" stroke="#e5e7eb" stroke-width="3" />
+                                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                      fill="none" stroke="url(#nature-grad)" stroke-width="3"
+                                      stroke-dasharray="50, 100" stroke-linecap="round" />
+                            </svg>
+                            <span class="progress-text">50%</span>
+                        </div>
+
+                        <div class="card-meta">
+                            <div class="meta-item">
+                                <span class="meta-label">🕐 12 min ago</span>
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-label">🔧 Build First</span>
+                            </div>
+                        </div>
+
+                        <div class="card-footer">
+                            <div class="active-role">
+                                <span class="role-pill gatekeeper">GateKeeper</span>
+                                <span>is tending this loop</span>
+                            </div>
+                            <div class="card-actions">
+                                <a href="loop-detail.html" class="btn-ghost">View</a>
+                                <a href="run-detail.html" class="btn-ghost">Run</a>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="loop-card bloomed">
+                    <div class="card-content">
+                        <div class="card-header">
+                            <div class="status-badge completed">
+                                <span class="status-dot"></span>
+                                <span>Bloomed</span>
+                            </div>
+                            <div class="growth-stage">
+                                <span class="stage-icon">🌸</span>
+                                <span>Complete</span>
+                            </div>
+                        </div>
+
+                        <h3>API Documentation Update</h3>
+                        <p class="card-description">All endpoints documented and verified</p>
+
+                        <div class="progress-ring complete">
+                            <svg viewBox="0 0 36 36">
+                                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                      fill="none" stroke="#86efac" stroke-width="3" stroke-linecap="round" />
+                            </svg>
+                            <span class="progress-text">✓</span>
+                        </div>
+
+                        <div class="card-meta">
+                            <div class="meta-item">
+                                <span class="meta-label">🕐 2 hours ago</span>
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-label">🔍 Inspect First</span>
+                            </div>
+                        </div>
+
+                        <div class="card-footer">
+                            <div class="active-role">
+                                <span>All roles completed</span>
+                            </div>
+                            <div class="card-actions">
+                                <a href="#" class="btn-ghost">View</a>
+                                <a href="#" class="btn-ghost">Report</a>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="loop-card seed">
+                    <div class="card-content">
+                        <div class="card-header">
+                            <div class="status-badge dormant">
+                                <span class="status-dot"></span>
+                                <span>Seed</span>
+                            </div>
+                            <div class="growth-stage">
+                                <span class="stage-icon">🌱</span>
+                                <span>Ready to plant</span>
+                            </div>
+                        </div>
+
+                        <h3>Database Migration V2</h3>
+                        <p class="card-description">Awaiting initialization</p>
+
+                        <div class="progress-ring seed-ring">
+                            <svg viewBox="0 0 36 36">
+                                <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                      fill="none" stroke="#d1d5db" stroke-width="3" stroke-dasharray="10, 5" />
+                            </svg>
+                            <span class="progress-text">◉</span>
+                        </div>
+
+                        <div class="card-meta">
+                            <div class="meta-item">
+                                <span class="meta-label">🕐 Not started</span>
+                            </div>
+                            <div class="meta-item">
+                                <span class="meta-label">⚡ Triage First</span>
+                            </div>
+                        </div>
+
+                        <div class="card-footer">
+                            <div class="active-role">
+                                <span>Spec finalized</span>
+                            </div>
+                            <div class="card-actions">
+                                <a href="#" class="btn-ghost">View</a>
+                                <button class="btn-ghost">Start</button>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section class="tutorial-cta">
+            <div class="cta-content">
+                <div class="seedling-icon">🌱</div>
+                <div>
+                    <h2>New to gardening?</h2>
+                    <p>Learn how to plant, nurture, and harvest your loops.</p>
+                </div>
+            </div>
+            <a href="tutorial.html" class="btn-secondary">
+                <span>Start Learning</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M5 12h14M12 5l7 7-7 7" stroke-linecap="round"/>
+                </svg>
+            </a>
+        </section>
+    </main>
+
+    <div class="leaf-decoration leaf-1">🍃</div>
+    <div class="leaf-decoration leaf-2">🌿</div>
+</body>
+</html>

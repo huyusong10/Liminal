@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import io
 import json
 import re
 import time
+import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from loopora.bundles import bundle_to_yaml
 from loopora.settings import app_home, configure_logging
 import loopora.web as web_module
 from loopora.web import build_app
@@ -1433,6 +1436,7 @@ def test_api_role_definition_crud(service_factory) -> None:
         json={
             "name": "Release Builder",
             "description": "Ship focused release changes.",
+            "posture_notes": "Prefer maintainability evidence before calling this ready.",
             "archetype": "builder",
             "prompt_markdown": """---
 version: 1
@@ -1453,6 +1457,7 @@ Focus on scoped release work.
     assert role_definition["archetype"] == "builder"
     assert role_definition["executor_kind"] == "claude"
     assert role_definition["reasoning_effort"] == "high"
+    assert role_definition["posture_notes"] == "Prefer maintainability evidence before calling this ready."
     assert role_definition["prompt_ref"].endswith(".md")
     generated_prompt_ref = role_definition["prompt_ref"]
 
@@ -1465,6 +1470,7 @@ Focus on scoped release work.
         json={
             "name": "Release Builder v2",
             "description": "Updated role definition.",
+            "posture_notes": "Tighten the evidence bar for refactors.",
             "archetype": "builder",
             "prompt_markdown": """---
 version: 1
@@ -1498,6 +1504,7 @@ Focus on scoped release work with tighter release constraints.
     assert updated_role_definition["name"] == "Release Builder v2"
     assert updated_role_definition["executor_mode"] == "command"
     assert updated_role_definition["model"] == "gpt-5.4"
+    assert updated_role_definition["posture_notes"] == "Tighten the evidence bar for refactors."
     assert updated_role_definition["prompt_ref"] == generated_prompt_ref
 
     invalid_update_response = client.put(
@@ -1525,6 +1532,390 @@ Inspect release work instead.
     delete_response = client.delete(f"/api/role-definitions/{role_definition['id']}")
     assert delete_response.status_code == 200
     assert delete_response.json()["deleted"] is True
+
+
+def test_api_bundles_import_export_and_delete(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Bundle Export Source",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    bundle_yaml = bundle_to_yaml(
+        service.derive_bundle_from_loop(
+            loop["id"],
+            name="Imported Bundle",
+            description="Bundle import from API.",
+            collaboration_summary="Prefer evidence before declaring done.",
+        )
+    )
+
+    client = TestClient(build_app(service=service))
+    import_response = client.post("/api/bundles/import", json={"bundle_yaml": bundle_yaml})
+
+    assert import_response.status_code == 201
+    bundle = import_response.json()["bundle"]
+    assert bundle["name"] == "Imported Bundle"
+    assert bundle["collaboration_summary"] == "Prefer evidence before declaring done."
+
+    list_response = client.get("/api/bundles")
+    assert list_response.status_code == 200
+    assert any(item["id"] == bundle["id"] for item in list_response.json())
+
+    get_response = client.get(f"/api/bundles/{bundle['id']}")
+    assert get_response.status_code == 200
+    assert get_response.json()["id"] == bundle["id"]
+
+    export_response = client.get(f"/api/bundles/{bundle['id']}/export")
+    assert export_response.status_code == 200
+    assert "Imported Bundle" in export_response.text
+    assert "Prefer evidence before declaring done." in export_response.text
+    assert export_response.headers["content-type"].startswith("application/yaml")
+
+    delete_response = client.delete(f"/api/bundles/{bundle['id']}")
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted"] is True
+
+    missing_response = client.get(f"/api/bundles/{bundle['id']}")
+    assert missing_response.status_code == 400
+    assert "unknown bundle" in missing_response.json()["error"]
+
+
+def test_api_bundles_derive_returns_bundle_payload(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Bundle Derive Source",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/bundles/derive",
+        json={
+            "loop_id": loop["id"],
+            "name": "Derived Bundle",
+            "description": "Derived from existing assets.",
+            "collaboration_summary": "Treat fake done states as blockers.",
+        },
+    )
+
+    assert response.status_code == 200
+    bundle = response.json()["bundle"]
+    assert bundle["metadata"]["name"] == "Derived Bundle"
+    assert bundle["collaboration_summary"] == "Treat fake done states as blockers."
+    assert bundle["workflow"]["roles"]
+    assert bundle["role_definitions"]
+
+
+def test_api_task_alignment_skill_install_targets_and_install(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
+
+    client = TestClient(build_app())
+
+    targets_response = client.get("/api/skills/loopora-task-alignment")
+    assert targets_response.status_code == 200
+    targets = {item["target"]: item for item in targets_response.json()["targets"]}
+    assert targets["codex"]["installed"] is False
+    assert targets["codex"]["install_state"] == "missing"
+    assert targets["claude"]["installed"] is False
+    assert targets["opencode"]["installed"] is False
+    assert targets["codex"]["install_paths"] == [
+        str(tmp_path / ".codex" / "skills" / "loopora-task-alignment" / "SKILL.md")
+    ]
+
+    install_response = client.post("/api/skills/loopora-task-alignment/install", json={"target": "codex"})
+    assert install_response.status_code == 201
+    install_payload = install_response.json()
+    assert install_payload["result"]["action"] == "installed"
+    codex_targets = {item["target"]: item for item in install_payload["targets"]}
+    assert codex_targets["codex"]["installed"] is True
+    assert codex_targets["codex"]["install_state"] == "installed"
+
+    skill_dir = tmp_path / ".codex" / "skills" / "loopora-task-alignment"
+    skill_path = skill_dir / "SKILL.md"
+    contract_path = skill_dir / "references" / "bundle-contract.md"
+    agent_path = skill_dir / "agents" / "openai.yaml"
+    original_skill_text = skill_path.read_text(encoding="utf-8")
+
+    assert skill_path.exists()
+    assert contract_path.exists()
+    assert agent_path.exists()
+
+    skill_path.write_text("tampered", encoding="utf-8")
+    stale_file = skill_dir / "stale-note.txt"
+    stale_file.write_text("old", encoding="utf-8")
+
+    stale_targets_response = client.get("/api/skills/loopora-task-alignment")
+    assert stale_targets_response.status_code == 200
+    stale_targets = {item["target"]: item for item in stale_targets_response.json()["targets"]}
+    assert stale_targets["codex"]["installed"] is False
+    assert stale_targets["codex"]["install_state"] == "stale"
+
+    reinstall_response = client.post("/api/skills/loopora-task-alignment/install", json={"target": "codex"})
+    assert reinstall_response.status_code == 201
+    reinstall_payload = reinstall_response.json()
+    assert reinstall_payload["result"]["action"] == "reinstalled"
+    refreshed_targets = {item["target"]: item for item in reinstall_payload["targets"]}
+    assert refreshed_targets["codex"]["installed"] is True
+    assert refreshed_targets["codex"]["install_state"] == "installed"
+    assert skill_path.read_text(encoding="utf-8") == original_skill_text
+    assert not stale_file.exists()
+
+
+def test_api_task_alignment_skill_bundle_download_returns_zip(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
+
+    client = TestClient(build_app())
+    response = client.get("/api/skills/loopora-task-alignment/download")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert response.headers["content-disposition"] == 'attachment; filename="loopora-task-alignment.zip"'
+
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    names = set(archive.namelist())
+    assert "loopora-task-alignment/SKILL.md" in names
+    assert "loopora-task-alignment/references/bundle-contract.md" in names
+    assert "loopora-task-alignment/agents/openai.yaml" in names
+
+
+def test_bundle_form_import_and_edit_flow(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Bundle Form Source",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    bundle_yaml = bundle_to_yaml(
+        service.derive_bundle_from_loop(
+            loop["id"],
+            name="Form Bundle",
+            description="Imported through the HTML form.",
+            collaboration_summary="Prefer compact but convincing evidence.",
+        )
+    )
+
+    client = TestClient(build_app(service=service))
+    import_response = client.post("/bundles/import", data={"bundle_yaml": bundle_yaml}, follow_redirects=False)
+
+    assert import_response.status_code == 303
+    bundle_location = import_response.headers["location"]
+    bundle_id = bundle_location.rsplit("/", 1)[-1]
+    bundle = service.get_bundle(bundle_id)
+    assert bundle["name"] == "Form Bundle"
+
+    edit_response = client.post(
+        f"/bundles/{bundle_id}/edit",
+        data={
+            "description": "Updated bundle description.",
+            "collaboration_summary": "Take fake done seriously.",
+            "spec_markdown": "# Task\n\nShip the update.\n\n# Done When\n- It works.\n",
+        },
+        follow_redirects=False,
+    )
+
+    assert edit_response.status_code == 303
+    updated_bundle = service.get_bundle(bundle_id)
+    assert updated_bundle["description"] == "Updated bundle description."
+    assert updated_bundle["collaboration_summary"] == "Take fake done seriously."
+    spec_path = app_home() / "bundles" / bundle_id / "spec.md"
+    assert spec_path.read_text(encoding="utf-8").startswith("# Task")
+
+
+def test_create_loop_page_imports_bundle_as_loop_creation_flow(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    source_loop = service.create_loop(
+        name="Create Page Bundle Source",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    bundle_yaml = bundle_to_yaml(
+        service.derive_bundle_from_loop(
+            source_loop["id"],
+            name="Create Page Bundle",
+            description="Imported from the unified create loop page.",
+            collaboration_summary="Create loop and bundle import share one entry.",
+        )
+    )
+
+    client = TestClient(build_app(service=service))
+    import_response = client.post(
+        "/loops/new/import-bundle",
+        data={"bundle_yaml": bundle_yaml, "start_immediately": ""},
+        follow_redirects=False,
+    )
+
+    assert import_response.status_code == 303
+    assert import_response.headers["location"].startswith("/loops/")
+    imported_bundle = next(bundle for bundle in service.list_bundles() if bundle["name"] == "Create Page Bundle")
+    assert import_response.headers["location"] == f"/loops/{imported_bundle['loop_id']}"
+    assert service.get_loop(imported_bundle["loop_id"])["name"] == "Create Page Bundle Source"
+
+
+def test_api_bundle_update_bumps_revision(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Bundle Update Source",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    imported = service.import_bundle_text(
+        bundle_to_yaml(
+            service.derive_bundle_from_loop(
+                loop["id"],
+                name="API Update Bundle",
+                description="Before API update.",
+                collaboration_summary="Original collaboration summary.",
+            )
+        )
+    )
+
+    client = TestClient(build_app(service=service))
+    response = client.put(
+        f"/api/bundles/{imported['id']}",
+        json={
+            "description": "After API update.",
+            "collaboration_summary": "Updated collaboration summary.",
+            "spec_markdown": "# Task\n\nUpdated.\n\n# Done When\n- Ready.\n",
+        },
+    )
+
+    assert response.status_code == 200
+    bundle = response.json()["bundle"]
+    assert bundle["description"] == "After API update."
+    assert bundle["collaboration_summary"] == "Updated collaboration summary."
+    assert bundle["revision"] == imported["revision"] + 1
+
+
+def test_bundle_owned_surface_edit_redirects_back_to_bundle_detail(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Bundle Redirect Source",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    imported = service.import_bundle_text(
+        bundle_to_yaml(
+            service.derive_bundle_from_loop(
+                loop["id"],
+                name="Redirect Bundle",
+                description="Bundle redirect test.",
+                collaboration_summary="Return to the bundle detail after local surface edits.",
+            )
+        )
+    )
+    orchestration = imported["orchestration"]
+    role_definition = imported["role_definitions"][0]
+    client = TestClient(build_app(service=service))
+
+    orchestration_response = client.post(
+        f"/orchestrations/{orchestration['id']}/edit?return_to=/bundles/{imported['id']}",
+        data={
+            "name": orchestration["name"],
+            "description": "Workflow tuned from bundle detail.",
+            "workflow_json": json.dumps(orchestration["workflow_json"], ensure_ascii=False, indent=2),
+            "prompt_files_json": json.dumps(orchestration["prompt_files_json"], ensure_ascii=False, indent=2),
+        },
+        follow_redirects=False,
+    )
+    assert orchestration_response.status_code == 303
+    assert orchestration_response.headers["location"] == f"/bundles/{imported['id']}?surface_updated=workflow"
+
+    role_response = client.post(
+        f"/roles/{role_definition['id']}/edit?return_to=/bundles/{imported['id']}",
+        data={
+            "name": role_definition["name"],
+            "description": role_definition["description"],
+            "archetype": role_definition["archetype"],
+            "prompt_ref": role_definition["prompt_ref"],
+            "prompt_markdown": role_definition["prompt_markdown"],
+            "posture_notes": "Tighten this role from the bundle detail flow.",
+            "executor_kind": role_definition["executor_kind"],
+            "executor_mode": role_definition["executor_mode"],
+            "command_cli": role_definition["command_cli"],
+            "command_args_text": role_definition["command_args_text"],
+            "model": role_definition["model"],
+            "reasoning_effort": role_definition["reasoning_effort"],
+        },
+        follow_redirects=False,
+    )
+    assert role_response.status_code == 303
+    assert role_response.headers["location"] == f"/bundles/{imported['id']}?surface_updated=role%3A{role_definition['id']}"
 
 
 def test_api_role_definition_rejects_custom_executor_preset_mode(service_factory) -> None:

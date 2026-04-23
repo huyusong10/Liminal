@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from urllib.parse import urlencode
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse
@@ -11,6 +12,7 @@ from loopora.settings import load_recent_workdirs
 from loopora.specs import render_spec_template
 from loopora.web_inputs import (
     _loop_form_is_pristine,
+    _normalize_bundle_import_form,
     _normalize_loop_form,
     _normalize_orchestration_form,
     _orchestration_form_values_from_record,
@@ -33,6 +35,8 @@ class WebRouteLoopPagesMixin:
         *,
         values: Mapping[str, object] | None = None,
         form_error: str | None = None,
+        import_values: Mapping[str, object] | None = None,
+        import_error: str | None = None,
     ) -> HTMLResponse:
         form_values = _normalize_loop_form(values)
         return self.templates.TemplateResponse(
@@ -43,6 +47,8 @@ class WebRouteLoopPagesMixin:
                 "form_values": form_values,
                 "pristine_loop_form": _normalize_loop_form(None),
                 "form_error": form_error,
+                "import_values": _normalize_bundle_import_form(import_values),
+                "import_error": import_error,
                 "executor_profiles": list_executor_profiles(),
                 "orchestrations": self.svc().list_orchestrations(),
                 "recent_workdirs": load_recent_workdirs(),
@@ -76,6 +82,7 @@ class WebRouteLoopPagesMixin:
         orchestration: Mapping[str, object] | None = None,
     ) -> HTMLResponse:
         page_locale = _preferred_request_locale(request)
+        return_to = str(request.query_params.get("return_to", "")).strip()
         current_orchestration = dict(orchestration) if orchestration else None
         if values is None and current_orchestration is not None:
             values = _orchestration_form_values_from_record(current_orchestration)
@@ -115,6 +122,8 @@ class WebRouteLoopPagesMixin:
                 "submit_en": "Save orchestration",
                 "action": "/orchestrations/new",
             }
+        if return_to:
+            page_copy["action"] = f"{page_copy['action']}?{urlencode({'return_to': return_to})}"
         try:
             spec_template_workflow = _workflow_for_spec_template(form_values)
         except Exception:

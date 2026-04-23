@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from loopora.bundles import bundle_to_yaml
 from loopora.web import build_app
 
 
@@ -71,6 +72,10 @@ def test_index_page_renders_with_saved_loops(
     assert 'aria-label="Light mode"' in response.text
     assert 'aria-label="Dark mode"' in response.text
     assert 'aria-label="Language switch"' in response.text
+    _assert_has_testid(response.text, "index-import-bundle-link")
+    _assert_has_testid(response.text, "index-create-loop-link")
+    assert 'href="/loops/new#bundle-import-form"' in response.text
+    assert 'href="/loops/new#manual-loop-form"' in response.text
     empty_state_markup = response.text.split('class="empty-state" id="loops-empty-state" hidden>', 1)[1].split("</div>", 1)[0]
     assert 'class="empty-state-logo"' in empty_state_markup
     assert 'alt=""' in empty_state_markup
@@ -507,7 +512,13 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     assert "help-dot--tips" in response.text
     assert 'aria-label="Show tip: The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock."' in response.text
     assert ">i</button>" in response.text
-    assert "Spec skill install" not in response.text
+    assert "Alignment skill install" in response.text
+    assert "loopora-task-alignment" in response.text
+    assert 'data-install-skill="codex"' in response.text
+    assert 'data-install-skill="claude"' in response.text
+    assert 'data-install-skill="opencode"' in response.text
+    assert "/api/skills/loopora-task-alignment/download" in response.text
+    assert "下载 Skill 包" in response.text
 
     zh_response = client.get("/tools", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
@@ -524,6 +535,8 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert response.status_code == 200
     assert "/static/pages/new_loop.js?v=" in response.text
     _assert_has_testid(response.text, "loop-create-page")
+    _assert_has_testid(response.text, "loop-bundle-create-panel")
+    _assert_has_testid(response.text, "loop-bundle-import-form")
     _assert_has_testid(response.text, "loop-create-form")
     _assert_has_testid(response.text, "nav-orchestrations-link")
     _assert_has_testid(response.text, "nav-role-definitions-link")
@@ -553,6 +566,14 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "id=\"spec-preview-content\"" in response.text
     assert "Spec editor" in response.text
     assert "Generate from orchestration" in response.text
+    assert "Import a Bundle to Create a Loop" in response.text
+    assert "Manual Expert Mode" in response.text
+    assert 'action="/loops/new/import-bundle"' in response.text
+    assert 'name="bundle_yaml"' in response.text
+    assert 'name="replace_bundle_id"' in response.text
+    assert 'data-testid="bundle-start-immediately-tip"' in response.text
+    assert "/tools" in response.text
+    assert "/bundles" in response.text
     assert "Role runtime reminder" not in response.text
     assert "Spec reminder" not in response.text
     assert "Extra tools" not in response.text
@@ -575,6 +596,8 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     zh_response = client.get("/loops/new", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
     assert '<title>创建循环</title>' in zh_response.text
+    assert "导入 Bundle 创建循环" in zh_response.text
+    assert "手动专家模式" in zh_response.text
     assert 'aria-label="查看提示：' in zh_response.text
     zh_completion_mode = zh_response.text.split('id="completion-mode-input"', 1)[1].split("</select>", 1)[0]
     assert ">守门裁决</option>" in zh_completion_mode
@@ -926,6 +949,7 @@ Focus on scoped release work.
     _assert_has_testid(new_response.text, "role-definition-command-args-input")
     _assert_has_testid(new_response.text, "role-definition-command-preview")
     _assert_has_testid(new_response.text, "role-definition-prompt-workbench")
+    _assert_has_testid(new_response.text, "role-definition-posture-notes-input")
     _assert_has_testid(new_response.text, "role-definition-prompt-markdown-input")
     _assert_has_testid(new_response.text, "role-definition-prompt-markdown-preview")
     _assert_has_testid(new_response.text, "role-definition-archetype-guide")
@@ -944,6 +968,7 @@ Focus on scoped release work.
     assert 'id="role-definition-archetype-summary">' in new_response.text
     assert '<span data-lang="zh">直接推进实现，适合把 spec 和 handoff 落成真实代码与文件改动。</span>' in new_response.text
     assert '<span data-lang="en">Pushes the implementation forward and turns specs plus handoffs into real code changes.</span>' in new_response.text
+    assert "task-scoped collaboration posture" in new_response.text
 
     zh_response = client.get("/roles/new", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
@@ -962,6 +987,117 @@ Focus on scoped release work.
     assert custom_edit_response.status_code == 200
     assert 'id="role-definition-archetype-input" disabled' in custom_edit_response.text
     assert "Save changes" in custom_edit_response.text
+
+
+def test_bundles_pages_render_list_and_detail(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Bundle Page Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    imported = service.import_bundle_text(
+        bundle_to_yaml(
+            service.derive_bundle_from_loop(
+                loop["id"],
+                name="Web Bundle",
+                description="Bundle detail page test.",
+                collaboration_summary="Prefer evidence and visible proof.",
+            )
+        )
+    )
+
+    client = TestClient(build_app(service=service))
+
+    list_response = client.get("/bundles")
+    assert list_response.status_code == 200
+    _assert_has_testid(list_response.text, "bundles-page")
+    _assert_has_testid(list_response.text, "bundles-create-loop-link")
+    _assert_has_testid(list_response.text, "bundle-derive-form")
+    _assert_has_testid(list_response.text, "bundle-list")
+    _assert_has_testid(list_response.text, "bundle-count")
+    assert "Imported Bundles" in list_response.text
+    assert "Import Bundle to Create Loop" in list_response.text
+    assert "Web Bundle" in list_response.text
+    assert 'data-delete-bundle="' in list_response.text
+    assert '/api/bundles/' in list_response.text
+    assert 'id="bundle-grid"' in list_response.text
+    assert 'data-testid="bundle-import-form"' not in list_response.text
+    assert 'action="/bundles/import"' not in list_response.text
+
+    detail_response = client.get(f"/bundles/{imported['id']}")
+    assert detail_response.status_code == 200
+    _assert_has_testid(detail_response.text, "bundle-detail-page")
+    _assert_has_testid(detail_response.text, "bundle-detail-form")
+    _assert_has_testid(detail_response.text, "bundle-spec-preview")
+    _assert_has_testid(detail_response.text, "bundle-yaml-preview")
+    _assert_has_testid(detail_response.text, "bundle-import-revision-link")
+    assert "Web Bundle" in detail_response.text
+    assert "Prefer evidence and visible proof." in detail_response.text
+    assert f'/bundles/{imported["id"]}/edit' in detail_response.text
+    assert f'/api/bundles/{imported["id"]}/export' in detail_response.text
+    assert f'?return_to=/bundles/{imported["id"]}' in detail_response.text
+    assert f'/loops/new?replace_bundle_id={imported["id"]}#bundle-import-form' in detail_response.text
+    assert "Current Bundle YAML" in detail_response.text
+
+    revision_target_response = client.get(f"/loops/new?replace_bundle_id={imported['id']}")
+    assert revision_target_response.status_code == 200
+    _assert_has_testid(revision_target_response.text, "bundle-revision-target-note")
+
+    legacy_revision_response = client.get(f"/bundles?replace_bundle_id={imported['id']}", follow_redirects=False)
+    assert legacy_revision_response.status_code == 303
+    assert legacy_revision_response.headers["location"] == f"/loops/new?replace_bundle_id={imported['id']}#bundle-import-form"
+
+
+def test_index_page_uses_bundle_delete_for_bundle_managed_loops(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Bundle Owned Source",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    imported = service.import_bundle_text(
+        bundle_to_yaml(
+            service.derive_bundle_from_loop(
+                loop["id"],
+                name="Managed Bundle",
+                description="Managed loop test.",
+                collaboration_summary="Bundle-managed loop should delete through bundle lifecycle.",
+            )
+        )
+    )
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert f'data-delete-bundle="{imported["id"]}"' in response.text
+    assert 'Delete Bundle' in response.text
+    assert "managed by bundle" in response.text
 
 
 def test_role_definition_editor_script_localizes_archetype_labels_and_guide(service_factory) -> None:
@@ -1006,6 +1142,7 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     _assert_has_testid(response.text, "tutorial-guide-panel")
     _assert_has_testid(response.text, "tutorial-core-spec")
     _assert_has_testid(response.text, "tutorial-core-workflow")
+    _assert_has_testid(response.text, "tutorial-core-bundle")
     _assert_has_testid(response.text, "tutorial-core-loop")
     _assert_has_testid(response.text, "tutorial-decision-tree-panel")
     _assert_has_testid(response.text, "tutorial-workflow-scenarios-panel")
@@ -1020,6 +1157,10 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     _assert_has_testid(response.text, "tutorial-spec-practice-preview")
     assert "humans should not have to keep coming back to confirm and redirect it" in response.text
     assert "humans keep getting pulled back in to inspect, judge, and redirect the work" in response.text
+    assert "Compile collaboration posture" in response.text
+    assert "Posture is not a single prompt" in response.text
+    assert "single YAML bundle" in response.text
+    assert "The working agreement is transient" in response.text
     assert "Together they absorb the supervision work" in response.text
     assert "one strong agent pass plus one human review is enough" in response.text
     assert "Start with this decision tree" in response.text
@@ -1042,8 +1183,12 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     assert 'data-open-tutorial-spec-practice="builtin:inspect_first"' in response.text
     assert 'id="tutorial-spec-practices-json"' in response.text
     assert "/static/pages/tutorial.js?v=" in response.text
+    assert "/tools" in response.text
     assert "/orchestrations" in response.text
-    assert "/loops/new" in response.text
+    assert "/loops/new#bundle-import-form" in response.text
+    assert "/loops/new#manual-loop-form" in response.text
+    assert "Import Bundle to Create Loop" in response.text
+    assert "Manual Expert Mode" in response.text
     assert 'data-testid="tutorial-context-flow-panel"' not in response.text
     assert 'data-testid="tutorial-flow-examples-panel"' not in response.text
 
@@ -1051,6 +1196,9 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     assert zh_response.status_code == 200
     assert '<title>使用教程</title>' in zh_response.text
     assert "反复回来确认" in zh_response.text
+    assert "编译协作姿态" in zh_response.text
+    assert "Bundle 是入口" in zh_response.text
+    assert "导入 Bundle 创建循环" in zh_response.text
     assert "帮助中心" in zh_response.text
 
 

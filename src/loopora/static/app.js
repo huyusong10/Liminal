@@ -280,13 +280,46 @@
     const modalCancel = document.getElementById("confirm-modal-cancel");
     const modalConfirm = document.getElementById("confirm-modal-confirm");
     const modalBackdrop = modal?.querySelector("[data-close-confirm-modal]");
-    const loopCount = document.getElementById("loop-count");
-    const loopGrid = document.getElementById("loop-grid");
-    const emptyState = document.getElementById("loops-empty-state");
-    const loopGridNote = document.querySelector(".loop-grid-note");
     if (!modal || !modalDetail || !modalCancel || !modalConfirm) {
       return;
     }
+
+    const deleteConfigs = [
+      {
+        selector: "[data-delete-loop]",
+        idKey: "deleteLoop",
+        nameKey: "loopName",
+        endpointPrefix: "/api/loops/",
+        redirectUrl: "/",
+        countId: "loop-count",
+        gridId: "loop-grid",
+        emptyStateId: "loops-empty-state",
+        noteSelector: ".loop-grid-note",
+        detail(name) {
+          return pickText({
+            zh: `“${name}” 和它保存下来的运行记录都会一起消失，这次就真的不回头了。`,
+            en: `"${name}" and its stored run history will disappear together. This one really does not come back.`,
+          });
+        },
+      },
+      {
+        selector: "[data-delete-bundle]",
+        idKey: "deleteBundle",
+        nameKey: "bundleName",
+        endpointPrefix: "/api/bundles/",
+        redirectUrl: "/bundles",
+        countId: "bundle-count",
+        gridId: "bundle-grid",
+        emptyStateId: "bundles-empty-state",
+        noteSelector: ".bundle-grid-note",
+        detail(name) {
+          return pickText({
+            zh: `“${name}” 和它导入的 loop、流程编排、角色定义都会一起清理。手动资源不会被影响。`,
+            en: `"${name}" and its imported loop, orchestration, and role definitions will be removed together. Unrelated manual assets stay intact.`,
+          });
+        },
+      },
+    ];
 
     let pendingDelete = null;
     let lastFocusedElement = null;
@@ -300,36 +333,37 @@
       lastFocusedElement?.focus?.();
     }
 
-    function openDeleteModal(button, loopId, loopName) {
-      pendingDelete = {button, loopId, loopName};
+    function openDeleteModal(config, button, resourceId, resourceName) {
+      pendingDelete = {config, button, resourceId, resourceName};
       lastFocusedElement = button;
-      modalDetail.textContent = pickText({
-        zh: `“${loopName}” 和它保存下来的运行记录都会一起消失，这次就真的不回头了。`,
-        en: `"${loopName}" and its stored run history will disappear together. This one really does not come back.`,
-      });
+      modalDetail.textContent = config.detail(resourceName);
       modal.hidden = false;
       modal.setAttribute("aria-hidden", "false");
       document.body.classList.add("modal-open");
       modalConfirm.focus();
     }
 
-    function removeLoopCard(button) {
+    function removeResourceCard(button, config) {
       const card = button.closest(".loop-card");
       if (!card) {
-        window.location.reload();
+        window.location.href = config.redirectUrl || window.location.href;
         return;
       }
       card.remove();
       const remainingCards = document.querySelectorAll(".loop-card").length;
-      if (loopCount) {
-        loopCount.textContent = String(remainingCards);
+      const countElement = document.getElementById(config.countId);
+      const grid = document.getElementById(config.gridId);
+      const emptyState = document.getElementById(config.emptyStateId);
+      const gridNote = document.querySelector(config.noteSelector);
+      if (countElement) {
+        countElement.textContent = String(remainingCards);
       }
       if (remainingCards === 0) {
-        if (loopGrid) {
-          loopGrid.hidden = true;
+        if (grid) {
+          grid.hidden = true;
         }
-        if (loopGridNote) {
-          loopGridNote.hidden = true;
+        if (gridNote) {
+          gridNote.hidden = true;
         }
         if (emptyState) {
           emptyState.hidden = false;
@@ -356,8 +390,8 @@
         return;
       }
       modalConfirm.disabled = true;
-      const {button, loopId} = pendingDelete;
-      const response = await fetch(`/api/loops/${encodeURIComponent(loopId)}`, {method: "DELETE"});
+      const {button, config, resourceId} = pendingDelete;
+      const response = await fetch(`${config.endpointPrefix}${encodeURIComponent(resourceId)}`, {method: "DELETE"});
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         modalConfirm.disabled = false;
@@ -368,18 +402,20 @@
         return;
       }
       closeDeleteModal();
-      removeLoopCard(button);
+      removeResourceCard(button, config);
     });
 
-    document.querySelectorAll("[data-delete-loop]").forEach((button) => {
-      if (button.dataset.bound === "1") {
-        return;
-      }
-      button.dataset.bound = "1";
-      button.addEventListener("click", async () => {
-        const loopId = button.dataset.deleteLoop;
-        const loopName = button.dataset.loopName || loopId;
-        openDeleteModal(button, loopId, loopName);
+    deleteConfigs.forEach((config) => {
+      document.querySelectorAll(config.selector).forEach((button) => {
+        if (button.dataset.bound === "1") {
+          return;
+        }
+        button.dataset.bound = "1";
+        button.addEventListener("click", async () => {
+          const resourceId = button.dataset[config.idKey];
+          const resourceName = button.dataset[config.nameKey] || resourceId;
+          openDeleteModal(config, button, resourceId, resourceName);
+        });
       });
     });
   }
@@ -484,6 +520,85 @@
     });
   }
 
+  async function revealPath(path) {
+    if (!path) {
+      return;
+    }
+    try {
+      const response = await fetch("/api/system/reveal-path", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({path}),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || "failed");
+      }
+    } catch (error) {
+      try {
+        await navigator.clipboard.writeText(path);
+        window.alert(pickText({
+          zh: "无法自动打开，路径已复制到剪贴板。",
+          en: "Could not open automatically. The path was copied to your clipboard.",
+        }));
+        return;
+      } catch (_) {
+        window.alert(pickText({
+          zh: "无法自动打开该路径。",
+          en: "Unable to open that path automatically.",
+        }));
+      }
+    }
+  }
+
+  function bindPathPickers() {
+    document.querySelectorAll("[data-pick-file][data-target-input]").forEach((button) => {
+      if (button.dataset.boundPickFile === "1") {
+        return;
+      }
+      button.dataset.boundPickFile = "1";
+      button.addEventListener("click", async () => {
+        const endpoint = button.dataset.pickEndpoint || "/api/system/pick-bundle-file";
+        const targetId = button.dataset.targetInput || "";
+        const target = targetId ? document.getElementById(targetId) : null;
+        if (!(target instanceof HTMLInputElement)) {
+          return;
+        }
+        button.disabled = true;
+        try {
+          const startPath = target.value ? `?start_path=${encodeURIComponent(target.value)}` : "";
+          const response = await fetch(`${endpoint}${startPath}`);
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.error || "failed");
+          }
+          if (payload.path) {
+            target.value = payload.path;
+            target.focus();
+            target.dispatchEvent(new Event("change", {bubbles: true}));
+          }
+        } catch (error) {
+          window.alert(error.message || pickText({
+            zh: "无法选择文件。",
+            en: "Unable to choose a file.",
+          }));
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
+  }
+
+  function bindRevealPathButtons() {
+    document.querySelectorAll("[data-reveal-path]").forEach((button) => {
+      if (button.dataset.boundRevealPath === "1") {
+        return;
+      }
+      button.dataset.boundRevealPath = "1";
+      button.addEventListener("click", () => revealPath(button.dataset.revealPath || ""));
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     setLocale(currentLocale(), {persist: false});
     setTheme(currentTheme(), {persist: false});
@@ -497,6 +612,8 @@
     bindOpenCards();
     bindPrimaryNavigation();
     bindNavPreferences();
+    bindPathPickers();
+    bindRevealPathButtons();
   });
 
   window.LooporaUI = {
@@ -513,6 +630,7 @@
     bindDeleteLoopButtons,
     bindOpenCards,
     bindPrimaryNavigation,
+    bindPathPickers,
   };
   if (typeof window.matchMedia === "function") {
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {

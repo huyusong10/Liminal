@@ -8,6 +8,7 @@ from loopora.utils import make_id
 from loopora.workflows import (
     ARCHETYPES,
     ROLE_EXECUTION_FIELDS,
+    ROLE_POSTURE_FIELDS,
     WorkflowError,
     build_preset_workflow,
     builtin_prompt_markdown,
@@ -95,6 +96,7 @@ class WorkflowAssetCatalog:
                     "archetype": archetype,
                     "prompt_ref": prompt_ref,
                     "prompt_markdown": builtin_prompt_markdown(prompt_ref),
+                    "posture_notes": "",
                     **default_role_execution_settings(),
                     "source": "builtin",
                     "editable": False,
@@ -183,6 +185,7 @@ class WorkflowAssetCatalog:
 
             definition = self.get_role_definition(role_definition_id)
             snapshot_fields = ("name", "archetype", "prompt_ref", *ROLE_EXECUTION_FIELDS)
+            snapshot_fields = (*snapshot_fields, *ROLE_POSTURE_FIELDS)
             role_label = str(role.get("id", "")).strip() or role_definition_id
             for field in snapshot_fields:
                 if field in role:
@@ -218,6 +221,7 @@ class WorkflowAssetCatalog:
         description: str = "",
         archetype: str,
         prompt_markdown: str,
+        posture_notes: str = "",
         prompt_ref: str = "",
         executor_kind: str = "codex",
         executor_mode: str = "preset",
@@ -232,6 +236,7 @@ class WorkflowAssetCatalog:
             "name": str(name).strip(),
             "description": str(description).strip(),
             "prompt_markdown": str(prompt_markdown),
+            "posture_notes": str(posture_notes or "").strip(),
         }
         if not normalized["name"]:
             raise ValueError("name is required")
@@ -307,6 +312,7 @@ class WorkflowAssetCatalog:
         description: str = "",
         archetype: str,
         prompt_markdown: str,
+        posture_notes: str = "",
         prompt_ref: str = "",
         executor_kind: str = "codex",
         executor_mode: str = "preset",
@@ -322,6 +328,7 @@ class WorkflowAssetCatalog:
             archetype=archetype,
             prompt_ref=prompt_ref,
             prompt_markdown=prompt_markdown,
+            posture_notes=posture_notes,
             executor_kind=executor_kind,
             executor_mode=executor_mode,
             command_cli=command_cli,
@@ -347,6 +354,7 @@ class WorkflowAssetCatalog:
         description: str = "",
         archetype: str,
         prompt_markdown: str,
+        posture_notes: str = "",
         prompt_ref: str = "",
         executor_kind: str = "codex",
         executor_mode: str = "preset",
@@ -371,6 +379,7 @@ class WorkflowAssetCatalog:
             archetype=normalized_archetype,
             prompt_ref=normalized_prompt_ref,
             prompt_markdown=prompt_markdown,
+            posture_notes=posture_notes,
             executor_kind=executor_kind,
             executor_mode=executor_mode,
             command_cli=command_cli,

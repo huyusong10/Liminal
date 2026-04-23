@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from loopora.markdown_tools import render_safe_markdown_html
 from loopora.web_overviews import (
@@ -57,11 +57,29 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
 
     @app.get("/loops/new", response_class=HTMLResponse)
     async def new_loop(request: Request) -> HTMLResponse:
-        return ctx.render_new_loop(request, values=request.query_params)
+        return ctx.render_new_loop(
+            request,
+            values=request.query_params,
+            import_values=request.query_params if request.query_params else None,
+        )
 
     @app.get("/orchestrations", response_class=HTMLResponse)
     async def orchestrations_page(request: Request) -> HTMLResponse:
         return ctx.render_orchestrations(request)
+
+    @app.get("/bundles", response_class=HTMLResponse)
+    async def bundles_page(request: Request):
+        replace_bundle_id = str(request.query_params.get("replace_bundle_id", "")).strip()
+        if replace_bundle_id:
+            return RedirectResponse(
+                url=f"/loops/new?replace_bundle_id={replace_bundle_id}#bundle-import-form",
+                status_code=303,
+            )
+        return ctx.render_bundles(request, import_values=request.query_params if request.query_params else None)
+
+    @app.get("/bundles/{bundle_id}", response_class=HTMLResponse)
+    async def bundle_detail_page(request: Request, bundle_id: str) -> HTMLResponse:
+        return ctx.render_bundle_detail(request, bundle_id)
 
     @app.get("/roles", response_class=HTMLResponse)
     async def role_definitions_page(request: Request) -> HTMLResponse:
@@ -157,4 +175,26 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
                 "latest_event_id": latest_event_id,
                 "access_state": ctx.access_state,
             },
+        )
+
+    @app.get("/bundles/derive/export")
+    async def derive_bundle_export(
+        loop_id: str,
+        name: str = "",
+        description: str = "",
+        collaboration_summary: str = "",
+    ) -> Response:
+        bundle = ctx.svc().derive_bundle_from_loop(
+            loop_id,
+            name=name.strip() or None,
+            description=description,
+            collaboration_summary=collaboration_summary,
+        )
+        filename = f"{bundle['metadata']['name'] or loop_id}.yml".replace("/", "-")
+        from loopora.bundles import bundle_to_yaml
+
+        return Response(
+            content=bundle_to_yaml(bundle),
+            media_type="application/yaml; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )

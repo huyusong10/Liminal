@@ -51,6 +51,35 @@ Loopora is built for a narrower and more useful shape:
 
 The point is not infinite autonomy. The point is to remove the human attention bottleneck by encoding the check-ins humans would otherwise perform over and over.
 
+## The new center: collaboration posture
+
+Loopora is moving from "workflow rule extraction" toward **task-scoped collaboration posture compilation**.
+
+Most users do not come to Loopora with a clean rulebook. They usually have a softer feeling: "when I work with AI on this kind of task, I keep making the same judgments, asking the same follow-up questions, and correcting the same shortcuts." That feeling is hard to write as a rigid workflow, but it can be expressed as a posture:
+
+- what counts as real evidence
+- what kinds of "fake done" should fail closed
+- when to value refactoring over speed
+- when to push forward, inspect first, ask a GateKeeper to decide, or let a Guide redirect the next round
+
+In Loopora, that posture is not stored in one magic prompt. It is carried together by the `spec`, the role definitions, and the workflow. The `spec` says what success and risk mean. The roles say how each agent should behave for this task. The workflow says when each kind of judgment should happen.
+
+## Bundle-first loop creation
+
+The recommended path is now:
+
+`task input -> external Agent + loopora-task-alignment Skill -> confirmed working agreement -> YAML bundle -> Create Loop -> run -> fuzzy feedback -> next bundle revision`
+
+Loopora itself does not become a chat product. The repo-local Skill helps an external Agent talk with the user, surface tradeoffs, confirm a transient working agreement, and produce a single YAML bundle. Loopora then imports that bundle from the **Create Loop** page and materializes the runnable loop, roles, orchestration, and spec as one managed unit.
+
+The bundle is both readable and runnable:
+
+- readable enough for humans to review why this collaboration shape exists
+- runnable enough for Loopora to execute without a separate agreement file
+- durable enough to revise after feedback like "this was too conservative" or "the loop did not care enough about refactoring"
+
+Manual role, orchestration, and loop editing still exists. It is the expert path for people who already know exactly which surface they want to change.
+
 ## A concrete project, five different loops
 
 Imagine one knowledge-base product replacing its old keyword-only search with a new hybrid search stack. Same product, same rollout, five different long tasks:
@@ -102,29 +131,29 @@ loopora serve --host 127.0.0.1 --port 8742
 
 Then open [http://127.0.0.1:8742](http://127.0.0.1:8742).
 
-3. Open the tutorial and orchestration pages first
+3. Install the alignment Skill, then create from a bundle
 
-Use the decision board to answer two questions: should this task enter Loopora at all, and if it should, which workflow should surface the first crucial signal so humans do not need to step back in immediately. Then open the closest built-in example. The example itself explains why `Builder`, `Inspector`, `GateKeeper`, and `Guide` are arranged that way.
+Open **Tools** to install the repo-local `loopora-task-alignment` Skill into your external Agent tool. Use that Agent to discuss the task, confirm the working agreement, and produce a YAML bundle. Then open **Create Loop**, import the bundle, and run it.
 
-4. Adapt the spec, then create a loop
+4. Use manual mode only when you already know the assets
 
-Loopora specs stay short. They only need:
+If you are not using a bundle, the manual path is still available on the same Create Loop page. Loopora specs stay short. They only need:
 
 - `# Task`
 - `# Done When`
 - `# Guardrails`
 - `# Role Notes`
 
-The easiest path is to start from the closest built-in example instead of writing one from scratch.
+The easiest manual path is still to start from the closest built-in example instead of writing one from scratch.
 
 ## Web UI first, CLI still available
 
-The Web UI is the recommended entry point because it keeps the full loop in one place:
+The Web UI is the recommended entry point because it keeps the new loop lifecycle in one place:
 
-- choose a workflow
-- open a real scenario example
-- adapt the spec
-- create the loop
+- install the alignment Skill
+- import a bundle from the Create Loop page
+- manage bundle-owned roles, orchestration, and spec together
+- derive or export bundles when you need to share or revise the collaboration shape
 - watch the round-by-round artifacts, evidence, and GateKeeper verdicts
 
 If you already know the loop you want, the CLI is still there:

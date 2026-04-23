@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from urllib.parse import urlencode
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse
@@ -43,6 +44,7 @@ class WebRouteRolePagesMixin:
         role_definition: Mapping[str, object] | None = None,
     ) -> HTMLResponse:
         locale = _preferred_request_locale(request)
+        return_to = str(request.query_params.get("return_to", "")).strip()
         incoming_values = values
         current_role_definition = dict(role_definition) if role_definition else None
         if values is None and current_role_definition is not None:
@@ -80,6 +82,8 @@ class WebRouteRolePagesMixin:
                 "submit_en": "Save role",
                 "action": "/roles/new",
             }
+        if return_to:
+            page_copy["action"] = f"{page_copy['action']}?{urlencode({'return_to': return_to})}"
         form_values = _normalize_role_definition_form(values, locale=locale)
         archetype_options = _archetype_options()
         selected_archetype_option = next(

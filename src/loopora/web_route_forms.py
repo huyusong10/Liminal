@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+from pathlib import Path
+from urllib.parse import quote_plus, urlencode, urlsplit, urlunsplit, parse_qsl
+
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 
 from loopora.service import LooporaError
 from loopora.specs import SpecError
 from loopora.web_inputs import (
+    _coerce_bool,
     _loop_payload_from_mapping,
+    _normalize_bundle_derive_form,
+    _normalize_bundle_import_form,
     _normalize_loop_form,
     _normalize_orchestration_form,
     _normalize_role_definition_form,
@@ -18,6 +24,18 @@ from loopora.workflows import WorkflowError
 
 
 def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+    def _with_query(url: str, **params: str) -> str:
+        target = str(url or "").strip()
+        if not target:
+            return target
+        parts = urlsplit(target)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        for key, value in params.items():
+            if value is None:
+                continue
+            query[key] = value
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
     @app.post("/loops/new")
     async def create_loop_from_form(request: Request):
         form = await request.form()
@@ -32,6 +50,31 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             return RedirectResponse(url=f"/loops/{loop['id']}", status_code=303)
         except (LooporaError, SpecError, FileExistsError, OSError, ValueError) as exc:
             return ctx.render_new_loop(request, values=values, form_error=str(exc))
+
+    @app.post("/loops/new/import-bundle")
+    async def import_bundle_from_create_loop_form(request: Request):
+        form = await request.form()
+        import_values = _normalize_bundle_import_form(form)
+        try:
+            bundle_path = str(form.get("bundle_path", "")).strip()
+            bundle_yaml = str(form.get("bundle_yaml", ""))
+            replace_bundle_id = str(form.get("replace_bundle_id", "")).strip() or None
+            if bundle_yaml.strip():
+                bundle = ctx.svc().import_bundle_text(bundle_yaml, replace_bundle_id=replace_bundle_id)
+            elif bundle_path:
+                bundle = ctx.svc().import_bundle_file(Path(bundle_path), replace_bundle_id=replace_bundle_id)
+            else:
+                raise LooporaError("bundle path or bundle YAML is required")
+            loop_id = str(bundle.get("loop_id", "") or "").strip()
+            if not loop_id:
+                return RedirectResponse(url=f"/bundles/{bundle['id']}", status_code=303)
+            if _coerce_bool(form.get("start_immediately")):
+                run = ctx.svc().start_run(loop_id)
+                ctx.svc().start_run_async(run["id"])
+                return RedirectResponse(url=f"/runs/{run['id']}", status_code=303)
+            return RedirectResponse(url=f"/loops/{loop_id}", status_code=303)
+        except (LooporaError, SpecError, FileExistsError, OSError, ValueError) as exc:
+            return ctx.render_new_loop(request, import_values=import_values, import_error=str(exc))
 
     @app.post("/orchestrations/new")
     async def create_orchestration_from_form(request: Request):
@@ -50,6 +93,7 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         form = await request.form()
         values = _normalize_orchestration_form(form)
         orchestration = ctx.svc().get_orchestration(orchestration_id)
+        return_to = str(request.query_params.get("return_to", "")).strip()
         try:
             if orchestration.get("source") == "builtin":
                 raise LooporaError("built-in orchestrations are read-only; create a new orchestration to customize one")
@@ -57,6 +101,8 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
                 orchestration_id,
                 **_orchestration_payload_from_mapping(form, default_to_preset=False),
             )
+            if return_to:
+                return RedirectResponse(url=_with_query(return_to, surface_updated="workflow"), status_code=303)
             return RedirectResponse(url=f"/orchestrations/{updated['id']}/edit?saved=1", status_code=303)
         except (LooporaError, WorkflowError, FileExistsError, OSError, ValueError) as exc:
             return ctx.render_new_orchestration(
@@ -81,11 +127,17 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         form = await request.form()
         values = _normalize_role_definition_form(form)
         role_definition = ctx.svc().get_role_definition(role_definition_id)
+        return_to = str(request.query_params.get("return_to", "")).strip()
         try:
             if role_definition.get("source") == "builtin":
                 created = ctx.svc().create_role_definition(**_role_definition_payload_from_mapping(form))
                 return RedirectResponse(url=f"/roles/{created['id']}/edit?saved=1", status_code=303)
             updated = ctx.svc().update_role_definition(role_definition_id, **_role_definition_payload_from_mapping(form))
+            if return_to:
+                return RedirectResponse(
+                    url=_with_query(return_to, surface_updated=f"role:{updated['id']}"),
+                    status_code=303,
+                )
             return RedirectResponse(url=f"/roles/{updated['id']}/edit?saved=1", status_code=303)
         except (LooporaError, FileExistsError, OSError, ValueError) as exc:
             return ctx.render_new_role_definition(
@@ -94,3 +146,56 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
                 form_error=str(exc),
                 role_definition=role_definition,
             )
+
+    @app.post("/bundles/import")
+    async def import_bundle_from_form(request: Request):
+        form = await request.form()
+        import_values = _normalize_bundle_import_form(form)
+        try:
+            bundle_path = str(form.get("bundle_path", "")).strip()
+            bundle_yaml = str(form.get("bundle_yaml", ""))
+            replace_bundle_id = str(form.get("replace_bundle_id", "")).strip() or None
+            if bundle_yaml.strip():
+                bundle = ctx.svc().import_bundle_text(bundle_yaml, replace_bundle_id=replace_bundle_id)
+            elif bundle_path:
+                bundle = ctx.svc().import_bundle_file(Path(bundle_path), replace_bundle_id=replace_bundle_id)
+            else:
+                raise LooporaError("bundle path or bundle YAML is required")
+            return RedirectResponse(url=f"/bundles/{bundle['id']}", status_code=303)
+        except (LooporaError, SpecError, FileExistsError, OSError, ValueError) as exc:
+            return ctx.render_new_loop(request, import_values=import_values, import_error=str(exc))
+
+    @app.post("/bundles/{bundle_id}/edit")
+    async def update_bundle_from_form(request: Request, bundle_id: str):
+        form = await request.form()
+        values = {
+            "description": str(form.get("description", "")),
+            "collaboration_summary": str(form.get("collaboration_summary", "")),
+            "spec_markdown": str(form.get("spec_markdown", "")),
+        }
+        try:
+            ctx.svc().update_bundle(
+                bundle_id,
+                description=str(form.get("description", "")),
+                collaboration_summary=str(form.get("collaboration_summary", "")),
+                spec_markdown=str(form.get("spec_markdown", "")),
+            )
+            return RedirectResponse(url=f"/bundles/{bundle_id}?saved=1", status_code=303)
+        except (LooporaError, SpecError, OSError, ValueError) as exc:
+            return ctx.render_bundle_detail(request, bundle_id, values=values, form_error=str(exc))
+
+    @app.post("/bundles/derive")
+    async def derive_bundle_from_form(request: Request):
+        form = await request.form()
+        derive_values = _normalize_bundle_derive_form(form)
+        loop_id = str(form.get("loop_id", "")).strip()
+        if not loop_id:
+            return ctx.render_bundles(request, derive_values=derive_values, derive_error="loop id is required")
+        query_parts = [
+            f"loop_id={loop_id}",
+        ]
+        for key in ("name", "description", "collaboration_summary"):
+            value = str(form.get(key, "")).strip()
+            if value:
+                query_parts.append(f"{key}={quote_plus(value)}")
+        return RedirectResponse(url=f"/bundles/derive/export?{'&'.join(query_parts)}", status_code=303)

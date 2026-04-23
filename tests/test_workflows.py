@@ -143,6 +143,26 @@ def test_workflow_warnings_cover_stale_and_prechange_gatekeeper_paths() -> None:
     ]
 
 
+def test_normalize_workflow_preserves_collaboration_intent() -> None:
+    workflow = normalize_workflow(
+        {
+            "version": 1,
+            "preset": "inspect_first",
+            "collaboration_intent": "Start with evidence, then commit to one repair slice.",
+            "roles": [
+                {"id": "inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            ],
+            "steps": [
+                {"id": "inspector_step", "role_id": "inspector"},
+                {"id": "builder_step", "role_id": "builder"},
+            ],
+        }
+    )
+
+    assert workflow["collaboration_intent"] == "Start with evidence, then commit to one repair slice."
+
+
 def test_resolve_prompt_files_drops_unused_entries() -> None:
     workflow = normalize_workflow(
         {

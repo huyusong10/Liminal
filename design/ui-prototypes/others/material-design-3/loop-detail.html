@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loop Detail — Loopora</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .detail-view { padding: 24px; max-width: 900px; margin: 0 auto; }
+        .back-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; color: var(--md-sys-color-on-surface-variant); text-decoration: none; }
+        .detail-header { background: var(--md-sys-color-surface); border-radius: var(--md-sys-shape-large); padding: 24px; margin-bottom: 16px; box-shadow: var(--md-sys-elevation-1); }
+        .detail-header h1 { font-size: 28px; font-weight: 400; margin-bottom: 8px; }
+        .detail-grid { display: grid; grid-template-columns: 280px 1fr; gap: 16px; }
+        .info-card { background: var(--md-sys-color-surface); border-radius: var(--md-sys-shape-medium); padding: 16px; box-shadow: var(--md-sys-elevation-1); }
+        .info-card h3 { font-size: 12px; font-weight: 500; letter-spacing: 0.5px; color: var(--md-sys-color-on-surface-variant); margin-bottom: 16px; }
+        .info-row { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; border-bottom: 1px solid var(--md-sys-color-surface-variant); }
+        .fab { position: fixed; bottom: 24px; right: 24px; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); border-radius: var(--md-sys-shape-large); box-shadow: var(--md-sys-elevation-3); text-decoration: none; }
+    </style>
+</head>
+<body>
+    <nav class="nav-rail">
+        <div class="nav-header"><div class="logo">●</div></div>
+        <div class="nav-items">
+            <a href="index.html" class="nav-item active"><span class="material-icons">dashboard</span><span class="nav-label">Loops</span></a>
+            <a href="#" class="nav-item"><span class="material-icons">account_tree</span><span class="nav-label">Orch</span></a>
+            <a href="#" class="nav-item"><span class="material-icons">group</span><span class="nav-label">Roles</span></a>
+        </div>
+    </nav>
+    <main class="main">
+        <header class="top-app-bar">
+            <h1 class="headline">Search Rollout Migration</h1>
+            <div class="actions"><div class="avatar">J</div></div>
+        </header>
+        <div class="content">
+            <div class="detail-view">
+                <a href="index.html" class="back-nav"><span class="material-icons">arrow_back</span> Back</a>
+                <div class="detail-header">
+                    <h1>Search Rollout Migration</h1>
+                    <p style="color: var(--md-sys-color-on-surface-variant);">loop_8x2k9m • build_first • 4/8 iterations</p>
+                </div>
+                <div class="detail-grid">
+                    <aside>
+                        <div class="info-card">
+                            <h3>CONFIGURATION</h3>
+                            <div class="info-row"><span>Orchestration</span><span>build_first</span></div>
+                            <div class="info-row"><span>Workdir</span><span>/workspace</span></div>
+                            <div class="info-row"><span>Max Iter</span><span>08</span></div>
+                        </div>
+                    </aside>
+                    <div>
+                        <div class="info-card">
+                            <h3>SPECIFICATION</h3>
+                            <p style="font-size: 14px; line-height: 1.6; color: var(--md-sys-color-on-surface-variant);">Migrate the knowledge-base product from old keyword-only search to new hybrid search stack.</p>
+                            <div style="margin-top: 16px;">
+                                <a href="run-detail.html" style="display: inline-flex; align-items: center; gap: 8px; color: var(--md-sys-color-primary); text-decoration: none; font-weight: 500;"><span class="material-icons">play_arrow</span> View Latest Run</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

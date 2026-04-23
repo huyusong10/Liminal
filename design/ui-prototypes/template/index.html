@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loopora — Loops</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app">
+        <nav class="navbar">
+            <div class="navbar-left">
+                <a href="index.html" class="brand">
+                    <div class="brand-logo">
+                        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="2"/>
+                            <circle cx="16" cy="16" r="9" stroke="currentColor" stroke-width="2"/>
+                            <circle cx="16" cy="16" r="4" fill="currentColor"/>
+                        </svg>
+                    </div>
+                    <span class="brand-name">Loopora</span>
+                </a>
+                <div class="navbar-nav">
+                    <a href="index.html" class="nav-link active">Loops</a>
+                    <a href="orchestrations.html" class="nav-link">Orchestrations</a>
+                    <a href="roles.html" class="nav-link">Roles</a>
+                    <a href="tools.html" class="nav-link">Tools</a>
+                    <a href="tutorial.html" class="nav-link">Tutorial</a>
+                </div>
+            </div>
+            <div class="navbar-right">
+                <div class="search-box">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M11.7422 10.3439C12.5329 9.2673 13 7.9382 13 6.5C13 2.91015 10.0899 0 6.5 0C2.91015 0 0 2.91015 0 6.5C0 10.0899 2.91015 13 6.5 13C7.9382 13 9.2673 12.5329 10.3439 11.7422L14.1464 15.5446C14.3417 15.7399 14.6583 15.7399 14.8536 15.5446L15.5446 14.8536C15.7399 14.6583 15.7399 14.3417 15.5446 14.1464L11.7422 10.3439ZM6.5 11C4.01472 11 2 8.98528 2 6.5C2 4.01472 4.01472 2 6.5 2C8.98528 2 11 4.01472 11 6.5C11 8.98528 8.98528 11 6.5 11Z"/>
+                    </svg>
+                    <input type="text" placeholder="Search loops...">
+                </div>
+                <a href="create-loop.html" class="btn btn-primary">+ New Loop</a>
+                <div class="user-menu">
+                    <div class="user-avatar">JD</div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="main-container">
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <div class="section-header">Loops</div>
+                    <nav class="sidebar-nav">
+                        <a href="index.html" class="nav-item active">
+                            <span class="nav-icon">▶</span>
+                            <span class="nav-label">Active</span>
+                            <span class="nav-badge">3</span>
+                        </a>
+                        <a href="#" class="nav-item">
+                            <span class="nav-icon">✓</span>
+                            <span class="nav-label">Completed</span>
+                            <span class="nav-badge">12</span>
+                        </a>
+                        <a href="#" class="nav-item">
+                            <span class="nav-icon">◐</span>
+                            <span class="nav-label">Drafts</span>
+                            <span class="nav-badge">1</span>
+                        </a>
+                    </nav>
+                </div>
+                <div class="sidebar-section">
+                    <div class="section-header">Library</div>
+                    <nav class="sidebar-nav">
+                        <a href="orchestrations.html" class="nav-item">
+                            <span class="nav-icon">⚙</span>
+                            <span class="nav-label">Orchestrations</span>
+                        </a>
+                        <a href="roles.html" class="nav-item">
+                            <span class="nav-icon">◧</span>
+                            <span class="nav-label">Roles</span>
+                        </a>
+                        <a href="tools.html" class="nav-item">
+                            <span class="nav-icon">🛠</span>
+                            <span class="nav-label">Tools</span>
+                        </a>
+                        <a href="tutorial.html" class="nav-item">
+                            <span class="nav-icon">📖</span>
+                            <span class="nav-label">Tutorial</span>
+                        </a>
+                    </nav>
+                </div>
+            </aside>
+
+            <main class="content">
+                <div class="content-header">
+                    <h1>Active Loops</h1>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-secondary">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+                            </svg>
+                            Filter
+                        </button>
+                        <a href="create-loop.html" class="btn btn-primary">+ New Loop</a>
+                    </div>
+                </div>
+
+                <div class="loops-list">
+                    <a href="loop-detail.html" class="loop-item">
+                        <div class="loop-icon running">
+                            <span class="status-pulse"></span>
+                        </div>
+                        <div class="loop-content">
+                            <div class="loop-title">Search Rollout Migration</div>
+                            <div class="loop-subtitle">Iteration 4 of 8 • GateKeeper evaluating</div>
+                        </div>
+                        <div class="loop-meta">2m ago</div>
+                        <div class="loop-chevron">›</div>
+                    </a>
+
+                    <a href="#" class="loop-item">
+                        <div class="loop-icon running">
+                            <span class="status-pulse"></span>
+                        </div>
+                        <div class="loop-content">
+                            <div class="loop-title">API Documentation Update</div>
+                            <div class="loop-subtitle">Iteration 2 of 6 • Inspector reviewing</div>
+                        </div>
+                        <div class="loop-meta">15m ago</div>
+                        <div class="loop-chevron">›</div>
+                    </a>
+
+                    <a href="#" class="loop-item">
+                        <div class="loop-icon completed">✓</div>
+                        <div class="loop-content">
+                            <div class="loop-title">Database Migration V2</div>
+                            <div class="loop-subtitle">Completed • All roles finished</div>
+                        </div>
+                        <div class="loop-meta">2h ago</div>
+                        <div class="loop-chevron">›</div>
+                    </a>
+                </div>
+            </main>
+        </div>
+    </div>
+</body>
+</html>

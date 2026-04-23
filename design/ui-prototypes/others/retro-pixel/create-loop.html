@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEW GAME - Retro Pixel</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .create-header { margin-bottom: 24px; padding: 16px; background: var(--bg-dark); border: 4px solid var(--accent-3); }
+        .create-header h1 { font-size: 18px; color: var(--accent-3); margin-bottom: 8px; }
+        .create-header p { color: var(--text-dim); font-size: 11px; }
+        .form-card { background: var(--bg-dark); border: 4px solid var(--bg-light); padding: 16px; margin-bottom: 16px; }
+        .form-card h3 { font-size: 12px; color: var(--accent-2); margin-bottom: 16px; padding-bottom: 8px; border-bottom: 2px solid var(--bg-light); }
+        .form-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+        .form-group { display: flex; flex-direction: column; gap: 8px; }
+        .form-group label { font-size: 10px; color: var(--text-dim); }
+        .form-group input, .form-group select { padding: 12px; background: var(--bg); border: 2px solid var(--bg-light); color: var(--text); font-family: var(--pixel-font); font-size: 11px; outline: none; }
+        .form-group input:focus, .form-group select:focus { border-color: var(--accent-2); }
+        .class-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+        .class-option input { position: absolute; opacity: 0; }
+        .class-card { display: flex; flex-direction: column; align-items: center; padding: 16px; background: var(--bg); border: 2px solid var(--bg-light); cursor: pointer; text-align: center; }
+        .class-option input:checked + .class-card { border-color: var(--accent-2); box-shadow: 0 0 16px rgba(0, 245, 255, 0.3); }
+        .class-icon { font-size: 32px; margin-bottom: 8px; }
+        .class-name { font-size: 10px; color: var(--text); margin-bottom: 4px; }
+        .class-desc { font-size: 9px; color: var(--text-dim); }
+        .editor-box { border: 2px solid var(--bg-light); background: var(--bg); }
+        .editor-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--bg-light); border-bottom: 2px solid var(--bg-light); }
+        .editor-header span { font-size: 9px; color: var(--text-dim); }
+        .editor { width: 100%; min-height: 200px; padding: 12px; background: transparent; border: none; color: var(--text); font-family: var(--pixel-font); font-size: 10px; line-height: 1.8; resize: vertical; outline: none; }
+        .form-actions { display: flex; justify-content: flex-end; gap: 12px; padding-top: 16px; }
+        @media (max-width: 768px) { .form-row { grid-template-columns: 1fr; } .class-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="crt-overlay"></div>
+    <div class="scanlines"></div>
+
+    <nav class="nav">
+        <div class="nav-brand">
+            <div class="pixel-logo">
+                <div class="pixel-grid">
+                    <div class="p-cell on"></div><div class="p-cell on"></div><div class="p-cell on"></div><div class="p-cell on"></div>
+                    <div class="p-cell on"></div><div class="p-cell off"></div><div class="p-cell off"></div><div class="p-cell on"></div>
+                    <div class="p-cell on"></div><div class="p-cell off"></div><div class="p-cell off"></div><div class="p-cell on"></div>
+                    <div class="p-cell on"></div><div class="p-cell on"></div><div class="p-cell on"></div><div class="p-cell on"></div>
+                </div>
+            </div>
+            <span class="brand-text">LOOPORA</span>
+        </div>
+        <div class="nav-links">
+            <a href="index.html">[LOOPS]</a>
+            <a href="#">[ORCH]</a>
+            <a href="#">[ROLES]</a>
+            <a href="#">[HELP]</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <header class="create-header">
+            <h1>◆ NEW GAME</h1>
+            <p>Create your adventure. Choose your class and begin the quest.</p>
+        </header>
+
+        <form>
+            <div class="form-card">
+                <h3>◆ CHARACTER</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>NAME</label>
+                        <input type="text" placeholder="ENTER NAME...">
+                    </div>
+                    <div class="form-group">
+                        <label>PATH</label>
+                        <input type="text" placeholder="/WORLD/LEVEL1">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-card">
+                <h3>◆ SELECT CLASS</h3>
+                <div class="class-grid">
+                    <label class="class-option">
+                        <input type="radio" name="class" value="build" checked>
+                        <div class="class-card">
+                            <div class="class-icon">🔄</div>
+                            <div class="class-name">BUILD_FIRST</div>
+                            <div class="class-desc">Initial builds</div>
+                        </div>
+                    </label>
+                    <label class="class-option">
+                        <input type="radio" name="class" value="inspect">
+                        <div class="class-card">
+                            <div class="class-icon">🔍</div>
+                            <div class="class-name">INSPECT_FIRST</div>
+                            <div class="class-desc">Find issues</div>
+                        </div>
+                    </label>
+                    <label class="class-option">
+                        <input type="radio" name="class" value="triage">
+                        <div class="class-card">
+                            <div class="class-icon">⚡</div>
+                            <div class="class-name">TRIAGE_FIRST</div>
+                            <div class="class-desc">Sort priority</div>
+                        </div>
+                    </label>
+                    <label class="class-option">
+                        <input type="radio" name="class" value="repair">
+                        <div class="class-card">
+                            <div class="class-icon">🛠️</div>
+                            <div class="class-name">REPAIR_LOOP</div>
+                            <div class="class-desc">Fix iteratively</div>
+                        </div>
+                    </label>
+                    <label class="class-option">
+                        <input type="radio" name="class" value="benchmark">
+                        <div class="class-card">
+                            <div class="class-icon">📊</div>
+                            <div class="class-name">BENCHMARK</div>
+                            <div class="class-desc">Metrics focus</div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-card">
+                <h3>◆ QUEST LOG</h3>
+                <div class="editor-box">
+                    <div class="editor-header">
+                        <span>QUEST_DATA</span>
+                        <div>
+                            <button type="button" class="btn-pixel secondary" style="font-size: 9px;">LOAD</button>
+                            <button type="button" class="btn-pixel secondary" style="font-size: 9px;">PREVIEW</button>
+                        </div>
+                    </div>
+                    <textarea class="editor" placeholder="# QUEST
+
+Describe mission...
+
+# OBJECTIVES
+
+- [ ] Task 1
+- [ ] Task 2
+
+# CONSTRAINTS
+
+- Rule 1
+- Rule 2"></textarea>
+                </div>
+            </div>
+
+            <div class="form-card">
+                <h3>◆ SETTINGS</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>MAX LIVES</label>
+                        <input type="number" value="8" min="1" max="50">
+                    </div>
+                    <div class="form-group">
+                        <label>ENGINE</label>
+                        <select><option>codex</option><option>claude</option></select>
+                    </div>
+                    <div class="form-group">
+                        <label>MODEL</label>
+                        <select><option>gpt-5.4</option><option>claude-opus</option></select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <a href="index.html" class="btn-pixel secondary">CANCEL</a>
+                <button type="submit" class="btn-pixel">START GAME</button>
+            </div>
+        </form>
+    </main>
+</body>
+</html>

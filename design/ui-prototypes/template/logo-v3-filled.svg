@@ -1,0 +1,28 @@
+<svg viewBox="0 0 512 512" width="512" height="512" xmlns="http://www.w3.org/2000/svg">
+  <!-- V3: Semi-transparent Fill - Modern glassmorphism feel -->
+  <defs>
+    <linearGradient id="v3-fill-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d66a36" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#0d7c66" stop-opacity="0.9" />
+    </linearGradient>
+    <linearGradient id="v3-stroke-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#d66a36" />
+      <stop offset="100%" stop-color="#0d7c66" />
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="128" fill="#ffffff" />
+
+  <!-- Infinity loop with semi-transparent fill -->
+  <path d="M 130 256 C 130 140, 245 140, 256 256 C 267 372, 382 372, 382 256 C 382 140, 267 140, 256 256 C 245 372, 130 372, 130 256 Z"
+        fill="url(#v3-fill-grad)"
+        fill-opacity="0.15"
+        stroke="url(#v3-stroke-grad)"
+        stroke-width="24"
+        stroke-linecap="round"
+        stroke-linejoin="round" />
+
+  <!-- Solid center dot -->
+  <circle cx="256" cy="256" r="24" fill="url(#v3-stroke-grad)" />
+  <circle cx="256" cy="256" r="10" fill="#ffffff" />
+</svg>

@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run Detail // Loopora CYBERPUNK</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .run-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .run-title {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .run-title h1 {
+            font-family: var(--font-display);
+            font-size: 1.75rem;
+            letter-spacing: 2px;
+        }
+
+        .live-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            border: 1px solid var(--neon-pink);
+            color: var(--neon-pink);
+            font-size: 0.625rem;
+            letter-spacing: 2px;
+        }
+
+        .pulse-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--neon-pink);
+            border-radius: 50%;
+            animation: pulse 1s ease-in-out infinite;
+        }
+
+        .run-stats {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .stat-box {
+            text-align: right;
+        }
+
+        .stat-value {
+            font-family: var(--font-display);
+            font-size: 1.5rem;
+            color: var(--neon-cyan);
+        }
+
+        .stat-label {
+            font-size: 0.625rem;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+        }
+
+        .workflow-track {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0;
+            margin-bottom: 2rem;
+            padding: 2rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+        }
+
+        .workflow-node {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .node-box {
+            width: 56px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--border);
+            border: 1px solid var(--border-glow);
+            font-family: var(--font-display);
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+
+        .workflow-node.completed .node-box {
+            background: var(--success);
+            border-color: var(--success);
+            color: var(--bg);
+            box-shadow: 0 0 20px var(--success);
+        }
+
+        .workflow-node.active .node-box {
+            background: var(--neon-pink);
+            border-color: var(--neon-pink);
+            color: var(--bg);
+            box-shadow: 0 0 30px var(--neon-pink);
+            animation: node-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes node-pulse {
+            0%, 100% { box-shadow: 0 0 30px var(--neon-pink); }
+            50% { box-shadow: 0 0 50px var(--neon-pink); }
+        }
+
+        .node-label {
+            font-size: 0.625rem;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+        }
+
+        .workflow-node.active .node-label {
+            color: var(--neon-pink);
+        }
+
+        .node-connector {
+            width: 80px;
+            height: 2px;
+            background: var(--border);
+            margin: 0 0.5rem;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        .node-connector.completed {
+            background: var(--success);
+            box-shadow: 0 0 10px var(--success);
+        }
+
+        .node-connector.active::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 50%;
+            height: 100%;
+            background: var(--neon-pink);
+            box-shadow: 0 0 10px var(--neon-pink);
+            animation: flow 2s linear infinite;
+        }
+
+        @keyframes flow {
+            0% { left: 0; }
+            100% { left: 100%; }
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            gap: 1.5rem;
+        }
+
+        .panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            padding: 1.5rem;
+        }
+
+        .panel h3 {
+            font-family: var(--font-display);
+            font-size: 0.75rem;
+            color: var(--neon-cyan);
+            letter-spacing: 2px;
+            margin-bottom: 1rem;
+        }
+
+        .artifact-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            margin-bottom: 0.75rem;
+        }
+
+        .artifact-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .file-icon {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--neon-cyan);
+            color: var(--bg);
+            font-size: 1.25rem;
+        }
+
+        .artifact-info {
+            flex: 1;
+        }
+
+        .artifact-name {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--text);
+        }
+
+        .artifact-meta {
+            font-size: 0.625rem;
+            color: var(--text-muted);
+        }
+
+        .terminal {
+            font-family: var(--font-mono);
+            font-size: 0.8125rem;
+            line-height: 1.8;
+            max-height: 400px;
+            overflow-y: auto;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 1rem;
+        }
+
+        .terminal-line {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .timestamp {
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .role-tag {
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .role-tag.builder { color: var(--neon-pink); }
+        .role-tag.inspector { color: var(--neon-cyan); }
+        .role-tag.gatekeeper { color: var(--neon-purple); }
+
+        .message {
+            color: var(--text);
+        }
+
+        .current-line {
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0.5; }
+        }
+
+        .breadcrumb {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.75rem;
+        }
+
+        .breadcrumb a {
+            color: var(--text-muted);
+            text-decoration: none;
+        }
+
+        .breadcrumb a:hover {
+            color: var(--neon-cyan);
+        }
+
+        .breadcrumb span {
+            color: var(--neon-cyan);
+        }
+
+        @media (max-width: 768px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .workflow-track {
+                flex-wrap: wrap;
+                gap: 1rem;
+            }
+
+            .node-connector {
+                display: none;
+            }
+
+            .run-stats {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="scanlines"></div>
+    <div class="grid-overlay"></div>
+
+    <nav class="nav">
+        <div class="nav-brand">
+            <svg class="logo glitch" viewBox="0 0 512 512" width="40" height="40">
+                <rect width="512" height="512" rx="0" fill="#0a0a0f"/>
+                <path d="M 130 256 C 130 140, 245 140, 256 256 C 267 372, 382 372, 382 256 C 382 140, 267 140, 256 256 C 245 372, 130 372, 130 256 Z"
+                      fill="none" stroke="#ff2a6d" stroke-width="48" stroke-linecap="square"/>
+                <circle cx="256" cy="256" r="32" fill="#0a0a0f" stroke="#05d9e8" stroke-width="8"/>
+            </svg>
+            <div class="brand-text">
+                <span class="brand-main">LOOPORA</span>
+                <span class="brand-sub">v2.0.77</span>
+            </div>
+        </div>
+        <div class="nav-links">
+            <a href="index.html" class="active">[LOOPS]</a>
+            <a href="orchestrations.html">[ORCH]</a>
+            <a href="roles.html">[ROLES]</a>
+            <a href="tutorial.html">[HELP]</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">LOOPS</a>
+            <span>/</span>
+            <a href="loop-detail.html">SEARCH_ROLLOUT_MIGRATION</a>
+            <span>/</span>
+            <span>RUN_04</span>
+        </div>
+
+        <header class="run-header">
+            <div>
+                <div class="run-title">
+                    <h1>RUN_04</h1>
+                    <div class="live-badge">
+                        <span class="pulse-dot"></span>
+                        <span>LIVE</span>
+                    </div>
+                </div>
+                <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 0.5rem;">GATEKEEPER_EVAL: Reviewing build artifacts</p>
+            </div>
+            <div class="run-stats">
+                <div class="stat-box">
+                    <div class="stat-value">12:34</div>
+                    <div class="stat-label">ELAPSED</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">4/4</div>
+                    <div class="stat-label">ROLES</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="workflow-track">
+            <div class="workflow-node completed">
+                <div class="node-box">B</div>
+                <div class="node-label">BUILDER</div>
+            </div>
+            <div class="node-connector completed"></div>
+            <div class="workflow-node completed">
+                <div class="node-box">I</div>
+                <div class="node-label">INSPECTOR</div>
+            </div>
+            <div class="node-connector active"></div>
+            <div class="workflow-node active">
+                <div class="node-box">G</div>
+                <div class="node-label">GATEKEEPER</div>
+            </div>
+            <div class="node-connector"></div>
+            <div class="workflow-node">
+                <div class="node-box">Gu</div>
+                <div class="node-label">GUIDE</div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <div class="panel">
+                <h3>ARTIFACTS</h3>
+                <div class="artifact-item">
+                    <div class="file-icon">📄</div>
+                    <div class="artifact-info">
+                        <div class="artifact-name">build-report.md</div>
+                        <div class="artifact-meta">2.4 KB • GENERATED_BY_BUILDER</div>
+                    </div>
+                    <a href="#" class="btn-ghost">[OPEN]</a>
+                </div>
+                <div class="artifact-item">
+                    <div class="file-icon" style="background: var(--neon-pink);">🔍</div>
+                    <div class="artifact-info">
+                        <div class="artifact-name">inspection-results.json</div>
+                        <div class="artifact-meta">15.8 KB • GENERATED_BY_INSPECTOR</div>
+                    </div>
+                    <a href="#" class="btn-ghost">[OPEN]</a>
+                </div>
+                <div class="artifact-item">
+                    <div class="file-icon" style="background: var(--neon-purple);">📊</div>
+                    <div class="artifact-info">
+                        <div class="artifact-name">gatekeeper-verdict.md</div>
+                        <div class="artifact-meta" style="color: var(--neon-pink);">GENERATING...</div>
+                    </div>
+                    <span style="color: var(--text-muted);">...</span>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>LIVE_STREAM</h3>
+                <div class="terminal">
+                    <div class="terminal-line">
+                        <span class="timestamp">12:34:05</span>
+                        <span class="role-tag builder">[BUILDER]</span>
+                        <span class="message">Search index build complete: 45,230 documents indexed</span>
+                    </div>
+                    <div class="terminal-line">
+                        <span class="timestamp">12:34:12</span>
+                        <span class="role-tag builder">[BUILDER]</span>
+                        <span class="message">API endpoints updated: /search, /suggest, /index</span>
+                    </div>
+                    <div class="terminal-line">
+                        <span class="timestamp">12:35:48</span>
+                        <span class="role-tag inspector">[INSPECTOR]</span>
+                        <span class="message">Evidence collection initiated...</span>
+                    </div>
+                    <div class="terminal-line">
+                        <span class="timestamp">12:36:02</span>
+                        <span class="role-tag inspector">[INSPECTOR]</span>
+                        <span class="message">Test queries: 150/150 PASSED</span>
+                    </div>
+                    <div class="terminal-line">
+                        <span class="timestamp">12:37:01</span>
+                        <span class="role-tag gatekeeper">[GATEKEEPER]</span>
+                        <span class="message">Reviewing build artifacts...</span>
+                    </div>
+                    <div class="terminal-line current-line">
+                        <span class="timestamp">12:37:45</span>
+                        <span class="role-tag gatekeeper">[GATEKEEPER]</span>
+                        <span class="message">Analyzing integration test coverage...</span>
+                        <span style="color: var(--neon-pink);">█</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="corner-decoration top-left"></div>
+    <div class="corner-decoration top-right"></div>
+    <div class="corner-decoration bottom-left"></div>
+    <div class="corner-decoration bottom-right"></div>
+</body>
+</html>

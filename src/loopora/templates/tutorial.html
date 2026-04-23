@@ -9,8 +9,8 @@
         <span data-lang="en">Use Loopora when a strong agent could do the work, but humans should not have to keep coming back to confirm and redirect it.</span>
       </h1>
       <p>
-        <span data-lang="zh">Loopora 不是因为 agent 完全做不到，而是因为如果没有一条 `Builder → Inspector → GateKeeper → Guide` 的流程，人类就得在每个关键阶段反复回来检查、裁决和纠偏。它把这些高频确认点编排进 loop，减少人工介入次数。</span>
-        <span data-lang="en">Loopora is not here because the agent is helpless. It is here because, without a `Builder → Inspector → GateKeeper → Guide` flow, humans keep getting pulled back in to inspect, judge, and redirect the work after every meaningful step.</span>
+        <span data-lang="zh">Loopora 不是因为 agent 完全做不到，而是因为如果没有一条能承载协作姿态的流程，人类就得在每个关键阶段反复回来检查、裁决和纠偏。现在推荐先让外部 Agent + Skill 对齐任务，产出 bundle，再在“创建循环”页导入运行。</span>
+        <span data-lang="en">Loopora is not here because the agent is helpless. It is here because, without a workflow that carries the right collaboration posture, humans keep getting pulled back in to inspect, judge, and redirect the work after every meaningful step. The recommended path is now to align with an external Agent + Skill, produce a bundle, then import it from Create Loop.</span>
       </p>
     </div>
   </section>
@@ -21,24 +21,31 @@
     </header>
     <div class="tutorial-guide-grid tutorial-guide-grid-compact">
       <article class="tutorial-guide-card" data-testid="tutorial-core-spec">
-        <strong class="tutorial-guide-title"><span data-lang="zh">减少人工反复介入</span><span data-lang="en">Reduce repeated human check-ins</span></strong>
+        <strong class="tutorial-guide-title"><span data-lang="zh">编译协作姿态</span><span data-lang="en">Compile collaboration posture</span></strong>
         <p>
-          <span data-lang="zh">如果没有 loop，人类会在每个关键阶段回来问同一类问题：这轮到底算不算过、下一步该盯哪一层、是不是该转方向。Loopora 的价值，就是把这些反复出现的确认点交给流程本身处理。</span>
-          <span data-lang="en">Without a loop, humans keep returning to ask the same questions: did this round actually cross the line, which layer matters next, and should the work change direction? Loopora turns those repeated checkpoints into workflow structure.</span>
+          <span data-lang="zh">Loopora 不要求你先写出一套完整规则。它更关心这次任务里的协作姿态：什么算真证据、什么是假完成、什么时候该重构、什么时候该先裁决再继续。</span>
+          <span data-lang="en">Loopora does not ask you to write a complete rulebook first. It cares about the task-scoped posture: what counts as evidence, what is fake done, when refactoring matters, and when judgment should happen before more work.</span>
         </p>
       </article>
       <article class="tutorial-guide-card" data-testid="tutorial-core-workflow">
-        <strong class="tutorial-guide-title"><span data-lang="zh">角色分工</span><span data-lang="en">Role story</span></strong>
+        <strong class="tutorial-guide-title"><span data-lang="zh">三层共同承载</span><span data-lang="en">Carried by three surfaces</span></strong>
         <p>
-          <span data-lang="zh">Builder 推进实现，Inspector 重看证据，GateKeeper 替团队做通过与否的裁决，Guide 只在停滞或走偏时收窄下一步。它们一起替人类吸收本来要反复介入的监督工作。</span>
-          <span data-lang="en">Builder pushes the implementation, Inspector reopens the evidence, GateKeeper makes the pass-or-no-pass call, and Guide only narrows the next move when the loop stalls or drifts. Together they absorb the supervision work that would otherwise keep dragging humans back in.</span>
+          <span data-lang="zh">姿态不是一段 prompt。`spec` 定义成功和风险，角色定义表达每个角色的行为气质，workflow 决定这些判断何时发生。三者合在一起，才是可运行的协作约定。</span>
+          <span data-lang="en">Posture is not a single prompt. The `spec` defines success and risk, role definitions express how each role should behave, and the workflow decides when those judgments happen. Together they absorb the supervision work that would otherwise keep dragging humans back in.</span>
+        </p>
+      </article>
+      <article class="tutorial-guide-card" data-testid="tutorial-core-bundle">
+        <strong class="tutorial-guide-title"><span data-lang="zh">Bundle 是入口</span><span data-lang="en">Bundle is the entry</span></strong>
+        <p>
+          <span data-lang="zh">working agreement 只在对齐阶段存在，用来让用户确认“Loopora 是否理解了我”。最终导入的是单文件 YAML bundle；它既能被人读懂，也能直接物化成 loop、角色定义、spec 和流程编排。</span>
+          <span data-lang="en">The working agreement is transient: it helps the user confirm whether Loopora understood the task. The durable artifact is a single YAML bundle that is readable by humans and runnable as a loop, roles, spec, and orchestration.</span>
         </p>
       </article>
       <article class="tutorial-guide-card" data-testid="tutorial-core-loop">
         <strong class="tutorial-guide-title"><span data-lang="zh">什么时候别用</span><span data-lang="en">When not to use it</span></strong>
         <p>
-          <span data-lang="zh">如果一位强 Agent 加上一轮人工 review 就够了，就别开 loop。Loopora 只该用在那些本来会把人类反复拉回来确认和纠偏的长程任务上。</span>
-          <span data-lang="en">If one strong agent pass plus one human review is enough, skip the loop. Use Loopora only for long tasks that would otherwise keep pulling humans back in to confirm and redirect them.</span>
+          <span data-lang="zh">如果一位强 Agent 加上一轮人工 review 就够了，就别开 loop。Loopora 只该用在那些本来会把人类反复拉回来确认和纠偏，而且后续还需要用模糊反馈继续修订姿态的长程任务上。</span>
+          <span data-lang="en">If one strong agent pass plus one human review is enough, skip the loop. Use Loopora only for long tasks that would otherwise keep pulling humans back in to confirm, redirect, and later revise the posture with fuzzy feedback.</span>
         </p>
       </article>
     </div>
@@ -184,16 +191,30 @@
 
   <section class="panel" data-testid="tutorial-actions-panel">
     <header class="panel-header">
-      <h2><span data-lang="zh">从哪里开始</span><span data-lang="en">Where to start</span></h2>
+      <div>
+        <h2><span data-lang="zh">从哪里开始</span><span data-lang="en">Where to start</span></h2>
+        <p class="tutorial-panel-copy">
+          <span data-lang="zh">默认不要先手搓流程。先安装对齐 Skill，让外部 Agent 和你把任务姿态聊清楚，再把生成的 bundle 导入“创建循环”。手动编排继续保留，但它是 expert mode。</span>
+          <span data-lang="en">Do not start by hand-building the flow. Install the alignment Skill, let an external Agent clarify the task posture with you, then import the generated bundle from Create Loop. Manual orchestration still exists, but it is expert mode.</span>
+        </p>
+      </div>
     </header>
     <div class="card-actions">
-      <a class="secondary-button" href="/orchestrations">
-        <span data-lang="zh">看流程编排</span>
-        <span data-lang="en">Open orchestrations</span>
+      <a class="secondary-button" href="/tools">
+        <span data-lang="zh">安装对齐 Skill</span>
+        <span data-lang="en">Install alignment Skill</span>
       </a>
-      <a class="ghost-button" href="/loops/new">
-        <span data-lang="zh">创建 loop</span>
-        <span data-lang="en">Create loop</span>
+      <a class="primary-button" href="/loops/new#bundle-import-form">
+        <span data-lang="zh">导入 Bundle 创建循环</span>
+        <span data-lang="en">Import Bundle to Create Loop</span>
+      </a>
+      <a class="ghost-button" href="/loops/new#manual-loop-form">
+        <span data-lang="zh">手动专家模式</span>
+        <span data-lang="en">Manual Expert Mode</span>
+      </a>
+      <a class="ghost-button" href="/orchestrations">
+        <span data-lang="zh">查看流程样例</span>
+        <span data-lang="en">Browse workflow examples</span>
       </a>
     </div>
   </section>

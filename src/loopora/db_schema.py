@@ -114,12 +114,29 @@ class RepositorySchemaMixin:
                     archetype TEXT NOT NULL,
                     prompt_ref TEXT NOT NULL,
                     prompt_markdown TEXT NOT NULL,
+                    posture_notes TEXT NOT NULL DEFAULT '',
                     executor_kind TEXT NOT NULL DEFAULT 'codex',
                     executor_mode TEXT NOT NULL DEFAULT 'preset',
                     command_cli TEXT NOT NULL DEFAULT 'codex',
                     command_args_text TEXT NOT NULL DEFAULT '',
                     model TEXT NOT NULL DEFAULT '',
                     reasoning_effort TEXT NOT NULL DEFAULT 'medium',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS bundle_definitions (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    collaboration_summary TEXT NOT NULL DEFAULT '',
+                    workdir TEXT NOT NULL DEFAULT '',
+                    loop_id TEXT NOT NULL DEFAULT '',
+                    orchestration_id TEXT NOT NULL DEFAULT '',
+                    role_definition_ids_json TEXT NOT NULL DEFAULT '[]',
+                    source_bundle_id TEXT NOT NULL DEFAULT '',
+                    revision INTEGER NOT NULL DEFAULT 1,
+                    imported_from_path TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -147,6 +164,7 @@ class RepositorySchemaMixin:
             self._ensure_column(connection, "role_definitions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
             self._ensure_column(connection, "role_definitions", "command_cli", "TEXT NOT NULL DEFAULT 'codex'")
             self._ensure_column(connection, "role_definitions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "role_definitions", "posture_notes", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "role_definitions", "reasoning_effort", "TEXT NOT NULL DEFAULT 'medium'")
         log_event(
             logger,

@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run #04 — Loopora</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+
+        .breadcrumb a {
+            color: var(--text-secondary);
+            text-decoration: none;
+        }
+
+        .breadcrumb a:hover {
+            color: var(--accent);
+        }
+
+        .breadcrumb-separator {
+            color: var(--text-muted);
+        }
+
+        .run-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .run-title {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .run-number {
+            width: 64px;
+            height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, var(--accent), var(--success));
+            border-radius: 12px;
+            font-size: 28px;
+            font-weight: 700;
+            color: white;
+        }
+
+        .run-info h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .run-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .live-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(13, 124, 102, 0.15);
+            border: 1px solid var(--success);
+            border-radius: 6px;
+            color: var(--success);
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .workflow-timeline {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0;
+            margin-bottom: 32px;
+            padding: 32px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .timeline-node {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .node-circle {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-tertiary);
+            border: 2px solid var(--border);
+            border-radius: 50%;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        .timeline-node.completed .node-circle {
+            background: var(--success);
+            border-color: var(--success);
+            color: white;
+        }
+
+        .timeline-node.active .node-circle {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+            box-shadow: 0 0 0 4px rgba(214, 106, 54, 0.2);
+        }
+
+        .node-label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .timeline-node.active .node-label {
+            color: var(--accent);
+        }
+
+        .timeline-connector {
+            width: 60px;
+            height: 2px;
+            background: var(--border);
+            margin-bottom: 24px;
+        }
+
+        .timeline-connector.completed {
+            background: var(--success);
+        }
+
+        .timeline-connector.active {
+            background: linear-gradient(90deg, var(--success), var(--accent));
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 1.5fr;
+            gap: 24px;
+        }
+
+        .panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 16px 20px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+        }
+
+        .panel-content {
+            padding: 20px;
+        }
+
+        .artifact-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .artifact-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .artifact-item:hover {
+            border-color: var(--border-hover);
+        }
+
+        .artifact-icon {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-primary);
+            border-radius: 6px;
+            font-size: 18px;
+        }
+
+        .artifact-info {
+            flex: 1;
+        }
+
+        .artifact-name {
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .artifact-meta {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .artifact-link {
+            padding: 6px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .artifact-link:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .terminal {
+            font-family: var(--font-mono);
+            font-size: 13px;
+            line-height: 1.8;
+            background: #000;
+            color: #e6edf3;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            border-radius: 6px;
+        }
+
+        .terminal-line {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 4px;
+        }
+
+        .timestamp {
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .actor {
+            font-weight: 600;
+        }
+
+        .actor.builder { color: #7ee787; }
+        .actor.inspector { color: #79c0ff; }
+        .actor.gatekeeper { color: #ffa657; }
+
+        .terminal-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background: var(--accent);
+            animation: blink 1s infinite;
+            vertical-align: middle;
+            margin-left: 4px;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        @media (max-width: 1024px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .workflow-timeline {
+                flex-wrap: wrap;
+                gap: 16px;
+            }
+
+            .timeline-connector {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <div class="nav-left">
+            <a href="index.html" class="logo">
+                <svg viewBox="0 0 40 40" width="32" height="32">
+                    <defs>
+                        <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#d66a36"/>
+                            <stop offset="100%" style="stop-color:#0d7c66"/>
+                        </linearGradient>
+                    </defs>
+                    <circle cx="20" cy="20" r="18" fill="none" stroke="url(#logoGrad)" stroke-width="2"/>
+                    <circle cx="20" cy="20" r="12" fill="none" stroke="url(#logoGrad)" stroke-width="2"/>
+                    <circle cx="20" cy="20" r="5" fill="url(#logoGrad)"/>
+                </svg>
+                <span>loopora</span>
+            </a>
+            <div class="nav-links">
+                <a href="index.html" class="active">Loops</a>
+                <a href="#">Orch</a>
+                <a href="#">Roles</a>
+                <a href="#">Settings</a>
+            </div>
+        </div>
+        <div class="nav-right">
+            <div class="search-box">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M11.7422 10.3439C12.5329 9.2673 13 7.9382 13 6.5C13 2.91015 10.0899 0 6.5 0C2.91015 0 0 2.91015 0 6.5C0 10.0899 2.91015 13 6.5 13C7.9382 13 9.2673 12.5329 10.3439 11.7422L14.1464 15.5446C14.3417 15.7399 14.6583 15.7399 14.8536 15.5446L15.5446 14.8536C15.7399 14.6583 15.7399 14.3417 15.5446 14.1464L11.7422 10.3439ZM6.5 11C4.01472 11 2 8.98528 2 6.5C2 4.01472 4.01472 2 6.5 2C8.98528 2 11 4.01472 11 6.5C11 8.98528 8.98528 11 6.5 11Z"/>
+                </svg>
+                <input type="text" placeholder="Search loops...">
+                <span class="shortcut">⌘K</span>
+            </div>
+            <button class="icon-btn">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/>
+                </svg>
+            </button>
+            <div class="user-avatar">JD</div>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">Loops</a>
+            <span class="breadcrumb-separator">/</span>
+            <a href="loop-detail.html">Search Migration</a>
+            <span class="breadcrumb-separator">/</span>
+            <span>Run #04</span>
+        </div>
+
+        <header class="run-header">
+            <div class="run-title">
+                <div class="run-number">04</div>
+                <div class="run-info">
+                    <h1>Run #04</h1>
+                    <div class="run-meta">
+                        <span>Duration: 12:34</span>
+                        <span>•</span>
+                        <span>4 roles active</span>
+                        <span>•</span>
+                        <span>Started 12 min ago</span>
+                    </div>
+                </div>
+            </div>
+            <div class="live-badge">
+                <span class="live-dot"></span>
+                Live
+            </div>
+        </header>
+
+        <div class="workflow-timeline">
+            <div class="timeline-node completed">
+                <div class="node-circle">B</div>
+                <div class="node-label">Builder</div>
+            </div>
+            <div class="timeline-connector completed"></div>
+            <div class="timeline-node completed">
+                <div class="node-circle">I</div>
+                <div class="node-label">Inspector</div>
+            </div>
+            <div class="timeline-connector active"></div>
+            <div class="timeline-node active">
+                <div class="node-circle">G</div>
+                <div class="node-label">GateKeeper</div>
+            </div>
+            <div class="timeline-connector"></div>
+            <div class="timeline-node">
+                <div class="node-circle">Gu</div>
+                <div class="node-label">Guide</div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <div class="panel">
+                <div class="panel-header">Artifacts</div>
+                <div class="panel-content">
+                    <div class="artifact-list">
+                        <div class="artifact-item">
+                            <div class="artifact-icon">📄</div>
+                            <div class="artifact-info">
+                                <div class="artifact-name">build-report.md</div>
+                                <div class="artifact-meta">2.4 KB • Builder</div>
+                            </div>
+                            <a href="#" class="artifact-link">Open</a>
+                        </div>
+                        <div class="artifact-item">
+                            <div class="artifact-icon" style="background: rgba(13, 124, 102, 0.2);">🔍</div>
+                            <div class="artifact-info">
+                                <div class="artifact-name">inspection-results.json</div>
+                                <div class="artifact-meta">15.8 KB • Inspector</div>
+                            </div>
+                            <a href="#" class="artifact-link">Open</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">Live Output</div>
+                <div class="terminal">
+                    <div class="terminal-line">
+                        <span class="timestamp">12:34:05</span>
+                        <span class="actor builder">[builder]</span>
+                        <span>Search index build complete: 45,230 documents indexed</span>
+                    </div>
+                    <div class="terminal-line">
+                        <span class="timestamp">12:34:12</span>
+                        <span class="actor builder">[builder]</span>
+                        <span>API endpoints updated: /search, /suggest, /index</span>
+                    </div>
+                    <div class="terminal-line">
+                        <span class="timestamp">12:35:48</span>
+                        <span class="actor inspector">[inspector]</span>
+                        <span>Evidence collection initiated</span>
+                    </div>
+                    <div class="terminal-line">
+                        <span class="timestamp">12:36:02</span>
+                        <span class="actor inspector">[inspector]</span>
+                        <span>Test queries: 150/150 passed</span>
+                    </div>
+                    <div class="terminal-line">
+                        <span class="timestamp">12:37:01</span>
+                        <span class="actor gatekeeper">[gatekeeper]</span>
+                        <span>Reviewing build artifacts...</span>
+                    </div>
+                    <div class="terminal-line">
+                        <span class="timestamp">12:37:45</span>
+                        <span class="actor gatekeeper">[gatekeeper]</span>
+                        <span>Analyzing integration test coverage<span class="terminal-cursor"></span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

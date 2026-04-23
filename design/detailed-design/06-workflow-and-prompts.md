@@ -30,6 +30,8 @@ workflow 保持两层结构：
 - `roles[]`
 - `steps[]`
 
+workflow 还可以携带顶层 `collaboration_intent`，用于表达这次任务整体偏向哪种执行姿态，例如“先取证再推进”或“尽快收束到签字判断”。
+
 ### 3.1 roles 契约
 
 每个 role 至少包含：
@@ -44,6 +46,7 @@ workflow 保持两层结构：
 | `command_cli` / `command_args_text` | 可选，仅直接命令模式使用；`custom` 执行器必须依赖它们 |
 | `model` | 可选，role 级默认模型 |
 | `reasoning_effort` | 可选，role 级默认推理配置 |
+| `posture_notes` | 可选，本次任务里该角色应采用的 task-scoped 姿态说明 |
 | `role_definition_id` | 可选，表明它来源于某个角色定义 |
 
 ### 3.2 steps 契约
@@ -67,6 +70,7 @@ workflow 保持两层结构：
 - 当 Codex 进入 `exec resume` 分支后，结构化输出必须回退为“输出契约 + `output-last-message` 文件解析”策略；不能假设 resume 子命令仍支持 schema 强校验。
 - Builder step 默认继承 session；Inspector、GateKeeper、Guide 与 Custom step 默认不继承，除非调用方显式打开。
 - `extra_cli_args` 必须是可被 shell 风格分词解析的字符串。
+- `posture_notes` 属于 task-scoped 姿态注入位；它不是 archetype 本身，也不是全局 task contract 的替代品。
 
 ### 3.3 内置预设编排目录
 
@@ -205,6 +209,7 @@ step 级执行附加项的优先语义固定为：
 - 后续轮次必须显式声明“这是第 N 轮，并给出上一轮关键结果”。
 - prompt 可以被自定义，但系统安全边界、输出契约和 context packet shape 不能被绕开。
 - `Role Notes` 只允许作为当前角色 prompt 的附加块注入；它不能新增全局成功标准，也不能放宽 `Task / Done When / Guardrails` 的约束。
+- `posture_notes` 与 workflow `collaboration_intent` 也会进入运行时 context；它们表达任务级协作姿态，但不能单独改写 spec 已定义的成功标准与 guardrails。
 - 当角色定义页加载内置 prompt 时，应优先使用当前语言对应的内置 prompt 变体；若缺失本地化版本，则回退到默认版本。
 - Builder 内置 prompt 在上游 blocker 明确指向“缺少运行时证据”时，必须优先引导角色补最小、可重复执行的验证产物，而不是继续扩大产品改动面。
 - 当当前执行环境阻断浏览器、截图或桌面控制能力时，Builder 内置 prompt 必须明确要求角色切换到“无额外安装的可执行 fallback 证明”路径，并把 richer 证据为何不可用写入 handoff。

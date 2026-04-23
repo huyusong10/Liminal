@@ -40,12 +40,16 @@
 | 子模块 | 文档 | 主题 | 主要代码边界 |
 | --- | --- | --- | --- |
 | 核心思想 | `core-ideas/README.md` | 项目公理、反例、非目标 | 全局 |
+| 核心思想 | `core-ideas/collaboration-posture.md` | 协作姿态、人格外化与 posture 编译方向 | 全局 |
+| 核心思想 | `core-ideas/task-scoped-alignment.md` | 任务驱动对齐、working agreement 与 bundle 演进方案 | 全局 |
 | 细节设计 | `detailed-design/01-spec-subsystem.md` | `spec.md` 编译与 checks 冻结 | `src/loopora/specs.py`, `src/loopora/service.py` |
 | 细节设计 | `detailed-design/02-orchestration-service.md` | loop/run 编排与角色循环 | `src/loopora/service.py` |
 | 细节设计 | `detailed-design/03-executor-subsystem.md` | 执行器、provider 适配、命令模式 | `src/loopora/executor.py`, `src/loopora/providers.py` |
 | 细节设计 | `detailed-design/04-persistence-and-reliability.md` | 存储、事件、锁、恢复、安全守卫 | `src/loopora/db.py`, `src/loopora/settings.py`, `src/loopora/recovery.py`, `src/loopora/stagnation.py`, `src/loopora/service.py` |
 | 细节设计 | `detailed-design/05-interfaces.md` | Web / CLI / API 交互面 | `src/loopora/cli.py`, `src/loopora/web.py`, `src/loopora/templates/`, `src/loopora/static/` |
+| 细节设计 | `detailed-design/06-workflow-and-prompts.md` | workflow、prompt 与角色快照契约 | `src/loopora/workflows.py`, `src/loopora/context_flow.py` |
 | 细节设计 | `detailed-design/07-observability-and-diagnostics.md` | 统一日志契约、事件命名与分级规则 | `src/loopora/diagnostics.py`, `src/loopora/settings.py`, `src/loopora/db.py`, `src/loopora/service.py`, `src/loopora/web.py`, `src/loopora/cli.py` |
+| 细节设计 | `detailed-design/08-bundles-and-alignment.md` | bundle 生命周期、外部 skill 边界与 task-scoped alignment 落点 | `src/loopora/bundles.py`, `src/loopora/service_bundle_assets.py`, `skills/loopora-task-alignment/` |
 
 ## 5. 读者约定
 
@@ -55,4 +59,6 @@
   - `02-orchestration-service.md`
   - `04-persistence-and-reliability.md`
   - `05-interfaces.md`
+  - `06-workflow-and-prompts.md`
+  - `08-bundles-and-alignment.md`
   - `07-observability-and-diagnostics.md`

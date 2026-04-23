@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run Detail - Loopora Neumorphism</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .breadcrumb { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; font-size: 0.875rem; color: var(--text-muted); }
+        .breadcrumb a { color: var(--text-muted); text-decoration: none; }
+        .run-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding: 1.5rem 2rem; background: var(--bg); box-shadow: 6px 6px 12px var(--shadow-dark), -6px -6px 12px var(--shadow-light); border-radius: var(--radius); }
+        .run-title { display: flex; align-items: center; gap: 1rem; }
+        .run-title h1 { font-size: 1.75rem; font-weight: 700; color: var(--text-dark); }
+        .live-badge { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: var(--bg); box-shadow: inset 2px 2px 4px var(--shadow-dark), inset -2px -2px 4px var(--shadow-light); border-radius: 50px; font-size: 0.75rem; font-weight: 700; color: var(--accent-blue); }
+        .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-blue); animation: pulse 2s ease-in-out infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .run-stats { display: flex; gap: 2rem; }
+        .stat-box { text-align: center; padding: 1rem 1.5rem; background: var(--bg); box-shadow: 4px 4px 8px var(--shadow-dark), -4px -4px 8px var(--shadow-light); border-radius: 12px; }
+        .stat-value { font-size: 1.5rem; font-weight: 700; color: var(--accent-blue); }
+        .stat-label { font-size: 0.625rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); }
+        .workflow-track { display: flex; align-items: center; justify-content: center; gap: 0; margin-bottom: 2rem; padding: 2rem; background: var(--bg); box-shadow: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light); border-radius: var(--radius); }
+        .workflow-step { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+        .node-box { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1rem; background: var(--bg); box-shadow: 4px 4px 8px var(--shadow-dark), -4px -4px 8px var(--shadow-light); color: var(--text-muted); transition: var(--transition); }
+        .workflow-step.completed .node-box { background: linear-gradient(145deg, #48bb78, #38a169); color: white; box-shadow: 4px 4px 8px rgba(72, 187, 120, 0.4), -4px -4px 8px var(--shadow-light); }
+        .workflow-step.active .node-box { background: linear-gradient(145deg, var(--accent-blue), #5172ff); color: white; box-shadow: 4px 4px 12px rgba(91, 140, 255, 0.5), -4px -4px 8px var(--shadow-light); animation: glow 2s ease-in-out infinite; }
+        @keyframes glow { 0%, 100% { box-shadow: 4px 4px 12px rgba(91, 140, 255, 0.5), -4px -4px 8px var(--shadow-light); } 50% { box-shadow: 4px 4px 20px rgba(91, 140, 255, 0.7), -4px -4px 8px var(--shadow-light); } }
+        .step-label { font-size: 0.625rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+        .workflow-step.active .step-label { color: var(--accent-blue); }
+        .step-connector { width: 60px; height: 4px; background: var(--bg); box-shadow: inset 2px 2px 4px var(--shadow-dark), inset -2px -2px 4px var(--shadow-light); margin: 0 0.5rem; margin-bottom: 2rem; border-radius: 2px; }
+        .step-connector.completed { background: linear-gradient(90deg, #48bb78, #68d391); box-shadow: none; }
+        .step-connector.active { background: linear-gradient(90deg, var(--accent-blue), #5b8cff); box-shadow: none; }
+        .content-grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 2rem; }
+        .panel { padding: 1.5rem; background: var(--bg); box-shadow: 6px 6px 12px var(--shadow-dark), -6px -6px 12px var(--shadow-light); border-radius: var(--radius); }
+        .panel h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid rgba(163, 177, 198, 0.3); }
+        .artifact-item { display: flex; align-items: center; gap: 1rem; padding: 1rem; background: var(--bg); box-shadow: 4px 4px 8px var(--shadow-dark), -4px -4px 8px var(--shadow-light); border-radius: 12px; margin-bottom: 1rem; transition: var(--transition); }
+        .artifact-item:hover { box-shadow: 6px 6px 12px var(--shadow-dark), -6px -6px 12px var(--shadow-light); }
+        .file-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; background: linear-gradient(145deg, var(--accent-blue), #5172ff); box-shadow: 3px 3px 6px rgba(91, 140, 255, 0.4), -3px -3px 6px var(--shadow-light); }
+        .artifact-info { flex: 1; }
+        .artifact-name { font-weight: 600; color: var(--text-dark); }
+        .artifact-meta { font-size: 0.75rem; color: var(--text-muted); }
+        .terminal { font-family: 'SF Mono', monospace; font-size: 0.8125rem; line-height: 1.8; padding: 1rem; background: var(--bg); box-shadow: inset 3px 3px 6px var(--shadow-dark), inset -3px -3px 6px var(--shadow-light); border-radius: 12px; max-height: 400px; overflow-y: auto; }
+        .terminal-line { display: flex; gap: 0.75rem; margin-bottom: 0.375rem; }
+        .timestamp { color: var(--text-muted); flex-shrink: 0; }
+        .role-tag { font-weight: 700; flex-shrink: 0; }
+        .role-tag.builder { color: var(--accent-blue); }
+        .role-tag.inspector { color: var(--success); }
+        .role-tag.gatekeeper { color: var(--accent-purple); }
+        .current-line { animation: blink 1s step-end infinite; }
+        @keyframes blink { 50% { opacity: 0.6; } }
+        @media (max-width: 768px) { .content-grid { grid-template-columns: 1fr; } .workflow-track { flex-wrap: wrap; gap: 1rem; } .step-connector { display: none; } }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <div class="nav-brand">
+            <svg class="logo" viewBox="0 0 512 512" width="40" height="40">
+                <rect width="512" height="512" rx="120" fill="#e0e5ec"/>
+                <path d="M 130 256 C 130 140, 245 140, 256 256 C 267 372, 382 372, 382 256 C 382 140, 267 140, 256 256 C 245 372, 130 372, 130 256 Z" fill="none" stroke="#5b8cff" stroke-width="40" stroke-linecap="round"/>
+                <circle cx="256" cy="256" r="28" fill="#e0e5ec" stroke="#5b8cff" stroke-width="6"/>
+            </svg>
+            <span class="brand-text">Loopora</span>
+        </div>
+        <div class="nav-links">
+            <a href="index.html" class="active">Loops</a>
+            <a href="orchestrations.html">Orchestrations</a>
+            <a href="roles.html">Roles</a>
+            <a href="tutorial.html">Tutorial</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">Loops</a>
+            <span>/</span>
+            <a href="loop-detail.html">Search Rollout Migration</a>
+            <span>/</span>
+            <span>Run #4</span>
+        </div>
+
+        <header class="run-header">
+            <div>
+                <div class="run-title">
+                    <h1>Run #4</h1>
+                    <div class="live-badge"><span class="pulse-dot"></span><span>LIVE</span></div>
+                </div>
+                <p style="color: var(--text-muted); margin-top: 0.5rem;">GateKeeper evaluating build artifacts</p>
+            </div>
+            <div class="run-stats">
+                <div class="stat-box"><div class="stat-value">12:34</div><div class="stat-label">Elapsed</div></div>
+                <div class="stat-box"><div class="stat-value">4/4</div><div class="stat-label">Roles</div></div>
+            </div>
+        </header>
+
+        <div class="workflow-track">
+            <div class="workflow-step completed">
+                <div class="node-box">B</div>
+                <div class="step-label">Builder</div>
+            </div>
+            <div class="step-connector completed"></div>
+            <div class="workflow-step completed">
+                <div class="node-box">I</div>
+                <div class="step-label">Inspector</div>
+            </div>
+            <div class="step-connector active"></div>
+            <div class="workflow-step active">
+                <div class="node-box">G</div>
+                <div class="step-label">GateKeeper</div>
+            </div>
+            <div class="step-connector"></div>
+            <div class="workflow-step">
+                <div class="node-box">Gu</div>
+                <div class="step-label">Guide</div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <div class="panel">
+                <h3>Artifacts</h3>
+                <div class="artifact-item">
+                    <div class="file-icon">📄</div>
+                    <div class="artifact-info"><div class="artifact-name">build-report.md</div><div class="artifact-meta">2.4 KB • Builder</div></div>
+                    <a href="#" class="btn-icon" style="width: 36px; height: 36px;">→</a>
+                </div>
+                <div class="artifact-item">
+                    <div class="file-icon" style="background: linear-gradient(145deg, #48bb78, #38a169);">🔍</div>
+                    <div class="artifact-info"><div class="artifact-name">inspection-results.json</div><div class="artifact-meta">15.8 KB • Inspector</div></div>
+                    <a href="#" class="btn-icon" style="width: 36px; height: 36px;">→</a>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>Live Output</h3>
+                <div class="terminal">
+                    <div class="terminal-line"><span class="timestamp">12:34:05</span><span class="role-tag builder">[Builder]</span><span>Search index build complete</span></div>
+                    <div class="terminal-line"><span class="timestamp">12:34:12</span><span class="role-tag builder">[Builder]</span><span>API endpoints updated</span></div>
+                    <div class="terminal-line"><span class="timestamp">12:35:48</span><span class="role-tag inspector">[Inspector]</span><span>Evidence collection initiated</span></div>
+                    <div class="terminal-line"><span class="timestamp">12:37:01</span><span class="role-tag gatekeeper">[GateKeeper]</span><span>Reviewing build artifacts...</span></div>
+                    <div class="terminal-line current-line"><span class="timestamp">12:37:45</span><span class="role-tag gatekeeper">[GateKeeper]</span><span>Analyzing test coverage...</span><span style="color: var(--accent-blue);">█</span></div>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

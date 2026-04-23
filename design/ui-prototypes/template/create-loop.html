@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Loop — Loopora</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app">
+        <nav class="navbar">
+            <div class="navbar-left">
+                <a href="index.html" class="brand">
+                    <div class="brand-logo">
+                        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="2"/>
+                            <circle cx="16" cy="16" r="9" stroke="currentColor" stroke-width="2"/>
+                            <circle cx="16" cy="16" r="4" fill="currentColor"/>
+                        </svg>
+                    </div>
+                    <span class="brand-name">Loopora</span>
+                </a>
+                <div class="navbar-nav">
+                    <a href="index.html" class="nav-link active">Loops</a>
+                    <a href="orchestrations.html" class="nav-link">Orchestrations</a>
+                    <a href="roles.html" class="nav-link">Roles</a>
+                    <a href="tools.html" class="nav-link">Tools</a>
+                    <a href="tutorial.html" class="nav-link">Tutorial</a>
+                </div>
+            </div>
+            <div class="navbar-right">
+                <div class="user-menu">
+                    <div class="user-avatar">JD</div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="main-container">
+            <aside class="sidebar">
+                <div class="sidebar-section">
+                    <div class="section-header">New Loop</div>
+                    <nav class="sidebar-nav">
+                        <a href="#" class="nav-item active">
+                            <span class="nav-icon">1</span>
+                            <span class="nav-label">Basic Info</span>
+                        </a>
+                        <a href="#" class="nav-item">
+                            <span class="nav-icon">2</span>
+                            <span class="nav-label">Orchestration</span>
+                        </a>
+                        <a href="#" class="nav-item">
+                            <span class="nav-icon">3</span>
+                            <span class="nav-label">Specification</span>
+                        </a>
+                        <a href="#" class="nav-item">
+                            <span class="nav-icon">4</span>
+                            <span class="nav-label">Settings</span>
+                        </a>
+                    </nav>
+                </div>
+            </aside>
+
+            <main class="content">
+                <a href="index.html" class="back-nav">‹ Back to Loops</a>
+
+                <div style="max-width: 800px;">
+                    <h1 style="font-size: 28px; font-weight: 700; margin-bottom: 8px;">Create New Loop</h1>
+                    <p style="color: var(--text-secondary); margin-bottom: 32px;">Set up a new AI workflow orchestration loop</p>
+
+                    <form>
+                        <!-- Basic Info -->
+                        <div class="card" style="margin-bottom: 20px;">
+                            <div class="card-header">
+                                <div class="card-title">Basic Information</div>
+                            </div>
+                            <div class="card-body">
+                                <div class="form-group">
+                                    <label class="form-label">Loop Name *</label>
+                                    <input type="text" class="form-input" placeholder="e.g., Search Rollout Migration">
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">Working Directory *</label>
+                                        <div style="display: flex; gap: 8px;">
+                                            <input type="text" class="form-input" placeholder="/path/to/project">
+                                            <button type="button" class="btn btn-secondary" style="flex-shrink: 0;">Browse</button>
+                                        </div>
+                                        <p class="form-hint">Absolute path to the project workspace</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Executor</label>
+                                        <select class="form-input form-select">
+                                            <option value="codex">Codex</option>
+                                            <option value="local">Local</option>
+                                            <option value="remote">Remote</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Orchestration -->
+                        <div class="card" style="margin-bottom: 20px;">
+                            <div class="card-header">
+                                <div class="card-title">Orchestration</div>
+                                <a href="orchestrations.html" class="btn btn-ghost btn-sm">Manage</a>
+                            </div>
+                            <div class="card-body">
+                                <div class="form-group" style="margin-bottom: 0;">
+                                    <label class="form-label">Choose Workflow</label>
+                                    <div class="orch-grid">
+                                        <label class="orch-option">
+                                            <input type="radio" name="orch" value="build" checked>
+                                            <div class="orch-card">
+                                                <div class="orch-icon">B</div>
+                                                <div class="orch-name">Build</div>
+                                                <div class="orch-desc">Initial implementations</div>
+                                            </div>
+                                        </label>
+                                        <label class="orch-option">
+                                            <input type="radio" name="orch" value="inspect">
+                                            <div class="orch-card">
+                                                <div class="orch-icon">I</div>
+                                                <div class="orch-name">Inspect</div>
+                                                <div class="orch-desc">Regression analysis</div>
+                                            </div>
+                                        </label>
+                                        <label class="orch-option">
+                                            <input type="radio" name="orch" value="triage">
+                                            <div class="orch-card">
+                                                <div class="orch-icon">T</div>
+                                                <div class="orch-name">Triage</div>
+                                                <div class="orch-desc">Multi-issue diagnosis</div>
+                                            </div>
+                                        </label>
+                                        <label class="orch-option">
+                                            <input type="radio" name="orch" value="repair">
+                                            <div class="orch-card">
+                                                <div class="orch-icon">R</div>
+                                                <div class="orch-name">Repair</div>
+                                                <div class="orch-desc">Iterative repairs</div>
+                                            </div>
+                                        </label>
+                                        <label class="orch-option">
+                                            <input type="radio" name="orch" value="benchmark">
+                                            <div class="orch-card">
+                                                <div class="orch-icon">Bm</div>
+                                                <div class="orch-name">Benchmark</div>
+                                                <div class="orch-desc">Metrics-driven</div>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Specification -->
+                        <div class="card" style="margin-bottom: 20px;">
+                            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                                <div class="card-title">Specification</div>
+                                <button type="button" class="btn btn-ghost btn-sm">Load Template</button>
+                            </div>
+                            <div class="card-body" style="padding: 0;">
+                                <div style="display: flex; border-bottom: 1px solid var(--bg-tertiary);">
+                                    <button type="button" class="btn btn-ghost" style="border-radius: 0; border-bottom: 2px solid var(--accent); margin-bottom: -1px;">Write</button>
+                                    <button type="button" class="btn btn-ghost" style="border-radius: 0;">Preview</button>
+                                </div>
+                                <textarea class="form-textarea" style="border: none; border-radius: 0; min-height: 320px; font-family: var(--font-mono); font-size: 14px;" placeholder="# Task
+
+Describe what needs to be done in this loop...
+
+# Done When
+
+- [ ] Criterion 1
+- [ ] Criterion 2
+- [ ] Criterion 3
+
+# Guardrails
+
+- Constraint 1
+- Constraint 2
+
+# Role Notes
+
+Builder: Specific instructions for Builder
+Inspector: Specific instructions for Inspector
+GateKeeper: Specific instructions for GateKeeper
+Guide: Specific instructions for Guide"></textarea>
+                            </div>
+                        </div>
+
+                        <!-- Settings -->
+                        <div class="card" style="margin-bottom: 24px;">
+                            <div class="card-header">
+                                <div class="card-title">Settings</div>
+                            </div>
+                            <div class="card-body">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">Max Iterations</label>
+                                        <input type="number" class="form-input" value="8" min="1" max="50">
+                                        <p class="form-hint">Maximum iterations before requiring human intervention</p>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Model</label>
+                                        <select class="form-input form-select">
+                                            <option>GPT-4 Turbo</option>
+                                            <option>Claude Opus</option>
+                                            <option>GPT-5.4</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group" style="margin-bottom: 0;">
+                                        <label class="form-label">Temperature</label>
+                                        <input type="number" class="form-input" value="0.7" min="0" max="2" step="0.1">
+                                    </div>
+                                    <div class="form-group" style="margin-bottom: 0;">
+                                        <label class="form-label">Timeout (minutes)</label>
+                                        <input type="number" class="form-input" value="30" min="5" max="120">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Actions -->
+                        <div style="display: flex; justify-content: space-between; padding-top: 8px;">
+                            <a href="index.html" class="btn btn-ghost">Cancel</a>
+                            <div style="display: flex; gap: 12px;">
+                                <button type="button" class="btn btn-secondary">Save Draft</button>
+                                <button type="submit" class="btn btn-primary">Create Loop</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </main>
+        </div>
+    </div>
+</body>
+</html>

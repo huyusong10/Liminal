@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from loopora.db_bundle_records import RepositoryBundleRecordsMixin
 from loopora.db_loop_records import RepositoryLoopRecordsMixin
 from loopora.db_run_records import RepositoryRunRecordsMixin
 
 
 class RepositoryDefinitionRecordsMixin(
+    RepositoryBundleRecordsMixin,
     RepositoryRunRecordsMixin,
     RepositoryLoopRecordsMixin,
 ):

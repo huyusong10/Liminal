@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run Detail - Loopora Glassmorphism</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .breadcrumb { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; font-size: 0.875rem; color: var(--text-muted); }
+        .breadcrumb a { color: var(--text-secondary); text-decoration: none; }
+        .run-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding: 1.5rem 2rem; background: var(--glass-bg); backdrop-filter: blur(16px); border-radius: var(--radius); border: 1px solid var(--glass-border); }
+        .run-title { display: flex; align-items: center; gap: 1rem; }
+        .run-title h1 { font-size: 1.75rem; font-weight: 700; }
+        .live-badge { display: flex; align-items: center; gap: 0.5rem; padding: 0.375rem 0.875rem; background: rgba(255, 0, 110, 0.2); border: 1px solid var(--accent-pink); border-radius: 50px; font-size: 0.75rem; font-weight: 700; color: var(--accent-pink); }
+        .pulse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-pink); animation: pulse 1s ease-in-out infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .workflow-path { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 2rem; padding: 2rem; background: var(--glass-bg); backdrop-filter: blur(16px); border-radius: var(--radius); border: 1px solid var(--glass-border); }
+        .workflow-step { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+        .node-box { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.1); border: 1px solid var(--glass-border); font-weight: 700; font-size: 1rem; color: var(--text-muted); }
+        .workflow-step.completed .node-box { background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan)); color: white; border-color: transparent; box-shadow: 0 0 20px var(--accent-blue); }
+        .workflow-step.active .node-box { background: linear-gradient(135deg, var(--accent-pink), var(--accent-purple)); color: white; border-color: transparent; box-shadow: 0 0 30px var(--accent-pink); animation: glow 2s ease-in-out infinite; }
+        @keyframes glow { 0%, 100% { box-shadow: 0 0 30px var(--accent-pink); } 50% { box-shadow: 0 0 50px var(--accent-pink); } }
+        .step-label { font-size: 0.625rem; letter-spacing: 1px; color: var(--text-muted); text-transform: uppercase; }
+        .workflow-step.active .step-label { color: var(--accent-pink); }
+        .step-connector { width: 60px; height: 2px; background: var(--glass-border); margin: 0 0.5rem; margin-bottom: 2rem; }
+        .step-connector.completed { background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan)); box-shadow: 0 0 10px var(--accent-blue); }
+        .step-connector.active { background: linear-gradient(90deg, var(--accent-pink), var(--accent-purple)); }
+        .content-grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 1.5rem; }
+        .panel { padding: 1.5rem; background: var(--glass-bg); backdrop-filter: blur(16px); border-radius: var(--radius); border: 1px solid var(--glass-border); }
+        .panel h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-muted); margin-bottom: 1rem; }
+        .artifact-item { display: flex; align-items: center; gap: 1rem; padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 12px; margin-bottom: 0.75rem; border: 1px solid transparent; transition: var(--transition); }
+        .artifact-item:hover { border-color: var(--glass-border); }
+        .file-icon { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan)); font-size: 1.25rem; }
+        .artifact-info { flex: 1; }
+        .artifact-name { font-weight: 600; color: var(--text); }
+        .artifact-meta { font-size: 0.75rem; color: var(--text-muted); }
+        .terminal { font-family: 'SF Mono', monospace; font-size: 0.8125rem; line-height: 1.8; padding: 1rem; background: rgba(0,0,0,0.3); border-radius: 12px; max-height: 400px; overflow-y: auto; }
+        .terminal-line { display: flex; gap: 0.75rem; margin-bottom: 0.25rem; }
+        .timestamp { color: var(--text-muted); flex-shrink: 0; }
+        .role-tag { font-weight: 700; flex-shrink: 0; }
+        .role-tag.builder { color: var(--accent-pink); }
+        .role-tag.inspector { color: var(--accent-cyan); }
+        .role-tag.gatekeeper { color: var(--accent-purple); }
+        .message { color: var(--text); }
+        .current-line { animation: blink 1s step-end infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
+        @media (max-width: 768px) { .content-grid { grid-template-columns: 1fr; } .workflow-path { flex-wrap: wrap; gap: 1rem; } .step-connector { display: none; } }
+    </style>
+</head>
+<body>
+    <div class="gradient-bg">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
+    <nav class="nav">
+        <div class="nav-brand">
+            <svg class="logo" viewBox="0 0 512 512" width="40" height="40">
+                <circle cx="256" cy="256" r="240" fill="rgba(255,255,255,0.1)" stroke="url(#glass-grad)" stroke-width="3"/>
+                <path d="M 130 256 C 130 140, 245 140, 256 256 C 267 372, 382 372, 382 256 C 382 140, 267 140, 256 256 C 245 372, 130 372, 130 256 Z" fill="none" stroke="#ff006e" stroke-width="36" stroke-linecap="round"/>
+                <circle cx="256" cy="256" r="24" fill="rgba(255,255,255,0.2)" stroke="#ff006e" stroke-width="4"/>
+            </svg>
+            <span class="brand-text">Loopora</span>
+        </div>
+        <div class="nav-links">
+            <a href="index.html" class="active">Loops</a>
+            <a href="orchestrations.html">Orchestrations</a>
+            <a href="roles.html">Roles</a>
+            <a href="tutorial.html">Tutorial</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="breadcrumb">
+            <a href="index.html">Loops</a>
+            <span>/</span>
+            <a href="loop-detail.html">Search Rollout Migration</a>
+            <span>/</span>
+            <span>Run #4</span>
+        </div>
+
+        <header class="run-header">
+            <div>
+                <div class="run-title">
+                    <h1>Run #4</h1>
+                    <div class="live-badge"><span class="pulse-dot"></span><span>LIVE</span></div>
+                </div>
+                <p style="color: var(--text-muted); margin-top: 0.5rem;">GateKeeper evaluating build artifacts</p>
+            </div>
+        </header>
+
+        <div class="workflow-path">
+            <div class="workflow-step completed">
+                <div class="node-box">B</div>
+                <div class="step-label">Builder</div>
+            </div>
+            <div class="step-connector completed"></div>
+            <div class="workflow-step completed">
+                <div class="node-box">I</div>
+                <div class="step-label">Inspector</div>
+            </div>
+            <div class="step-connector active"></div>
+            <div class="workflow-step active">
+                <div class="node-box">G</div>
+                <div class="step-label">GateKeeper</div>
+            </div>
+            <div class="step-connector"></div>
+            <div class="workflow-step">
+                <div class="node-box">Gu</div>
+                <div class="step-label">Guide</div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <div class="panel">
+                <h3>Artifacts</h3>
+                <div class="artifact-item">
+                    <div class="file-icon">📄</div>
+                    <div class="artifact-info">
+                        <div class="artifact-name">build-report.md</div>
+                        <div class="artifact-meta">2.4 KB • Builder</div>
+                    </div>
+                    <a href="#" class="btn-ghost">View</a>
+                </div>
+                <div class="artifact-item">
+                    <div class="file-icon" style="background: linear-gradient(135deg, #06ffa5, #3a86ff);">🔍</div>
+                    <div class="artifact-info">
+                        <div class="artifact-name">inspection-results.json</div>
+                        <div class="artifact-meta">15.8 KB • Inspector</div>
+                    </div>
+                    <a href="#" class="btn-ghost">View</a>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>Live Stream</h3>
+                <div class="terminal">
+                    <div class="terminal-line"><span class="timestamp">12:34:05</span><span class="role-tag builder">[Builder]</span><span class="message">Search index build complete</span></div>
+                    <div class="terminal-line"><span class="timestamp">12:34:12</span><span class="role-tag builder">[Builder]</span><span class="message">API endpoints updated</span></div>
+                    <div class="terminal-line"><span class="timestamp">12:35:48</span><span class="role-tag inspector">[Inspector]</span><span class="message">Evidence collection initiated</span></div>
+                    <div class="terminal-line"><span class="timestamp">12:37:01</span><span class="role-tag gatekeeper">[GateKeeper]</span><span class="message">Reviewing build artifacts...</span></div>
+                    <div class="terminal-line current-line"><span class="timestamp">12:37:45</span><span class="role-tag gatekeeper">[GateKeeper]</span><span class="message">Analyzing test coverage...</span><span style="color: var(--accent-pink);">█</span></div>
+                </div>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

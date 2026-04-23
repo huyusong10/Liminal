@@ -30,7 +30,15 @@ class RepositoryRowDecodingMixin:
         if row is None:
             return {}
         payload = dict(row)
-        for key in ("compiled_spec_json", "role_models_json", "workflow_json", "prompt_files_json", "last_verdict_json", "payload_json"):
+        for key in (
+            "compiled_spec_json",
+            "role_models_json",
+            "workflow_json",
+            "prompt_files_json",
+            "last_verdict_json",
+            "payload_json",
+            "role_definition_ids_json",
+        ):
             if key in payload and payload[key]:
                 payload[key] = RepositoryRowDecodingMixin._decode_json_column(payload.get("id"), key, payload[key])
         if "payload_json" in payload:

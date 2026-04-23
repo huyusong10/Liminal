@@ -1,0 +1,442 @@
+/* Swiss Brutalist Design System */
+:root {
+    --bg: #ffffff;
+    --text: #000000;
+    --text-secondary: #666666;
+    --accent: #ff0000;
+    --accent-secondary: #0000ff;
+    --border: #000000;
+    --grid: #eeeeee;
+    --font-display: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --font-mono: 'Courier New', monospace;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font-display);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.4;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Navigation */
+.nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 24px 48px;
+    border-bottom: 2px solid var(--border);
+    background: var(--bg);
+}
+
+.nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.logo-mark {
+    width: 48px;
+    height: 48px;
+}
+
+.logo-mark svg {
+    width: 100%;
+    height: 100%;
+}
+
+.brand-text {
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+}
+
+.nav-links {
+    display: flex;
+    gap: 32px;
+}
+
+.nav-links a {
+    color: var(--text);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    position: relative;
+}
+
+.nav-links a::after {
+    content: '';
+    position: absolute;
+    bottom: -4px;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: var(--accent);
+    transition: width 0.3s ease;
+}
+
+.nav-links a:hover::after,
+.nav-links a.active::after {
+    width: 100%;
+}
+
+/* Container */
+.container {
+    flex: 1;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 48px;
+    width: 100%;
+}
+
+/* Page Header */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-bottom: 64px;
+    padding-bottom: 24px;
+    border-bottom: 4px solid var(--border);
+}
+
+.header-content {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+}
+
+.section-num {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--accent);
+    font-weight: bold;
+}
+
+.page-header h1 {
+    font-size: 48px;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    line-height: 1;
+}
+
+/* Buttons */
+.btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 24px;
+    background: var(--accent);
+    color: white;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.btn-primary:hover {
+    transform: translateX(4px);
+}
+
+.btn-arrow {
+    font-size: 18px;
+}
+
+.btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    background: transparent;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 2px solid var(--border);
+    transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+    background: var(--text);
+    color: var(--bg);
+}
+
+/* Loops Grid */
+.loops-grid {
+    display: grid;
+    gap: 2px;
+    background: var(--border);
+    margin-bottom: 64px;
+}
+
+/* Loop Card */
+.loop-card {
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    background: var(--bg);
+}
+
+.card-index {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: bold;
+    color: var(--text-secondary);
+    border-right: 2px solid var(--border);
+}
+
+.card-content {
+    padding: 32px;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.meta-group {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+}
+
+.status {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.status.running {
+    color: var(--accent);
+}
+
+.status.completed {
+    color: var(--accent-secondary);
+}
+
+.status.draft {
+    color: var(--text-secondary);
+}
+
+.id {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.date {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.loop-card h3 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 24px;
+    text-transform: uppercase;
+}
+
+.progress-section {
+    margin-bottom: 24px;
+}
+
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.progress-bar {
+    height: 4px;
+    background: var(--grid);
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.3s ease;
+}
+
+.progress-fill.complete {
+    background: var(--accent-secondary);
+}
+
+.card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 16px;
+    border-top: 1px solid var(--grid);
+}
+
+.current-role {
+    display: flex;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.role-label {
+    color: var(--text-secondary);
+}
+
+.role-value {
+    font-weight: bold;
+}
+
+.actions a {
+    color: var(--text);
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 2px solid var(--text);
+    padding-bottom: 2px;
+}
+
+.actions a:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* Tutorial Section */
+.tutorial-section {
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    border: 2px solid var(--border);
+}
+
+.section-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: bold;
+    background: var(--accent-secondary);
+    color: white;
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    transform: rotate(180deg);
+}
+
+.tutorial-content {
+    padding: 48px;
+}
+
+.tutorial-content h2 {
+    font-size: 32px;
+    font-weight: 900;
+    margin-bottom: 16px;
+    letter-spacing: -0.02em;
+}
+
+.tutorial-content p {
+    font-size: 16px;
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+    max-width: 600px;
+}
+
+/* Footer */
+.footer {
+    border-top: 2px solid var(--border);
+    padding: 24px 48px;
+}
+
+.footer-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .nav {
+        flex-direction: column;
+        gap: 16px;
+        padding: 16px 24px;
+    }
+
+    .nav-links {
+        gap: 16px;
+    }
+
+    .container {
+        padding: 24px;
+    }
+
+    .page-header {
+        flex-direction: column;
+        gap: 24px;
+        align-items: flex-start;
+    }
+
+    .page-header h1 {
+        font-size: 32px;
+    }
+
+    .loop-card {
+        grid-template-columns: 1fr;
+    }
+
+    .card-index {
+        border-right: none;
+        border-bottom: 2px solid var(--border);
+        padding: 16px;
+    }
+
+    .card-content {
+        padding: 24px;
+    }
+
+    .loop-card h3 {
+        font-size: 20px;
+    }
+
+    .tutorial-section {
+        grid-template-columns: 1fr;
+    }
+
+    .section-label {
+        writing-mode: horizontal-tb;
+        transform: none;
+        padding: 16px;
+    }
+
+    .tutorial-content {
+        padding: 24px;
+    }
+}

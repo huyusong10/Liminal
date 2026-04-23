@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loopora — .loop</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="ink-wash"></div>
+
+    <nav class="nav">
+        <a href="index.html" class="logo">
+            <span class="logo-icon">
+                <svg viewBox="0 0 60 60" width="32" height="32">
+                    <circle cx="30" cy="30" r="28" fill="none" stroke="currentColor" stroke-width="1"/>
+                    <circle cx="30" cy="30" r="20" fill="none" stroke="currentColor" stroke-width="1"/>
+                    <circle cx="30" cy="30" r="8" fill="currentColor"/>
+                </svg>
+            </span>
+            <span class="logo-text">loopora</span>
+        </a>
+        <div class="nav-links">
+            <a href="index.html" class="active">loops</a>
+            <a href="#">orch</a>
+            <a href="#">roles</a>
+            <a href="#">about</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <header class="page-header">
+            <h1>
+                <span class="jp-char">循</span>
+                <span class="title-text">Active Loops</span>
+            </h1>
+            <p class="subtitle">循環の軌跡 — The cycle continues</p>
+        </header>
+
+        <div class="loops-list">
+            <article class="loop-card running">
+                <div class="card-vertical-line"></div>
+                <div class="card-content">
+                    <div class="card-meta">
+                        <span class="meta-item status-running">running</span>
+                        <span class="meta-item">loop_8x2k9m</span>
+                        <span class="meta-item">2024.01.15</span>
+                    </div>
+                    <h2 class="card-title">Search Rollout Migration</h2>
+                    <div class="card-progress">
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: 50%"></div>
+                        </div>
+                        <span class="progress-text">04 / 08 iterations</span>
+                    </div>
+                    <div class="card-footer">
+                        <span class="current-role">
+                            <span class="role-label">now:</span>
+                            <span class="role-value">gatekeeper</span>
+                        </span>
+                        <a href="loop-detail.html" class="card-link">
+                            <span>view</span>
+                            <svg width="16" height="16" viewBox="0 0 16 16">
+                                <path d="M2 8h12M10 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1"/>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </article>
+
+            <article class="loop-card completed">
+                <div class="card-vertical-line"></div>
+                <div class="card-content">
+                    <div class="card-meta">
+                        <span class="meta-item status-completed">completed</span>
+                        <span class="meta-item">loop_3p7q2r</span>
+                        <span class="meta-item">2024.01.14</span>
+                    </div>
+                    <h2 class="card-title">API Documentation Update</h2>
+                    <div class="card-progress">
+                        <div class="progress-track">
+                            <div class="progress-fill complete"></div>
+                        </div>
+                        <span class="progress-text">06 / 06 iterations</span>
+                    </div>
+                    <div class="card-footer">
+                        <span class="current-role">
+                            <span class="role-label">status:</span>
+                            <span class="role-value">finished</span>
+                        </span>
+                        <a href="#" class="card-link">
+                            <span>view</span>
+                            <svg width="16" height="16" viewBox="0 0 16 16">
+                                <path d="M2 8h12M10 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1"/>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </article>
+
+            <article class="loop-card draft">
+                <div class="card-vertical-line"></div>
+                <div class="card-content">
+                    <div class="card-meta">
+                        <span class="meta-item status-draft">draft</span>
+                        <span class="meta-item">loop_9w4e5t</span>
+                        <span class="meta-item">—</span>
+                    </div>
+                    <h2 class="card-title">Database Migration V2</h2>
+                    <div class="card-progress">
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: 0%"></div>
+                        </div>
+                        <span class="progress-text">not started</span>
+                    </div>
+                    <div class="card-footer">
+                        <span class="current-role">
+                            <span class="role-label">status:</span>
+                            <span class="role-value">awaiting</span>
+                        </span>
+                        <a href="#" class="card-link">
+                            <span>view</span>
+                            <svg width="16" height="16" viewBox="0 0 16 16">
+                                <path d="M2 8h12M10 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1"/>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </article>
+        </div>
+
+        <div class="create-section">
+            <div class="create-line"></div>
+            <a href="create-loop.html" class="create-button">
+                <span class="create-icon">+</span>
+                <span class="create-text">Begin new loop</span>
+                <span class="jp-note">新しい循環を始める</span>
+            </a>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-inner">
+            <span class="footer-brand">loopora</span>
+            <span class="footer-divider"></span>
+            <span class="footer-version">v2.0</span>
+        </div>
+    </footer>
+</body>
+</html>

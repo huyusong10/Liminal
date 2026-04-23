@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Loop — Loopora</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .create-header { padding: 16px; border-bottom: 1px solid var(--border); }
+        .create-breadcrumb { font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; }
+        .create-title { font-size: 16px; font-weight: 600; }
+        .form-section { padding: 16px; border-bottom: 1px solid var(--border); }
+        .section-header { font-size: 10px; font-weight: 600; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 16px; text-transform: uppercase; }
+        .form-field { margin-bottom: 16px; }
+        .form-field:last-child { margin-bottom: 0; }
+        .form-label { display: block; font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
+        .form-input { width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; font-family: inherit; }
+        .form-input:focus { outline: none; border-color: var(--accent); }
+        .form-textarea { min-height: 80px; resize: vertical; }
+        .form-select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='currentColor'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
+        .checkbox-group { display: flex; flex-direction: column; gap: 10px; }
+        .checkbox-item { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 6px; border-radius: 4px; }
+        .checkbox-item:hover { background: var(--bg-secondary); }
+        .checkbox-item input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--accent); }
+        .checkbox-label { font-size: 12px; }
+        .tag-input { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; }
+        .tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; background: var(--bg-tertiary); border-radius: 3px; font-size: 11px; }
+        .tag-remove { cursor: pointer; opacity: 0.6; font-size: 10px; }
+        .tag-remove:hover { opacity: 1; }
+        .tag-input input { border: none; outline: none; font-size: 12px; flex: 1; min-width: 80px; background: transparent; color: var(--text); }
+        .stepper { display: flex; align-items: center; padding: 16px; border-bottom: 1px solid var(--border); }
+        .step { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-secondary); }
+        .step.active { color: var(--text); }
+        .step.completed { color: var(--accent); }
+        .step-num { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: var(--bg-secondary); border-radius: 50%; font-size: 10px; font-weight: 600; }
+        .step.active .step-num { background: var(--accent); color: white; }
+        .step.completed .step-num { background: #22c55e; color: white; }
+        .step-line { flex: 1; height: 1px; background: var(--border); margin: 0 12px; }
+        .action-bar { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; }
+        .tool-btn.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+        .tool-btn.ghost { background: transparent; color: var(--text-secondary); }
+    </style>
+</head>
+<body>
+    <nav class="toolbar">
+        <div class="toolbar-left">
+            <div class="logo">Loopora</div>
+            <div class="breadcrumbs">Loops / Create New</div>
+        </div>
+        <div class="toolbar-right">
+            <button class="tool-btn ghost">Cancel</button>
+            <button class="tool-btn">Create</button>
+        </div>
+    </nav>
+
+    <div class="workspace">
+        <aside class="layers-panel">
+            <div class="panel-header">FORM SECTIONS</div>
+            <div class="layer-item active">
+                <span class="name">Basic Info</span>
+            </div>
+            <div class="layer-item">
+                <span class="name">Configuration</span>
+            </div>
+            <div class="layer-item">
+                <span class="name">Success Criteria</span>
+            </div>
+            <div class="layer-item">
+                <span class="name">Tags</span>
+            </div>
+        </aside>
+
+        <main class="canvas">
+            <div class="artboard">
+                <div class="loop-card" style="width: 100%; max-width: 480px;">
+                    <div class="stepper">
+                        <div class="step active">
+                            <div class="step-num">1</div>
+                            <span>Info</span>
+                        </div>
+                        <div class="step-line"></div>
+                        <div class="step">
+                            <div class="step-num">2</div>
+                            <span>Config</span>
+                        </div>
+                        <div class="step-line"></div>
+                        <div class="step">
+                            <div class="step-num">3</div>
+                            <span>Review</span>
+                        </div>
+                    </div>
+
+                    <div class="create-header">
+                        <div class="create-breadcrumb">CREATE LOOP</div>
+                        <div class="create-title">Basic Information</div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-field">
+                            <label class="form-label">Loop Name</label>
+                            <input type="text" class="form-input" placeholder="e.g., Search Migration">
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-input form-textarea" placeholder="What does this loop accomplish?"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="section-header">Configuration</div>
+                        <div class="form-field">
+                            <label class="form-label">Orchestration</label>
+                            <select class="form-input form-select">
+                                <option value="">Select orchestration...</option>
+                                <option value="build-first">Build First</option>
+                                <option value="test-first">Test First</option>
+                                <option value="review-cycle">Review Cycle</option>
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">Max Iterations</label>
+                            <input type="number" class="form-input" value="8" min="1" max="50">
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="section-header">Success Criteria</div>
+                        <div class="checkbox-group">
+                            <label class="checkbox-item">
+                                <input type="checkbox" checked>
+                                <span class="checkbox-label">All tests passing</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" checked>
+                                <span class="checkbox-label">Code review approved</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox">
+                                <span class="checkbox-label">Performance benchmarks met</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox">
+                                <span class="checkbox-label">Security scan passed</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-section" style="border-bottom: none;">
+                        <div class="section-header">Tags</div>
+                        <div class="tag-input">
+                            <span class="tag">migration <span class="tag-remove">×</span></span>
+                            <span class="tag">search <span class="tag-remove">×</span></span>
+                            <input type="text" placeholder="Add tag...">
+                        </div>
+                    </div>
+
+                    <div class="action-bar">
+                        <button class="tool-btn ghost">← Back</button>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="tool-btn secondary">Save Draft</button>
+                            <button class="tool-btn">Continue →</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <aside class="properties-panel">
+            <div class="panel-header">PROPERTIES</div>
+            <div class="property-group">
+                <div class="property-label">Template</div>
+                <div class="property-value">Custom</div>
+            </div>
+            <div class="property-group">
+                <div class="property-label">Name</div>
+                <div class="property-value">—</div>
+            </div>
+            <div class="property-group">
+                <div class="property-label">Orchestration</div>
+                <div class="property-value">—</div>
+            </div>
+            <div class="property-group">
+                <div class="property-label">Max Iterations</div>
+                <div class="property-value">8</div>
+            </div>
+            <div class="property-group">
+                <div class="property-label">Criteria</div>
+                <div class="property-value">2 selected</div>
+            </div>
+        </aside>
+    </div>
+</body>
+</html>

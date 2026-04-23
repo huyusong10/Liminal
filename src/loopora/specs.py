@@ -11,6 +11,14 @@ HTML_COMMENT_PATTERN = re.compile(r"<!--.*?-->", re.DOTALL)
 BULLET_ITEM_PATTERN = re.compile(r"^\s*[-*]\s+(.+?)\s*$", re.MULTILINE)
 ROLE_NOTE_HEADING_PATTERN = re.compile(r"^## (.+?)\s*$", re.MULTILINE)
 ROLE_NOTES_SUFFIX_RE = re.compile(r"\s+notes\s*$", re.IGNORECASE)
+LIST_SECTIONS = {
+    "Success Surface": "success_surface",
+    "Fake Done": "fake_done_states",
+    "Evidence Preferences": "evidence_preferences",
+}
+TEXT_SECTIONS = {
+    "Residual Risk": "residual_risk",
+}
 
 GENERIC_ROLE_NOTE_COPY = {
     "zh": "补充当前角色执行这个任务时应优先关注的重点、证据偏好或工作方式。不要在这里新增真正的通过条件。",
@@ -70,6 +78,7 @@ def render_spec_template(locale: str = "zh", workflow: dict[str, Any] | None = N
             "可选：\n"
             "- 如果你还不想固定成功条件，可以先删掉整个 `# Done When`，Loopora 会在 run 开始时自动生成并冻结一组 checks。\n"
             "- 如果暂时没有额外边界，可以删掉 `# Guardrails` 里的占位项。\n"
+            "- `# Success Surface`、`# Fake Done`、`# Evidence Preferences`、`# Residual Risk` 用来表达这次任务的协作合同；不写也可以，但写了会一起进入运行期契约。\n"
             "- `# Role Notes` 只会附加到对应角色的 prompt，不会变成隐藏的通过标准。\n"
             "-->\n\n"
             "# Task\n\n"
@@ -82,6 +91,17 @@ def render_spec_template(locale: str = "zh", workflow: dict[str, Any] | None = N
             "- 哪些目录或接口必须保留\n"
             "- 是否必须保留现有用户文件\n"
             "- 是否要求原地小改、避免大范围重写\n\n"
+            "# Success Surface\n\n"
+            "- 哪些结果虽然不一定是 Done When，但这次任务里也很重要\n"
+            "- 哪些质量面、可维护性面或用户感知面需要一起保住\n\n"
+            "# Fake Done\n\n"
+            "- 哪些“看起来完成了”但你不会接受\n"
+            "- 哪些表面结果算糊弄，不能当成真正完成\n\n"
+            "# Evidence Preferences\n\n"
+            "- 这次你最信什么证据：真实运行、测试、benchmark、截图、日志或别的什么\n"
+            "- 如果证据不足，系统更应该补什么\n\n"
+            "# Residual Risk\n\n"
+            "用一两句话写这次可以接受什么残余风险，或者明确说明要尽量 fail closed。\n\n"
             "# Role Notes\n\n"
             "如果当前流程已经确定，可以按角色补充一些工作方式提示。这里的内容只会附加到对应角色的 prompt，"
             "不会变成隐藏的通过标准。\n\n"
@@ -96,6 +116,7 @@ def render_spec_template(locale: str = "zh", workflow: dict[str, Any] | None = N
         "Optional:\n"
         "- If you are not ready to lock success criteria yet, delete `# Done When` and Loopora will auto-generate plus freeze checks at run start.\n"
         "- If there are no extra boundaries yet, remove the placeholder bullets inside `# Guardrails`.\n"
+        "- `# Success Surface`, `# Fake Done`, `# Evidence Preferences`, and `# Residual Risk` express the task contract for this run. They remain optional, but when present they become part of the runtime contract.\n"
         "- `# Role Notes` only adjusts role prompts. It does not change pass/fail rules.\n"
         "-->\n\n"
         "# Task\n\n"
@@ -108,6 +129,17 @@ def render_spec_template(locale: str = "zh", workflow: dict[str, Any] | None = N
         "- Say which directories or interfaces must be preserved\n"
         "- Say whether you must preserve existing user files\n"
         "- Say whether focused in-place edits are preferred over broad rewrites\n\n"
+        "# Success Surface\n\n"
+        "- List the additional quality surfaces that matter in this task even beyond Done When\n"
+        "- Keep the user-facing or maintainability outcomes you still want protected\n\n"
+        "# Fake Done\n\n"
+        "- List the outcomes that may look complete but would still feel unacceptable\n"
+        "- Describe the shortcuts or shallow fixes that should not count as done\n\n"
+        "# Evidence Preferences\n\n"
+        "- Say which evidence you trust most in this task: real runs, tests, benchmarks, screenshots, logs, or something else\n"
+        "- Say what the system should gather first when evidence is still weak\n\n"
+        "# Residual Risk\n\n"
+        "Use one or two sentences to describe the residual risk you can accept here, or say clearly that the run should fail closed.\n\n"
         "# Role Notes\n\n"
         "If the workflow is already chosen, add role-specific working notes here. These notes are appended to the matching "
         "role prompt only and never become hidden pass/fail rules.\n\n"
@@ -141,6 +173,14 @@ def compile_markdown_spec(markdown_text: str) -> dict:
     if done_when_section.strip() and not checks:
         raise SpecError("`# Done When` must contain at least one top-level bullet item")
     role_notes = _extract_role_notes(sections.get("Role Notes", ""))
+    list_sections: dict[str, list[str]] = {}
+    for heading, field_name in LIST_SECTIONS.items():
+        values = _extract_bullet_list(sections.get(heading, ""), heading=heading)
+        list_sections[field_name] = values
+    text_sections = {
+        field_name: sections.get(heading, "").strip()
+        for heading, field_name in TEXT_SECTIONS.items()
+    }
 
     compiled_checks = []
     for index, check in enumerate(checks, start=1):
@@ -162,6 +202,8 @@ def compile_markdown_spec(markdown_text: str) -> dict:
         "checks": compiled_checks,
         "check_mode": "specified" if compiled_checks else "auto_generated",
         "role_notes": role_notes,
+        **list_sections,
+        **text_sections,
         "raw_sections": {key: value.strip() for key, value in sections.items()},
     }
 
@@ -219,6 +261,13 @@ def _extract_done_when_checks(section_text: str) -> list[dict[str, str]]:
             }
         )
     return checks
+
+
+def _extract_bullet_list(section_text: str, *, heading: str) -> list[str]:
+    matches = list(BULLET_ITEM_PATTERN.finditer(section_text))
+    if section_text.strip() and not matches:
+        raise SpecError(f"`# {heading}` must contain at least one top-level bullet item")
+    return [match.group(1).strip() for match in matches]
 
 
 def _short_check_title(body: str, *, index: int) -> str:

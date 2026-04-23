@@ -15,6 +15,7 @@
 | `orchestration` | 名称、描述、workflow、prompt 资产 | 可复用编排定义 | 可创建、读取、更新、列出、删除；内置编排只能复制，不能原地改写 |
 | `role definition` | 名称、角色模板、默认执行配置、prompt 资产 | 可复用角色模版 | 可创建、读取、更新、列出、删除；内置角色定义只能复制，不能原地改写 |
 | `loop definition` | workdir、spec、runtime 策略、completion mode、编排引用 | 可执行模板 | 创建时完成输入规范化与快照冻结 |
+| `bundle` | 单文件 YAML，或从现有 loop 派生出的 bundle 内容 | 一组整包管理的 spec / role definitions / orchestration / loop | 可导入、导出、派生、列出、删除；删除时按整包清理其拥有的资产 |
 | `run` | loop definition | 运行状态、事件流、终态摘要、结构化产物 | 同一 run 只有一个终态，且终态必须可观察、可复盘 |
 
 ## 3. 角色职责边界
@@ -34,6 +35,7 @@
 - `Guide` 只应出现在停滞相关分支，不应成为每轮必跑步骤。
 - `GateKeeper` 是 `gatekeeper` completion mode 的唯一收敛裁决入口。
 - `Custom (Restricted)` 可以被编排自由引用，但不能成为流程收敛入口。
+- 任务级 collaboration posture 必须共同体现在 `spec / role definition / workflow` 三个运行面上；其中任何单面都不足以单独定义本次任务的协作姿态。
 
 ## 4. 运行数据流
 
@@ -46,15 +48,18 @@
 - 解析 orchestration 或内联 workflow
 - 解析 role definition 选入后的角色快照
 - 让角色快照携带默认执行配置
+- 当 role definition 提供 task-scoped `posture_notes` 时，创建时必须把它冻结进 role snapshot，保证 run contract 能稳定复盘本次任务中的角色姿态
 - 规范化 step 级布尔与枚举字段；无法稳定解释的值必须在创建时被拒绝
 - 一旦某个角色声明了任意 role 级执行覆盖（如模型），创建时必须把该角色的完整默认执行配置物化到 snapshot 中
 - 若 workflow role 提供 `role_definition_id`，创建时必须用对应 role definition 补齐缺失的名称、prompt 与执行配置；未知 `role_definition_id` 必须直接报错
 - 若 workflow role 同时提供 `role_definition_id` 与冲突的 role 级字段，或通过同名 `prompt_files` 改写该 role definition 的 prompt 内容，必须直接报错，不能静默保留或覆盖冲突值
+- workflow 可以携带整条流程的 `collaboration_intent`；它属于 workflow 结构本身，而不是 prompt 边注
 - 只有 GateKeeper step 可以声明 `on_pass=finish_run`；其他 step 若尝试声明结束语义，必须在创建时被拒绝
 - 更新 orchestration 时，未显式提供的 workflow 与 prompt 资产必须沿用当前快照，不能静默回退到默认 preset，也不能丢失已有自定义 prompt
 - 读取已保存 orchestration 时，历史遗留但已无法被当前 workflow 合法引用的 prompt 资产条目不得阻塞复用；服务层应先完成内部清洗，再继续对外提供稳定快照
 - 校验 completion mode 与 workflow 是否匹配
 - 冻结运行所需的 spec、workflow 与 prompt 资产
+- 当 loop 来自 bundle 导入时，把它视为同一 bundle 生命周期中的一组资产，而不是四份彼此独立的手工对象
 
 ### 4.2 Run 执行
 
@@ -103,6 +108,7 @@
 - 非零轮次间隔必须可被 stop 请求打断。
 - 每个 run 只能落到一个终态。
 - 每次状态变化都必须能投影到外部观察面。
+- Loopora 本体不负责和用户对话生成 bundle；任务对齐发生在外部 Agent + Skill，服务层只消费 bundle 产物并把它物化为可运行资产。
 
 ## 7. 依赖边界
 

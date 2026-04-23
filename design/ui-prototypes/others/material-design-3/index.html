@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loopora</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="nav-rail">
+        <div class="nav-header">
+            <div class="logo">
+                <svg viewBox="0 0 40 40" width="32" height="32">
+                    <circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" stroke-width="2"/>
+                    <circle cx="20" cy="20" r="12" fill="none" stroke="currentColor" stroke-width="2"/>
+                    <circle cx="20" cy="20" r="5" fill="currentColor"/>
+                </svg>
+            </div>
+        </div>
+        <div class="nav-items">
+            <a href="index.html" class="nav-item active">
+                <span class="material-icons">dashboard</span>
+                <span class="nav-label">Loops</span>
+            </a>
+            <a href="#" class="nav-item">
+                <span class="material-icons">account_tree</span>
+                <span class="nav-label">Orch</span>
+            </a>
+            <a href="#" class="nav-item">
+                <span class="material-icons">group</span>
+                <span class="nav-label">Roles</span>
+            </a>
+            <a href="#" class="nav-item">
+                <span class="material-icons">settings</span>
+                <span class="nav-label">Settings</span>
+            </a>
+        </div>
+    </nav>
+
+    <main class="main">
+        <header class="top-app-bar">
+            <h1 class="headline">Loops</h1>
+            <div class="actions">
+                <button class="icon-btn">
+                    <span class="material-icons">search</span>
+                </button>
+                <button class="icon-btn">
+                    <span class="material-icons">notifications</span>
+                </button>
+                <div class="avatar">J</div>
+            </div>
+        </header>
+
+        <div class="content">
+            <div class="fab-container">
+                <a href="create-loop.html" class="fab">
+                    <span class="material-icons">add</span>
+                </a>
+            </div>
+
+            <div class="chips">
+                <button class="chip active">
+                    <span class="material-icons">check</span>
+                    All
+                </button>
+                <button class="chip">Running</button>
+                <button class="chip">Completed</button>
+                <button class="chip">Drafts</button>
+            </div>
+
+            <div class="cards-grid">
+                <a href="loop-detail.html" class="card elevated">
+                    <div class="card-header">
+                        <div class="card-icon running">
+                            <span class="material-icons">play_arrow</span>
+                        </div>
+                        <div class="card-menu">
+                            <span class="material-icons">more_vert</span>
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        <h3 class="card-title">Search Rollout Migration</h3>
+                        <p class="card-subtitle">loop_8x2k9m</p>
+                        <div class="card-progress">
+                            <div class="progress-linear">
+                                <div class="progress-fill" style="width: 50%"></div>
+                            </div>
+                            <span class="progress-text">4/8 iterations</span>
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <span class="badge">
+                            <span class="material-icons">person</span>
+                            GateKeeper
+                        </span>
+                        <span class="time">12m ago</span>
+                    </div>
+                </a>
+
+                <a href="#" class="card elevated">
+                    <div class="card-header">
+                        <div class="card-icon completed">
+                            <span class="material-icons">check_circle</span>
+                        </div>
+                        <div class="card-menu">
+                            <span class="material-icons">more_vert</span>
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        <h3 class="card-title">API Documentation Update</h3>
+                        <p class="card-subtitle">loop_3p7q2r</p>
+                        <div class="card-progress">
+                            <div class="progress-linear complete">
+                                <div class="progress-fill" style="width: 100%"></div>
+                            </div>
+                            <span class="progress-text">Completed</span>
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <span class="badge success">
+                            <span class="material-icons">done_all</span>
+                            All roles
+                        </span>
+                        <span class="time">2h ago</span>
+                    </div>
+                </a>
+
+                <a href="#" class="card elevated">
+                    <div class="card-header">
+                        <div class="card-icon draft">
+                            <span class="material-icons">drafts</span>
+                        </div>
+                        <div class="card-menu">
+                            <span class="material-icons">more_vert</span>
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        <h3 class="card-title">Database Migration V2</h3>
+                        <p class="card-subtitle">loop_9w4e5t</p>
+                        <div class="card-progress">
+                            <div class="progress-linear">
+                                <div class="progress-fill" style="width: 0%"></div>
+                            </div>
+                            <span class="progress-text">Not started</span>
+                        </div>
+                    </div>
+                    <div class="card-footer">
+                        <span class="badge">
+                            <span class="material-icons">schedule</span>
+                            Draft
+                        </span>
+                        <span class="time">1d ago</span>
+                    </div>
+                </a>
+            </div>
+        </div>
+    </main>
+</body>
+</html>

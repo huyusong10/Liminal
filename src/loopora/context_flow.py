@@ -68,6 +68,11 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "check_count",
                 "completion_mode",
                 "workflow_preset",
+                "workflow_collaboration_intent",
+                "success_surface",
+                "fake_done_states",
+                "evidence_preferences",
+                "residual_risk",
             ],
             "properties": {
                 "path": {"type": "string"},
@@ -77,6 +82,11 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "check_count": {"type": "integer"},
                 "completion_mode": {"type": "string"},
                 "workflow_preset": {"type": "string"},
+                "workflow_collaboration_intent": {"type": "string"},
+                "success_surface": {"type": "array", "items": {"type": "string"}},
+                "fake_done_states": {"type": "array", "items": {"type": "string"}},
+                "evidence_preferences": {"type": "array", "items": {"type": "string"}},
+                "residual_risk": {"type": "string"},
             },
             "additionalProperties": False,
         },
@@ -258,12 +268,14 @@ def build_run_contract_snapshot(
         "compiled_spec": compiled_spec,
         "workflow": {
             "preset": str(workflow.get("preset") or "custom"),
+            "collaboration_intent": str(workflow.get("collaboration_intent") or "").strip(),
             "roles": [
                 {
                     "id": str(role.get("id") or ""),
                     "name": str(role.get("name") or ""),
                     "archetype": str(role.get("archetype") or ""),
                     "prompt_ref": str(role.get("prompt_ref") or ""),
+                    "posture_notes": str(role.get("posture_notes") or "").strip(),
                 }
                 for role in workflow.get("roles", [])
             ],
@@ -333,6 +345,11 @@ def build_step_context_packet(
             "check_count": len(compiled_spec.get("checks") or []),
             "completion_mode": str(run_contract.get("completion_mode") or "gatekeeper"),
             "workflow_preset": str(workflow_snapshot.get("preset") or "custom"),
+            "workflow_collaboration_intent": str(workflow_snapshot.get("collaboration_intent") or "").strip(),
+            "success_surface": list(compiled_spec.get("success_surface") or []),
+            "fake_done_states": list(compiled_spec.get("fake_done_states") or []),
+            "evidence_preferences": list(compiled_spec.get("evidence_preferences") or []),
+            "residual_risk": str(compiled_spec.get("residual_risk") or "").strip(),
         },
         "iteration": {
             "iter_index": int(iter_id),
@@ -571,13 +588,15 @@ def render_step_prompt(
         role_name=str(role.get("name") or ""),
         archetype=str(role.get("archetype") or ""),
     )
+    role_posture = str(role.get("posture_notes", "") or "").strip()
+    role_guidance = _combine_role_guidance(role_note, role_posture)
     sections = [
         f"You are {role['name']} inside Loopora.",
         system_prompt_prefix(role["archetype"]),
         output_contract_prompt(role["archetype"]),
         prompt_body.strip(),
         render_run_contract_section(packet["contract"], compiled_spec),
-        render_role_note_section(role_note),
+        render_role_note_section(role_guidance),
         render_iteration_section(packet),
         render_handoff_section(
             "Immediate upstream handoff",
@@ -664,15 +683,25 @@ def output_contract_prompt(archetype: str) -> str:
 
 def render_run_contract_section(contract: dict, compiled_spec: dict) -> str:
     constraints = contract.get("constraints") or "No explicit constraints were provided."
+    success_surface = json.dumps(contract.get("success_surface") or [], ensure_ascii=False, indent=2)
+    fake_done_states = json.dumps(contract.get("fake_done_states") or [], ensure_ascii=False, indent=2)
+    evidence_preferences = json.dumps(contract.get("evidence_preferences") or [], ensure_ascii=False, indent=2)
+    workflow_collaboration_intent = str(contract.get("workflow_collaboration_intent") or "No explicit workflow collaboration intent was provided.").strip()
+    residual_risk = str(contract.get("residual_risk") or "No explicit residual-risk stance was provided.").strip()
     return (
         "Run contract summary:\n"
         f"- Completion mode: {contract.get('completion_mode')}\n"
         f"- Workflow preset: {contract.get('workflow_preset')}\n"
+        f"- Workflow collaboration intent: {workflow_collaboration_intent}\n"
         f"- Check mode: {contract.get('check_mode')}\n"
         f"- Check count: {contract.get('check_count')}\n\n"
         f"Goal:\n{contract.get('goal', '').strip()}\n\n"
         f"Checks:\n{json.dumps(compiled_spec.get('checks', []), ensure_ascii=False, indent=2)}\n\n"
-        f"Constraints:\n{constraints}"
+        f"Constraints:\n{constraints}\n\n"
+        f"Success surface:\n{success_surface}\n\n"
+        f"Fake done states:\n{fake_done_states}\n\n"
+        f"Evidence preferences:\n{evidence_preferences}\n\n"
+        f"Residual risk:\n{residual_risk}"
     )
 
 
@@ -680,6 +709,15 @@ def render_role_note_section(role_note: str) -> str:
     if not str(role_note or "").strip():
         return ""
     return f"Role notes for the current role:\n{str(role_note).strip()}"
+
+
+def _combine_role_guidance(spec_role_note: str, role_posture: str) -> str:
+    parts: list[str] = []
+    if str(role_posture or "").strip():
+        parts.append(f"Role definition posture:\n{str(role_posture).strip()}")
+    if str(spec_role_note or "").strip():
+        parts.append(f"Spec role notes:\n{str(spec_role_note).strip()}")
+    return "\n\n".join(parts).strip()
 
 
 def render_iteration_section(packet: dict) -> str:
