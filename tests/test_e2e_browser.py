@@ -333,7 +333,7 @@ def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(
                     page = browser.new_page(viewport={"width": 375, "height": 844})
 
                     page.goto(f"{base_url}/", wait_until="networkidle")
-                    assert page.locator(".top-nav-brand-lockup").get_attribute("src") == "/logo/logo-with-text-horizontal-light.svg"
+                    assert page.locator(".top-nav-brand-lockup").get_attribute("src") == "/logo/logo-with-text-horizontal.svg"
 
                     index_mobile = page.evaluate(
                         """() => ({

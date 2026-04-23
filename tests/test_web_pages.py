@@ -39,7 +39,7 @@ def test_index_page_renders_with_saved_loops(
 
     assert response.status_code == 200
     assert "Homepage Loop" in response.text
-    assert "/logo/logo-with-text-horizontal-light.svg" in response.text
+    assert "/logo/logo-with-text-horizontal.svg" in response.text
     assert "page-stack" in response.text
     assert "loop-grid-note" in response.text
     assert 'class="loop-grid loop-grid--created" id="loop-grid"' in response.text
@@ -1384,8 +1384,8 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert re.search(r"\.top-nav-link:hover\s*{\s*color:\s*var\(--nav-ink\);\s*transform:\s*translateY\(-1px\);\s*}", css)
     assert re.search(r"\.top-nav-link.active\s*{\s*color:\s*var\(--nav-ink\);\s*}", css)
     assert re.search(r"\.top-nav \.nav-preferences-toggle\s*{\s*[\s\S]*?color:\s*var\(--nav-ink\);", css)
-    assert re.search(r"@media \(max-width: 1360px\)\s*{[\s\S]*?\.top-nav\s*{[\s\S]*?flex-wrap:\s*wrap;", css)
-    assert re.search(r"@media \(max-width: 1360px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);", css)
+    assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.top-nav\s*{[\s\S]*?flex-wrap:\s*wrap;", css)
+    assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);", css)
     assert re.search(r"@media \(max-width: 860px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);", css)
     assert re.search(r"@media \(min-width: 1440px\)\s*{[\s\S]*?\.tutorial-page-stack\s*{[\s\S]*?--tutorial-page-max:\s*1480px;", css)
     assert re.search(r"@media \(min-width: 1920px\)\s*{[\s\S]*?\.tutorial-page-stack\s*{[\s\S]*?--tutorial-page-max:\s*1600px;", css)
