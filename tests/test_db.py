@@ -185,3 +185,36 @@ def test_role_definition_crud_round_trips_through_repository(tmp_path: Path) -> 
 
     assert repository.delete_role_definition(created["id"]) is True
     assert repository.get_role_definition(created["id"]) is None
+
+
+def test_corrupted_run_json_columns_fall_back_to_empty_objects(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    run = _create_run(repository, tmp_path, run_id="run_corrupt", status="running")
+
+    with repository.transaction() as connection:
+        connection.execute(
+            "UPDATE loop_runs SET last_verdict_json = ?, workflow_json = ? WHERE id = ?",
+            ("{", "{", run["id"]),
+        )
+
+    refreshed = repository.get_run(run["id"])
+
+    assert refreshed["last_verdict_json"] == {}
+    assert refreshed["workflow_json"] == {}
+
+
+def test_corrupted_event_payload_json_falls_back_to_empty_object(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    run = _create_run(repository, tmp_path, run_id="run_event_corrupt", status="running")
+    event = repository.append_event(run["id"], "run_started", {"status": "running"})
+
+    with repository.transaction() as connection:
+        connection.execute(
+            "UPDATE run_events SET payload_json = ? WHERE id = ?",
+            ("{", event["id"]),
+        )
+
+    events = repository.list_events(run["id"])
+
+    assert len(events) == 1
+    assert events[0]["payload"] == {}

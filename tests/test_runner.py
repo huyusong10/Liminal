@@ -63,6 +63,15 @@ def _create_loop(
     return service.create_loop(**payload)
 
 
+def _force_run_into_legacy_mode(service: LooporaService, run_id: str) -> dict:
+    with service.repository.transaction() as connection:
+        connection.execute(
+            "UPDATE loop_runs SET workflow_json = ? WHERE id = ?",
+            (json.dumps({}, ensure_ascii=False), run_id),
+        )
+    return service.get_run(run_id)
+
+
 def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     loop = _create_loop(service, sample_spec_file, sample_workdir)
@@ -973,6 +982,59 @@ def test_unexpected_run_error_marks_run_failed(service_factory, sample_spec_file
     assert failed["error_message"] == "boom"
     summary = Path(failed["runs_dir"]) / "summary.md"
     assert "Execution crashed unexpectedly." in summary.read_text(encoding="utf-8")
+
+
+def test_legacy_gatekeeper_run_exhausts_without_crashing(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="plateau")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Legacy Plateau Loop")
+    run = service.start_run(loop["id"])
+    _force_run_into_legacy_mode(service, run["id"])
+
+    failed = service.execute_run(run["id"])
+
+    assert failed["status"] == "failed"
+    assert failed["error_message"] in {None, ""}
+    events = service.repository.list_events(run["id"], after_id=0, limit=1000)
+    assert any(
+        event["event_type"] == "run_finished"
+        and event["payload"].get("reason") == "max_iters_exhausted"
+        for event in events
+    )
+    assert all(event["event_type"] != "run_aborted" for event in events)
+
+
+def test_legacy_rounds_run_finishes_after_planned_iterations(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="plateau")
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Legacy Planned Rounds Loop",
+        completion_mode="rounds",
+        max_iters=2,
+    )
+    run = service.start_run(loop["id"])
+    _force_run_into_legacy_mode(service, run["id"])
+
+    finished = service.execute_run(run["id"])
+
+    assert finished["status"] == "succeeded"
+    assert finished["error_message"] in {None, ""}
+    events = service.repository.list_events(run["id"], after_id=0, limit=1000)
+    assert any(
+        event["event_type"] == "run_finished"
+        and event["payload"].get("reason") == "rounds_completed"
+        for event in events
+    )
+    assert all(event["event_type"] != "run_aborted" for event in events)
 
 
 def test_get_run_recovers_local_orphaned_active_run(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:

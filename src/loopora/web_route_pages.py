@@ -1,0 +1,160 @@
+from __future__ import annotations
+
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+
+from loopora.markdown_tools import render_safe_markdown_html
+from loopora.web_overviews import (
+    _build_run_key_takeaways,
+    _build_run_summary_snapshot,
+    _decorate_loop_overview,
+    _decorate_run_overview,
+    _format_timeline_event,
+    _progress_stage_seed,
+    _workflow_role_executor_summary,
+)
+from loopora.web_route_context import WebRouteContext
+from loopora.web_inputs import _preferred_request_locale
+
+TIMELINE_EVENT_TYPES = {
+    "run_started",
+    "checks_resolved",
+    "step_context_prepared",
+    "role_execution_summary",
+    "step_handoff_written",
+    "iteration_summary_written",
+    "role_degraded",
+    "challenger_done",
+    "iteration_wait_started",
+    "iteration_wait_finished",
+    "workspace_guard_triggered",
+    "stop_requested",
+    "run_aborted",
+    "run_finished",
+}
+
+PROGRESS_EVENT_TYPES = {
+    "checks_resolved",
+    "role_started",
+    "role_request_prepared",
+    "step_context_prepared",
+    "role_execution_summary",
+    "step_handoff_written",
+    "run_aborted",
+    "run_finished",
+}
+
+
+def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+    @app.get("/", response_class=HTMLResponse)
+    async def index(request: Request) -> HTMLResponse:
+        loops = [_decorate_loop_overview(loop) for loop in ctx.svc().list_loops()]
+        return ctx.templates.TemplateResponse(
+            request,
+            "index.html",
+            {"request": request, "loops": loops, "access_state": ctx.access_state},
+        )
+
+    @app.get("/loops/new", response_class=HTMLResponse)
+    async def new_loop(request: Request) -> HTMLResponse:
+        return ctx.render_new_loop(request, values=request.query_params)
+
+    @app.get("/orchestrations", response_class=HTMLResponse)
+    async def orchestrations_page(request: Request) -> HTMLResponse:
+        return ctx.render_orchestrations(request)
+
+    @app.get("/roles", response_class=HTMLResponse)
+    async def role_definitions_page(request: Request) -> HTMLResponse:
+        return ctx.render_role_definitions(request)
+
+    @app.get("/orchestrations/new", response_class=HTMLResponse)
+    async def new_orchestration(request: Request) -> HTMLResponse:
+        preset = str(request.query_params.get("workflow_preset", "")).strip()
+        values = request.query_params if preset else None
+        return ctx.render_new_orchestration(request, values=values)
+
+    @app.get("/orchestrations/{orchestration_id}/edit", response_class=HTMLResponse)
+    async def edit_orchestration(request: Request, orchestration_id: str) -> HTMLResponse:
+        return ctx.render_new_orchestration(request, orchestration=ctx.svc().get_orchestration(orchestration_id))
+
+    @app.get("/roles/new", response_class=HTMLResponse)
+    async def new_role_definition(request: Request) -> HTMLResponse:
+        return ctx.render_new_role_definition(request, values=request.query_params if request.query_params else None)
+
+    @app.get("/roles/{role_definition_id}/edit", response_class=HTMLResponse)
+    async def edit_role_definition(request: Request, role_definition_id: str) -> HTMLResponse:
+        return ctx.render_new_role_definition(request, role_definition=ctx.svc().get_role_definition(role_definition_id))
+
+    @app.get("/tools", response_class=HTMLResponse)
+    async def tools_page(request: Request) -> HTMLResponse:
+        return ctx.render_tools(request)
+
+    @app.get("/tutorial", response_class=HTMLResponse)
+    async def tutorial_page(request: Request) -> HTMLResponse:
+        return ctx.render_tutorial(request)
+
+    @app.get("/loops/{loop_id}", response_class=HTMLResponse)
+    async def loop_detail(request: Request, loop_id: str) -> HTMLResponse:
+        loop = ctx.svc().get_loop(loop_id)
+        runs = [_decorate_run_overview(run) for run in loop["runs"]]
+        latest_run = runs[0] if runs else None
+        return ctx.templates.TemplateResponse(
+            request,
+            "loop_detail.html",
+            {
+                "request": request,
+                "loop": {
+                    **loop,
+                    "runs": runs,
+                    "role_executor_summary": _workflow_role_executor_summary(
+                        loop.get("workflow_json") or {},
+                        fallback_executor_kind=loop.get("executor_kind", "codex"),
+                    ),
+                    "spec_rendered_html": render_safe_markdown_html(loop.get("spec_markdown", "")),
+                },
+                "latest_run": latest_run,
+                "summary_snapshot": _build_run_summary_snapshot(latest_run) if latest_run else None,
+                "access_state": ctx.access_state,
+            },
+        )
+
+    @app.get("/runs/{run_id}", response_class=HTMLResponse)
+    async def run_detail(request: Request, run_id: str) -> HTMLResponse:
+        locale = _preferred_request_locale(request)
+        run = ctx.svc().get_run(run_id)
+        seed_events = ctx.svc().stream_events(run_id, limit=5000)
+        latest_event_id = seed_events[-1]["id"] if seed_events else 0
+        events = [_format_timeline_event(event) for event in seed_events if event["event_type"] in TIMELINE_EVENT_TYPES]
+        return ctx.templates.TemplateResponse(
+            request,
+            "run_detail.html",
+            {
+                "request": request,
+                "run": run,
+                "page_locale": locale,
+                "progress_stages": _progress_stage_seed(run),
+                "timeline_events": events[-40:],
+                "console_events": seed_events[-160:],
+                "progress_events": [event for event in seed_events if event["event_type"] in PROGRESS_EVENT_TYPES][-2000:],
+                "latest_event_id": latest_event_id,
+                "key_takeaways": _build_run_key_takeaways(run),
+                "access_state": ctx.access_state,
+            },
+        )
+
+    @app.get("/runs/{run_id}/console", response_class=HTMLResponse)
+    async def run_console(request: Request, run_id: str) -> HTMLResponse:
+        run = ctx.svc().get_run(run_id)
+        seed_events = ctx.svc().stream_events(run_id, limit=5000)
+        latest_event_id = seed_events[-1]["id"] if seed_events else 0
+        return ctx.templates.TemplateResponse(
+            request,
+            "run_console.html",
+            {
+                "request": request,
+                "run": run,
+                "console_events": seed_events[-360:],
+                "latest_event_id": latest_event_id,
+                "access_state": ctx.access_state,
+            },
+        )

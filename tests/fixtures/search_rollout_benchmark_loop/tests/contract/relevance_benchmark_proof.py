@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
@@ -40,7 +41,7 @@ def main() -> None:
     }
     payload = {
         "contract": "relevance-benchmark-proof",
-        "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "pass": checks,
         "benchmark": benchmark,
         "holdout": holdout,

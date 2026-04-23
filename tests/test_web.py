@@ -196,6 +196,93 @@ def test_api_reveal_path_uses_native_host_shortcut(monkeypatch, service_factory,
     assert called == [str(sample_workdir)]
 
 
+def test_api_json_endpoints_reject_invalid_json_body(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/markdown/render",
+        content="{",
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    assert "invalid JSON body" in response.json()["error"]
+
+
+def test_api_json_endpoints_require_object_bodies(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post("/api/markdown/render", json=["not", "an", "object"])
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "request body must be a JSON object"
+
+
+def test_api_file_preview_reports_json_parse_errors(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="JSON Preview Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    broken_json_path = sample_workdir / "broken.json"
+    broken_json_path.write_text("{\n", encoding="utf-8")
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/api/files?run_id={run['id']}&root=workdir&path=broken.json")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["kind"] == "file"
+    assert payload["content"] == "{\n"
+    assert payload["parse_error"]
+
+
+def test_api_file_preview_keeps_valid_jsonl_lines_when_some_are_broken(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="JSONL Preview Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    log_path = sample_workdir / "events.jsonl"
+    log_path.write_text('{"event":"good"}\n{\n{"event":"also-good"}\n', encoding="utf-8")
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/api/files?run_id={run['id']}&root=workdir&path=events.jsonl")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["kind"] == "file"
+    assert '"event": "good"' in payload["content"]
+    assert '"event": "also-good"' in payload["content"]
+    assert payload["jsonl_parse_errors"] == [{"line": 2, "error": "Expecting property name enclosed in double quotes"}]
+
+
 def test_api_run_events_and_stream_require_a_real_run(service_factory) -> None:
     service = service_factory(scenario="success")
     client = TestClient(build_app(service=service))
