@@ -21,6 +21,7 @@ from loopora.web_inputs import (
     _workflow_for_spec_template,
 )
 from loopora.web_route_context import WebRouteContext
+from loopora.web_url_utils import attachment_content_disposition
 from loopora.workflows import (
     WorkflowError,
     builtin_prompt_markdown,
@@ -85,7 +86,12 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         return Response(
             content=bundle_to_yaml(bundle),
             media_type="application/yaml; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="{bundle["metadata"]["name"] or bundle_id}.yml"'},
+            headers={
+                "Content-Disposition": attachment_content_disposition(
+                    f"{bundle['metadata']['name'] or bundle_id}.yml",
+                    default=f"{bundle_id}.yml",
+                )
+            },
         )
 
     @app.delete("/api/bundles/{bundle_id}")
@@ -120,7 +126,7 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         return Response(
             content=archive_bytes,
             media_type="application/zip",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={"Content-Disposition": attachment_content_disposition(filename, default="loopora-task-alignment.zip")},
         )
 
     @app.get("/api/orchestrations")
@@ -272,7 +278,7 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         return Response(
             content=markdown_text,
             media_type="text/markdown; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename=\"{prompt_ref}\"'},
+            headers={"Content-Disposition": attachment_content_disposition(prompt_ref, default="prompt.md")},
         )
 
     @app.post("/api/specs/init")

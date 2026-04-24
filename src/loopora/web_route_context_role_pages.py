@@ -16,6 +16,7 @@ from loopora.web_inputs import (
     _preferred_request_locale,
     _role_definition_form_values_from_record,
 )
+from loopora.web_url_utils import safe_local_return_path
 
 
 class WebRouteRolePagesMixin:
@@ -44,7 +45,7 @@ class WebRouteRolePagesMixin:
         role_definition: Mapping[str, object] | None = None,
     ) -> HTMLResponse:
         locale = _preferred_request_locale(request)
-        return_to = str(request.query_params.get("return_to", "")).strip()
+        return_to = safe_local_return_path(request.query_params.get("return_to", ""))
         incoming_values = values
         current_role_definition = dict(role_definition) if role_definition else None
         if values is None and current_role_definition is not None:

@@ -19,6 +19,7 @@ from loopora.web_inputs import (
     _preferred_request_locale,
     _workflow_for_spec_template,
 )
+from loopora.web_url_utils import safe_local_return_path
 from loopora.workflows import (
     available_prompt_templates,
     build_preset_workflow,
@@ -82,7 +83,7 @@ class WebRouteLoopPagesMixin:
         orchestration: Mapping[str, object] | None = None,
     ) -> HTMLResponse:
         page_locale = _preferred_request_locale(request)
-        return_to = str(request.query_params.get("return_to", "")).strip()
+        return_to = safe_local_return_path(request.query_params.get("return_to", ""))
         current_orchestration = dict(orchestration) if orchestration else None
         if values is None and current_orchestration is not None:
             values = _orchestration_form_values_from_record(current_orchestration)

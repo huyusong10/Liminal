@@ -1051,6 +1051,9 @@ def test_bundles_pages_render_list_and_detail(
     assert f'?return_to=/bundles/{imported["id"]}' in detail_response.text
     assert f'/loops/new?replace_bundle_id={imported["id"]}#bundle-import-form' in detail_response.text
     assert "Current Bundle YAML" in detail_response.text
+    assert "bundle-surface-grid" in detail_response.text
+    assert "bundle-surface-card--wide" in detail_response.text
+    assert 'style="margin-top: 1rem;"' not in detail_response.text
 
     revision_target_response = client.get(f"/loops/new?replace_bundle_id={imported['id']}")
     assert revision_target_response.status_code == 200
@@ -1059,6 +1062,12 @@ def test_bundles_pages_render_list_and_detail(
     legacy_revision_response = client.get(f"/bundles?replace_bundle_id={imported['id']}", follow_redirects=False)
     assert legacy_revision_response.status_code == 303
     assert legacy_revision_response.headers["location"] == f"/loops/new?replace_bundle_id={imported['id']}#bundle-import-form"
+
+    encoded_revision_response = client.get("/bundles?replace_bundle_id=bundle%26revision%3D2", follow_redirects=False)
+    assert encoded_revision_response.status_code == 303
+    assert encoded_revision_response.headers["location"] == (
+        "/loops/new?replace_bundle_id=bundle%26revision%3D2#bundle-import-form"
+    )
 
 
 def test_index_page_uses_bundle_delete_for_bundle_managed_loops(
@@ -1110,9 +1119,9 @@ def test_role_definition_editor_script_localizes_archetype_labels_and_guide(serv
     assert 'const locale = window.LooporaUI.currentLocale();' in response.text
     assert 'const label = locale === "zh" ? option.dataset.labelZh : option.dataset.labelEn;' in response.text
     assert 'option.textContent = label || option.dataset.labelEn || option.dataset.labelZh || option.textContent || "";' in response.text
-    assert 'setBilingualHtml(archetypeSummary, option.dataset.summaryZh || "", option.dataset.summaryEn || "");' in response.text
-    assert 'setBilingualHtml(archetypeRecommendation, option.dataset.recommendationZh || "", option.dataset.recommendationEn || "");' in response.text
-    assert 'setBilingualHtml(archetypeWarning, option.dataset.warningZh || "", option.dataset.warningEn || "");' in response.text
+    assert 'setBilingualText(archetypeSummary, option.dataset.summaryZh || "", option.dataset.summaryEn || "");' in response.text
+    assert 'setBilingualText(archetypeRecommendation, option.dataset.recommendationZh || "", option.dataset.recommendationEn || "");' in response.text
+    assert 'setBilingualText(archetypeWarning, option.dataset.warningZh || "", option.dataset.warningEn || "");' in response.text
 
 
 def test_workflow_diagram_script_localizes_step_assistive_labels(service_factory) -> None:
@@ -1155,16 +1164,16 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     _assert_has_testid(response.text, "tutorial-decision-tree-stop-card")
     _assert_has_testid(response.text, "tutorial-spec-practice-modal")
     _assert_has_testid(response.text, "tutorial-spec-practice-preview")
-    assert "humans should not have to keep coming back to confirm and redirect it" in response.text
-    assert "humans keep getting pulled back in to inspect, judge, and redirect the work" in response.text
-    assert "Compile collaboration posture" in response.text
-    assert "Posture is not a single prompt" in response.text
+    assert "If a strong agent can already do the work, why use Loopora?" in response.text
+    assert "would one strong agent pass plus one human review be enough" in response.text
+    assert "Are you saving output, or judgment?" in response.text
+    assert "Why is posture not just a prompt?" in response.text
     assert "single YAML bundle" in response.text
-    assert "The working agreement is transient" in response.text
-    assert "Together they absorb the supervision work" in response.text
-    assert "one strong agent pass plus one human review is enough" in response.text
-    assert "Start with this decision tree" in response.text
-    assert "Start with these 5 core workflows" in response.text
+    assert "compile a single YAML bundle" in response.text
+    assert "Runnable posture needs three surfaces" in response.text
+    assert "one strong agent pass plus one human review is usually enough" in response.text
+    assert "First ask: does this really need Loopora?" in response.text
+    assert "which workflow matches this posture" in response.text
     assert "Inspect First" in response.text
     assert "Build First" in response.text
     assert "Triage First" in response.text
@@ -1175,7 +1184,7 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     assert "Loopora decision tree" in response.text
     assert "tutorial-decision-tree-copy" not in response.text
     assert "tutorial-decision-tree-image" not in response.text
-    assert "Why this one" in response.text
+    assert "What question it answers" in response.text
     assert "help-center slice ready for shadow traffic" in response.text
     assert "high-value queries regress" in response.text
     assert "full search reindexing" in response.text
@@ -1195,9 +1204,9 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     zh_response = client.get("/tutorial", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
     assert '<title>使用教程</title>' in zh_response.text
-    assert "反复回来确认" in zh_response.text
-    assert "编译协作姿态" in zh_response.text
-    assert "Bundle 是入口" in zh_response.text
+    assert "强 Agent 已经能做，为什么还要用 Loopora" in zh_response.text
+    assert "你要省下的是产出，还是判断" in zh_response.text
+    assert "为什么不先手工编排" in zh_response.text
     assert "导入 Bundle 创建循环" in zh_response.text
     assert "帮助中心" in zh_response.text
 
@@ -1268,6 +1277,10 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".tutorial-decision-tree-canvas {" in css
     assert ".tutorial-decision-tree-flow-card {" in css
     assert ".tutorial-guide-card {" in css
+    assert ".tutorial-guide-card code {" in css
+    assert ".bundle-surface-grid {" in css
+    assert ".bundle-surface-card {" in css
+    assert ".bundle-surface-card--wide {" in css
     assert ".tutorial-step-title {" in css
     assert ".tutorial-step-checklist {" in css
     assert ".tutorial-context-grid {" in css
@@ -1327,6 +1340,10 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert re.search(r"\.(?:loop-detail-spec-source|loop-detail-spec-preview)\s*{[\s\S]*?min-height:\s*220px;[\s\S]*?max-height:\s*420px;", css)
     assert re.search(r"\.run-history-item:hover\s*{[\s\S]*?transform:\s*translateY\(-2px\);", css)
     assert re.search(r"\.tutorial-guide-grid\s*{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(230px,\s*1fr\)\);", css)
+    assert re.search(r"\.tutorial-guide-title\s*{[\s\S]*?text-wrap:\s*balance;", css)
+    assert re.search(r"\.tutorial-guide-card code\s*{[\s\S]*?background:\s*var\(--surface-muted\);", css)
+    assert re.search(r"\.bundle-surface-grid\s*{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(260px,\s*1fr\)\);", css)
+    assert re.search(r"\.bundle-surface-card\s*{[\s\S]*?background:\s*var\(--surface-muted\);", css)
     assert re.search(r"\.tutorial-page-stack\s*{[\s\S]*?--tutorial-page-max:\s*1360px;[\s\S]*?width:\s*min\(var\(--tutorial-page-max\),\s*100%\);", css)
     assert re.search(r"\.tutorial-step-checklist\s*{[\s\S]*?padding-left:\s*20px;", css)
     assert re.search(r"\.workflow-loop-node-label\s*{[\s\S]*?fill:\s*var\(--workflow-loop-label\);", css)
@@ -1343,6 +1360,7 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert re.search(r"\.stage-loop-arc--bottom\s*{[\s\S]*?border-bottom:\s*1px solid var\(--run-progress-lane-line\);", css)
     assert re.search(r"\.stage-loop-shell\.is-empty \.stage-loop-connector,\s*\.stage-loop-shell\.is-empty \.stage-loop-arcs\s*{[\s\S]*?display:\s*none;", css)
     assert re.search(r"\.stage-loop-shell\.is-empty \.stage-loop-track::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::after\s*{[\s\S]*?display:\s*none;", css)
+
     assert re.search(r"\.stage-chip--terminal\s*{[\s\S]*?background:\s*var\(--run-progress-chip-terminal-bg\);", css)
     assert re.search(r"\.highlight-card\s*{[\s\S]*?background:\s*var\(--run-progress-highlight-bg\);", css)
     assert ".console-filter-chip.is-active.console-filter-chip--actions {" in css
@@ -1396,6 +1414,16 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.form-grid,[\s\S]*?\.executor-config-grid,[\s\S]*?grid-template-columns:\s*1fr;", css)
 
 
+def test_role_definition_script_keeps_bilingual_text_updates_safe() -> None:
+    script = (Path(__file__).resolve().parents[1] / "src" / "loopora" / "static" / "pages" / "new_role_definition.js").read_text(encoding="utf-8")
+
+    assert "function setBilingualText" in script
+    assert "replaceChildren(zhNode, enNode)" in script
+    assert "function setBilingualHtml" not in script
+    assert "setBilingualHtml(" not in script
+    assert "innerHTML = `<span data-lang=\"zh\"" not in script
+
+
 def test_static_app_js_bootstraps_theme_and_locale_without_mount_flash(service_factory) -> None:
     service = service_factory(scenario="success")
 
@@ -1409,6 +1437,9 @@ def test_static_app_js_bootstraps_theme_and_locale_without_mount_flash(service_f
     assert "setLocale(currentLocale(), {persist: false});" in script
     assert "function bindNavPreferences()" in script
     assert "data-toggle-nav-preferences" in script
+    assert 'grid.querySelectorAll(".loop-card").length' in script
+    assert 'document.querySelectorAll(".loop-card").length' not in script
+    assert "Unable to delete this bundle." in script
     assert 'setAttribute("title", title)' not in script
     assert 'removeAttribute("title")' in script
     assert "ui-mounted" not in script

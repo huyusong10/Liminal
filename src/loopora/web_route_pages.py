@@ -15,6 +15,7 @@ from loopora.web_overviews import (
 )
 from loopora.web_route_context import WebRouteContext
 from loopora.web_inputs import _preferred_request_locale
+from loopora.web_url_utils import attachment_content_disposition, with_query_params
 
 TIMELINE_EVENT_TYPES = {
     "run_started",
@@ -72,7 +73,7 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         replace_bundle_id = str(request.query_params.get("replace_bundle_id", "")).strip()
         if replace_bundle_id:
             return RedirectResponse(
-                url=f"/loops/new?replace_bundle_id={replace_bundle_id}#bundle-import-form",
+                url=with_query_params("/loops/new#bundle-import-form", replace_bundle_id=replace_bundle_id),
                 status_code=303,
             )
         return ctx.render_bundles(request, import_values=request.query_params if request.query_params else None)
@@ -190,11 +191,11 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             description=description,
             collaboration_summary=collaboration_summary,
         )
-        filename = f"{bundle['metadata']['name'] or loop_id}.yml".replace("/", "-")
+        filename = f"{bundle['metadata']['name'] or loop_id}.yml"
         from loopora.bundles import bundle_to_yaml
 
         return Response(
             content=bundle_to_yaml(bundle),
             media_type="application/yaml; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={"Content-Disposition": attachment_content_disposition(filename, default=f"{loop_id}.yml")},
         )

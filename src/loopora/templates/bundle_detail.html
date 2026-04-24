@@ -46,50 +46,53 @@
       <span data-lang="zh">Bundle 的协作姿态由 spec、角色定义和流程编排共同承载。你可以分别微调它们；保存后 bundle revision 会同步前进，并重新导出同一份 YAML。</span>
       <span data-lang="en">The collaboration posture is carried jointly by the spec, role definitions, and orchestration. You can tweak them separately; saving any of them advances the bundle revision and regenerates the same YAML package.</span>
     </p>
-    <div class="form-grid">
-      <div class="panel">
-        <h3><span data-lang="zh">Loop</span><span data-lang="en">Loop</span></h3>
+    <div class="bundle-surface-grid">
+      <article class="bundle-surface-card">
+        <div>
+          <h3><span data-lang="zh">Loop</span><span data-lang="en">Loop</span></h3>
+          <p>{{ bundle.loop.name if bundle.loop else "-" }}</p>
+        </div>
         {% if bundle.loop %}
-        <p>{{ bundle.loop.name }}</p>
-        <div class="card-actions">
+        <div class="card-actions card-actions-compact">
           <a class="secondary-button" href="/loops/{{ bundle.loop.id }}">
             <span data-lang="zh">查看 Loop</span>
             <span data-lang="en">View Loop</span>
           </a>
         </div>
-        {% else %}
-        <p>-</p>
         {% endif %}
-      </div>
-      <div class="panel">
-        <h3><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></h3>
+      </article>
+      <article class="bundle-surface-card">
+        <div>
+          <h3><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></h3>
+          <p>{{ bundle.orchestration.name if bundle.orchestration else "-" }}</p>
+        </div>
         {% if bundle.orchestration %}
-        <p>{{ bundle.orchestration.name }}</p>
-        <div class="card-actions">
+        <div class="card-actions card-actions-compact">
           <a class="secondary-button" href="/orchestrations/{{ bundle.orchestration.id }}/edit?return_to=/bundles/{{ bundle.id }}">
             <span data-lang="zh">编辑编排</span>
             <span data-lang="en">Edit orchestration</span>
           </a>
         </div>
-        {% else %}
+        {% endif %}
+      </article>
+    </div>
+    <article class="bundle-surface-card bundle-surface-card--wide">
+      <div>
+        <h3><span data-lang="zh">角色定义</span><span data-lang="en">Role Definitions</span></h3>
+        {% if not bundle.role_definitions %}
         <p>-</p>
         {% endif %}
       </div>
-    </div>
-    <div class="panel" style="margin-top: 1rem;">
-      <h3><span data-lang="zh">角色定义</span><span data-lang="en">Role Definitions</span></h3>
       {% if bundle.role_definitions %}
-      <div class="card-actions">
+      <div class="card-actions card-actions-compact bundle-role-actions">
         {% for role_definition in bundle.role_definitions %}
         <a class="ghost-button" href="/roles/{{ role_definition.id }}/edit?return_to=/bundles/{{ bundle.id }}">
           <span>{{ role_definition.name }}</span>
         </a>
         {% endfor %}
       </div>
-      {% else %}
-      <p>-</p>
       {% endif %}
-    </div>
+    </article>
   </section>
 
   <form class="panel form-panel form-panel-wide" method="post" action="/bundles/{{ bundle.id }}/edit" data-testid="bundle-detail-form">

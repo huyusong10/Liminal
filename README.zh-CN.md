@@ -11,111 +11,140 @@
   <a href="https://fastapi.tiangolo.com/">
     <img alt="FastAPI" src="https://img.shields.io/badge/web-FastAPI-009688?logo=fastapi&logoColor=white">
   </a>
-  <img alt="Local first" src="https://img.shields.io/badge/local--first-循环编排平台-0D7C66">
+  <img alt="Local first" src="https://img.shields.io/badge/local--first-posture%20loops-0D7C66">
   <img alt="Status" src="https://img.shields.io/badge/status-实验中-D66A36">
 </p>
 
-## 如果最稀缺的，不是模型能力，而是人类注意力呢？
+## 强 Agent 已经能做，为什么还要用 Loopora？
 
-强 Agent 往往能把补丁写出来。
+这是 Loopora 必须先回答的问题。
 
-真正的瓶颈，常常出现在下一步。
+如果任务很小、很明确、一轮就能 review 完，那大概率不该用 Loopora。让强 Agent 做一次，人类 review 一次，然后结束。
 
-总得有人回来问：
+但如果难点不是第一版补丁呢？
 
-- 这条路径现在到底够不够真，能不能当基线？
-- 这一轮到底是不是修在了对的层？
-- 是继续推、先停下，还是该换方向？
+如果真正麻烦的是，总有人要反复回来问：
 
-问一次，没什么。
-如果每个关键阶段都要回来问一遍，人类注意力就会变成真正的流量瓶颈。
+- 这次改动证明了正确的东西吗？
+- 结果是真的完成了，还是只是局部看起来合理？
+- 下一轮应该继续写、先检查、收窄切口、再修一轮，还是停止？
+- 这个残余风险在这次任务里能接受，还是必须卡住？
 
-**Loopora 就是为这种任务而生的本地优先循环编排平台。**
+当这些问题在每个关键阶段反复出现，人类注意力就会变成瓶颈。
 
-它不是因为 agent 完全做不到，而是因为有些端到端任务，会把人类不断拉回来确认、裁决和纠偏。Loopora 把这些重复出现的确认点，收进 `Builder → Inspector → GateKeeper → Guide` 的流程里，让人类更少介入，但每次介入都建立在更完整的新证据上。
+**Loopora 就是为这个时刻存在的：把任务级协作姿态编译成本地证据循环。**
+
+## 你真正想省下的是什么？
+
+你是在替 Agent 省力吗？
+
+通常不是。Agent 往往已经能做很多。
+
+你是在替人类省下反复判断吗？
+
+这才是核心。
+
+Loopora 不是用盲目自治替代人的判断。它问的是一个更窄的问题：
+
+> 哪些判断本来会被人类一遍遍重复做，而这次任务能不能把这些判断变成可运行的契约？
+
+这个答案，就是这次任务的 **协作姿态**。
+
+它包括：
+
+- 什么算真实证据
+- 什么是假完成
+- 最终放行应该多保守
+- 什么时候重构比速度更重要
+- 哪个角色应该先行动、先取证、先裁决或先纠偏
+
+## 如果姿态是答案，为什么不只写一段更好的 prompt？
+
+因为姿态不是一段 prompt。
+
+如果只放进 `spec`，角色仍然是泛化角色。
+如果只放进角色 prompt，通过标准会漂移。
+如果只放进 workflow，系统知道顺序，却不知道如何判断。
+
+Loopora 把姿态拆到三种运行面：
+
+- `spec` 冻结任务契约：成功、边界、证据、假完成、残余风险。
+- 角色定义塑造 `Builder`、`Inspector`、`GateKeeper`、`Guide` 或自定义角色的工作姿态。
+- workflow 决定每种判断什么时候发生。
+
+loop 再用新证据检验这些运行面。
+
+融合点就在这里：姿态说明如何判断，编排说明判断何时发生，loop 让每次判断基于新证据，而不是基于自我报告。
+
+## 那为什么要从 bundle 开始？
+
+因为多数用户一开始并没有一张可直接运行的 `spec / roles / workflow` 地图。
+
+他们一开始通常只有一种很重要、但还没结构化的感觉：
+
+- “这件事不能糊弄”
+- “这次我更在乎证据，不在乎快”
+- “只要风险说清楚，我可以接受一部分”
+- “这个任务总失败，是因为太早进入 build 了”
+
+这些感觉很难直接手工拆成 `spec / roles / workflow`。
+
+所以推荐路径是：
+
+`任务输入 -> 外部 Agent + loopora-task-alignment Skill -> working agreement -> YAML bundle -> 创建循环 -> 运行 -> 反馈 -> 下一版 bundle`
+
+working agreement 用来确认：“对，这就是我希望这次任务被监督的方式。”
+
+YAML bundle 才是 Loopora 导入的稳定产物。它同时可读、可运行、可修订：
+
+- 人能读懂为什么这次要这样协作
+- Loopora 能把它物化成 `spec`、角色、workflow 和 loop
+- 之后可以吸收“太保守”“不够重视重构”这类反馈，生成下一版
+
+手动编辑仍然保留。它是 expert path，适合你已经知道哪个运行面出了问题的时候。
+
+## 什么时候该用 Loopora？
+
+先反过来问：
+
+一位强 Agent 加一轮人工 review 够不够？
+
+如果够，就别用 Loopora。
+
+再正着问：
+
+如果不用 Loopora，人类会不会在每轮之后都回来判断结果意味着什么？
+
+如果会，Loopora 可能适合。
+
+适合的任务通常是：
+
+- 足够长，一轮无法定案
+- 足够有状态，每轮都会改变证据
+- 足够不确定，需要把 build、inspect、gate、redirect 拆开
+- 足够重要，不能把“看起来完成”当成“完成”
+
+如果再跑一轮也不会产生新证据，就不要开 loop。没有新证据的 loop 只会漂移。
 
 <p align="center">
   <img src="./.github/assets/readme-decision-tree.zh.png" alt="Loopora 使用决策板" width="1120" />
 </p>
 
-## Loopora 在解决什么
+## 该让哪种流程承载这次姿态？
 
-很多 loop 系统之所以让人犹豫，是因为它们只是让 agent 在旧假设上继续往前跑。没有新反馈，loop 就会慢慢变成漂移，变成盲盒。
+别先背 preset。先问：人类原本最先要回来判断什么？
 
-Loopora 只做另一件事：
+- 需要第一条端到端路径，才谈得上判断？用 `Build First`。
+- 需要先证明失败层，再写更多代码？用 `Inspect First`。
+- 多个症状混在一起，先要收窄成一个修复切片？用 `Triage First`。
+- 已经知道一轮修复不够？用 `Repair Loop`。
+- 下一步应该由最新评测结果决定？用 `Benchmark Loop`。
 
-- `Builder` 先把工作区往前推一步
-- `Inspector` 从更新后的世界里重新拿证据
-- `GateKeeper` 依据证据判断这轮到底有没有过线
-- `Guide` 只在卡住或明显走偏时介入
+这不是 5 条互不相关的流程。它们都在回答同一个问题：
 
-它想解决的，不是“让 agent 想得更久”，而是把那些原本要由人类反复回来做的检查、裁决和纠偏，变成流程本身的一部分。
+> 哪种判断应该先被 loop 暴露出来，避免人类再回来补做？
 
-## 新的中心：协作姿态
-
-Loopora 正在从“抽取 workflow rule”，转向 **编译 task-scoped collaboration posture**。
-
-多数用户并不是带着一套完整规则来用 Loopora 的。他更常见的状态是：已经隐隐约约感觉到自己和 AI 协作时，会反复做某些判断、追问某些证据、纠正某些偷懒方式。这个感觉未必适合直接写成固定流程，但很适合表达成一种任务里的协作姿态：
-
-- 什么证据才算真的可信
-- 哪些“看起来完成了”的状态应该被视为 fake done
-- 什么时候重构比速度更重要
-- 什么时候应该继续推进、先检查、交给 GateKeeper 裁决，或者让 Guide 调整下一轮方向
-
-在 Loopora 里，姿态不是一段神奇 prompt。它由 `spec`、角色定义和 workflow 共同承载。`spec` 定义成功、风险和不可接受状态；角色定义表达每个角色在这次任务里的行为气质；workflow 决定这些判断在什么时候发生。
-
-## Bundle-first 创建循环
-
-现在推荐路径是：
-
-`任务输入 -> 外部 Agent + loopora-task-alignment Skill -> 确认 working agreement -> YAML bundle -> 创建循环 -> 运行 -> 模糊反馈 -> 下一版 bundle`
-
-Loopora 本体不会变成聊天产品。repo-local Skill 会帮助外部 Agent 与用户沟通、暴露 tradeoff、确认临时 working agreement，并产出一份单文件 YAML bundle。Loopora 在 **创建循环** 页导入这份 bundle，然后一次性物化可运行 loop、角色定义、流程编排和 spec。
-
-bundle 同时是可读的，也是可运行的：
-
-- 人类可以读懂为什么这次任务应该这样协作
-- Loopora 可以直接执行，不需要额外的 agreement 文件
-- 后续可以根据“这次太保守了”“这次完全没重视重构”这类模糊反馈，继续生成下一版 bundle
-
-手动编辑角色、流程和 loop 仍然保留。它是 expert path，适合已经很清楚自己要改哪个 surface 的用户。
-
-## 同一个项目里的 5 种 loop
-
-想象一个很具体的项目：一个知识库产品，正把旧的 keyword-only 搜索升级成新的 hybrid search。同一个项目里，会自然出现 5 类长程任务：
-
-- `Build First`
-  先把帮助中心内容域的第一条完整路径接起来，让 `GateKeeper` 能判断它到底够不够资格进入 shadow。
-
-- `Inspect First`
-  帮助中心已经进了 shadow，但一小组高价值查询开始退化。先让 `Inspector` 钉住问题第一次出在采集、索引、召回、重排还是权限过滤，再让 `Builder` 动手。
-
-- `Triage First`
-  rollout 扩到 API 文档和内部手册后，同时冒出结果陈旧、排序飘、筛选失效、权限错漏。这一轮不是“全修”，而是先收敛出一个最值得修的阻塞切片。
-
-- `Repair Loop`
-  全量索引重建把维护窗口拖爆，团队从一开始就知道一轮修不完。第一轮先打掉主瓶颈，再根据新结果决定第二轮怎么修。
-
-- `Benchmark Loop`
-  系统已经接近可发，但是否继续 rollout 还取决于 relevance benchmark。每一轮都先让 `GateKeeper` 看最新评测，再决定 `Builder` 下一步继续压 retrieval、reranking 还是 query rewrite。
-
-这些都不是小需求，而是长程、端到端、要求明确的任务。强 Agent 的确能帮上大忙，但如果没有 Loopora，人类仍然会在每个关键阶段被反复拉回来确认和纠偏。
-
-教程页会先给你看决策板，流程卡片也可以直接弹出对应样例。你不需要先背规则，先看最接近的那个真实任务就行。
-
-## 什么时候别用
-
-如果一位强 Agent 加上一轮人工 review 就够了，就别开 loop。
-
-不适合的典型任务：
-
-- 小文案
-- 小按钮
-- 一轮就能安全做完的明显功能切片
-
-只有当任务长到会把人类一遍遍拉回来确认、裁决和改方向时，Loopora 才会真的省事。
-
-## 最快上手
+## 怎么用？
 
 1. 安装
 
@@ -131,30 +160,30 @@ loopora serve --host 127.0.0.1 --port 8742
 
 然后打开 [http://127.0.0.1:8742](http://127.0.0.1:8742)。
 
-3. 先安装对齐 Skill，再从 bundle 创建
+3. 安装对齐 Skill
 
-打开 **工具** 页，把 repo-local `loopora-task-alignment` Skill 安装到你的外部 Agent 工具里。让外部 Agent 和你围绕任务沟通、确认 working agreement，并产出 YAML bundle。然后打开 **创建循环**，导入 bundle 并运行。
+打开 **工具** 页，把 repo-local `loopora-task-alignment` Skill 安装到外部 Agent 工具里。
 
-4. 只有已经很熟时，再走手动模式
+4. 让外部 Agent 编译任务姿态
 
-如果你不走 bundle，手动路径仍在同一个创建循环页里。Loopora 的 spec 很短，只围绕 4 段：
+围绕任务沟通，确认 working agreement，并产出 YAML bundle。
 
-- `# Task`
-- `# Done When`
-- `# Guardrails`
-- `# Role Notes`
+5. 导入并运行
 
-手动模式里，最省力的方式仍然不是从零写，而是从最接近的内置样例改起。
+打开 **创建循环**，导入 bundle 并运行。Loopora 会把 `spec`、角色定义、workflow 和 loop 作为一组资产物化出来。
 
-## Web UI 优先，CLI 仍然可用
+6. 从证据继续修订
 
-Web UI 是推荐入口，因为它把新的 loop 生命周期放在了同一个地方：
+如果 run 的结果不对，不要马上随机手改字段。先问是哪种判断错了：
 
-- 安装对齐 Skill
-- 在创建循环页导入 bundle
-- 把 bundle 拥有的角色、流程和 spec 作为一组资产管理
-- 需要分享或修订协作姿态时，派生或导出 bundle
-- 观察每轮产物、证据和 GateKeeper 裁决
+- 任务契约错了，改 `spec`
+- 角色姿态错了，改角色定义
+- 判断时机错了，改 workflow
+- 整体协作形状错了，生成下一版 bundle
+
+## CLI
+
+Web UI 是推荐入口，因为它把对齐、bundle 导入、run 证据和 revision 放在同一个地方。
 
 如果你已经很清楚要跑哪条 loop，也可以直接走 CLI：
 

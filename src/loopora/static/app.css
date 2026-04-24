@@ -845,6 +845,51 @@ html[data-locale="zh"] .eyebrow {
   font-size: 0.9rem;
 }
 
+.bundle-surface-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.bundle-surface-card {
+  display: grid;
+  align-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+
+.bundle-surface-card h3 {
+  margin: 0 0 6px;
+  font-size: 0.98rem;
+}
+
+.bundle-surface-card p {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.bundle-surface-card .card-actions {
+  margin-top: 0;
+}
+
+.bundle-surface-card--wide {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.bundle-role-actions {
+  flex-wrap: wrap;
+}
+
 .stacked-copy {
   display: grid;
   gap: 14px;
@@ -1136,12 +1181,21 @@ html[data-locale="zh"] .tutorial-guide-kicker {
 .tutorial-guide-title {
   font-size: 1.02rem;
   line-height: 1.4;
+  text-wrap: balance;
 }
 
 .tutorial-guide-card p {
   margin: 0;
   color: var(--card-copy-muted);
   line-height: 1.68;
+}
+
+.tutorial-guide-card code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--ink);
+  font-size: 0.86em;
 }
 
 .tutorial-choice-note {
@@ -6343,6 +6397,15 @@ html[data-locale="zh"] .preview-box {
 
   .card-actions--loop:not(.card-actions--loop-compact) > :last-child {
     grid-column: 1 / -1;
+  }
+
+  .bundle-surface-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bundle-surface-card--wide {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .stage-strip {

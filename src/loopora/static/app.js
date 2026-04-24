@@ -301,6 +301,12 @@
             en: `"${name}" and its stored run history will disappear together. This one really does not come back.`,
           });
         },
+        failure() {
+          return pickText({
+            zh: "无法删除这个循环。",
+            en: "Unable to delete this loop.",
+          });
+        },
       },
       {
         selector: "[data-delete-bundle]",
@@ -316,6 +322,12 @@
           return pickText({
             zh: `“${name}” 和它导入的 loop、流程编排、角色定义都会一起清理。手动资源不会被影响。`,
             en: `"${name}" and its imported loop, orchestration, and role definitions will be removed together. Unrelated manual assets stay intact.`,
+          });
+        },
+        failure() {
+          return pickText({
+            zh: "无法删除这个 Bundle。",
+            en: "Unable to delete this bundle.",
           });
         },
       },
@@ -349,10 +361,10 @@
         window.location.href = config.redirectUrl || window.location.href;
         return;
       }
-      card.remove();
-      const remainingCards = document.querySelectorAll(".loop-card").length;
-      const countElement = document.getElementById(config.countId);
       const grid = document.getElementById(config.gridId);
+      card.remove();
+      const remainingCards = grid ? grid.querySelectorAll(".loop-card").length : 0;
+      const countElement = document.getElementById(config.countId);
       const emptyState = document.getElementById(config.emptyStateId);
       const gridNote = document.querySelector(config.noteSelector);
       if (countElement) {
@@ -395,10 +407,7 @@
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         modalConfirm.disabled = false;
-        window.alert(payload.error || pickText({
-          zh: "删除失败。",
-          en: "Unable to delete the loop.",
-        }));
+        window.alert(payload.error || config.failure());
         return;
       }
       closeDeleteModal();

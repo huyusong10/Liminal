@@ -5,47 +5,47 @@
   <section class="hero hero-tight">
     <div class="hero-copy-stack">
       <h1>
-        <span data-lang="zh">当强 Agent 能做，但人类不该反复回来确认时，再用 Loopora。</span>
-        <span data-lang="en">Use Loopora when a strong agent could do the work, but humans should not have to keep coming back to confirm and redirect it.</span>
+        <span data-lang="zh">强 Agent 已经能做，为什么还要用 Loopora？</span>
+        <span data-lang="en">If a strong agent can already do the work, why use Loopora?</span>
       </h1>
       <p>
-        <span data-lang="zh">Loopora 不是因为 agent 完全做不到，而是因为如果没有一条能承载协作姿态的流程，人类就得在每个关键阶段反复回来检查、裁决和纠偏。现在推荐先让外部 Agent + Skill 对齐任务，产出 bundle，再在“创建循环”页导入运行。</span>
-        <span data-lang="en">Loopora is not here because the agent is helpless. It is here because, without a workflow that carries the right collaboration posture, humans keep getting pulled back in to inspect, judge, and redirect the work after every meaningful step. The recommended path is now to align with an external Agent + Skill, produce a bundle, then import it from Create Loop.</span>
+        <span data-lang="zh">先反过来问：一位强 Agent 加一轮人工 review 够不够？如果够，就别用 Loopora。只有当人类会在每轮之后反复回来判断证据、裁决是否过线、决定下一步方向时，才值得把这次任务的协作姿态编译成 bundle，再导入循环运行。</span>
+        <span data-lang="en">Ask the opposite question first: would one strong agent pass plus one human review be enough? If yes, skip Loopora. Use it when humans would otherwise return after each round to judge evidence, decide whether the line was crossed, and choose the next move. That is when the task posture should be compiled into a bundle and imported as a loop.</span>
       </p>
     </div>
   </section>
 
   <section class="panel tutorial-guide-panel" data-testid="tutorial-guide-panel">
     <header class="panel-header">
-      <h2><span data-lang="zh">核心精神</span><span data-lang="en">Core idea</span></h2>
+      <h2><span data-lang="zh">先问这四个问题</span><span data-lang="en">Ask these four questions first</span></h2>
     </header>
     <div class="tutorial-guide-grid tutorial-guide-grid-compact">
       <article class="tutorial-guide-card" data-testid="tutorial-core-spec">
-        <strong class="tutorial-guide-title"><span data-lang="zh">编译协作姿态</span><span data-lang="en">Compile collaboration posture</span></strong>
+        <strong class="tutorial-guide-title"><span data-lang="zh">你要省下的是产出，还是判断？</span><span data-lang="en">Are you saving output, or judgment?</span></strong>
         <p>
-          <span data-lang="zh">Loopora 不要求你先写出一套完整规则。它更关心这次任务里的协作姿态：什么算真证据、什么是假完成、什么时候该重构、什么时候该先裁决再继续。</span>
-          <span data-lang="en">Loopora does not ask you to write a complete rulebook first. It cares about the task-scoped posture: what counts as evidence, what is fake done, when refactoring matters, and when judgment should happen before more work.</span>
+          <span data-lang="zh">如果只是让 Agent 多写一次代码，Loopora 没有必要。它真正省下的是人类反复回场做的判断：证据够不够、是否假完成、该继续还是转向。</span>
+          <span data-lang="en">If the only goal is another code pass, Loopora is unnecessary. It saves the repeated human judgment loop: is the evidence real, is this fake done, should the next round continue or redirect?</span>
         </p>
       </article>
       <article class="tutorial-guide-card" data-testid="tutorial-core-workflow">
-        <strong class="tutorial-guide-title"><span data-lang="zh">三层共同承载</span><span data-lang="en">Carried by three surfaces</span></strong>
+        <strong class="tutorial-guide-title"><span data-lang="zh">姿态为什么不能只写成 prompt？</span><span data-lang="en">Why is posture not just a prompt?</span></strong>
         <p>
-          <span data-lang="zh">姿态不是一段 prompt。`spec` 定义成功和风险，角色定义表达每个角色的行为气质，workflow 决定这些判断何时发生。三者合在一起，才是可运行的协作约定。</span>
-          <span data-lang="en">Posture is not a single prompt. The `spec` defines success and risk, role definitions express how each role should behave, and the workflow decides when those judgments happen. Together they absorb the supervision work that would otherwise keep dragging humans back in.</span>
+          <span data-lang="zh">因为 prompt 只会影响说法。可运行的姿态必须同时落到三层：<code>spec</code> 冻结契约，角色定义塑造判断风格，workflow 决定判断时机。</span>
+          <span data-lang="en">Because a prompt only changes the wording. Runnable posture needs three surfaces: the <code>spec</code> freezes the contract, role definitions shape judgment style, and the workflow decides when judgment happens.</span>
         </p>
       </article>
       <article class="tutorial-guide-card" data-testid="tutorial-core-bundle">
-        <strong class="tutorial-guide-title"><span data-lang="zh">Bundle 是入口</span><span data-lang="en">Bundle is the entry</span></strong>
+        <strong class="tutorial-guide-title"><span data-lang="zh">为什么不先手工编排？</span><span data-lang="en">Why not hand-build the flow first?</span></strong>
         <p>
-          <span data-lang="zh">working agreement 只在对齐阶段存在，用来让用户确认“Loopora 是否理解了我”。最终导入的是单文件 YAML bundle；它既能被人读懂，也能直接物化成 loop、角色定义、spec 和流程编排。</span>
-          <span data-lang="en">The working agreement is transient: it helps the user confirm whether Loopora understood the task. The durable artifact is a single YAML bundle that is readable by humans and runnable as a loop, roles, spec, and orchestration.</span>
+          <span data-lang="zh">多数人一开始没有现成的 <code>spec / roles / workflow</code> 地图，只有“这次不能糊弄”“我更信证据”这类感觉。先用外部 Agent + Skill 对齐成 working agreement，再编译成单文件 YAML bundle。</span>
+          <span data-lang="en">Most people do not start with a ready <code>spec / roles / workflow</code> map. They start with signals like "this cannot be sloppy" or "evidence matters more here." Use an external Agent + Skill to align that into a working agreement, then compile a single YAML bundle.</span>
         </p>
       </article>
       <article class="tutorial-guide-card" data-testid="tutorial-core-loop">
-        <strong class="tutorial-guide-title"><span data-lang="zh">什么时候别用</span><span data-lang="en">When not to use it</span></strong>
+        <strong class="tutorial-guide-title"><span data-lang="zh">什么时候别开 loop？</span><span data-lang="en">When should you not open a loop?</span></strong>
         <p>
-          <span data-lang="zh">如果一位强 Agent 加上一轮人工 review 就够了，就别开 loop。Loopora 只该用在那些本来会把人类反复拉回来确认和纠偏，而且后续还需要用模糊反馈继续修订姿态的长程任务上。</span>
-          <span data-lang="en">If one strong agent pass plus one human review is enough, skip the loop. Use Loopora only for long tasks that would otherwise keep pulling humans back in to confirm, redirect, and later revise the posture with fuzzy feedback.</span>
+          <span data-lang="zh">如果下一轮不会产生新证据，或者一次人工 review 就能定案，就别开 loop。没有新证据的循环不是收敛器，只会漂移。</span>
+          <span data-lang="en">If another round will not create new evidence, or one human review can settle it, do not open a loop. A loop without new evidence is not convergence, just drift.</span>
         </p>
       </article>
     </div>
@@ -53,23 +53,23 @@
 
   <section class="panel" id="tutorial-decision-tree-panel" data-testid="tutorial-decision-tree-panel">
     <header class="panel-header">
-      <h2><span data-lang="zh">先用这张决策树</span><span data-lang="en">Start with this decision tree</span></h2>
+      <h2><span data-lang="zh">先问：这件事真的需要 Loopora 吗？</span><span data-lang="en">First ask: does this really need Loopora?</span></h2>
     </header>
     <div class="tutorial-decision-tree-shell">
       <section class="tutorial-decision-tree-canvas" data-testid="tutorial-decision-tree-canvas" aria-label="{{ 'Loopora 使用决策树' if page_locale == 'zh' else 'Loopora decision tree' }}">
         <div class="tutorial-decision-tree-kicker" data-testid="tutorial-decision-tree-kicker">Builder · Inspector · GateKeeper · Guide</div>
         <div class="tutorial-decision-tree-intro">
           <span class="tutorial-decision-tree-eyebrow">
-            <span data-lang="zh">先判断这件事会不会反复把人拉回来，再判断该让谁先替人拿到关键证据。</span>
-            <span data-lang="en">First ask whether the task would keep dragging humans back in, then decide which role should surface the first crucial signal for them.</span>
+            <span data-lang="zh">不要先选流程名。先问人类会不会被反复拉回来，再问最先该替人类暴露哪种判断。</span>
+            <span data-lang="en">Do not start with workflow names. First ask whether humans would be pulled back repeatedly, then ask which judgment should be surfaced first.</span>
           </span>
           <h3>
-            <span data-lang="zh">这件事需要 Loopora 吗？</span>
-            <span data-lang="en">Does this task need Loopora?</span>
+            <span data-lang="zh">如果不用 Loopora，人类会回来几次？</span>
+            <span data-lang="en">Without Loopora, how many times would humans return?</span>
           </h3>
           <p>
-            <span data-lang="zh">如果一位强 Agent 加上一轮人工复核就够，别开 loop。只有当人类本来会被反复拉回来确认和纠偏时，Loopora 才真正省事。</span>
-            <span data-lang="en">If one strong agent plus one human review is enough, skip the loop. Loopora earns its keep only when humans would otherwise keep getting pulled back in to confirm and redirect the work.</span>
+            <span data-lang="zh">如果答案是“一次”，别开 loop。如果答案是“每轮都要回来判断”，才继续往下选流程形状。</span>
+            <span data-lang="en">If the answer is "once", skip the loop. If the answer is "after every round", continue and choose the workflow shape.</span>
           </p>
         </div>
         <div class="tutorial-decision-tree-stage">
@@ -110,12 +110,12 @@
                 <span class="tutorial-decision-tree-step-badge tutorial-decision-tree-step-badge--secondary">02</span>
               </div>
               <h4>
-                <span data-lang="zh">如果值得用，最先该让谁替人类拿到关键判断？</span>
-                <span data-lang="en">If it is worth using, which role should surface the first key judgment for humans?</span>
+                <span data-lang="zh">如果值得用，第一轮最该替人类回答什么？</span>
+                <span data-lang="en">If it is worth using, what should the first round answer for humans?</span>
               </h4>
               <p>
-                <span data-lang="zh">别先背流程名。直接看下面这张匹配表：哪一种信号最能减少下一次人工回场，就让谁先上场。</span>
-                <span data-lang="en">Do not start from workflow names. Use the matching board below: choose the workflow that surfaces the signal most likely to prevent the next human interruption.</span>
+                <span data-lang="zh">哪一种回答最能减少下一次人工回场，就选最能暴露它的流程。</span>
+                <span data-lang="en">Choose the workflow that surfaces the answer most likely to prevent the next human interruption.</span>
               </p>
             </article>
           </div>
@@ -123,8 +123,8 @@
         <div class="tutorial-decision-tree-flow-stack" data-testid="tutorial-decision-tree-flow-stack">
           <div class="tutorial-decision-tree-flow-stack-header">
             <span class="tutorial-decision-tree-flow-stack-label">
-              <span data-lang="zh">最先要替人类拿到的信号</span>
-              <span data-lang="en">The first signal humans need surfaced</span>
+              <span data-lang="zh">人类原本要回来判断什么</span>
+              <span data-lang="en">What humans would otherwise return to judge</span>
             </span>
             <span class="tutorial-decision-tree-flow-stack-label">
               <span data-lang="zh">更适合的流程</span>
@@ -150,10 +150,10 @@
   <section class="panel" data-testid="tutorial-workflow-scenarios-panel">
     <header class="panel-header">
       <div>
-        <h2><span data-lang="zh">默认先看这 5 类核心流程</span><span data-lang="en">Start with these 5 core workflows</span></h2>
+        <h2><span data-lang="zh">如果需要，哪种流程最像这次姿态？</span><span data-lang="en">If it does, which workflow matches this posture?</span></h2>
         <p class="tutorial-panel-copy">
-          <span data-lang="zh">下面不是 5 个互不相干的行业故事，而是同一个搜索升级项目里最常见的 5 种长程任务形状：建第一条路径、钉根因、收窄问题、做双轮修复、再用 benchmark 决定下一步。</span>
-          <span data-lang="en">These are not five unrelated industries. They are five long-task shapes from one search-system rollout: landing the first path, pinning the root cause, narrowing the problem, running a two-pass repair, and letting benchmark results pick the next move.</span>
+          <span data-lang="zh">别把流程当静态规则背。它们只是 5 种常见答案：这次最先稀缺的是完整路径、根因证据、问题切片、二次修复证据，还是最新 benchmark？</span>
+          <span data-lang="en">Do not memorize workflows as static rules. They are five common answers: is this task first missing a complete path, root-cause evidence, a narrowed slice, second-pass repair evidence, or the latest benchmark?</span>
         </p>
       </div>
     </header>
@@ -170,7 +170,7 @@
           <span data-lang="en">{{ orchestration.tutorial_teaser_en }}</span>
         </p>
         <p class="tutorial-choice-note">
-          <strong><span data-lang="zh">为什么选它</span><span data-lang="en">Why this one</span></strong>
+          <strong><span data-lang="zh">它回答了什么问题</span><span data-lang="en">What question it answers</span></strong>
           <span data-lang="zh">{{ orchestration.choice_zh }}</span>
           <span data-lang="en">{{ orchestration.choice_en }}</span>
         </p>
@@ -181,8 +181,8 @@
           data-testid="tutorial-open-spec-practice-button"
           aria-haspopup="dialog"
         >
-          <span data-lang="zh">看这个流程的样例</span>
-          <span data-lang="en">See this workflow example</span>
+          <span data-lang="zh">看它如何承载姿态</span>
+          <span data-lang="en">See how it carries posture</span>
         </button>
       </article>
       {% endfor %}
@@ -192,10 +192,10 @@
   <section class="panel" data-testid="tutorial-actions-panel">
     <header class="panel-header">
       <div>
-        <h2><span data-lang="zh">从哪里开始</span><span data-lang="en">Where to start</span></h2>
+        <h2><span data-lang="zh">想好了为什么用，然后怎么用？</span><span data-lang="en">Once you know why, how do you use it?</span></h2>
         <p class="tutorial-panel-copy">
-          <span data-lang="zh">默认不要先手搓流程。先安装对齐 Skill，让外部 Agent 和你把任务姿态聊清楚，再把生成的 bundle 导入“创建循环”。手动编排继续保留，但它是 expert mode。</span>
-          <span data-lang="en">Do not start by hand-building the flow. Install the alignment Skill, let an external Agent clarify the task posture with you, then import the generated bundle from Create Loop. Manual orchestration still exists, but it is expert mode.</span>
+          <span data-lang="zh">不要从手搓流程开始。先安装对齐 Skill，让外部 Agent 把“这次到底要省下哪类人工判断”问清楚，确认 working agreement，再把生成的 bundle 导入“创建循环”。</span>
+          <span data-lang="en">Do not start by hand-building the flow. Install the alignment Skill, let an external Agent clarify which repeated human judgments this task should save, confirm the working agreement, then import the generated bundle from Create Loop.</span>
         </p>
       </div>
     </header>
@@ -229,8 +229,8 @@
           <span class="spec-preview-kicker"><span data-lang="zh">只读参考</span><span data-lang="en">Read-only reference</span></span>
           <h2 id="tutorial-spec-practice-title"><span data-lang="zh">流程样例</span><span data-lang="en">Workflow example</span></h2>
           <p class="spec-preview-status" id="tutorial-spec-practice-status">
-            <span data-lang="zh">这里展示的是同一个搜索升级项目里的真实长程任务切片，以及为什么这条流程能替人类少回来确认几次。</span>
-            <span data-lang="en">This dialog shows a long task slice from the same search rollout, and why this workflow saves humans from coming back to confirm it over and over.</span>
+            <span data-lang="zh">这里展示的是同一个搜索升级项目里的真实长程任务切片：它先问人类原本要回来判断什么，再展示这条流程如何承载那种姿态。</span>
+            <span data-lang="en">This dialog shows a long task slice from the same search rollout: first what humans would otherwise return to judge, then how this workflow carries that posture.</span>
           </p>
         </div>
         <div class="card-actions card-actions-compact spec-preview-actions">

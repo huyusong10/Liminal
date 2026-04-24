@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from loopora.bundles import bundle_to_yaml
 from loopora.settings import app_home, configure_logging
+from loopora.web_url_utils import safe_attachment_filename, safe_local_return_path, with_query_params
 import loopora.web as web_module
 from loopora.web import build_app
 
@@ -21,6 +22,19 @@ def _read_service_log_records() -> list[dict]:
         for line in (app_home() / "logs" / "service.log").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def test_web_url_helpers_keep_redirects_and_filenames_local() -> None:
+    assert safe_local_return_path("/bundles/bundle-1?tab=roles#surface") == "/bundles/bundle-1?tab=roles#surface"
+    assert safe_local_return_path("https://example.test/bundles/1") is None
+    assert safe_local_return_path("//example.test/bundles/1") is None
+    assert safe_local_return_path("bundles/1") is None
+    assert safe_local_return_path("/bundles\\example.test") is None
+    assert safe_local_return_path("/bundles/1\r\nLocation: https://example.test") is None
+    assert with_query_params("/bundles/bundle-1?tab=roles#surface", surface_updated="workflow") == (
+        "/bundles/bundle-1?tab=roles&surface_updated=workflow#surface"
+    )
+    assert safe_attachment_filename('Bad/Name" \r\n injected.yml') == "Bad-Name-injected.yml"
 
 
 def test_api_loop_creation_run_preview_and_stream(
@@ -1761,6 +1775,31 @@ def test_bundle_form_import_and_edit_flow(
     assert spec_path.read_text(encoding="utf-8").startswith("# Task")
 
 
+def test_bundle_derive_form_encodes_query_values(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/bundles/derive",
+        data={
+            "loop_id": "loop&id=shadow",
+            "name": "Bundle & Review",
+            "description": "Use A&B evidence.",
+            "collaboration_summary": "No query leakage.",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == (
+        "/bundles/derive/export?"
+        "loop_id=loop%26id%3Dshadow&"
+        "name=Bundle+%26+Review&"
+        "description=Use+A%26B+evidence.&"
+        "collaboration_summary=No+query+leakage."
+    )
+
+
 def test_create_loop_page_imports_bundle_as_loop_creation_flow(
     service_factory,
     sample_spec_file: Path,
@@ -1916,6 +1955,123 @@ def test_bundle_owned_surface_edit_redirects_back_to_bundle_detail(
     )
     assert role_response.status_code == 303
     assert role_response.headers["location"] == f"/bundles/{imported['id']}?surface_updated=role%3A{role_definition['id']}"
+
+
+def test_bundle_surface_return_to_rejects_external_redirects(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Unsafe Return Source",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    imported = service.import_bundle_text(
+        bundle_to_yaml(
+            service.derive_bundle_from_loop(
+                loop["id"],
+                name="Unsafe Return Bundle",
+                description="Return target safety.",
+                collaboration_summary="Do not redirect outside the local console.",
+            )
+        )
+    )
+    orchestration = imported["orchestration"]
+    role_definition = imported["role_definitions"][0]
+    client = TestClient(build_app(service=service))
+
+    orchestration_page = client.get(f"/orchestrations/{orchestration['id']}/edit?return_to=https://evil.example/phish")
+    assert orchestration_page.status_code == 200
+    assert "https://evil.example" not in orchestration_page.text
+
+    orchestration_response = client.post(
+        f"/orchestrations/{orchestration['id']}/edit?return_to=https://evil.example/phish",
+        data={
+            "name": orchestration["name"],
+            "description": "Workflow tuned from an unsafe return target.",
+            "workflow_json": json.dumps(orchestration["workflow_json"], ensure_ascii=False, indent=2),
+            "prompt_files_json": json.dumps(orchestration["prompt_files_json"], ensure_ascii=False, indent=2),
+        },
+        follow_redirects=False,
+    )
+    assert orchestration_response.status_code == 303
+    assert orchestration_response.headers["location"] == f"/orchestrations/{orchestration['id']}/edit?saved=1"
+
+    role_page = client.get(f"/roles/{role_definition['id']}/edit?return_to=//evil.example/phish")
+    assert role_page.status_code == 200
+    assert "evil.example" not in role_page.text
+
+    role_response = client.post(
+        f"/roles/{role_definition['id']}/edit?return_to=//evil.example/phish",
+        data={
+            "name": role_definition["name"],
+            "description": role_definition["description"],
+            "archetype": role_definition["archetype"],
+            "prompt_ref": role_definition["prompt_ref"],
+            "prompt_markdown": role_definition["prompt_markdown"],
+            "posture_notes": "Ignore the external return target.",
+            "executor_kind": role_definition["executor_kind"],
+            "executor_mode": role_definition["executor_mode"],
+            "command_cli": role_definition["command_cli"],
+            "command_args_text": role_definition["command_args_text"],
+            "model": role_definition["model"],
+            "reasoning_effort": role_definition["reasoning_effort"],
+        },
+        follow_redirects=False,
+    )
+    assert role_response.status_code == 303
+    assert role_response.headers["location"] == f"/roles/{role_definition['id']}/edit?saved=1"
+
+
+def test_bundle_export_sanitizes_download_filename(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Filename Source",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    imported = service.import_bundle_text(
+        bundle_to_yaml(
+            service.derive_bundle_from_loop(
+                loop["id"],
+                name='Bad/Name" \r\n injected',
+                description="Filename safety.",
+                collaboration_summary="Export headers stay parseable.",
+            )
+        )
+    )
+    client = TestClient(build_app(service=service))
+
+    response = client.get(f"/api/bundles/{imported['id']}/export")
+
+    assert response.status_code == 200
+    disposition = response.headers["content-disposition"]
+    assert disposition == 'attachment; filename="Bad-Name-injected.yml"'
+    assert "\n" not in disposition
+    assert "\r" not in disposition
+    assert "/" not in disposition
 
 
 def test_api_role_definition_rejects_custom_executor_preset_mode(service_factory) -> None:

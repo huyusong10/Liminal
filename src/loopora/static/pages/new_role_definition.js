@@ -45,11 +45,17 @@ document.addEventListener("DOMContentLoaded", () => {
     return window.LooporaUI.pickText({zh, en});
   }
 
-  function setBilingualHtml(element, zh, en) {
+  function setBilingualText(element, zh, en) {
     if (!element) {
       return;
     }
-    element.innerHTML = `<span data-lang="zh">${zh}</span><span data-lang="en">${en}</span>`;
+    const zhNode = document.createElement("span");
+    zhNode.dataset.lang = "zh";
+    zhNode.textContent = String(zh || "");
+    const enNode = document.createElement("span");
+    enNode.dataset.lang = "en";
+    enNode.textContent = String(en || "");
+    element.replaceChildren(zhNode, enNode);
   }
 
   function setPromptPreviewNote(kind = "", message = "") {
@@ -61,7 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
       promptMarkdownPreviewNote.textContent = message;
       return;
     }
-    setBilingualHtml(
+    setBilingualText(
       promptMarkdownPreviewNote,
       "会自动忽略 front matter，只展示 Markdown 正文。",
       "Front matter is ignored here so only the Markdown body is shown.",
@@ -145,13 +151,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!option) {
       return;
     }
-    const locale = window.LooporaUI.currentLocale();
-    const summary = locale === "zh" ? option.dataset.summaryZh : option.dataset.summaryEn;
-    const recommendation = locale === "zh" ? option.dataset.recommendationZh : option.dataset.recommendationEn;
-    const warning = locale === "zh" ? option.dataset.warningZh : option.dataset.warningEn;
-    setBilingualHtml(archetypeSummary, option.dataset.summaryZh || "", option.dataset.summaryEn || "");
-    setBilingualHtml(archetypeRecommendation, option.dataset.recommendationZh || "", option.dataset.recommendationEn || "");
-    setBilingualHtml(archetypeWarning, option.dataset.warningZh || "", option.dataset.warningEn || "");
+    setBilingualText(archetypeSummary, option.dataset.summaryZh || "", option.dataset.summaryEn || "");
+    setBilingualText(archetypeRecommendation, option.dataset.recommendationZh || "", option.dataset.recommendationEn || "");
+    setBilingualText(archetypeWarning, option.dataset.warningZh || "", option.dataset.warningEn || "");
+    const warning = window.LooporaUI.currentLocale() === "zh" ? option.dataset.warningZh : option.dataset.warningEn;
     archetypeWarning.hidden = !warning;
   }
 
@@ -331,7 +334,7 @@ document.addEventListener("DOMContentLoaded", () => {
       : localeText("先配置执行命令。", "Configure the execution command first.");
 
     if (profile?.command_only) {
-      setBilingualHtml(
+      setBilingualText(
         commandPreviewNote,
         "自定义执行工具只认这里的直接命令。命令结束前，必须把最终 JSON 对象写到 `{output_path}`。",
         "Custom execution tools only use this direct command. Before the process exits, it must write the final JSON object to `{output_path}`.",
@@ -339,7 +342,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    setBilingualHtml(
+    setBilingualText(
       commandPreviewNote,
       commandMode
         ? "这是直接命令模式下的最终 argv 预览。尖括号表示运行时才会替换的值。"
@@ -464,19 +467,19 @@ document.addEventListener("DOMContentLoaded", () => {
     reasoningInput.disabled = commandMode || profile.command_only;
 
     if (profile.command_only) {
-      setBilingualHtml(
+      setBilingualText(
         modeNote,
         "自定义执行工具只支持“直接命令”模式。Loopora 会按你的 CLI 模板执行，并从 `{output_path}` 回收结构化结果。",
         "Custom execution tools only support direct-command mode. Loopora will execute your CLI template as-is and recover structured output from `{output_path}`.",
       );
     } else if (commandMode) {
-      setBilingualHtml(
+      setBilingualText(
         modeNote,
         "现在由直接命令接管。模型和推理强度会冻结成只读参考，真正的执行细节以右侧 CLI 模板为准。",
         "Direct command now owns the execution. Model and reasoning freeze into a read-only reference while the CLI template on the right becomes the source of truth.",
       );
     } else {
-      setBilingualHtml(
+      setBilingualText(
         modeNote,
         "现在由预设模式接管。你只需要改模型和推理强度，Loopora 会自动拼出最终命令。",
         "Preset mode now owns the execution. You only need to tune the model and reasoning, and Loopora assembles the final command for you.",
@@ -508,22 +511,22 @@ document.addEventListener("DOMContentLoaded", () => {
     modelInput.dataset.defaultModel = profile.default_model || "";
     modelInput.dataset.placeholderZh = profile.model_placeholder_zh || "";
     modelInput.dataset.placeholderEn = profile.model_placeholder_en || "";
-    setBilingualHtml(modelFieldLabel, "默认模型", "Default model");
-    setBilingualHtml(modelNote, profile.model_help_zh || "", profile.model_help_en || "");
+    setBilingualText(modelFieldLabel, "默认模型", "Default model");
+    setBilingualText(modelNote, profile.model_help_zh || "", profile.model_help_en || "");
 
     const nextEffort = (!preserveUserEffort || effortWasDefault)
       ? (profile.effort_default || "")
       : currentEffort;
     renderEffortOptions(profile, nextEffort);
     reasoningInput.dataset.defaultEffort = profile.effort_default || "";
-    setBilingualHtml(reasoningFieldLabel, profile.effort_label_zh || "推理强度", profile.effort_label_en || "Reasoning effort");
-    setBilingualHtml(reasoningNote, profile.effort_help_zh || "", profile.effort_help_en || "");
+    setBilingualText(reasoningFieldLabel, profile.effort_label_zh || "推理强度", profile.effort_label_en || "Reasoning effort");
+    setBilingualText(reasoningNote, profile.effort_help_zh || "", profile.effort_help_en || "");
 
     const defaultCliPlaceholderZh = profile.cli_name ? `例如：${profile.cli_name}` : "例如：your-wrapper";
     const defaultCliPlaceholderEn = profile.cli_name ? `For example: ${profile.cli_name}` : "For example: your-wrapper";
     commandCliInput.dataset.placeholderZh = defaultCliPlaceholderZh;
     commandCliInput.dataset.placeholderEn = defaultCliPlaceholderEn;
-    setBilingualHtml(
+    setBilingualText(
       commandCliNote,
       profile.command_only
         ? `这里填你自己的命令入口。至少要让命令读到 \`{prompt}\`，并在结束前把 JSON 结果写到 \`{output_path}\`。`

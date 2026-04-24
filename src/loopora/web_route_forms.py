@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import quote_plus, urlencode, urlsplit, urlunsplit, parse_qsl
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
@@ -20,22 +20,11 @@ from loopora.web_inputs import (
     _role_definition_payload_from_mapping,
 )
 from loopora.web_route_context import WebRouteContext
+from loopora.web_url_utils import safe_local_return_path, with_query_params
 from loopora.workflows import WorkflowError
 
 
 def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
-    def _with_query(url: str, **params: str) -> str:
-        target = str(url or "").strip()
-        if not target:
-            return target
-        parts = urlsplit(target)
-        query = dict(parse_qsl(parts.query, keep_blank_values=True))
-        for key, value in params.items():
-            if value is None:
-                continue
-            query[key] = value
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
-
     @app.post("/loops/new")
     async def create_loop_from_form(request: Request):
         form = await request.form()
@@ -93,7 +82,7 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         form = await request.form()
         values = _normalize_orchestration_form(form)
         orchestration = ctx.svc().get_orchestration(orchestration_id)
-        return_to = str(request.query_params.get("return_to", "")).strip()
+        return_to = safe_local_return_path(request.query_params.get("return_to", ""))
         try:
             if orchestration.get("source") == "builtin":
                 raise LooporaError("built-in orchestrations are read-only; create a new orchestration to customize one")
@@ -102,7 +91,7 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
                 **_orchestration_payload_from_mapping(form, default_to_preset=False),
             )
             if return_to:
-                return RedirectResponse(url=_with_query(return_to, surface_updated="workflow"), status_code=303)
+                return RedirectResponse(url=with_query_params(return_to, surface_updated="workflow"), status_code=303)
             return RedirectResponse(url=f"/orchestrations/{updated['id']}/edit?saved=1", status_code=303)
         except (LooporaError, WorkflowError, FileExistsError, OSError, ValueError) as exc:
             return ctx.render_new_orchestration(
@@ -127,7 +116,7 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         form = await request.form()
         values = _normalize_role_definition_form(form)
         role_definition = ctx.svc().get_role_definition(role_definition_id)
-        return_to = str(request.query_params.get("return_to", "")).strip()
+        return_to = safe_local_return_path(request.query_params.get("return_to", ""))
         try:
             if role_definition.get("source") == "builtin":
                 created = ctx.svc().create_role_definition(**_role_definition_payload_from_mapping(form))
@@ -135,7 +124,7 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             updated = ctx.svc().update_role_definition(role_definition_id, **_role_definition_payload_from_mapping(form))
             if return_to:
                 return RedirectResponse(
-                    url=_with_query(return_to, surface_updated=f"role:{updated['id']}"),
+                    url=with_query_params(return_to, surface_updated=f"role:{updated['id']}"),
                     status_code=303,
                 )
             return RedirectResponse(url=f"/roles/{updated['id']}/edit?saved=1", status_code=303)
@@ -191,11 +180,9 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         loop_id = str(form.get("loop_id", "")).strip()
         if not loop_id:
             return ctx.render_bundles(request, derive_values=derive_values, derive_error="loop id is required")
-        query_parts = [
-            f"loop_id={loop_id}",
-        ]
+        query_params = {"loop_id": loop_id}
         for key in ("name", "description", "collaboration_summary"):
             value = str(form.get(key, "")).strip()
             if value:
-                query_parts.append(f"{key}={quote_plus(value)}")
-        return RedirectResponse(url=f"/bundles/derive/export?{'&'.join(query_parts)}", status_code=303)
+                query_params[key] = value
+        return RedirectResponse(url=f"/bundles/derive/export?{urlencode(query_params)}", status_code=303)
