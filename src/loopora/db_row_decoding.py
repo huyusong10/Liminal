@@ -38,10 +38,16 @@ class RepositoryRowDecodingMixin:
             "last_verdict_json",
             "payload_json",
             "role_definition_ids_json",
+            "transcript_json",
+            "validation_json",
         ):
             if key in payload and payload[key]:
                 payload[key] = RepositoryRowDecodingMixin._decode_json_column(payload.get("id"), key, payload[key])
         if "payload_json" in payload:
             payload["payload"] = payload.pop("payload_json")
+        if "transcript_json" in payload:
+            payload["transcript"] = payload.pop("transcript_json")
+        if "validation_json" in payload:
+            payload["validation"] = payload.pop("validation_json")
         payload["stop_requested"] = bool(payload.get("stop_requested", 0))
         return payload

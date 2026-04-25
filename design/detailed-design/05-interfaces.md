@@ -17,7 +17,8 @@
 | `orchestration` | 编辑可复用 workflow | 管理角色快照、步骤顺序与收敛规则 |
 | `role definition` | 预先定义可复用角色模版 | 供 orchestration 选择并复制成角色快照；同时定义默认执行配置 |
 | `run` | 观察一次具体执行 | 提供状态、事件、摘要、canonical artifacts 与终端白盒输出 |
-| `skill installer` | 把 repo-local Skill 安装到外部 Agent 工具 | 只复制 / 下载 Loopora 随仓库版本化的 Skill，不在 Loopora 内部执行对话能力 |
+| `alignment session` | 在 Web 内直接把任务对话编译成 bundle | 调用本机 Agent CLI，流式展示输出，在 bundle 文件通过硬校验后提供 READY 预览与导入运行 |
+| `skill installer` | 把 repo-local Skill 安装到外部 Agent 工具 | 只复制 / 下载 Loopora 随仓库版本化的 Skill，作为 Web 内置对齐之外的外部工具路径 |
 | `tutorial` | 学习正确写 spec 与选择流程 | 用最短路径解释 task contract → orchestration → create loop 的推荐顺序，并坚持 example-first：先用决策板帮助用户判断“该不该用 Loopora、该选哪类流程”，再引导用户看 5 条核心流程附带的真实需求样例；这些样例应优先表现长期任务里的当前 loop 切片，而不是孤立的小 bug，并明确说明：任务不是强 Agent 做不到，而是如果没有 loop，人类会反复回来确认、裁决和纠偏 |
 
 ## 3. 入口职责
@@ -25,7 +26,7 @@
 | 入口 | 面向对象 | 负责内容 | 不负责内容 |
 |------|----------|----------|------------|
 | CLI | 终端与脚本 | 参数收集、同步/后台启动、结构化输出，以及对 bundle / loop / orchestration / role definition / spec / prompt 模板的程序化读写与校验 | 维护独立业务状态 |
-| Web UI | 可视化操作与观测 | 页面表单、列表、在创建 loop 入口消费 bundle、bundle 导出 / 派生 / 管理、编辑器与实时观察 | 直接实现编排逻辑 |
+| Web UI | 可视化操作与观测 | 页面表单、列表、Web 内置 bundle 对齐、在创建 loop 入口消费 bundle、bundle 导出 / 派生 / 管理、编辑器与实时观察 | 直接实现编排逻辑 |
 | HTTP API | Web UI 与集成调用方 | 程序化创建、更新、查询、bundle 交换与流式事件 | 暴露底层存储实现 |
 
 ## 4. 跨入口一致性
@@ -35,6 +36,7 @@
 | 能力 | 一致性要求 |
 |------|------------|
 | bundle 导入 / 导出 / 派生 / 删除 | 三个入口都表达同一 bundle 生命周期语义；Web 可以把导入放在“创建 loop”入口，因为导入 bundle 的用户目的就是物化一条可运行 loop |
+| bundle 预览 | Web / HTTP API 可以在导入前对 YAML 或文件路径做只读预览；预览必须复用 bundle 契约校验与同一 workflow preview 投影，且不得创建底层资产 |
 | 创建 loop | 相同参数表达相同 loop definition |
 | 选择 orchestration | 引用同一编排资产 |
 | 配置 completion mode | `gatekeeper` 与 `rounds` 的语义一致 |
@@ -45,8 +47,8 @@
 | 校验 spec 与 prompt | 校验规则一致 |
 | 暴露 spec 起草辅助能力 | 通过统一的 spec template/init 接口暴露按 workflow 生成模板的能力，并共享同一套 `Task / Done When / Guardrails / Role Notes` 语义 |
 | 暴露对象管理能力 | CLI、Web UI 与 HTTP API 都必须能覆盖角色定义、编排、spec 模板与 prompt 模板这组核心对象的创建、派生、更新、读取、删除或校验；允许交互形态不同，但不能出现“只有 Web 才能做”的语义级能力缺口 |
-| 暴露 guided entry 的物化结果 | Loopora 本体不负责与用户对话，但必须能稳定消费外部 Agent + Skill 产出的 bundle，并在 Web / CLI / API 中提供同一组 bundle 生命周期动作 |
-| 暴露 repo-local Skill 安装辅助 | Web UI 与 HTTP API 可以提供 `loopora-task-alignment` 的安装状态、目标工具安装与 zip 下载；该能力只是文件分发辅助，不能让 Loopora 本体承担对话或 bundle 生成职责 |
+| 暴露 guided entry 的物化结果 | Web 内置 alignment 与外部 Agent + Skill 都必须产出同一类 bundle；Web / CLI / API 对 bundle 生命周期动作保持一致 |
+| 暴露 repo-local Skill 安装辅助 | Web UI 与 HTTP API 可以提供 `loopora-task-alignment` 的安装状态、目标工具安装与 zip 下载；该能力只是文件分发辅助，Web 内置 alignment 不依赖安装结果 |
 | 暴露状态目录与认证入口 | 只接受 `loopora` 根目录语义与 `X-Loopora-Token` 品牌化入口，不再把旧品牌别名作为接口契约的一部分 |
 | 浏览 run artifacts | 都以 canonical artifact 集合作为主视图 |
 | 观察终端 | 都把系统动作、context 流转、命令和输出投影到同一事件语义 |
@@ -59,7 +61,8 @@
 |------|----------|
 | Web UI | 提供可视化 workflow 编辑器、角色选择器、教程入口与实时页面导航 |
 | CLI | 提供同步等待与后台执行开关 |
-| Web UI | 可以把 bundle 导入与创建 loop 合并为同一页：bundle-first 作为默认创建路径，手动创建 loop 保留为 expert mode；bundle 列表 / 详情页可以退到管理、导出、派生、删除和 revision 入口，只要 bundle、loop、orchestration、role definition 的底层语义保持一致 |
+| Web UI | 可以把 bundle 导入与创建 loop 合并为同一页：bundle-first 作为默认创建路径，手动创建 loop 保留为 expert mode；对话生成 bundle 与已有 YAML / 文件导入可以合并为同一卡片并共享 spec / roles / workflow / YAML 预览，只要 bundle、loop、orchestration、role definition 的底层语义保持一致 |
+| Web UI | 可以提供内置 alignment session，让用户通过“选择 CLI 工具 + 描述需求”生成 READY bundle；该能力是 Web-only 新手入口，不要求 CLI 提供同构命令；执行器预设 / 自定义命令切换应与角色定义页保持同一语义 |
 | Web UI | 当 loop 属于某个 bundle 时，可以在 loop 列表里把危险操作直接重定向到 bundle 删除，而不是继续暴露会拆坏 bundle 的局部删除路径 |
 | Web UI | 可保存浏览器本地草稿、最近使用建议，以及用户选择的明暗主题；这些都是 best-effort |
 | Web UI | 终端可以提供折叠/展开、全局展开/收缩、按类别筛选的观察控件 |
@@ -79,6 +82,7 @@
 | Web UI | 编排编辑页可以把步骤主区做成摘要卡片，并用点击卡片切换当前角色；卡片可把 step 级会话继承、模型覆盖与附加 CLI 参数压缩成紧凑标签，并省略空值字段，只要被选中的角色快照、步骤顺序与 workflow snapshot 保持一致即可 |
 | Web UI | 编排编辑页可以通过单个设置浮窗只编辑 step 级覆盖项，并把绑定的角色快照作为只读信息展示；可编辑覆盖项包括 `step.model`、step 级 session 继承开关与附加 CLI 参数，只要提交前后的 workflow / prompt 语义不变即可；这类 step 级枚举选项在首帧也应跟随当前界面语言，而不是先回落到英文再等待脚本修正 |
 | Web UI | 编排页可以把 workflow 投影成循环实例图，并让节点选择与步骤卡片联动；角色快照详情可以直接显示在步骤卡片中，只要它表达的仍然是同一个 roles/steps 顺序与收敛关系；图中的节点与图例 pills 的 assistive labels 应使用当前 locale 描述“第几步 / workflow step”，同时保留内置专业角色名的英文原文 |
+| Web UI | workflow 循环图可以在节点或图例 hover / focus 时展示角色概要浮层；浮层不能改变节点坐标或流程线布局 |
 | Web UI | 创建循环页可以把说明文案收进字段就近的 tips 按钮，并按所选编排动态隐藏不适用的运行策略字段；Spec 字段旁可以提供共享 Markdown workbench 形态的弹窗编辑器，用同一路径读取、编辑并保存 `spec.md`，同时展示校验状态，并允许用户在“源码编辑”和“手动打开的渲染预览”之间切换；创建循环页与编排编辑页都可以提供“按当前 workflow 生成 spec 模板”的入口，但编排编辑页应把这类说明收敛到单个只读弹窗，而创建循环页不应再额外铺开大块 spec 说明卡；生成结果必须继续遵守同一条 spec 编译边界；弹窗里的保存行为必须明确写回磁盘，提交 loop 时读取的仍是同一路径下的 spec 文件，不能制造“弹窗内容”和“实际提交内容”分叉；编辑器头部说明与操作区不应互相挤压，长 spec 必须在弹窗正文内部滚动而不是把整页或整窗撑乱；运行策略枚举与页面标题在首帧也应跟随当前界面语言，而不是先回落到英文再等待脚本本地化 |
 | Web UI | 创建循环页与编排编辑页的工作台头部可以把说明文案与跨页捷径放在同一个 header shell 里；这些捷径只能作为次级入口，不能盖过当前表单的主任务，也不能改变当前 loop / workflow 的提交语义 |
 | Web UI | 教程页可以使用独立的阅读壳层，但应保持极简：优先讲清为什么要用 loop、如何用决策板选择流程、以及去哪一页操作；教程应以 5 条核心流程的真实样例优先，而不是规则优先，不必展开冗长的 context 文件流转说明；这块选择器应优先作为页面内原生布局组件出现，解释文案直接写进组件内部，不再在图旁并排堆说明文字；它可以采用决策板、匹配表或其他高可读形式，不要求装饰性的连线或伪流程图，但必须先回答“该不该用 Loopora”，再回答“最先缺什么，对应哪条流程”；教程文案需要明确强调：Loopora 的价值不是证明强 Agent 不行，而是减少人类反复回来确认、裁决和纠偏的次数；教程里的“查看流程样例”应直接以只读弹窗在当前页打开，而不是把用户跳转到编排页；README 可以引用由这块同源组件生成的稳定截图，而不是维护另一份独立示意图 |

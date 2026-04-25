@@ -7,6 +7,7 @@ from loopora.asset_catalog import WorkflowAssetCatalog
 from loopora.db import LooporaRepository
 from loopora.executor import CodexExecutor, executor_from_environment
 from loopora.service_assets import ServiceAssetMixin
+from loopora.service_alignment import ServiceAlignmentMixin
 from loopora.service_iteration_reporting import ServiceIterationReportingMixin
 from loopora.service_legacy_execution import ServiceLegacyExecutionMixin
 from loopora.service_prompts import (
@@ -45,6 +46,7 @@ def normalize_role_models(role_models: dict | None) -> dict[str, str]:
 
 class LooporaService(
     ServiceAssetMixin,
+    ServiceAlignmentMixin,
     ServiceLegacyExecutionMixin,
     ServiceRunPromptMixin,
     ServiceWorkflowSupportMixin,

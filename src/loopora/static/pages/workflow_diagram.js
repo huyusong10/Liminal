@@ -103,6 +103,8 @@
           label,
           shortLabel: shortLabel(label, variant === "editor" ? 18 : 12),
           archetype: String(role.archetype || "custom"),
+          description: String(role.description || "").trim(),
+          postureNotes: String(role.posture_notes || role.postureNotes || "").trim(),
           finishGate: String(step.on_pass || "") === "finish_run" && String(role.archetype || "") === "gatekeeper",
           x: cx + settings.radiusX * Math.cos(angle),
           y: cy + settings.radiusY * Math.sin(angle),
@@ -169,6 +171,15 @@
     return localeText(`第 ${step.order} 步：${step.label}`, `Step ${step.order}: ${step.label}`);
   }
 
+  function stepTooltipText(step) {
+    return [
+      localeText(`第 ${step.order} 步：${step.label}`, `Step ${step.order}: ${step.label}`),
+      step.archetype ? localeText(`角色类型：${step.archetype}`, `Archetype: ${step.archetype}`) : "",
+      step.description || "",
+      step.postureNotes ? localeText(`协作姿态：${step.postureNotes}`, `Posture: ${step.postureNotes}`) : "",
+    ].filter(Boolean).join("\n");
+  }
+
   function render(workflow, options = {}) {
     const variant = options.variant || "card";
     const {steps, settings, cx, cy} = buildNodes(workflow, variant);
@@ -185,7 +196,7 @@
     const singleLoopPath = steps.length === 1 ? buildSingleLoop(steps[0], settings) : "";
     const segments = steps.length === 1 ? [] : buildSegments(steps, cx, cy, settings);
     const legend = steps.map((step) => `
-      <li class="workflow-loop-pill${step.finishGate ? " is-finish" : ""}" data-role-id="${escapeHtml(step.roleId)}" tabindex="0" aria-label="${escapeHtml(stepAriaLabel(step))}">
+      <li class="workflow-loop-pill${step.finishGate ? " is-finish" : ""}" data-role-id="${escapeHtml(step.roleId)}" data-workflow-tooltip="${escapeHtml(stepTooltipText(step))}" tabindex="0" aria-label="${escapeHtml(stepAriaLabel(step))}">
         <span class="workflow-loop-pill-order" style="--workflow-loop-accent:${roleColor(step.archetype)}">${step.order}</span>
         <span>${escapeHtml(step.label)}</span>
       </li>
@@ -193,7 +204,7 @@
     const nodes = steps.map((step) => {
       const anchor = labelAnchor(step, cx);
       return `
-        <g class="workflow-loop-node${step.finishGate ? " is-finish" : ""}" data-role-id="${escapeHtml(step.roleId)}" tabindex="0" focusable="true" role="button" aria-label="${escapeHtml(stepAriaLabel(step))}">
+        <g class="workflow-loop-node${step.finishGate ? " is-finish" : ""}" data-role-id="${escapeHtml(step.roleId)}" data-workflow-tooltip="${escapeHtml(stepTooltipText(step))}" tabindex="0" focusable="true" role="button" aria-label="${escapeHtml(stepAriaLabel(step))}">
           <circle cx="${step.x.toFixed(1)}" cy="${step.y.toFixed(1)}" r="${settings.nodeRadius}" fill="${roleColor(step.archetype)}"></circle>
           <text x="${step.x.toFixed(1)}" y="${(step.y + 1).toFixed(1)}" class="workflow-loop-node-order">${step.order}</text>
           <text x="${(step.x + anchor.dx).toFixed(1)}" y="${(step.y + settings.nodeRadius + 22).toFixed(1)}" class="workflow-loop-node-label" text-anchor="${anchor.anchor}">${escapeHtml(step.shortLabel)}</text>
@@ -221,6 +232,7 @@
           ${nodes}
         </svg>
         <ol class="workflow-loop-legend">${legend}</ol>
+        <div class="workflow-loop-tooltip" role="tooltip" hidden></div>
       </div>
     `;
   }
@@ -230,6 +242,51 @@
       return;
     }
     container.innerHTML = render(workflow, options);
+    bindTooltips(container);
+  }
+
+  function bindTooltips(container) {
+    const map = container.querySelector(".workflow-loop-map");
+    const tooltip = container.querySelector(".workflow-loop-tooltip");
+    if (!map || !tooltip) {
+      return;
+    }
+    const hide = () => {
+      tooltip.hidden = true;
+      tooltip.textContent = "";
+    };
+    const show = (target) => {
+      const text = target.dataset.workflowTooltip || "";
+      if (!text) {
+        hide();
+        return;
+      }
+      tooltip.textContent = text;
+      tooltip.hidden = false;
+      positionTooltip(map, tooltip, target);
+    };
+    map.querySelectorAll("[data-workflow-tooltip]").forEach((target) => {
+      target.addEventListener("mouseenter", () => show(target));
+      target.addEventListener("focus", () => show(target));
+      target.addEventListener("mousemove", () => positionTooltip(map, tooltip, target));
+      target.addEventListener("mouseleave", hide);
+      target.addEventListener("blur", hide);
+    });
+  }
+
+  function positionTooltip(map, tooltip, target) {
+    if (tooltip.hidden) {
+      return;
+    }
+    const mapBox = map.getBoundingClientRect();
+    const targetBox = target.getBoundingClientRect();
+    const tooltipBox = tooltip.getBoundingClientRect();
+    const center = targetBox.left + (targetBox.width / 2) - mapBox.left;
+    const left = Math.max(12, Math.min(center - (tooltipBox.width / 2), mapBox.width - tooltipBox.width - 12));
+    const topCandidate = targetBox.top - mapBox.top - tooltipBox.height - 12;
+    const top = topCandidate >= 8 ? topCandidate : targetBox.bottom - mapBox.top + 12;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${Math.max(8, top)}px`;
   }
 
   window.LooporaWorkflowDiagram = {

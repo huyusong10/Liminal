@@ -15,18 +15,18 @@
 <section class="hero hero-tight hero-form">
   <div class="hero-copy-stack">
     <h1>
-      <span data-lang="zh">创建循环：优先导入 bundle，必要时手动编排。</span>
-      <span data-lang="en">Create a loop: import a bundle first, or configure manually.</span>
+      <span data-lang="zh">创建循环：优先生成或导入 bundle，必要时手动编排。</span>
+      <span data-lang="en">Create a loop: create or import a bundle first, or configure manually.</span>
     </h1>
     <p>
-      <span data-lang="zh">推荐路径是把外部 Agent 对齐出的 bundle 直接导入，Loopora 会一次性物化 spec、角色定义、流程编排和可运行 loop。已经熟悉内部资产时，再展开下面的手动创建。</span>
-      <span data-lang="en">The recommended path is importing a bundle aligned by an external Agent. Loopora materializes the spec, role definitions, orchestration, and runnable loop together. Use the manual form below when you already know the asset details.</span>
+      <span data-lang="zh">推荐路径是在下方用对话生成 bundle，或先预览已有 YAML 再导入。Loopora 会一次性物化 spec、角色定义、流程编排和可运行 loop。已经熟悉内部资产时，再展开下面的手动创建。</span>
+      <span data-lang="en">The recommended path is generating a bundle by chat below, or previewing existing YAML before import. Loopora materializes the spec, role definitions, orchestration, and runnable loop together. Use the manual form below when you already know the asset details.</span>
     </p>
   </div>
   <div class="card-actions">
     <a class="primary-button" href="#bundle-import-form">
-      <span data-lang="zh">导入 Bundle 创建循环</span>
-      <span data-lang="en">Import Bundle</span>
+      <span data-lang="zh">创建 / 导入 Bundle</span>
+      <span data-lang="en">Create / Import Bundle</span>
     </a>
     <a class="ghost-button" href="#manual-loop-form">
       <span data-lang="zh">手动专家模式</span>
@@ -45,24 +45,300 @@
 </div>
 {% endif %}
 
-<section class="panel form-panel form-panel-wide" data-testid="loop-bundle-create-panel">
+<section class="panel form-panel form-panel-wide bundle-composer-panel alignment-panel" data-testid="loop-bundle-create-panel">
   <header class="panel-header">
     <div>
-      <h2><span data-lang="zh">导入 Bundle 创建循环</span><span data-lang="en">Import a Bundle to Create a Loop</span></h2>
+      <h2><span data-lang="zh">创建 / 导入 Bundle</span><span data-lang="en">Create or Import a Bundle</span></h2>
       <p class="panel-note">
-        <span data-lang="zh">这里接收 Skill 或外部 Agent 生成的单文件 YAML。导入成功后，bundle、角色定义、流程编排和 loop 会作为同一组资产落地；后续删除和 revision 也按整包管理。</span>
-        <span data-lang="en">Use the single YAML file produced by the Skill or another external Agent. Importing it creates the bundle, role definitions, orchestration, and loop as one managed asset group.</span>
+        <span data-lang="zh">新手可以直接对话生成 bundle；已有 YAML 或文件时也可以在同一张卡片里预览、导入并运行。下方预览会统一展示任务契约、协作角色和执行流程。</span>
+        <span data-lang="en">New users can generate a bundle by chat; existing YAML or files can be previewed, imported, and run from the same surface. The shared preview shows the task contract, roles, and workflow.</span>
       </p>
     </div>
-    <div class="card-actions card-actions-compact">
+    <div class="bundle-composer-header-actions">
+      <div class="alignment-status-pill" id="alignment-status-pill" data-testid="alignment-status-pill">
+        <span data-lang="zh">未开始</span>
+        <span data-lang="en">Idle</span>
+      </div>
       <a class="ghost-button" href="/tools">
         <span data-lang="zh">安装对齐 Skill</span>
         <span data-lang="en">Install Alignment Skill</span>
       </a>
       <a class="ghost-button" href="/bundles">
-        <span data-lang="zh">管理已有 Bundles</span>
+        <span data-lang="zh">管理 Bundles</span>
         <span data-lang="en">Manage Bundles</span>
       </a>
+    </div>
+  </header>
+
+  <section class="bundle-composer-block" data-testid="loop-alignment-panel">
+    <header class="bundle-composer-block-head">
+      <div>
+        <h3><span data-lang="zh">对话生成 Bundle</span><span data-lang="en">Generate a Bundle by Chat</span></h3>
+        <p class="field-note">
+          <span data-lang="zh">选择本机 Agent CLI，描述这次需求。Loopora 会在后台完成对齐、校验 bundle，并在 READY 后展示统一预览。</span>
+          <span data-lang="en">Choose a local Agent CLI and describe the task. Loopora aligns and validates the bundle, then opens the shared preview when it is READY.</span>
+        </p>
+      </div>
+    </header>
+  <form class="alignment-start-form" id="alignment-start-form" data-testid="alignment-start-form">
+    <div class="field-status is-error" id="alignment-error" aria-live="polite" hidden></div>
+    <div class="alignment-start-grid">
+      <label>
+        <span><span data-lang="zh">CLI 工具</span><span data-lang="en">CLI tool</span></span>
+        <select id="alignment-executor-kind" name="alignment_executor_kind" data-testid="alignment-executor-kind">
+          {% for profile in executor_profiles %}
+          <option value="{{ profile.key }}" {% if profile.key == "codex" %}selected{% endif %}>
+            {{ profile.label_zh if page_locale == "zh" else profile.label }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="wide">
+        <span><span data-lang="zh">目标 Workdir</span><span data-lang="en">Target workdir</span></span>
+        <div class="input-with-action">
+          <input
+            id="alignment-workdir"
+            name="alignment_workdir"
+            list="recent-workdir-options"
+            data-testid="alignment-workdir"
+            placeholder="/absolute/path/to/project"
+            required
+          />
+          {% if access_state.native_dialogs_enabled %}
+          <button
+            class="ghost-button"
+            type="button"
+            data-pick-directory
+            data-pick-endpoint="/api/system/pick-directory"
+            data-target-input="alignment-workdir"
+          >
+            <span data-lang="zh">浏览</span>
+            <span data-lang="en">Browse</span>
+          </button>
+          {% endif %}
+        </div>
+      </label>
+      <label class="wide alignment-message-field">
+        <span><span data-lang="zh">需求</span><span data-lang="en">Request</span></span>
+        <textarea
+          id="alignment-message"
+          name="alignment_message"
+          rows="4"
+          data-testid="alignment-message-input"
+          placeholder="你想做什么需求？"
+          required
+        ></textarea>
+      </label>
+    </div>
+    <details class="alignment-advanced" id="alignment-advanced">
+      <summary><span data-lang="zh">高级设置</span><span data-lang="en">Advanced settings</span></summary>
+      <div class="alignment-executor-settings">
+        <div class="field-cluster">
+          <span class="label-row">
+            <span><span data-lang="zh">配置方式</span><span data-lang="en">Configuration mode</span></span>
+          </span>
+          <div class="executor-mode-switch" data-testid="alignment-executor-mode-switch" role="group" aria-label="{{ '对齐执行器配置方式' if page_locale == 'zh' else 'Alignment executor configuration mode' }}">
+            <button
+              class="executor-mode-chip"
+              type="button"
+              id="alignment-mode-preset-button"
+              data-alignment-mode-choice="preset"
+              data-testid="alignment-mode-preset-button"
+            >
+              <strong><span data-lang="zh">预设</span><span data-lang="en">Preset</span></strong>
+              <span class="executor-mode-copy">
+                <span data-lang="zh">选择模型，Loopora 自动拼命令</span>
+                <span data-lang="en">Pick model knobs and let Loopora assemble the command</span>
+              </span>
+            </button>
+            <button
+              class="executor-mode-chip"
+              type="button"
+              id="alignment-mode-command-button"
+              data-alignment-mode-choice="command"
+              data-testid="alignment-mode-command-button"
+            >
+              <strong><span data-lang="zh">自定义命令</span><span data-lang="en">Custom command</span></strong>
+              <span class="executor-mode-copy">
+                <span data-lang="zh">完全接管 CLI 和参数模板</span>
+                <span data-lang="en">Own the CLI executable and argv template</span>
+              </span>
+            </button>
+          </div>
+          <input
+            type="hidden"
+            id="alignment-executor-mode"
+            name="alignment_executor_mode"
+            value="preset"
+            data-testid="alignment-executor-mode-input"
+          />
+          <small class="field-note" id="alignment-executor-mode-note"></small>
+        </div>
+
+        <div class="executor-config-grid">
+          <section class="executor-config-card" id="alignment-preset-card">
+            <header class="executor-config-head">
+              <div>
+                <strong><span data-lang="zh">预设配置</span><span data-lang="en">Preset config</span></strong>
+                <p>
+                  <span data-lang="zh">Codex / Claude Code / OpenCode 用这侧配置模型和推理强度。切到自定义命令后，这些字段会冻结。</span>
+                  <span data-lang="en">Use this side for model and reasoning settings with Codex, Claude Code, and OpenCode. It freezes when custom command is active.</span>
+                </p>
+              </div>
+              <span class="executor-config-state" id="alignment-preset-state">
+                <span data-lang="zh">当前生效</span>
+                <span data-lang="en">Active</span>
+              </span>
+            </header>
+            <p class="executor-config-empty" id="alignment-preset-empty" hidden>
+              <span data-lang="zh">自定义命令不会单独使用模型或推理强度。</span>
+              <span data-lang="en">Custom command mode does not use separate model or reasoning settings.</span>
+            </p>
+            <div class="executor-config-body" id="alignment-preset-body">
+              <label id="alignment-model-field">
+                <span><span data-lang="zh">模型</span><span data-lang="en">Model</span></span>
+                <input id="alignment-model" name="alignment_model" placeholder="gpt-5.4" />
+              </label>
+              <label id="alignment-reasoning-field">
+                <span><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning effort</span></span>
+                <select id="alignment-reasoning-effort" name="alignment_reasoning_effort"></select>
+                <small class="field-note" id="alignment-reasoning-note"></small>
+              </label>
+            </div>
+          </section>
+
+          <section class="executor-config-card" id="alignment-command-card">
+            <header class="executor-config-head">
+              <div>
+                <strong><span data-lang="zh">自定义命令</span><span data-lang="en">Custom command</span></strong>
+                <p>
+                  <span data-lang="zh">这里与角色定义里的直接命令语义一致。每行一个参数，占位符会在运行时替换。</span>
+                  <span data-lang="en">This matches the direct-command semantics used by role definitions. Use one argument per line; placeholders are replaced at runtime.</span>
+                </p>
+              </div>
+              <span class="executor-config-state" id="alignment-command-state">
+                <span data-lang="zh">当前生效</span>
+                <span data-lang="en">Active</span>
+              </span>
+            </header>
+            <div class="executor-config-body">
+              <label class="wide">
+                <span><span data-lang="zh">命令可执行文件</span><span data-lang="en">Command executable</span></span>
+                <input id="alignment-command-cli" name="alignment_command_cli" placeholder="codex" />
+                <small class="field-note" id="alignment-command-cli-note"></small>
+              </label>
+              <label class="wide">
+                <span><span data-lang="zh">参数模板</span><span data-lang="en">Argument template</span></span>
+                <textarea id="alignment-command-args" name="alignment_command_args_text" rows="7" spellcheck="false"></textarea>
+                <small class="field-note">
+                  <span data-lang="zh">支持占位符：`{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}`。</span>
+                  <span data-lang="en">Supported placeholders: `{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}`.</span>
+                </small>
+              </label>
+            </div>
+          </section>
+        </div>
+      </div>
+    </details>
+    <div class="card-actions alignment-start-actions">
+      <button class="primary-button" type="submit" id="alignment-send-button" data-testid="alignment-send-button">
+        <span data-lang="zh">发送</span>
+        <span data-lang="en">Send</span>
+      </button>
+      <button class="ghost-button" type="button" id="alignment-new-session-button" hidden>
+        <span data-lang="zh">新建 Session</span>
+        <span data-lang="en">New Session</span>
+      </button>
+    </div>
+  </form>
+
+  <section class="alignment-chat" id="alignment-chat" data-testid="alignment-chat" hidden>
+    <div class="alignment-chat-head">
+      <div>
+        <h3><span data-lang="zh">对话与实时输出</span><span data-lang="en">Chat and Live Output</span></h3>
+        <p class="field-note" id="alignment-session-meta"></p>
+      </div>
+      <button class="ghost-button" type="button" id="alignment-cancel-button" hidden>
+        <span data-lang="zh">取消</span>
+        <span data-lang="en">Cancel</span>
+      </button>
+    </div>
+    <div class="alignment-chat-grid">
+      <div class="alignment-transcript" id="alignment-transcript" data-testid="alignment-transcript"></div>
+      <div class="alignment-live-console">
+        <div class="console-toolbar">
+          <div class="console-filter-group" aria-label="{{ 'Alignment event lanes' if page_locale == 'en' else '对齐事件分组' }}">
+            <span class="console-filter-chip is-active console-filter-chip--status">Status</span>
+            <span class="console-filter-chip is-active console-filter-chip--actions">Actions</span>
+            <span class="console-filter-chip is-active console-filter-chip--result">Result</span>
+          </div>
+        </div>
+        <div class="console-shell-frame">
+          <div class="console-shell alignment-console-shell">
+            <div class="console-output" id="alignment-console-output" data-testid="alignment-console-output"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <form class="alignment-reply-form" id="alignment-reply-form" hidden>
+      <textarea id="alignment-reply-message" rows="3" placeholder="继续补充你的想法"></textarea>
+      <div class="card-actions">
+        <button class="secondary-button" type="submit" id="alignment-reply-button">
+          <span data-lang="zh">继续对话</span>
+          <span data-lang="en">Continue</span>
+        </button>
+      </div>
+    </form>
+  </section>
+  </section>
+
+  <section class="alignment-ready-preview" id="alignment-ready-preview" data-testid="alignment-ready-preview" hidden>
+    <header class="panel-header">
+      <div>
+        <h3 id="bundle-preview-title">READY</h3>
+        <p class="panel-note" id="alignment-ready-note"></p>
+      </div>
+      <div class="card-actions card-actions-compact">
+        <button class="secondary-button" type="button" id="bundle-preview-import-button" data-testid="bundle-preview-import-button" hidden>
+          <span data-lang="zh">按预览导入</span>
+          <span data-lang="en">Import Preview</span>
+        </button>
+        <button class="primary-button" type="button" id="alignment-import-run-button" data-testid="alignment-import-run-button">
+          <span data-lang="zh">导入 Bundle 并运行</span>
+          <span data-lang="en">Import Bundle and Run</span>
+        </button>
+      </div>
+    </header>
+    <div class="alignment-preview-grid">
+      <section class="alignment-preview-section alignment-preview-section--wide">
+        <h4><span data-lang="zh">任务契约</span><span data-lang="en">Task Contract</span></h4>
+        <article class="preview-box markdown-preview" id="alignment-spec-preview" data-testid="alignment-spec-preview"></article>
+      </section>
+      <section class="alignment-preview-section">
+        <h4><span data-lang="zh">协作角色</span><span data-lang="en">Collaboration Roles</span></h4>
+        <div class="alignment-role-list" id="alignment-role-list" data-testid="alignment-role-list"></div>
+      </section>
+      <section class="alignment-preview-section">
+        <h4><span data-lang="zh">执行流程</span><span data-lang="en">Workflow</span></h4>
+        <div class="workflow-loop-card alignment-workflow-card" id="alignment-workflow-diagram" data-testid="alignment-workflow-diagram"></div>
+      </section>
+      <section class="alignment-preview-section alignment-preview-section--wide">
+        <details>
+          <summary><span data-lang="zh">查看源 YAML</span><span data-lang="en">View Source YAML</span></summary>
+          <pre class="preview-box alignment-yaml-source" id="alignment-yaml-source" data-testid="alignment-yaml-source"></pre>
+        </details>
+      </section>
+    </div>
+  </section>
+
+  <section class="bundle-composer-block bundle-import-block">
+  <header class="bundle-composer-block-head">
+    <div>
+      <h3><span data-lang="zh">已有 Bundle YAML / 文件</span><span data-lang="en">Existing Bundle YAML or File</span></h3>
+      <p class="field-note">
+        <span data-lang="zh">这里接收 Skill 或外部 Agent 生成的单文件 YAML。可以先预览同一套任务契约、角色和流程图，再导入创建循环。</span>
+        <span data-lang="en">Use the single YAML file produced by the Skill or another external Agent. Preview the same contract, roles, and workflow diagram before importing.</span>
+      </p>
     </div>
   </header>
   {% if import_values.replace_bundle_id %}
@@ -72,7 +348,7 @@
   </div>
   {% endif %}
   <form class="form-panel" id="bundle-import-form" method="post" action="/loops/new/import-bundle" data-testid="loop-bundle-import-form">
-    <div class="field-status is-error" aria-live="polite" {% if not import_error %}hidden{% endif %}>{{ import_error or "" }}</div>
+    <div class="field-status is-error" id="bundle-import-error" aria-live="polite" {% if not import_error %}hidden{% endif %}>{{ import_error or "" }}</div>
     <div class="form-grid">
       <label class="wide">
         <span><span data-lang="zh">Bundle 路径</span><span data-lang="en">Bundle path</span></span>
@@ -94,11 +370,11 @@
       </label>
       <label>
         <span><span data-lang="zh">替换已有 Bundle ID</span><span data-lang="en">Replace bundle id</span></span>
-        <input name="replace_bundle_id" value="{{ import_values.replace_bundle_id }}" />
+        <input id="bundle-import-replace-id" name="replace_bundle_id" value="{{ import_values.replace_bundle_id }}" />
       </label>
       <label class="wide">
         <span><span data-lang="zh">Bundle YAML</span><span data-lang="en">Bundle YAML</span></span>
-        <textarea name="bundle_yaml" rows="14">{{- import_values.bundle_yaml -}}</textarea>
+        <textarea id="bundle-import-yaml" name="bundle_yaml" rows="14">{{- import_values.bundle_yaml -}}</textarea>
       </label>
     </div>
     <label class="checkbox-row">
@@ -113,12 +389,17 @@
       </span>
     </label>
     <div class="card-actions">
-      <button class="primary-button" type="submit">
+      <button class="secondary-button" type="button" id="bundle-preview-button" data-testid="bundle-preview-button">
+        <span data-lang="zh">预览 Bundle</span>
+        <span data-lang="en">Preview Bundle</span>
+      </button>
+      <button class="primary-button" type="submit" id="bundle-import-submit-button" data-testid="bundle-import-submit-button">
         <span data-lang="zh">导入并创建循环</span>
         <span data-lang="en">Import and create loop</span>
       </button>
     </div>
   </form>
+  </section>
 </section>
 
 <div id="manual-loop-form" class="section-anchor"></div>
@@ -530,6 +811,8 @@
 <script id="orchestrations-json" type="application/json">{{ orchestrations|tojson }}</script>
 <script id="pristine-loop-form-json" type="application/json">{{ pristine_loop_form|tojson }}</script>
 <script src="{{ static_asset_url('markdown_workbench.js') }}" defer></script>
+<script src="{{ static_asset_url('pages/workflow_diagram.js') }}" defer></script>
+<script src="{{ static_asset_url('pages/alignment.js') }}" defer></script>
 <script src="{{ static_asset_url('pages/new_loop.js') }}" defer></script>
 </div>
 {% endblock %}

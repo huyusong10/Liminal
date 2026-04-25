@@ -57,7 +57,7 @@
 
 ### 3.2 Bundle 是编译结果
 
-posture 需要先被外部 Agent + Skill 对齐，然后编译成 bundle。
+posture 需要先被 Web 内置 alignment 或外部 Agent + Skill 对齐，然后编译成 bundle。
 
 `working agreement` 是编译期中间表示，用来让用户确认“系统是否理解这次任务该如何被监督”。它不是运行期资产。
 

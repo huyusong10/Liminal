@@ -608,6 +608,67 @@
     });
   }
 
+  function bindHelpTooltips() {
+    let tooltip = document.querySelector(".help-floating-tooltip");
+    if (!tooltip) {
+      tooltip = document.createElement("div");
+      tooltip.className = "help-floating-tooltip";
+      tooltip.hidden = true;
+      tooltip.setAttribute("role", "tooltip");
+      document.body.appendChild(tooltip);
+    }
+
+    const hide = () => {
+      tooltip.hidden = true;
+      tooltip.textContent = "";
+    };
+    const show = (target) => {
+      const text = target.getAttribute("data-tooltip") || "";
+      if (!text) {
+        hide();
+        return;
+      }
+      tooltip.textContent = text;
+      tooltip.hidden = false;
+      positionHelpTooltip(tooltip, target);
+    };
+
+    document.querySelectorAll(".help-dot[data-tooltip]").forEach((button) => {
+      if (button.dataset.boundHelpTooltip === "1") {
+        return;
+      }
+      button.dataset.boundHelpTooltip = "1";
+      button.addEventListener("mouseenter", () => show(button));
+      button.addEventListener("focus", () => show(button));
+      button.addEventListener("mousemove", () => positionHelpTooltip(tooltip, button));
+      button.addEventListener("mouseleave", hide);
+      button.addEventListener("blur", hide);
+      button.addEventListener("click", () => {
+        if (tooltip.hidden) {
+          show(button);
+        } else {
+          hide();
+        }
+      });
+    });
+  }
+
+  function positionHelpTooltip(tooltip, target) {
+    if (tooltip.hidden) {
+      return;
+    }
+    const rect = target.getBoundingClientRect();
+    const tipRect = tooltip.getBoundingClientRect();
+    const gap = 12;
+    const viewportPadding = 14;
+    const centered = rect.left + rect.width / 2 - tipRect.width / 2;
+    const left = Math.max(viewportPadding, Math.min(centered, window.innerWidth - tipRect.width - viewportPadding));
+    const above = rect.top - tipRect.height - gap;
+    const top = above >= viewportPadding ? above : rect.bottom + gap;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${Math.max(viewportPadding, top)}px`;
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     setLocale(currentLocale(), {persist: false});
     setTheme(currentTheme(), {persist: false});
@@ -623,6 +684,7 @@
     bindNavPreferences();
     bindPathPickers();
     bindRevealPathButtons();
+    bindHelpTooltips();
   });
 
   window.LooporaUI = {
@@ -640,6 +702,7 @@
     bindOpenCards,
     bindPrimaryNavigation,
     bindPathPickers,
+    bindHelpTooltips,
   };
   if (typeof window.matchMedia === "function") {
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {

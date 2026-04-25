@@ -140,6 +140,39 @@ class RepositorySchemaMixin:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS alignment_sessions (
+                    id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    executor_kind TEXT NOT NULL DEFAULT 'codex',
+                    executor_mode TEXT NOT NULL DEFAULT 'preset',
+                    command_cli TEXT NOT NULL DEFAULT '',
+                    command_args_text TEXT NOT NULL DEFAULT '',
+                    model TEXT NOT NULL DEFAULT '',
+                    reasoning_effort TEXT NOT NULL DEFAULT 'medium',
+                    workdir TEXT NOT NULL,
+                    bundle_path TEXT NOT NULL,
+                    transcript_json TEXT NOT NULL DEFAULT '[]',
+                    validation_json TEXT NOT NULL DEFAULT '{}',
+                    linked_bundle_id TEXT NOT NULL DEFAULT '',
+                    linked_loop_id TEXT NOT NULL DEFAULT '',
+                    linked_run_id TEXT NOT NULL DEFAULT '',
+                    active_child_pid INTEGER,
+                    stop_requested INTEGER NOT NULL DEFAULT 0,
+                    repair_attempts INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    finished_at TEXT,
+                    error_message TEXT NOT NULL DEFAULT ''
+                );
+
+                CREATE TABLE IF NOT EXISTS alignment_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL REFERENCES alignment_sessions(id),
+                    created_at TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
                 """
             )
             self._ensure_column(connection, "loop_definitions", "orchestration_id", "TEXT NOT NULL DEFAULT ''")
@@ -166,6 +199,15 @@ class RepositorySchemaMixin:
             self._ensure_column(connection, "role_definitions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "role_definitions", "posture_notes", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "role_definitions", "reasoning_effort", "TEXT NOT NULL DEFAULT 'medium'")
+            self._ensure_column(connection, "alignment_sessions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
+            self._ensure_column(connection, "alignment_sessions", "command_cli", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "alignment_sessions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "alignment_sessions", "linked_bundle_id", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "alignment_sessions", "linked_loop_id", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "alignment_sessions", "linked_run_id", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "alignment_sessions", "active_child_pid", "INTEGER")
+            self._ensure_column(connection, "alignment_sessions", "stop_requested", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "alignment_sessions", "repair_attempts", "INTEGER NOT NULL DEFAULT 0")
         log_event(
             logger,
             logging.INFO,

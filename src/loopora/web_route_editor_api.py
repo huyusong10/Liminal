@@ -64,6 +64,22 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             return ctx.json_error("bundle path or bundle YAML is required")
         return JSONResponse({"bundle": bundle, "redirect_url": f"/bundles/{bundle['id']}"}, status_code=201)
 
+    @app.post("/api/bundles/preview")
+    async def api_preview_bundle(request: Request) -> JSONResponse:
+        payload = await ctx.read_json_mapping(request)
+        bundle_yaml = str(payload.get("bundle_yaml", ""))
+        bundle_path = str(payload.get("bundle_path", "")).strip()
+        try:
+            if bundle_yaml.strip():
+                preview = ctx.svc().preview_bundle_text(bundle_yaml)
+            elif bundle_path:
+                preview = ctx.svc().preview_bundle_file(Path(bundle_path))
+            else:
+                return JSONResponse({"ok": False, "error": "bundle path or bundle YAML is required"})
+        except LooporaError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)})
+        return JSONResponse(preview)
+
     @app.post("/api/bundles/derive")
     async def api_derive_bundle(request: Request) -> JSONResponse:
         payload = await ctx.read_json_mapping(request)

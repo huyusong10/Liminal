@@ -108,7 +108,7 @@
 - 非零轮次间隔必须可被 stop 请求打断。
 - 每个 run 只能落到一个终态。
 - 每次状态变化都必须能投影到外部观察面。
-- Loopora 本体不负责和用户对话生成 bundle；任务对齐发生在外部 Agent + Skill，服务层只消费 bundle 产物并把它物化为可运行资产。
+- 编排服务不负责和用户对话生成 bundle；Web 内置 alignment 或外部 Agent + Skill 都必须先产出 bundle，再由服务层消费 bundle 产物并把它物化为可运行资产。
 
 ## 7. 依赖边界
 

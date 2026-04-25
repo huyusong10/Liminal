@@ -890,6 +890,283 @@ html[data-locale="zh"] .eyebrow {
   flex-wrap: wrap;
 }
 
+/* ── Web Bundle Alignment ── */
+
+.alignment-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.alignment-panel .panel-header {
+  margin-bottom: 0;
+}
+
+.alignment-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(var(--outline-rgb), 0.12);
+  background: rgba(var(--glass-rgb), 0.58);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.alignment-status-pill.is-ready {
+  border-color: rgba(13, 124, 102, 0.2);
+  background: rgba(13, 124, 102, 0.08);
+  color: var(--accent-2);
+}
+
+.alignment-status-pill.is-failed {
+  border-color: rgba(171, 47, 42, 0.2);
+  background: rgba(171, 47, 42, 0.06);
+  color: var(--danger);
+}
+
+.alignment-start-form,
+.alignment-chat,
+.alignment-ready-preview {
+  display: grid;
+  gap: 16px;
+}
+
+.alignment-start-grid,
+.alignment-advanced-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.bundle-composer-panel {
+  gap: 20px;
+}
+
+.bundle-composer-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.bundle-composer-block {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.bundle-composer-block-head {
+  display: grid;
+  gap: 6px;
+}
+
+.bundle-composer-block-head h3 {
+  margin: 0;
+  font-size: 1.03rem;
+}
+
+.alignment-start-grid .wide,
+.alignment-advanced-grid .wide,
+.alignment-message-field {
+  grid-column: 1 / -1;
+}
+
+.alignment-message-field textarea {
+  min-height: 116px;
+}
+
+.alignment-advanced {
+  border: 1px solid var(--line);
+  background: rgba(var(--glass-rgb), 0.38);
+  padding: 14px 16px;
+}
+
+.alignment-advanced summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.alignment-advanced-grid {
+  margin-top: 14px;
+}
+
+.alignment-executor-settings {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.alignment-executor-settings .executor-mode-switch {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#alignment-command-args,
+.alignment-yaml-source {
+  font-family: "SFMono-Regular", "SF Mono", "IBM Plex Mono", "Menlo", monospace;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.alignment-chat {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.alignment-chat-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.alignment-chat-head h3,
+.alignment-ready-preview h3,
+.alignment-preview-section h4 {
+  margin: 0;
+}
+
+.alignment-chat-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.88fr) minmax(360px, 1.12fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.alignment-transcript {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 320px;
+  max-height: 520px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: rgba(var(--glass-rgb), 0.36);
+}
+
+.alignment-message {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(var(--outline-rgb), 0.08);
+  background: rgba(var(--glass-rgb), 0.72);
+}
+
+.alignment-message p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.alignment-message--user {
+  border-color: rgba(13, 124, 102, 0.14);
+  background: rgba(13, 124, 102, 0.06);
+}
+
+.alignment-live-console {
+  min-width: 0;
+}
+
+.alignment-console-shell {
+  height: 360px;
+  min-height: 300px;
+}
+
+.alignment-reply-form {
+  display: grid;
+  gap: 10px;
+}
+
+.alignment-ready-preview {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.alignment-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.08fr) minmax(280px, 0.92fr);
+  gap: 16px;
+}
+
+.alignment-preview-section {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: rgba(var(--glass-rgb), 0.36);
+}
+
+.alignment-preview-section--wide {
+  grid-column: 1 / -1;
+}
+
+.alignment-preview-section h4 {
+  margin-bottom: 12px;
+  font-size: 0.96rem;
+}
+
+.alignment-role-list {
+  display: grid;
+  gap: 10px;
+}
+
+.alignment-role-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid rgba(var(--outline-rgb), 0.08);
+  background: rgba(var(--glass-rgb), 0.52);
+}
+
+.alignment-role-card span {
+  color: var(--accent-2);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+html[data-locale="zh"] .alignment-role-card span {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.alignment-role-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.58;
+}
+
+.alignment-workflow-card {
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  overflow: visible;
+}
+
+.alignment-workflow-card .workflow-loop-map {
+  max-width: 100%;
+  overflow: visible;
+}
+
+.alignment-workflow-card .workflow-loop-svg {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.alignment-yaml-source {
+  max-height: 420px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .stacked-copy {
   display: grid;
   gap: 14px;
@@ -1650,6 +1927,7 @@ html[data-locale="zh"] .tutorial-context-kicker {
 }
 
 .workflow-loop-map {
+  position: relative;
   display: grid;
   gap: 12px;
 }
@@ -1678,7 +1956,7 @@ html[data-locale="zh"] .tutorial-context-kicker {
   stroke: rgba(255, 247, 238, 0.92);
   stroke-width: 3;
   filter: drop-shadow(0 8px 16px rgba(53, 43, 34, 0.12));
-  transition: transform 180ms ease, stroke 180ms ease, filter 180ms ease;
+  transition: stroke 180ms ease, filter 180ms ease;
 }
 
 .workflow-loop-node {
@@ -1758,7 +2036,6 @@ html[data-locale="zh"] .tutorial-context-kicker {
 .workflow-loop-node.is-active circle {
   stroke: var(--workflow-loop-node-active-stroke);
   filter: drop-shadow(0 10px 22px rgba(53, 43, 34, 0.2));
-  transform: scale(1.05);
 }
 
 .workflow-loop-node:hover .workflow-loop-node-label,
@@ -1773,7 +2050,26 @@ html[data-locale="zh"] .tutorial-context-kicker {
   border-color: var(--workflow-loop-pill-active-border);
   background: var(--workflow-loop-pill-active-bg);
   color: var(--workflow-loop-pill-active-text);
-  transform: translateY(-1px);
+  transform: none;
+}
+
+.workflow-loop-tooltip {
+  position: absolute;
+  z-index: 8;
+  width: min(320px, calc(100% - 24px));
+  padding: 11px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(var(--glass-dark-rgb), 0.96);
+  color: #fff7ee;
+  box-shadow: 0 18px 34px rgba(21, 15, 11, 0.26);
+  font-size: 0.84rem;
+  line-height: 1.55;
+  white-space: pre-line;
+  pointer-events: none;
+}
+
+.workflow-loop-tooltip[hidden] {
+  display: none;
 }
 
 .workflow-loop-empty {
@@ -2882,15 +3178,15 @@ body.modal-open {
   display: inline-grid;
   place-items: center;
   flex: 0 0 auto;
-  min-width: 20px;
-  width: 20px;
-  height: 20px;
+  min-width: 19px;
+  width: 19px;
+  height: 19px;
   padding: 0;
   border-radius: 999px;
-  border: 1px solid rgba(0, 113, 227, 0.18);
-  background: rgba(0, 113, 227, 0.08);
-  color: var(--accent);
-  font-size: 0.72rem;
+  border: 1px solid rgba(var(--outline-rgb), 0.16);
+  background: rgba(var(--glass-rgb), 0.78);
+  color: var(--muted);
+  font-size: 0.68rem;
   line-height: 1;
   font-weight: 700;
   cursor: help;
@@ -2899,7 +3195,8 @@ body.modal-open {
 
 .help-dot:hover,
 .help-dot:focus-visible {
-  border-color: rgba(0, 113, 227, 0.32);
+  border-color: rgba(0, 113, 227, 0.34);
+  background: rgba(0, 113, 227, 0.08);
   color: var(--active);
 }
 
@@ -2915,11 +3212,7 @@ body.modal-open {
 
 .help-dot::before,
 .help-dot::after {
-  opacity: 0;
-  pointer-events: none;
-  position: absolute;
-  transition: opacity 140ms ease, transform 140ms ease;
-  z-index: 40;
+  display: none;
 }
 
 .help-dot::before {
@@ -2955,7 +3248,7 @@ body.modal-open {
 .help-dot:hover::after,
 .help-dot:focus-visible::before,
 .help-dot:focus-visible::after {
-  opacity: 1;
+  opacity: 0;
 }
 
 .help-dot:hover::before,
@@ -2966,6 +3259,28 @@ body.modal-open {
 .help-dot:hover::after,
 .help-dot:focus-visible::after {
   transform: translate(50%, 0);
+}
+
+.help-floating-tooltip {
+  position: fixed;
+  z-index: 1200;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 28px));
+  padding: 11px 13px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(var(--glass-dark-rgb), 0.97);
+  color: #fff7ee;
+  box-shadow: 0 18px 36px rgba(21, 15, 11, 0.28);
+  font-size: 0.84rem;
+  line-height: 1.62;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.help-floating-tooltip[hidden] {
+  display: none;
 }
 
 .input-with-action {
@@ -6108,6 +6423,17 @@ html[data-locale="zh"] .preview-box {
     min-height: 280px;
   }
 
+  .alignment-chat-grid,
+  .alignment-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .alignment-transcript,
+  .alignment-console-shell {
+    min-height: 260px;
+    height: 320px;
+  }
+
   .spec-preview-workbench .markdown-workbench-source-input,
   .spec-preview-workbench .markdown-workbench-preview {
     min-height: 300px;
@@ -6166,7 +6492,13 @@ html[data-locale="zh"] .preview-box {
   .workflow-settings-grid,
   .workflow-settings-readonly-grid,
   .workflow-settings-summary,
+  .alignment-start-grid,
+  .alignment-advanced-grid,
   .tutorial-context-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .alignment-executor-settings .executor-mode-switch {
     grid-template-columns: 1fr;
   }
 
@@ -6943,7 +7275,12 @@ textarea:focus {
   width: 19px;
   height: 19px;
   min-width: 19px;
+  min-height: 19px;
+  padding: 0;
+  border-radius: 999px;
   background: rgba(0, 113, 227, 0.08);
+  font-size: 0.68rem;
+  line-height: 1;
 }
 
 .empty-state {
@@ -7051,11 +7388,16 @@ textarea:focus {
 .loop-detail-spec-shell {
   background: var(--panel-strong);
   border-color: var(--line);
+  color: var(--ink);
 }
 
 .markdown-workbench-preview,
 .spec-preview-markdown {
   color: var(--ink);
+}
+
+.preview-box.markdown-preview :is(p, li, blockquote) {
+  color: var(--muted);
 }
 
 .console-shell-frame,

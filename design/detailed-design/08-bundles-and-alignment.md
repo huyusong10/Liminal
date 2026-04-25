@@ -11,12 +11,12 @@
 
 - 什么是 bundle
 - bundle 和手动资产是什么关系
-- 外部 Agent + Skill 与 Loopora 本体如何分工
+- Web 内置对齐、外部 Agent + Skill 与 Loopora 本体如何分工
 
 它不回答：
 
 - 对话 prompt 的具体写法
-- 外部 Agent 的内部实现细节
+- Agent 的内部实现细节
 
 ## 2. 核心边界
 
@@ -26,8 +26,8 @@ Loopora 本体仍然只是本地编排与执行引擎。
 
 | 边界 | 负责方 | 稳定职责 |
 |------|--------|----------|
-| 任务访谈与对齐 | 外部 Agent + repo-local Skill | 围绕当前任务与用户沟通，形成 transient working agreement |
-| bundle 产物生成 | 外部 Agent + repo-local Skill | 输出单文件 YAML bundle |
+| 任务访谈与对齐 | Web 内置 alignment session，或外部 Agent + repo-local Skill | 围绕当前任务与用户沟通，形成 transient working agreement |
+| bundle 产物生成 | Web 内置 alignment session，或外部 Agent + repo-local Skill | 输出单文件 YAML bundle |
 | bundle 导入 / 导出 / 派生 / 删除 | Loopora 本体 | 管理 bundle 生命周期，并把 bundle 物化为本地资产 |
 | run 执行 | Loopora 本体 | 从导入后的 `spec / role definitions / workflow` 运行 loop |
 
@@ -94,7 +94,7 @@ bundle 生命周期按整包表达：
 
 推荐入口：
 
-`任务输入 → 外部 Agent + Skill 对齐 → bundle → 在“创建循环”入口导入 → 物化 loop → 运行`
+`任务输入 → Web 内置对齐 / 外部 Agent + Skill 对齐 → bundle → 在“创建循环”入口导入 → 物化 loop → 运行`
 
 手动入口继续保留：
 
@@ -114,7 +114,7 @@ bundle 生命周期按整包表达：
 - bundle 不再是单文件 YAML
 - working agreement 的运行期地位变化
 - bundle 生命周期语义变化
-- 外部 Agent + Skill 与 Loopora 本体的边界变化
+- Web 内置对齐、外部 Agent + Skill 与 Loopora 本体的边界变化
 - posture 不再由 `spec / role definitions / workflow` 共同承载
 
 以下变化通常不需要更新本文档：

@@ -11,6 +11,7 @@ from typing import Iterator
 from loopora.db_schema import RepositorySchemaMixin
 from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.db_asset_records import RepositoryAssetRecordsMixin
+from loopora.db_alignment_records import RepositoryAlignmentRecordsMixin
 from loopora.db_definition_records import RepositoryDefinitionRecordsMixin
 from loopora.db_row_decoding import RepositoryRowDecodingMixin
 from loopora.db_runtime_state import RepositoryRuntimeStateMixin
@@ -24,6 +25,7 @@ class LooporaRepository(
     RepositoryRuntimeStateMixin,
     RepositoryDefinitionRecordsMixin,
     RepositoryAssetRecordsMixin,
+    RepositoryAlignmentRecordsMixin,
     RepositoryRowDecodingMixin,
 ):
     def __init__(self, path: Path) -> None:

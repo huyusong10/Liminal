@@ -534,9 +534,25 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
 
     assert response.status_code == 200
     assert "/static/pages/new_loop.js?v=" in response.text
+    assert "/static/pages/alignment.js?v=" in response.text
+    assert "/static/pages/workflow_diagram.js?v=" in response.text
     _assert_has_testid(response.text, "loop-create-page")
+    _assert_has_testid(response.text, "loop-alignment-panel")
+    _assert_has_testid(response.text, "alignment-start-form")
+    _assert_has_testid(response.text, "alignment-executor-kind")
+    _assert_has_testid(response.text, "alignment-executor-mode-switch")
+    _assert_has_testid(response.text, "alignment-mode-preset-button")
+    _assert_has_testid(response.text, "alignment-mode-command-button")
+    _assert_has_testid(response.text, "alignment-executor-mode-input")
+    _assert_has_testid(response.text, "alignment-message-input")
+    _assert_has_testid(response.text, "alignment-chat")
+    _assert_has_testid(response.text, "alignment-ready-preview")
+    _assert_has_testid(response.text, "alignment-workflow-diagram")
+    _assert_has_testid(response.text, "alignment-import-run-button")
     _assert_has_testid(response.text, "loop-bundle-create-panel")
     _assert_has_testid(response.text, "loop-bundle-import-form")
+    _assert_has_testid(response.text, "bundle-preview-button")
+    _assert_has_testid(response.text, "bundle-preview-import-button")
     _assert_has_testid(response.text, "loop-create-form")
     _assert_has_testid(response.text, "nav-orchestrations-link")
     _assert_has_testid(response.text, "nav-role-definitions-link")
@@ -566,7 +582,9 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "id=\"spec-preview-content\"" in response.text
     assert "Spec editor" in response.text
     assert "Generate from orchestration" in response.text
-    assert "Import a Bundle to Create a Loop" in response.text
+    assert "Generate a Bundle by Chat" in response.text
+    assert "你想做什么需求？" in response.text
+    assert "Existing Bundle YAML or File" in response.text
     assert "Manual Expert Mode" in response.text
     assert 'action="/loops/new/import-bundle"' in response.text
     assert 'name="bundle_yaml"' in response.text
@@ -596,7 +614,8 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     zh_response = client.get("/loops/new", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
     assert '<title>创建循环</title>' in zh_response.text
-    assert "导入 Bundle 创建循环" in zh_response.text
+    assert "对话生成 Bundle" in zh_response.text
+    assert "创建 / 导入 Bundle" in zh_response.text
     assert "手动专家模式" in zh_response.text
     assert 'aria-label="查看提示：' in zh_response.text
     zh_completion_mode = zh_response.text.split('id="completion-mode-input"', 1)[1].split("</select>", 1)[0]
@@ -1249,11 +1268,13 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".page-stack {" in css
     assert ".card-actions--loop {" in css
     assert ".help-dot--tips {" in css
+    assert ".help-floating-tooltip {" in css
     assert ".label-with-help," in css
     assert ".panel-title-with-help" in css
     assert ".inline-hint-link {" in css
     assert ".skill-download-card {" in css
     assert ".workflow-loop-map {" in css
+    assert ".workflow-loop-tooltip {" in css
     assert ".workflow-loop-segment {" in css
     assert ".workflow-map-panel {" in css
     assert "--workflow-loop-stroke:" in css

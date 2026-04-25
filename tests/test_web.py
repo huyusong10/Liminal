@@ -1577,6 +1577,16 @@ def test_api_bundles_import_export_and_delete(
     )
 
     client = TestClient(build_app(service=service))
+    preview_response = client.post("/api/bundles/preview", json={"bundle_yaml": bundle_yaml})
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["ok"] is True
+    assert preview["metadata"]["name"] == "Imported Bundle"
+    assert preview["bundle"]["loop"]["workdir"] == str(sample_workdir.resolve())
+    assert preview["roles"]
+    assert preview["workflow_preview"]["steps"]
+    assert preview["spec_rendered_html"].strip()
+
     import_response = client.post("/api/bundles/import", json={"bundle_yaml": bundle_yaml})
 
     assert import_response.status_code == 201

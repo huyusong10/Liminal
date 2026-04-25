@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 
 from loopora.bundles import BundleError, bundle_to_yaml, load_bundle_file, load_bundle_text, normalize_bundle
+from loopora.markdown_tools import render_safe_markdown_html
 from loopora.settings import app_home
 from loopora.specs import compile_markdown_spec, SpecError
 from loopora.service_asset_common import _normalize_role_models
@@ -61,6 +62,21 @@ class ServiceBundleAssetMixin:
             imported_from_path=imported_from_path,
         )
 
+    def preview_bundle_file(self, path: Path) -> dict:
+        resolved_path = path.expanduser().resolve()
+        try:
+            bundle = load_bundle_file(resolved_path)
+        except (BundleError, OSError) as exc:
+            raise LooporaError(str(exc)) from exc
+        return self._bundle_preview_payload(bundle, source_path=str(resolved_path))
+
+    def preview_bundle_text(self, raw_text: str) -> dict:
+        try:
+            bundle = load_bundle_text(raw_text)
+        except BundleError as exc:
+            raise LooporaError(str(exc)) from exc
+        return self._bundle_preview_payload(bundle)
+
     def export_bundle(self, bundle_id: str) -> dict:
         bundle = self.get_bundle(bundle_id)
         return self.derive_bundle_from_loop(
@@ -75,6 +91,47 @@ class ServiceBundleAssetMixin:
 
     def export_bundle_yaml(self, bundle_id: str) -> str:
         return bundle_to_yaml(self.export_bundle(bundle_id))
+
+    def _bundle_preview_payload(
+        self,
+        bundle: dict,
+        *,
+        source_path: str = "",
+        validation: dict | None = None,
+    ) -> dict:
+        normalized_yaml = bundle_to_yaml(bundle)
+        return {
+            "ok": True,
+            "yaml": normalized_yaml,
+            "source_path": source_path,
+            "bundle": bundle,
+            "metadata": bundle["metadata"],
+            "spec_rendered_html": render_safe_markdown_html(bundle["spec"]["markdown"]),
+            "roles": bundle["role_definitions"],
+            "workflow_preview": self._bundle_workflow_preview(bundle),
+            "validation": validation or {"ok": True, "error": "", "source_path": source_path},
+        }
+
+    @staticmethod
+    def _bundle_workflow_preview(bundle: dict) -> dict:
+        role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+        preview_roles = []
+        for role in bundle["workflow"]["roles"]:
+            role_definition = role_by_key.get(role["role_definition_key"], {})
+            preview_roles.append(
+                {
+                    **role,
+                    "name": role_definition.get("name", role["id"]),
+                    "archetype": role_definition.get("archetype", "custom"),
+                    "description": role_definition.get("description", ""),
+                    "posture_notes": role_definition.get("posture_notes", ""),
+                }
+            )
+        return {
+            **bundle["workflow"],
+            "roles": preview_roles,
+            "steps": list(bundle["workflow"]["steps"]),
+        }
 
     def derive_bundle_from_loop(
         self,

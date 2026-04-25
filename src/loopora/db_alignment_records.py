@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+import json
+import logging
+
+from loopora.db_shared import logger
+from loopora.diagnostics import log_event
+from loopora.utils import utc_now
+
+
+class RepositoryAlignmentRecordsMixin:
+    def create_alignment_session(self, payload: dict) -> dict:
+        now = utc_now()
+        transcript_json = json.dumps(payload.get("transcript", []), ensure_ascii=False)
+        validation_json = json.dumps(payload.get("validation", {}), ensure_ascii=False)
+        with self.transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO alignment_sessions (
+                    id, status, executor_kind, executor_mode, command_cli, command_args_text,
+                    model, reasoning_effort, workdir, bundle_path, transcript_json, validation_json,
+                    linked_bundle_id, linked_loop_id, linked_run_id, active_child_pid, stop_requested,
+                    repair_attempts, created_at, updated_at, finished_at, error_message
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["id"],
+                    payload.get("status", "idle"),
+                    payload.get("executor_kind", "codex"),
+                    payload.get("executor_mode", "preset"),
+                    payload.get("command_cli", ""),
+                    payload.get("command_args_text", ""),
+                    payload.get("model", ""),
+                    payload.get("reasoning_effort", ""),
+                    payload["workdir"],
+                    payload["bundle_path"],
+                    transcript_json,
+                    validation_json,
+                    payload.get("linked_bundle_id", ""),
+                    payload.get("linked_loop_id", ""),
+                    payload.get("linked_run_id", ""),
+                    payload.get("active_child_pid"),
+                    1 if payload.get("stop_requested") else 0,
+                    int(payload.get("repair_attempts", 0) or 0),
+                    now,
+                    now,
+                    payload.get("finished_at"),
+                    payload.get("error_message", ""),
+                ),
+            )
+        session = self.get_alignment_session(payload["id"])
+        log_event(
+            logger,
+            logging.INFO,
+            "db.alignment.created",
+            "Persisted alignment session",
+            session_id=payload["id"],
+            workdir=payload["workdir"],
+            status=session.get("status") if session else payload.get("status", "idle"),
+        )
+        return session
+
+    def get_alignment_session(self, session_id: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM alignment_sessions WHERE id = ?", (session_id,)).fetchone()
+        return self._decode_row(row) if row else None
+
+    def update_alignment_session(self, session_id: str, **fields) -> dict:
+        updates: dict[str, object] = {"updated_at": utc_now()}
+        json_fields = {
+            "transcript": "transcript_json",
+            "validation": "validation_json",
+        }
+        passthrough_fields = {
+            "status",
+            "executor_kind",
+            "executor_mode",
+            "command_cli",
+            "command_args_text",
+            "model",
+            "reasoning_effort",
+            "workdir",
+            "bundle_path",
+            "linked_bundle_id",
+            "linked_loop_id",
+            "linked_run_id",
+            "active_child_pid",
+            "repair_attempts",
+            "finished_at",
+            "error_message",
+        }
+        for key, column in json_fields.items():
+            if key in fields:
+                updates[column] = json.dumps(fields[key], ensure_ascii=False)
+        for key in passthrough_fields:
+            if key in fields:
+                updates[key] = fields[key]
+        if "stop_requested" in fields:
+            updates["stop_requested"] = 1 if fields["stop_requested"] else 0
+        if fields.get("clear_active_child_pid"):
+            updates["active_child_pid"] = None
+
+        assignments = ", ".join(f"{column} = ?" for column in updates)
+        values = list(updates.values()) + [session_id]
+        with self.transaction() as connection:
+            connection.execute(f"UPDATE alignment_sessions SET {assignments} WHERE id = ?", values)
+            row = connection.execute("SELECT * FROM alignment_sessions WHERE id = ?", (session_id,)).fetchone()
+        decoded = self._decode_row(row) if row else {}
+        interesting = {
+            key: value
+            for key, value in fields.items()
+            if key
+            in {
+                "status",
+                "active_child_pid",
+                "linked_bundle_id",
+                "linked_loop_id",
+                "linked_run_id",
+                "repair_attempts",
+                "finished_at",
+                "error_message",
+                "stop_requested",
+            }
+        }
+        if decoded and interesting:
+            log_event(
+                logger,
+                logging.INFO,
+                "db.alignment.updated",
+                "Persisted alignment session update",
+                session_id=session_id,
+                workdir=decoded.get("workdir"),
+                **interesting,
+            )
+        return decoded
+
+    def append_alignment_event(self, session_id: str, event_type: str, payload: dict) -> dict:
+        now = utc_now()
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        with self.transaction() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO alignment_events (session_id, created_at, event_type, payload_json)
+                VALUES (?, ?, ?, ?)
+                """,
+                (session_id, now, event_type, payload_json),
+            )
+            row_id = cursor.lastrowid
+        return {
+            "id": row_id,
+            "session_id": session_id,
+            "created_at": now,
+            "event_type": event_type,
+            "payload": payload,
+        }
+
+    def list_alignment_events(self, session_id: str, *, after_id: int = 0, limit: int = 200) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM alignment_events
+                WHERE session_id = ? AND id > ?
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (session_id, after_id, limit),
+            ).fetchall()
+        return [self._decode_row(row) for row in rows]
+
+    def request_alignment_stop(self, session_id: str) -> dict | None:
+        with self.transaction() as connection:
+            connection.execute(
+                "UPDATE alignment_sessions SET stop_requested = 1, updated_at = ? WHERE id = ?",
+                (utc_now(), session_id),
+            )
+            row = connection.execute("SELECT * FROM alignment_sessions WHERE id = ?", (session_id,)).fetchone()
+        return self._decode_row(row) if row else None
+
+    def alignment_should_stop(self, session_id: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT stop_requested FROM alignment_sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+        return bool(row["stop_requested"]) if row else True
