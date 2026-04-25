@@ -146,16 +146,18 @@ These are not five unrelated workflows. They are five common answers to the same
 
 ## How do you use it?
 
-1. Install
+1. Install from the repository root
 
 ```bash
-python3 -m pip install -e .
+uv sync
 ```
+
+`uv sync` creates the project `.venv`, installs Loopora in editable form, and syncs runtime plus development dependencies from `uv.lock`. For a runtime-only environment, use `uv sync --no-dev`.
 
 2. Start the local web console
 
 ```bash
-loopora serve --host 127.0.0.1 --port 8742
+uv run loopora serve --host 127.0.0.1 --port 8742
 ```
 
 Then open [http://127.0.0.1:8742](http://127.0.0.1:8742).
@@ -188,7 +190,7 @@ The Web UI is the recommended path because it keeps alignment, bundle import, ru
 If you already know the loop you want, the CLI is still available:
 
 ```bash
-loopora run \
+uv run loopora run \
   --spec ./demo-spec.md \
   --workdir /absolute/path/to/project \
   --executor codex \
@@ -201,5 +203,5 @@ loopora run \
 Run the tests:
 
 ```bash
-python3 -m pytest -q
+uv run pytest -q
 ```
