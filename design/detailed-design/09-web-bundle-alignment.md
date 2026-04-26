@@ -123,8 +123,8 @@ alignment session 是 Web 内置对齐流程的最小状态单元。
 - Agent 可以进行多轮澄清，但 READY 前必须返回单文件 YAML bundle 的完整文本。
 - Agent 不直接写入 session 文件；服务层从结构化 `bundle_yaml` 写入 session `bundle.yml`。
 - 后端不接受模型自由声明“已经生成好了”作为 READY 依据。
-- READY 的唯一依据是指定路径存在 YAML，且通过 `load_bundle_text / normalize_bundle` 校验。
-- 结构化输出可选返回 `session_ref`；服务层会和 executor 捕获到的 session ref 合并保存。
+- READY 的唯一依据是指定路径存在 YAML，且通过 `load_bundle_text / normalize_bundle` 与 `spec.markdown` 编译校验。
+- 结构化输出包含 `session_ref`；为兼容严格 structured-output 校验，它结构上必填、语义上可空，只接受少量字符串键（如 `session_id / thread_id / conversation_id / provider / raw_json`）。没有原生引用时这些键使用空字符串。服务层会和 executor 捕获到的 session ref 合并保存。
 - Custom CLI 通过 `{resume_session_id}`、`{session_ref_json}`、`{alignment_session_id}` 等参数模板占位符接入自己的 resume 协议；不强制要求所有自定义命令实现原生 session。
 
 ## 6. 硬校验与自动修复
@@ -137,7 +137,7 @@ bundle 检查器必须复用现有 bundle 契约校验。
 2. 后端读取结构化输出：`assistant_message`、`needs_user_input`、`bundle_yaml`。
 3. 若 `bundle_yaml` 为空，session 进入 `waiting_user` 或 `failed`，取决于 Agent 是否提出了澄清问题。
 4. 若 `bundle_yaml` 非空，服务层写入 session bundle path。
-5. 对写入的 bundle YAML 运行硬校验。
+5. 对写入的 bundle YAML 运行硬校验，包括 bundle 结构、目标 workdir 和 `spec.markdown` 可编译性。
 6. 校验通过，session 进入 `ready`。
 7. 校验失败，默认把错误、原 YAML 和输出要求回灌给同一 Agent 自动修复一轮。
 8. 自动修复仍失败，session 进入 `failed`，并展示可读错误与重试入口。

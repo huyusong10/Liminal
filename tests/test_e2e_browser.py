@@ -221,6 +221,69 @@ def serve_app(app):
         thread.join(timeout=5)
 
 
+def _bundle_yaml_for_workdir(workdir: Path) -> str:
+    return FakeCodexExecutor._alignment_bundle_yaml(str(workdir.expanduser().resolve()))
+
+
+def _wait_for_alignment_status(service: LooporaService, session_id: str, *statuses: str, timeout: float = 10.0) -> dict:
+    deadline = time.time() + timeout
+    expected = set(statuses)
+    while time.time() < deadline:
+        session = service.get_alignment_session(session_id)
+        if session["status"] in expected:
+            return session
+        time.sleep(0.05)
+    session = service.get_alignment_session(session_id)
+    raise AssertionError(f"alignment session stayed in {session['status']}, expected {sorted(expected)}")
+
+
+def _wait_for_run_status(service: LooporaService, run_id: str, *statuses: str, timeout: float = 15.0) -> dict:
+    deadline = time.time() + timeout
+    expected = set(statuses)
+    while time.time() < deadline:
+        run = service.get_run(run_id)
+        if run["status"] in expected:
+            return run
+        time.sleep(0.05)
+    run = service.get_run(run_id)
+    raise AssertionError(f"run stayed in {run['status']}, expected {sorted(expected)}")
+
+
+def _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page) -> None:
+    page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
+    assert page.get_by_test_id("alignment-spec-preview").inner_html().strip()
+    assert page.locator('[data-testid="alignment-role-list"] .alignment-role-card').count() >= 3
+
+    diagram = page.get_by_test_id("alignment-workflow-diagram")
+    diagram.locator("svg").wait_for(state="visible", timeout=5_000)
+    assert diagram.locator(".workflow-loop-node").count() >= 3
+    assert "Aligned Starter Bundle" in page.get_by_test_id("alignment-yaml-source").text_content()
+
+    node = diagram.locator(".workflow-loop-node").nth(1)
+    before = node.evaluate(
+        """(element) => {
+          const box = element.getBBox();
+          return {x: box.x, y: box.y, width: box.width, height: box.height};
+        }"""
+    )
+    node.hover()
+    tooltip = diagram.locator(".workflow-loop-tooltip")
+    tooltip.wait_for(state="visible", timeout=2_000)
+    tooltip_text = tooltip.text_content() or ""
+    assert "2" in tooltip_text
+    assert "Inspector" in tooltip_text
+    after = node.evaluate(
+        """(element) => {
+          const box = element.getBBox();
+          return {x: box.x, y: box.y, width: box.width, height: box.height};
+        }"""
+    )
+    assert abs(before["x"] - after["x"]) <= 0.5
+    assert abs(before["y"] - after["y"]) <= 0.5
+    assert abs(before["width"] - after["width"]) <= 0.5
+    assert abs(before["height"] - after["height"]) <= 0.5
+
+
 def test_local_listener_permission_errors_become_skips() -> None:
     with pytest.raises(pytest.skip.Exception, match="local TCP listeners are unavailable"):
         _skip_if_local_listener_unavailable(PermissionError("blocked"))
@@ -296,6 +359,105 @@ def test_e2e_calculator_loop_runs_and_works_in_browser(tmp_path: Path) -> None:
                 browser.close()
         except Exception as exc:  # pragma: no cover - environment dependent
             pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+
+
+def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: Path) -> None:
+    workdir = tmp_path / "bundle-chat-workdir"
+    workdir.mkdir()
+    (workdir / "README.md").write_text("# Bundle chat target\n\nStart here.\n", encoding="utf-8")
+    repository = LooporaRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=2, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LooporaService(
+        repository=repository,
+        settings=settings,
+        executor_factory=lambda: FakeCodexExecutor(scenario="success", role_delay=0.2),
+    )
+
+    with serve_app(build_app(service=service)) as base_url:
+        with playwright.sync_playwright() as p:
+            try:
+                browser = p.chromium.launch(headless=True)
+            except Exception as exc:  # pragma: no cover - environment dependent
+                pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 1100})
+            try:
+                page.goto(f"{base_url}/loops/new/bundle", wait_until="networkidle")
+                page.get_by_test_id("alignment-workdir").fill(str(workdir))
+                page.get_by_test_id("alignment-message-input").fill(
+                    "帮我为这个仓库生成一个先小步实现、再取证验收、最后保守放行的 Loopora bundle。"
+                )
+                page.get_by_test_id("alignment-send-button").click()
+
+                page.get_by_test_id("alignment-chat").wait_for(state="visible", timeout=5_000)
+                page.get_by_test_id("alignment-thinking-status").wait_for(state="visible", timeout=2_000)
+                page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
+                session = _wait_for_alignment_status(
+                    service,
+                    service.list_alignment_sessions(limit=1)[0]["id"],
+                    "ready",
+                )
+                assert session["validation"]["ok"] is True
+                assert Path(session["bundle_path"]).exists()
+
+                transcript_text = page.get_by_test_id("alignment-transcript").text_content() or ""
+                assert "Loopora bundle" in transcript_text
+                assert page.locator('[data-testid="alignment-console-output"] .console-line').count() >= 2
+                assert page.locator(".alignment-history-item").count() == 1
+                _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page)
+
+                page.get_by_test_id("alignment-import-run-button").click()
+                page.wait_for_url("**/runs/**", wait_until="networkidle", timeout=10_000)
+                run_id = page.url.rstrip("/").split("/")[-1]
+                run = _wait_for_run_status(service, run_id, "succeeded", "failed", timeout=20.0)
+                assert run["status"] == "succeeded"
+                bundles = service.list_bundles()
+                assert len(bundles) == 1
+                assert bundles[0]["loop_id"] == run["loop_id"]
+                assert service.get_alignment_session(session["id"])["linked_run_id"] == run_id
+            finally:
+                browser.close()
+
+
+def test_bundle_yaml_preview_imports_and_runs_from_browser(tmp_path: Path) -> None:
+    workdir = tmp_path / "bundle-yaml-workdir"
+    workdir.mkdir()
+    (workdir / "README.md").write_text("# Bundle YAML target\n\nStart here.\n", encoding="utf-8")
+    bundle_yaml = _bundle_yaml_for_workdir(workdir)
+    repository = LooporaRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=2, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LooporaService(
+        repository=repository,
+        settings=settings,
+        executor_factory=lambda: FakeCodexExecutor(scenario="success", role_delay=0.05),
+    )
+
+    with serve_app(build_app(service=service)) as base_url:
+        with playwright.sync_playwright() as p:
+            try:
+                browser = p.chromium.launch(headless=True)
+            except Exception as exc:  # pragma: no cover - environment dependent
+                pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 1100})
+            try:
+                page.goto(f"{base_url}/loops/new/bundle#bundle-import-form", wait_until="networkidle")
+                page.locator("#bundle-import-yaml").fill(bundle_yaml)
+                page.get_by_test_id("bundle-preview-button").click()
+
+                page.get_by_test_id("bundle-preview-import-button").wait_for(state="visible", timeout=10_000)
+                assert page.get_by_test_id("alignment-import-run-button").is_hidden()
+                _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page)
+
+                page.get_by_test_id("bundle-preview-import-button").click()
+                page.wait_for_url("**/runs/**", wait_until="networkidle", timeout=10_000)
+                run_id = page.url.rstrip("/").split("/")[-1]
+                run = _wait_for_run_status(service, run_id, "succeeded", "failed", timeout=20.0)
+                assert run["status"] == "succeeded"
+                bundles = service.list_bundles()
+                assert len(bundles) == 1
+                assert bundles[0]["loop_id"] == run["loop_id"]
+                assert service.get_loop(run["loop_id"])["bundle"]["id"] == bundles[0]["id"]
+            finally:
+                browser.close()
 
 
 def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(

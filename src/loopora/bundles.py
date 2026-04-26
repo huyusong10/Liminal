@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from loopora.specs import SpecError, compile_markdown_spec
 from loopora.workflows import (
     WorkflowError,
     default_step_execution_settings,
@@ -143,6 +144,10 @@ def _normalize_bundle_spec(raw_spec: object) -> dict[str, str]:
     markdown = str(dict(raw_spec).get("markdown", "") or "").strip()
     if not markdown:
         raise BundleError("bundle spec.markdown is required")
+    try:
+        compile_markdown_spec(markdown)
+    except SpecError as exc:
+        raise BundleError(str(exc)) from exc
     return {"markdown": markdown}
 
 

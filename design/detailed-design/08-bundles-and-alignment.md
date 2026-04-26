@@ -57,6 +57,10 @@ bundle 至少包含：
 | role definitions | 角色模板与 task-scoped posture |
 | workflow | 角色顺序、步骤结构与 `collaboration_intent` |
 
+补充规则：
+
+- `spec.markdown` 必须能通过 Loopora 正常的 spec 编译器；否则 bundle 不能进入预览 READY，也不能导入。
+
 ## 4. Posture 承载规则
 
 `collaboration posture` 不是单个字段，也不是单个 prompt。

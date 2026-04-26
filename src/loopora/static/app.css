@@ -2061,6 +2061,7 @@ html[data-locale="zh"] .tutorial-context-kicker {
   stroke-linejoin: round;
   stroke-dasharray: 7 10;
   animation: loopTraceIn 760ms ease both;
+  pointer-events: none;
 }
 
 .workflow-loop-segment.is-single {
@@ -2074,9 +2075,23 @@ html[data-locale="zh"] .tutorial-context-kicker {
   transition: stroke 180ms ease, filter 180ms ease;
 }
 
+.workflow-loop-node-hit {
+  fill: transparent;
+  stroke: transparent;
+  filter: none;
+  pointer-events: all;
+}
+
 .workflow-loop-node {
   cursor: pointer;
   outline: none;
+  pointer-events: bounding-box;
+}
+
+.workflow-loop-node-order,
+.workflow-loop-node-label,
+.workflow-loop-center-badge {
+  pointer-events: none;
 }
 
 .workflow-loop-node-order {

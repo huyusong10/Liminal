@@ -83,6 +83,15 @@ Prefer including these sections when they matter:
 - `# Residual Risk`
 - `# Role Notes`
 
+Loopora compiles `spec.markdown` before a bundle can be imported. Obey these
+format rules exactly:
+- `# Task` is required and must contain prose.
+- `# Done When` may be omitted for exploratory runs, but when present it must contain at least one top-level `-` bullet.
+- `# Success Surface`, `# Fake Done`, and `# Evidence Preferences` are optional, but when present each must contain at least one top-level `-` bullet.
+- `# Residual Risk` is optional prose.
+- `# Role Notes` is optional, but when present it must use `## <Role Name> Notes` subheadings. Put each role's note under its own second-level heading.
+- Do not use legacy headings such as `# Goal`, `# Checks`, or `# Constraints`.
+
 Use the spec for:
 - task framing
 - success criteria

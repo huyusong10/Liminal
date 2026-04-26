@@ -11,16 +11,19 @@ import json
 import os
 import shutil
 import subprocess
+import textwrap
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
+from loopora.bundles import bundle_to_yaml
 from loopora.db import LooporaRepository
 from loopora.providers import executor_profile, normalize_executor_kind
 from loopora.service import LooporaService
 from loopora.settings import AppSettings
+from loopora.workflows import builtin_prompt_markdown
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_WORKSPACE = ROOT / "tests" / "fixtures" / "english_learning_workspace"
@@ -70,6 +73,24 @@ def _wait_for_terminal_run(service: LooporaService, run_id: str, *, timeout_seco
             return run
         time.sleep(1.0)
     raise AssertionError(f"timed out waiting for real CLI run {run_id} to finish")
+
+
+def _wait_for_alignment_status(
+    service: LooporaService,
+    session_id: str,
+    *,
+    timeout_seconds: float,
+    statuses: set[str] | None = None,
+) -> dict:
+    expected = statuses or {"ready", "waiting_user", "failed"}
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        session = service.get_alignment_session(session_id)
+        if session["status"] in expected:
+            return session
+        time.sleep(1.0)
+    session = service.get_alignment_session(session_id)
+    raise AssertionError(f"timed out waiting for alignment session {session_id}; last status was {session['status']}")
 
 
 def _selected_real_cli_targets() -> tuple[str, ...]:
@@ -202,6 +223,176 @@ def _start_real_loop(
     )
 
 
+def _copy_real_fixture_workspace(tmp_path: Path, *, provider: str, slug: str) -> Path:
+    _require_real_cli_target(provider)
+    workdir = tmp_path / f"{provider}-{slug}-workspace"
+    shutil.copytree(FIXTURE_WORKSPACE, workdir)
+    return workdir
+
+
+def _real_service(tmp_path: Path, *, provider: str, slug: str) -> LooporaService:
+    repository = LooporaRepository(tmp_path / f"{provider}-{slug}.db")
+    settings = AppSettings(
+        max_concurrent_runs=1,
+        polling_interval_seconds=0.1,
+        stop_grace_period_seconds=0.5,
+        role_idle_timeout_seconds=600.0,
+    )
+    return LooporaService(repository=repository, settings=settings)
+
+
+def _real_bundle_yaml_for_workdir(workdir: Path, *, provider: str) -> str:
+    model = _provider_model(provider)
+    reasoning_effort = _provider_reasoning_effort(provider)
+    spec_markdown = textwrap.dedent(
+        """
+        # Task
+
+        Keep the English learning prototype runnable and aligned around content, practice, and feedback.
+
+        # Done When
+
+        - `node tests/contract/english-learning-smoke.mjs tests/evidence/english-learning-homepage-proof.json` passes.
+        - `node tests/contract/english-learning-structure.mjs tests/evidence/english-learning-structure-proof.json` passes.
+        - Any change keeps the prototype simple and inspectable.
+
+        # Guardrails
+
+        - Stay inside the existing single-page frontend fixture.
+        - Preserve the content, practice, feedback, and language switching surfaces.
+
+        # Evidence Preferences
+
+        - Prefer the two project-owned Node proof scripts above.
+        - If no code change is needed, say so with direct evidence instead of inventing churn.
+        """
+    ).strip()
+
+    role_execution = {
+        "executor_kind": provider,
+        "executor_mode": "preset",
+        "command_cli": "",
+        "command_args_text": "",
+        "model": model,
+        "reasoning_effort": reasoning_effort,
+    }
+    bundle = {
+        "version": 1,
+        "metadata": {
+            "name": f"Real CLI Bundle Import {provider}",
+            "description": "Heavy real-provider bundle import fixture.",
+            "revision": 1,
+        },
+        "collaboration_summary": (
+            "Use a compact Builder, Inspector, and GateKeeper pass over a real workspace, "
+            "then accept only project-owned proof evidence."
+        ),
+        "loop": {
+            "name": f"Real CLI Bundle Import {provider}",
+            "workdir": str(workdir.resolve()),
+            "completion_mode": "rounds",
+            "executor_kind": provider,
+            "executor_mode": "preset",
+            "command_cli": "",
+            "command_args_text": "",
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+            "iteration_interval_seconds": 0,
+            "max_iters": 1,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+        },
+        "spec": {"markdown": spec_markdown},
+        "role_definitions": [
+            {
+                "key": "builder",
+                "name": "Real Bundle Builder",
+                "description": "Makes only necessary fixture changes.",
+                "archetype": "builder",
+                "prompt_ref": "builder.md",
+                "prompt_markdown": builtin_prompt_markdown("builder.md"),
+                "posture_notes": "Prefer no-op with evidence over churn when the fixture already satisfies the contract.",
+                **role_execution,
+            },
+            {
+                "key": "inspector",
+                "name": "Real Bundle Inspector",
+                "description": "Runs the project-owned proof scripts.",
+                "archetype": "inspector",
+                "prompt_ref": "inspector.md",
+                "prompt_markdown": builtin_prompt_markdown("inspector.md"),
+                "posture_notes": "Anchor findings to the two Node proof scripts and their JSON output.",
+                **role_execution,
+            },
+            {
+                "key": "gatekeeper",
+                "name": "Real Bundle GateKeeper",
+                "description": "Closes only on direct proof evidence.",
+                "archetype": "gatekeeper",
+                "prompt_ref": "gatekeeper.md",
+                "prompt_markdown": builtin_prompt_markdown("gatekeeper.md"),
+                "posture_notes": "Treat missing proof artifacts as a blocker; otherwise keep the verdict concise.",
+                **role_execution,
+            },
+        ],
+        "workflow": {
+            "version": 1,
+            "preset": "build_first",
+            "collaboration_intent": "Check whether the fixture already satisfies the bundle contract, then close on proof evidence.",
+            "roles": [
+                {"id": "builder", "role_definition_key": "builder"},
+                {"id": "inspector", "role_definition_key": "inspector"},
+                {"id": "gatekeeper", "role_definition_key": "gatekeeper"},
+            ],
+            "steps": [
+                {"id": "builder_step", "role_id": "builder", "inherit_session": True},
+                {"id": "inspector_step", "role_id": "inspector"},
+                {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+            ],
+        },
+    }
+    return bundle_to_yaml(bundle)
+
+
+def _complete_real_alignment_session(service: LooporaService, session_id: str, *, timeout_seconds: float) -> dict:
+    replies = [
+        (
+            "请使用 rounds 完成模式、最多 1 轮，保留 Builder -> Inspector -> GateKeeper。"
+            "证据优先使用两个精确命令："
+            "`node tests/contract/english-learning-smoke.mjs tests/evidence/english-learning-homepage-proof.json` "
+            "和 "
+            "`node tests/contract/english-learning-structure.mjs tests/evidence/english-learning-structure-proof.json`。"
+        ),
+        (
+            "更怕做糙，不要扩大范围；如果现有原型已经满足 proof，就让 bundle 要求先取证再保守收束。"
+        ),
+    ]
+    for reply_index in range(len(replies) + 1):
+        session = _wait_for_alignment_status(service, session_id, timeout_seconds=timeout_seconds)
+        if session["status"] == "ready":
+            return session
+        if session["status"] == "failed":
+            events = service.list_alignment_events(session_id, limit=200)[-40:]
+            raise AssertionError(f"alignment failed: {session.get('error_message')}\nrecent events: {events}")
+        if reply_index >= len(replies):
+            raise AssertionError(f"alignment kept asking questions: {session.get('transcript')}")
+        service.append_alignment_message(session_id, replies[reply_index])
+    raise AssertionError("unreachable alignment completion state")
+
+
+def _assert_real_bundle_run_succeeded(service: LooporaService, run_id: str, workdir: Path, *, timeout_seconds: float) -> dict:
+    run = _wait_for_terminal_run(service, run_id, timeout_seconds=timeout_seconds)
+    summary = _summary_text(Path(run["runs_dir"]))
+    assert run["status"] == "succeeded", summary
+    events = _read_jsonl(Path(run["runs_dir"]) / "timeline" / "events.jsonl")
+    assert any(event["event_type"] == "run_finished" for event in events), summary
+    assert not any(event["event_type"] == "run_aborted" for event in events), summary
+    _assert_proof_harnesses(workdir)
+    return run
+
+
 def _role_execution_summaries(artifacts: RealRunArtifacts, *, roles: set[str]) -> list[dict]:
     return [
         event
@@ -262,6 +453,74 @@ def _assert_proof_harnesses(workdir: Path) -> None:
 
 def _requests_for_step(artifacts: RealRunArtifacts, step_id: str) -> list[dict]:
     return [item for item in artifacts.role_requests if item.get("step_id") == step_id]
+
+
+@pytest.mark.real_cli
+@pytest.mark.parametrize("provider", PROVIDER_ORDER)
+def test_real_cli_bundle_alignment_chat_imports_and_runs(tmp_path: Path, provider: str) -> None:
+    workdir = _copy_real_fixture_workspace(tmp_path, provider=provider, slug="bundle-alignment-chat")
+    service = _real_service(tmp_path, provider=provider, slug="bundle-alignment-chat")
+    timeout_seconds = float(os.environ.get(REAL_CLI_TIMEOUT_ENV, "1800"))
+    session = service.create_alignment_session(
+        workdir=workdir,
+        message=(
+            "为这个英语学习网站 fixture 生成一个可直接导入运行的 Loopora bundle。"
+            "目标是保持内容、练习、反馈三条主线，并要求运行时用项目里的两个 Node proof scripts 取证。"
+            "两个精确命令是："
+            "`node tests/contract/english-learning-smoke.mjs tests/evidence/english-learning-homepage-proof.json` "
+            "和 "
+            "`node tests/contract/english-learning-structure.mjs tests/evidence/english-learning-structure-proof.json`。"
+            "请把 loop.completion_mode 设为 rounds，max_iters 设为 1，workflow 使用 Builder -> Inspector -> GateKeeper。"
+        ),
+        executor_kind=provider,
+        model=_provider_model(provider),
+        reasoning_effort=_provider_reasoning_effort(provider),
+    )
+    ready = _complete_real_alignment_session(service, session["id"], timeout_seconds=timeout_seconds)
+
+    preview = service.get_alignment_bundle(ready["id"])
+    assert preview["ok"] is True
+    assert preview["bundle"]["loop"]["workdir"] == str(workdir.resolve())
+    assert preview["workflow_preview"]["steps"]
+
+    imported = service.import_alignment_bundle(ready["id"], start_immediately=True)
+    assert imported["bundle"]["loop_id"]
+    assert imported["run"]["id"]
+    final_run = _assert_real_bundle_run_succeeded(
+        service,
+        imported["run"]["id"],
+        workdir,
+        timeout_seconds=timeout_seconds,
+    )
+    final_session = service.get_alignment_session(ready["id"])
+    assert final_session["linked_bundle_id"] == imported["bundle"]["id"]
+    assert final_session["linked_loop_id"] == final_run["loop_id"]
+    assert final_session["linked_run_id"] == final_run["id"]
+
+
+@pytest.mark.real_cli
+@pytest.mark.parametrize("provider", PROVIDER_ORDER)
+def test_real_cli_bundle_yaml_imports_and_runs(tmp_path: Path, provider: str) -> None:
+    workdir = _copy_real_fixture_workspace(tmp_path, provider=provider, slug="bundle-yaml-import")
+    service = _real_service(tmp_path, provider=provider, slug="bundle-yaml-import")
+    timeout_seconds = float(os.environ.get(REAL_CLI_TIMEOUT_ENV, "1800"))
+    bundle_yaml = _real_bundle_yaml_for_workdir(workdir, provider=provider)
+
+    preview = service.preview_bundle_text(bundle_yaml)
+    assert preview["ok"] is True
+    assert preview["bundle"]["loop"]["workdir"] == str(workdir.resolve())
+    bundle = service.import_bundle_text(bundle_yaml)
+    assert bundle["loop_id"]
+
+    queued_run = service.start_run(bundle["loop_id"])
+    service.start_run_async(queued_run["id"])
+    final_run = _assert_real_bundle_run_succeeded(
+        service,
+        queued_run["id"],
+        workdir,
+        timeout_seconds=timeout_seconds,
+    )
+    assert service.get_bundle(bundle["id"])["loop_id"] == final_run["loop_id"]
 
 
 @pytest.mark.real_cli

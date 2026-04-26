@@ -31,9 +31,20 @@ ALIGNMENT_RESPONSE_SCHEMA: dict[str, Any] = {
         "assistant_message": {"type": "string"},
         "needs_user_input": {"type": "boolean"},
         "bundle_yaml": {"type": "string"},
-        "session_ref": {"type": "object", "additionalProperties": True},
+        "session_ref": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "session_id": {"type": "string"},
+                "thread_id": {"type": "string"},
+                "conversation_id": {"type": "string"},
+                "provider": {"type": "string"},
+                "raw_json": {"type": "string"},
+            },
+            "required": ["session_id", "thread_id", "conversation_id", "provider", "raw_json"],
+        },
     },
-    "required": ["status", "assistant_message", "needs_user_input", "bundle_yaml"],
+    "required": ["status", "assistant_message", "needs_user_input", "bundle_yaml", "session_ref"],
 }
 
 
@@ -575,12 +586,14 @@ You must return one JSON object matching the provided schema:
 - `assistant_message`: a concise user-facing reply or question.
 - `needs_user_input`: true only when the user should answer before a bundle can be generated.
 - `bundle_yaml`: a complete single-file Loopora YAML bundle when ready; otherwise an empty string.
+- `session_ref`: always include an object with string fields `session_id`, `thread_id`, `conversation_id`, `provider`, and `raw_json`; use empty strings when you do not have a value.
 
 Important output discipline:
 - Do not write files yourself.
 - Do not claim READY.
 - If the bundle is ready, put the full YAML in `bundle_yaml`; Loopora will write `{session["bundle_path"]}` and validate it.
 - The bundle `loop.workdir` must be exactly `{session["workdir"]}`.
+- Loopora compiles `spec.markdown` during validation: `# Done When`, `# Success Surface`, `# Fake Done`, and `# Evidence Preferences` must use top-level `-` bullets when present; `# Role Notes` must use `## <Role Name> Notes` subheadings.
 - Preserve task-scoped dialogue. Ask only questions that change the bundle shape.
 - When the user has already provided enough information, generate the bundle instead of over-interviewing.
 

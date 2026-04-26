@@ -205,6 +205,7 @@
       const anchor = labelAnchor(step, cx);
       return `
         <g class="workflow-loop-node${step.finishGate ? " is-finish" : ""}" data-role-id="${escapeHtml(step.roleId)}" data-workflow-tooltip="${escapeHtml(stepTooltipText(step))}" tabindex="0" focusable="true" role="button" aria-label="${escapeHtml(stepAriaLabel(step))}">
+          <circle class="workflow-loop-node-hit" cx="${step.x.toFixed(1)}" cy="${step.y.toFixed(1)}" r="${(settings.nodeRadius + 14).toFixed(1)}"></circle>
           <circle cx="${step.x.toFixed(1)}" cy="${step.y.toFixed(1)}" r="${settings.nodeRadius}" fill="${roleColor(step.archetype)}"></circle>
           <text x="${step.x.toFixed(1)}" y="${(step.y + 1).toFixed(1)}" class="workflow-loop-node-order">${step.order}</text>
           <text x="${(step.x + anchor.dx).toFixed(1)}" y="${(step.y + settings.nodeRadius + 22).toFixed(1)}" class="workflow-loop-node-label" text-anchor="${anchor.anchor}">${escapeHtml(step.shortLabel)}</text>
