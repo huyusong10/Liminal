@@ -8,3 +8,5 @@ artifacts/real_search_loop_e2e/
 *.egg-info/
 build/
 dist/
+/spec.md
+.claude/
