@@ -100,15 +100,15 @@ bundle 生命周期按整包表达：
 
 推荐入口：
 
-`创建循环选择页 → Bundle 对话页 → Web 内置对齐 → READY 预览 → 物化 loop → 运行`
+`新建任务 → Bundle 对话页 → Web 内置对齐 → READY 预览 → 物化 loop → 运行`
 
 手动入口继续保留：
 
-`创建循环选择页 → 手动创建页 → spec / role definitions / orchestration / loop 手动编排，或导入既有 YAML`
+`资源与设置菜单 → 手动创建页 → spec / role definitions / orchestration / loop 手动编排，或导入既有 YAML`
 
 稳定承诺：
 
-- “创建循环”先分流到 Bundle-first 和手动专家模式，两者最终都创建 loop，但使用心智不同。
+- 顶层“新建任务”直接进入 Bundle-first 对话路径；旧 `/loops/new` 选择页只承担兼容和解释分流。
 - Bundle-first 是默认推荐路径，承载 Web 内置对齐、READY 预览和创建运行。
 - 手动编排仍然是 expert mode，适合用户已经明确 spec、角色与 workflow 规则；已有 bundle YAML / 文件导入也归属这条专家路径。
 - 两条路径必须能互相转换：bundle 可以导入成手动资产，手动 loop 也可以派生回 bundle

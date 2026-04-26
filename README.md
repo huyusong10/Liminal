@@ -91,7 +91,7 @@ That is hard to hand-assemble into `spec / roles / workflow` directly.
 
 So the recommended path is:
 
-`task input -> Create Loop -> Generate Bundle -> READY plan preview -> create and run -> feedback -> next bundle revision`
+`task input -> New Task -> READY plan preview -> create and run -> feedback -> next bundle revision`
 
 The working agreement is where you confirm, "yes, this is how I want this task supervised."
 
@@ -164,7 +164,7 @@ Then open [http://127.0.0.1:8742](http://127.0.0.1:8742).
 
 3. Generate the bundle in Web
 
-Open **Create Loop**, choose **Generate Bundle**, then describe the task in the chat box. Loopora chooses a local Agent CLI, keeps the CLI session alive across follow-up turns, embeds the same alignment Skill instructions in the backend prompt, writes the returned `bundle_yaml`, validates it, and shows READY only after the YAML passes the bundle contract.
+Open **New Task**, then describe the task in the chat box. Loopora chooses a local Agent CLI, keeps the CLI session alive across follow-up turns, embeds the same alignment Skill instructions in the backend prompt, writes the returned `bundle_yaml`, validates it, and shows READY only after the YAML passes the bundle contract.
 
 4. Preview, create, and run
 
@@ -172,7 +172,7 @@ Review the generated task contract, role cards, workflow diagram, and source YAM
 
 5. Optional external Agent path
 
-If you prefer to align outside the Web UI, open **Tools** and install the repo-local `loopora-task-alignment` Skill into Codex, Claude Code, or OpenCode. That path still produces the same YAML bundle, which you can paste or import from **Create Loop -> Create Loop Manually**.
+If you prefer to align outside the Web UI, open **Resources -> Tools & Skill** and install the repo-local `loopora-task-alignment` Skill into Codex, Claude Code, or OpenCode. That path still produces the same YAML bundle, which you can paste or import from **Resources -> Manual creation**.
 
 6. Revise from evidence
 

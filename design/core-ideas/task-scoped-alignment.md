@@ -53,7 +53,7 @@ bundle 是对齐结果的稳定交换单元。
 
 默认入口应是：
 
-`任务输入 -> 创建循环选择页 -> Bundle 对话页 / 外部 Agent + Skill -> working agreement -> YAML bundle -> READY 预览 -> run`
+`任务输入 -> 新建任务 / 外部 Agent + Skill -> working agreement -> YAML bundle -> READY 预览 -> run`
 
 手动入口继续存在，但它是 expert mode：
 

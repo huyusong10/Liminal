@@ -448,7 +448,7 @@ html[data-theme="dark"] .top-nav-brand-lockup {
   z-index: 70;
   display: grid;
   gap: 14px;
-  width: min(320px, calc(100vw - 32px));
+  width: min(380px, calc(100vw - 32px));
   padding: 16px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -465,6 +465,15 @@ html[data-theme="dark"] .top-nav-brand-lockup {
   gap: 10px;
 }
 
+.nav-preferences-section--links {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.nav-preferences-section--control {
+  padding-top: 2px;
+}
+
 .nav-preferences-head {
   display: grid;
   gap: 4px;
@@ -479,6 +488,34 @@ html[data-theme="dark"] .top-nav-brand-lockup {
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.45;
+}
+
+.nav-menu-list {
+  display: grid;
+  gap: 6px;
+}
+
+.nav-menu-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.nav-menu-link:hover,
+.nav-menu-link.active {
+  background: rgba(0, 113, 227, 0.08);
+  border-color: rgba(0, 113, 227, 0.16);
+  color: var(--accent);
 }
 
 .top-nav .locale-switch {

@@ -48,34 +48,46 @@ def test_index_page_renders_with_saved_loops(
     assert "loopora:locale" in response.text
     assert response.text.index("loopora:theme") < response.text.index("/static/app.css?v=")
     assert response.text.index("loopora:locale") < response.text.index("/static/app.css?v=")
-    assert '<title>Created loops</title>' in response.text
+    assert '<title>Workbench</title>' in response.text
     assert 'class="loop-card-link"' in response.text
     assert 'tabindex="-1"' in response.text
     assert 'aria-hidden="true"' in response.text
     assert "/static/app.css?v=" in response.text
     assert "/static/app.js?v=" in response.text
     _assert_has_testid(response.text, "top-nav")
-    _assert_has_testid(response.text, "nav-created-link")
-    _assert_has_testid(response.text, "nav-create-loop-link")
-    _assert_has_testid(response.text, "nav-orchestrations-link")
-    _assert_has_testid(response.text, "nav-role-definitions-link")
-    _assert_has_testid(response.text, "nav-tools-link")
+    _assert_has_testid(response.text, "nav-workbench-link")
+    _assert_has_testid(response.text, "nav-new-task-link")
+    _assert_has_testid(response.text, "nav-plans-link")
     _assert_has_testid(response.text, "nav-preferences")
     _assert_has_testid(response.text, "nav-preferences-toggle")
     _assert_has_testid(response.text, "nav-preferences-panel")
+    _assert_has_testid(response.text, "nav-resources-menu")
+    _assert_has_testid(response.text, "nav-settings-menu")
+    _assert_has_testid(response.text, "nav-menu-roles-link")
+    _assert_has_testid(response.text, "nav-menu-orchestrations-link")
+    _assert_has_testid(response.text, "nav-menu-manual-create-link")
+    _assert_has_testid(response.text, "nav-menu-tools-link")
+    _assert_has_testid(response.text, "nav-menu-tutorial-link")
+    assert 'data-testid="nav-created-link"' not in response.text
+    assert 'data-testid="nav-create-loop-link"' not in response.text
+    assert 'data-testid="nav-role-definitions-link"' not in response.text
+    assert 'data-testid="nav-orchestrations-link"' not in response.text
+    assert 'data-testid="nav-tools-link"' not in response.text
+    assert 'data-testid="nav-tutorial-link"' not in response.text
     _assert_has_testid(response.text, "theme-switch")
     _assert_has_testid(response.text, "theme-light-button")
     _assert_has_testid(response.text, "theme-dark-button")
     _assert_has_testid(response.text, "locale-switch")
     assert 'aria-label="Loopora home"' in response.text
+    assert 'aria-label="Open resources and settings menu"' in response.text
     assert 'aria-label="Theme switch"' in response.text
     assert 'aria-label="Light mode"' in response.text
     assert 'aria-label="Dark mode"' in response.text
     assert 'aria-label="Language switch"' in response.text
-    _assert_has_testid(response.text, "index-import-bundle-link")
-    _assert_has_testid(response.text, "index-create-loop-link")
+    _assert_has_testid(response.text, "index-new-task-link")
+    _assert_has_testid(response.text, "index-plans-link")
     assert 'href="/loops/new/bundle"' in response.text
-    assert 'href="/loops/new/manual"' in response.text
+    assert 'href="/bundles"' in response.text
     empty_state_markup = response.text.split('class="empty-state" id="loops-empty-state" hidden>', 1)[1].split("</div>", 1)[0]
     assert 'class="empty-state-logo"' in empty_state_markup
     assert 'alt=""' in empty_state_markup
@@ -86,7 +98,7 @@ def test_index_page_renders_with_saved_loops(
 
     zh_response = client.get("/", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
-    assert '<title>已创建的循环</title>' in zh_response.text
+    assert '<title>工作台</title>' in zh_response.text
     assert 'aria-label="Loopora 首页"' in zh_response.text
     assert 'aria-label="主题切换"' in zh_response.text
     assert 'aria-label="浅色模式"' in zh_response.text
@@ -604,8 +616,8 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(manual_response.text, "alignment-source-open-button")
     assert 'data-testid="alignment-preview-tab-yaml"' not in manual_response.text
     _assert_has_testid(manual_response.text, "loop-create-form")
-    _assert_has_testid(manual_response.text, "nav-orchestrations-link")
-    _assert_has_testid(manual_response.text, "nav-role-definitions-link")
+    _assert_has_testid(manual_response.text, "nav-menu-orchestrations-link")
+    _assert_has_testid(manual_response.text, "nav-menu-roles-link")
     _assert_has_testid(manual_response.text, "workdir-browse-button")
     _assert_has_testid(manual_response.text, "spec-editor-button")
     _assert_has_testid(manual_response.text, "spec-template-button")
@@ -652,7 +664,7 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(manual_response.text, "loop-regression-window-tip")
     assert "workflow-json-input" not in manual_response.text
     assert "角色定义" in manual_response.text
-    _assert_has_testid(manual_response.text, "nav-tutorial-link")
+    _assert_has_testid(manual_response.text, "nav-menu-tutorial-link")
 
     zh_response = client.get("/loops/new/manual", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
@@ -803,7 +815,7 @@ def test_deleting_loop_refreshes_recent_workdir_suggestions(
     assert f'data-fill-workdir="{second_workdir}"' in after_delete.text
 
 
-def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> None:
+def test_orchestrations_pages_render_as_resource_library_feature(service_factory) -> None:
     service = service_factory(scenario="success")
     service.create_orchestration(name="Release Flow", workflow={"preset": "inspect_first"})
 
@@ -812,7 +824,7 @@ def test_orchestrations_pages_render_as_top_level_feature(service_factory) -> No
     assert list_response.status_code == 200
     _assert_has_testid(list_response.text, "orchestrations-page")
     _assert_has_testid(list_response.text, "orchestrations-intro-copy")
-    _assert_has_testid(list_response.text, "nav-orchestrations-link")
+    _assert_has_testid(list_response.text, "nav-menu-orchestrations-link")
     _assert_has_testid(list_response.text, "custom-orchestrations-list")
     _assert_has_testid(list_response.text, "builtin-orchestrations-list")
     _assert_has_testid(list_response.text, "builtin-orchestrations-tip")
@@ -1084,6 +1096,12 @@ def test_bundles_pages_render_list_and_detail(
     list_response = client.get("/bundles")
     assert list_response.status_code == 200
     _assert_has_testid(list_response.text, "bundles-page")
+    _assert_has_testid(list_response.text, "nav-plans-link")
+    assert re.search(r'<a class="top-nav-link\s+active" href="/bundles" data-testid="nav-plans-link"', list_response.text)
+    assert not re.search(
+        r'<a class="top-nav-link\s+active" href="/loops/new/bundle" data-testid="nav-new-task-link"',
+        list_response.text,
+    )
     _assert_has_testid(list_response.text, "bundles-create-loop-link")
     _assert_has_testid(list_response.text, "bundle-derive-form")
     _assert_has_testid(list_response.text, "bundle-list")
@@ -1200,7 +1218,7 @@ def test_workflow_diagram_script_localizes_step_assistive_labels(service_factory
     assert 'aria-label="${escapeHtml(localeText("循环流程图", "Loop workflow diagram"))}"' in response.text
 
 
-def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -> None:
+def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None:
     service = service_factory(scenario="success")
 
     client = TestClient(build_app(service=service))
@@ -1210,7 +1228,7 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     assert '<title>Tutorial</title>' in response.text
     _assert_has_testid(response.text, "tutorial-page")
     assert 'class="page-stack tutorial-page-stack"' in response.text
-    _assert_has_testid(response.text, "nav-tutorial-link")
+    _assert_has_testid(response.text, "nav-menu-tutorial-link")
     _assert_has_testid(response.text, "tutorial-guide-panel")
     _assert_has_testid(response.text, "tutorial-core-spec")
     _assert_has_testid(response.text, "tutorial-core-workflow")
@@ -1352,6 +1370,8 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".tutorial-context-detail-grid {" in css
     assert ".nav-preferences-panel {" in css
     assert ".nav-preferences-toggle {" in css
+    assert ".nav-menu-list {" in css
+    assert ".nav-menu-link {" in css
     assert ".role-card-grid {" in css
     assert ".page-stack--catalog {" in css
     assert ".role-card-grid--definitions {" in css

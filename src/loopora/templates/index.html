@@ -1,26 +1,26 @@
 {% extends "base.html" %}
-{% block title %}{{ '已创建的循环' if page_locale == 'zh' else 'Created loops' }}{% endblock %}
+{% block title %}{{ '工作台' if page_locale == 'zh' else 'Workbench' }}{% endblock %}
 {% block content %}
 <div class="page-stack">
   <section class="hero hero-tight">
     <div class="hero-copy-stack">
       <h1>
-        <span data-lang="zh">先生成一份 bundle，再把这次协作方式跑起来。</span>
-        <span data-lang="en">Generate a bundle, then run the collaboration shape you aligned for this task.</span>
+        <span data-lang="zh">工作台</span>
+        <span data-lang="en">Workbench</span>
       </h1>
       <p>
-        <span data-lang="zh">推荐入口是 Web 对话生成 bundle，然后把 spec、角色定义和流程编排一键运行。已有 YAML 导入和手动创建 loop 保留在 expert mode。</span>
-        <span data-lang="en">The recommended path is Web chat bundle generation, then running the spec, role definitions, and orchestration as one package. Existing YAML import and manual loop creation stay in expert mode.</span>
+        <span data-lang="zh">这里集中查看已经创建的任务、最近运行状态和需要继续处理的循环。要开始新的协作，直接进入新建任务。</span>
+        <span data-lang="en">Review created tasks, recent run state, and loops that need attention here. Start a new collaboration from New Task.</span>
       </p>
     </div>
     <div class="card-actions">
-      <a class="primary-button" href="/loops/new/bundle" data-testid="index-import-bundle-link">
-        <span data-lang="zh">对话生成 Bundle</span>
-        <span data-lang="en">Generate Bundle</span>
+      <a class="primary-button" href="/loops/new/bundle" data-testid="index-new-task-link">
+        <span data-lang="zh">新建任务</span>
+        <span data-lang="en">New Task</span>
       </a>
-      <a class="ghost-button" href="/loops/new/manual" data-testid="index-create-loop-link">
-        <span data-lang="zh">手动创建循环</span>
-        <span data-lang="en">Create Loop Manually</span>
+      <a class="ghost-button" href="/bundles" data-testid="index-plans-link">
+        <span data-lang="zh">打开方案库</span>
+        <span data-lang="en">Open Plans</span>
       </a>
     </div>
   </section>
@@ -28,8 +28,8 @@
   <section class="panel">
     <header class="panel-header">
       <h2>
-        <span data-lang="zh">已创建的循环</span>
-        <span data-lang="en">Created loops</span>
+        <span data-lang="zh">当前工作</span>
+        <span data-lang="en">Current Work</span>
       </h2>
       <span><span id="loop-count">{{ loops|length }}</span> <span data-lang="zh">个</span><span data-lang="en">total</span></span>
     </header>
@@ -126,12 +126,12 @@
       <div class="empty-state" id="loops-empty-state" hidden>
         <img class="empty-state-logo" src="/logo/logo.svg" alt="" aria-hidden="true" />
         <h3>
-          <span data-lang="zh">还没有 loop</span>
-          <span data-lang="en">No loops yet</span>
+          <span data-lang="zh">还没有任务</span>
+          <span data-lang="en">No tasks yet</span>
         </h3>
         <p>
-          <span data-lang="zh">先导入一个 bundle，把这次任务的协作姿态作为一组资产跑起来。</span>
-          <span data-lang="en">Import a bundle first, then run this task's collaboration posture as one asset group.</span>
+          <span data-lang="zh">从新建任务开始，用对话生成一份循环方案并运行。</span>
+          <span data-lang="en">Start with New Task to generate and run a loop plan through conversation.</span>
         </p>
       </div>
     {% else %}
@@ -143,31 +143,15 @@
       <div class="empty-state" id="loops-empty-state">
         <img class="empty-state-logo" src="/logo/logo.svg" alt="" aria-hidden="true" />
         <h3>
-          <span data-lang="zh">还没有 loop</span>
-          <span data-lang="en">No loops yet</span>
+          <span data-lang="zh">还没有任务</span>
+          <span data-lang="en">No tasks yet</span>
         </h3>
         <p>
-          <span data-lang="zh">先导入一个 bundle，把这次任务的协作姿态作为一组资产跑起来。</span>
-          <span data-lang="en">Import a bundle first, then run this task's collaboration posture as one asset group.</span>
+          <span data-lang="zh">从新建任务开始，用对话生成一份循环方案并运行。</span>
+          <span data-lang="en">Start with New Task to generate and run a loop plan through conversation.</span>
         </p>
       </div>
     {% endif %}
-  </section>
-
-  <section class="panel" data-testid="tutorial-link-panel">
-    <header class="panel-header">
-      <h2><span data-lang="zh">强 Agent 已经能做，为什么还要开 loop？</span><span data-lang="en">If a strong agent can work, why open a loop?</span></h2>
-    </header>
-    <p>
-      <span data-lang="zh">先别急着手工编排。教程会先问你该不该用 Loopora，再问这次最想省下哪类人工判断，最后再落到 bundle 和循环运行。</span>
-      <span data-lang="en">Do not start by hand-building the flow. The tutorial first asks whether Loopora is needed, then which repeated human judgment this task should save, and only then lands on bundle import and loop execution.</span>
-    </p>
-    <div class="card-actions">
-      <a class="secondary-button" href="/tutorial" data-testid="index-tutorial-link">
-        <span data-lang="zh">打开使用教程</span>
-        <span data-lang="en">Open tutorial</span>
-      </a>
-    </div>
   </section>
 </div>
 {% endblock %}

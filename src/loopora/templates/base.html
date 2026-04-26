@@ -21,29 +21,17 @@
         <img class="top-nav-brand-lockup" src="/logo/logo-with-text-horizontal.svg" alt="" aria-hidden="true" />
       </a>
       <div class="top-nav-links">
-        <a class="top-nav-link {% if request.url.path == '/' %}active{% endif %}" href="/" data-testid="nav-created-link">
-          <span data-lang="zh">已创建</span>
-          <span data-lang="en">Created</span>
+        <a class="top-nav-link {% if request.url.path == '/' %}active{% endif %}" href="/" data-testid="nav-workbench-link">
+          <span data-lang="zh">工作台</span>
+          <span data-lang="en">Workbench</span>
         </a>
-        <a class="top-nav-link {% if request.url.path.startswith('/roles') %}active{% endif %}" href="/roles" data-testid="nav-role-definitions-link">
-          <span data-lang="zh">角色定义</span>
-          <span data-lang="en">Roles</span>
+        <a class="top-nav-link {% if request.url.path == '/loops/new' or request.url.path.startswith('/loops/new/') %}active{% endif %}" href="/loops/new/bundle" data-testid="nav-new-task-link">
+          <span data-lang="zh">新建任务</span>
+          <span data-lang="en">New Task</span>
         </a>
-        <a class="top-nav-link {% if request.url.path.startswith('/orchestrations') %}active{% endif %}" href="/orchestrations" data-testid="nav-orchestrations-link">
-          <span data-lang="zh">流程编排</span>
-          <span data-lang="en">Orchestrations</span>
-        </a>
-        <a class="top-nav-link {% if request.url.path == '/loops/new' or request.url.path.startswith('/loops/new/') or request.url.path.startswith('/bundles') %}active{% endif %}" href="/loops/new" data-testid="nav-create-loop-link">
-          <span data-lang="zh">创建循环</span>
-          <span data-lang="en">Create Loop</span>
-        </a>
-        <a class="top-nav-link {% if request.url.path == '/tutorial' %}active{% endif %}" href="/tutorial" data-testid="nav-tutorial-link">
-          <span data-lang="zh">使用教程</span>
-          <span data-lang="en">Tutorial</span>
-        </a>
-        <a class="top-nav-link {% if request.url.path == '/tools' %}active{% endif %}" href="/tools" data-testid="nav-tools-link">
-          <span data-lang="zh">工具</span>
-          <span data-lang="en">Tools</span>
+        <a class="top-nav-link {% if request.url.path.startswith('/bundles') %}active{% endif %}" href="/bundles" data-testid="nav-plans-link">
+          <span data-lang="zh">方案库</span>
+          <span data-lang="en">Plans</span>
         </a>
       </div>
       <div class="top-nav-trailing">
@@ -57,9 +45,10 @@
             aria-haspopup="true"
             aria-expanded="false"
             aria-controls="nav-preferences-panel"
+            aria-label="{{ '打开资源与设置菜单' if page_locale == 'zh' else 'Open resources and settings menu' }}"
           >
-            <span data-lang="zh">显示设置</span>
-            <span data-lang="en">Display</span>
+            <span data-lang="zh">资源与设置</span>
+            <span data-lang="en">Resources</span>
           </button>
           <div
             class="nav-preferences-panel"
@@ -68,7 +57,48 @@
             data-nav-preferences-panel
             hidden
           >
+            <section class="nav-preferences-section nav-preferences-section--links" data-testid="nav-resources-menu">
+              <div class="nav-preferences-head">
+                <strong><span data-lang="zh">资源库</span><span data-lang="en">Resource Library</span></strong>
+                <p><span data-lang="zh">管理长期复用的角色与 workflow。</span><span data-lang="en">Manage reusable roles and workflows.</span></p>
+              </div>
+              <div class="nav-menu-list">
+                <a class="nav-menu-link {% if request.url.path.startswith('/roles') %}active{% endif %}" href="/roles" data-testid="nav-menu-roles-link">
+                  <span data-lang="zh">角色定义</span>
+                  <span data-lang="en">Role definitions</span>
+                </a>
+                <a class="nav-menu-link {% if request.url.path.startswith('/orchestrations') %}active{% endif %}" href="/orchestrations" data-testid="nav-menu-orchestrations-link">
+                  <span data-lang="zh">流程编排</span>
+                  <span data-lang="en">Workflow library</span>
+                </a>
+              </div>
+            </section>
+            <section class="nav-preferences-section nav-preferences-section--links">
+              <div class="nav-preferences-head">
+                <strong><span data-lang="zh">专家入口</span><span data-lang="en">Expert Paths</span></strong>
+              </div>
+              <div class="nav-menu-list">
+                <a class="nav-menu-link {% if request.url.path == '/loops/new/manual' %}active{% endif %}" href="/loops/new/manual" data-testid="nav-menu-manual-create-link">
+                  <span data-lang="zh">手动创建</span>
+                  <span data-lang="en">Manual creation</span>
+                </a>
+                <a class="nav-menu-link {% if request.url.path == '/tools' %}active{% endif %}" href="/tools" data-testid="nav-menu-tools-link">
+                  <span data-lang="zh">工具与 Skill</span>
+                  <span data-lang="en">Tools & Skill</span>
+                </a>
+                <a class="nav-menu-link {% if request.url.path == '/tutorial' %}active{% endif %}" href="/tutorial" data-testid="nav-menu-tutorial-link">
+                  <span data-lang="zh">使用教程</span>
+                  <span data-lang="en">Tutorial</span>
+                </a>
+              </div>
+            </section>
             <section class="nav-preferences-section">
+              <div class="nav-preferences-head">
+                <strong><span data-lang="zh">显示设置</span><span data-lang="en">Display Settings</span></strong>
+                <p><span data-lang="zh">调整主题和界面语言。</span><span data-lang="en">Adjust appearance and interface language.</span></p>
+              </div>
+            </section>
+            <section class="nav-preferences-section nav-preferences-section--control" data-testid="nav-settings-menu">
               <div class="nav-preferences-head">
                 <strong><span data-lang="zh">主题</span><span data-lang="en">Theme</span></strong>
                 <p><span data-lang="zh">切换浅色或深色界面。</span><span data-lang="en">Switch between light and dark appearance.</span></p>
