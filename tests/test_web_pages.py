@@ -1245,14 +1245,14 @@ def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None
     _assert_has_testid(response.text, "tutorial-decision-tree-stop-card")
     _assert_has_testid(response.text, "tutorial-spec-practice-modal")
     _assert_has_testid(response.text, "tutorial-spec-practice-preview")
-    assert "If a strong agent can already do the work, why use Loopora?" in response.text
-    assert "would one strong agent pass plus one human review be enough" in response.text
+    assert "If an AI Agent can already do the work, why use Loopora?" in response.text
+    assert "would one AI Agent pass plus one human review be enough" in response.text
     assert "Are you saving output, or judgment?" in response.text
     assert "Why is posture not just a prompt?" in response.text
     assert "single YAML bundle" in response.text
     assert "compile a single YAML bundle" in response.text
     assert "Runnable posture needs three surfaces" in response.text
-    assert "one strong agent pass plus one human review is usually enough" in response.text
+    assert "one AI Agent pass plus one human review is usually enough" in response.text
     assert "First ask: does this really need Loopora?" in response.text
     assert "which workflow matches this posture" in response.text
     assert "Inspect First" in response.text
@@ -1285,7 +1285,7 @@ def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None
     zh_response = client.get("/tutorial", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
     assert '<title>使用教程</title>' in zh_response.text
-    assert "强 Agent 已经能做，为什么还要用 Loopora" in zh_response.text
+    assert "AI Agent 已经能做，为什么还要用 Loopora" in zh_response.text
     assert "你要省下的是产出，还是判断" in zh_response.text
     assert "为什么不先手工编排" in zh_response.text
     assert "对话生成 Bundle" in zh_response.text

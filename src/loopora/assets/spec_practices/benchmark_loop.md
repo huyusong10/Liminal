@@ -18,9 +18,9 @@ Every round should begin with measured evidence, not taste. GateKeeper reads the
 
 This is not `Build First` because the system already exists and the deciding signal is no longer “can it run.” It is not `Inspect First` because the goal is not to pin down one failing path but to choose the next optimization target from benchmark evidence. It is also not `Repair Loop`, because the main driver is still the latest evaluation result rather than the residue of a specific repair pass.
 
-## Why not just let a strong agent do it
+## Why not just let an AI Agent do it
 
-Without Loopora, a strong agent could keep optimizing in one direction, but humans would need to return after every benchmark run to decide whether the score moved for the right reason, whether the remaining loss is still in the same subsystem, and whether the next round should change direction. Loopora reduces those repeated human check-ins by giving `GateKeeper` the benchmark first, letting `Builder` act on that verdict, and preserving the evidence needed for the next decision without making the human restate the whole context each time.
+Without Loopora, an AI Agent could keep optimizing in one direction, but humans would need to return after every benchmark run to decide whether the score moved for the right reason, whether the remaining loss is still in the same subsystem, and whether the next round should change direction. Loopora reduces those repeated human check-ins by giving `GateKeeper` the benchmark first, letting `Builder` act on that verdict, and preserving the evidence needed for the next decision without making the human restate the whole context each time.
 
 ## Example spec
 

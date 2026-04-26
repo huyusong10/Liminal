@@ -18,9 +18,9 @@ The hardest problem is still deciding what this loop is actually about. Inspecto
 
 This is not `Inspect First` because the work has not yet been reduced to one stable defect with one evidence path. It is not `Build First` because asking Builder to move first would push implementation ahead of problem definition. It is also not `Repair Loop`, because this round is still about choosing the first repair slice, not planning a second pass.
 
-## Why not just let a strong agent do it
+## Why not just let an AI Agent do it
 
-Without Loopora, a strong agent could pick one symptom and start changing code, but humans would have to keep returning to ask whether that symptom was even the right blocker to chase. The bottleneck is not raw implementation; it is repeated human re-scoping. Loopora reduces that traffic by letting `Inspector` compress the evidence, `Guide` choose the slice, and only then letting `Builder` and `GateKeeper` spend effort on something the team actually wants judged this round.
+Without Loopora, an AI Agent could pick one symptom and start changing code, but humans would have to keep returning to ask whether that symptom was even the right blocker to chase. The bottleneck is not raw implementation; it is repeated human re-scoping. Loopora reduces that traffic by letting `Inspector` compress the evidence, `Guide` choose the slice, and only then letting `Builder` and `GateKeeper` spend effort on something the team actually wants judged this round.
 
 ## Example spec
 

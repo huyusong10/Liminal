@@ -18,9 +18,9 @@ The destination is already clear. What is missing first is a real working slice 
 
 This is not `Inspect First` because the team is not blocked on finding a mystery defect; it is blocked on establishing the first real path. It is not `Triage First` because the scope of this loop is already explicit. It is also not `Repair Loop`, because this round is about getting the baseline path to exist before any second-pass repair question appears.
 
-## Why not just let a strong agent do it
+## Why not just let an AI Agent do it
 
-A strong agent can absolutely write a first pass here. The reason to use Loopora is that, without a loop, humans would have to keep coming back after ingestion, after indexing, and after the first queries to ask the same questions again: is the path actually end to end now, is the result good enough for shadow traffic, and what is still the main blocker? Loopora folds those repeated check-ins into `Builder`, `Inspector`, `GateKeeper`, and `Guide`, so the human only needs to step in after the workflow has already collected the new evidence and verdicts.
+An AI Agent can absolutely write a first pass here. The reason to use Loopora is that, without a loop, humans would have to keep coming back after ingestion, after indexing, and after the first queries to ask the same questions again: is the path actually end to end now, is the result good enough for shadow traffic, and what is still the main blocker? Loopora folds those repeated check-ins into `Builder`, `Inspector`, `GateKeeper`, and `Guide`, so the human only needs to step in after the workflow has already collected the new evidence and verdicts.
 
 ## Example spec
 

@@ -18,9 +18,9 @@ The failure surface is already known: a stable set of high-value queries is regr
 
 This is not `Build First` because the help-center path already exists; the missing piece is evidence, not the first slice. It is not `Triage First` because the current issue has already been reduced to one query-regression problem, not a cloud of unrelated symptoms. It is also not `Repair Loop`, because we are still deciding the first repair target rather than planning the second repair pass.
 
-## Why not just let a strong agent do it
+## Why not just let an AI Agent do it
 
-Without Loopora, a strong agent could start changing retrieval, reranking, or freshness logic immediately, but humans would then have to keep returning to ask whether the agent is even working on the right layer. One review after the patch would not be enough, because the real question comes earlier: where does the first trustworthy gap appear? Loopora reduces those repeated human check-ins by letting `Inspector` pin the evidence, `Builder` repair against that evidence, and `GateKeeper` judge the same path afterward.
+Without Loopora, an AI Agent could start changing retrieval, reranking, or freshness logic immediately, but humans would then have to keep returning to ask whether the agent is even working on the right layer. One review after the patch would not be enough, because the real question comes earlier: where does the first trustworthy gap appear? Loopora reduces those repeated human check-ins by letting `Inspector` pin the evidence, `Builder` repair against that evidence, and `GateKeeper` judge the same path afterward.
 
 ## Example spec
 

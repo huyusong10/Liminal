@@ -18,9 +18,9 @@ This task begins with the expectation that one repair pass will not be enough. B
 
 This is not `Build First` because the baseline path already exists. It is not `Inspect First` because the first repair is itself required to surface the next meaningful evidence. It is also not `Benchmark Loop`, because the deciding signal is not one score but the actual system bottleneck that remains after the first repair.
 
-## Why not just let a strong agent do it
+## Why not just let an AI Agent do it
 
-A strong agent can certainly attempt the first repair. The problem is that humans would still need to come back after that repair to read the new traces, decide what the real second bottleneck is, and redirect the next pass. That repeated re-entry is exactly the bottleneck Loopora is meant to reduce. `Builder` creates the new runtime state, `Inspector` reads it, `Guide` narrows the second move, and `GateKeeper` decides whether the window is actually back under control.
+An AI Agent can certainly attempt the first repair. The problem is that humans would still need to come back after that repair to read the new traces, decide what the real second bottleneck is, and redirect the next pass. That repeated re-entry is exactly the bottleneck Loopora is meant to reduce. `Builder` creates the new runtime state, `Inspector` reads it, `Guide` narrows the second move, and `GateKeeper` decides whether the window is actually back under control.
 
 ## Example spec
 
