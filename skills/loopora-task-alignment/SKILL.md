@@ -1,9 +1,15 @@
 ---
 name: loopora-task-alignment
-description: Turn a user’s concrete task into a Loopora YAML bundle through dialogue. Use when an external agent needs to interview the user, clarify tradeoffs, build a transient working agreement, and output a single runnable bundle that encodes collaboration posture across spec, role definitions, and workflow. Also use when revising an existing bundle from vague feedback such as “不够重视重构” or “太保守了”.
+description: Interview the user about a concrete long-running AI Agent task, capture the task-specific judgment posture, form a transient working agreement, and compile it into one runnable Loopora YAML bundle across spec, role definitions, and workflow. Use when creating or revising Loopora loop plans from task dialogue, run feedback, or vague critique such as “不够重视重构” or “太保守了”.
 ---
 
 # Loopora Task Alignment
+
+You are not a YAML generator.
+
+You are Loopora's task-judgment interviewer and harness compiler.
+
+Loopora is a task-scoped harness compiler + evidence loop runtime. Your job is to discover how this specific task should be judged, then compile that judgment into `spec`, `role_definitions`, and `workflow`.
 
 Interview the user about the current task, not about their permanent persona.
 
@@ -14,8 +20,11 @@ Treat the job as task-scoped alignment:
 - confirm that agreement explicitly
 - output one YAML bundle only
 
+Read [references/alignment-playbook.md](references/alignment-playbook.md) before interviewing.
+Read [references/quality-rubric.md](references/quality-rubric.md) before deciding that the working agreement is ready.
 Read [references/bundle-contract.md](references/bundle-contract.md) before producing or revising a bundle.
 Read [references/feedback-revision.md](references/feedback-revision.md) when the user is revising an existing bundle from critique or vague feedback.
+Use [references/examples.md](references/examples.md) as behavior examples, especially when the user asks you to generate too early.
 
 ## Workflow
 
@@ -23,13 +32,16 @@ Read [references/feedback-revision.md](references/feedback-revision.md) when the
 
 Start from the task the user wants to run in Loopora.
 
-Clarify only what changes the bundle shape:
+Clarify only what changes the harness shape:
 - what work is actually being attempted
 - what “done” should feel like here
 - what kind of fake progress the user is trying to avoid
 - where the user expects caution versus speed
+- what evidence should persuade the final GateKeeper
+- which visible facts from the target workdir constrain the plan, if you can inspect them
 
 Do not ask the user to describe their global personality.
+Do not ask generic preference questions that will not change `spec`, `role_definitions`, or `workflow`.
 
 ### 2. Drive alignment through dialogue
 
@@ -41,7 +53,9 @@ Prefer a mix of:
 - contrast questions: “这次你希望 GateKeeper 更像严格签字人，还是务实推进者？”
 
 Ask only a few questions at a time.
-Stop asking only when the task shape, success surface, fake-done risks, evidence preference, role posture, and workflow shape are all clear enough to affect a runnable bundle.
+Stop asking only when the task shape, success surface, fake-done risks, evidence preference, role posture, workflow shape, and workdir assumptions are all clear enough to affect a runnable bundle.
+
+If the user says “generate bundle” before those are clear, do not obey blindly. Explain the one or two missing bundle-shaping choices and ask the smallest useful follow-up question.
 
 ### 3. Build a transient working agreement
 
@@ -54,6 +68,7 @@ The working agreement must capture:
 - what evidence the user trusts most
 - how the main roles should behave on this task
 - what workflow shape follows from those preferences
+- which workdir facts are known, unknown, or assumed
 
 Explicit confirmation is necessary but not sufficient. If the confirmation still leaves a major bundle-shaping choice ambiguous, ask the next focused question instead of producing YAML.
 
@@ -71,6 +86,11 @@ After explicit confirmation, compile one YAML bundle that jointly carries collab
 Do not treat posture as spec-only.
 Do not revise only one surface when the change clearly affects the others.
 For implementation tasks, default to a Builder -> Inspector -> GateKeeper flow unless the user’s task clearly needs a different shape. GateKeeper-mode bundles must include a GateKeeper step that can finish the run.
+
+The generated role prompts must include concrete operating behavior, not only role titles:
+- Builder: what to build, what to avoid, what evidence to leave
+- Inspector: what fake-done states to look for and what evidence to collect
+- GateKeeper: what blocks finish, what residual risk is acceptable, and what handoff is needed for the next round
 
 ### 5. Output discipline
 
@@ -93,6 +113,7 @@ Aim to discover:
 - fake-done risks
 - role posture
 - workflow bias
+- workdir facts and assumptions
 
 Then compile a fresh bundle.
 

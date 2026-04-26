@@ -1,5 +1,7 @@
 # Orchestration Service
 
+> 最高原则：遵循 `../core-ideas/product-principle.md`。编排服务必须把循环方案物化成可运行、可取证、可复盘的长期任务系统，而不是只管理一组角色或流程 CRUD。
+
 ## 1. 模块职责
 
 模块存在的唯一理由：

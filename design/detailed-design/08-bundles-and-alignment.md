@@ -1,5 +1,7 @@
 # Bundles And Alignment
 
+> 最高原则：遵循 `../core-ideas/product-principle.md`。bundle 是循环方案的内部交换单元；它必须同时可读、可运行、可取证、可修订，而不是裸 YAML 或角色配置包。
+
 ## 1. 模块职责
 
 本文档定义两条稳定边界：
@@ -100,7 +102,7 @@ bundle 生命周期按整包表达：
 
 推荐入口：
 
-`新建任务 → Bundle 对话页 → Web 内置对齐 → READY 预览 → 物化 loop → 运行`
+`新建任务 → 循环方案对话页 → Web 内置对齐 → READY 预览 → 物化 loop → 运行`
 
 手动入口继续保留：
 
@@ -108,8 +110,8 @@ bundle 生命周期按整包表达：
 
 稳定承诺：
 
-- 顶层“新建任务”直接进入 Bundle-first 对话路径；旧 `/loops/new` 选择页只承担兼容和解释分流。
-- Bundle-first 是默认推荐路径，承载 Web 内置对齐、READY 预览和创建运行。
+- 顶层“新建任务”直接进入循环方案对话路径；旧 `/loops/new` 选择页只承担兼容和解释分流。
+- 循环方案对话是默认推荐路径，承载 Web 内置对齐、READY 预览和创建运行；`bundle` 是内部交换单元和专家导入 / 导出格式。
 - 手动编排仍然是 expert mode，适合用户已经明确 spec、角色与 workflow 规则；已有 bundle YAML / 文件导入也归属这条专家路径。
 - 两条路径必须能互相转换：bundle 可以导入成手动资产，手动 loop 也可以派生回 bundle
 - bundle 列表 / 详情页承担管理、导出、派生、整包删除和 revision 入口，不应再成为用户首次创建 loop 时必须理解的额外主流程

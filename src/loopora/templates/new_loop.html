@@ -12,7 +12,7 @@
 {% set create_page_mode = create_page_mode|default("choice") %}
 {% block title %}
   {%- if create_page_mode == "bundle" -%}
-    {{ "对话生成 Bundle" if page_locale == "zh" else "Generate Bundle" }}
+    {{ "新建任务" if page_locale == "zh" else "New Task" }}
   {%- elif create_page_mode == "manual" -%}
     {{ "手动创建循环" if page_locale == "zh" else "Create Loop Manually" }}
   {%- else -%}
@@ -30,8 +30,8 @@
       <span data-lang="en">Choose how this loop starts.</span>
     </h1>
     <p>
-      <span data-lang="zh">如果你还在描述目标和协作姿态，从 Bundle 对话开始。只有当 spec、角色定义和流程规则都已经想清楚时，再进入手动专家模式。</span>
-      <span data-lang="en">Start with the Bundle conversation when you are still shaping the task posture. Use manual expert mode only when the spec, roles, and workflow rules are already clear.</span>
+      <span data-lang="zh">如果你还在描述目标和判断方式，从循环方案对话开始。只有当 spec、角色定义和流程规则都已经想清楚时，再进入手动专家模式。</span>
+      <span data-lang="en">Start with the loop-plan conversation when you are still shaping task judgment. Use manual expert mode only when the spec, roles, and workflow rules are already clear.</span>
     </p>
   </div>
 </section>
@@ -40,15 +40,15 @@
   <article class="panel create-choice-card create-choice-card--primary" id="bundle-import-form" data-testid="loop-create-bundle-choice">
     <div>
       <span class="eyebrow"><span data-lang="zh">推荐</span><span data-lang="en">Recommended</span></span>
-      <h2><span data-lang="zh">对话生成 Bundle</span><span data-lang="en">Generate Bundle</span></h2>
+      <h2><span data-lang="zh">对话生成循环方案</span><span data-lang="en">Generate a Loop Plan</span></h2>
       <p>
-        <span data-lang="zh">像和 LLM 聊天一样描述需求，Loopora 会让本机 Agent 对齐 posture、生成 bundle，并在 READY 后展示 spec、roles 和 workflow。</span>
-        <span data-lang="en">Describe the request like a normal LLM chat. Loopora asks a local Agent to align the posture, generate a bundle, and preview the contract, roles, and workflow when READY.</span>
+        <span data-lang="zh">像和 LLM 聊天一样描述需求，Loopora 会让本机 Agent 对齐任务判断、生成循环方案，并在 READY 后展示任务契约、角色和流程。</span>
+        <span data-lang="en">Describe the request like a normal LLM chat. Loopora asks a local Agent to align task judgment, generate a loop plan, and preview the contract, roles, and workflow when READY.</span>
       </p>
     </div>
     <a class="primary-button" href="/loops/new/bundle" data-testid="loop-create-bundle-link">
-      <span data-lang="zh">进入 Bundle 对话</span>
-      <span data-lang="en">Open Bundle Chat</span>
+      <span data-lang="zh">开始对话</span>
+      <span data-lang="en">Start Chat</span>
     </a>
   </article>
   <article class="panel create-choice-card" id="manual-loop-form" data-testid="loop-create-manual-choice">

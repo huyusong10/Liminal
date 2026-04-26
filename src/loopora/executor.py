@@ -1108,6 +1108,27 @@ class FakeCodexExecutor(CodexExecutor):
                 phase="bundle",
                 ready=True,
             )
+        if self.scenario == "alignment_missing_readiness_evidence":
+            workdir = str(request.extra_context.get("target_workdir") or request.workdir)
+            output = self._alignment_response(
+                status="bundle",
+                assistant_message="我勾选了 checklist 但没有给出具体证据。",
+                needs_user_input=False,
+                bundle_yaml=self._alignment_bundle_yaml(workdir),
+                phase="bundle",
+                ready=True,
+            )
+            output["readiness_evidence"] = {
+                "task_scope": "ok",
+                "success_surface": "ok",
+                "fake_done_risks": "ok",
+                "evidence_preferences": "ok",
+                "role_posture": "ok",
+                "workflow_shape": "ok",
+                "workdir_facts": "ok",
+                "open_questions": "",
+            }
+            return output
         workdir = str(request.extra_context.get("target_workdir") or request.workdir)
         return self._alignment_response(
             status="bundle",
@@ -1137,6 +1158,16 @@ class FakeCodexExecutor(CodexExecutor):
             "workflow_shape": ready,
             "explicit_confirmation": ready,
         }
+        evidence = FakeCodexExecutor._alignment_readiness_evidence() if ready else {
+            "task_scope": "",
+            "success_surface": "",
+            "fake_done_risks": "",
+            "evidence_preferences": "",
+            "role_posture": "",
+            "workflow_shape": "",
+            "workdir_facts": "",
+            "open_questions": "Need more task-shaping answers before compiling the loop plan.",
+        }
         return {
             "status": status,
             "assistant_message": assistant_message,
@@ -1152,6 +1183,7 @@ class FakeCodexExecutor(CodexExecutor):
             "alignment_phase": phase,
             "agreement_summary": "Use a focused Builder, evidence Inspector, and strict GateKeeper." if ready else "",
             "readiness_checklist": checklist,
+            "readiness_evidence": evidence,
         }
 
     @staticmethod
@@ -1179,6 +1211,22 @@ class FakeCodexExecutor(CodexExecutor):
                 "workflow_shape": True,
                 "explicit_confirmation": False,
             },
+            "readiness_evidence": FakeCodexExecutor._alignment_readiness_evidence(
+                open_questions="Waiting for explicit user confirmation of the working agreement."
+            ),
+        }
+
+    @staticmethod
+    def _alignment_readiness_evidence(*, open_questions: str = "") -> dict:
+        return {
+            "task_scope": "The user wants a focused starter experience, not an open-ended role or workflow exercise.",
+            "success_surface": "Success means the primary user flow works end to end and can be verified from project-owned evidence.",
+            "fake_done_risks": "The loop should reject vague completion claims, happy-path-only work, and output without reproducible proof.",
+            "evidence_preferences": "The strongest evidence is direct command output, tests, or concrete artifacts created by the project.",
+            "role_posture": "Builder keeps the patch narrow, Inspector collects evidence, and GateKeeper fails closed on weak proof.",
+            "workflow_shape": "Builder -> Inspector -> GateKeeper fits because a focused slice is built, then inspected, then gated.",
+            "workdir_facts": "The fake executor treats the provided workdir as the target project and leaves exact stack facts to the run.",
+            "open_questions": open_questions,
         }
 
     @staticmethod
@@ -1210,7 +1258,7 @@ spec:
   markdown: |
     # Task
 
-    Ship the requested behavior with focused changes.
+    Ship the focused starter experience described in the alignment agreement with small, maintainable changes in the target workdir.
 
     # Done When
 
@@ -1223,15 +1271,17 @@ spec:
 
     # Success Surface
 
-    - The result is understandable, maintainable, and easy to extend after the first pass.
+    - The primary user flow is understandable, maintainable, and easy to extend after the first pass.
 
     # Fake Done
 
     - Do not pass with only a happy-path claim and no reproducible evidence.
+    - Do not pass if the implementation lacks a handoff that explains what evidence was collected.
 
     # Evidence Preferences
 
     - Prefer project-owned checks, direct run output, and concrete artifacts before screenshots or claims.
+    - Each role should leave a clear handoff note explaining what was changed, inspected, or blocked.
 
     # Role Notes
 
@@ -1258,9 +1308,9 @@ role_definitions:
       archetype: builder
       ---
 
-      Build carefully and keep the repo coherent.
+      Build the focused starter slice carefully and keep the repo coherent. Leave a handoff that names the changed behavior, the verification evidence, and any blocker that should stop Inspector or GateKeeper.
     posture_notes: |
-      Keep implementation narrow and leave the workspace easier to verify.
+      Keep implementation narrow and leave the workspace easier to verify; prefer concrete evidence over broad feature spread.
     executor_kind: "codex"
     executor_mode: "preset"
     command_cli: ""
@@ -1278,9 +1328,9 @@ role_definitions:
       archetype: inspector
       ---
 
-      Inspect from direct evidence and report gaps plainly.
+      Inspect from direct evidence and report gaps plainly. Your handoff must identify the strongest proof, missing proof, and any blocker that should prevent GateKeeper from finishing.
     posture_notes: |
-      Prefer project-owned commands and concrete artifacts.
+      Prefer project-owned commands and concrete artifacts; block vague completion claims or unverified happy paths.
     executor_kind: "codex"
     executor_mode: "preset"
     command_cli: ""
@@ -1298,9 +1348,9 @@ role_definitions:
       archetype: gatekeeper
       ---
 
-      Decide from direct evidence and do not accept vague completion claims.
+      Decide from direct evidence and do not accept vague completion claims. Finish only when the Builder and Inspector handoffs prove the task contract; otherwise block with the smallest next repair.
     posture_notes: |
-      Close only when the task and verification evidence agree.
+      Close only when the task and verification evidence agree; fail closed when handoff evidence is missing or weak.
     executor_kind: "codex"
     executor_mode: "preset"
     command_cli: ""
@@ -1310,7 +1360,7 @@ role_definitions:
 workflow:
   version: 1
   preset: "build_first"
-  collaboration_intent: "Build one focused slice, inspect it, then fail closed unless evidence is strong."
+  collaboration_intent: "Build one focused starter slice, inspect the concrete evidence and role handoffs, then let GateKeeper finish only when the task contract and verification evidence agree."
   roles:
     - id: "builder"
       role_definition_key: "builder"

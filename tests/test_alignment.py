@@ -25,6 +25,7 @@ def _confirm_alignment_agreement(service, session_id: str, *final_statuses: str)
     agreement = _wait_for_status(service, session_id, "waiting_user")
     assert agreement["alignment_stage"] == "agreement_ready"
     assert agreement["working_agreement"]["summary"]
+    assert agreement["working_agreement"]["readiness_evidence"]["task_scope"]
     service.append_alignment_message(session_id, "确认")
     return _wait_for_status(service, session_id, *(final_statuses or ("ready",)))
 
@@ -72,7 +73,7 @@ def test_alignment_service_writes_validates_previews_imports_and_runs(
     assert preview["ok"] is True
     assert preview["bundle"]["loop"]["workdir"] == str(sample_workdir.resolve())
     assert preview["workflow_preview"]["roles"][0]["name"] == "Focused Builder"
-    assert "Ship the requested behavior" in preview["spec_rendered_html"]
+    assert "Ship the focused starter experience" in preview["spec_rendered_html"]
 
     imported = service.import_alignment_bundle(session["id"], start_immediately=True)
     assert imported["bundle"]["loop_id"]
@@ -113,6 +114,9 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
 
     assert "User language hint: `Chinese" in prompt_text
     assert "Preserve Loopora domain terms exactly" in prompt_text
+    assert "Alignment Playbook" in prompt_text
+    assert "Alignment Quality Rubric" in prompt_text
+    assert "Workdir Snapshot" in prompt_text
     synced = service.sync_alignment_bundle_from_file(session["id"])
 
     assert synced["ok"] is True
@@ -131,6 +135,23 @@ def test_alignment_service_blocks_premature_bundle_output(service_factory, sampl
 
     assert not Path(session["bundle_path"]).exists()
     assert "对齐" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(event["event_type"] == "alignment_stage_blocked" for event in events)
+
+
+def test_alignment_service_blocks_bundle_without_readiness_evidence(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="alignment_missing_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience, but do not explain the posture evidence.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert "对齐证据" in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
     assert any(event["event_type"] == "alignment_stage_blocked" for event in events)
 

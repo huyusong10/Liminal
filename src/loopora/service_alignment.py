@@ -23,6 +23,24 @@ logger = get_logger(__name__)
 
 ALIGNMENT_ACTIVE_STATUSES = {"running", "validating", "repairing"}
 ALIGNMENT_CONFIRMED_STAGES = {"confirmed", "compiling"}
+ALIGNMENT_READINESS_KEYS = [
+    "task_scope",
+    "success_surface",
+    "fake_done_risks",
+    "evidence_preferences",
+    "role_posture",
+    "workflow_shape",
+    "explicit_confirmation",
+]
+ALIGNMENT_READINESS_EVIDENCE_KEYS = [
+    "task_scope",
+    "success_surface",
+    "fake_done_risks",
+    "evidence_preferences",
+    "role_posture",
+    "workflow_shape",
+    "workdir_facts",
+]
 ALIGNMENT_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -63,15 +81,22 @@ ALIGNMENT_RESPONSE_SCHEMA: dict[str, Any] = {
                 "workflow_shape": {"type": "boolean"},
                 "explicit_confirmation": {"type": "boolean"},
             },
-            "required": [
-                "task_scope",
-                "success_surface",
-                "fake_done_risks",
-                "evidence_preferences",
-                "role_posture",
-                "workflow_shape",
-                "explicit_confirmation",
-            ],
+            "required": ALIGNMENT_READINESS_KEYS,
+        },
+        "readiness_evidence": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "task_scope": {"type": "string"},
+                "success_surface": {"type": "string"},
+                "fake_done_risks": {"type": "string"},
+                "evidence_preferences": {"type": "string"},
+                "role_posture": {"type": "string"},
+                "workflow_shape": {"type": "string"},
+                "workdir_facts": {"type": "string"},
+                "open_questions": {"type": "string"},
+            },
+            "required": ALIGNMENT_READINESS_EVIDENCE_KEYS + ["open_questions"],
         },
     },
     "required": [
@@ -83,6 +108,7 @@ ALIGNMENT_RESPONSE_SCHEMA: dict[str, Any] = {
         "alignment_phase",
         "agreement_summary",
         "readiness_checklist",
+        "readiness_evidence",
     ],
 }
 
@@ -683,10 +709,30 @@ class ServiceAlignmentMixin:
         phase = str(output.get("alignment_phase", "") or "").strip()
         agreement_summary = str(output.get("agreement_summary", "") or "").strip()
         checklist = output.get("readiness_checklist")
+        readiness_evidence = output.get("readiness_evidence")
         if phase == "agreement" and agreement_summary:
+            evidence_issues = self._readiness_evidence_issues(output)
+            if evidence_issues:
+                updated = self.repository.update_alignment_session(session_id, alignment_stage="clarifying")
+                output["alignment_phase"] = "clarifying"
+                output["agreement_summary"] = ""
+                output["bundle_yaml"] = ""
+                output["needs_user_input"] = True
+                missing = ", ".join(evidence_issues)
+                output["assistant_message"] = (
+                    "我还不能整理确认协议；这些对齐证据还不够具体："
+                    f"{missing}。请先补一个会改变循环方案的问题。"
+                )
+                self.repository.append_alignment_event(
+                    session_id,
+                    "alignment_evidence_incomplete",
+                    {"alignment_stage": "clarifying", "missing": evidence_issues},
+                )
+                return self._decorate_alignment_session(updated)
             working_agreement = {
                 "summary": agreement_summary,
                 "readiness_checklist": checklist if isinstance(checklist, dict) else {},
+                "readiness_evidence": readiness_evidence if isinstance(readiness_evidence, dict) else {},
                 "captured_at": utc_now(),
                 "confirmed_at": "",
                 "confirmation_message": "",
@@ -723,20 +769,44 @@ class ServiceAlignmentMixin:
             return "我还需要先整理一份工作协议摘要并得到确认，然后再生成循环方案。"
         if not isinstance(checklist, dict):
             return "我还需要先补齐对齐检查清单，再生成循环方案。"
-        required = [
-            "task_scope",
-            "success_surface",
-            "fake_done_risks",
-            "evidence_preferences",
-            "role_posture",
-            "workflow_shape",
-            "explicit_confirmation",
-        ]
-        missing = [key for key in required if checklist.get(key) is not True]
+        missing = [key for key in ALIGNMENT_READINESS_KEYS if checklist.get(key) is not True]
         if missing:
             labels = ", ".join(missing)
             return f"我还不能直接生成循环方案；对齐检查还缺：{labels}。请先补齐这些信息。"
+        evidence_issues = ServiceAlignmentMixin._readiness_evidence_issues(output)
+        if evidence_issues:
+            labels = ", ".join(evidence_issues)
+            return f"我还不能直接生成循环方案；这些对齐证据还不够具体：{labels}。请先补齐这些信息。"
         return ""
+
+    @staticmethod
+    def _readiness_evidence_issues(output: dict) -> list[str]:
+        evidence = output.get("readiness_evidence")
+        if not isinstance(evidence, dict):
+            return ["readiness_evidence"]
+        generic_values = {
+            "ok",
+            "yes",
+            "true",
+            "done",
+            "ready",
+            "clear",
+            "确认",
+            "已确认",
+            "无",
+            "none",
+            "n/a",
+            "na",
+            "unknown",
+            "tbd",
+        }
+        issues: list[str] = []
+        for key in ALIGNMENT_READINESS_EVIDENCE_KEYS:
+            text = str(evidence.get(key, "") or "").strip()
+            normalized = text.lower()
+            if len(text) < 16 or normalized in generic_values:
+                issues.append(key)
+        return issues
 
     @staticmethod
     def _alignment_stage_updates_for_user_message(session: dict, message: str) -> dict[str, Any]:
@@ -892,6 +962,43 @@ class ServiceAlignmentMixin:
         return "Follow the user's language from the transcript and preserve Loopora terms unchanged."
 
     @staticmethod
+    def _alignment_workdir_snapshot(workdir: Path) -> str:
+        try:
+            root = workdir.expanduser().resolve()
+            if not root.exists() or not root.is_dir():
+                return f"Workdir is not an accessible directory: {root}"
+            entries = sorted(root.iterdir(), key=lambda item: (item.is_file(), item.name.lower()))
+        except OSError as exc:
+            return f"Workdir could not be inspected: {exc}"
+        visible = [item for item in entries if item.name not in {".DS_Store"}][:40]
+        if not visible:
+            return "Workdir appears empty. Treat technology choices as assumptions until the run verifies them."
+        marker_names = {
+            "README.md",
+            "README.zh-CN.md",
+            "package.json",
+            "pyproject.toml",
+            "Cargo.toml",
+            "go.mod",
+            "pnpm-lock.yaml",
+            "uv.lock",
+            "requirements.txt",
+            "AGENTS.md",
+        }
+        markers = [item.name for item in visible if item.name in marker_names]
+        design_dir = root / "design"
+        tests_dir = root / "tests"
+        lines = [f"Top-level entries ({len(visible)} shown):"]
+        for item in visible:
+            suffix = "/" if item.is_dir() else ""
+            lines.append(f"- {item.name}{suffix}")
+        if markers:
+            lines.append("Detected markers: " + ", ".join(markers))
+        lines.append(f"design/ exists: {'yes' if design_dir.is_dir() else 'no'}")
+        lines.append(f"tests/ exists: {'yes' if tests_dir.is_dir() else 'no'}")
+        return "\n".join(lines)
+
+    @staticmethod
     def _alignment_manifest_payload(session: dict) -> dict:
         transcript = [item for item in (session.get("transcript") or []) if isinstance(item, dict)]
         first_user = ""
@@ -985,8 +1092,11 @@ class ServiceAlignmentMixin:
     ) -> str:
         source_dir = load_task_alignment_skill_bundle().source_dir
         skill_text = (source_dir / "SKILL.md").read_text(encoding="utf-8")
+        alignment_playbook = (source_dir / "references" / "alignment-playbook.md").read_text(encoding="utf-8")
+        quality_rubric = (source_dir / "references" / "quality-rubric.md").read_text(encoding="utf-8")
         bundle_contract = (source_dir / "references" / "bundle-contract.md").read_text(encoding="utf-8")
         revision_guide = (source_dir / "references" / "feedback-revision.md").read_text(encoding="utf-8")
+        examples = (source_dir / "references" / "examples.md").read_text(encoding="utf-8")
         current_bundle = ""
         bundle_path = Path(session["bundle_path"])
         if bundle_path.exists():
@@ -995,12 +1105,15 @@ class ServiceAlignmentMixin:
         working_agreement_text = json.dumps(session.get("working_agreement") or {}, ensure_ascii=False, indent=2)
         alignment_stage = str(session.get("alignment_stage", "") or "clarifying")
         user_language_hint = self._alignment_user_language_hint(session)
+        workdir_snapshot = self._alignment_workdir_snapshot(Path(session["workdir"]))
         repair_text = ""
         if mode == "repair":
             repair_text = f"""
 ## Repair Input
 
 The previous bundle failed Loopora's hard validator.
+
+Treat semantic lint failures as posture gaps, not as YAML trivia. Repair the task contract, role posture, workflow intent, and evidence path together.
 
 Validation error:
 {validation_error}
@@ -1036,6 +1149,7 @@ You must return one JSON object matching the provided schema:
 - `alignment_phase`: one of "clarifying", "agreement", "confirmed", "bundle", or "blocked".
 - `agreement_summary`: the current working agreement summary; empty until you have enough stable information to summarize.
 - `readiness_checklist`: booleans for `task_scope`, `success_surface`, `fake_done_risks`, `evidence_preferences`, `role_posture`, `workflow_shape`, and `explicit_confirmation`.
+- `readiness_evidence`: concrete prose evidence for `task_scope`, `success_surface`, `fake_done_risks`, `evidence_preferences`, `role_posture`, `workflow_shape`, `workdir_facts`, and `open_questions`. These strings explain why the checklist is true or what is still missing.
 
 Important output discipline:
 - Do not write files yourself.
@@ -1044,6 +1158,9 @@ Important output discipline:
 - The bundle `loop.workdir` must be exactly `{session["workdir"]}`.
 - Loopora compiles `spec.markdown` during validation: `# Done When`, `# Success Surface`, `# Fake Done`, and `# Evidence Preferences` must use top-level `-` bullets when present; `# Role Notes` must use `## <Role Name> Notes` subheadings.
 - Preserve task-scoped dialogue. Ask focused questions that change the bundle shape, success criteria, evidence strategy, or role posture.
+- You are a task-judgment interviewer and harness compiler, not a YAML generator. Never optimize for ending the interview quickly.
+- A boolean checklist is not enough. Every true readiness item must be supported by specific `readiness_evidence`.
+- Use the workdir snapshot as observed context. Do not invent facts that are not in the transcript or snapshot; label uncertain items as assumptions.
 
 Language discipline:
 - User language hint: `{user_language_hint}`.
@@ -1060,7 +1177,9 @@ Alignment stage gate:
 - If backend stage is `agreement_ready`, wait for the user to confirm or revise the agreement; do not include bundle YAML.
 - If backend stage is `confirmed` or `compiling`, you may generate or repair the bundle when the checklist is complete.
 - Explicit confirmation is necessary but not sufficient. Only generate a bundle when every `readiness_checklist` item is true.
+- Explicit confirmation is also not sufficient without concrete `readiness_evidence` for every bundle-shaping dimension.
 - If any checklist item is false, set `status` to "question", `needs_user_input` to true, `bundle_yaml` to "", and ask the next smallest useful question.
+- If any readiness evidence item is vague, generic, or missing, ask the next smallest useful question even when the user asks you to generate.
 - When you are ready to ask for confirmation, set `alignment_phase` to "agreement", `status` to "question", `needs_user_input` to true, put the summary in `agreement_summary`, and leave `bundle_yaml` empty.
 - Only after a prior assistant turn has presented that working agreement and the user has confirmed it may you set `alignment_phase` to "bundle" and include `bundle_yaml`.
 - For fresh implementation tasks, default to a Builder -> Inspector -> GateKeeper workflow unless the user has a clear reason for a different shape.
@@ -1073,6 +1192,14 @@ Alignment stage gate:
 - Executor kind for the generated loop default: `{session.get("executor_kind", "codex")}`
 - Model default: `{session.get("model", "")}`
 - Reasoning effort default: `{session.get("reasoning_effort", "")}`
+
+## Workdir Snapshot
+
+This is a lightweight Loopora-provided snapshot. Treat it as observed context, not as a complete repository audit.
+
+```text
+{workdir_snapshot}
+```
 
 ## Backend Alignment State
 
@@ -1087,6 +1214,14 @@ Alignment stage gate:
 
 {skill_text}
 
+## Alignment Playbook
+
+{alignment_playbook}
+
+## Alignment Quality Rubric
+
+{quality_rubric}
+
 ## Embedded Bundle Contract
 
 {bundle_contract}
@@ -1094,6 +1229,10 @@ Alignment stage gate:
 ## Revision Guide
 
 {revision_guide}
+
+## Alignment Examples
+
+{examples}
 
 ## Session Transcript
 

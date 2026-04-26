@@ -1,5 +1,15 @@
 # 核心思想
 
+## 0. 最高产品原则
+
+Loopora 是面向长期 AI Agent 任务的 task-scoped harness compiler + evidence loop runtime。
+
+核心闭环是：
+
+`任务输入 -> 对齐成循环方案 -> 运行并收集证据 -> 基于反馈修订方案`
+
+`product-principle.md` 是本目录的最高原则。下方公理都必须服务于这条主线：Loopora 不是 role zoo、prompt pack、loop script、通用聊天界面或内部资产 CRUD console。
+
 ## 1. 设计公理
 
 1. loop 的存在理由必须是“行动后能拿到新证据”。  

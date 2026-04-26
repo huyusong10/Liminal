@@ -9,8 +9,8 @@
         <span data-lang="en">If an AI Agent can already do the work, why use Loopora?</span>
       </h1>
       <p>
-        <span data-lang="zh">先反过来问：一位 AI Agent 加一轮人工 review 够不够？如果够，就别用 Loopora。只有当人类会在每轮之后反复回来判断证据、裁决是否过线、决定下一步方向时，才值得把这次任务的协作姿态编译成 bundle，再导入循环运行。</span>
-        <span data-lang="en">Ask the opposite question first: would one AI Agent pass plus one human review be enough? If yes, skip Loopora. Use it when humans would otherwise return after each round to judge evidence, decide whether the line was crossed, and choose the next move. That is when the task posture should be compiled into a bundle and imported as a loop.</span>
+        <span data-lang="zh">先反过来问：一位 AI Agent 加一轮人工 review 够不够？如果够，就别用 Loopora。只有当人类会在每轮之后反复回来判断证据、裁决是否过线、决定下一步方向时，才值得把这次任务的协作姿态编译成循环方案，再运行成一个可复盘的 loop。</span>
+        <span data-lang="en">Ask the opposite question first: would one AI Agent pass plus one human review be enough? If yes, skip Loopora. Use it when humans would otherwise return after each round to judge evidence, decide whether the line was crossed, and choose the next move. That is when the task posture should be compiled into a loop plan and run as an inspectable loop.</span>
       </p>
     </div>
   </section>
@@ -37,8 +37,8 @@
       <article class="tutorial-guide-card" data-testid="tutorial-core-bundle">
         <strong class="tutorial-guide-title"><span data-lang="zh">为什么不先手工编排？</span><span data-lang="en">Why not hand-build the flow first?</span></strong>
         <p>
-          <span data-lang="zh">多数人一开始没有现成的 <code>spec / roles / workflow</code> 地图，只有“这次不能糊弄”“我更信证据”这类感觉。先用外部 AI Agent + Skill 对齐成 working agreement，再编译成单文件 YAML bundle。</span>
-          <span data-lang="en">Most people do not start with a ready <code>spec / roles / workflow</code> map. They start with signals like "this cannot be sloppy" or "evidence matters more here." Use an external AI Agent + Skill to align that into a working agreement, then compile a single YAML bundle.</span>
+          <span data-lang="zh">多数人一开始没有现成的 <code>spec / roles / workflow</code> 地图，只有“这次不能糊弄”“我更信证据”这类感觉。先用 Web 对话对齐成 working agreement，再编译成可运行的循环方案；YAML bundle 只是背后的专家交换格式。</span>
+          <span data-lang="en">Most people do not start with a ready <code>spec / roles / workflow</code> map. They start with signals like "this cannot be sloppy" or "evidence matters more here." Use the Web conversation to align that into a working agreement, then compile a runnable loop plan; the YAML bundle is the expert exchange format behind it.</span>
         </p>
       </article>
       <article class="tutorial-guide-card" data-testid="tutorial-core-loop">
@@ -194,8 +194,8 @@
       <div>
         <h2><span data-lang="zh">想好了为什么用，然后怎么用？</span><span data-lang="en">Once you know why, how do you use it?</span></h2>
         <p class="tutorial-panel-copy">
-          <span data-lang="zh">不要从手搓流程开始。先在 Web 里对话生成 Bundle，让本机 AI Agent 把“这次到底要省下哪类人工判断”问清楚；如果更想在外部工具里完成，也可以安装对齐 Skill。</span>
-          <span data-lang="en">Do not start by hand-building the flow. Generate a Bundle through the Web chat so a local AI Agent clarifies which repeated human judgments this task should save; install the alignment Skill only when you prefer an external tool.</span>
+          <span data-lang="zh">不要从手搓流程开始。先在 Web 里对话生成循环方案，让本机 AI Agent 把“这次到底要省下哪类人工判断”问清楚；如果更想在外部工具里完成，也可以安装对齐 Skill。</span>
+          <span data-lang="en">Do not start by hand-building the flow. Generate a loop plan through the Web chat so a local AI Agent clarifies which repeated human judgments this task should save; install the alignment Skill only when you prefer an external tool.</span>
         </p>
       </div>
     </header>
@@ -205,8 +205,8 @@
         <span data-lang="en">Install alignment Skill</span>
       </a>
       <a class="primary-button" href="/loops/new/bundle">
-        <span data-lang="zh">对话生成 Bundle</span>
-        <span data-lang="en">Generate Bundle by Chat</span>
+        <span data-lang="zh">对话生成循环方案</span>
+        <span data-lang="en">Generate Loop Plan</span>
       </a>
       <a class="ghost-button" href="/loops/new/manual">
         <span data-lang="zh">手动专家模式</span>

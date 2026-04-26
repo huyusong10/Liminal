@@ -1,5 +1,7 @@
 # Interfaces
 
+> 最高原则：遵循 `../core-ideas/product-principle.md`。接口层默认表达“任务、循环方案、证据、修订”，把 `bundle / spec / roles / workflow` 等内部资产留给专家路径。
+
 ## 1. 模块职责
 
 模块存在的唯一理由：
@@ -17,8 +19,8 @@
 | `orchestration` | 编辑可复用 workflow | 管理角色快照、步骤顺序与收敛规则 |
 | `role definition` | 预先定义可复用角色模版 | 供 orchestration 选择并复制成角色快照；同时定义默认执行配置 |
 | `run` | 观察一次具体执行 | 提供状态、事件、摘要、canonical artifacts 与终端白盒输出 |
-| `alignment session` | 在 Web 内直接把任务对话编译成 bundle | 调用本机 AI AI Agent CLI，流式展示输出，在 bundle 文件通过硬校验后提供 READY 预览与导入运行 |
-| `skill installer` | 把 repo-local Skill 安装到外部 AI AI Agent 工具 | 只复制 / 下载 Loopora 随仓库版本化的 Skill，作为 Web 内置对齐之外的外部工具路径 |
+| `alignment session` | 在 Web 内直接把任务对话编译成循环方案 | 调用本机 AI Agent CLI，流式展示输出，在 bundle 文件通过硬校验后提供 READY 预览与创建运行 |
+| `skill installer` | 把 repo-local Skill 安装到外部 AI Agent 工具 | 只复制 / 下载 Loopora 随仓库版本化的 Skill，作为 Web 内置对齐之外的外部工具路径 |
 | `tutorial` | 学习正确写 spec 与选择流程 | 用最短路径解释 task contract → orchestration → create loop 的推荐顺序，并坚持 example-first：先用决策板帮助用户判断“该不该用 Loopora、该选哪类流程”，再引导用户看 5 条核心流程附带的真实需求样例；这些样例应优先表现长期任务里的当前 loop 切片，而不是孤立的小 bug，并明确说明：任务不是AI Agent 做不到，而是如果没有 loop，人类会反复回来确认、裁决和纠偏 |
 
 ## 3. 入口职责

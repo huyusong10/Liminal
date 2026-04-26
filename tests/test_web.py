@@ -1726,7 +1726,10 @@ def test_api_task_alignment_skill_bundle_download_returns_zip(monkeypatch, tmp_p
     archive = zipfile.ZipFile(io.BytesIO(response.content))
     names = set(archive.namelist())
     assert "loopora-task-alignment/SKILL.md" in names
+    assert "loopora-task-alignment/references/alignment-playbook.md" in names
+    assert "loopora-task-alignment/references/quality-rubric.md" in names
     assert "loopora-task-alignment/references/bundle-contract.md" in names
+    assert "loopora-task-alignment/references/examples.md" in names
     assert "loopora-task-alignment/agents/openai.yaml" in names
 
 

@@ -78,8 +78,8 @@
             <p>{{ loop_item.card_excerpt or "-" }}</p>
             {% if loop_item.managed_by_bundle %}
             <p class="field-note">
-              <span data-lang="zh">这条 loop 由 bundle “{{ loop_item.bundle_name or loop_item.bundle_id }}” 管理，删除时会走整包清理。</span>
-              <span data-lang="en">This loop is managed by bundle “{{ loop_item.bundle_name or loop_item.bundle_id }}”, so deletion follows the bundle lifecycle.</span>
+              <span data-lang="zh">这条 loop 由方案 “{{ loop_item.bundle_name or loop_item.bundle_id }}” 管理，删除时会走整包清理。</span>
+              <span data-lang="en">This loop is managed by plan “{{ loop_item.bundle_name or loop_item.bundle_id }}”, so deletion follows the whole-plan lifecycle.</span>
             </p>
             {% endif %}
           </div>
@@ -101,8 +101,8 @@
               data-delete-bundle="{{ loop_item.bundle_id }}"
               data-bundle-name="{{ loop_item.bundle_name or loop_item.name }}"
             >
-              <span data-lang="zh">删除 Bundle</span>
-              <span data-lang="en">Delete Bundle</span>
+              <span data-lang="zh">删除方案</span>
+              <span data-lang="en">Delete Plan</span>
             </button>
             {% else %}
             <button

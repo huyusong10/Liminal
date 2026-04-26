@@ -1,5 +1,7 @@
 # Workflow And Prompts
 
+> 最高原则：遵循 `../core-ideas/product-principle.md`。workflow 与 prompt 只是任务姿态的运行投影；它们必须服务于证据循环，不能变成独立的 role zoo 或 prompt pack。
+
 ## 1. 模块职责
 
 本文档定义两类稳定资产：

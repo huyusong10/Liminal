@@ -601,7 +601,7 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert 'name="bundle_yaml"' not in bundle_response.text
     assert "{resume_session_id}" in bundle_response.text
     assert 'data-testid="alignment-advanced-chip"' not in bundle_response.text
-    assert '<title>Generate Bundle</title>' in bundle_response.text
+    assert '<title>New Task</title>' in bundle_response.text
 
     manual_response = client.get("/loops/new/manual")
     assert manual_response.status_code == 200
@@ -1106,8 +1106,8 @@ def test_bundles_pages_render_list_and_detail(
     _assert_has_testid(list_response.text, "bundle-derive-form")
     _assert_has_testid(list_response.text, "bundle-list")
     _assert_has_testid(list_response.text, "bundle-count")
-    assert "Imported Bundles" in list_response.text
-    assert "Import Bundle to Create Loop" in list_response.text
+    assert "Imported Plans" in list_response.text
+    assert "Import Existing Plan" in list_response.text
     assert "Web Bundle" in list_response.text
     assert 'data-delete-bundle="' in list_response.text
     assert '/api/bundles/' in list_response.text
@@ -1186,8 +1186,8 @@ def test_index_page_uses_bundle_delete_for_bundle_managed_loops(
 
     assert response.status_code == 200
     assert f'data-delete-bundle="{imported["id"]}"' in response.text
-    assert 'Delete Bundle' in response.text
-    assert "managed by bundle" in response.text
+    assert 'Delete Plan' in response.text
+    assert "managed by plan" in response.text
 
 
 def test_role_definition_editor_script_localizes_archetype_labels_and_guide(service_factory) -> None:
@@ -1249,8 +1249,8 @@ def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None
     assert "would one AI Agent pass plus one human review be enough" in response.text
     assert "Are you saving output, or judgment?" in response.text
     assert "Why is posture not just a prompt?" in response.text
-    assert "single YAML bundle" in response.text
-    assert "compile a single YAML bundle" in response.text
+    assert "runnable loop plan" in response.text
+    assert "expert exchange format" in response.text
     assert "Runnable posture needs three surfaces" in response.text
     assert "one AI Agent pass plus one human review is usually enough" in response.text
     assert "First ask: does this really need Loopora?" in response.text
@@ -1277,7 +1277,7 @@ def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None
     assert "/orchestrations" in response.text
     assert "/loops/new/bundle" in response.text
     assert "/loops/new/manual" in response.text
-    assert "Generate Bundle by Chat" in response.text
+    assert "Generate Loop Plan" in response.text
     assert "Manual Expert Mode" in response.text
     assert 'data-testid="tutorial-context-flow-panel"' not in response.text
     assert 'data-testid="tutorial-flow-examples-panel"' not in response.text
@@ -1288,7 +1288,7 @@ def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None
     assert "AI Agent 已经能做，为什么还要用 Loopora" in zh_response.text
     assert "你要省下的是产出，还是判断" in zh_response.text
     assert "为什么不先手工编排" in zh_response.text
-    assert "对话生成 Bundle" in zh_response.text
+    assert "对话生成循环方案" in zh_response.text
     assert "帮助中心" in zh_response.text
 
 

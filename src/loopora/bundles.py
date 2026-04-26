@@ -313,6 +313,48 @@ def _validate_bundle_runtime_contract(
         raise BundleError("gatekeeper completion mode requires a GateKeeper step that can finish the run")
 
 
+def _semantic_text_is_specific(text: object, *, min_chars: int = 48) -> bool:
+    value = str(text or "").strip()
+    if len(value) < min_chars:
+        return False
+    generic_patterns = [
+        r"requested behavior",
+        r"do the task",
+        r"make it work",
+        r"requested task",
+        r"按需求完成",
+        r"完成任务",
+        r"实现需求",
+    ]
+    lower = value.lower()
+    return not any(re.search(pattern, lower) for pattern in generic_patterns)
+
+
+def _semantic_text_mentions_evidence(text: object) -> bool:
+    value = str(text or "").lower()
+    evidence_terms = [
+        "evidence",
+        "proof",
+        "verify",
+        "verification",
+        "test",
+        "browser",
+        "command",
+        "artifact",
+        "handoff",
+        "blocker",
+        "证据",
+        "验证",
+        "测试",
+        "浏览器",
+        "命令",
+        "产物",
+        "交接",
+        "阻断",
+    ]
+    return any(term in value for term in evidence_terms)
+
+
 def lint_alignment_bundle_semantics(bundle: Mapping[str, object]) -> list[str]:
     """Return high-signal semantic issues for Web-generated alignment bundles."""
 
@@ -327,6 +369,8 @@ def lint_alignment_bundle_semantics(bundle: Mapping[str, object]) -> list[str]:
         issues.append("spec must include at least one Evidence Preferences bullet")
     if not str(normalized["workflow"].get("collaboration_intent", "") or "").strip():
         issues.append("workflow.collaboration_intent is required")
+    elif not _semantic_text_is_specific(normalized["workflow"].get("collaboration_intent", ""), min_chars=64):
+        issues.append("workflow.collaboration_intent must explain the task-specific judgment order")
 
     role_by_key = {item["key"]: item for item in normalized["role_definitions"]}
     used_role_keys = [
@@ -338,6 +382,13 @@ def lint_alignment_bundle_semantics(bundle: Mapping[str, object]) -> list[str]:
         role = role_by_key.get(str(role_key))
         if role and not str(role.get("posture_notes", "") or "").strip():
             issues.append(f"role_definition {role['key']} must include task-scoped posture_notes")
+        elif role and not _semantic_text_is_specific(role.get("posture_notes", "")):
+            issues.append(f"role_definition {role['key']} posture_notes must describe a task-specific tradeoff")
+        if role:
+            prompt_text = str(role.get("prompt_markdown", "") or "")
+            combined = prompt_text + "\n" + str(role.get("posture_notes", "") or "")
+            if not _semantic_text_mentions_evidence(combined):
+                issues.append(f"role_definition {role['key']} must describe evidence, verification, handoff, or blocker behavior")
 
     archetypes = {
         role_by_key[str(role_key)]["archetype"]
@@ -347,6 +398,11 @@ def lint_alignment_bundle_semantics(bundle: Mapping[str, object]) -> list[str]:
     if str(normalized["loop"].get("completion_mode", "") or "").strip().lower() == "gatekeeper":
         if "gatekeeper" not in archetypes:
             issues.append("gatekeeper completion mode requires a GateKeeper role")
+        for role in normalized["role_definitions"]:
+            if str(role.get("archetype", "") or "") == "gatekeeper":
+                gatekeeper_text = str(role.get("prompt_markdown", "") or "") + "\n" + str(role.get("posture_notes", "") or "")
+                if not re.search(r"block|fail|do not pass|阻断|不要通过|不通过|拒绝", gatekeeper_text, re.I):
+                    issues.append("GateKeeper prompt must state what blocks finish")
     if len(used_role_keys) < 2:
         issues.append("alignment bundle workflow should use at least two roles")
     return issues

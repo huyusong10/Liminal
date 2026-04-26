@@ -4,6 +4,10 @@
 
 本目录记录 Loopora 的设计约束与实现分解。
 
+最高产品原则见 `core-ideas/product-principle.md`：
+
+> Loopora 是面向长期 AI Agent 任务的 task-scoped harness compiler + evidence loop runtime。所有设计都必须服务于 `任务 -> 方案 -> 证据 -> 修订` 的闭环，而不是退化成 role zoo、prompt pack、loop script 或通用聊天界面。
+
 文档分成两个子模块：
 
 - `core-ideas/`：只保留抽象规则、反例、非目标；作为项目级约束。
@@ -40,6 +44,7 @@
 | 子模块 | 文档 | 主题 | 主要代码边界 |
 | --- | --- | --- | --- |
 | 核心思想 | `core-ideas/README.md` | 项目公理、反例、非目标 | 全局 |
+| 核心思想 | `core-ideas/product-principle.md` | 最高产品原则、差异化边界与默认用户心智 | 全局 |
 | 核心思想 | `core-ideas/collaboration-posture.md` | 协作姿态、人格外化与 posture 编译方向 | 全局 |
 | 核心思想 | `core-ideas/task-scoped-alignment.md` | 任务驱动对齐、working agreement 与 bundle 演进方案 | 全局 |
 | 细节设计 | `detailed-design/01-spec-subsystem.md` | `spec.md` 编译与 checks 冻结 | `src/loopora/specs.py`, `src/loopora/service.py` |

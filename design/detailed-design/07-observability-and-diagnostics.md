@@ -1,5 +1,7 @@
 # Observability and Diagnostics
 
+> 最高原则：遵循 `../core-ideas/product-principle.md`。观察面必须优先回答“这轮产生了什么证据、为什么过或没过、下一版方案应如何修订”，而不是只堆日志。
+
 ## 1. 模块职责
 
 模块存在的唯一理由：
@@ -25,6 +27,7 @@
 - 当新的 `step_handoff_written`、`iteration_summary_written` 或 `run_finished` 事件到达时，run 详情页里的“关键结论”必须在当前会话内自动拉取最新 artifacts 并刷新；不能要求用户手动刷新整页后才能看到最新轮次结论。
 - 提供给角色 prompt 的 artifact refs 必须能从 workspace 直接定位到 `.loopora/runs/...` 下的真实文件，不能只暴露对 run 目录内部才有意义的短相对路径。
 - 当角色尝试获取浏览器或截图证据失败时，诊断线索必须保留在 run event stream 与 step handoff 中，便于后续角色区分“产品问题”与“宿主环境阻断”。
+- run 详情页的证据不应成为孤立终点。稳定目标是提供“基于本次证据修订方案”的入口，把 GateKeeper verdict、关键 blocker、残余风险和用户反馈带回 alignment revision；若当前实现暂未接入完整 API，也必须在设计上保留这条闭环，不把用户重新推回手工 prompt 编辑。
 
 ## 2.1 真实 CLI 集成验证
 

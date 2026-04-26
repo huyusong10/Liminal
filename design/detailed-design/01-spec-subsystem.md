@@ -1,5 +1,7 @@
 # Spec Subsystem
 
+> 最高原则：遵循 `../core-ideas/product-principle.md`。本模块服务于 `任务 -> 方案 -> 证据 -> 修订` 闭环，只负责冻结任务契约，不把 spec 误扩展成完整 harness 或 prompt 包。
+
 ## 1. Purpose
 
 本模块负责把“人写的目标描述”变成“运行时可消费的任务契约”。

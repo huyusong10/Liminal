@@ -1,5 +1,7 @@
 # Task-Scoped Alignment
 
+> 最高原则：遵循 `product-principle.md`。Alignment 的目标不是尽快产出 YAML，而是把长期 AI Agent 任务的判断方式对齐成可运行、可取证、可修订的循环方案。
+
 ## 1. 目标
 
 本文档定义 Loopora 的默认入口如何从“手工选择 workflow”演进为“任务驱动对齐，再导入 bundle 运行”。
@@ -112,7 +114,7 @@ Loopora 本体不执行“姿态”这个抽象对象。
 - `workflow / orchestration`，用于冻结协作骨架
 - `loop definition`，用于绑定 workdir、执行器和运行策略
 
-这就是 bundle-first 与老编排系统的衔接点：bundle 是更高层入口，老资产是运行形态。
+这就是循环方案入口与老编排系统的衔接点：bundle 是更高层入口背后的内部交换单元，老资产是运行形态。
 
 ### 4.3 Bundle revision 是姿态微调的主要对象
 

@@ -11,32 +11,51 @@
   <a href="https://fastapi.tiangolo.com/">
     <img alt="FastAPI" src="https://img.shields.io/badge/web-FastAPI-009688?logo=fastapi&logoColor=white">
   </a>
-  <img alt="Local first" src="https://img.shields.io/badge/local--first-AI%20Agent%20loops-0D7C66">
+  <img alt="Local first" src="https://img.shields.io/badge/local--first-AI%20Agent%20evidence%20loops-0D7C66">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-D66A36">
 </p>
 
-Loopora turns a vague task into a local evidence loop for AI Agent work.
+Loopora is a local-first workbench for long-running AI Agent tasks.
 
-It helps you decide what should count as real progress, which AI Agent role should act next, what evidence is enough, and when a run should stop.
+It turns task-specific judgment into a runnable evidence loop: align the task, generate a loop plan, run local AI Agent CLIs, collect evidence, and revise the plan from what actually happened.
 
 ## If an AI Agent can already do the work, why use Loopora?
 
 That is the first question Loopora should survive.
 
-If the task is small, obvious, and reviewable in one pass, do not use Loopora. Ask an AI Agent to do it, review the result once, and move on.
+If the task is small, obvious, and reviewable in one pass, do not use Loopora. Ask an AI Agent to do it, review once, and move on.
 
-But what if the hard part is not the first answer?
+But what if the hard part is not producing the first answer?
 
-What if the hard part is that someone keeps needing to come back and ask:
+What if the hard part is that humans keep returning to ask:
 
-- did this change prove the right thing?
-- is the result truly done, or only locally plausible?
-- should the next round build more, inspect first, narrow the slice, repair again, or stop?
-- is this residual risk acceptable for this task, or is it a blocker?
+- did this round prove the right thing?
+- is this truly done, or just locally plausible?
+- should the next round build, inspect, repair, narrow the slice, or stop?
+- is this residual risk acceptable for this task?
+- what should change in the next attempt because of the evidence we just saw?
 
-When those questions repeat after every meaningful step, human attention becomes the bottleneck.
+When those questions repeat, the bottleneck is not generation. The bottleneck is judgment.
 
-**Loopora exists for that moment: it turns task-specific judgment into a runnable local loop.**
+**Loopora exists for that moment: it compiles task-specific judgment into a loop that can act, inspect, gate, and improve from evidence.**
+
+## What Makes Loopora Different?
+
+Loopora is not a role zoo. More roles do not automatically create better long-running work.
+
+Loopora is not a prompt pack. A longer prompt does not make completion criteria, role posture, and workflow timing inspectable.
+
+Loopora is not just a loop script. Repeating an AI Agent call only helps when each round produces new evidence and a clearer next move.
+
+Loopora combines the three missing pieces into one local system:
+
+| Piece | What Loopora makes explicit |
+|-------|-----------------------------|
+| Task contract | What counts as progress, fake done, trusted evidence, guardrails, and residual risk |
+| Agent posture | How each AI Agent role should build, inspect, gate, or redirect for this task |
+| Workflow timing | When judgment happens, how the run loops, and when it can stop |
+
+Those pieces are stored together as a loop plan, run together, and revised together.
 
 ## Quick Start
 
@@ -54,10 +73,10 @@ uv run loopora serve --host 127.0.0.1 --port 8742
 
 Open [http://127.0.0.1:8742](http://127.0.0.1:8742), click **New Task**, choose a workdir, and describe what you want Loopora to do.
 
-The Web flow is the recommended path:
+The recommended Web path is:
 
 ```text
-describe task -> chat alignment -> READY loop plan -> preview -> create and run -> revise from evidence
+describe task -> align loop plan -> preview -> create and run -> inspect evidence -> revise plan
 ```
 
 ## A Concrete Example
@@ -66,22 +85,24 @@ Imagine you type:
 
 > Build an English learning website.
 
-A normal AI Agent path may jump straight into screens: a landing page, vocabulary cards, a few buttons, maybe a polished UI. It can look finished before it proves that a learner can actually complete one learning cycle.
+A normal AI Agent path may jump straight into screens: a landing page, vocabulary cards, a few buttons, maybe a polished UI. It can look finished before it proves that a learner can complete one real learning cycle.
 
-Loopora takes a different route. It asks what kind of work this task really needs:
+Loopora slows down at the point that matters. It asks:
 
 - Is the first version a runnable learning path, or just a product sketch?
 - What is fake done? A pretty page with no real study loop?
-- What evidence proves that a user can choose a goal, study words, practice, and see progress?
-- Should the final gate reject shallow UI polish even if the page looks good?
+- What evidence proves that a user can choose a goal, study, practice, and see progress?
+- Should the final gate reject shallow polish even if the page looks good?
 
-After alignment, Loopora produces a **loop plan**. You can preview it before running:
+After alignment, Loopora shows a **loop plan**. The plan explains:
 
 - `spec`: the task contract, success surface, fake-done states, evidence preferences, and guardrails.
 - `roles`: task-shaped AI Agent roles such as `Builder`, `Inspector`, and `GateKeeper`.
 - `workflow`: the order of judgment, for example `Builder -> Inspector -> GateKeeper`.
 
-Only then does Loopora create and run the loop. `Builder` implements, `Inspector` checks the real learning path, and `GateKeeper` decides whether the evidence is good enough to finish.
+Then Loopora creates and runs the loop. `Builder` changes the workdir, `Inspector` checks whether the learning path is real, and `GateKeeper` decides whether the evidence is strong enough to finish.
+
+If the result still feels wrong, the next step should not be random prompt editing. The next step is a plan revision based on run evidence.
 
 ## What Does Loopora Generate?
 
@@ -89,20 +110,21 @@ Loopora first generates a human-readable **loop plan**.
 
 Internally, that plan is stored as a YAML **bundle**: a single importable file that contains the task contract, AI Agent role posture, workflow, and loop settings.
 
-You do not need to hand-write the bundle to get started. The Web UI generates it through conversation, validates it, and shows READY only after the file passes Loopora's bundle contract.
+You do not need to hand-write bundles to start. The Web UI generates the plan through conversation, validates the bundle, and shows READY only after the file passes Loopora's contract.
 
 The bundle matters because it is:
 
 - readable: you can inspect why this collaboration shape exists
 - runnable: Loopora can materialize it into local assets and start a run
-- revisable: later feedback can generate the next version instead of random field edits
+- evidence-oriented: the run can show what happened and why it passed or failed
+- revisable: later feedback can produce the next plan instead of scattered field edits
 
 ## How the Web Flow Works
 
 ```mermaid
 flowchart LR
-    A["Describe the task"] --> B["Alignment chat"]
-    B --> C["READY loop plan"]
+    A["Describe the task"] --> B["Align loop plan"]
+    B --> C["READY plan"]
     C --> D["Preview spec / roles / workflow"]
     D --> E["Create and run"]
     E --> F["Run evidence"]
@@ -111,14 +133,14 @@ flowchart LR
 
 In the Web UI:
 
-1. **Workbench** shows current work and run state.
+1. **Workbench** shows current tasks and run state.
 2. **New Task** opens the chat-first alignment page.
-3. Loopora calls your local AI AI Agent CLI, asks clarifying questions, and keeps the session context across turns.
+3. Loopora calls your local AI Agent CLI, asks clarifying questions, and keeps session context across turns.
 4. When the plan is READY, the page shows the task contract, role cards, workflow diagram, and source file actions.
 5. **Create and run** imports the bundle through the normal lifecycle and starts the loop.
 6. **Plans** stores reusable loop plans and bundle revisions.
 
-Manual creation still exists, but it is the expert path for users who already know exactly which `spec`, `roles`, or `workflow` surface they want to edit.
+Manual creation still exists, but it is the expert path for users who already know which `spec`, `roles`, or `workflow` surface they want to edit.
 
 ## Why Not Just Write a Better Prompt?
 
@@ -148,7 +170,7 @@ If yes, skip Loopora.
 
 Now ask the positive question:
 
-> Would a human otherwise come back after each round to decide what the result means?
+> Would a human otherwise return after each meaningful round to judge what the result means?
 
 If yes, Loopora may fit.
 
@@ -183,7 +205,7 @@ These shapes answer the same question:
 
 ## External AI Agent Path
 
-The Web UI is the default path because it keeps alignment, bundle validation, preview, import, run evidence, and revision in one place.
+The Web UI is the default path because it keeps alignment, bundle validation, preview, creation, and run evidence in one guided flow. Plan revision should use that evidence as its source of truth instead of drifting into hidden prompt edits.
 
 If you prefer to align outside the Web UI, open **Resources -> Tools & Skill** and install the repo-local `loopora-task-alignment` Skill into Codex, Claude Code, or OpenCode.
 
@@ -204,7 +226,7 @@ uv run loopora run \
 
 ## Project Status
 
-Loopora is experimental and local-first. Expect active iteration around the Web flow, bundle alignment quality, and long-running scenario coverage.
+Loopora is experimental and local-first. Expect active iteration around the Web flow, bundle alignment quality, evidence review, and long-running scenario coverage.
 
 Core guarantees:
 
@@ -212,6 +234,7 @@ Core guarantees:
 - Web alignment does not bypass the bundle lifecycle
 - run evidence is stored locally under Loopora-managed artifacts
 - expert routes for `spec / roles / workflow` remain available
+- future revisions should flow from evidence and feedback, not hidden prompt drift
 
 ## Development
 

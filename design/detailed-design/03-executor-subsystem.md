@@ -1,5 +1,7 @@
 # Executor Subsystem
 
+> 最高原则：遵循 `../core-ideas/product-principle.md`。执行器只是把已冻结的循环方案交给本机 AI Agent CLI 执行，不负责替代 alignment、裁决或方案 revision。
+
 ## 1. Purpose
 
 本模块把“抽象角色请求”翻译成“具体 agent CLI 调用”。

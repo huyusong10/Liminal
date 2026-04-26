@@ -1,5 +1,7 @@
 # Collaboration Posture
 
+> 最高原则：遵循 `product-principle.md`。Loopora 必须把长期 AI Agent 任务的判断方式编译成 `任务 -> 方案 -> 证据 -> 修订` 的闭环，而不是退化成单纯角色库或 prompt 包。
+
 ## 1. 目标
 
 本文档定义 Loopora 的核心产品解释：
