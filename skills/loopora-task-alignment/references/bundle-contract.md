@@ -59,10 +59,20 @@ workflow:
   roles:
     - id: "builder"
       role_definition_key: "builder"
+    - id: "inspector"
+      role_definition_key: "inspector"
+    - id: "gatekeeper"
+      role_definition_key: "gatekeeper"
   steps:
     - id: "builder_step"
       role_id: "builder"
       on_pass: "continue"
+    - id: "inspector_step"
+      role_id: "inspector"
+      on_pass: "continue"
+    - id: "gatekeeper_step"
+      role_id: "gatekeeper"
+      on_pass: "finish_run"
 ```
 
 ## Posture mapping
@@ -91,6 +101,8 @@ format rules exactly:
 - `# Residual Risk` is optional prose.
 - `# Role Notes` is optional, but when present it must use `## <Role Name> Notes` subheadings. Put each role's note under its own second-level heading.
 - Do not use legacy headings such as `# Goal`, `# Checks`, or `# Constraints`.
+
+Web alignment bundles must include non-empty `# Success Surface`, `# Fake Done`, and `# Evidence Preferences` sections. These sections remain strongly recommended for external bundles too because they make the collaboration posture visible to the user and GateKeeper.
 
 Use the spec for:
 - task framing
@@ -122,9 +134,16 @@ Use workflow for execution shape:
 
 Use `workflow.collaboration_intent` to capture the high-level execution bias.
 
+Runtime invariant:
+- If `loop.completion_mode` is `gatekeeper`, the workflow must include a role whose role definition has `archetype: "gatekeeper"` and at least one step for that role with `on_pass: "finish_run"`.
+- For fresh implementation bundles, prefer Builder -> Inspector -> GateKeeper unless the user’s task clearly calls for a different order.
+- Every workflow role should have task-scoped `posture_notes`; Web alignment treats missing posture notes as a semantic lint failure.
+
 ## Output rules
 
 - Make the bundle readable first, then runnable.
 - Preserve one coherent story across summary, spec, roles, and workflow.
+- Match the user's natural language in prose fields while preserving Loopora terms such as `spec`, `roles`, `workflow`, `bundle`, `Builder`, `Inspector`, `GateKeeper`, `Guide`, `workdir`, and `READY`.
+- Do not translate YAML keys, role archetypes, or required spec headings.
 - Do not emit a separate working agreement file.
 - Do not emit prose outside the YAML when the user is asking for the final bundle.

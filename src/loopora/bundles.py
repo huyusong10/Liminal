@@ -62,6 +62,7 @@ def normalize_bundle(payload: Mapping[str, object] | None) -> dict[str, Any]:
     spec = _normalize_bundle_spec(raw.get("spec"))
     role_definitions = _normalize_bundle_role_definitions(raw.get("role_definitions"))
     workflow = _normalize_bundle_workflow(raw.get("workflow"), role_definitions=role_definitions)
+    _validate_bundle_runtime_contract(loop=loop, role_definitions=role_definitions, workflow=workflow)
     return {
         "version": version,
         "metadata": metadata,
@@ -285,6 +286,70 @@ def _normalize_bundle_workflow(raw_workflow: object, *, role_definitions: list[d
         "roles": roles,
         "steps": steps,
     }
+
+
+def _validate_bundle_runtime_contract(
+    *,
+    loop: Mapping[str, Any],
+    role_definitions: list[dict[str, Any]],
+    workflow: Mapping[str, Any],
+) -> None:
+    completion_mode = str(loop.get("completion_mode", "gatekeeper") or "gatekeeper").strip().lower()
+    if completion_mode != "gatekeeper":
+        return
+    role_key_archetype = {item["key"]: item["archetype"] for item in role_definitions}
+    workflow_role_archetype = {
+        role["id"]: role_key_archetype.get(role["role_definition_key"], "")
+        for role in workflow.get("roles", [])
+        if isinstance(role, Mapping)
+    }
+    has_finishing_gatekeeper = any(
+        workflow_role_archetype.get(str(step.get("role_id", ""))) == "gatekeeper"
+        and str(step.get("on_pass", "") or "") == "finish_run"
+        for step in workflow.get("steps", [])
+        if isinstance(step, Mapping)
+    )
+    if not has_finishing_gatekeeper:
+        raise BundleError("gatekeeper completion mode requires a GateKeeper step that can finish the run")
+
+
+def lint_alignment_bundle_semantics(bundle: Mapping[str, object]) -> list[str]:
+    """Return high-signal semantic issues for Web-generated alignment bundles."""
+
+    normalized = normalize_bundle(bundle)
+    issues: list[str] = []
+    compiled_spec = compile_markdown_spec(str(normalized["spec"]["markdown"]))
+    if not compiled_spec.get("success_surface"):
+        issues.append("spec must include at least one Success Surface bullet")
+    if not compiled_spec.get("fake_done_states"):
+        issues.append("spec must include at least one Fake Done bullet")
+    if not compiled_spec.get("evidence_preferences"):
+        issues.append("spec must include at least one Evidence Preferences bullet")
+    if not str(normalized["workflow"].get("collaboration_intent", "") or "").strip():
+        issues.append("workflow.collaboration_intent is required")
+
+    role_by_key = {item["key"]: item for item in normalized["role_definitions"]}
+    used_role_keys = [
+        role.get("role_definition_key", "")
+        for role in normalized["workflow"].get("roles", [])
+        if isinstance(role, Mapping)
+    ]
+    for role_key in used_role_keys:
+        role = role_by_key.get(str(role_key))
+        if role and not str(role.get("posture_notes", "") or "").strip():
+            issues.append(f"role_definition {role['key']} must include task-scoped posture_notes")
+
+    archetypes = {
+        role_by_key[str(role_key)]["archetype"]
+        for role_key in used_role_keys
+        if str(role_key) in role_by_key
+    }
+    if str(normalized["loop"].get("completion_mode", "") or "").strip().lower() == "gatekeeper":
+        if "gatekeeper" not in archetypes:
+            issues.append("gatekeeper completion mode requires a GateKeeper role")
+    if len(used_role_keys) < 2:
+        issues.append("alignment bundle workflow should use at least two roles")
+    return issues
 
 
 def load_bundle_file(path: Path) -> dict[str, Any]:

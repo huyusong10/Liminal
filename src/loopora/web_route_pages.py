@@ -59,7 +59,7 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/loops/new", response_class=HTMLResponse)
     async def new_loop(request: Request) -> HTMLResponse:
         if _looks_like_bundle_import_query(request):
-            return RedirectResponse(url=_forward_create_query(request, "/loops/new/bundle", "bundle-import-form"), status_code=303)
+            return RedirectResponse(url=_forward_create_query(request, "/loops/new/manual", "bundle-import-form"), status_code=303)
         if _looks_like_manual_loop_query(request):
             return RedirectResponse(url=_forward_create_query(request, "/loops/new/manual", "manual-loop-form"), status_code=303)
         return ctx.render_new_loop(
@@ -69,10 +69,11 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
 
     @app.get("/loops/new/bundle", response_class=HTMLResponse)
     async def new_loop_bundle(request: Request) -> HTMLResponse:
+        if _looks_like_bundle_import_query(request):
+            return RedirectResponse(url=_forward_create_query(request, "/loops/new/manual", "bundle-import-form"), status_code=303)
         return ctx.render_new_loop(
             request,
             page_mode="bundle",
-            import_values=request.query_params if request.query_params else None,
         )
 
     @app.get("/loops/new/manual", response_class=HTMLResponse)
@@ -81,6 +82,7 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             request,
             page_mode="manual",
             values=request.query_params,
+            import_values=request.query_params if request.query_params else None,
         )
 
     @app.get("/orchestrations", response_class=HTMLResponse)
@@ -92,7 +94,7 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         replace_bundle_id = str(request.query_params.get("replace_bundle_id", "")).strip()
         if replace_bundle_id:
             return RedirectResponse(
-                url=with_query_params("/loops/new/bundle#bundle-import-form", replace_bundle_id=replace_bundle_id),
+                url=with_query_params("/loops/new/manual#bundle-import-form", replace_bundle_id=replace_bundle_id),
                 status_code=303,
             )
         return ctx.render_bundles(request, import_values=request.query_params if request.query_params else None)

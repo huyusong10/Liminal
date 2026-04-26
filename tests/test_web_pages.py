@@ -554,7 +554,13 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(bundle_response.text, "alignment-history-panel")
     _assert_has_testid(bundle_response.text, "alignment-history-list")
     _assert_has_testid(bundle_response.text, "loop-alignment-panel")
+    _assert_has_testid(bundle_response.text, "alignment-scroll-region")
+    _assert_has_testid(bundle_response.text, "alignment-empty-state")
     _assert_has_testid(bundle_response.text, "alignment-start-form")
+    _assert_has_testid(bundle_response.text, "alignment-tools-menu")
+    _assert_has_testid(bundle_response.text, "alignment-tools-close")
+    _assert_has_testid(bundle_response.text, "alignment-workdir-panel")
+    _assert_has_testid(bundle_response.text, "alignment-advanced-panel")
     _assert_has_testid(bundle_response.text, "alignment-executor-kind")
     _assert_has_testid(bundle_response.text, "alignment-executor-mode-switch")
     _assert_has_testid(bundle_response.text, "alignment-mode-preset-button")
@@ -563,30 +569,40 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(bundle_response.text, "alignment-message-input")
     _assert_has_testid(bundle_response.text, "alignment-chat")
     _assert_has_testid(bundle_response.text, "alignment-thinking-status")
+    _assert_has_testid(bundle_response.text, "alignment-live-details")
     _assert_has_testid(bundle_response.text, "alignment-ready-preview")
+    _assert_has_testid(bundle_response.text, "alignment-artifact-summary")
+    _assert_has_testid(bundle_response.text, "alignment-preview-tabs")
+    _assert_has_testid(bundle_response.text, "alignment-preview-tab-spec")
+    _assert_has_testid(bundle_response.text, "alignment-preview-tab-roles")
+    _assert_has_testid(bundle_response.text, "alignment-preview-tab-workflow")
+    assert 'data-testid="alignment-preview-tab-yaml"' not in bundle_response.text
     _assert_has_testid(bundle_response.text, "alignment-workflow-diagram")
     _assert_has_testid(bundle_response.text, "alignment-import-run-button")
+    _assert_has_testid(bundle_response.text, "alignment-source-open-button")
+    _assert_has_testid(bundle_response.text, "alignment-source-sync-button")
     _assert_has_testid(bundle_response.text, "loop-bundle-create-panel")
-    _assert_has_testid(bundle_response.text, "loop-bundle-import-form")
-    _assert_has_testid(bundle_response.text, "bundle-preview-button")
-    _assert_has_testid(bundle_response.text, "bundle-preview-import-button")
-    assert "Generate a Bundle by Chat" in bundle_response.text
-    assert "你想做什么需求？" in bundle_response.text
-    assert "Existing Bundle YAML or File" in bundle_response.text
-    assert 'action="/loops/new/bundle/import-bundle"' in bundle_response.text
-    assert 'name="bundle_yaml"' in bundle_response.text
-    assert 'name="replace_bundle_id"' in bundle_response.text
-    assert 'data-testid="bundle-start-immediately-tip"' in bundle_response.text
+    assert 'data-testid="alignment-import-open-button"' not in bundle_response.text
+    assert 'data-testid="alignment-import-panel"' not in bundle_response.text
+    assert 'data-testid="loop-bundle-import-form"' not in bundle_response.text
+    assert 'action="/loops/new/bundle/import-bundle"' not in bundle_response.text
+    assert 'name="bundle_yaml"' not in bundle_response.text
     assert "{resume_session_id}" in bundle_response.text
-    assert "/tools" in bundle_response.text
-    assert "/bundles" in bundle_response.text
+    assert 'data-testid="alignment-advanced-chip"' not in bundle_response.text
     assert '<title>Generate Bundle</title>' in bundle_response.text
 
     manual_response = client.get("/loops/new/manual")
     assert manual_response.status_code == 200
     assert "/static/pages/new_loop.js?v=" in manual_response.text
     assert "/static/markdown_workbench.js?v=" in manual_response.text
+    assert "/static/pages/bundle_import.js?v=" in manual_response.text
     assert "/static/pages/alignment.js?v=" not in manual_response.text
+    _assert_has_testid(manual_response.text, "manual-bundle-import-panel")
+    _assert_has_testid(manual_response.text, "loop-bundle-import-form")
+    _assert_has_testid(manual_response.text, "bundle-preview-button")
+    _assert_has_testid(manual_response.text, "bundle-preview-import-button")
+    _assert_has_testid(manual_response.text, "alignment-source-open-button")
+    assert 'data-testid="alignment-preview-tab-yaml"' not in manual_response.text
     _assert_has_testid(manual_response.text, "loop-create-form")
     _assert_has_testid(manual_response.text, "nav-orchestrations-link")
     _assert_has_testid(manual_response.text, "nav-role-definitions-link")
@@ -608,6 +624,9 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "name=\"executor_mode\"" not in manual_response.text
     assert "name=\"orchestration_id\"" in manual_response.text
     assert "name=\"completion_mode\"" in manual_response.text
+    assert 'action="/loops/new/manual/import-bundle"' in manual_response.text
+    assert 'name="bundle_yaml"' in manual_response.text
+    assert 'name="replace_bundle_id"' in manual_response.text
     assert "name=\"iteration_interval_seconds\"" in manual_response.text
     assert "id=\"edit-spec\"" in manual_response.text
     assert "id=\"toggle-spec-preview\"" in manual_response.text
@@ -1090,7 +1109,7 @@ def test_bundles_pages_render_list_and_detail(
     assert f'/bundles/{imported["id"]}/edit' in detail_response.text
     assert f'/api/bundles/{imported["id"]}/export' in detail_response.text
     assert f'?return_to=/bundles/{imported["id"]}' in detail_response.text
-    assert f'/loops/new/bundle?replace_bundle_id={imported["id"]}#bundle-import-form' in detail_response.text
+    assert f'/loops/new/manual?replace_bundle_id={imported["id"]}#bundle-import-form' in detail_response.text
     assert "Current Bundle YAML" in detail_response.text
     assert "bundle-surface-grid" in detail_response.text
     assert "bundle-surface-card--wide" in detail_response.text
@@ -1098,19 +1117,19 @@ def test_bundles_pages_render_list_and_detail(
 
     revision_target_response = client.get(f"/loops/new?replace_bundle_id={imported['id']}", follow_redirects=False)
     assert revision_target_response.status_code == 303
-    assert revision_target_response.headers["location"] == f"/loops/new/bundle?replace_bundle_id={imported['id']}#bundle-import-form"
-    revision_target_page = client.get(f"/loops/new/bundle?replace_bundle_id={imported['id']}")
+    assert revision_target_response.headers["location"] == f"/loops/new/manual?replace_bundle_id={imported['id']}#bundle-import-form"
+    revision_target_page = client.get(f"/loops/new/manual?replace_bundle_id={imported['id']}")
     assert revision_target_page.status_code == 200
     _assert_has_testid(revision_target_page.text, "bundle-revision-target-note")
 
     legacy_revision_response = client.get(f"/bundles?replace_bundle_id={imported['id']}", follow_redirects=False)
     assert legacy_revision_response.status_code == 303
-    assert legacy_revision_response.headers["location"] == f"/loops/new/bundle?replace_bundle_id={imported['id']}#bundle-import-form"
+    assert legacy_revision_response.headers["location"] == f"/loops/new/manual?replace_bundle_id={imported['id']}#bundle-import-form"
 
     encoded_revision_response = client.get("/bundles?replace_bundle_id=bundle%26revision%3D2", follow_redirects=False)
     assert encoded_revision_response.status_code == 303
     assert encoded_revision_response.headers["location"] == (
-        "/loops/new/bundle?replace_bundle_id=bundle%26revision%3D2#bundle-import-form"
+        "/loops/new/manual?replace_bundle_id=bundle%26revision%3D2#bundle-import-form"
     )
 
 

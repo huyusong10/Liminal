@@ -60,6 +60,8 @@ bundle 至少包含：
 补充规则：
 
 - `spec.markdown` 必须能通过 Loopora 正常的 spec 编译器；否则 bundle 不能进入预览 READY，也不能导入。
+- 若 `loop.completion_mode` 是 `gatekeeper`，`workflow` 必须包含 GateKeeper role，并且至少有一个 GateKeeper step 能在通过时 `finish_run`；否则 bundle 不能进入预览 READY，也不能导入。
+- Web 内置对齐生成的 bundle 还必须通过更严格的语义 linter，用来保护新手路径；手写或外部导入 bundle 仍以通用 bundle 契约为准。
 
 ## 4. Posture 承载规则
 
@@ -98,17 +100,17 @@ bundle 生命周期按整包表达：
 
 推荐入口：
 
-`创建循环选择页 → Bundle 对话页 → Web 内置对齐 / 既有 YAML 导入 → READY 预览 → 物化 loop → 运行`
+`创建循环选择页 → Bundle 对话页 → Web 内置对齐 → READY 预览 → 物化 loop → 运行`
 
 手动入口继续保留：
 
-`创建循环选择页 → 手动创建页 → spec / role definitions / orchestration / loop 手动编排`
+`创建循环选择页 → 手动创建页 → spec / role definitions / orchestration / loop 手动编排，或导入既有 YAML`
 
 稳定承诺：
 
 - “创建循环”先分流到 Bundle-first 和手动专家模式，两者最终都创建 loop，但使用心智不同。
-- Bundle-first 是默认推荐路径，承载 Web 内置对齐、已有 YAML 预览导入和 READY 后运行。
-- 手动编排仍然是 expert mode，适合用户已经明确 spec、角色与 workflow 规则。
+- Bundle-first 是默认推荐路径，承载 Web 内置对齐、READY 预览和创建运行。
+- 手动编排仍然是 expert mode，适合用户已经明确 spec、角色与 workflow 规则；已有 bundle YAML / 文件导入也归属这条专家路径。
 - 两条路径必须能互相转换：bundle 可以导入成手动资产，手动 loop 也可以派生回 bundle
 - bundle 列表 / 详情页承担管理、导出、派生、整包删除和 revision 入口，不应再成为用户首次创建 loop 时必须理解的额外主流程
 

@@ -154,6 +154,8 @@ class RepositorySchemaMixin:
                     bundle_path TEXT NOT NULL,
                     transcript_json TEXT NOT NULL DEFAULT '[]',
                     validation_json TEXT NOT NULL DEFAULT '{}',
+                    alignment_stage TEXT NOT NULL DEFAULT 'clarifying',
+                    working_agreement_json TEXT NOT NULL DEFAULT '{}',
                     executor_session_ref_json TEXT NOT NULL DEFAULT '{}',
                     linked_bundle_id TEXT NOT NULL DEFAULT '',
                     linked_loop_id TEXT NOT NULL DEFAULT '',
@@ -203,6 +205,8 @@ class RepositorySchemaMixin:
             self._ensure_column(connection, "alignment_sessions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
             self._ensure_column(connection, "alignment_sessions", "command_cli", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "alignment_sessions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "alignment_sessions", "alignment_stage", "TEXT NOT NULL DEFAULT 'clarifying'")
+            self._ensure_column(connection, "alignment_sessions", "working_agreement_json", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(connection, "alignment_sessions", "executor_session_ref_json", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(connection, "alignment_sessions", "linked_bundle_id", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "alignment_sessions", "linked_loop_id", "TEXT NOT NULL DEFAULT ''")

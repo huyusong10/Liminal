@@ -263,6 +263,8 @@
         return;
       }
       tooltip.textContent = text;
+      tooltip.style.left = "0px";
+      tooltip.style.top = "0px";
       tooltip.hidden = false;
       positionTooltip(map, tooltip, target);
     };
@@ -280,14 +282,20 @@
       return;
     }
     const mapBox = map.getBoundingClientRect();
+    const padding = 12;
+    tooltip.style.maxHeight = `${Math.max(80, mapBox.height - (padding * 2))}px`;
     const targetBox = target.getBoundingClientRect();
     const tooltipBox = tooltip.getBoundingClientRect();
     const center = targetBox.left + (targetBox.width / 2) - mapBox.left;
-    const left = Math.max(12, Math.min(center - (tooltipBox.width / 2), mapBox.width - tooltipBox.width - 12));
-    const topCandidate = targetBox.top - mapBox.top - tooltipBox.height - 12;
-    const top = topCandidate >= 8 ? topCandidate : targetBox.bottom - mapBox.top + 12;
+    const maxLeft = Math.max(padding, mapBox.width - tooltipBox.width - padding);
+    const left = Math.max(padding, Math.min(center - (tooltipBox.width / 2), maxLeft));
+    const aboveTarget = targetBox.top - mapBox.top - tooltipBox.height - padding;
+    const belowTarget = targetBox.bottom - mapBox.top + padding;
+    const preferredTop = aboveTarget >= padding ? aboveTarget : belowTarget;
+    const maxTop = Math.max(padding, mapBox.height - tooltipBox.height - padding);
+    const top = Math.max(padding, Math.min(preferredTop, maxTop));
     tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${Math.max(8, top)}px`;
+    tooltip.style.top = `${top}px`;
   }
 
   window.LooporaWorkflowDiagram = {

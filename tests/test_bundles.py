@@ -172,6 +172,17 @@ def test_bundle_preview_rejects_task_contract_list_sections_without_bullets(
         service.preview_bundle_text(invalid_yaml)
 
 
+def test_bundle_preview_rejects_gatekeeper_mode_without_finishing_gatekeeper_step(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    invalid_yaml = _bundle_yaml(sample_workdir).replace('on_pass: "finish_run"', 'on_pass: "continue"')
+
+    with pytest.raises(LooporaError, match="GateKeeper step"):
+        service.preview_bundle_text(invalid_yaml)
+
+
 def test_bundle_delete_cleans_imported_group_but_keeps_unrelated_assets(
     service_factory,
     sample_spec_file: Path,

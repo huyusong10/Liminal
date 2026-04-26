@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 
 from loopora.db_shared import logger
 from loopora.diagnostics import log_event
@@ -13,6 +14,7 @@ class RepositoryAlignmentRecordsMixin:
         now = utc_now()
         transcript_json = json.dumps(payload.get("transcript", []), ensure_ascii=False)
         validation_json = json.dumps(payload.get("validation", {}), ensure_ascii=False)
+        working_agreement_json = json.dumps(payload.get("working_agreement", {}), ensure_ascii=False)
         executor_session_ref_json = json.dumps(payload.get("executor_session_ref", {}), ensure_ascii=False)
         with self.transaction() as connection:
             connection.execute(
@@ -20,10 +22,10 @@ class RepositoryAlignmentRecordsMixin:
                 INSERT INTO alignment_sessions (
                     id, status, executor_kind, executor_mode, command_cli, command_args_text,
                     model, reasoning_effort, workdir, bundle_path, transcript_json, validation_json,
-                    executor_session_ref_json,
+                    alignment_stage, working_agreement_json, executor_session_ref_json,
                     linked_bundle_id, linked_loop_id, linked_run_id, active_child_pid, stop_requested,
                     repair_attempts, created_at, updated_at, finished_at, error_message
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload["id"],
@@ -38,6 +40,8 @@ class RepositoryAlignmentRecordsMixin:
                     payload["bundle_path"],
                     transcript_json,
                     validation_json,
+                    payload.get("alignment_stage", "clarifying"),
+                    working_agreement_json,
                     executor_session_ref_json,
                     payload.get("linked_bundle_id", ""),
                     payload.get("linked_loop_id", ""),
@@ -73,6 +77,7 @@ class RepositoryAlignmentRecordsMixin:
         json_fields = {
             "transcript": "transcript_json",
             "validation": "validation_json",
+            "working_agreement": "working_agreement_json",
             "executor_session_ref": "executor_session_ref_json",
         }
         passthrough_fields = {
@@ -85,6 +90,7 @@ class RepositoryAlignmentRecordsMixin:
             "reasoning_effort",
             "workdir",
             "bundle_path",
+            "alignment_stage",
             "linked_bundle_id",
             "linked_loop_id",
             "linked_run_id",
@@ -125,6 +131,8 @@ class RepositoryAlignmentRecordsMixin:
                 "error_message",
                 "stop_requested",
                 "executor_session_ref",
+                "alignment_stage",
+                "working_agreement",
             }
         }
         if decoded and interesting:
@@ -152,6 +160,21 @@ class RepositoryAlignmentRecordsMixin:
             ).fetchall()
         return [self._decode_row(row) for row in rows]
 
+    def delete_alignment_session(self, session_id: str) -> bool:
+        with self.transaction() as connection:
+            connection.execute("DELETE FROM alignment_events WHERE session_id = ?", (session_id,))
+            cursor = connection.execute("DELETE FROM alignment_sessions WHERE id = ?", (session_id,))
+        deleted = cursor.rowcount > 0
+        if deleted:
+            log_event(
+                logger,
+                logging.INFO,
+                "db.alignment.deleted",
+                "Deleted alignment session",
+                session_id=session_id,
+            )
+        return deleted
+
     def append_alignment_event(self, session_id: str, event_type: str, payload: dict) -> dict:
         now = utc_now()
         payload_json = json.dumps(payload, ensure_ascii=False)
@@ -164,13 +187,57 @@ class RepositoryAlignmentRecordsMixin:
                 (session_id, now, event_type, payload_json),
             )
             row_id = cursor.lastrowid
-        return {
+            session_row = connection.execute(
+                "SELECT bundle_path FROM alignment_sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+        event = {
             "id": row_id,
             "session_id": session_id,
             "created_at": now,
             "event_type": event_type,
             "payload": payload,
         }
+        if session_row:
+            self._append_alignment_event_artifact(self._alignment_event_artifact_root(Path(str(session_row["bundle_path"]))), event)
+        return event
+
+    @staticmethod
+    def _alignment_event_artifact_root(bundle_path: Path) -> Path:
+        return bundle_path.parent.parent if bundle_path.parent.name == "artifacts" else bundle_path.parent
+
+    @staticmethod
+    def _truncate_alignment_event_artifact_text(value: object, *, limit: int = 2000) -> str:
+        text = str(value or "")
+        if len(text) <= limit:
+            return text
+        return text[:limit] + f"\n... [truncated {len(text) - limit} chars]"
+
+    @classmethod
+    def _alignment_event_artifact_payload(cls, event: dict) -> dict:
+        payload = dict(event.get("payload") or {})
+        for key in ("prompt", "json_schema", "bundle_yaml"):
+            if key in payload:
+                payload[f"{key}_omitted"] = True
+                payload.pop(key, None)
+        if payload.get("type") == "command" and "message" in payload:
+            payload["message"] = cls._truncate_alignment_event_artifact_text(payload["message"], limit=500)
+            payload["command_truncated"] = True
+        elif "message" in payload:
+            payload["message"] = cls._truncate_alignment_event_artifact_text(payload["message"])
+        if "error" in payload:
+            payload["error"] = cls._truncate_alignment_event_artifact_text(payload["error"])
+        return {**event, "payload": payload}
+
+    @classmethod
+    def _append_alignment_event_artifact(cls, session_dir: Path, event: dict) -> None:
+        try:
+            events_dir = session_dir / "events"
+            events_dir.mkdir(parents=True, exist_ok=True)
+            with (events_dir / "events.jsonl").open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(cls._alignment_event_artifact_payload(event), ensure_ascii=False) + "\n")
+        except OSError:
+            return
 
     def list_alignment_events(self, session_id: str, *, after_id: int = 0, limit: int = 200) -> list[dict]:
         with self._connect() as connection:

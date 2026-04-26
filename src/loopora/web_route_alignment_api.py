@@ -41,6 +41,10 @@ def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     async def api_get_alignment_session(session_id: str) -> JSONResponse:
         return JSONResponse({"session": ctx.svc().get_alignment_session(session_id)})
 
+    @app.delete("/api/alignments/sessions/{session_id}")
+    async def api_delete_alignment_session(session_id: str) -> JSONResponse:
+        return JSONResponse({"deleted": ctx.svc().delete_alignment_session(session_id)})
+
     @app.post("/api/alignments/sessions/{session_id}/messages")
     async def api_append_alignment_message(session_id: str, request: Request) -> JSONResponse:
         payload = await ctx.read_json_mapping(request)
@@ -94,6 +98,10 @@ def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/alignments/sessions/{session_id}/bundle")
     async def api_alignment_bundle(session_id: str) -> JSONResponse:
         return JSONResponse(ctx.svc().get_alignment_bundle(session_id))
+
+    @app.post("/api/alignments/sessions/{session_id}/bundle/sync")
+    async def api_sync_alignment_bundle(session_id: str) -> JSONResponse:
+        return JSONResponse(ctx.svc().sync_alignment_bundle_from_file(session_id))
 
     @app.post("/api/alignments/sessions/{session_id}/import")
     async def api_import_alignment_bundle(session_id: str, request: Request) -> JSONResponse:

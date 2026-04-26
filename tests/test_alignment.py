@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
@@ -20,6 +21,14 @@ def _wait_for_status(service, session_id: str, *statuses: str, timeout: float = 
     raise AssertionError(f"alignment session stayed in {session['status']}, expected {sorted(expected)}")
 
 
+def _confirm_alignment_agreement(service, session_id: str, *final_statuses: str) -> dict:
+    agreement = _wait_for_status(service, session_id, "waiting_user")
+    assert agreement["alignment_stage"] == "agreement_ready"
+    assert agreement["working_agreement"]["summary"]
+    service.append_alignment_message(session_id, "确认")
+    return _wait_for_status(service, session_id, *(final_statuses or ("ready",)))
+
+
 def test_alignment_service_writes_validates_previews_imports_and_runs(
     service_factory,
     sample_workdir: Path,
@@ -30,12 +39,34 @@ def test_alignment_service_writes_validates_previews_imports_and_runs(
         workdir=sample_workdir,
         message="Build a focused starter experience.",
     )
-    session = _wait_for_status(service, created["id"], "ready")
+    session = _confirm_alignment_agreement(service, created["id"])
 
     bundle_path = Path(session["bundle_path"])
-    assert bundle_path == sample_workdir / ".loopora" / "alignment_sessions" / session["id"] / "bundle.yml"
+    artifact_root = sample_workdir / ".loopora" / "alignment_sessions" / session["id"]
+    assert bundle_path == artifact_root / "artifacts" / "bundle.yml"
     assert bundle_path.exists()
     assert session["validation"]["ok"] is True
+    assert (artifact_root / "manifest.json").exists()
+    assert (artifact_root / "conversation" / "transcript.jsonl").exists()
+    assert (artifact_root / "agreement" / "current.json").exists()
+    assert (artifact_root / "artifacts" / "validation.json").exists()
+    assert (artifact_root / "events" / "events.jsonl").exists()
+    invocation_dir = artifact_root / "invocations" / "0001"
+    assert (invocation_dir / "prompt.md").exists()
+    assert (invocation_dir / "schema.json").exists()
+    assert (invocation_dir / "output.json").exists()
+    assert (invocation_dir / "stdout.log").exists()
+    assert (invocation_dir / "stderr.log").exists()
+    invocation_output = json.loads((invocation_dir / "output.json").read_text(encoding="utf-8"))
+    assert "bundle_yaml" not in invocation_output
+    assert invocation_output["bundle_written"] is True
+    assert invocation_output["bundle_path"] == str(bundle_path)
+    manifest = json.loads((artifact_root / "manifest.json").read_text(encoding="utf-8"))
+    assert "transcript" not in manifest
+    assert "validation" not in manifest
+    assert "working_agreement" not in manifest
+    assert "Build a focused starter experience." in (artifact_root / "conversation" / "transcript.jsonl").read_text(encoding="utf-8")
+    assert session["alignment_stage"] == "ready"
 
     preview = service.get_alignment_bundle(session["id"])
     assert preview["ok"] is True
@@ -69,6 +100,41 @@ def test_alignment_service_waits_for_user_question(service_factory, sample_workd
     assert session["executor_session_ref"]["session_id"]
 
 
+def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我生成一个中文任务的循环方案。",
+    )
+    session = _confirm_alignment_agreement(service, created["id"])
+    artifact_root = Path(session["artifact_dir"])
+    prompt_text = (artifact_root / "invocations" / "0001" / "prompt.md").read_text(encoding="utf-8")
+
+    assert "User language hint: `Chinese" in prompt_text
+    assert "Preserve Loopora domain terms exactly" in prompt_text
+    synced = service.sync_alignment_bundle_from_file(session["id"])
+
+    assert synced["ok"] is True
+    refreshed = service.get_alignment_session(session["id"])
+    assert "已重新读取 bundle.yml" in refreshed["transcript"][-1]["content"]
+
+
+def test_alignment_service_blocks_premature_bundle_output(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="alignment_premature_bundle")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience.",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert "对齐" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(event["event_type"] == "alignment_stage_blocked" for event in events)
+
+
 def test_alignment_service_reuses_executor_session_ref_between_turns(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="alignment_question")
 
@@ -97,6 +163,13 @@ def test_alignment_service_falls_back_when_native_resume_fails(service_factory, 
     )
     service.repository.update_alignment_session(session["id"], executor_session_ref={"session_id": "stale-session"})
     service.start_alignment_session_async(session["id"])
+    _wait_for_status(service, session["id"], "waiting_user")
+    service.repository.update_alignment_session(
+        session["id"],
+        alignment_stage="confirmed",
+        working_agreement={"summary": "Confirmed test agreement.", "confirmed_at": "test"},
+    )
+    service.start_alignment_session_async(session["id"])
     ready = _wait_for_status(service, session["id"], "ready")
 
     assert ready["validation"]["ok"] is True
@@ -111,12 +184,30 @@ def test_alignment_service_repairs_invalid_bundle_once(service_factory, sample_w
         workdir=sample_workdir,
         message="Generate a bundle, and recover if the first draft is malformed.",
     )
-    session = _wait_for_status(service, created["id"], "ready")
+    session = _confirm_alignment_agreement(service, created["id"])
 
     assert session["repair_attempts"] == 1
     assert session["validation"]["ok"] is True
     events = service.list_alignment_events(session["id"])
     assert any(event["event_type"] == "alignment_repair_started" for event in events)
+
+
+def test_alignment_service_repairs_semantically_incomplete_bundle_once(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="alignment_semantic_invalid_then_valid")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Generate a semantically complete bundle.",
+    )
+    session = _confirm_alignment_agreement(service, created["id"])
+
+    assert session["repair_attempts"] == 1
+    assert session["validation"]["ok"] is True
+    failed_events = [
+        event for event in service.list_alignment_events(created["id"]) if event["event_type"] == "alignment_validation_failed"
+    ]
+    assert failed_events
+    assert "semantic lint" in failed_events[0]["payload"]["error"]
 
 
 def test_alignment_service_fails_after_invalid_repair(service_factory, sample_workdir: Path) -> None:
@@ -126,7 +217,7 @@ def test_alignment_service_fails_after_invalid_repair(service_factory, sample_wo
         workdir=sample_workdir,
         message="Generate a bundle that remains invalid.",
     )
-    session = _wait_for_status(service, created["id"], "failed")
+    session = _confirm_alignment_agreement(service, created["id"], "failed")
 
     assert session["repair_attempts"] == 1
     assert session["validation"]["ok"] is False
@@ -165,6 +256,9 @@ def test_alignment_api_covers_session_events_bundle_and_import(
     )
     assert response.status_code == 201
     session_id = response.json()["session"]["id"]
+    _wait_for_status(service, session_id, "waiting_user")
+    confirm_response = client.post(f"/api/alignments/sessions/{session_id}/messages", json={"message": "确认"})
+    assert confirm_response.status_code == 200
     _wait_for_status(service, session_id, "ready")
 
     session_response = client.get(f"/api/alignments/sessions/{session_id}")
@@ -191,6 +285,22 @@ def test_alignment_api_covers_session_events_bundle_and_import(
     assert bundle_payload["ok"] is True
     assert bundle_payload["workflow_preview"]["roles"][0]["archetype"] == "builder"
 
+    bundle_path = Path(service.get_alignment_session(session_id)["bundle_path"])
+    bundle_path.write_text(
+        bundle_path.read_text(encoding="utf-8").replace("Aligned Starter Bundle", "Synced Starter Bundle", 1),
+        encoding="utf-8",
+    )
+    sync_response = client.post(f"/api/alignments/sessions/{session_id}/bundle/sync")
+    assert sync_response.status_code == 200
+    sync_payload = sync_response.json()
+    assert sync_payload["ok"] is True
+    assert sync_payload["metadata"]["name"] == "Synced Starter Bundle"
+    assert sync_payload["session"]["status"] == "ready"
+    assert any(
+        event["event_type"] == "alignment_bundle_synced"
+        for event in service.list_alignment_events(session_id)
+    )
+
     import_response = client.post(
         f"/api/alignments/sessions/{session_id}/import",
         json={"start_immediately": False},
@@ -198,6 +308,59 @@ def test_alignment_api_covers_session_events_bundle_and_import(
     assert import_response.status_code == 201
     assert import_response.json()["bundle"]["id"]
     assert import_response.json()["session"]["status"] == "imported"
+
+    delete_response = client.delete(f"/api/alignments/sessions/{session_id}")
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted"] is True
+    assert client.get(f"/api/alignments/sessions/{session_id}").status_code == 400
+    assert client.get("/api/alignments/sessions").json()["sessions"] == []
+
+
+def test_alignment_service_lazily_migrates_legacy_flat_artifacts(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    session_id = "align_legacy"
+    legacy_root = sample_workdir / ".loopora" / "alignment_sessions" / session_id
+    legacy_root.mkdir(parents=True)
+    legacy_bundle = legacy_root / "bundle.yml"
+    legacy_bundle.write_text("version: 1\nmetadata:\n  name: Legacy\n  revision: 1\n", encoding="utf-8")
+    (legacy_root / "transcript.jsonl").write_text(
+        json.dumps({"role": "user", "content": "Legacy prompt"}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    (legacy_root / "working_agreement.json").write_text('{"summary":"Legacy agreement"}\n', encoding="utf-8")
+    (legacy_root / "validation.json").write_text('{"ok":true}\n', encoding="utf-8")
+    (legacy_root / "alignment_prompt_0.md").write_text("legacy prompt\n", encoding="utf-8")
+    (legacy_root / "alignment_schema.json").write_text("{}\n", encoding="utf-8")
+    (legacy_root / "alignment_output_0.json").write_text(
+        json.dumps({"assistant_message": "done", "bundle_yaml": "raw yaml"}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    service.repository.create_alignment_session(
+        {
+            "id": session_id,
+            "status": "ready",
+            "workdir": str(sample_workdir),
+            "bundle_path": str(legacy_bundle),
+            "transcript": [{"role": "user", "content": "Legacy prompt", "created_at": "now"}],
+            "validation": {"ok": True},
+            "alignment_stage": "ready",
+            "working_agreement": {"summary": "Legacy agreement"},
+            "executor_session_ref": {},
+        }
+    )
+
+    migrated = service.get_alignment_session(session_id)
+    root = Path(migrated["artifact_dir"])
+
+    assert Path(migrated["bundle_path"]) == root / "artifacts" / "bundle.yml"
+    assert (root / "artifacts" / "bundle.yml").exists()
+    assert (root / "conversation" / "transcript.jsonl").exists()
+    assert (root / "agreement" / "current.json").exists()
+    assert (root / "artifacts" / "validation.json").exists()
+    output = json.loads((root / "invocations" / "0001" / "output.json").read_text(encoding="utf-8"))
+    assert "bundle_yaml" not in output
+    assert output["bundle_sha256"]
+    assert (root / "legacy" / "bundle.yml").exists()
 
 
 def test_alignment_api_rejects_busy_messages_and_allows_continue_after_cancel(

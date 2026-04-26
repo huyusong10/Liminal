@@ -1059,33 +1059,126 @@ class FakeCodexExecutor(CodexExecutor):
         if self.scenario == "alignment_failure":
             raise ExecutorError("simulated alignment failure")
         if self.scenario == "alignment_question":
-            return {
-                "status": "question",
-                "assistant_message": "这次你更怕做慢，还是更怕做糙？",
-                "needs_user_input": True,
-                "bundle_yaml": "",
-            }
+            return self._alignment_response(
+                status="question",
+                assistant_message="这次你更怕做慢，还是更怕做糙？",
+                needs_user_input=True,
+                bundle_yaml="",
+                phase="clarifying",
+            )
         mode = str(request.extra_context.get("alignment_mode", "normal"))
+        alignment_stage = str(request.extra_context.get("alignment_stage", "clarifying") or "clarifying")
+        if self.scenario == "alignment_premature_bundle":
+            workdir = str(request.extra_context.get("target_workdir") or request.workdir)
+            return self._alignment_response(
+                status="bundle",
+                assistant_message="我跳过对齐直接生成 bundle。",
+                needs_user_input=False,
+                bundle_yaml=self._alignment_bundle_yaml(workdir),
+                phase="clarifying",
+                ready=False,
+            )
+        if mode != "repair" and alignment_stage not in {"confirmed", "compiling"}:
+            return self._alignment_agreement_response()
         if self.scenario == "alignment_invalid":
-            return {
-                "status": "bundle",
-                "assistant_message": "我先给出一个故意不完整的 bundle。",
-                "needs_user_input": False,
-                "bundle_yaml": "version: 1\nmetadata:\n  name: Broken Alignment Bundle\n",
-            }
+            return self._alignment_response(
+                status="bundle",
+                assistant_message="我先给出一个故意不完整的 bundle。",
+                needs_user_input=False,
+                bundle_yaml="version: 1\nmetadata:\n  name: Broken Alignment Bundle\n",
+                phase="bundle",
+                ready=True,
+            )
         if self.scenario == "alignment_invalid_then_valid" and mode != "repair":
-            return {
-                "status": "bundle",
-                "assistant_message": "我先给出一个需要修复的 bundle。",
-                "needs_user_input": False,
-                "bundle_yaml": "version: 1\nmetadata:\n  name: Broken Alignment Bundle\n",
-            }
+            return self._alignment_response(
+                status="bundle",
+                assistant_message="我先给出一个需要修复的 bundle。",
+                needs_user_input=False,
+                bundle_yaml="version: 1\nmetadata:\n  name: Broken Alignment Bundle\n",
+                phase="bundle",
+                ready=True,
+            )
+        if self.scenario == "alignment_semantic_invalid_then_valid" and mode != "repair":
+            workdir = str(request.extra_context.get("target_workdir") or request.workdir)
+            return self._alignment_response(
+                status="bundle",
+                assistant_message="我先给出一个语义不完整的 bundle。",
+                needs_user_input=False,
+                bundle_yaml=self._alignment_bundle_yaml_without_semantics(workdir),
+                phase="bundle",
+                ready=True,
+            )
         workdir = str(request.extra_context.get("target_workdir") or request.workdir)
+        return self._alignment_response(
+            status="bundle",
+            assistant_message="已整理成一个可导入的 Loopora bundle。",
+            needs_user_input=False,
+            bundle_yaml=self._alignment_bundle_yaml(workdir),
+            phase="bundle",
+            ready=True,
+        )
+
+    @staticmethod
+    def _alignment_response(
+        *,
+        status: str,
+        assistant_message: str,
+        needs_user_input: bool,
+        bundle_yaml: str,
+        phase: str,
+        ready: bool = False,
+    ) -> dict:
+        checklist = {
+            "task_scope": ready,
+            "success_surface": ready,
+            "fake_done_risks": ready,
+            "evidence_preferences": ready,
+            "role_posture": ready,
+            "workflow_shape": ready,
+            "explicit_confirmation": ready,
+        }
         return {
-            "status": "bundle",
-            "assistant_message": "已整理成一个可导入的 Loopora bundle。",
-            "needs_user_input": False,
-            "bundle_yaml": self._alignment_bundle_yaml(workdir),
+            "status": status,
+            "assistant_message": assistant_message,
+            "needs_user_input": needs_user_input,
+            "bundle_yaml": bundle_yaml,
+            "session_ref": {
+                "session_id": "",
+                "thread_id": "",
+                "conversation_id": "",
+                "provider": "fake",
+                "raw_json": "",
+            },
+            "alignment_phase": phase,
+            "agreement_summary": "Use a focused Builder, evidence Inspector, and strict GateKeeper." if ready else "",
+            "readiness_checklist": checklist,
+        }
+
+    @staticmethod
+    def _alignment_agreement_response() -> dict:
+        return {
+            "status": "question",
+            "assistant_message": "我会按这个工作协议生成：先做聚焦实现，再收集可复现证据，最后由 GateKeeper 保守裁决。请回复“确认”后我再生成循环方案。",
+            "needs_user_input": True,
+            "bundle_yaml": "",
+            "session_ref": {
+                "session_id": "",
+                "thread_id": "",
+                "conversation_id": "",
+                "provider": "fake",
+                "raw_json": "",
+            },
+            "alignment_phase": "agreement",
+            "agreement_summary": "Use a focused Builder, evidence Inspector, and strict GateKeeper.",
+            "readiness_checklist": {
+                "task_scope": True,
+                "success_surface": True,
+                "fake_done_risks": True,
+                "evidence_preferences": True,
+                "role_posture": True,
+                "workflow_shape": True,
+                "explicit_confirmation": False,
+            },
         }
 
     @staticmethod
@@ -1128,15 +1221,31 @@ spec:
 
     - Keep changes scoped to the requested behavior.
 
+    # Success Surface
+
+    - The result is understandable, maintainable, and easy to extend after the first pass.
+
     # Fake Done
 
     - Do not pass with only a happy-path claim and no reproducible evidence.
+
+    # Evidence Preferences
+
+    - Prefer project-owned checks, direct run output, and concrete artifacts before screenshots or claims.
 
     # Role Notes
 
     ## Builder Notes
 
     Prefer a small maintainable patch over broad rewrites.
+
+    ## Inspector Notes
+
+    Collect reproducible evidence and call out missing proof plainly.
+
+    ## GateKeeper Notes
+
+    Fail closed when Done When, fake-done risks, and evidence preferences are not all satisfied.
 role_definitions:
   - key: "builder"
     name: "Focused Builder"
@@ -1218,6 +1327,23 @@ workflow:
       role_id: "gatekeeper"
       on_pass: "finish_run"
 """
+
+    @staticmethod
+    def _alignment_bundle_yaml_without_semantics(workdir: str) -> str:
+        yaml_text = FakeCodexExecutor._alignment_bundle_yaml(workdir)
+        yaml_text = re.sub(
+            r"\n    # Success Surface\n\n    - .+?\n(?=\n    # Fake Done)",
+            "\n",
+            yaml_text,
+            flags=re.DOTALL,
+        )
+        yaml_text = re.sub(
+            r"\n    # Evidence Preferences\n\n    - .+?\n(?=\n    # Role Notes)",
+            "\n",
+            yaml_text,
+            flags=re.DOTALL,
+        )
+        return yaml_text
 
 
 def executor_from_environment() -> CodexExecutor:

@@ -658,14 +658,35 @@ def test_cli_bundles_import_export_derive_and_delete(monkeypatch, tmp_path: Path
                         "command_args_text": "",
                         "model": "",
                         "reasoning_effort": "",
-                    }
+                    },
+                    {
+                        "key": "gatekeeper",
+                        "name": "GateKeeper",
+                        "description": "",
+                        "archetype": "gatekeeper",
+                        "prompt_ref": "gatekeeper.md",
+                        "prompt_markdown": "---\nversion: 1\narchetype: gatekeeper\n---\nJudge it.\n",
+                        "posture_notes": "Close only on real evidence.",
+                        "executor_kind": "codex",
+                        "executor_mode": "preset",
+                        "command_cli": "codex",
+                        "command_args_text": "",
+                        "model": "",
+                        "reasoning_effort": "",
+                    },
                 ],
                 "workflow": {
                     "version": 1,
                     "preset": "",
                     "collaboration_intent": "Verify before sign-off.",
-                    "roles": [{"id": "builder", "role_definition_key": "builder"}],
-                    "steps": [{"id": "builder_step", "role_id": "builder", "on_pass": "continue"}],
+                    "roles": [
+                        {"id": "builder", "role_definition_key": "builder"},
+                        {"id": "gatekeeper", "role_definition_key": "gatekeeper"},
+                    ],
+                    "steps": [
+                        {"id": "builder_step", "role_id": "builder", "on_pass": "continue"},
+                        {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+                    ],
                 },
             }
         ),
@@ -725,14 +746,35 @@ def test_cli_bundles_import_export_derive_and_delete(monkeypatch, tmp_path: Path
                         "command_args_text": "",
                         "model": "",
                         "reasoning_effort": "",
-                    }
+                    },
+                    {
+                        "key": "gatekeeper",
+                        "name": "GateKeeper",
+                        "description": "",
+                        "archetype": "gatekeeper",
+                        "prompt_ref": "gatekeeper.md",
+                        "prompt_markdown": "---\nversion: 1\narchetype: gatekeeper\n---\nJudge it.\n",
+                        "posture_notes": "",
+                        "executor_kind": "codex",
+                        "executor_mode": "preset",
+                        "command_cli": "codex",
+                        "command_args_text": "",
+                        "model": "",
+                        "reasoning_effort": "",
+                    },
                 ],
                 "workflow": {
                     "version": 1,
                     "preset": "",
                     "collaboration_intent": "",
-                    "roles": [{"id": "builder", "role_definition_key": "builder"}],
-                    "steps": [{"id": "builder_step", "role_id": "builder", "on_pass": "continue"}],
+                    "roles": [
+                        {"id": "builder", "role_definition_key": "builder"},
+                        {"id": "gatekeeper", "role_definition_key": "gatekeeper"},
+                    ],
+                    "steps": [
+                        {"id": "builder_step", "role_id": "builder", "on_pass": "continue"},
+                        {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+                    ],
                 },
             }
 

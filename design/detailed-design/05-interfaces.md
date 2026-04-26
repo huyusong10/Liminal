@@ -61,7 +61,7 @@
 |------|----------|
 | Web UI | 提供可视化 workflow 编辑器、角色选择器、教程入口与实时页面导航 |
 | CLI | 提供同步等待与后台执行开关 |
-| Web UI | 可以把 bundle 导入与创建 loop 合并为同一页：bundle-first 作为默认创建路径，手动创建 loop 保留为 expert mode；对话生成 bundle 与已有 YAML / 文件导入可以合并为同一卡片并共享 spec / roles / workflow / YAML 预览，只要 bundle、loop、orchestration、role definition 的底层语义保持一致 |
+| Web UI | 可以把 bundle 生成与创建 loop 合并为对话式新手路径，同时把已有 YAML / 文件导入放入手动 expert 路径；两条路径都可以共享 spec / roles / workflow / YAML 预览，只要 bundle、loop、orchestration、role definition 的底层语义保持一致 |
 | Web UI | 可以提供内置 alignment session，让用户通过“选择 CLI 工具 + 描述需求”生成 READY bundle；该能力是 Web-only 新手入口，不要求 CLI 提供同构命令；执行器预设 / 自定义命令切换应与角色定义页保持同一语义 |
 | Web UI | 当 loop 属于某个 bundle 时，可以在 loop 列表里把危险操作直接重定向到 bundle 删除，而不是继续暴露会拆坏 bundle 的局部删除路径 |
 | Web UI | 可保存浏览器本地草稿、最近使用建议，以及用户选择的明暗主题；这些都是 best-effort |

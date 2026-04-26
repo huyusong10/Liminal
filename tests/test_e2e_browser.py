@@ -251,15 +251,62 @@ def _wait_for_run_status(service: LooporaService, run_id: str, *statuses: str, t
 
 def _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page) -> None:
     page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
+    page.get_by_test_id("alignment-artifact-summary").wait_for(state="visible", timeout=5_000)
     assert page.get_by_test_id("alignment-spec-preview").inner_html().strip()
+    page.get_by_test_id("alignment-preview-tab-roles").click()
     assert page.locator('[data-testid="alignment-role-list"] .alignment-role-card').count() >= 3
 
+    page.get_by_test_id("alignment-preview-tab-workflow").click()
     diagram = page.get_by_test_id("alignment-workflow-diagram")
     diagram.locator("svg").wait_for(state="visible", timeout=5_000)
     assert diagram.locator(".workflow-loop-node").count() >= 3
-    assert "Aligned Starter Bundle" in page.get_by_test_id("alignment-yaml-source").text_content()
+    assert page.get_by_test_id("alignment-preview-tab-yaml").count() == 0
+    page.get_by_test_id("alignment-preview-tab-roles").click()
+    first_role = page.locator('[data-testid="alignment-role-card"]').first
+    assert first_role.evaluate("(element) => element.open") is False
+    first_role.locator('[data-testid="alignment-role-toggle"]').click()
+    assert first_role.evaluate("(element) => element.open") is True
+    assert first_role.text_content()
+    role_pre = first_role.locator("pre").first
+    if role_pre.count():
+        metrics = role_pre.evaluate(
+            """(element) => ({
+              clientHeight: element.clientHeight,
+              scrollHeight: element.scrollHeight,
+              overflowY: getComputedStyle(element).overflowY
+            })"""
+        )
+        assert metrics["overflowY"] != "auto"
+        assert metrics["scrollHeight"] <= metrics["clientHeight"] + 1
 
+    page.get_by_test_id("alignment-preview-tab-workflow").click()
     node = diagram.locator(".workflow-loop-node").nth(1)
+    node.scroll_into_view_if_needed()
+    layout_before = page.evaluate(
+        """() => {
+          const rect = (element) => {
+            if (!element) {
+              return null;
+            }
+            const box = element.getBoundingClientRect();
+            return {
+              x: box.x,
+              y: box.y,
+              width: box.width,
+              height: box.height,
+              bottom: box.bottom,
+            };
+          };
+          const scrollRegion = document.querySelector('[data-testid="alignment-scroll-region"]');
+          const composer = document.querySelector('[data-testid="alignment-start-form"]');
+          return {
+            diagram: rect(document.querySelector('[data-testid="alignment-workflow-diagram"]')),
+            composer: rect(composer),
+            scrollHeight: scrollRegion ? scrollRegion.scrollHeight : document.documentElement.scrollHeight,
+            scrollTop: scrollRegion ? scrollRegion.scrollTop : document.documentElement.scrollTop,
+          };
+        }"""
+    )
     before = node.evaluate(
         """(element) => {
           const box = element.getBBox();
@@ -272,6 +319,31 @@ def _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page) ->
     tooltip_text = tooltip.text_content() or ""
     assert "2" in tooltip_text
     assert "Inspector" in tooltip_text
+    layout_after = page.evaluate(
+        """() => {
+          const rect = (element) => {
+            if (!element) {
+              return null;
+            }
+            const box = element.getBoundingClientRect();
+            return {
+              x: box.x,
+              y: box.y,
+              width: box.width,
+              height: box.height,
+              bottom: box.bottom,
+            };
+          };
+          const scrollRegion = document.querySelector('[data-testid="alignment-scroll-region"]');
+          const composer = document.querySelector('[data-testid="alignment-start-form"]');
+          return {
+            diagram: rect(document.querySelector('[data-testid="alignment-workflow-diagram"]')),
+            composer: rect(composer),
+            scrollHeight: scrollRegion ? scrollRegion.scrollHeight : document.documentElement.scrollHeight,
+            scrollTop: scrollRegion ? scrollRegion.scrollTop : document.documentElement.scrollTop,
+          };
+        }"""
+    )
     after = node.evaluate(
         """(element) => {
           const box = element.getBBox();
@@ -282,6 +354,12 @@ def _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page) ->
     assert abs(before["y"] - after["y"]) <= 0.5
     assert abs(before["width"] - after["width"]) <= 0.5
     assert abs(before["height"] - after["height"]) <= 0.5
+    assert abs(layout_before["diagram"]["height"] - layout_after["diagram"]["height"]) <= 1
+    assert abs(layout_before["scrollHeight"] - layout_after["scrollHeight"]) <= 1
+    assert abs(layout_before["scrollTop"] - layout_after["scrollTop"]) <= 1
+    if layout_before["composer"] and layout_after["composer"]:
+        assert abs(layout_before["composer"]["y"] - layout_after["composer"]["y"]) <= 1
+        assert abs(layout_before["composer"]["height"] - layout_after["composer"]["height"]) <= 1
 
 
 def test_local_listener_permission_errors_become_skips() -> None:
@@ -382,6 +460,21 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
             page = browser.new_page(viewport={"width": 1440, "height": 1100})
             try:
                 page.goto(f"{base_url}/loops/new/bundle", wait_until="networkidle")
+                page.get_by_test_id("alignment-empty-state").wait_for(state="visible", timeout=5_000)
+                assert page.locator("#bundle-import-yaml").count() == 0
+                assert page.get_by_test_id("alignment-ready-preview").is_hidden()
+                assert page.get_by_test_id("alignment-live-details").is_hidden()
+                page.get_by_test_id("alignment-message-input").fill("保留这条输入")
+                page.get_by_test_id("alignment-message-input").press("Shift+Enter")
+                page.get_by_test_id("alignment-message-input").type("先触发 workdir 提示。")
+                assert "\n" in page.get_by_test_id("alignment-message-input").input_value()
+                page.get_by_test_id("alignment-message-input").press("Enter")
+                page.get_by_test_id("alignment-tools-menu").wait_for(state="visible", timeout=5_000)
+                assert page.get_by_test_id("alignment-message-input").input_value() == "保留这条输入\n先触发 workdir 提示。"
+                page.get_by_test_id("alignment-tools-close").click()
+                page.get_by_test_id("alignment-tools-menu").wait_for(state="hidden", timeout=5_000)
+                page.get_by_test_id("alignment-workdir-chip").click()
+                page.get_by_test_id("alignment-tools-menu").wait_for(state="visible", timeout=5_000)
                 page.get_by_test_id("alignment-workdir").fill(str(workdir))
                 page.get_by_test_id("alignment-message-input").fill(
                     "帮我为这个仓库生成一个先小步实现、再取证验收、最后保守放行的 Loopora bundle。"
@@ -390,6 +483,22 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
 
                 page.get_by_test_id("alignment-chat").wait_for(state="visible", timeout=5_000)
                 page.get_by_test_id("alignment-thinking-status").wait_for(state="visible", timeout=2_000)
+                assert page.get_by_test_id("alignment-live-details").is_visible()
+                assert page.get_by_test_id("alignment-live-body").is_hidden()
+                before_toggle = page.get_by_test_id("alignment-start-form").bounding_box()
+                page.get_by_test_id("alignment-live-toggle").click()
+                page.get_by_test_id("alignment-live-body").wait_for(state="visible", timeout=5_000)
+                after_toggle = page.get_by_test_id("alignment-start-form").bounding_box()
+                assert before_toggle and after_toggle
+                assert abs(before_toggle["y"] - after_toggle["y"]) <= 2
+                agreement = _wait_for_alignment_status(
+                    service,
+                    service.list_alignment_sessions(limit=1)[0]["id"],
+                    "waiting_user",
+                )
+                assert agreement["alignment_stage"] == "agreement_ready"
+                page.get_by_test_id("alignment-message-input").fill("确认")
+                page.get_by_test_id("alignment-send-button").click()
                 page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
                 session = _wait_for_alignment_status(
                     service,
@@ -397,12 +506,36 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
                     "ready",
                 )
                 assert session["validation"]["ok"] is True
-                assert Path(session["bundle_path"]).exists()
+                bundle_path = Path(session["bundle_path"])
+                artifact_dir = Path(session["artifact_dir"])
+                assert bundle_path.exists()
+                assert bundle_path == artifact_dir / "artifacts" / "bundle.yml"
+                assert (artifact_dir / "invocations" / "0001" / "prompt.md").exists()
+                assert (artifact_dir / "invocations" / "0001" / "output.json").exists()
+                assert (artifact_dir / "events" / "events.jsonl").exists()
+                assert (artifact_dir / "conversation" / "transcript.jsonl").exists()
+                assert (artifact_dir / "artifacts" / "validation.json").exists()
 
                 transcript_text = page.get_by_test_id("alignment-transcript").text_content() or ""
                 assert "Loopora bundle" in transcript_text
                 assert page.locator('[data-testid="alignment-console-output"] .console-line').count() >= 2
                 assert page.locator(".alignment-history-item").count() == 1
+                page.get_by_test_id("alignment-source-open-button").wait_for(state="visible", timeout=5_000)
+                page.get_by_test_id("alignment-source-sync-button").wait_for(state="visible", timeout=5_000)
+                sidebar_before = page.get_by_test_id("alignment-history-panel").bounding_box()
+                composer_before = page.get_by_test_id("alignment-start-form").bounding_box()
+                page.get_by_test_id("alignment-scroll-region").evaluate("node => { node.scrollTop = node.scrollHeight; }")
+                sidebar_after = page.get_by_test_id("alignment-history-panel").bounding_box()
+                composer_after = page.get_by_test_id("alignment-start-form").bounding_box()
+                assert sidebar_before and sidebar_after and composer_before and composer_after
+                assert abs(sidebar_before["y"] - sidebar_after["y"]) <= 2
+                assert abs(composer_before["y"] - composer_after["y"]) <= 2
+                _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page)
+                page.get_by_test_id("alignment-new-session-button").click()
+                page.get_by_test_id("alignment-ready-preview").wait_for(state="hidden", timeout=5_000)
+                page.locator(".alignment-history-open").first.click()
+                page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
+                page.get_by_test_id("alignment-status-pill").click()
                 _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page)
 
                 page.get_by_test_id("alignment-import-run-button").click()
@@ -414,6 +547,85 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
                 assert len(bundles) == 1
                 assert bundles[0]["loop_id"] == run["loop_id"]
                 assert service.get_alignment_session(session["id"])["linked_run_id"] == run_id
+            finally:
+                browser.close()
+
+
+def test_bundle_chat_shell_initial_layout_is_minimal_and_responsive(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LooporaService(repository=repository, settings=settings)
+
+    with serve_app(build_app(service=service)) as base_url:
+        with playwright.sync_playwright() as p:
+            try:
+                browser = p.chromium.launch(headless=True)
+            except Exception as exc:  # pragma: no cover - environment dependent
+                pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+            try:
+                for viewport in ({"width": 1440, "height": 960}, {"width": 390, "height": 844}):
+                    page = browser.new_page(viewport=viewport)
+                    page.goto(f"{base_url}/loops/new/bundle", wait_until="networkidle")
+                    page.get_by_test_id("alignment-empty-state").wait_for(state="visible", timeout=5_000)
+                    assert page.get_by_test_id("alignment-chat").is_hidden()
+                    assert page.get_by_test_id("alignment-ready-preview").is_hidden()
+                    assert page.locator("#bundle-import-yaml").count() == 0
+                    assert page.get_by_test_id("alignment-import-open-button").count() == 0
+                    assert page.get_by_test_id("alignment-tools-menu").is_hidden()
+                    page.get_by_test_id("alignment-workdir-chip").click()
+                    page.get_by_test_id("alignment-tools-menu").wait_for(state="visible", timeout=5_000)
+                    page.keyboard.press("Escape")
+                    page.get_by_test_id("alignment-tools-menu").wait_for(state="hidden", timeout=5_000)
+                    metrics = page.evaluate(
+                        """() => ({
+                          bodyWidth: document.body.scrollWidth,
+                          docScrollHeight: document.documentElement.scrollHeight,
+                          viewportHeight: window.innerHeight,
+                          viewportWidth: window.innerWidth,
+                          composer: document.querySelector('[data-testid="alignment-start-form"]').getBoundingClientRect()
+                        })"""
+                    )
+                    assert metrics["bodyWidth"] <= metrics["viewportWidth"] + 1
+                    assert metrics["docScrollHeight"] <= metrics["viewportHeight"] + 1
+                    assert metrics["composer"]["left"] >= -1
+                    assert metrics["composer"]["right"] <= metrics["viewportWidth"] + 1
+                    page.close()
+                page = browser.new_page(viewport={"width": 1280, "height": 900})
+                page.goto(f"{base_url}/loops/new/bundle#bundle-import-form", wait_until="networkidle")
+                page.wait_for_url("**/loops/new/manual#bundle-import-form", timeout=5_000)
+                page.get_by_test_id("manual-bundle-import-panel").wait_for(state="visible", timeout=5_000)
+                page.close()
+            finally:
+                browser.close()
+
+
+def test_bundle_chat_history_items_can_be_deleted_from_browser(tmp_path: Path) -> None:
+    workdir = tmp_path / "history-delete-workdir"
+    workdir.mkdir()
+    repository = LooporaRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LooporaService(repository=repository, settings=settings)
+    session = service.create_alignment_session(
+        workdir=workdir,
+        message="生成一个可删除的历史会话。",
+        start_immediately=False,
+    )
+
+    with serve_app(build_app(service=service)) as base_url:
+        with playwright.sync_playwright() as p:
+            try:
+                browser = p.chromium.launch(headless=True)
+            except Exception as exc:  # pragma: no cover - environment dependent
+                pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            try:
+                page.goto(f"{base_url}/loops/new/bundle", wait_until="networkidle")
+                page.locator(".alignment-history-item").wait_for(state="visible", timeout=5_000)
+                assert page.locator(".alignment-history-item").count() == 1
+                page.get_by_test_id("alignment-history-delete").click()
+                page.locator(".alignment-history-item").wait_for(state="detached", timeout=5_000)
+                assert service.list_alignment_sessions(limit=10) == []
+                assert not Path(session["artifact_dir"]).exists()
             finally:
                 browser.close()
 
@@ -439,12 +651,14 @@ def test_bundle_yaml_preview_imports_and_runs_from_browser(tmp_path: Path) -> No
                 pytest.skip(f"Playwright browser launch is unavailable: {exc}")
             page = browser.new_page(viewport={"width": 1280, "height": 1100})
             try:
-                page.goto(f"{base_url}/loops/new/bundle#bundle-import-form", wait_until="networkidle")
+                page.goto(f"{base_url}/loops/new/manual#bundle-import-form", wait_until="networkidle")
+                page.get_by_test_id("manual-bundle-import-panel").wait_for(state="visible", timeout=5_000)
                 page.locator("#bundle-import-yaml").fill(bundle_yaml)
                 page.get_by_test_id("bundle-preview-button").click()
 
                 page.get_by_test_id("bundle-preview-import-button").wait_for(state="visible", timeout=10_000)
-                assert page.get_by_test_id("alignment-import-run-button").is_hidden()
+                assert page.get_by_test_id("alignment-import-run-button").count() == 0
+                assert page.get_by_test_id("alignment-source-open-button").is_hidden()
                 _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page)
 
                 page.get_by_test_id("bundle-preview-import-button").click()
