@@ -13,15 +13,17 @@ class RepositoryAlignmentRecordsMixin:
         now = utc_now()
         transcript_json = json.dumps(payload.get("transcript", []), ensure_ascii=False)
         validation_json = json.dumps(payload.get("validation", {}), ensure_ascii=False)
+        executor_session_ref_json = json.dumps(payload.get("executor_session_ref", {}), ensure_ascii=False)
         with self.transaction() as connection:
             connection.execute(
                 """
                 INSERT INTO alignment_sessions (
                     id, status, executor_kind, executor_mode, command_cli, command_args_text,
                     model, reasoning_effort, workdir, bundle_path, transcript_json, validation_json,
+                    executor_session_ref_json,
                     linked_bundle_id, linked_loop_id, linked_run_id, active_child_pid, stop_requested,
                     repair_attempts, created_at, updated_at, finished_at, error_message
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload["id"],
@@ -36,6 +38,7 @@ class RepositoryAlignmentRecordsMixin:
                     payload["bundle_path"],
                     transcript_json,
                     validation_json,
+                    executor_session_ref_json,
                     payload.get("linked_bundle_id", ""),
                     payload.get("linked_loop_id", ""),
                     payload.get("linked_run_id", ""),
@@ -70,6 +73,7 @@ class RepositoryAlignmentRecordsMixin:
         json_fields = {
             "transcript": "transcript_json",
             "validation": "validation_json",
+            "executor_session_ref": "executor_session_ref_json",
         }
         passthrough_fields = {
             "status",
@@ -120,6 +124,7 @@ class RepositoryAlignmentRecordsMixin:
                 "finished_at",
                 "error_message",
                 "stop_requested",
+                "executor_session_ref",
             }
         }
         if decoded and interesting:
@@ -133,6 +138,19 @@ class RepositoryAlignmentRecordsMixin:
                 **interesting,
             )
         return decoded
+
+    def list_alignment_sessions(self, *, limit: int = 30) -> list[dict]:
+        safe_limit = max(1, min(int(limit or 30), 100))
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM alignment_sessions
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [self._decode_row(row) for row in rows]
 
     def append_alignment_event(self, session_id: str, event_type: str, payload: dict) -> dict:
         now = utc_now()

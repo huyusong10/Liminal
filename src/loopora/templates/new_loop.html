@@ -9,26 +9,97 @@
   {% if testid %}data-testid="{{ testid }}"{% endif %}
 >i</button>
 {%- endmacro %}
-{% block title %}{{ "创建循环" if page_locale == "zh" else "Create Loop" }}{% endblock %}
+{% set create_page_mode = create_page_mode|default("choice") %}
+{% block title %}
+  {%- if create_page_mode == "bundle" -%}
+    {{ "对话生成 Bundle" if page_locale == "zh" else "Generate Bundle" }}
+  {%- elif create_page_mode == "manual" -%}
+    {{ "手动创建循环" if page_locale == "zh" else "Create Loop Manually" }}
+  {%- else -%}
+    {{ "创建循环" if page_locale == "zh" else "Create Loop" }}
+  {%- endif -%}
+{% endblock %}
 {% block content %}
-<div class="page-stack" data-testid="loop-create-page">
+<div class="page-stack" data-testid="loop-create-page" data-create-mode="{{ create_page_mode }}">
+{% if create_page_mode == "choice" %}
+<section class="hero hero-tight create-choice-hero" data-testid="loop-create-choice-page">
+  <div class="hero-copy-stack">
+    <h1>
+      <span data-lang="zh">选择这次循环的创建方式。</span>
+      <span data-lang="en">Choose how this loop starts.</span>
+    </h1>
+    <p>
+      <span data-lang="zh">如果你还在描述目标和协作姿态，从 Bundle 对话开始。只有当 spec、角色定义和流程规则都已经想清楚时，再进入手动专家模式。</span>
+      <span data-lang="en">Start with the Bundle conversation when you are still shaping the task posture. Use manual expert mode only when the spec, roles, and workflow rules are already clear.</span>
+    </p>
+  </div>
+</section>
+
+<section class="create-choice-grid" aria-label="{{ '创建方式' if page_locale == 'zh' else 'Creation paths' }}">
+  <article class="panel create-choice-card create-choice-card--primary" id="bundle-import-form" data-testid="loop-create-bundle-choice">
+    <div>
+      <span class="eyebrow"><span data-lang="zh">推荐</span><span data-lang="en">Recommended</span></span>
+      <h2><span data-lang="zh">对话生成 / 导入 Bundle</span><span data-lang="en">Generate or Import Bundle</span></h2>
+      <p>
+        <span data-lang="zh">像和 LLM 聊天一样描述需求，Loopora 会让本机 Agent 对齐 posture、生成 bundle，并在 READY 后展示任务契约、角色和流程图。已有 YAML 也从这里预览导入。</span>
+        <span data-lang="en">Describe the request like a normal LLM chat. Loopora asks a local Agent to align the posture, generate a bundle, and preview the contract, roles, and workflow when READY. Existing YAML imports live here too.</span>
+      </p>
+    </div>
+    <a class="primary-button" href="/loops/new/bundle" data-testid="loop-create-bundle-link">
+      <span data-lang="zh">进入 Bundle 对话</span>
+      <span data-lang="en">Open Bundle Chat</span>
+    </a>
+  </article>
+  <article class="panel create-choice-card" id="manual-loop-form" data-testid="loop-create-manual-choice">
+    <div>
+      <span class="eyebrow"><span data-lang="zh">专家模式</span><span data-lang="en">Expert mode</span></span>
+      <h2><span data-lang="zh">手动创建循环</span><span data-lang="en">Create Loop Manually</span></h2>
+      <p>
+        <span data-lang="zh">直接选择 spec、workdir、流程编排和运行参数。适合你已经维护好角色定义和编排规则，只想立刻创建一个 loop。</span>
+        <span data-lang="en">Choose the spec, workdir, orchestration, and runtime settings directly. Use this when roles and workflow rules already exist and you only need a loop.</span>
+      </p>
+    </div>
+    <a class="secondary-button" href="/loops/new/manual" data-testid="loop-create-manual-link">
+      <span data-lang="zh">进入手动创建</span>
+      <span data-lang="en">Open Manual Form</span>
+    </a>
+  </article>
+</section>
+<script>
+  if (window.location.hash === "#manual-loop-form") {
+    window.location.replace("/loops/new/manual#manual-loop-form");
+  } else if (window.location.hash === "#bundle-import-form") {
+    window.location.replace("/loops/new/bundle#bundle-import-form");
+  }
+</script>
+{% else %}
 <section class="hero hero-tight hero-form">
   <div class="hero-copy-stack">
     <h1>
-      <span data-lang="zh">创建循环：优先生成或导入 bundle，必要时手动编排。</span>
-      <span data-lang="en">Create a loop: create or import a bundle first, or configure manually.</span>
+      {% if create_page_mode == "bundle" %}
+      <span data-lang="zh">对话生成 Bundle，再一键运行循环。</span>
+      <span data-lang="en">Generate a Bundle by chat, then run the loop.</span>
+      {% else %}
+      <span data-lang="zh">手动创建循环。</span>
+      <span data-lang="en">Create a loop manually.</span>
+      {% endif %}
     </h1>
     <p>
-      <span data-lang="zh">推荐路径是在下方用对话生成 bundle，或先预览已有 YAML 再导入。Loopora 会一次性物化 spec、角色定义、流程编排和可运行 loop。已经熟悉内部资产时，再展开下面的手动创建。</span>
-      <span data-lang="en">The recommended path is generating a bundle by chat below, or previewing existing YAML before import. Loopora materializes the spec, role definitions, orchestration, and runnable loop together. Use the manual form below when you already know the asset details.</span>
+      {% if create_page_mode == "bundle" %}
+      <span data-lang="zh">直接描述这次需求，Loopora 会调用本机 Agent 对齐 posture、生成并校验 bundle。READY 后可以预览任务契约、协作角色和流程图，也可以导入已有 YAML。</span>
+      <span data-lang="en">Describe the request and Loopora calls a local Agent to align posture, generate, and validate a bundle. When READY, preview the task contract, roles, and workflow diagram, or import existing YAML.</span>
+      {% else %}
+      <span data-lang="zh">这里保留完整专家路径：选择 spec、workdir、流程编排和运行参数后直接创建 loop。</span>
+      <span data-lang="en">This keeps the full expert path: choose the spec, workdir, orchestration, and runtime settings, then create the loop directly.</span>
+      {% endif %}
     </p>
   </div>
   <div class="card-actions">
-    <a class="primary-button" href="#bundle-import-form">
+    <a class="primary-button" href="/loops/new/bundle">
       <span data-lang="zh">创建 / 导入 Bundle</span>
       <span data-lang="en">Create / Import Bundle</span>
     </a>
-    <a class="ghost-button" href="#manual-loop-form">
+    <a class="ghost-button" href="/loops/new/manual">
       <span data-lang="zh">手动专家模式</span>
       <span data-lang="en">Manual Expert Mode</span>
     </a>
@@ -45,6 +116,7 @@
 </div>
 {% endif %}
 
+{% if create_page_mode == "bundle" %}
 <section class="panel form-panel form-panel-wide bundle-composer-panel alignment-panel" data-testid="loop-bundle-create-panel">
   <header class="panel-header">
     <div>
@@ -70,7 +142,18 @@
     </div>
   </header>
 
-  <section class="bundle-composer-block" data-testid="loop-alignment-panel">
+  <section class="alignment-history-panel" data-testid="alignment-history-panel">
+    <div>
+      <h3><span data-lang="zh">历史对话</span><span data-lang="en">Recent Chats</span></h3>
+      <p class="field-note">
+        <span data-lang="zh">保留本机最近的 Bundle 对齐会话，可以继续等待回复、查看 READY 预览或新建对话。</span>
+        <span data-lang="en">Recent local Bundle alignment sessions stay here so you can continue, inspect READY previews, or start fresh.</span>
+      </p>
+    </div>
+    <div class="alignment-history-list" id="alignment-history-list" data-testid="alignment-history-list"></div>
+  </section>
+
+  <section class="bundle-composer-block bundle-chat-composer" data-testid="loop-alignment-panel">
     <header class="bundle-composer-block-head">
       <div>
         <h3><span data-lang="zh">对话生成 Bundle</span><span data-lang="en">Generate a Bundle by Chat</span></h3>
@@ -231,8 +314,8 @@
                 <span><span data-lang="zh">参数模板</span><span data-lang="en">Argument template</span></span>
                 <textarea id="alignment-command-args" name="alignment_command_args_text" rows="7" spellcheck="false"></textarea>
                 <small class="field-note">
-                  <span data-lang="zh">支持占位符：`{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}`。</span>
-                  <span data-lang="en">Supported placeholders: `{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}`.</span>
+                  <span data-lang="zh">支持占位符：`{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}` `{resume_session_id}` `{session_ref_json}` `{alignment_session_id}`。</span>
+                  <span data-lang="en">Supported placeholders: `{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}` `{resume_session_id}` `{session_ref_json}` `{alignment_session_id}`.</span>
                 </small>
               </label>
             </div>
@@ -257,6 +340,7 @@
       <div>
         <h3><span data-lang="zh">对话与实时输出</span><span data-lang="en">Chat and Live Output</span></h3>
         <p class="field-note" id="alignment-session-meta"></p>
+        <p class="alignment-thinking-status" id="alignment-thinking-status" data-testid="alignment-thinking-status" hidden></p>
       </div>
       <button class="ghost-button" type="button" id="alignment-cancel-button" hidden>
         <span data-lang="zh">取消</span>
@@ -347,7 +431,7 @@
     <span data-lang="en">The next import will replace bundle <code>{{ import_values.replace_bundle_id }}</code> in place as the next revision.</span>
   </div>
   {% endif %}
-  <form class="form-panel" id="bundle-import-form" method="post" action="/loops/new/import-bundle" data-testid="loop-bundle-import-form">
+  <form class="form-panel" id="bundle-import-form" method="post" action="/loops/new/bundle/import-bundle" data-testid="loop-bundle-import-form">
     <div class="field-status is-error" id="bundle-import-error" aria-live="polite" {% if not import_error %}hidden{% endif %}>{{ import_error or "" }}</div>
     <div class="form-grid">
       <label class="wide">
@@ -401,12 +485,14 @@
   </form>
   </section>
 </section>
+{% endif %}
 
+{% if create_page_mode == "manual" %}
 <div id="manual-loop-form" class="section-anchor"></div>
 <form
   class="panel form-panel form-panel-wide"
   method="post"
-  action="/loops/new"
+  action="/loops/new/manual"
   id="new-loop-form"
   data-testid="loop-create-form"
   data-restore-draft="{{ 'true' if allow_draft_restore else 'false' }}"
@@ -807,12 +893,18 @@
     </div>
   </div>
 </div>
+{% endif %}
 <script id="executor-profiles-json" type="application/json">{{ executor_profiles|tojson }}</script>
+{% if create_page_mode == "manual" %}
 <script id="orchestrations-json" type="application/json">{{ orchestrations|tojson }}</script>
 <script id="pristine-loop-form-json" type="application/json">{{ pristine_loop_form|tojson }}</script>
 <script src="{{ static_asset_url('markdown_workbench.js') }}" defer></script>
 <script src="{{ static_asset_url('pages/workflow_diagram.js') }}" defer></script>
-<script src="{{ static_asset_url('pages/alignment.js') }}" defer></script>
 <script src="{{ static_asset_url('pages/new_loop.js') }}" defer></script>
+{% elif create_page_mode == "bundle" %}
+<script src="{{ static_asset_url('pages/workflow_diagram.js') }}" defer></script>
+<script src="{{ static_asset_url('pages/alignment.js') }}" defer></script>
+{% endif %}
+{% endif %}
 </div>
 {% endblock %}

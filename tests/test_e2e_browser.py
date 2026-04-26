@@ -362,7 +362,7 @@ def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(
                     )
                     assert len(set(index_desktop["actionWidths"])) == 1
 
-                    page.goto(f"{base_url}/loops/new", wait_until="networkidle")
+                    page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
                     desktop_form = page.evaluate(
                         """() => {
                           const form = document.getElementById("new-loop-form").getBoundingClientRect();
@@ -402,7 +402,7 @@ def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(
                     assert tools_desktop["nativeTitle"] is None
 
                     page.set_viewport_size({"width": 390, "height": 844})
-                    page.goto(f"{base_url}/loops/new", wait_until="networkidle")
+                    page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
                     mobile_form = page.evaluate(
                         """() => {
                           const form = document.getElementById("new-loop-form").getBoundingClientRect();
@@ -468,7 +468,7 @@ def test_new_loop_page_restores_saved_browser_draft(tmp_path: Path) -> None:
                 browser = playwright_driver.chromium.launch()
                 page = browser.new_page()
                 try:
-                    page.goto(f"{base_url}/loops/new", wait_until="networkidle")
+                    page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
                     page.locator('input[name="name"]').fill("Recovered browser draft")
                     page.locator('input[name="workdir"]').fill(str(workdir))
                     page.locator('input[name="spec_path"]').fill(str(spec_path))
@@ -518,7 +518,7 @@ def test_new_loop_page_does_not_restore_pristine_only_browser_defaults(tmp_path:
                 browser = playwright_driver.chromium.launch()
                 page = browser.new_page()
                 try:
-                    page.goto(f"{base_url}/loops/new", wait_until="networkidle")
+                    page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
                     name_input = page.locator('input[name="name"]')
                     name_input.fill("Temporary draft")
                     name_input.fill("")
@@ -581,7 +581,7 @@ def test_new_loop_page_can_edit_spec_in_a_markdown_workbench_modal(tmp_path: Pat
                 browser = playwright_driver.chromium.launch()
                 page = browser.new_page(viewport={"width": 1440, "height": 960})
                 try:
-                    page.goto(f"{base_url}/loops/new", wait_until="networkidle")
+                    page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
                     page.locator('input[name="spec_path"]').fill(str(spec_path))
                     page.get_by_test_id("spec-editor-button").click()
 
@@ -638,7 +638,7 @@ def test_new_loop_page_adapts_runtime_controls_to_selected_orchestration(tmp_pat
                 browser = playwright_driver.chromium.launch()
                 page = browser.new_page()
                 try:
-                    page.goto(f"{base_url}/loops/new", wait_until="networkidle")
+                    page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
 
                     page.locator('select[name="orchestration_id"]').select_option("builtin:build_first")
                     assert page.locator('[data-testid="loop-trigger-window-field"]').is_visible()

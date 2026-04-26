@@ -21,7 +21,7 @@
 
 现有推荐路径是：
 
-`用户描述任务 -> 外部 Agent + loopora-task-alignment Skill -> YAML bundle -> 创建循环页导入 -> 运行`
+`用户描述任务 -> 外部 Agent + loopora-task-alignment Skill -> YAML bundle -> Bundle 对话页导入 -> 运行`
 
 Web bundle alignment 把前半段收进 Loopora Web：
 
@@ -38,7 +38,15 @@ Web bundle alignment 把前半段收进 Loopora Web：
 
 Web 只提供一个可视入口，不新增 CLI 能力。
 
-推荐放置在“创建循环”页的 bundle-first 区域内，和既有 bundle 导入表单合并为同一个创建 / 导入 surface。页面首帧应表达为：
+Web 创建入口拆成三条路由：
+
+| 路由 | 职责 |
+|------|------|
+| `/loops/new` | 轻量选择页，解释 Bundle-first 与手动专家模式的区别 |
+| `/loops/new/bundle` | 对话生成 bundle、已有 YAML / 文件预览导入、READY 预览与导入运行 |
+| `/loops/new/manual` | 手动创建 loop，直接选择 spec、workdir、workflow 和运行参数 |
+
+Bundle 页首帧采用主流 LLM 对话界面：极简输入框为主，配置只作为轻量辅助。页面首帧应表达为：
 
 | 控件 | 语义 |
 |------|------|
@@ -54,6 +62,8 @@ Web 只提供一个可视入口，不新增 CLI 能力。
 - 执行工具配置语义与角色定义页一致：预设模式只暴露模型与推理强度；自定义命令模式直接维护 CLI 与参数模板，并让模型 / 推理强度成为不可编辑参考；`Custom Command` 只支持自定义命令，OpenCode 默认推理强度为空。
 - 同一张卡片必须保留“已有 bundle YAML / 文件”的导入路径，并与对话生成路径共享 READY / preview 组件。
 - 页面文案不应要求用户理解“spec / roles / workflow”才能开始。
+- Bundle 页必须提供“新建对话”和历史对话入口；历史来自后端 alignment sessions。
+- 手动创建页不承载 bundle 对齐逻辑，避免把 posture 对话和人工规则编排混在同一个 surface。
 
 ## 4. Alignment Session
 
@@ -70,6 +80,7 @@ alignment session 是 Web 内置对齐流程的最小状态单元。
 | live events | CLI 原始输出和系统状态事件 |
 | bundle path | 本 session 期望生成的 bundle 文件路径 |
 | validation result | 最近一次 bundle 硬校验结果 |
+| executor session ref | 后端 CLI 原生 session / rollout 引用，用于后续对话继承上下文 |
 | linked bundle / loop / run | 导入并运行后关联到现有对象 |
 
 状态机：
@@ -90,6 +101,7 @@ alignment session 是 Web 内置对齐流程的最小状态单元。
 
 - 不做版本管理；用户需要重新开始时主动新建 session。
 - 页面刷新后应能恢复当前 session 的 transcript、状态和 READY bundle。
+- 后续用户回复和自动修复默认继承同一 CLI session；若 provider resume 失败，系统回退到 transcript prompt，并记录可见事件。
 - 活动 session 必须能取消；取消应停止子进程并收敛为可解释状态。
 
 ## 5. Agent 调用
@@ -112,6 +124,8 @@ alignment session 是 Web 内置对齐流程的最小状态单元。
 - Agent 不直接写入 session 文件；服务层从结构化 `bundle_yaml` 写入 session `bundle.yml`。
 - 后端不接受模型自由声明“已经生成好了”作为 READY 依据。
 - READY 的唯一依据是指定路径存在 YAML，且通过 `load_bundle_text / normalize_bundle` 校验。
+- 结构化输出可选返回 `session_ref`；服务层会和 executor 捕获到的 session ref 合并保存。
+- Custom CLI 通过 `{resume_session_id}`、`{session_ref_json}`、`{alignment_session_id}` 等参数模板占位符接入自己的 resume 协议；不强制要求所有自定义命令实现原生 session。
 
 ## 6. 硬校验与自动修复
 
@@ -202,6 +216,7 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 | API | 语义 |
 |-----|------|
 | `POST /api/alignments/sessions` | 创建 session，可带首条用户需求并立即启动 |
+| `GET /api/alignments/sessions` | 返回最近 alignment sessions，用于历史对话列表 |
 | `GET /api/alignments/sessions/{id}` | 读取 session、状态、transcript 与校验摘要 |
 | `POST /api/alignments/sessions/{id}/messages` | 追加用户回复并继续对话 |
 | `POST /api/alignments/sessions/{id}/cancel` | 停止当前活动 CLI |
@@ -249,8 +264,9 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 
 最小可接受版本必须满足：
 
-- 创建循环页能从“选择 CLI + 输入需求”启动 alignment session。
+- 创建循环选择页能进入 Bundle 对话页；Bundle 对话页能从“输入需求”启动 alignment session。
 - 聊天窗能实时展示 CLI 输出，并能继续多轮回答。
+- 多轮回答默认继承 provider CLI session；不支持或失败时有 transcript prompt fallback。
 - Agent 生成的 `bundle_yaml` 必须由服务层写入 session 指定路径。
 - READY 只在 bundle 文件存在且硬校验通过后出现。
 - READY 后自动展示任务契约、协作角色、执行流程图和源 YAML 入口。

@@ -128,11 +128,8 @@ def build_codex_exec_args(request: RoleRequest, schema_path: Path) -> list[str]:
 def build_claude_exec_args(request: RoleRequest) -> list[str]:
     extra_args = parse_extra_cli_args_text(request.extra_cli_args_text)
     args = ["claude", "--setting-sources", "local,project"]
-    if request.inherit_session:
-        if request.resume_session_id.strip():
-            args.extend(["--resume", request.resume_session_id.strip()])
-        else:
-            args.append("--continue")
+    if request.inherit_session and request.resume_session_id.strip():
+        args.extend(["--resume", request.resume_session_id.strip()])
     args.extend(["-p", "--output-format", "stream-json", "--include-partial-messages"])
     if not request.inherit_session:
         args.append("--no-session-persistence")
@@ -168,8 +165,6 @@ def build_opencode_exec_args(request: RoleRequest) -> list[str]:
     if request.inherit_session:
         if request.resume_session_id.strip():
             args.extend(["--session", request.resume_session_id.strip()])
-        else:
-            args.append("--continue")
     args.extend(extra_args)
     if request.model.strip():
         args.extend(["--model", request.model.strip()])
@@ -229,6 +224,9 @@ def build_custom_exec_args(request: RoleRequest, schema_path: Path) -> list[str]
         "{json_schema}": json.dumps(request.output_schema, ensure_ascii=False),
         "{model}": request.model,
         "{reasoning_effort}": request.reasoning_effort,
+        "{resume_session_id}": request.resume_session_id,
+        "{alignment_session_id}": str(request.extra_context.get("alignment_session_id", "")),
+        "{session_ref_json}": json.dumps(request.extra_context.get("session_ref") or {}, ensure_ascii=False),
     }
     placeholder_pattern = re.compile("|".join(re.escape(placeholder) for placeholder in replacements))
     resolved_args = []
@@ -510,6 +508,12 @@ class RealCodexExecutor(CodexExecutor):
             raise ExecutorError(f"role={request.role} produced invalid JSON output") from exc
         if not isinstance(payload, dict):
             raise ExecutorError(f"custom exec did not produce a JSON object for role={request.role}")
+        if request.inherit_session:
+            self._capture_session_ref(request, payload)
+            if request.resume_session_id.strip():
+                current = request.extra_context.get("session_ref")
+                if not isinstance(current, dict) or not current.get("session_id"):
+                    request.extra_context["session_ref"] = {"session_id": request.resume_session_id.strip()}
         return payload
 
     def _stream_process(
@@ -839,6 +843,11 @@ class FakeCodexExecutor(CodexExecutor):
                         raise ExecutionStopped(f"run {request.run_id} stopped while {request.role} was running")
                     time.sleep(0.05)
             payload = self._build_payload(request)
+            if request.inherit_session:
+                current = request.extra_context.get("session_ref")
+                session_ref = dict(current) if isinstance(current, dict) else {}
+                session_ref.setdefault("session_id", request.resume_session_id or f"fake-{request.run_id}-{request.role}")
+                request.extra_context["session_ref"] = session_ref
             request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             emit_event("codex_event", {"type": "fake_complete", "role": request.role, "at": utc_now()})
             return payload
@@ -851,6 +860,9 @@ class FakeCodexExecutor(CodexExecutor):
         checks = compiled_spec.get("checks", [])
         check_count = max(len(checks), 1)
         archetype = str(request.role_archetype or request.extra_context.get("archetype") or request.role).strip().lower()
+
+        if self.scenario == "alignment_resume_failure" and request.role == "alignment" and request.resume_session_id:
+            raise ExecutorError("simulated native resume failure")
 
         if request.role == "alignment" or archetype == "alignment":
             return self._build_alignment_payload(request)

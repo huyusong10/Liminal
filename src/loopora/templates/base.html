@@ -33,7 +33,7 @@
           <span data-lang="zh">流程编排</span>
           <span data-lang="en">Orchestrations</span>
         </a>
-        <a class="top-nav-link {% if request.url.path == '/loops/new' or request.url.path.startswith('/bundles') %}active{% endif %}" href="/loops/new" data-testid="nav-create-loop-link">
+        <a class="top-nav-link {% if request.url.path == '/loops/new' or request.url.path.startswith('/loops/new/') or request.url.path.startswith('/bundles') %}active{% endif %}" href="/loops/new" data-testid="nav-create-loop-link">
           <span data-lang="zh">创建循环</span>
           <span data-lang="en">Create Loop</span>
         </a>

@@ -33,6 +33,10 @@ def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         )
         return JSONResponse({"session": session}, status_code=201)
 
+    @app.get("/api/alignments/sessions")
+    async def api_list_alignment_sessions(limit: int = 30) -> JSONResponse:
+        return JSONResponse({"sessions": ctx.svc().list_alignment_sessions(limit=limit)})
+
     @app.get("/api/alignments/sessions/{session_id}")
     async def api_get_alignment_session(session_id: str) -> JSONResponse:
         return JSONResponse({"session": ctx.svc().get_alignment_session(session_id)})

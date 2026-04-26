@@ -40,6 +40,7 @@ class RepositoryRowDecodingMixin:
             "role_definition_ids_json",
             "transcript_json",
             "validation_json",
+            "executor_session_ref_json",
         ):
             if key in payload and payload[key]:
                 payload[key] = RepositoryRowDecodingMixin._decode_json_column(payload.get("id"), key, payload[key])
@@ -49,5 +50,7 @@ class RepositoryRowDecodingMixin:
             payload["transcript"] = payload.pop("transcript_json")
         if "validation_json" in payload:
             payload["validation"] = payload.pop("validation_json")
+        if "executor_session_ref_json" in payload:
+            payload["executor_session_ref"] = payload.pop("executor_session_ref_json")
         payload["stop_requested"] = bool(payload.get("stop_requested", 0))
         return payload

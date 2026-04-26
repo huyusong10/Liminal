@@ -34,6 +34,7 @@ class WebRouteLoopPagesMixin:
         self,
         request: Request,
         *,
+        page_mode: str = "choice",
         values: Mapping[str, object] | None = None,
         form_error: str | None = None,
         import_values: Mapping[str, object] | None = None,
@@ -45,6 +46,7 @@ class WebRouteLoopPagesMixin:
             "new_loop.html",
             {
                 "request": request,
+                "create_page_mode": page_mode,
                 "form_values": form_values,
                 "pristine_loop_form": _normalize_loop_form(None),
                 "form_error": form_error,

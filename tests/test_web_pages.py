@@ -74,8 +74,8 @@ def test_index_page_renders_with_saved_loops(
     assert 'aria-label="Language switch"' in response.text
     _assert_has_testid(response.text, "index-import-bundle-link")
     _assert_has_testid(response.text, "index-create-loop-link")
-    assert 'href="/loops/new#bundle-import-form"' in response.text
-    assert 'href="/loops/new#manual-loop-form"' in response.text
+    assert 'href="/loops/new/bundle"' in response.text
+    assert 'href="/loops/new/manual"' in response.text
     empty_state_markup = response.text.split('class="empty-state" id="loops-empty-state" hidden>', 1)[1].split("</div>", 1)[0]
     assert 'class="empty-state-logo"' in empty_state_markup
     assert 'alt=""' in empty_state_markup
@@ -533,89 +533,111 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     response = client.get("/loops/new")
 
     assert response.status_code == 200
-    assert "/static/pages/new_loop.js?v=" in response.text
-    assert "/static/pages/alignment.js?v=" in response.text
-    assert "/static/pages/workflow_diagram.js?v=" in response.text
     _assert_has_testid(response.text, "loop-create-page")
-    _assert_has_testid(response.text, "loop-alignment-panel")
-    _assert_has_testid(response.text, "alignment-start-form")
-    _assert_has_testid(response.text, "alignment-executor-kind")
-    _assert_has_testid(response.text, "alignment-executor-mode-switch")
-    _assert_has_testid(response.text, "alignment-mode-preset-button")
-    _assert_has_testid(response.text, "alignment-mode-command-button")
-    _assert_has_testid(response.text, "alignment-executor-mode-input")
-    _assert_has_testid(response.text, "alignment-message-input")
-    _assert_has_testid(response.text, "alignment-chat")
-    _assert_has_testid(response.text, "alignment-ready-preview")
-    _assert_has_testid(response.text, "alignment-workflow-diagram")
-    _assert_has_testid(response.text, "alignment-import-run-button")
-    _assert_has_testid(response.text, "loop-bundle-create-panel")
-    _assert_has_testid(response.text, "loop-bundle-import-form")
-    _assert_has_testid(response.text, "bundle-preview-button")
-    _assert_has_testid(response.text, "bundle-preview-import-button")
-    _assert_has_testid(response.text, "loop-create-form")
-    _assert_has_testid(response.text, "nav-orchestrations-link")
-    _assert_has_testid(response.text, "nav-role-definitions-link")
-    _assert_has_testid(response.text, "workdir-browse-button")
-    _assert_has_testid(response.text, "spec-editor-button")
-    _assert_has_testid(response.text, "spec-template-button")
-    _assert_has_testid(response.text, "spec-editor-modal")
-    _assert_has_testid(response.text, "spec-editor-preview-toggle-button")
-    _assert_has_testid(response.text, "save-spec-document-button")
-    _assert_has_testid(response.text, "spec-editor-validation-pill")
-    _assert_has_testid(response.text, "spec-editor-workbench")
-    _assert_has_testid(response.text, "loop-orchestration-input")
-    _assert_has_testid(response.text, "loop-completion-mode-input")
-    _assert_has_testid(response.text, "loop-completion-mode-field")
-    _assert_has_testid(response.text, "loop-trigger-window-field")
-    _assert_has_testid(response.text, "loop-regression-window-field")
-    _assert_has_testid(response.text, "loop-iteration-interval-input")
-    assert "name=\"executor_kind\"" not in response.text
-    assert "name=\"executor_mode\"" not in response.text
-    assert "name=\"orchestration_id\"" in response.text
-    assert "name=\"completion_mode\"" in response.text
-    assert "name=\"iteration_interval_seconds\"" in response.text
-    assert "/static/markdown_workbench.js?v=" in response.text
-    assert "id=\"edit-spec\"" in response.text
-    assert "id=\"toggle-spec-preview\"" in response.text
-    assert "id=\"spec-editor-input\"" in response.text
-    assert "id=\"spec-preview-content\"" in response.text
-    assert "Spec editor" in response.text
-    assert "Generate from orchestration" in response.text
-    assert "Generate a Bundle by Chat" in response.text
-    assert "你想做什么需求？" in response.text
-    assert "Existing Bundle YAML or File" in response.text
-    assert "Manual Expert Mode" in response.text
-    assert 'action="/loops/new/import-bundle"' in response.text
-    assert 'name="bundle_yaml"' in response.text
-    assert 'name="replace_bundle_id"' in response.text
-    assert 'data-testid="bundle-start-immediately-tip"' in response.text
-    assert "/tools" in response.text
-    assert "/bundles" in response.text
-    assert "Role runtime reminder" not in response.text
-    assert "Spec reminder" not in response.text
-    assert "Extra tools" not in response.text
-    assert 'data-testid="loop-spec-practice-hint"' not in response.text
-    assert 'class="panel-header workflow-editor-header"' in response.text
-    assert 'class="card-actions card-actions-compact"' in response.text
+    _assert_has_testid(response.text, "loop-create-choice-page")
+    _assert_has_testid(response.text, "loop-create-bundle-choice")
+    _assert_has_testid(response.text, "loop-create-manual-choice")
+    _assert_has_testid(response.text, "loop-create-bundle-link")
+    _assert_has_testid(response.text, "loop-create-manual-link")
+    assert "/static/pages/new_loop.js?v=" not in response.text
+    assert "/static/pages/alignment.js?v=" not in response.text
+    assert 'href="/loops/new/bundle"' in response.text
+    assert 'href="/loops/new/manual"' in response.text
     assert '<title>Create Loop</title>' in response.text
-    assert 'data-label-zh="守门裁决"' in response.text
-    assert '>GateKeeper</option>' in response.text
-    assert '>Rounds</option>' in response.text
-    assert 'aria-label="Show tip:' in response.text
-    _assert_has_testid(response.text, "loop-orchestration-panel-tip")
-    _assert_has_testid(response.text, "loop-completion-mode-tip")
-    _assert_has_testid(response.text, "loop-trigger-window-tip")
-    _assert_has_testid(response.text, "loop-regression-window-tip")
-    assert "workflow-json-input" not in response.text
-    assert "角色定义" in response.text
-    _assert_has_testid(response.text, "nav-tutorial-link")
 
-    zh_response = client.get("/loops/new", headers={"accept-language": "zh-CN,zh;q=0.9"})
+    bundle_response = client.get("/loops/new/bundle")
+    assert bundle_response.status_code == 200
+    assert "/static/pages/alignment.js?v=" in bundle_response.text
+    assert "/static/pages/workflow_diagram.js?v=" in bundle_response.text
+    assert "/static/pages/new_loop.js?v=" not in bundle_response.text
+    _assert_has_testid(bundle_response.text, "loop-create-page")
+    _assert_has_testid(bundle_response.text, "alignment-history-panel")
+    _assert_has_testid(bundle_response.text, "alignment-history-list")
+    _assert_has_testid(bundle_response.text, "loop-alignment-panel")
+    _assert_has_testid(bundle_response.text, "alignment-start-form")
+    _assert_has_testid(bundle_response.text, "alignment-executor-kind")
+    _assert_has_testid(bundle_response.text, "alignment-executor-mode-switch")
+    _assert_has_testid(bundle_response.text, "alignment-mode-preset-button")
+    _assert_has_testid(bundle_response.text, "alignment-mode-command-button")
+    _assert_has_testid(bundle_response.text, "alignment-executor-mode-input")
+    _assert_has_testid(bundle_response.text, "alignment-message-input")
+    _assert_has_testid(bundle_response.text, "alignment-chat")
+    _assert_has_testid(bundle_response.text, "alignment-thinking-status")
+    _assert_has_testid(bundle_response.text, "alignment-ready-preview")
+    _assert_has_testid(bundle_response.text, "alignment-workflow-diagram")
+    _assert_has_testid(bundle_response.text, "alignment-import-run-button")
+    _assert_has_testid(bundle_response.text, "loop-bundle-create-panel")
+    _assert_has_testid(bundle_response.text, "loop-bundle-import-form")
+    _assert_has_testid(bundle_response.text, "bundle-preview-button")
+    _assert_has_testid(bundle_response.text, "bundle-preview-import-button")
+    assert "Generate a Bundle by Chat" in bundle_response.text
+    assert "你想做什么需求？" in bundle_response.text
+    assert "Existing Bundle YAML or File" in bundle_response.text
+    assert 'action="/loops/new/bundle/import-bundle"' in bundle_response.text
+    assert 'name="bundle_yaml"' in bundle_response.text
+    assert 'name="replace_bundle_id"' in bundle_response.text
+    assert 'data-testid="bundle-start-immediately-tip"' in bundle_response.text
+    assert "{resume_session_id}" in bundle_response.text
+    assert "/tools" in bundle_response.text
+    assert "/bundles" in bundle_response.text
+    assert '<title>Generate Bundle</title>' in bundle_response.text
+
+    manual_response = client.get("/loops/new/manual")
+    assert manual_response.status_code == 200
+    assert "/static/pages/new_loop.js?v=" in manual_response.text
+    assert "/static/markdown_workbench.js?v=" in manual_response.text
+    assert "/static/pages/alignment.js?v=" not in manual_response.text
+    _assert_has_testid(manual_response.text, "loop-create-form")
+    _assert_has_testid(manual_response.text, "nav-orchestrations-link")
+    _assert_has_testid(manual_response.text, "nav-role-definitions-link")
+    _assert_has_testid(manual_response.text, "workdir-browse-button")
+    _assert_has_testid(manual_response.text, "spec-editor-button")
+    _assert_has_testid(manual_response.text, "spec-template-button")
+    _assert_has_testid(manual_response.text, "spec-editor-modal")
+    _assert_has_testid(manual_response.text, "spec-editor-preview-toggle-button")
+    _assert_has_testid(manual_response.text, "save-spec-document-button")
+    _assert_has_testid(manual_response.text, "spec-editor-validation-pill")
+    _assert_has_testid(manual_response.text, "spec-editor-workbench")
+    _assert_has_testid(manual_response.text, "loop-orchestration-input")
+    _assert_has_testid(manual_response.text, "loop-completion-mode-input")
+    _assert_has_testid(manual_response.text, "loop-completion-mode-field")
+    _assert_has_testid(manual_response.text, "loop-trigger-window-field")
+    _assert_has_testid(manual_response.text, "loop-regression-window-field")
+    _assert_has_testid(manual_response.text, "loop-iteration-interval-input")
+    assert "name=\"executor_kind\"" not in manual_response.text
+    assert "name=\"executor_mode\"" not in manual_response.text
+    assert "name=\"orchestration_id\"" in manual_response.text
+    assert "name=\"completion_mode\"" in manual_response.text
+    assert "name=\"iteration_interval_seconds\"" in manual_response.text
+    assert "id=\"edit-spec\"" in manual_response.text
+    assert "id=\"toggle-spec-preview\"" in manual_response.text
+    assert "id=\"spec-editor-input\"" in manual_response.text
+    assert "id=\"spec-preview-content\"" in manual_response.text
+    assert "Spec editor" in manual_response.text
+    assert "Generate from orchestration" in manual_response.text
+    assert "Manual Expert Mode" in manual_response.text
+    assert "Role runtime reminder" not in manual_response.text
+    assert "Spec reminder" not in manual_response.text
+    assert "Extra tools" not in manual_response.text
+    assert 'data-testid="loop-spec-practice-hint"' not in manual_response.text
+    assert 'class="panel-header workflow-editor-header"' in manual_response.text
+    assert 'class="card-actions card-actions-compact"' in manual_response.text
+    assert '<title>Create Loop Manually</title>' in manual_response.text
+    assert 'data-label-zh="守门裁决"' in manual_response.text
+    assert '>GateKeeper</option>' in manual_response.text
+    assert '>Rounds</option>' in manual_response.text
+    assert 'aria-label="Show tip:' in manual_response.text
+    _assert_has_testid(manual_response.text, "loop-orchestration-panel-tip")
+    _assert_has_testid(manual_response.text, "loop-completion-mode-tip")
+    _assert_has_testid(manual_response.text, "loop-trigger-window-tip")
+    _assert_has_testid(manual_response.text, "loop-regression-window-tip")
+    assert "workflow-json-input" not in manual_response.text
+    assert "角色定义" in manual_response.text
+    _assert_has_testid(manual_response.text, "nav-tutorial-link")
+
+    zh_response = client.get("/loops/new/manual", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
-    assert '<title>创建循环</title>' in zh_response.text
-    assert "对话生成 Bundle" in zh_response.text
-    assert "创建 / 导入 Bundle" in zh_response.text
+    assert '<title>手动创建循环</title>' in zh_response.text
     assert "手动专家模式" in zh_response.text
     assert 'aria-label="查看提示：' in zh_response.text
     zh_completion_mode = zh_response.text.split('id="completion-mode-input"', 1)[1].split("</select>", 1)[0]
@@ -667,7 +689,7 @@ def test_new_loop_page_surfaces_recent_workdirs_and_browser_draft_controls(
     )
 
     client = TestClient(build_app(service=service))
-    response = client.get("/loops/new")
+    response = client.get("/loops/new/manual")
 
     assert response.status_code == 200
     assert 'data-restore-draft="true"' in response.text
@@ -685,7 +707,7 @@ def test_new_loop_page_keeps_draft_restore_enabled_for_default_equivalent_query_
 
     client = TestClient(build_app(service=service))
     response = client.get(
-        "/loops/new"
+        "/loops/new/manual"
         "?orchestration_id=builtin:build_first"
         "&max_iters=8"
         "&max_role_retries=2"
@@ -703,7 +725,7 @@ def test_new_loop_page_disables_draft_restore_for_non_default_query_values(servi
     service = service_factory(scenario="success")
 
     client = TestClient(build_app(service=service))
-    response = client.get("/loops/new?workdir=/tmp/demo")
+    response = client.get("/loops/new/manual?workdir=/tmp/demo")
 
     assert response.status_code == 200
     assert 'data-restore-draft="false"' in response.text
@@ -748,7 +770,7 @@ def test_deleting_loop_refreshes_recent_workdir_suggestions(
 
     client = TestClient(build_app(service=service))
 
-    before_delete = client.get("/loops/new")
+    before_delete = client.get("/loops/new/manual")
     assert before_delete.status_code == 200
     assert f'data-fill-workdir="{sample_workdir}"' in before_delete.text
     assert f'data-fill-workdir="{second_workdir}"' in before_delete.text
@@ -756,7 +778,7 @@ def test_deleting_loop_refreshes_recent_workdir_suggestions(
     delete_response = client.delete(f"/api/loops/{deleted_loop['id']}")
     assert delete_response.status_code == 200
 
-    after_delete = client.get("/loops/new")
+    after_delete = client.get("/loops/new/manual")
     assert after_delete.status_code == 200
     assert f'data-fill-workdir="{sample_workdir}"' not in after_delete.text
     assert f'data-fill-workdir="{second_workdir}"' in after_delete.text
@@ -1068,24 +1090,27 @@ def test_bundles_pages_render_list_and_detail(
     assert f'/bundles/{imported["id"]}/edit' in detail_response.text
     assert f'/api/bundles/{imported["id"]}/export' in detail_response.text
     assert f'?return_to=/bundles/{imported["id"]}' in detail_response.text
-    assert f'/loops/new?replace_bundle_id={imported["id"]}#bundle-import-form' in detail_response.text
+    assert f'/loops/new/bundle?replace_bundle_id={imported["id"]}#bundle-import-form' in detail_response.text
     assert "Current Bundle YAML" in detail_response.text
     assert "bundle-surface-grid" in detail_response.text
     assert "bundle-surface-card--wide" in detail_response.text
     assert 'style="margin-top: 1rem;"' not in detail_response.text
 
-    revision_target_response = client.get(f"/loops/new?replace_bundle_id={imported['id']}")
-    assert revision_target_response.status_code == 200
-    _assert_has_testid(revision_target_response.text, "bundle-revision-target-note")
+    revision_target_response = client.get(f"/loops/new?replace_bundle_id={imported['id']}", follow_redirects=False)
+    assert revision_target_response.status_code == 303
+    assert revision_target_response.headers["location"] == f"/loops/new/bundle?replace_bundle_id={imported['id']}#bundle-import-form"
+    revision_target_page = client.get(f"/loops/new/bundle?replace_bundle_id={imported['id']}")
+    assert revision_target_page.status_code == 200
+    _assert_has_testid(revision_target_page.text, "bundle-revision-target-note")
 
     legacy_revision_response = client.get(f"/bundles?replace_bundle_id={imported['id']}", follow_redirects=False)
     assert legacy_revision_response.status_code == 303
-    assert legacy_revision_response.headers["location"] == f"/loops/new?replace_bundle_id={imported['id']}#bundle-import-form"
+    assert legacy_revision_response.headers["location"] == f"/loops/new/bundle?replace_bundle_id={imported['id']}#bundle-import-form"
 
     encoded_revision_response = client.get("/bundles?replace_bundle_id=bundle%26revision%3D2", follow_redirects=False)
     assert encoded_revision_response.status_code == 303
     assert encoded_revision_response.headers["location"] == (
-        "/loops/new?replace_bundle_id=bundle%26revision%3D2#bundle-import-form"
+        "/loops/new/bundle?replace_bundle_id=bundle%26revision%3D2#bundle-import-form"
     )
 
 
@@ -1213,9 +1238,9 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     assert "/static/pages/tutorial.js?v=" in response.text
     assert "/tools" in response.text
     assert "/orchestrations" in response.text
-    assert "/loops/new#bundle-import-form" in response.text
-    assert "/loops/new#manual-loop-form" in response.text
-    assert "Import Bundle to Create Loop" in response.text
+    assert "/loops/new/bundle" in response.text
+    assert "/loops/new/manual" in response.text
+    assert "Generate Bundle by Chat" in response.text
     assert "Manual Expert Mode" in response.text
     assert 'data-testid="tutorial-context-flow-panel"' not in response.text
     assert 'data-testid="tutorial-flow-examples-panel"' not in response.text
@@ -1226,7 +1251,7 @@ def test_tutorial_page_is_available_from_top_level_navigation(service_factory) -
     assert "强 Agent 已经能做，为什么还要用 Loopora" in zh_response.text
     assert "你要省下的是产出，还是判断" in zh_response.text
     assert "为什么不先手工编排" in zh_response.text
-    assert "导入 Bundle 创建循环" in zh_response.text
+    assert "对话生成 Bundle" in zh_response.text
     assert "帮助中心" in zh_response.text
 
 
@@ -1234,7 +1259,7 @@ def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -
     service = service_factory(scenario="success")
 
     client = TestClient(build_app(service=service, bind_host="0.0.0.0", auth_token="secret-token"))
-    response = client.get("/loops/new?token=secret-token")
+    response = client.get("/loops/new/manual?token=secret-token")
 
     assert response.status_code == 200
     _assert_has_testid(response.text, "remote-path-callout")

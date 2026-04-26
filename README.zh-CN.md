@@ -91,7 +91,7 @@ loop 再用新证据检验这些运行面。
 
 所以推荐路径是：
 
-`任务输入 -> 创建循环 / 对话生成 Bundle -> READY 预览 -> 导入并运行 -> 反馈 -> 下一版 bundle`
+`任务输入 -> 创建循环 -> 对话生成或导入 Bundle -> READY 预览 -> 导入并运行 -> 反馈 -> 下一版 bundle`
 
 working agreement 用来确认：“对，这就是我希望这次任务被监督的方式。”
 
@@ -164,7 +164,7 @@ uv run loopora serve --host 127.0.0.1 --port 8742
 
 3. 在 Web 里生成 bundle
 
-打开 **创建循环**，在 **对话生成 Bundle** 中选择本机 Agent CLI、填写目标 workdir、描述需求。Loopora 会把同一份 alignment Skill 指令放进后端 prompt，写入 Agent 返回的 `bundle_yaml`，并在 YAML 通过 bundle 契约校验后显示 READY。
+打开 **创建循环**，选择 **对话生成或导入 Bundle**，然后在对话框里描述需求。Loopora 会调用本机 Agent CLI，并在后续对话中继承 CLI session，把同一份 alignment Skill 指令放进后端 prompt，写入 Agent 返回的 `bundle_yaml`，并在 YAML 通过 bundle 契约校验后显示 READY。
 
 4. 预览、导入并运行
 
@@ -172,7 +172,7 @@ uv run loopora serve --host 127.0.0.1 --port 8742
 
 5. 可选外部 Agent 路径
 
-如果你更喜欢在 Web 之外做对齐，仍然可以打开 **工具** 页，把 repo-local `loopora-task-alignment` Skill 安装到 Codex、Claude Code 或 OpenCode。这个路径产出的仍是同一种 YAML bundle，可以回到 **创建循环** 粘贴或导入。
+如果你更喜欢在 Web 之外做对齐，仍然可以打开 **工具** 页，把 repo-local `loopora-task-alignment` Skill 安装到 Codex、Claude Code 或 OpenCode。这个路径产出的仍是同一种 YAML bundle，可以回到 **创建循环 -> 对话生成或导入 Bundle** 粘贴或导入。
 
 6. 从证据继续修订
 

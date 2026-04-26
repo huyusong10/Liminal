@@ -31,6 +31,7 @@ ALIGNMENT_RESPONSE_SCHEMA: dict[str, Any] = {
         "assistant_message": {"type": "string"},
         "needs_user_input": {"type": "boolean"},
         "bundle_yaml": {"type": "string"},
+        "session_ref": {"type": "object", "additionalProperties": True},
     },
     "required": ["status", "assistant_message", "needs_user_input", "bundle_yaml"],
 }
@@ -76,6 +77,7 @@ class ServiceAlignmentMixin:
                 "bundle_path": str(session_dir / "bundle.yml"),
                 "transcript": transcript,
                 "validation": {},
+                "executor_session_ref": {},
                 **settings,
             }
         )
@@ -98,6 +100,9 @@ class ServiceAlignmentMixin:
         if not session:
             raise LooporaError(f"unknown alignment session: {session_id}")
         return self._decorate_alignment_session(session)
+
+    def list_alignment_sessions(self, *, limit: int = 30) -> list[dict]:
+        return [self._alignment_session_summary(item) for item in self.repository.list_alignment_sessions(limit=limit)]
 
     def append_alignment_message(self, session_id: str, message: str) -> dict:
         normalized = str(message or "").strip()
@@ -390,6 +395,8 @@ class ServiceAlignmentMixin:
             validation_error=validation_error,
             invalid_yaml=invalid_yaml,
         )
+        executor_session_ref = session.get("executor_session_ref") if isinstance(session.get("executor_session_ref"), dict) else {}
+        resume_session_id = str((executor_session_ref or {}).get("session_id", "") or "").strip()
         request = RoleRequest(
             run_id=f"alignment:{session_id}",
             role="alignment",
@@ -406,6 +413,8 @@ class ServiceAlignmentMixin:
             executor_mode=session.get("executor_mode", "preset"),
             command_cli=session.get("command_cli", ""),
             command_args_text=session.get("command_args_text", ""),
+            inherit_session=True,
+            resume_session_id=resume_session_id,
             sandbox="read-only",
             idle_timeout_seconds=self.settings.role_idle_timeout_seconds,
             extra_context={
@@ -413,9 +422,35 @@ class ServiceAlignmentMixin:
                 "alignment_session_id": session_id,
                 "alignment_mode": mode,
                 "validation_error": validation_error,
+                "session_ref": executor_session_ref or {},
             },
         )
         executor = self.executor_factory()
+        output = self._execute_alignment_request_with_resume_fallback(session_id, executor, request)
+        self._persist_alignment_executor_session_ref(session_id, request, output)
+        return output
+
+    def _execute_alignment_request_with_resume_fallback(self, session_id: str, executor, request: RoleRequest) -> dict:
+        try:
+            return self._execute_alignment_request(session_id, executor, request)
+        except ExecutorError:
+            if not request.resume_session_id.strip() or request.executor_kind not in {"codex", "claude", "opencode"}:
+                raise
+            self.repository.append_alignment_event(
+                session_id,
+                "alignment_native_resume_fallback",
+                {
+                    "executor_kind": request.executor_kind,
+                    "resume_session_id": request.resume_session_id,
+                    "message": "Native CLI session resume failed; retrying with Loopora transcript context.",
+                },
+            )
+            request.inherit_session = False
+            request.resume_session_id = ""
+            request.extra_context["session_ref"] = {}
+            return self._execute_alignment_request(session_id, executor, request)
+
+    def _execute_alignment_request(self, session_id: str, executor, request: RoleRequest) -> dict:
         return executor.execute(
             request,
             lambda event_type, payload: self.repository.append_alignment_event(
@@ -430,6 +465,25 @@ class ServiceAlignmentMixin:
             lambda pid: self.repository.update_alignment_session(session_id, active_child_pid=pid)
             if pid is not None
             else self.repository.update_alignment_session(session_id, clear_active_child_pid=True),
+        )
+
+    def _persist_alignment_executor_session_ref(self, session_id: str, request: RoleRequest, output: dict) -> None:
+        current = request.extra_context.get("session_ref")
+        session_ref = dict(current) if isinstance(current, dict) else {}
+        output_ref = output.get("session_ref") if isinstance(output, dict) else None
+        if isinstance(output_ref, dict):
+            session_ref.update({str(key): str(value) for key, value in output_ref.items() if str(value).strip()})
+        if not session_ref:
+            return
+        self.repository.update_alignment_session(session_id, executor_session_ref=session_ref)
+        self.repository.append_alignment_event(
+            session_id,
+            "alignment_executor_session_ref",
+            {
+                "executor_kind": request.executor_kind,
+                "session_ref": session_ref,
+                "native_resume_available": bool(session_ref.get("session_id")),
+            },
         )
 
     def _write_and_validate_alignment_bundle(self, session_id: str, bundle_yaml: str) -> tuple[bool, str]:
@@ -630,4 +684,41 @@ Important output discipline:
         payload["artifact_dir"] = str(Path(payload["bundle_path"]).parent)
         payload["is_active"] = payload.get("status") in ALIGNMENT_ACTIVE_STATUSES
         payload["is_ready"] = payload.get("status") == "ready"
+        executor_session_ref = payload.get("executor_session_ref")
+        if not isinstance(executor_session_ref, dict):
+            executor_session_ref = {}
+        payload["executor_session_ref"] = executor_session_ref
+        payload["native_resume_available"] = bool(executor_session_ref.get("session_id"))
         return payload
+
+    @classmethod
+    def _alignment_session_summary(cls, session: dict) -> dict:
+        decorated = cls._decorate_alignment_session(session)
+        transcript = decorated.get("transcript") or []
+        first_user = ""
+        last_message = ""
+        for entry in transcript:
+            if not isinstance(entry, dict):
+                continue
+            content = str(entry.get("content", "") or "").strip()
+            if not content:
+                continue
+            if not first_user and entry.get("role") == "user":
+                first_user = content
+            last_message = content
+        return {
+            "id": decorated["id"],
+            "status": decorated.get("status", ""),
+            "workdir": decorated.get("workdir", ""),
+            "executor_kind": decorated.get("executor_kind", "codex"),
+            "executor_mode": decorated.get("executor_mode", "preset"),
+            "updated_at": decorated.get("updated_at", ""),
+            "created_at": decorated.get("created_at", ""),
+            "linked_bundle_id": decorated.get("linked_bundle_id", ""),
+            "linked_loop_id": decorated.get("linked_loop_id", ""),
+            "linked_run_id": decorated.get("linked_run_id", ""),
+            "message_count": len(transcript),
+            "title": first_user[:96] if first_user else decorated["id"],
+            "last_message": last_message[:160],
+            "native_resume_available": decorated.get("native_resume_available", False),
+        }

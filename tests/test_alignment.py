@@ -65,6 +65,43 @@ def test_alignment_service_waits_for_user_question(service_factory, sample_workd
     assert session["transcript"][-1]["role"] == "assistant"
     assert "做慢" in session["transcript"][-1]["content"]
     assert not Path(session["bundle_path"]).exists()
+    assert session["native_resume_available"] is True
+    assert session["executor_session_ref"]["session_id"]
+
+
+def test_alignment_service_reuses_executor_session_ref_between_turns(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="alignment_question")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="I need help shaping this task.",
+    )
+    first = _wait_for_status(service, created["id"], "waiting_user")
+    first_session_id = first["executor_session_ref"]["session_id"]
+
+    service.append_alignment_message(created["id"], "更怕做糙。")
+    second = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert second["executor_session_ref"]["session_id"] == first_session_id
+    events = service.list_alignment_events(created["id"])
+    assert any(event["event_type"] == "alignment_executor_session_ref" for event in events)
+
+
+def test_alignment_service_falls_back_when_native_resume_fails(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="alignment_resume_failure")
+
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Generate a bundle after resume trouble.",
+        start_immediately=False,
+    )
+    service.repository.update_alignment_session(session["id"], executor_session_ref={"session_id": "stale-session"})
+    service.start_alignment_session_async(session["id"])
+    ready = _wait_for_status(service, session["id"], "ready")
+
+    assert ready["validation"]["ok"] is True
+    events = service.list_alignment_events(session["id"])
+    assert any(event["event_type"] == "alignment_native_resume_fallback" for event in events)
 
 
 def test_alignment_service_repairs_invalid_bundle_once(service_factory, sample_workdir: Path) -> None:
@@ -142,6 +179,11 @@ def test_alignment_api_covers_session_events_bundle_and_import(
         assert stream_response.status_code == 200
         body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in stream_response.iter_text())
     assert "alignment_ready" in body
+
+    list_response = client.get("/api/alignments/sessions")
+    assert list_response.status_code == 200
+    assert list_response.json()["sessions"][0]["id"] == session_id
+    assert list_response.json()["sessions"][0]["native_resume_available"] is True
 
     bundle_response = client.get(f"/api/alignments/sessions/{session_id}/bundle")
     assert bundle_response.status_code == 200

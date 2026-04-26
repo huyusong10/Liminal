@@ -31,6 +31,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const statusPill = document.getElementById("alignment-status-pill");
   const chat = document.getElementById("alignment-chat");
   const sessionMeta = document.getElementById("alignment-session-meta");
+  const thinkingStatus = document.getElementById("alignment-thinking-status");
+  const historyList = document.getElementById("alignment-history-list");
   const transcriptEl = document.getElementById("alignment-transcript");
   const consoleOutput = document.getElementById("alignment-console-output");
   const cancelButton = document.getElementById("alignment-cancel-button");
@@ -79,6 +81,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentPreviewSource = "";
   let eventSource = null;
   let latestEventId = 0;
+  let thinkingStartedAt = 0;
+  let thinkingTimer = null;
 
   function localeText(zh, en) {
     return window.LooporaUI.pickText({zh, en});
@@ -343,6 +347,42 @@ document.addEventListener("DOMContentLoaded", () => {
     return labels[status] || status || "-";
   }
 
+  function executorLabel(session = currentSession) {
+    const profile = profileFor(session?.executor_kind || executorInput.value || "codex");
+    return localeText(profile.label_zh || profile.label || "Agent", profile.label || profile.label_zh || "Agent");
+  }
+
+  function updateThinkingStatus(status) {
+    if (!thinkingStatus) {
+      return;
+    }
+    if (!ACTIVE_STATUSES.has(String(status || ""))) {
+      thinkingStatus.hidden = true;
+      thinkingStatus.textContent = "";
+      thinkingStartedAt = 0;
+      if (thinkingTimer) {
+        clearInterval(thinkingTimer);
+        thinkingTimer = null;
+      }
+      return;
+    }
+    if (!thinkingStartedAt) {
+      thinkingStartedAt = Date.now();
+    }
+    const render = () => {
+      const seconds = Math.max(0, Math.floor((Date.now() - thinkingStartedAt) / 1000));
+      thinkingStatus.hidden = false;
+      thinkingStatus.textContent = localeText(
+        `${executorLabel()} 思考中 ${seconds}s`,
+        `${executorLabel()} thinking ${seconds}s`,
+      );
+    };
+    render();
+    if (!thinkingTimer) {
+      thinkingTimer = window.setInterval(render, 1000);
+    }
+  }
+
   function renderSession(session) {
     currentSession = session;
     rememberSession(session.id);
@@ -354,6 +394,7 @@ document.addEventListener("DOMContentLoaded", () => {
     cancelButton.hidden = !ACTIVE_STATUSES.has(status);
     replyForm.hidden = !REPLY_STATUSES.has(status);
     setBusy(ACTIVE_STATUSES.has(status));
+    updateThinkingStatus(status);
     renderTranscript(session.transcript || []);
     if (status === "ready") {
       if (currentPreviewSource === "import") {
@@ -363,6 +404,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } else if (currentPreviewSource !== "import") {
       readyPreview.hidden = true;
     }
+    loadHistory().catch(() => {});
   }
 
   function rememberSession(sessionId) {
@@ -465,6 +507,61 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     consoleOutput.append(line);
     consoleOutput.parentElement.scrollTop = consoleOutput.parentElement.scrollHeight;
+  }
+
+  function renderHistory(sessions) {
+    if (!historyList) {
+      return;
+    }
+    historyList.innerHTML = "";
+    if (!sessions.length) {
+      const empty = document.createElement("p");
+      empty.className = "field-note";
+      empty.textContent = localeText("还没有历史对话。", "No recent chats yet.");
+      historyList.append(empty);
+      return;
+    }
+    sessions.forEach((session) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "alignment-history-item";
+      button.dataset.sessionId = session.id;
+      button.classList.toggle("is-active", currentSession?.id === session.id);
+      button.innerHTML = `
+        <strong>${escapeHtml(session.title || session.id)}</strong>
+        <span>${escapeHtml(statusLabel(session.status))} · ${escapeHtml(session.executor_kind || "")}</span>
+        <small>${escapeHtml(session.workdir || "")}</small>
+      `;
+      button.addEventListener("click", () => restoreSession(session.id));
+      historyList.append(button);
+    });
+  }
+
+  async function loadHistory() {
+    if (!historyList) {
+      return;
+    }
+    const payload = await fetchJson("/api/alignments/sessions?limit=30");
+    renderHistory(payload.sessions || []);
+  }
+
+  async function restoreSession(sessionId) {
+    if (!sessionId) {
+      return;
+    }
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+    latestEventId = 0;
+    consoleOutput.innerHTML = "";
+    currentPreviewSource = "";
+    const payload = await fetchJson(`/api/alignments/sessions/${encodeURIComponent(sessionId)}`);
+    renderSession(payload.session);
+    await loadSeedEvents(payload.session.id);
+    if (ACTIVE_STATUSES.has(String(payload.session.status || ""))) {
+      openStream(payload.session.id);
+    }
   }
 
   async function refreshSession() {
@@ -606,6 +703,7 @@ document.addEventListener("DOMContentLoaded", () => {
       renderSession(response.session);
       await loadSeedEvents(response.session.id);
       openStream(response.session.id);
+      await loadHistory();
     } catch (error) {
       showError(error.message || localeText("启动对齐失败。", "Failed to start alignment."));
       setBusy(false);
@@ -630,6 +728,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       renderSession(response.session);
       openStream(response.session.id);
+      await loadHistory();
     } catch (error) {
       showError(error.message || localeText("发送回复失败。", "Failed to send reply."));
     }
@@ -666,9 +765,11 @@ document.addEventListener("DOMContentLoaded", () => {
     replyForm.hidden = true;
     newSessionButton.hidden = true;
     setStatus(localeText("未开始", "Idle"));
+    updateThinkingStatus("");
     setBusy(false);
     showError("");
     messageInput.focus();
+    loadHistory().catch(() => {});
   });
 
   importRunButton.addEventListener("click", async () => {
@@ -752,16 +853,12 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     try {
-      const payload = await fetchJson(`/api/alignments/sessions/${encodeURIComponent(sessionId)}`);
-      renderSession(payload.session);
-      await loadSeedEvents(payload.session.id);
-      if (ACTIVE_STATUSES.has(String(payload.session.status || ""))) {
-        openStream(payload.session.id);
-      }
+      await restoreSession(sessionId);
     } catch (_) {
       forgetSession();
     }
   }
 
+  loadHistory().catch(() => {});
   restoreSessionIfPresent();
 });

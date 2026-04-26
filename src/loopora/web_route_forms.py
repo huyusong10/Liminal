@@ -25,6 +25,7 @@ from loopora.workflows import WorkflowError
 
 
 def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+    @app.post("/loops/new/manual")
     @app.post("/loops/new")
     async def create_loop_from_form(request: Request):
         form = await request.form()
@@ -38,8 +39,9 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
                 return RedirectResponse(url=f"/runs/{run['id']}", status_code=303)
             return RedirectResponse(url=f"/loops/{loop['id']}", status_code=303)
         except (LooporaError, SpecError, FileExistsError, OSError, ValueError) as exc:
-            return ctx.render_new_loop(request, values=values, form_error=str(exc))
+            return ctx.render_new_loop(request, page_mode="manual", values=values, form_error=str(exc))
 
+    @app.post("/loops/new/bundle/import-bundle")
     @app.post("/loops/new/import-bundle")
     async def import_bundle_from_create_loop_form(request: Request):
         form = await request.form()
@@ -63,7 +65,7 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
                 return RedirectResponse(url=f"/runs/{run['id']}", status_code=303)
             return RedirectResponse(url=f"/loops/{loop_id}", status_code=303)
         except (LooporaError, SpecError, FileExistsError, OSError, ValueError) as exc:
-            return ctx.render_new_loop(request, import_values=import_values, import_error=str(exc))
+            return ctx.render_new_loop(request, page_mode="bundle", import_values=import_values, import_error=str(exc))
 
     @app.post("/orchestrations/new")
     async def create_orchestration_from_form(request: Request):
@@ -152,7 +154,7 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
                 raise LooporaError("bundle path or bundle YAML is required")
             return RedirectResponse(url=f"/bundles/{bundle['id']}", status_code=303)
         except (LooporaError, SpecError, FileExistsError, OSError, ValueError) as exc:
-            return ctx.render_new_loop(request, import_values=import_values, import_error=str(exc))
+            return ctx.render_new_loop(request, page_mode="bundle", import_values=import_values, import_error=str(exc))
 
     @app.post("/bundles/{bundle_id}/edit")
     async def update_bundle_from_form(request: Request, bundle_id: str):
