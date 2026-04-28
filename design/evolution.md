@@ -352,7 +352,7 @@ Failure analysis 应区分：
 
 改进方向：
 
-- 方案库卡片突出治理摘要，而不是文件名和 YAML 元数据。
+- 方案库卡片突出治理摘要，而不是文件名和 YAML 元数据；首阶段至少投影失败模式、证据风格、workflow 形状、GateKeeper 严格度和 revision 变化面。
 - 支持从成功 run 派生治理模式。
 - 支持把用户反馈沉淀为方案 revision notes。
 
@@ -405,6 +405,7 @@ Failure analysis 应区分：
 
 - README 和 design 总纲完成收口。
 - 设计文档明确 bundle 是内部交换单元，循环方案是用户心智。
+- `core-ideas/core-contract.md` 作为当前五个治理 surface、巡检流程与测试锚点的稳定对齐页。
 - Web 主入口不要求用户先理解 bundle。
 - 建立本文档中的冲击矩阵，后续实现按矩阵同步重构。
 
@@ -430,7 +431,7 @@ Failure analysis 应区分：
 - `StepHandoff.evidence_refs` 已指向 step evidence item。
 - GateKeeper `passed=true` 已经需要上游 evidence refs；首步门禁只接受带可度量 `metric_scores` 的直接证据 claims，缺失时服务层会阻断。
 - READY 预览已从 bundle projection 展示控制摘要，避免用户只看到配置结构。
-- 后续仍需把 run detail 的默认视图升级为 evidence coverage，而不是只把 ledger 暴露为 artifact。
+- run detail 的 Key Takeaways 已从 `evidence/ledger.jsonl` 投影 evidence coverage，原始 artifact 仍作为追查入口。
 
 ### P2: Harness Revision Loop
 
@@ -452,7 +453,8 @@ Failure analysis 应区分：
 - bundle detail 和 run detail 已能创建 revision alignment session。
 - revision session 复用 Web alignment，对 bundle 修订带入 source bundle，对 run 修订额外带入 evidence ledger 摘要和 GateKeeper verdict。
 - session seed bundle 会写入 `artifacts/bundle.yml`，导入运行继续复用 bundle 生命周期。
-- 后续仍需补 revision diff 摘要和方案库 lineage 视图，避免多份 revision 在列表里难以区分。
+- READY 预览、bundle detail 与 bundle API 已能从 source bundle 投影 revision lineage 和 surface diff 摘要。
+- 方案库列表已能展示 revision 来源和变化面，避免多份 revision 在列表里完全孤立。
 
 ### P3: Governance Pattern Library
 

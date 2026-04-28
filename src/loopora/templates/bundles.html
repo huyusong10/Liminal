@@ -75,9 +75,13 @@
     {% if bundles %}
       <div class="loop-grid loop-grid--created" id="bundle-grid">
         {% for bundle in bundles %}
+        {% set governance = bundle.governance_summary %}
+        {% set revision = governance.revision %}
+        {% set gatekeeper = governance.gatekeeper %}
         <article
           class="loop-card is-clickable"
           data-open-card="/bundles/{{ bundle.id }}"
+          data-testid="bundle-governance-card-{{ bundle.id }}"
           tabindex="0"
         >
           <a class="loop-card-link" href="/bundles/{{ bundle.id }}" tabindex="-1" aria-hidden="true"></a>
@@ -86,8 +90,66 @@
               <h3>{{ bundle.name }}</h3>
               <p>{{ bundle.collaboration_summary }}</p>
             </div>
-            <span class="status-pill status-draft">r{{ bundle.revision }}</span>
+            <div class="bundle-card-status">
+              <span class="status-pill status-draft">r{{ bundle.revision }}</span>
+              {% if revision.source_bundle_id %}
+              <span class="bundle-lineage-pill">
+                <span data-lang="zh">来自 {{ revision.source_bundle_id }}</span>
+                <span data-lang="en">from {{ revision.source_bundle_id }}</span>
+              </span>
+              {% endif %}
+            </div>
           </div>
+          <div class="bundle-governance-grid" data-testid="bundle-governance-summary">
+            <div class="bundle-governance-item" data-testid="bundle-governance-failure">
+              <span><span data-lang="zh">失败模式</span><span data-lang="en">Failure mode</span></span>
+              <strong>
+                {% if governance.failure_modes %}
+                {{ governance.failure_modes[:2]|join(" / ") }}
+                {% else %}
+                <span data-lang="zh">未声明</span><span data-lang="en">Not declared</span>
+                {% endif %}
+              </strong>
+            </div>
+            <div class="bundle-governance-item" data-testid="bundle-governance-evidence">
+              <span><span data-lang="zh">证据风格</span><span data-lang="en">Evidence style</span></span>
+              <strong>
+                {% if governance.evidence_style %}
+                {{ governance.evidence_style[:2]|join(" / ") }}
+                {% else %}
+                <span data-lang="zh">运行时落账</span><span data-lang="en">Runtime ledger</span>
+                {% endif %}
+              </strong>
+            </div>
+            <div class="bundle-governance-item" data-testid="bundle-governance-workflow">
+              <span>workflow</span>
+              <strong>
+                {% if governance.workflow_shape %}
+                {{ governance.workflow_shape }}
+                {% else %}
+                {{ governance.workflow_step_count }} steps
+                {% endif %}
+              </strong>
+            </div>
+            <div class="bundle-governance-item" data-testid="bundle-governance-gatekeeper">
+              <span>GateKeeper</span>
+              <strong>
+                {% if gatekeeper.enabled %}
+                <span data-lang="zh">证据引用门禁</span><span data-lang="en">Evidence-ref gate</span>
+                {% else %}
+                <span data-lang="zh">未配置</span><span data-lang="en">Not configured</span>
+                {% endif %}
+              </strong>
+            </div>
+          </div>
+          {% if revision.changed_surfaces %}
+          <div class="bundle-changed-surfaces" data-testid="bundle-governance-changed-surfaces">
+            <span><span data-lang="zh">本版变化</span><span data-lang="en">Changed</span></span>
+            {% for surface in revision.changed_surfaces %}
+            <em>{{ surface }}</em>
+            {% endfor %}
+          </div>
+          {% endif %}
           <dl class="meta-grid">
             <div>
               <dt><span data-lang="zh">Bundle ID</span><span data-lang="en">Bundle ID</span></dt>

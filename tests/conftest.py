@@ -36,6 +36,23 @@ Ship the requested behavior.
 
 - Keep changes focused.
 
+# Success Surface
+
+- The result remains easy for the next role to verify.
+- The surrounding contract stays clear enough to revise safely.
+
+# Fake Done
+
+- A happy-path-only result that leaves the edge path unverifiable.
+
+# Evidence Preferences
+
+- Prefer structured run artifacts and reproducible checks over role self-report.
+
+# Residual Risk
+
+Minor copy polish can wait, but unverifiable completion should fail closed.
+
 # Role Notes
 
 ## Builder Notes

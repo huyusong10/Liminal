@@ -13,6 +13,17 @@ def test_compile_markdown_spec_extracts_sections(sample_spec_text: str) -> None:
     assert compiled["checks"][0]["id"] == "check_001"
     assert compiled["checks"][1]["expect"] == "The edge path stays safe and understandable."
     assert compiled["constraints"] == "- Keep changes focused."
+    assert compiled["success_surface"] == [
+        "The result remains easy for the next role to verify.",
+        "The surrounding contract stays clear enough to revise safely.",
+    ]
+    assert compiled["fake_done_states"] == [
+        "A happy-path-only result that leaves the edge path unverifiable.",
+    ]
+    assert compiled["evidence_preferences"] == [
+        "Prefer structured run artifacts and reproducible checks over role self-report.",
+    ]
+    assert "unverifiable completion should fail closed" in compiled["residual_risk"]
     assert compiled["role_notes"]["builder"] == "Move the workspace toward a verifiable state with focused edits."
 
 

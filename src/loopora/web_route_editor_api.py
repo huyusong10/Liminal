@@ -33,11 +33,12 @@ from loopora.workflows import (
 def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/bundles")
     async def api_list_bundles() -> JSONResponse:
-        return JSONResponse(ctx.svc().list_bundles())
+        return JSONResponse(ctx.svc().list_bundle_governance_cards())
 
     @app.get("/api/bundles/{bundle_id}")
     async def api_get_bundle(bundle_id: str) -> JSONResponse:
-        return JSONResponse(ctx.svc().get_bundle(bundle_id))
+        bundle = ctx.svc().get_bundle(bundle_id)
+        return JSONResponse({**bundle, "revision_summary": ctx.svc().get_bundle_revision_summary(bundle_id)})
 
     @app.put("/api/bundles/{bundle_id}")
     async def api_update_bundle(bundle_id: str, request: Request) -> JSONResponse:

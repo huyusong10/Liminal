@@ -985,6 +985,134 @@ html[data-locale="zh"] .eyebrow {
   overflow-wrap: anywhere;
 }
 
+.bundle-revision-grid,
+.bundle-revision-delta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.bundle-revision-card,
+.bundle-revision-delta {
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(var(--outline-rgb), 0.12);
+  background: rgba(var(--glass-rgb), 0.68);
+  display: grid;
+  gap: 8px;
+}
+
+.bundle-revision-label,
+.bundle-revision-delta span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html[data-locale="zh"] .bundle-revision-label,
+html[data-locale="zh"] .bundle-revision-delta span {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.bundle-revision-card strong,
+.bundle-revision-delta strong {
+  overflow-wrap: anywhere;
+}
+
+.bundle-revision-card p,
+.bundle-revision-delta p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.bundle-revision-delta--changed {
+  border-color: rgba(214, 106, 54, 0.2);
+  background: rgba(214, 106, 54, 0.07);
+}
+
+.bundle-card-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.bundle-lineage-pill {
+  max-width: 180px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.bundle-governance-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid rgba(var(--outline-rgb), 0.08);
+  border-bottom: 1px solid rgba(var(--outline-rgb), 0.08);
+}
+
+.bundle-governance-item {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.bundle-governance-item span,
+.bundle-changed-surfaces > span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html[data-locale="zh"] .bundle-governance-item span,
+html[data-locale="zh"] .bundle-changed-surfaces > span {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.bundle-governance-item strong {
+  min-width: 0;
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+}
+
+.bundle-changed-surfaces {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.bundle-changed-surfaces em {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(214, 106, 54, 0.1);
+  color: #9a4b24;
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+[data-theme="dark"] .bundle-changed-surfaces em {
+  background: rgba(214, 106, 54, 0.16);
+  color: #f0a16b;
+}
+
 .bundle-role-actions {
   flex-wrap: wrap;
 }
@@ -2000,7 +2128,8 @@ html[data-locale="zh"] .alignment-role-title em {
   color: var(--muted);
 }
 
-.alignment-control-summary {
+.alignment-control-summary,
+.alignment-revision-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
@@ -2152,7 +2281,8 @@ html[data-locale="zh"] .alignment-role-title em {
     grid-template-columns: 1fr;
   }
 
-  .alignment-control-summary {
+  .alignment-control-summary,
+  .alignment-revision-summary {
     grid-template-columns: 1fr;
   }
 
@@ -5937,6 +6067,49 @@ html[data-locale="zh"] .takeaway-path-label {
   gap: 12px;
 }
 
+.takeaway-evidence-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.takeaway-evidence-card {
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 0;
+  border: 1px solid var(--line);
+  background: rgba(var(--glass-rgb), 0.56);
+  display: grid;
+  gap: 8px;
+}
+
+.takeaway-evidence-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html[data-locale="zh"] .takeaway-evidence-label {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.takeaway-evidence-card strong {
+  min-width: 0;
+  font-size: 1.12rem;
+  line-height: 1.2;
+}
+
+.takeaway-evidence-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .takeaway-selector-label {
   color: var(--muted);
   font-size: 0.9rem;
@@ -6164,6 +6337,11 @@ html[data-locale="zh"] .takeaway-iteration-label {
   border-color: rgba(255, 255, 255, 0.08);
 }
 
+[data-theme="dark"] .takeaway-evidence-card {
+  background: linear-gradient(180deg, rgba(56, 43, 37, 0.92), rgba(30, 24, 20, 0.96));
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
 [data-theme="dark"] .loop-detail-spec-shell {
   background: linear-gradient(180deg, rgba(43, 34, 29, 0.94), rgba(28, 22, 19, 0.99));
   border-color: rgba(255, 255, 255, 0.08);
@@ -6244,6 +6422,10 @@ html[data-locale="zh"] .takeaway-iteration-label {
     grid-template-columns: 1fr;
   }
 
+  .takeaway-evidence-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .takeaway-actions {
     justify-content: flex-start;
   }
@@ -6251,6 +6433,7 @@ html[data-locale="zh"] .takeaway-iteration-label {
 
 @media (max-width: 720px) {
   .takeaway-path-grid,
+  .takeaway-evidence-strip,
   .takeaway-role-grid {
     grid-template-columns: 1fr;
   }
@@ -7208,6 +7391,7 @@ html[data-locale="zh"] .preview-box {
   .binary-preview,
   .artifact-missing,
   .takeaway-path-card,
+  .takeaway-evidence-card,
   .takeaway-iteration-card,
   .takeaway-role-card,
   .takeaway-empty,
@@ -7250,6 +7434,7 @@ html[data-locale="zh"] .preview-box {
   .markdown-workbench-panel,
   .markdown-workbench-preview,
   .takeaway-iteration-card,
+  .takeaway-evidence-card,
   .takeaway-role-card,
   .timeline-event-body
 ) {
@@ -7590,6 +7775,10 @@ html[data-locale="zh"] .preview-box {
   .workflow-toolbar-inline {
     min-width: min(100%, 320px);
   }
+
+  .bundle-governance-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (min-width: 1440px) {
@@ -7651,6 +7840,19 @@ html[data-locale="zh"] .preview-box {
   .loop-grid--created > .loop-card {
     flex-basis: 100%;
     width: 100%;
+  }
+
+  .bundle-card-status {
+    align-items: flex-start;
+  }
+
+  .bundle-lineage-pill {
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .bundle-governance-grid {
+    grid-template-columns: 1fr;
   }
 
   .stage-strip,

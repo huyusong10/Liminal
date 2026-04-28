@@ -200,6 +200,16 @@ def test_api_run_key_takeaways_returns_iteration_role_conclusions(
     assert "GateKeeper" in role_names
     gatekeeper = next(item for item in latest_iteration["roles"] if item["role_name"] == "GateKeeper")
     assert gatekeeper["composite_score"] is not None
+    coverage = payload["evidence_coverage"]
+    assert coverage["ledger_path"] == "evidence/ledger.jsonl"
+    assert coverage["evidence_count"] == payload["evidence_count"]
+    assert coverage["check_count"] == 2
+    assert coverage["covered_check_count"] == 2
+    assert coverage["missing_check_count"] == 0
+    assert set(coverage["covered_check_ids"]) == {"check_001", "check_002"}
+    assert coverage["latest_gatekeeper"]["evidence_refs"]
+    assert coverage["evidence_kind_counts"]["inspection"] >= 1
+    assert coverage["evidence_kind_counts"]["verdict"] >= 1
 
 
 def test_api_reveal_path_uses_native_host_shortcut(monkeypatch, service_factory, sample_workdir: Path) -> None:
@@ -1602,7 +1612,10 @@ def test_api_bundles_import_export_and_delete(
 
     list_response = client.get("/api/bundles")
     assert list_response.status_code == 200
-    assert any(item["id"] == bundle["id"] for item in list_response.json())
+    listed_bundle = next(item for item in list_response.json() if item["id"] == bundle["id"])
+    governance_summary = listed_bundle["governance_summary"]
+    assert governance_summary["workflow_step_count"] >= 1
+    assert governance_summary["gatekeeper"]["strictness"] == "evidence_refs_required"
 
     get_response = client.get(f"/api/bundles/{bundle['id']}")
     assert get_response.status_code == 200
@@ -1907,6 +1920,71 @@ def test_api_bundle_update_bumps_revision(
     assert bundle["description"] == "After API update."
     assert bundle["collaboration_summary"] == "Updated collaboration summary."
     assert bundle["revision"] == imported["revision"] + 1
+
+
+def test_bundle_api_and_detail_include_revision_lineage(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Bundle Lineage Source",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    source = service.import_bundle_text(
+        bundle_to_yaml(
+            service.derive_bundle_from_loop(
+                loop["id"],
+                name="Lineage Source Bundle",
+                description="Original lineage source.",
+                collaboration_summary="Original governance posture.",
+            )
+        )
+    )
+    revised = service.import_bundle_text(
+        bundle_to_yaml(
+            service.derive_bundle_from_loop(
+                loop["id"],
+                name="Lineage Revision Bundle",
+                description="Revision source should remain visible.",
+                collaboration_summary="Updated governance posture.",
+                source_bundle_id=source["id"],
+                revision=source["revision"] + 1,
+            )
+        )
+    )
+    client = TestClient(build_app(service=service))
+
+    api_response = client.get(f"/api/bundles/{revised['id']}")
+    list_response = client.get("/bundles")
+    page_response = client.get(f"/bundles/{revised['id']}")
+
+    assert api_response.status_code == 200
+    revision_summary = api_response.json()["revision_summary"]
+    assert revision_summary["source_bundle_id"] == source["id"]
+    assert revision_summary["lineage_state"] == "source_available"
+    assert any(item["surface"] == "summary" and item["status"] == "changed" for item in revision_summary["surface_deltas"])
+    assert page_response.status_code == 200
+    assert 'data-testid="bundle-revision-lineage"' in page_response.text
+    assert f"{source['id']} · Revision {source['revision']}" in page_response.text
+    assert 'data-testid="bundle-revision-delta-summary"' in page_response.text
+    assert list_response.status_code == 200
+    assert f'data-testid="bundle-governance-card-{revised["id"]}"' in list_response.text
+    assert 'data-testid="bundle-governance-failure"' in list_response.text
+    assert 'data-testid="bundle-governance-evidence"' in list_response.text
+    assert 'data-testid="bundle-governance-workflow"' in list_response.text
+    assert 'data-testid="bundle-governance-gatekeeper"' in list_response.text
+    assert 'data-testid="bundle-governance-changed-surfaces"' in list_response.text
 
 
 def test_bundle_owned_surface_edit_redirects_back_to_bundle_detail(

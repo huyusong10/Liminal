@@ -84,6 +84,8 @@ bundle 生命周期按整包表达：
 - 对话修订必须生成新的完整 bundle revision，不能只把反馈追加成聊天记录。
 - 对话修订的输入可以来自 bundle detail、run detail 或导入后的方案；这些入口必须复用同一个 alignment session 能力。
 - 从 run 修订时必须带入 source bundle、run evidence ledger、GateKeeper verdict 和用户反馈摘要。
+- READY 预览与 bundle detail 可以展示 revision lineage 和 surface diff，但这些内容必须由 source bundle 与当前 bundle 投影得出，不能成为新的事实源。
+- 方案库列表可以展示失败模式、证据风格、workflow 形状、GateKeeper 严格度和 revision 摘要，但这些内容必须来自 bundle projection，不能成为独立标签系统。
 
 ## 6. 入口语义
 
@@ -101,7 +103,7 @@ bundle 生命周期按整包表达：
 - `bundle` 是内部交换单元和专家导入 / 导出格式。
 - READY 预览必须包含从 bundle 派生的控制摘要，至少覆盖主要风险、证据路径、workflow 形状、GateKeeper 门禁和可选 runtime controls；该摘要是 projection，不是新的事实源。
 - 两条路径必须能互相转换：bundle 可以导入成底层资产，手动 loop 也可以派生回 bundle。
-- 方案库负责管理、导出、派生、整包删除和 revision 入口；用户从任何方案详情都应能进入“用对话修订方案”。
+- 方案库负责管理、导出、派生、整包删除和 revision 入口；列表卡片应优先呈现治理摘要，详情页保留专家 surface 和 YAML 入口，用户从任何方案详情都应能进入“用对话修订方案”。
 
 ## 7. 变更触发
 

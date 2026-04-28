@@ -405,6 +405,55 @@ def test_bundle_replace_updates_revision_and_links(service_factory, sample_workd
     assert exported["collaboration_summary"].startswith("Prefer maintainability")
 
 
+def test_bundle_governance_cards_project_contract_controls(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
+
+    card = next(item for item in service.list_bundle_governance_cards() if item["id"] == imported["id"])
+    governance = card["governance_summary"]
+
+    assert governance["failure_modes"]
+    assert governance["evidence_style"]
+    assert governance["workflow_step_count"] == 3
+    assert governance["workflow_shape"]
+    assert governance["gatekeeper"]["enabled"] is True
+    assert governance["gatekeeper"]["strictness"] == "evidence_refs_required"
+    assert governance["revision"]["lineage_state"] == "root"
+
+
+def test_bundle_revision_summary_compares_source_surfaces(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    source = service.import_bundle_text(_bundle_yaml(sample_workdir))
+    revised_yaml = _bundle_yaml(
+        sample_workdir,
+        collaboration_summary="Prefer stronger evidence coverage before revising again.",
+    ).replace(
+        'metadata:\n  name: "Guided Inspect First"\n  description: "Bundle created from task-scoped alignment."',
+        'metadata:\n'
+        '  name: "Guided Inspect First Revision"\n'
+        '  description: "Bundle revision with tighter evidence language."\n'
+        f'  source_bundle_id: "{source["id"]}"\n'
+        f'  revision: {source["revision"] + 1}',
+    ).replace(
+        "- The implementation stays maintainable for the next round.",
+        "- The implementation stays maintainable for the next round.\n"
+        "            - Evidence coverage is visible before another revision starts.",
+    )
+    revised = service.import_bundle_text(revised_yaml)
+
+    summary = service.get_bundle_revision_summary(revised["id"])
+    deltas = {item["surface"]: item["status"] for item in summary["surface_deltas"]}
+
+    assert summary["source_bundle_id"] == source["id"]
+    assert summary["source_bundle"]["id"] == source["id"]
+    assert summary["lineage_state"] == "source_available"
+    assert summary["can_compare"] is True
+    assert deltas["summary"] == "changed"
+    assert deltas["spec"] == "changed"
+    assert deltas["roles"] == "unchanged"
+    assert deltas["workflow"] == "unchanged"
+
+
 def test_failed_bundle_replace_preserves_existing_bundle(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     imported = service.import_bundle_text(_bundle_yaml(sample_workdir))

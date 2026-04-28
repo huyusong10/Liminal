@@ -48,6 +48,7 @@
 | 演进路线 | `evolution.md` | 从当前实现走向外部任务治理层的能力路线 | 全局 |
 | 核心思想 | `core-ideas/README.md` | 项目公理、反例、非目标 | 全局 |
 | 核心思想 | `core-ideas/product-principle.md` | 最高产品原则、外部任务治理与默认用户心智 | 全局 |
+| 核心思想 | `core-ideas/core-contract.md` | 当前五个治理 surface、巡检流程与测试对齐锚点 | 全局 |
 | 核心思想 | `core-ideas/collaboration-posture.md` | 用户判断姿态如何成为治理输入 | 全局 |
 | 核心思想 | `core-ideas/task-scoped-alignment.md` | 任务驱动对齐、working agreement 与循环方案演进 | 全局 |
 | 细节设计 | `detailed-design/01-spec-subsystem.md` | `spec.md` 编译与 checks 冻结 | `src/loopora/specs.py`, `src/loopora/service.py` |

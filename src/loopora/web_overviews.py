@@ -417,6 +417,129 @@ def _build_legacy_iteration_takeaway(run: dict) -> dict | None:
     }
 
 
+def _parse_check_verify_ref(value: object) -> tuple[str, str] | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.startswith(("check_results:", "dynamic_checks:")):
+        parts = text.split(":", 2)
+        if len(parts) >= 2 and parts[1]:
+            return parts[1], parts[2] if len(parts) == 3 else "unknown"
+    if text.startswith("check:"):
+        check_id = text.split(":", 1)[1].strip()
+        if check_id:
+            return check_id, "failed"
+    return None
+
+
+def _is_positive_evidence_status(status: object) -> bool:
+    normalized = str(status or "").strip().lower()
+    return normalized in {"passed", "pass", "ok", "success", "succeeded", "completed"}
+
+
+def _is_meaningful_residual_risk(value: object) -> bool:
+    text = _clean_takeaway_text(value, max_length=240).lower()
+    if not text:
+        return False
+    return text not in {
+        "no blocking residual risk was reported by gatekeeper.",
+        "no blocking residual risk was reported by gatekeeper",
+    }
+
+
+def _build_evidence_coverage(run: dict) -> dict:
+    runs_dir_value = str(run.get("runs_dir") or "").strip()
+    if not runs_dir_value:
+        return {
+            "ledger_path": "",
+            "status": "pending",
+            "evidence_count": 0,
+            "check_count": 0,
+            "covered_check_count": 0,
+            "missing_check_count": 0,
+            "covered_check_ids": [],
+            "missing_check_ids": [],
+            "evidence_kind_counts": {},
+            "artifact_ref_count": 0,
+            "residual_risk_count": 0,
+            "risk_signals": [],
+            "latest_gatekeeper": {},
+        }
+
+    layout = RunArtifactLayout(Path(runs_dir_value))
+    evidence_items = read_jsonl(layout.evidence_ledger_path)
+    compiled_spec = _safe_read_json_file(layout.contract_compiled_spec_path) or {}
+    checks = [
+        item
+        for item in list(compiled_spec.get("checks") or [])
+        if isinstance(item, Mapping) and str(item.get("id") or "").strip()
+    ]
+    check_ids = [str(item.get("id")).strip() for item in checks]
+    check_id_set = set(check_ids)
+    covered_checks: dict[str, str] = {}
+    evidence_kind_counts: dict[str, int] = defaultdict(int)
+    artifact_ref_count = 0
+    risk_signals: list[str] = []
+    latest_gatekeeper: dict = {}
+
+    for item in evidence_items:
+        kind = str(item.get("evidence_kind") or "observation").strip() or "observation"
+        evidence_kind_counts[kind] += 1
+        artifact_refs = item.get("artifact_refs") if isinstance(item.get("artifact_refs"), list) else []
+        artifact_ref_count += len(artifact_refs)
+
+        risk = _clean_takeaway_text(item.get("residual_risk"), max_length=240)
+        if _is_meaningful_residual_risk(risk):
+            risk_signals.append(risk)
+
+        for verify_ref in list(item.get("verifies") or []):
+            parsed = _parse_check_verify_ref(verify_ref)
+            if not parsed:
+                continue
+            check_id, status = parsed
+            if check_id in check_id_set and _is_positive_evidence_status(status):
+                covered_checks[check_id] = str(item.get("id") or "").strip()
+
+        if str(item.get("archetype") or "").strip().lower() == "gatekeeper":
+            latest_gatekeeper = {
+                "id": str(item.get("id") or "").strip(),
+                "result": str(item.get("result") or "").strip(),
+                "evidence_refs": [
+                    str(ref).split(":", 1)[1]
+                    for ref in list(item.get("verifies") or [])
+                    if str(ref).startswith("evidence:") and str(ref).split(":", 1)[1].strip()
+                ],
+                "residual_risk": risk,
+            }
+
+    covered_check_ids = [check_id for check_id in check_ids if check_id in covered_checks]
+    missing_check_ids = [check_id for check_id in check_ids if check_id not in covered_checks]
+    if not evidence_items:
+        status = "pending"
+    elif check_ids and not missing_check_ids and latest_gatekeeper.get("evidence_refs"):
+        status = "covered"
+    elif check_ids and not missing_check_ids:
+        status = "checks_covered"
+    else:
+        status = "partial"
+
+    return {
+        "ledger_path": layout.relative(layout.evidence_ledger_path),
+        "status": status,
+        "evidence_count": len(evidence_items),
+        "check_count": len(check_ids),
+        "covered_check_count": len(covered_check_ids),
+        "missing_check_count": len(missing_check_ids),
+        "covered_check_ids": covered_check_ids,
+        "missing_check_ids": missing_check_ids,
+        "evidence_kind_counts": dict(evidence_kind_counts),
+        "artifact_ref_count": artifact_ref_count,
+        "residual_risk_count": len(risk_signals),
+        "risk_signals": list(dict.fromkeys(risk_signals))[:5],
+        "latest_gatekeeper": latest_gatekeeper,
+    }
+
+
 def _build_run_key_takeaways(run: dict) -> dict:
     iterations = _build_structured_iteration_takeaways(run)
     if not iterations:
@@ -429,10 +552,12 @@ def _build_run_key_takeaways(run: dict) -> dict:
     runs_dir_value = str(run.get("runs_dir") or "").strip()
     if runs_dir_value:
         evidence_count = len(read_jsonl(RunArtifactLayout(Path(runs_dir_value)).evidence_ledger_path))
+    evidence_coverage = _build_evidence_coverage(run)
     return {
         "build_dir": str(Path(str(run.get("workdir") or "")).expanduser().resolve()) if run.get("workdir") else "",
         "log_dir": str(Path(str(run.get("runs_dir") or "")).expanduser().resolve()) if run.get("runs_dir") else "",
         "evidence_count": evidence_count,
+        "evidence_coverage": evidence_coverage,
         "iteration_count": len(iterations),
         "role_conclusion_count": sum(len(list(iteration.get("roles") or [])) for iteration in iterations),
         "latest_display_iter": latest.get("display_iter") if latest else None,
@@ -610,5 +735,6 @@ __all__ = [
     "_decorate_run_overview",
     "_display_iter",
     "_format_timeline_event",
+    "_build_evidence_coverage",
     "_progress_stage_seed",
 ]

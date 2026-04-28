@@ -56,6 +56,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const artifactFlow = document.getElementById("alignment-artifact-flow");
   const artifactWorkdir = document.getElementById("alignment-artifact-workdir");
   const controlSummary = document.getElementById("alignment-control-summary");
+  const revisionSummary = document.getElementById("alignment-revision-summary");
   const artifactSource = document.getElementById("alignment-artifact-source");
   const sourcePathLabel = document.getElementById("alignment-source-path");
   const specPreview = document.getElementById("alignment-spec-preview");
@@ -931,6 +932,47 @@ document.addEventListener("DOMContentLoaded", () => {
     `).join("");
   }
 
+  function renderRevisionSummary(summary) {
+    if (!revisionSummary) {
+      return;
+    }
+    const sourceId = String(summary?.source_bundle_id || "").trim();
+    if (!sourceId) {
+      revisionSummary.hidden = true;
+      revisionSummary.innerHTML = "";
+      return;
+    }
+    const source = summary.source_bundle || {};
+    const changed = (summary.surface_deltas || []).filter((delta) => delta.status === "changed");
+    const changedText = changed.length
+      ? changed.map((delta) => delta.surface).join(" / ")
+      : localeText("还没有 surface diff", "No surface diff yet");
+    const sourceText = source.name
+      ? `${source.name} · ${source.id || sourceId}`
+      : sourceId;
+    const cards = [
+      {
+        label: localeText("来源方案", "Source plan"),
+        value: sourceText,
+      },
+      {
+        label: localeText("当前 revision", "Current revision"),
+        value: String(summary.revision || "-"),
+      },
+      {
+        label: localeText("变化 surface", "Changed surfaces"),
+        value: changedText,
+      },
+    ];
+    revisionSummary.hidden = false;
+    revisionSummary.innerHTML = cards.map((card) => `
+      <div class="alignment-control-card">
+        <strong>${escapeHtml(card.label)}</strong>
+        <span>${escapeHtml(card.value)}</span>
+      </div>
+    `).join("");
+  }
+
   function compactRoleSummary(role) {
     const description = String(role.description || "").trim();
     const posture = String(role.posture_notes || "").trim();
@@ -1010,6 +1052,7 @@ document.addEventListener("DOMContentLoaded", () => {
     artifactWorkdir.textContent = basename(payload.bundle?.loop?.workdir || "");
     artifactWorkdir.title = payload.bundle?.loop?.workdir || "";
     renderControlSummary(payload.control_summary || null);
+    renderRevisionSummary(payload.revision_summary || null);
     specPreview.innerHTML = payload.spec_rendered_html || "";
     if (sourceOpenButton) {
       sourceOpenButton.hidden = !payload.source_path;

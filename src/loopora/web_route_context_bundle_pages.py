@@ -24,7 +24,7 @@ class WebRouteBundlePagesMixin:
         derive_error: str | None = None,
     ) -> HTMLResponse:
         loops = self.svc().list_loops()
-        bundles = self.svc().list_bundles()
+        bundles = self.svc().list_bundle_governance_cards()
         return self.templates.TemplateResponse(
             request,
             "bundles.html",
@@ -72,6 +72,7 @@ class WebRouteBundlePagesMixin:
                 "form_error": form_error,
                 "bundle_yaml": bundle_yaml,
                 "control_summary": self.svc()._bundle_control_summary(exported_bundle),
+                "revision_summary": self.svc()._bundle_revision_summary(exported_bundle, current_bundle_id=bundle_id),
                 "spec_rendered_html": render_safe_markdown_html(str(form_values.get("spec_markdown", ""))),
                 "access_state": self.access_state,
             },

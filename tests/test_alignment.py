@@ -108,6 +108,9 @@ def test_alignment_revision_session_can_start_from_existing_bundle(
     assert preview["ok"] is True
     assert preview["bundle"]["metadata"]["source_bundle_id"] == imported["bundle"]["id"]
     assert preview["bundle"]["metadata"]["revision"] > imported["bundle"]["revision"]
+    assert preview["revision_summary"]["source_bundle_id"] == imported["bundle"]["id"]
+    assert preview["revision_summary"]["lineage_state"] == "source_available"
+    assert {item["status"] for item in preview["revision_summary"]["surface_deltas"]} == {"unchanged"}
 
 
 def test_alignment_revision_session_can_start_from_run_evidence(

@@ -44,6 +44,68 @@
     </div>
   </section>
 
+  <section class="panel" data-testid="bundle-revision-lineage">
+    <header class="panel-header">
+      <div>
+        <h2><span data-lang="zh">Revision 脉络</span><span data-lang="en">Revision Lineage</span></h2>
+        <p class="panel-note">
+          <span data-lang="zh">这里把当前方案和来源方案的关系投影出来，帮助判断这次 revision 改的是哪个治理 surface。</span>
+          <span data-lang="en">This projects how the current plan relates to its source plan, so the changed governance surface is visible.</span>
+        </p>
+      </div>
+    </header>
+    <div class="bundle-revision-grid">
+      <article class="bundle-revision-card">
+        <span class="bundle-revision-label"><span data-lang="zh">当前 Revision</span><span data-lang="en">Current revision</span></span>
+        <strong>{{ revision_summary.revision }}</strong>
+        <p>{{ bundle.id }}</p>
+      </article>
+      <article class="bundle-revision-card">
+        <span class="bundle-revision-label"><span data-lang="zh">来源方案</span><span data-lang="en">Source plan</span></span>
+        {% if revision_summary.source_bundle %}
+        <strong>{{ revision_summary.source_bundle.name }}</strong>
+        <p>{{ revision_summary.source_bundle.id }} · Revision {{ revision_summary.source_bundle.revision }}</p>
+        {% elif revision_summary.source_bundle_id %}
+        <strong>{{ revision_summary.source_bundle_id }}</strong>
+        <p>
+          <span data-lang="zh">来源方案当前不可读取。</span>
+          <span data-lang="en">The source plan is not readable right now.</span>
+        </p>
+        {% else %}
+        <strong><span data-lang="zh">根方案</span><span data-lang="en">Root plan</span></strong>
+        <p>
+          <span data-lang="zh">这份方案没有记录上游 bundle。</span>
+          <span data-lang="en">This plan does not record an upstream bundle.</span>
+        </p>
+        {% endif %}
+      </article>
+    </div>
+    {% if revision_summary.surface_deltas %}
+    <div class="bundle-revision-delta-grid">
+      {% for delta in revision_summary.surface_deltas %}
+      <article class="bundle-revision-delta bundle-revision-delta--{{ delta.status }}" data-testid="bundle-revision-delta-{{ delta.surface }}">
+        <span>{{ delta.surface }}</span>
+        <strong>{{ delta.status }}</strong>
+        <p>{{ delta.summary }}</p>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="panel-note" data-testid="bundle-revision-no-diff">
+      {% if revision_summary.lineage_state == "in_place_revision" %}
+      <span data-lang="zh">这份方案是原地替换的 revision；上一版已被当前 bundle 记录覆盖，因此无法做逐 surface diff。</span>
+      <span data-lang="en">This plan was revised in place; the previous revision was replaced by the current bundle record, so per-surface diff is unavailable.</span>
+      {% elif revision_summary.source_bundle_id %}
+      <span data-lang="zh">当前还没有可比较的来源方案。</span>
+      <span data-lang="en">There is no comparable source plan right now.</span>
+      {% else %}
+      <span data-lang="zh">根方案没有上游 diff。</span>
+      <span data-lang="en">Root plans have no upstream diff.</span>
+      {% endif %}
+    </p>
+    {% endif %}
+  </section>
+
   <section class="panel">
     <header class="panel-header">
       <h2><span data-lang="zh">关联资源</span><span data-lang="en">Linked Assets</span></h2>
