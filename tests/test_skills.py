@@ -23,6 +23,11 @@ def test_loopora_task_alignment_skill_validates() -> None:
     skill_text = skill_md.read_text(encoding="utf-8")
     assert "[TODO" not in skill_text
     assert "task-judgment interviewer" in skill_text
+    assert "parallel_group" in skill_text
+    assert "Contract Inspector" in examples.read_text(encoding="utf-8")
+    assert "inputs.handoffs_from" in alignment_playbook.read_text(encoding="utf-8")
+    assert "bounded parallel inspection" in quality_rubric.read_text(encoding="utf-8")
+    assert "Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper" in bundle_contract.read_text(encoding="utf-8")
 
     result = subprocess.run(
         [

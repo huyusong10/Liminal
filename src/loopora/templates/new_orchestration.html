@@ -116,6 +116,26 @@
           </div>
           <div id="workflow-steps-list" class="workflow-steps-list" data-testid="workflow-steps-list"></div>
         </section>
+        <section class="workflow-editor-section workflow-controls-panel" data-testid="workflow-controls-panel">
+          <div class="workflow-section-head">
+            <div>
+              <strong><span data-lang="zh">运行控制</span><span data-lang="en">Runtime controls</span></strong>
+              <p class="workflow-section-note">
+                <span data-lang="zh">高级 trigger 只用于误差控制：空转、失败、超时或 GateKeeper 拒绝时调用现有 Inspector、Guide 或 GateKeeper。</span>
+                <span data-lang="en">Advanced triggers are only for error control: call an existing Inspector, Guide, or GateKeeper when progress stalls, a role fails, a step times out, or GateKeeper rejects.</span>
+              </p>
+            </div>
+          </div>
+          <div id="workflow-controls-list" class="workflow-steps-list workflow-controls-list" data-testid="workflow-controls-list"></div>
+          <label class="workflow-controls-json-shell">
+            <span><span data-lang="zh">Controls JSON</span><span data-lang="en">Controls JSON</span></span>
+            <textarea id="workflow-controls-json-input" rows="7" data-testid="workflow-controls-json-input" {% if orchestration_locked %}readonly{% endif %}></textarea>
+            <small class="field-note">
+              <span data-lang="zh">用于复制或专家修改。保存前会和 workflow 一起校验；新手路径不会展示这些配置。</span>
+              <span data-lang="en">For copying or expert edits. It is validated with the workflow before saving; the beginner path does not expose this configuration.</span>
+            </small>
+          </label>
+        </section>
       </div>
       <textarea id="workflow-json-input" name="workflow_json" rows="12" data-testid="workflow-json-input" hidden>{{- form_values.workflow_json -}}</textarea>
       <textarea id="prompt-files-json-input" name="prompt_files_json" rows="12" data-testid="prompt-files-json-input" hidden>{{- form_values.prompt_files_json -}}</textarea>

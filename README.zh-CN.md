@@ -11,51 +11,125 @@
   <a href="https://fastapi.tiangolo.com/">
     <img alt="FastAPI" src="https://img.shields.io/badge/web-FastAPI-009688?logo=fastapi&logoColor=white">
   </a>
-  <img alt="Local first" src="https://img.shields.io/badge/local--first-AI%20Agent%20evidence%20loops-0D7C66">
+  <img alt="Local first" src="https://img.shields.io/badge/local--first-AI%20Agent%20governance%20loops-0D7C66">
   <img alt="Status" src="https://img.shields.io/badge/status-实验中-D66A36">
 </p>
 
-Loopora 是面向长期 AI Agent 任务的本地工作台。
+Loopora 是面向长期 AI Agent 任务的本地任务治理系统。
 
-它把任务级判断变成可运行的证据循环：对齐任务、生成循环方案、调用本机 AI Agent CLI 执行、收集证据，并根据真实结果修订下一版方案。
+它把原本脆弱地藏在 Agent 对话上下文里的东西，也就是任务契约、用户判断、证据偏好、角色边界和停止规则，变成一个外部的、持久的、可检查的、可运行的、可修订的控制系统。
 
 ## AI Agent 已经能做，为什么还要用 Loopora？
 
 这是 Loopora 必须先回答的问题。
 
-如果任务很小、很明确、一轮就能 review 完，那大概率不该用 Loopora。让 AI Agent 做一次，人类 review 一次，然后结束。
+如果任务很小、很明确、一轮就能 review 完，那大概率不该用 Loopora。直接让 AI Agent 做一次，人类 review 一次，然后结束。
 
 但如果难点不是第一版答案呢？
 
-如果真正麻烦的是，人类总要反复回来问：
+如果真正麻烦的是，你总要反复回来判断：
 
 - 这一轮证明了正确的东西吗？
 - 结果是真的完成，还是只是局部看起来合理？
 - 下一轮应该继续写、先检查、再修一轮、收窄切口，还是停止？
-- 这个残余风险在这次任务里能接受吗？
-- 刚刚看到的证据，应该怎样改变下一版方案？
+- 哪些证据足以让这个结果可信？
+- 这次 run 暴露出来的问题，应该怎样改变下一版执行系统？
 
-当这些问题反复出现，瓶颈就不是生成，而是判断。
+当这些问题反复出现，瓶颈就不再是生成，而是治理。
 
-**Loopora 就是为这个时刻存在的：把任务级判断编译成一个能行动、取证、裁决，并从证据中改进的循环。**
+**Loopora 的存在理由，就是把任务治理从 Agent 的上下文里拿出来，变成一个持久的误差控制 harness。**
 
-## Loopora 的独特性是什么？
+## 为什么不只是用一个更好的 Agent 插件？
 
-Loopora 不是 role zoo。角色越多，不代表长期任务越可靠。
+大多数 Agent 插件是在对话内部增强 Agent：加入 skill、命令、角色、检查表，或者模拟优秀协作模式。这很有用，很多任务也确实够用了。
 
-Loopora 不是 prompt pack。更长的提示词不会自动让完成标准、角色姿态和判断时机变得可检查。
+Loopora 站在另一层。
 
-Loopora 也不只是 loop script。重复调用 AI Agent 只有在每轮都产生新证据、并让下一步更清楚时才有价值。
+它不只是告诉 Agent 要更自律，而是把 Agent 外围的控制系统外部化：
 
-Loopora 把三件经常缺失的事情放进同一个本地系统：
+| 只在 Agent 上下文里 | 在 Loopora 里 |
+| --- | --- |
+| prompt 里写“什么算好” | 任务契约冻结成功面、假完成、证据和残余风险 |
+| 某个角色提醒 Agent review | 多个角色以明确 handoff 承担构建、检查、裁决和纠偏 |
+| checklist 依赖模型自觉执行 | workflow gate 决定何时判断、何时允许结束 |
+| 日志事后解释发生了什么 | 证据产物成为 review 和 revision 的事实源 |
+| 反馈变成下一段 prompt | 反馈修订 harness 本身 |
 
-| 组成 | Loopora 显式表达什么 |
-|------|----------------------|
-| 任务契约 | 什么算进展、什么是假完成、信任哪类证据、guardrails 和残余风险 |
-| Agent 姿态 | 每个 AI Agent 角色在这次任务中如何构建、检查、裁决或纠偏 |
-| 判断时序 | 判断什么时候发生，loop 如何继续，以及什么时候可以停止 |
+其他系统可以让 Agent 更有纪律。Loopora 要做的是让任务的控制结构不只依赖 Agent 自律。
 
-这些内容会作为同一份循环方案被保存、运行和修订。
+## Loopora 真正管理什么？
+
+Loopora 的核心单元是 **循环方案**。
+
+循环方案不是更长的 prompt，而是一份任务治理契约，包含五个运行面：
+
+| 运行面 | 保护什么 |
+| --- | --- |
+| `spec` | 任务范围、成功面、假完成、guardrails、证据偏好 |
+| `roles` | 每个 AI Agent 角色在本任务中如何构建、检查、裁决或纠偏 |
+| `workflow` | 这些判断何时发生，什么条件能结束 run |
+| `evidence` | 每次 run 实际改了什么、检查了什么、证明了什么、没证明什么 |
+| `revision` | 反馈如何改变下一版 harness |
+
+在内部，Loopora 会把可运行方案保存成 YAML **bundle**。用户不需要一开始理解这个格式。Web UI 会让你描述任务、通过对话对齐方案、预览治理结构，并且只有在方案通过校验后才创建 run。
+
+## 五分钟上手原则
+
+Loopora 可以越来越强，但第一次使用必须保持简单：
+
+> 描述任务，选择 workdir，确认循环方案，运行，看证据，修订。
+
+并行检视、证据路由、workflow controls、触发规则这些高级能力，只有在它们确实能控制长期任务误差时，才由 Loopora 编译进方案。它们不是新用户开始前必须手动配置的概念。
+
+## 一个具体例子
+
+假设你说：
+
+> 做一个英语学习网站。
+
+普通 AI Agent 路径可能会直接开始做页面：落地页、单词卡片、几个按钮，也许 UI 看起来还不错。但它可能在没有证明“学习者真的能完成一轮学习”的情况下，就显得已经完成。
+
+Loopora 会先在治理层慢下来：
+
+- 第一版到底是可运行的学习路径，还是产品草图？
+- 什么是假完成？只是页面漂亮但没有真实学习闭环？
+- 什么证据能证明用户可以选择目标、学习、练习并看到进度？
+- 即使 UI 好看，GateKeeper 是否也应该拒绝浅层 polish？
+
+最后生成的循环方案可能是：
+
+```text
+Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper
+```
+
+`Builder` 实现第一条端到端学习切片。
+`Contract Inspector` 检查它是否符合学习任务承诺和 fake-done 风险。
+`Evidence Inspector` 独立证明学习路径是否真实、可重复。
+`GateKeeper` 汇总两条证据分支，裁决 run 能否结束，还是必须继续循环。
+
+如果结果仍然不对，下一步不应该是随机改 prompt。下一步应该是根据 run 证据修订方案。
+
+## Web 流程如何工作？
+
+```mermaid
+flowchart LR
+    A["描述任务"] --> B["对齐循环方案"]
+    B --> C["预览治理结构"]
+    C --> D["创建并运行"]
+    D --> E["收集证据"]
+    E --> F["修订 harness"]
+```
+
+在本地 Web UI 中：
+
+1. **工作台** 展示当前任务和运行状态。
+2. **新建任务** 打开对话式循环方案页面。
+3. Loopora 调用本机 AI Agent CLI，并提出形成任务级 harness 所需的问题。
+4. READY 方案会展示任务契约、角色、workflow 图和源文件操作。
+5. **创建并运行** 会物化方案并启动 loop。
+6. **方案库** 保存可复用的治理模式和它们对应的 bundle 文件。
+
+手动创建仍然存在，但它是 expert path，适合你已经明确知道要改哪个 `spec`、`roles` 或 `workflow` 运行面。
 
 ## 快速开始
 
@@ -71,94 +145,7 @@ uv sync
 uv run loopora serve --host 127.0.0.1 --port 8742
 ```
 
-打开 [http://127.0.0.1:8742](http://127.0.0.1:8742)，点击 **新建任务**，选择 workdir，然后描述你想让 Loopora 做什么。
-
-推荐使用 Web 路径：
-
-```text
-描述任务 -> 对齐循环方案 -> 预览 -> 创建并运行 -> 查看证据 -> 修订方案
-```
-
-## 一个具体例子
-
-假设你输入：
-
-> 做一个英语学习网站。
-
-普通 AI Agent 路径可能会直接开始做页面：落地页、单词卡片、几个按钮，也许 UI 看起来还不错。但它可能在没有证明“学习者真的能完成一轮学习”的情况下，就显得已经完成。
-
-Loopora 会在关键处慢下来，先问：
-
-- 第一版是可运行的学习路径，还是产品草图？
-- 什么是假完成？只是页面漂亮但没有真实学习闭环？
-- 什么证据能证明用户可以选择目标、学习、练习并看到进度？
-- 即使页面好看，最终裁决是否也应该拒绝浅层 polish？
-
-对齐之后，Loopora 会展示一份 **循环方案**。这份方案解释：
-
-- `spec`：任务契约、成功面、假完成、证据偏好和 guardrails。
-- `roles`：为当前任务塑形的 AI Agent 角色，例如 `Builder`、`Inspector`、`GateKeeper`。
-- `workflow`：判断发生的顺序，例如 `Builder -> Inspector -> GateKeeper`。
-
-然后 Loopora 才会创建并运行循环。`Builder` 修改 workdir，`Inspector` 检查真实学习路径是否成立，`GateKeeper` 裁决证据是否足够完成。
-
-如果结果仍然不对，下一步不应该是随机改 prompt。下一步应该是基于 run 证据修订方案。
-
-## Loopora 会生成什么？
-
-Loopora 首先生成一份人能读懂的 **循环方案**。
-
-在内部，这份方案会保存成一个 YAML **bundle**：它是单文件、可导入的产物，包含任务契约、AI Agent 角色姿态、workflow 和运行参数。
-
-你不需要一开始手写 bundle。Web UI 会通过对话生成方案、校验 bundle，并且只有当文件通过 Loopora 的契约后才显示 READY。
-
-bundle 重要，是因为它同时是：
-
-- 可读的：你能检查这次为什么要这样协作
-- 可运行的：Loopora 能把它物化成本地资产并启动 run
-- 面向证据的：run 能说明发生了什么、为什么通过或没通过
-- 可修订的：后续反馈可以生成下一版方案，而不是随机手改字段
-
-## Web 流程如何工作？
-
-```mermaid
-flowchart LR
-    A["描述任务"] --> B["对齐循环方案"]
-    B --> C["READY 方案"]
-    C --> D["预览 spec / roles / workflow"]
-    D --> E["创建并运行"]
-    E --> F["run 证据"]
-    F --> G["修订方案"]
-```
-
-在 Web UI 中：
-
-1. **工作台** 展示当前任务和运行状态。
-2. **新建任务** 打开对话式 alignment 页面。
-3. Loopora 调用本机 AI Agent CLI，提出澄清问题，并在多轮对话中继承 session。
-4. 方案 READY 后，页面会展示任务契约、角色卡片、workflow 图和源文件操作。
-5. **创建并运行** 会通过正常 bundle 生命周期导入方案并启动 loop。
-6. **方案库** 保存可复用循环方案和 bundle revision。
-
-手动创建仍然存在，但它是 expert path，适合你已经明确知道要改哪个 `spec`、`roles` 或 `workflow` 运行面。
-
-## 为什么不只写一段更好的 prompt？
-
-因为判断不是一段 prompt。
-
-如果只放进 `spec`，角色仍然是泛化角色。  
-如果只放进角色 prompt，通过标准会漂移。  
-如果只放进 workflow，系统知道顺序，却不知道如何判断。
-
-Loopora 把任务姿态拆到三种运行面：
-
-| 运行面 | 承载内容 |
-|--------|----------|
-| `spec` | 成功标准、证据、假完成、guardrails、残余风险 |
-| `roles` | 每个 AI Agent 角色在这次任务中如何构建、检查、裁决或纠偏 |
-| `workflow` | 每种判断什么时候发生，以及 run 如何结束 |
-
-loop 再用新证据检验这些运行面，而不是相信自我报告。
+打开 [http://127.0.0.1:8742](http://127.0.0.1:8742)，选择 **新建任务**，选择 workdir，然后描述这次长期任务。
 
 ## 什么时候该用 Loopora？
 
@@ -178,8 +165,9 @@ loop 再用新证据检验这些运行面，而不是相信自我报告。
 
 - 足够长，一轮无法定案
 - 足够有状态，每轮都会改变证据
-- 足够不确定，需要把 build、inspect、gate、redirect 拆开
-- 足够重要，不能把“看起来完成”当成“完成”
+- 足够模糊，成功不只是“测试通过”
+- 足够有风险，不能把假完成放过去
+- 足够可复用，任务判断方式不应该只活在一次聊天里
 
 如果再跑一轮也不会产生新证据，就不要开 loop。没有新证据的 loop 只会漂移。
 
@@ -187,29 +175,13 @@ loop 再用新证据检验这些运行面，而不是相信自我报告。
   <img src="./.github/assets/readme-decision-tree.zh.png" alt="Loopora 使用决策板" width="1120" />
 </p>
 
-## 常见 workflow 形状
-
-别先背 preset。先问：人类原本最先要回来判断什么？
-
-| 形状 | 适合场景 |
-|------|----------|
-| `Build First` | 需要第一条端到端路径，才谈得上判断 |
-| `Inspect First` | 需要先证明失败层，再写更多代码 |
-| `Triage First` | 多个症状混在一起，先要收窄成一个修复切片 |
-| `Repair Loop` | 已经知道一轮修复不够 |
-| `Benchmark Loop` | 下一步应该由最新评测结果决定 |
-
-这些形状都在回答同一个问题：
-
-> 哪种判断应该先被 loop 暴露出来，避免人类再回来补做？
-
 ## 外部 AI Agent 路径
 
-Web UI 是默认入口，因为它把对齐、bundle 校验、预览、创建和 run 证据放在同一条引导流程里。后续方案修订应该以这些证据为事实源，而不是退回隐藏 prompt 的随机调整。
+Web UI 是推荐路径，因为它把对齐、校验、预览、运行、证据和修订放在同一条引导流程里。
 
-如果你更喜欢在 Web 之外做对齐，可以打开 **资源与设置 -> 工具与 Skill**，把 repo-local `loopora-task-alignment` Skill 安装到 Codex、Claude Code 或 OpenCode。
+如果你更喜欢在 Web 之外做对齐，可以打开 **资源与设置 -> 工具与 Skill**，把 repo-local `loopora-task-alignment` Skill 安装到 Codex、Claude Code、OpenCode 或其他兼容 AI Agent CLI。
 
-这个路径产出的仍是同一种 YAML bundle。需要运行时，从 **资源与设置 -> 手动创建** 导入即可。
+这个路径产出的仍是同一种 YAML bundle。需要运行时，从 expert 手动创建路径导入即可。
 
 ## CLI
 
@@ -226,14 +198,14 @@ uv run loopora run \
 
 ## 项目状态
 
-Loopora 仍处于实验阶段，并坚持 local-first。Web 流程、bundle alignment 质量、证据复盘和长期真实用例覆盖都会持续迭代。
+Loopora 仍处于实验阶段，并坚持 local-first。
 
-核心承诺：
+稳定承诺：
 
-- bundle 导入 / 导出保持文件化、可检查
-- Web alignment 不绕过 bundle 生命周期
-- run evidence 保存在 Loopora 管理的本地 artifacts 中
-- `spec / roles / workflow` 的 expert routes 继续保留
+- 任务治理应该存在于单次 Agent 对话之外
+- 循环方案保持可检查、文件化
+- bundle 导入 / 导出保持显式、本地
+- run 必须产生证据，而不只是日志
 - 后续 revision 应来自证据和反馈，而不是隐藏的 prompt 漂移
 
 ## 开发

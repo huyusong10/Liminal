@@ -232,6 +232,29 @@ document.addEventListener("DOMContentLoaded", () => {
         collapsed: true,
       })];
     }
+    if (["control_triggered", "control_completed", "control_failed", "control_skipped"].includes(event.event_type)) {
+      const tone = event.event_type === "control_failed"
+        ? "error"
+        : event.event_type === "control_skipped"
+          ? "warning"
+          : event.event_type === "control_completed"
+            ? "success"
+            : "system";
+      const label = {
+        control_triggered: localeText("运行控制已触发", "Control triggered"),
+        control_completed: localeText("运行控制已完成", "Control completed"),
+        control_failed: localeText("运行控制失败", "Control failed"),
+        control_skipped: localeText("运行控制已跳过", "Control skipped"),
+      }[event.event_type];
+      return [buildConsoleEntry(event, {
+        tone,
+        channel: tone === "error" ? "error" : tone === "warning" ? "warning" : "context",
+        filterKey: tone === "error" ? "result" : "actions",
+        summary: `${label} · ${payload.signal || "-"} -> ${payload.role_id || "-"}`,
+        text: prettyJson(payload),
+        collapsed: true,
+      })];
+    }
     if (event.event_type === "iteration_summary_written") {
       return [buildConsoleEntry(event, {
         tone: payload.passed ? "success" : "system",
@@ -623,6 +646,10 @@ document.addEventListener("DOMContentLoaded", () => {
     "role_started",
     "role_execution_summary",
     "step_handoff_written",
+    "control_triggered",
+    "control_completed",
+    "control_failed",
+    "control_skipped",
     "iteration_summary_written",
     "role_degraded",
     "challenger_done",

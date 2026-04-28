@@ -53,7 +53,7 @@ OrchestrationIdOption = Annotated[
     str,
     typer.Option(
         "--orchestration-id",
-        help="Use a saved orchestration id, such as builtin:build_first or a custom orchestration id.",
+        help="Use a saved orchestration id, such as builtin:build_then_parallel_review or a custom orchestration id.",
     ),
 ]
 WorkflowFileOption = Annotated[

@@ -91,6 +91,104 @@ def test_cli_loop_creation_emits_structured_logs(monkeypatch, tmp_path: Path) ->
     assert created_record["context"]["start"] is False
 
 
+def test_cli_loop_create_accepts_parallel_workflow_file(monkeypatch, tmp_path: Path) -> None:
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text("# Task\n\nKeep going.\n", encoding="utf-8")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    workflow_path = tmp_path / "workflow.yml"
+    workflow_path.write_text(
+        """
+version: 1
+collaboration_intent: "Build first, then inspect contract and evidence in parallel before GateKeeper closes."
+roles:
+  - id: builder
+    archetype: builder
+    prompt_ref: builder.md
+  - id: contract_inspector
+    name: Contract Inspector
+    archetype: inspector
+    prompt_ref: inspector.md
+  - id: evidence_inspector
+    name: Evidence Inspector
+    archetype: inspector
+    prompt_ref: inspector.md
+  - id: gatekeeper
+    archetype: gatekeeper
+    prompt_ref: gatekeeper.md
+steps:
+  - id: builder_step
+    role_id: builder
+  - id: contract_inspection_step
+    role_id: contract_inspector
+    parallel_group: inspection_pack
+    inputs:
+      handoffs_from: ["builder_step"]
+      evidence_query:
+        archetypes: ["builder"]
+        limit: 8
+      iteration_memory: summary_only
+  - id: evidence_inspection_step
+    role_id: evidence_inspector
+    parallel_group: inspection_pack
+    inputs:
+      handoffs_from: ["builder_step"]
+  - id: gatekeeper_step
+    role_id: gatekeeper
+    on_pass: finish_run
+    inputs:
+      handoffs_from: ["contract_inspection_step", "evidence_inspection_step"]
+controls:
+  - id: stale_evidence_check
+    when:
+      signal: no_evidence_progress
+      after: 20m
+    call:
+      role_id: evidence_inspector
+    mode: repair_guidance
+    max_fires_per_run: 1
+""",
+        encoding="utf-8",
+    )
+    calls: dict[str, object] = {}
+
+    class FakeService:
+        def create_loop(self, **kwargs):
+            calls["create_loop"] = kwargs
+            return {"id": "loop_parallel", "name": kwargs["name"], "workdir": str(kwargs["workdir"])}
+
+        def rerun(self, loop_id: str, background: bool = False):
+            raise AssertionError("loop creation without --start should not rerun")
+
+    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "loops",
+            "create",
+            "--spec",
+            str(spec_path),
+            "--workdir",
+            str(workdir),
+            "--workflow-file",
+            str(workflow_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    workflow = calls["create_loop"]["workflow"]
+    assert workflow["steps"][1]["parallel_group"] == "inspection_pack"
+    assert workflow["steps"][1]["inputs"]["evidence_query"]["archetypes"] == ["builder"]
+    assert workflow["steps"][3]["inputs"]["handoffs_from"] == [
+        "contract_inspection_step",
+        "evidence_inspection_step",
+    ]
+    assert workflow["controls"][0]["when"]["signal"] == "no_evidence_progress"
+    assert workflow["controls"][0]["call"]["role_id"] == "evidence_inspector"
+
+
 def test_cli_run_supports_command_mode_background_and_role_models(monkeypatch, tmp_path: Path) -> None:
     spec_path = tmp_path / "spec.md"
     spec_path.write_text("# Task\n\nKeep going.\n", encoding="utf-8")
@@ -555,7 +653,8 @@ def test_cli_spec_init_accepts_workflow_preset(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.stdout
     created_text = spec_path.read_text(encoding="utf-8")
     assert "## Builder Notes" in created_text
-    assert "## Inspector Notes" in created_text
+    assert "## Regression Inspector Notes" in created_text
+    assert "## Contract Inspector Notes" in created_text
     assert "## Guide Notes" in created_text
     assert "## GateKeeper Notes" in created_text
     assert created_text.count("## Builder Notes") == 1

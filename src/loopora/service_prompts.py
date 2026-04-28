@@ -168,8 +168,10 @@ class ServiceRunPromptMixin:
             f"Tester output:\n{json.dumps(tester_output, ensure_ascii=False, indent=2)}\n\n"
             "Inside `metric_scores`, provide exactly `check_pass_rate` and `quality_score`, each with `value`, `threshold`, and `passed`.\n"
             "For every `priority_failures` item, return `error_code` and `summary`.\n"
+            "When passing, cite concrete Evidence ledger item ids in `evidence_refs`. "
+            "If this GateKeeper step is the first evidence reader, prose claims alone are not enough; include measured `metric_scores` and put concise proof statements in `evidence_claims`.\n"
             "Return JSON with passed, composite_score, metric_scores, hard_constraint_violations, "
-            "failed_check_ids, priority_failures, and feedback_to_generator."
+            "failed_check_ids, priority_failures, feedback_to_generator, evidence_refs, and evidence_claims."
         )
 
     def _challenger_prompt(self, compiled_spec: dict, stagnation: dict, iter_id: int) -> str:
@@ -322,6 +324,8 @@ VERIFIER_SCHEMA = {
         "priority_failures",
         "feedback_to_builder",
         "feedback_to_generator",
+        "evidence_refs",
+        "evidence_claims",
     ],
     "properties": {
         "passed": {"type": "boolean"},
@@ -385,6 +389,8 @@ VERIFIER_SCHEMA = {
         },
         "feedback_to_builder": {"type": "string"},
         "feedback_to_generator": {"type": "string"},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}},
+        "evidence_claims": {"type": "array", "items": {"type": "string"}},
     },
     "additionalProperties": False,
 }

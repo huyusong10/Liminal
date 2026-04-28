@@ -21,22 +21,16 @@ class FixtureCase:
 
 CASES = (
     FixtureCase(
-        slug="build_first",
+        slug="build_then_parallel_review",
         fixture_dir="search_rollout_build_first",
         proof_script="tests/contract/help_center_shadow_proof.py",
         proof_output="tests/evidence/help_center_shadow_proof.json",
     ),
     FixtureCase(
-        slug="inspect_first",
+        slug="evidence_first",
         fixture_dir="search_rollout_inspect_first",
         proof_script="tests/contract/high_value_query_regression_proof.py",
         proof_output="tests/evidence/high_value_query_regression_proof.json",
-    ),
-    FixtureCase(
-        slug="triage_first",
-        fixture_dir="search_rollout_triage_first",
-        proof_script="tests/contract/triage_blocker_proof.py",
-        proof_output="tests/evidence/triage_blocker_proof.json",
     ),
     FixtureCase(
         slug="repair_loop",
@@ -45,7 +39,7 @@ CASES = (
         proof_output="tests/evidence/reindex_window_proof.json",
     ),
     FixtureCase(
-        slug="benchmark_loop",
+        slug="benchmark_gate",
         fixture_dir="search_rollout_benchmark_loop",
         proof_script="tests/contract/relevance_benchmark_proof.py",
         proof_output="tests/evidence/relevance_benchmark_proof.json",

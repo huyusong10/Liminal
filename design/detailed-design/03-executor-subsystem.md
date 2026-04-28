@@ -1,6 +1,6 @@
 # Executor Subsystem
 
-> 最高原则：遵循 `../core-ideas/product-principle.md`。执行器只是把已冻结的循环方案交给本机 AI Agent CLI 执行，不负责替代 alignment、裁决或方案 revision。
+> 最高原则：遵循 `../core-ideas/product-principle.md`。执行器只是把已冻结的循环方案交给本机 AI Agent CLI 执行，不负责替代 alignment、裁决或 harness revision。
 
 ## 1. Purpose
 

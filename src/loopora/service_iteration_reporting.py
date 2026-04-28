@@ -232,6 +232,8 @@ class ServiceIterationReportingMixin:
                 "priority_failures": list(verifier_result.get("priority_failures", [])),
                 "feedback_to_generator": verifier_result.get("feedback_to_generator", ""),
                 "next_actions": list(verifier_result.get("next_actions", [])),
+                "evidence_refs": list(verifier_result.get("evidence_refs", [])),
+                "evidence_gate_status": verifier_result.get("evidence_gate_status", ""),
             },
             "stagnation": {
                 "mode": stagnation.get("stagnation_mode", "none"),

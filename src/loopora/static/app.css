@@ -941,6 +941,50 @@ html[data-locale="zh"] .eyebrow {
   margin-top: 14px;
 }
 
+.bundle-control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.bundle-control-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(var(--outline-rgb), 0.12);
+  background: rgba(var(--glass-rgb), 0.72);
+}
+
+.bundle-control-card strong {
+  overflow-wrap: anywhere;
+}
+
+.bundle-control-card dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.bundle-control-card dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bundle-control-card dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.bundle-control-card dd {
+  margin: 0;
+  color: var(--ink);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 .bundle-role-actions {
   flex-wrap: wrap;
 }
@@ -1956,6 +2000,40 @@ html[data-locale="zh"] .alignment-role-title em {
   color: var(--muted);
 }
 
+.alignment-control-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.alignment-control-card {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--outline-rgb), 0.08);
+  background: rgba(var(--panel-rgb), 0.52);
+}
+
+.alignment-control-card strong,
+.alignment-control-card span {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.alignment-control-card strong {
+  margin-bottom: 4px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.alignment-control-card span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 .alignment-artifact-source {
   display: flex;
   align-items: center;
@@ -2071,6 +2149,10 @@ html[data-locale="zh"] .alignment-role-title em {
 
   .alignment-artifact-head,
   .alignment-artifact-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .alignment-control-summary {
     grid-template-columns: 1fr;
   }
 
@@ -2629,6 +2711,18 @@ html[data-locale="zh"] .tutorial-guide-kicker {
   --decision-tree-flow-accent: rgba(128, 110, 255, 0.5);
 }
 
+.tutorial-decision-tree-flow-card--build-then-parallel-review {
+  --decision-tree-flow-accent: rgba(46, 127, 214, 0.62);
+}
+
+.tutorial-decision-tree-flow-card--evidence-first {
+  --decision-tree-flow-accent: rgba(13, 124, 102, 0.72);
+}
+
+.tutorial-decision-tree-flow-card--benchmark-gate {
+  --decision-tree-flow-accent: rgba(128, 110, 255, 0.5);
+}
+
 .tutorial-decision-tree-flow-copy {
   display: flex;
   align-items: center;
@@ -3113,6 +3207,11 @@ html[data-locale="zh"] .meta-grid dt {
   margin-top: 18px;
   flex-wrap: wrap;
   align-items: stretch;
+}
+
+.inline-form {
+  display: inline-flex;
+  margin: 0;
 }
 
 .card-actions--loop {
@@ -3733,6 +3832,12 @@ body.modal-open {
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
+.workflow-controls-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+}
+
 .workflow-steps-panel .workflow-steps-list {
   align-content: start;
 }
@@ -3769,6 +3874,10 @@ body.modal-open {
 .workflow-step-row:focus-visible {
   outline: 2px solid rgba(13, 124, 102, 0.34);
   outline-offset: 2px;
+}
+
+.workflow-control-row {
+  cursor: default;
 }
 
 .workflow-step-card-top {
@@ -3908,6 +4017,17 @@ body.modal-open {
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.6;
+}
+
+.workflow-controls-json-shell {
+  display: grid;
+  gap: 6px;
+}
+
+.workflow-controls-json-shell textarea {
+  min-height: 132px;
+  font-family: "SFMono-Regular", "SF Mono", "IBM Plex Mono", "Menlo", monospace;
+  font-size: 0.84rem;
 }
 
 .workflow-settings-modal {

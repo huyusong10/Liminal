@@ -6,7 +6,9 @@
 
 最高产品原则见 `core-ideas/product-principle.md`：
 
-> Loopora 是面向长期 AI Agent 任务的 task-scoped harness compiler + evidence loop runtime。所有设计都必须服务于 `任务 -> 方案 -> 证据 -> 修订` 的闭环，而不是退化成 role zoo、prompt pack、loop script 或通用聊天界面。
+> Loopora 是面向长期 AI Agent 任务的外部任务治理层。所有设计都必须服务于 `任务输入 -> 对齐治理方案 -> 运行并收集证据 -> 基于证据修订 harness` 的闭环，而不是退化成 role zoo、prompt pack、loop script、通用聊天界面或内部资产 CRUD console。
+
+同一原则还包含“5 分钟上手”硬约束：高级治理能力只能服务于误差控制，并且必须默认隐藏在循环方案、专家编辑或修订路径中，不能让第一次使用变成配置 workflow 平台。
 
 文档分成两个子模块：
 
@@ -43,10 +45,11 @@
 
 | 子模块 | 文档 | 主题 | 主要代码边界 |
 | --- | --- | --- | --- |
+| 演进路线 | `evolution.md` | 从当前实现走向外部任务治理层的能力路线 | 全局 |
 | 核心思想 | `core-ideas/README.md` | 项目公理、反例、非目标 | 全局 |
-| 核心思想 | `core-ideas/product-principle.md` | 最高产品原则、差异化边界与默认用户心智 | 全局 |
-| 核心思想 | `core-ideas/collaboration-posture.md` | 协作姿态、人格外化与 posture 编译方向 | 全局 |
-| 核心思想 | `core-ideas/task-scoped-alignment.md` | 任务驱动对齐、working agreement 与 bundle 演进方案 | 全局 |
+| 核心思想 | `core-ideas/product-principle.md` | 最高产品原则、外部任务治理与默认用户心智 | 全局 |
+| 核心思想 | `core-ideas/collaboration-posture.md` | 用户判断姿态如何成为治理输入 | 全局 |
+| 核心思想 | `core-ideas/task-scoped-alignment.md` | 任务驱动对齐、working agreement 与循环方案演进 | 全局 |
 | 细节设计 | `detailed-design/01-spec-subsystem.md` | `spec.md` 编译与 checks 冻结 | `src/loopora/specs.py`, `src/loopora/service.py` |
 | 细节设计 | `detailed-design/02-orchestration-service.md` | loop/run 编排与角色循环 | `src/loopora/service.py` |
 | 细节设计 | `detailed-design/03-executor-subsystem.md` | 执行器、provider 适配、命令模式 | `src/loopora/executor.py`, `src/loopora/providers.py` |
@@ -55,7 +58,7 @@
 | 细节设计 | `detailed-design/06-workflow-and-prompts.md` | workflow、prompt 与角色快照契约 | `src/loopora/workflows.py`, `src/loopora/context_flow.py` |
 | 细节设计 | `detailed-design/07-observability-and-diagnostics.md` | 统一日志契约、事件命名与分级规则 | `src/loopora/diagnostics.py`, `src/loopora/settings.py`, `src/loopora/db.py`, `src/loopora/service.py`, `src/loopora/web.py`, `src/loopora/cli.py` |
 | 细节设计 | `detailed-design/08-bundles-and-alignment.md` | bundle 生命周期、外部 skill 边界与 task-scoped alignment 落点 | `src/loopora/bundles.py`, `src/loopora/service_bundle_assets.py`, `skills/loopora-task-alignment/` |
-| 细节设计 | `detailed-design/09-web-bundle-alignment.md` | Web 内置 bundle 对齐入口、alignment session、READY 预览与导入运行 | `src/loopora/web_route_*.py`, `src/loopora/templates/`, `src/loopora/static/`, `src/loopora/executor.py`, `src/loopora/bundles.py` |
+| 细节设计 | `detailed-design/09-web-bundle-alignment.md` | Web 内置任务对齐入口、alignment session、READY 预览与创建运行 | `src/loopora/web_route_*.py`, `src/loopora/templates/`, `src/loopora/static/`, `src/loopora/executor.py`, `src/loopora/bundles.py` |
 
 ## 5. 读者约定
 

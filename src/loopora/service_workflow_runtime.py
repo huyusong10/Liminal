@@ -6,13 +6,84 @@ from loopora.context_flow import build_step_context_packet, output_contract_prom
 from loopora.executor import CodexExecutor, RoleRequest, coerce_reasoning_effort, normalize_reasoning_effort, validate_command_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode
 from loopora.recovery import RetryConfig
-from loopora.run_artifacts import RunArtifactLayout
+from loopora.run_artifacts import RunArtifactLayout, read_jsonl
 from loopora.service_types import LooporaError
 from loopora.utils import write_json
 from loopora.workflows import WorkflowError, role_uses_execution_snapshot
 
 
 class ServiceWorkflowRuntimeMixin:
+    def _step_inputs(self, step: dict) -> dict:
+        inputs = step.get("inputs")
+        return dict(inputs) if isinstance(inputs, dict) else {}
+
+    def _matches_handoff_selector(self, handoff: dict, selector: str) -> bool:
+        source = handoff.get("source") if isinstance(handoff, dict) else {}
+        if not isinstance(source, dict):
+            return False
+        normalized = str(selector or "").strip()
+        return normalized in {
+            str(source.get("step_id") or "").strip(),
+            str(source.get("role_id") or "").strip(),
+            str(source.get("runtime_role") or "").strip(),
+            str(source.get("archetype") or "").strip(),
+            str(source.get("role_name") or "").strip(),
+        }
+
+    def _filter_handoffs_for_step(self, step: dict, handoffs: list[dict]) -> list[dict]:
+        inputs = self._step_inputs(step)
+        selectors = [str(item).strip() for item in list(inputs.get("handoffs_from") or []) if str(item).strip()]
+        if not selectors:
+            return list(handoffs)
+        return [
+            handoff
+            for handoff in handoffs
+            if any(self._matches_handoff_selector(handoff, selector) for selector in selectors)
+        ]
+
+    def _iteration_memory_for_step(
+        self,
+        step: dict,
+        *,
+        previous_iteration_same_step: dict | None,
+        previous_iteration_same_role: dict | None,
+        previous_iteration_summary: dict | None,
+    ) -> tuple[dict | None, dict | None, dict | None]:
+        policy = str(self._step_inputs(step).get("iteration_memory") or "default").strip().lower()
+        if policy == "none":
+            return None, None, None
+        if policy == "same_step":
+            return previous_iteration_same_step, None, None
+        if policy == "same_role":
+            return None, previous_iteration_same_role, None
+        if policy == "summary_only":
+            return None, None, previous_iteration_summary
+        return previous_iteration_same_step, previous_iteration_same_role, previous_iteration_summary
+
+    def _filter_evidence_for_step(self, step: dict, evidence_items: list[dict]) -> list[dict]:
+        inputs = self._step_inputs(step)
+        query = inputs.get("evidence_query") if isinstance(inputs.get("evidence_query"), dict) else {}
+        archetypes = {str(item).strip() for item in list(query.get("archetypes") or []) if str(item).strip()}
+        verifies = [str(item).strip().lower() for item in list(query.get("verifies") or []) if str(item).strip()]
+        filtered: list[dict] = []
+        for item in evidence_items:
+            if not isinstance(item, dict):
+                continue
+            if archetypes and str(item.get("archetype") or "").strip() not in archetypes:
+                continue
+            if verifies:
+                verify_text = " ".join(str(value) for value in list(item.get("verifies") or [])).lower()
+                if not any(needle in verify_text for needle in verifies):
+                    continue
+            filtered.append(item)
+        raw_limit = query.get("limit", 40)
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 40
+        limit = max(1, min(limit, 100))
+        return filtered[-limit:]
+
     def _run_workflow_step(
         self,
         executor: CodexExecutor,
@@ -50,6 +121,25 @@ class ServiceWorkflowRuntimeMixin:
             expected_archetype=role["archetype"],
         )
         runtime_role = self._runtime_role_key(role)
+        all_evidence_items = read_jsonl(layout.evidence_ledger_path)
+        evidence_items = all_evidence_items[-40:]
+        evidence_known_ids = [
+            str(item.get("id"))
+            for item in all_evidence_items
+            if isinstance(item, dict) and str(item.get("id") or "").strip()
+        ]
+        current_handoffs_for_step = self._filter_handoffs_for_step(step, current_handoffs)
+        (
+            previous_iteration_same_step_for_step,
+            previous_iteration_same_role_for_step,
+            previous_iteration_summary_for_step,
+        ) = self._iteration_memory_for_step(
+            step,
+            previous_iteration_same_step=previous_handoffs_by_step.get(step["id"]),
+            previous_iteration_same_role=previous_handoffs_by_role.get(role["id"]),
+            previous_iteration_summary=previous_iteration_summary,
+        )
+        evidence_items = self._filter_evidence_for_step(step, evidence_items)
         context_packet = build_step_context_packet(
             run_contract=run_contract,
             layout=layout,
@@ -58,13 +148,15 @@ class ServiceWorkflowRuntimeMixin:
             step_order=step_order,
             role=role,
             execution_settings=execution_settings,
-            immediate_previous_step=current_handoffs[-1] if current_handoffs else None,
-            completed_steps_this_iteration=current_handoffs,
-            previous_iteration_same_step=previous_handoffs_by_step.get(step["id"]),
-            previous_iteration_same_role=previous_handoffs_by_role.get(role["id"]),
-            previous_iteration_summary=previous_iteration_summary,
+            immediate_previous_step=current_handoffs_for_step[-1] if current_handoffs_for_step else None,
+            completed_steps_this_iteration=current_handoffs_for_step,
+            previous_iteration_same_step=previous_iteration_same_step_for_step,
+            previous_iteration_same_role=previous_iteration_same_role_for_step,
+            previous_iteration_summary=previous_iteration_summary_for_step,
             previous_composite=previous_composite,
             stagnation_mode=stagnation_mode,
+            evidence_items=evidence_items,
+            evidence_known_ids=evidence_known_ids,
         )
         context_path = layout.step_context_path(iter_id, step_order, step["id"])
         write_json(context_path, context_packet)
@@ -79,7 +171,7 @@ class ServiceWorkflowRuntimeMixin:
                 "archetype": role["archetype"],
                 "context_path": layout.relative(context_path),
                 "previous_iteration_exists": context_packet["iteration"]["previous_iteration_exists"],
-                "completed_steps_this_iteration": len(current_handoffs),
+                "completed_steps_this_iteration": len(current_handoffs_for_step),
                 "immediate_previous_step_id": (
                     context_packet["upstream"]["immediate_previous_step"]["source"]["step_id"]
                     if context_packet["upstream"]["immediate_previous_step"]
@@ -133,7 +225,7 @@ class ServiceWorkflowRuntimeMixin:
                 "legacy_role": runtime_role,
                 "context_packet": context_packet,
                 "immediate_previous_step": context_packet["upstream"]["immediate_previous_step"],
-                "previous_iteration_summary": previous_iteration_summary,
+                "previous_iteration_summary": previous_iteration_summary_for_step,
                 "current_outputs_by_step": current_outputs_by_step,
                 "current_outputs_by_role": current_outputs_by_role,
                 "current_outputs_by_archetype": current_outputs_by_archetype,

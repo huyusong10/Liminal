@@ -68,7 +68,17 @@ STEP_EXECUTION_FIELDS = (
     "model",
     "inherit_session",
     "extra_cli_args",
+    "parallel_group",
+    "inputs",
 )
+PARALLEL_GROUP_ARCHETYPES = {"inspector", "custom"}
+STEP_INPUT_KEYS = {"handoffs_from", "evidence_query", "iteration_memory"}
+STEP_ITERATION_MEMORY_POLICIES = {"default", "none", "same_step", "same_role", "summary_only"}
+WORKFLOW_CONTROL_SIGNALS = {"no_evidence_progress", "role_timeout", "step_failed", "gatekeeper_rejected"}
+WORKFLOW_CONTROL_MODES = {"advisory", "blocking", "repair_guidance"}
+WORKFLOW_CONTROL_ARCHETYPES = {"inspector", "guide", "gatekeeper"}
+WORKFLOW_CONTROL_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
+WORKFLOW_CONTROL_AFTER_RE = re.compile(r"^\d+(?:\.\d+)?(?:ms|s|m|h)?$")
 
 
 def normalize_prompt_locale(value: str | None) -> str:
@@ -201,6 +211,178 @@ def normalize_step_on_pass(
     return normalized_value
 
 
+def _normalize_string_list(value: Any, *, field_name: str) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        normalized = value.strip()
+        return [normalized] if normalized else []
+    if not isinstance(value, list):
+        raise WorkflowError(f"{field_name} must be a string or array of strings")
+    result: list[str] = []
+    for item in value:
+        normalized = str(item or "").strip()
+        if normalized:
+            result.append(normalized)
+    return result
+
+
+def normalize_step_parallel_group(value: Any) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if not re.match(r"^[A-Za-z0-9_.-]{1,80}$", normalized):
+        raise WorkflowError("workflow step parallel_group must use letters, numbers, dot, underscore, or dash")
+    return normalized
+
+
+def normalize_step_inputs(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise WorkflowError("workflow step inputs must be an object")
+    unknown_keys = sorted(str(key) for key in value.keys() if str(key) not in STEP_INPUT_KEYS)
+    if unknown_keys:
+        raise WorkflowError(f"workflow step inputs contains unknown keys: {', '.join(unknown_keys)}")
+
+    result: dict[str, Any] = {}
+    handoffs_from = _normalize_string_list(value.get("handoffs_from"), field_name="workflow step inputs.handoffs_from")
+    if handoffs_from:
+        result["handoffs_from"] = handoffs_from
+
+    evidence_query = value.get("evidence_query")
+    if evidence_query is not None:
+        if not isinstance(evidence_query, Mapping):
+            raise WorkflowError("workflow step inputs.evidence_query must be an object")
+        query_unknown = sorted(
+            str(key)
+            for key in evidence_query.keys()
+            if str(key) not in {"archetypes", "verifies", "limit"}
+        )
+        if query_unknown:
+            raise WorkflowError(
+                f"workflow step inputs.evidence_query contains unknown keys: {', '.join(query_unknown)}"
+            )
+        query: dict[str, Any] = {}
+        archetypes = _normalize_string_list(
+            evidence_query.get("archetypes"),
+            field_name="workflow step inputs.evidence_query.archetypes",
+        )
+        invalid_archetypes = [item for item in archetypes if item not in ARCHETYPES]
+        if invalid_archetypes:
+            raise WorkflowError(
+                "workflow step inputs.evidence_query.archetypes contains unknown archetypes: "
+                + ", ".join(invalid_archetypes)
+            )
+        if archetypes:
+            query["archetypes"] = archetypes
+        verifies = _normalize_string_list(
+            evidence_query.get("verifies"),
+            field_name="workflow step inputs.evidence_query.verifies",
+        )
+        if verifies:
+            query["verifies"] = verifies
+        raw_limit = evidence_query.get("limit")
+        if raw_limit is not None:
+            try:
+                limit = int(raw_limit)
+            except (TypeError, ValueError) as exc:
+                raise WorkflowError("workflow step inputs.evidence_query.limit must be an integer") from exc
+            if limit < 1 or limit > 100:
+                raise WorkflowError("workflow step inputs.evidence_query.limit must be between 1 and 100")
+            query["limit"] = limit
+        if query:
+            result["evidence_query"] = query
+
+    iteration_memory = str(value.get("iteration_memory") or "").strip().lower()
+    if iteration_memory == "all":
+        iteration_memory = "default"
+    if iteration_memory:
+        if iteration_memory not in STEP_ITERATION_MEMORY_POLICIES:
+            raise WorkflowError(
+                "workflow step inputs.iteration_memory must be default, none, same_step, same_role, or summary_only"
+            )
+        if iteration_memory != "default":
+            result["iteration_memory"] = iteration_memory
+
+    return result
+
+
+def normalize_workflow_controls(value: Any, *, role_by_id: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise WorkflowError("workflow.controls must be an array")
+    result: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for index, raw_control in enumerate(value, start=1):
+        if not isinstance(raw_control, Mapping):
+            raise WorkflowError("workflow.controls entries must be objects")
+        unknown_keys = sorted(
+            str(key)
+            for key in raw_control.keys()
+            if str(key) not in {"id", "when", "call", "mode", "max_fires_per_run"}
+        )
+        if unknown_keys:
+            raise WorkflowError(f"workflow control contains unknown keys: {', '.join(unknown_keys)}")
+        control_id = str(raw_control.get("id") or f"control_{index:03d}").strip()
+        if not WORKFLOW_CONTROL_SAFE_ID_RE.match(control_id):
+            raise WorkflowError("workflow control id must use letters, numbers, dot, underscore, or dash")
+        if control_id in seen_ids:
+            raise WorkflowError(f"duplicate workflow control id: {control_id}")
+        seen_ids.add(control_id)
+
+        when = raw_control.get("when")
+        if not isinstance(when, Mapping):
+            raise WorkflowError(f"workflow control {control_id} requires when")
+        when_unknown = sorted(str(key) for key in when.keys() if str(key) not in {"signal", "after"})
+        if when_unknown:
+            raise WorkflowError(f"workflow control {control_id}.when contains unknown keys: {', '.join(when_unknown)}")
+        signal = str(when.get("signal") or "").strip()
+        if signal not in WORKFLOW_CONTROL_SIGNALS:
+            raise WorkflowError(
+                "workflow control when.signal must be one of: " + ", ".join(sorted(WORKFLOW_CONTROL_SIGNALS))
+            )
+        after = str(when.get("after") or "0s").strip() or "0s"
+        if not WORKFLOW_CONTROL_AFTER_RE.match(after):
+            raise WorkflowError("workflow control when.after must be an elapsed duration such as 30s, 20m, or 1h")
+
+        call = raw_control.get("call")
+        if not isinstance(call, Mapping):
+            raise WorkflowError(f"workflow control {control_id} requires call")
+        call_unknown = sorted(str(key) for key in call.keys() if str(key) not in {"role_id"})
+        if call_unknown:
+            raise WorkflowError(f"workflow control {control_id}.call contains unknown keys: {', '.join(call_unknown)}")
+        role_id = str(call.get("role_id") or "").strip()
+        role = role_by_id.get(role_id)
+        if role is None:
+            raise WorkflowError(f"workflow control {control_id} references unknown role_id: {role_id}")
+        archetype = str(role.get("archetype") or "").strip()
+        if archetype not in WORKFLOW_CONTROL_ARCHETYPES:
+            raise WorkflowError("workflow controls may only call Inspector, Guide, or GateKeeper roles")
+
+        mode = str(raw_control.get("mode") or "advisory").strip()
+        if mode not in WORKFLOW_CONTROL_MODES:
+            raise WorkflowError("workflow control mode must be advisory, blocking, or repair_guidance")
+        try:
+            max_fires = int(raw_control.get("max_fires_per_run", 1) or 1)
+        except (TypeError, ValueError) as exc:
+            raise WorkflowError("workflow control max_fires_per_run must be an integer") from exc
+        if max_fires < 1 or max_fires > 20:
+            raise WorkflowError("workflow control max_fires_per_run must be between 1 and 20")
+
+        result.append(
+            {
+                "id": control_id,
+                "when": {"signal": signal, "after": after},
+                "call": {"role_id": role_id},
+                "mode": mode,
+                "max_fires_per_run": max_fires,
+            }
+        )
+    return result
+
+
 def default_step_execution_settings(*, archetype: str | None = None) -> dict[str, Any]:
     normalized_archetype = LEGACY_ROLE_TO_ARCHETYPE.get(str(archetype or "").strip().lower(), "")
     return {
@@ -217,14 +399,16 @@ def _preset_role(
     archetype: str,
     prompt_ref: str,
     role_definition_id: str,
+    name: str = "",
+    posture_notes: str = "",
 ) -> dict[str, str]:
     return {
         "id": role_id,
-        "name": ARCHETYPE_DISPLAY[archetype]["en"],
+        "name": name or ARCHETYPE_DISPLAY[archetype]["en"],
         "archetype": archetype,
         "prompt_ref": prompt_ref,
         "role_definition_id": role_definition_id,
-        "posture_notes": "",
+        "posture_notes": posture_notes,
         **default_role_execution_settings(),
     }
 
@@ -274,9 +458,11 @@ def _preset_step(
     model: str = "",
     inherit_session: bool | None = None,
     extra_cli_args: str = "",
+    parallel_group: str = "",
+    inputs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     defaults = default_step_execution_settings(archetype=archetype)
-    return {
+    step = {
         "id": step_id,
         "role_id": role_id,
         "on_pass": normalize_step_on_pass(
@@ -291,9 +477,224 @@ def _preset_step(
         ),
         "extra_cli_args": str(extra_cli_args or ""),
     }
+    normalized_parallel_group = normalize_step_parallel_group(parallel_group)
+    if normalized_parallel_group:
+        step["parallel_group"] = normalized_parallel_group
+    normalized_inputs = normalize_step_inputs(inputs)
+    if normalized_inputs:
+        step["inputs"] = normalized_inputs
+    return step
+
+
+DEFAULT_WORKFLOW_PRESET = "build_then_parallel_review"
 
 
 WORKFLOW_PRESETS = {
+    "build_then_parallel_review": _workflow_preset_definition(
+        label_zh="构建后并行检视",
+        label_en="Build + Parallel Review",
+        description_zh="Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper",
+        description_en="Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper",
+        scenario_zh="适合目标已经足够清楚，但误差风险来自多个方向的长任务：一个 AI Agent 可以先推进实现，之后由两个检视视角并行检查用户契约和可复验证据，再由 GateKeeper 汇总裁决。",
+        scenario_en="Best when the target is clear but error risk comes from multiple directions: one AI Agent can push the implementation, two inspection perspectives can review contract and evidence in parallel, and GateKeeper can make the final call.",
+        choice_zh="默认选它，因为它把人类常做的“先让 Agent 干活，再从不同角度复查，再决定能不能收工”外化成可运行的治理结构。",
+        choice_en="Choose this by default because it externalizes the common human loop: let the agent build, review from more than one angle, then decide whether the task can close.",
+        decision_zh="先构建可检查产物，再用并行检视降低单一 reviewer 漏看风险，最后由 GateKeeper 基于汇总证据收束。",
+        decision_en="Build an inspectable result first, reduce single-reviewer blind spots through parallel inspection, then let GateKeeper close from the gathered evidence.",
+        roles=[
+            _preset_role(
+                role_id="builder",
+                archetype="builder",
+                prompt_ref=PROMPT_FILES["builder"],
+                role_definition_id="builtin:builder",
+                posture_notes="Create a concrete, inspectable result and leave a concise handoff for multiple reviewers.",
+            ),
+            _preset_role(
+                role_id="contract_inspector",
+                name="Contract Inspector",
+                archetype="inspector",
+                prompt_ref=PROMPT_FILES["inspector"],
+                role_definition_id="builtin:inspector",
+                posture_notes="Check whether the result satisfies the task contract, guardrails, and fake-done risks.",
+            ),
+            _preset_role(
+                role_id="evidence_inspector",
+                name="Evidence Inspector",
+                archetype="inspector",
+                prompt_ref=PROMPT_FILES["inspector"],
+                role_definition_id="builtin:inspector",
+                posture_notes="Collect reproducible proof that the main path works, and call out weak or missing evidence.",
+            ),
+            _preset_role(
+                role_id="gatekeeper",
+                archetype="gatekeeper",
+                prompt_ref=PROMPT_FILES["gatekeeper"],
+                role_definition_id="builtin:gatekeeper",
+                posture_notes="Pass only when contract and evidence inspection both support closing the loop.",
+            ),
+        ],
+        steps=[
+            _preset_step(step_id="builder_step", role_id="builder", archetype="builder"),
+            _preset_step(
+                step_id="contract_inspection_step",
+                role_id="contract_inspector",
+                archetype="inspector",
+                parallel_group="inspection_pack",
+                inputs={
+                    "handoffs_from": ["builder_step"],
+                    "evidence_query": {"archetypes": ["builder"], "limit": 12},
+                    "iteration_memory": "summary_only",
+                },
+            ),
+            _preset_step(
+                step_id="evidence_inspection_step",
+                role_id="evidence_inspector",
+                archetype="inspector",
+                parallel_group="inspection_pack",
+                inputs={
+                    "handoffs_from": ["builder_step"],
+                    "evidence_query": {"archetypes": ["builder"], "limit": 12},
+                    "iteration_memory": "summary_only",
+                },
+            ),
+            _preset_step(
+                step_id="gatekeeper_step",
+                role_id="gatekeeper",
+                archetype="gatekeeper",
+                on_pass="finish_run",
+                inputs={
+                    "handoffs_from": ["contract_inspection_step", "evidence_inspection_step"],
+                    "evidence_query": {"archetypes": ["builder", "inspector"], "limit": 24},
+                },
+            ),
+        ],
+    ),
+    "evidence_first": _workflow_preset_definition(
+        label_zh="先取证再构建",
+        label_en="Evidence First",
+        description_zh="Inspector -> Builder -> GateKeeper",
+        description_en="Inspector -> Builder -> GateKeeper",
+        scenario_zh="适合失败层、风险面或真实完成标准还不稳的任务。先让 Inspector 建立事实和证据边界，再让 Builder 针对已确认的缺口推进，最后由 GateKeeper 判断是否收束。",
+        scenario_en="Best when the failure layer, risk surface, or success standard is still uncertain. Inspector grounds the facts first, Builder acts against the confirmed gap, and GateKeeper decides whether the loop can close.",
+        choice_zh="选它，而不是默认并行检视，因为现在最稀缺的是事实边界；先写代码容易把误差放大。",
+        choice_en="Choose this over the default parallel review when the scarce thing is the factual boundary; coding first would amplify error.",
+        decision_zh="先建立证据边界，再推进实现，避免 Builder 在错误层面上加速。",
+        decision_en="Ground the evidence boundary before implementation so Builder does not accelerate in the wrong layer.",
+        roles=[
+            _preset_role(
+                role_id="inspector",
+                archetype="inspector",
+                prompt_ref=PROMPT_FILES["inspector"],
+                role_definition_id="builtin:inspector",
+                posture_notes="Identify the first trustworthy evidence boundary and separate facts from assumptions before implementation.",
+            ),
+            _preset_role(
+                role_id="builder",
+                archetype="builder",
+                prompt_ref=PROMPT_FILES["builder"],
+                role_definition_id="builtin:builder",
+                posture_notes="Act only on the grounded evidence slice and avoid widening the repair target.",
+            ),
+            _preset_role(
+                role_id="gatekeeper",
+                archetype="gatekeeper",
+                prompt_ref=PROMPT_FILES["gatekeeper"],
+                role_definition_id="builtin:gatekeeper",
+                posture_notes="Judge the final result against the same evidence path that shaped the implementation.",
+            ),
+        ],
+        steps=[
+            _preset_step(step_id="inspector_step", role_id="inspector", archetype="inspector"),
+            _preset_step(
+                step_id="builder_step",
+                role_id="builder",
+                archetype="builder",
+                inputs={"handoffs_from": ["inspector_step"], "iteration_memory": "summary_only"},
+            ),
+            _preset_step(
+                step_id="gatekeeper_step",
+                role_id="gatekeeper",
+                archetype="gatekeeper",
+                on_pass="finish_run",
+                inputs={
+                    "handoffs_from": ["inspector_step", "builder_step"],
+                    "evidence_query": {"archetypes": ["inspector", "builder"], "limit": 20},
+                },
+            ),
+        ],
+    ),
+    "benchmark_gate": _workflow_preset_definition(
+        label_zh="基准门禁",
+        label_en="Benchmark Gate",
+        description_zh="Benchmark Inspector -> Builder -> Regression Inspector -> GateKeeper",
+        description_en="Benchmark Inspector -> Builder -> Regression Inspector -> GateKeeper",
+        scenario_zh="适合已经有 benchmark、contract test 或可重复度量的任务。先读取基准事实，再推进最小修复，随后复查同一证据路径，最后让 GateKeeper 基于指标和残余风险裁决。",
+        scenario_en="Best when a benchmark, contract test, or repeatable measurement already exists. Read the baseline first, make the smallest repair, re-check the same evidence path, and let GateKeeper decide from metric evidence plus residual risk.",
+        choice_zh="选它时，说明你信任可重复测量多于直觉判断；它比默认流程更适合性能、检索、回归和质量门禁类任务。",
+        choice_en="Choose this when repeatable measurement is more trustworthy than intuition; it fits performance, retrieval, regression, and quality-gate tasks better than the default.",
+        decision_zh="把基准证据放在实现前后两端，避免用不同证据口径宣称进步。",
+        decision_en="Put benchmark evidence on both sides of implementation so progress is not claimed through a different evidence standard.",
+        roles=[
+            _preset_role(
+                role_id="benchmark_inspector",
+                name="Benchmark Inspector",
+                archetype="inspector",
+                prompt_ref=PROMPT_FILES["inspector"],
+                role_definition_id="builtin:inspector",
+                posture_notes="Read the existing benchmark or contract proof first and identify the highest-leverage failing signal.",
+            ),
+            _preset_role(
+                role_id="builder",
+                archetype="builder",
+                prompt_ref=PROMPT_FILES["builder"],
+                role_definition_id="builtin:builder",
+                posture_notes="Make the smallest change that targets the benchmark-backed blocker without changing the evidence standard.",
+            ),
+            _preset_role(
+                role_id="regression_inspector",
+                name="Regression Inspector",
+                archetype="inspector",
+                prompt_ref=PROMPT_FILES["inspector"],
+                role_definition_id="builtin:inspector",
+                posture_notes="Re-run or inspect the same evidence path and surface regressions or measurement gaps.",
+            ),
+            _preset_role(
+                role_id="gatekeeper",
+                archetype="gatekeeper",
+                prompt_ref=PROMPT_FILES["gatekeeper"],
+                role_definition_id="builtin:gatekeeper",
+                posture_notes="Pass only when the repeatable evidence improves enough and residual risk is explicitly acceptable.",
+            ),
+        ],
+        steps=[
+            _preset_step(step_id="benchmark_inspection_step", role_id="benchmark_inspector", archetype="inspector"),
+            _preset_step(
+                step_id="builder_step",
+                role_id="builder",
+                archetype="builder",
+                inputs={"handoffs_from": ["benchmark_inspection_step"], "iteration_memory": "summary_only"},
+            ),
+            _preset_step(
+                step_id="regression_inspection_step",
+                role_id="regression_inspector",
+                archetype="inspector",
+                inputs={
+                    "handoffs_from": ["benchmark_inspection_step", "builder_step"],
+                    "evidence_query": {"archetypes": ["inspector", "builder"], "limit": 20},
+                },
+            ),
+            _preset_step(
+                step_id="gatekeeper_step",
+                role_id="gatekeeper",
+                archetype="gatekeeper",
+                on_pass="finish_run",
+                inputs={
+                    "handoffs_from": ["benchmark_inspection_step", "regression_inspection_step"],
+                    "evidence_query": {"archetypes": ["inspector", "builder"], "limit": 24},
+                },
+            ),
+        ],
+    ),
     "build_first": _workflow_preset_definition(
         label_zh="先构建，再验收",
         label_en="Build First",
@@ -305,6 +706,7 @@ WORKFLOW_PRESETS = {
         choice_en="Choose this over Inspect First or Triage First when the scarce thing is not more diagnosis, but the first complete path that can spare humans repeated check-ins.",
         decision_zh="先让 Builder 跑出第一条完整路径，别让人类在每一层接通后都回来确认。",
         decision_en="Let Builder land the first complete path before humans have to re-check every newly connected layer.",
+        visible=False,
         roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
@@ -329,6 +731,7 @@ WORKFLOW_PRESETS = {
         choice_en="Choose this over Build First when the scarce thing is evidence rather than more code, and over Triage First when the failing path is already narrowed but the root cause still is not.",
         decision_zh="先让 Inspector 把根因证据钉住，别让人类反复回来纠正 Builder 在修哪一层。",
         decision_en="Let Inspector pin down root-cause evidence before humans have to keep correcting which layer Builder is touching.",
+        visible=False,
         roles=[
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
@@ -353,6 +756,7 @@ WORKFLOW_PRESETS = {
         choice_en="Choose this over Build First or Repair Loop when the scarce thing is the newest measured result, not another round of human intuition.",
         decision_zh="先读 benchmark，再决定下一步，好让人类不用在每轮评测后手动重排方向。",
         decision_en="Read the benchmark first so humans do not have to manually reshuffle the next move after every evaluation.",
+        visible=False,
         roles=[
             _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper-benchmark"], role_definition_id="builtin:gatekeeper"),
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
@@ -394,6 +798,7 @@ WORKFLOW_PRESETS = {
         choice_en="Choose this over Inspect First when this round's main problem is still undefined and Inspector plus Guide must first carve out the slice worth fixing, so humans do not have to keep redefining the direction.",
         decision_zh="先把本轮问题收窄成一个切片，别让人类反复回来决定“这轮到底修什么”。",
         decision_en="Narrow this round to one repair slice before humans have to keep returning to decide what the round is even about.",
+        visible=False,
         roles=[
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
             _preset_role(role_id="guide", archetype="guide", prompt_ref=PROMPT_FILES["guide"], role_definition_id="builtin:guide"),
@@ -410,26 +815,81 @@ WORKFLOW_PRESETS = {
     "repair_loop": _workflow_preset_definition(
         label_zh="修复回路",
         label_en="Repair Loop",
-        description_zh="Builder -> Inspector -> Guide -> Builder -> GateKeeper(finish)",
-        description_en="Builder -> Inspector -> Guide -> Builder -> GateKeeper(finish)",
+        description_zh="Builder -> [Regression Inspector + Contract Inspector] -> Guide -> Builder -> GateKeeper",
+        description_en="Builder -> [Regression Inspector + Contract Inspector] -> Guide -> Builder -> GateKeeper",
         scenario_zh="适合从一开始就知道一轮修复不够，如果没有 loop，人类会在每轮后重新进来判断第二轮怎么修的长程任务。",
         scenario_en="Best for long tasks where you already know one repair pass will not be enough, so without a loop humans would have to re-enter after each round to decide how the next repair should change.",
-        choice_zh="选它，而不是 Build First，因为你已经预期一轮修复不够；也不是 Inspect First，因为第一轮改动本身就是下一轮证据的来源。",
-        choice_en="Choose this over Build First when you already expect one pass not to be enough, and over Inspect First when the first code change is itself the only way to surface the next evidence.",
+        choice_zh="当你已经预期一轮修复不够，而且第一轮改动本身就是下一轮证据来源时选择它。",
+        choice_en="Choose this when you already expect one pass not to be enough, and when the first code change is itself the only way to surface the next evidence.",
         decision_zh="先打一轮，再用复查结果决定第二轮，减少人类在每轮后重新指路。",
         decision_en="Ship the first repair, then let fresh evidence shape the second one so humans do not have to keep stepping back in to redirect it.",
         roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
-            _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
+            _preset_role(
+                role_id="regression_inspector",
+                name="Regression Inspector",
+                archetype="inspector",
+                prompt_ref=PROMPT_FILES["inspector"],
+                role_definition_id="builtin:inspector",
+                posture_notes="Compare the latest attempt against the pre-repair evidence and identify the strongest remaining regression.",
+            ),
+            _preset_role(
+                role_id="contract_inspector",
+                name="Contract Inspector",
+                archetype="inspector",
+                prompt_ref=PROMPT_FILES["inspector"],
+                role_definition_id="builtin:inspector",
+                posture_notes="Check whether the repair still respects the task contract, guardrails, and fake-done risks.",
+            ),
             _preset_role(role_id="guide", archetype="guide", prompt_ref=PROMPT_FILES["guide"], role_definition_id="builtin:guide"),
             _preset_role(role_id="gatekeeper", archetype="gatekeeper", prompt_ref=PROMPT_FILES["gatekeeper"], role_definition_id="builtin:gatekeeper"),
         ],
         steps=[
             _preset_step(step_id="builder_step", role_id="builder", archetype="builder"),
-            _preset_step(step_id="inspector_step", role_id="inspector", archetype="inspector"),
-            _preset_step(step_id="guide_step", role_id="guide", archetype="guide"),
-            _preset_step(step_id="builder_repair_step", role_id="builder", archetype="builder"),
-            _preset_step(step_id="gatekeeper_step", role_id="gatekeeper", archetype="gatekeeper", on_pass="finish_run"),
+            _preset_step(
+                step_id="regression_inspection_step",
+                role_id="regression_inspector",
+                archetype="inspector",
+                parallel_group="repair_review",
+                inputs={
+                    "handoffs_from": ["builder_step"],
+                    "evidence_query": {"archetypes": ["builder"], "limit": 12},
+                    "iteration_memory": "summary_only",
+                },
+            ),
+            _preset_step(
+                step_id="contract_inspection_step",
+                role_id="contract_inspector",
+                archetype="inspector",
+                parallel_group="repair_review",
+                inputs={
+                    "handoffs_from": ["builder_step"],
+                    "evidence_query": {"archetypes": ["builder"], "limit": 12},
+                    "iteration_memory": "summary_only",
+                },
+            ),
+            _preset_step(
+                step_id="guide_step",
+                role_id="guide",
+                archetype="guide",
+                inputs={"handoffs_from": ["regression_inspection_step", "contract_inspection_step"]},
+            ),
+            _preset_step(
+                step_id="builder_repair_step",
+                role_id="builder",
+                archetype="builder",
+                inputs={"handoffs_from": ["guide_step"], "iteration_memory": "same_step"},
+            ),
+            _preset_step(
+                step_id="gatekeeper_step",
+                role_id="gatekeeper",
+                archetype="gatekeeper",
+                on_pass="finish_run",
+                inputs={
+                    "handoffs_from": ["regression_inspection_step", "contract_inspection_step", "builder_repair_step"],
+                    "evidence_query": {"archetypes": ["inspector", "builder"], "limit": 24},
+                },
+            ),
         ],
     ),
     "fast_lane": _workflow_preset_definition(
@@ -618,7 +1078,7 @@ def preset_names(*, include_hidden: bool = False) -> list[str]:
 
 
 def workflow_preset_copy(name: str) -> dict[str, str]:
-    preset_name = str(name or "build_first").strip() or "build_first"
+    preset_name = str(name or DEFAULT_WORKFLOW_PRESET).strip() or DEFAULT_WORKFLOW_PRESET
     preset = WORKFLOW_PRESETS.get(preset_name)
     if not preset:
         raise WorkflowError(f"unknown workflow preset: {name}")
@@ -653,8 +1113,8 @@ def workflow_preset_options(*, include_hidden: bool = False) -> list[dict[str, s
     ]
 
 
-def build_preset_workflow(name: str = "build_first", *, role_models: dict[str, str] | None = None) -> dict:
-    preset_name = str(name or "build_first").strip() or "build_first"
+def build_preset_workflow(name: str = DEFAULT_WORKFLOW_PRESET, *, role_models: dict[str, str] | None = None) -> dict:
+    preset_name = str(name or DEFAULT_WORKFLOW_PRESET).strip() or DEFAULT_WORKFLOW_PRESET
     if preset_name not in WORKFLOW_PRESETS:
         raise WorkflowError(f"unknown workflow preset: {preset_name}")
     overrides = normalize_role_models(role_models)
@@ -663,7 +1123,16 @@ def build_preset_workflow(name: str = "build_first", *, role_models: dict[str, s
         override = overrides.get(role["id"]) or overrides.get(role["archetype"])
         if override:
             role["model"] = override
-    return {"version": 1, "preset": preset_name, "roles": preset["roles"], "steps": preset["steps"]}
+    workflow = {
+        "version": 1,
+        "preset": preset_name,
+        "collaboration_intent": str(preset.get("collaboration_intent", "") or ""),
+        "roles": preset["roles"],
+        "steps": preset["steps"],
+    }
+    if preset.get("controls"):
+        workflow["controls"] = list(preset.get("controls") or [])
+    return workflow
 
 
 def workflow_warnings(workflow: dict) -> list[str]:
@@ -720,9 +1189,41 @@ def has_finish_gatekeeper_step(workflow: dict[str, Any] | None) -> bool:
     return False
 
 
+def validate_workflow_parallel_groups(steps: list[dict[str, Any]], role_by_id: dict[str, dict[str, Any]]) -> None:
+    seen_closed_groups: set[str] = set()
+    active_group = ""
+    for step in steps:
+        group = str(step.get("parallel_group") or "").strip()
+        role = role_by_id.get(str(step.get("role_id") or ""))
+        archetype = str((role or {}).get("archetype") or "")
+        if not group:
+            if active_group:
+                seen_closed_groups.add(active_group)
+                active_group = ""
+            continue
+        if group in seen_closed_groups and group != active_group:
+            raise WorkflowError("workflow parallel_group steps must be contiguous")
+        if active_group and group != active_group:
+            seen_closed_groups.add(active_group)
+        active_group = group
+        if archetype not in PARALLEL_GROUP_ARCHETYPES:
+            raise WorkflowError("workflow parallel_group currently supports inspector and custom steps only")
+    if active_group:
+        seen_closed_groups.add(active_group)
+
+    counts: dict[str, int] = {}
+    for step in steps:
+        group = str(step.get("parallel_group") or "").strip()
+        if group:
+            counts[group] = counts.get(group, 0) + 1
+    singletons = [group for group, count in counts.items() if count < 2]
+    if singletons:
+        raise WorkflowError("workflow parallel_group must contain at least two contiguous steps")
+
+
 def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str, str] | None = None) -> dict:
     if workflow is None:
-        normalized = build_preset_workflow("build_first", role_models=role_models)
+        normalized = build_preset_workflow(DEFAULT_WORKFLOW_PRESET, role_models=role_models)
         normalized["warnings"] = workflow_warnings(normalized)
         return normalized
 
@@ -798,17 +1299,25 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
         )
         extra_cli_args = str(raw_step.get("extra_cli_args", "") or "").strip()
         validate_extra_cli_args_text(extra_cli_args)
-        steps.append(
-            {
-                "id": step_id,
-                "role_id": role_id,
-                "on_pass": on_pass,
-                "model": model,
-                "inherit_session": inherit_session,
-                "extra_cli_args": extra_cli_args,
-            }
-        )
+        step_entry = {
+            "id": step_id,
+            "role_id": role_id,
+            "on_pass": on_pass,
+            "model": model,
+            "inherit_session": inherit_session,
+            "extra_cli_args": extra_cli_args,
+        }
+        parallel_group = normalize_step_parallel_group(raw_step.get("parallel_group"))
+        if parallel_group:
+            step_entry["parallel_group"] = parallel_group
+        inputs = normalize_step_inputs(raw_step.get("inputs"))
+        if inputs:
+            step_entry["inputs"] = inputs
+        steps.append(step_entry)
         step_ids.add(step_id)
+    role_by_id = {role["id"]: role for role in roles}
+    validate_workflow_parallel_groups(steps, role_by_id)
+    controls = normalize_workflow_controls(raw.get("controls"), role_by_id=role_by_id)
 
     normalized = {
         "version": int(raw.get("version", 1) or 1),
@@ -817,6 +1326,8 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
         "roles": roles,
         "steps": steps,
     }
+    if controls:
+        normalized["controls"] = controls
     normalized["warnings"] = workflow_warnings(normalized)
     return normalized
 

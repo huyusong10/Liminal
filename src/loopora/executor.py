@@ -69,7 +69,7 @@ class CodexExecutor:
         emit_event: Callable[[str, dict], None],
         should_stop: Callable[[], bool],
         set_child_pid: Callable[[int | None], None],
-        ) -> dict:
+    ) -> dict:
         raise NotImplementedError
 
 
@@ -980,6 +980,15 @@ class FakeCodexExecutor(CodexExecutor):
             ]
             check_pass_rate = round(passed_checks / total_checks, 3)
             passed = composite >= 0.9 and not failed_check_ids
+            context_packet = request.extra_context.get("context_packet") if isinstance(request.extra_context, dict) else {}
+            evidence_items = []
+            if isinstance(context_packet, dict):
+                evidence_items = list((context_packet.get("evidence") or {}).get("items") or [])
+            evidence_refs = [
+                str(item.get("id"))
+                for item in evidence_items
+                if isinstance(item, dict) and str(item.get("id") or "").strip()
+            ][-3:]
             return {
                 "passed": passed,
                 "decision_summary": "All checks passed." if passed else "The run still has failing evidence.",
@@ -1016,6 +1025,8 @@ class FakeCodexExecutor(CodexExecutor):
                 "priority_failures": [],
                 "feedback_to_builder": "Improve the most visible failing checks without widening scope.",
                 "feedback_to_generator": "Improve the most visible failing checks without widening scope.",
+                "evidence_refs": evidence_refs if passed else [],
+                "evidence_claims": [],
             }
 
         if archetype in {"challenger", "guide"}:
@@ -1359,23 +1370,46 @@ role_definitions:
     reasoning_effort: ""
 workflow:
   version: 1
-  preset: "build_first"
-  collaboration_intent: "Build one focused starter slice, inspect the concrete evidence and role handoffs, then let GateKeeper finish only when the task contract and verification evidence agree."
+  preset: "build_then_parallel_review"
+  collaboration_intent: "Build one focused starter slice, inspect the contract and evidence in parallel, then let GateKeeper finish only when both inspection branches support the task contract."
   roles:
     - id: "builder"
       role_definition_key: "builder"
-    - id: "inspector"
+    - id: "contract_inspector"
       role_definition_key: "inspector"
+      name: "Contract Inspector"
+    - id: "evidence_inspector"
+      role_definition_key: "inspector"
+      name: "Evidence Inspector"
     - id: "gatekeeper"
       role_definition_key: "gatekeeper"
   steps:
     - id: "builder_step"
       role_id: "builder"
-    - id: "inspector_step"
-      role_id: "inspector"
+    - id: "contract_inspection_step"
+      role_id: "contract_inspector"
+      parallel_group: "inspection_pack"
+      inputs:
+        handoffs_from: ["builder_step"]
+        evidence_query:
+          archetypes: ["builder"]
+          limit: 12
+    - id: "evidence_inspection_step"
+      role_id: "evidence_inspector"
+      parallel_group: "inspection_pack"
+      inputs:
+        handoffs_from: ["builder_step"]
+        evidence_query:
+          archetypes: ["builder"]
+          limit: 12
     - id: "gatekeeper_step"
       role_id: "gatekeeper"
       on_pass: "finish_run"
+      inputs:
+        handoffs_from: ["contract_inspection_step", "evidence_inspection_step"]
+        evidence_query:
+          archetypes: ["inspector", "builder"]
+          limit: 24
 """
 
     @staticmethod

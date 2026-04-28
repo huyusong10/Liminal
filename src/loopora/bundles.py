@@ -15,7 +15,11 @@ from loopora.workflows import (
     normalize_prompt_ref,
     normalize_role_execution_settings,
     normalize_step_inherit_session,
+    normalize_step_inputs,
     normalize_step_on_pass,
+    normalize_step_parallel_group,
+    normalize_workflow_controls,
+    validate_workflow_parallel_groups,
 )
 
 BUNDLE_VERSION = 1
@@ -267,25 +271,45 @@ def _normalize_bundle_workflow(raw_workflow: object, *, role_definitions: list[d
 
             extra_cli_args = str(entry.get("extra_cli_args", "") or "").strip()
             validate_extra_cli_args_text(extra_cli_args)
+            parallel_group = normalize_step_parallel_group(entry.get("parallel_group"))
+            inputs = normalize_step_inputs(entry.get("inputs"))
         except (WorkflowError, ValueError) as exc:
             raise BundleError(str(exc)) from exc
-        steps.append(
-            {
-                "id": step_id,
-                "role_id": role_id,
-                "on_pass": on_pass,
-                "model": str(entry.get("model", "") or "").strip(),
-                "inherit_session": inherit_session,
-                "extra_cli_args": extra_cli_args,
-            }
+        step_payload = {
+            "id": step_id,
+            "role_id": role_id,
+            "on_pass": on_pass,
+            "model": str(entry.get("model", "") or "").strip(),
+            "inherit_session": inherit_session,
+            "extra_cli_args": extra_cli_args,
+        }
+        if parallel_group:
+            step_payload["parallel_group"] = parallel_group
+        if inputs:
+            step_payload["inputs"] = inputs
+        steps.append(step_payload)
+    try:
+        workflow_role_by_id = {
+            role_id: {"archetype": archetype}
+            for role_id, archetype in archetype_lookup.items()
+        }
+        validate_workflow_parallel_groups(
+            steps,
+            workflow_role_by_id,
         )
-    return {
+        controls = normalize_workflow_controls(payload.get("controls"), role_by_id=workflow_role_by_id)
+    except WorkflowError as exc:
+        raise BundleError(str(exc)) from exc
+    workflow = {
         "version": int(payload.get("version", 1) or 1),
         "preset": str(payload.get("preset", "") or "").strip(),
         "collaboration_intent": str(payload.get("collaboration_intent", "") or "").strip(),
         "roles": roles,
         "steps": steps,
     }
+    if controls:
+        workflow["controls"] = controls
+    return workflow
 
 
 def _validate_bundle_runtime_contract(

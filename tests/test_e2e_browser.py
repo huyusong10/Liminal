@@ -141,6 +141,12 @@ class CalculatorPrototypeExecutor(FakeCodexExecutor):
             }
 
         if request.role == "verifier":
+            context_packet = request.extra_context.get("context_packet") if isinstance(request.extra_context, dict) else {}
+            evidence_refs = [
+                str(item.get("id"))
+                for item in list((context_packet.get("evidence") or {}).get("items") or [])
+                if isinstance(item, dict) and str(item.get("id") or "").strip()
+            ][-3:]
             return {
                 "passed": True,
                 "composite_score": 1.0,
@@ -152,6 +158,8 @@ class CalculatorPrototypeExecutor(FakeCodexExecutor):
                 "failed_check_ids": [],
                 "priority_failures": [],
                 "feedback_to_generator": "The prototype satisfies the requested calculator scope.",
+                "evidence_refs": evidence_refs,
+                "evidence_claims": [],
             }
 
         return super()._build_payload(request)
@@ -848,14 +856,14 @@ def test_new_loop_page_restores_saved_browser_draft(tmp_path: Path) -> None:
                     page.locator('input[name="name"]').fill("Recovered browser draft")
                     page.locator('input[name="workdir"]').fill(str(workdir))
                     page.locator('input[name="spec_path"]').fill(str(spec_path))
-                    page.locator('select[name="orchestration_id"]').select_option("builtin:inspect_first")
+                    page.locator('select[name="orchestration_id"]').select_option("builtin:evidence_first")
                     page.locator('select[name="completion_mode"]').select_option("rounds")
                     page.reload(wait_until="networkidle")
 
                     assert page.locator('input[name="name"]').input_value() == "Recovered browser draft"
                     assert page.locator('input[name="workdir"]').input_value() == str(workdir)
                     assert page.locator('input[name="spec_path"]').input_value() == str(spec_path)
-                    assert page.locator('select[name="orchestration_id"]').input_value() == "builtin:inspect_first"
+                    assert page.locator('select[name="orchestration_id"]').input_value() == "builtin:evidence_first"
                     assert page.locator('select[name="completion_mode"]').input_value() == "rounds"
                     assert page.locator("#draft-status").is_visible()
                     assert page.locator("#clear-draft-button").is_visible()
@@ -1016,12 +1024,17 @@ def test_new_loop_page_adapts_runtime_controls_to_selected_orchestration(tmp_pat
                 try:
                     page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
 
-                    page.locator('select[name="orchestration_id"]').select_option("builtin:build_first")
+                    legacy_benchmark = service.create_orchestration(
+                        name="Legacy Benchmark Compatibility",
+                        workflow={"preset": "benchmark_loop"},
+                    )
+
+                    page.locator('select[name="orchestration_id"]').select_option("builtin:build_then_parallel_review")
                     assert page.locator('[data-testid="loop-trigger-window-field"]').is_visible()
                     assert page.locator('[data-testid="loop-regression-window-field"]').is_visible()
                     assert page.locator('select[name="completion_mode"]').input_value() == "gatekeeper"
 
-                    page.locator('select[name="orchestration_id"]').select_option("builtin:benchmark_loop")
+                    page.locator('select[name="orchestration_id"]').select_option(legacy_benchmark["id"])
                     assert page.locator('select[name="completion_mode"]').input_value() == "rounds"
                     assert page.locator("#completion-mode-note").is_visible()
                     policy = page.evaluate(
@@ -1167,10 +1180,10 @@ Focus on scoped release work.
 
                     page.goto(f"{base_url}/orchestrations/new", wait_until="networkidle")
                     assert page.locator(".workflow-step-row").count() == 0
-                    page.select_option("#workflow-starter-select", "triage_first")
+                    page.select_option("#workflow-starter-select", "repair_loop")
                     page.click("#load-workflow-starter-button")
-                    assert page.locator(".workflow-step-row").count() == 4
-                    builder_card = page.locator(".workflow-step-row").nth(2)
+                    assert page.locator(".workflow-step-row").count() == 6
+                    builder_card = page.locator(".workflow-step-row").nth(4)
                     builder_card.click(position={"x": 160, "y": 84})
                     assert "is-active" in (builder_card.get_attribute("class") or "")
                     builder_card.locator('[data-testid="workflow-step-settings-button"]').click()
@@ -1186,18 +1199,18 @@ Focus on scoped release work.
                     page.click('[data-close-workflow-settings="1"]')
                     assert "gpt-5.4-mini" in (builder_card.text_content() or "")
                     assert "--verbose" in (builder_card.text_content() or "")
-                    guide_pill = page.locator(".workflow-loop-pill").nth(1)
+                    guide_pill = page.locator(".workflow-loop-pill").filter(has_text="Guide").first
                     guide_pill.hover()
-                    assert "is-active" in (page.locator(".workflow-step-row").nth(1).get_attribute("class") or "")
+                    assert "is-active" in (page.locator(".workflow-step-row").nth(3).get_attribute("class") or "")
                     guide_pill.click()
-                    assert "is-active" in (page.locator(".workflow-step-row").nth(1).get_attribute("class") or "")
+                    assert "is-active" in (page.locator(".workflow-step-row").nth(3).get_attribute("class") or "")
 
-                    inspector_card = page.locator(".workflow-step-row").nth(0)
+                    inspector_card = page.locator(".workflow-step-row").nth(1)
                     inspector_card.locator('[data-testid="workflow-step-settings-button"]').click()
                     assert page.locator('[data-testid="workflow-settings-step-inherit-session"]').is_checked() is False
                     page.click('[data-close-workflow-settings="1"]')
 
-                    page.goto(f"{base_url}/orchestrations/builtin:build_first/edit", wait_until="networkidle")
+                    page.goto(f"{base_url}/orchestrations/builtin:build_then_parallel_review/edit", wait_until="networkidle")
                     page.locator('[data-testid="workflow-step-settings-button"]').first.click()
                     assert page.locator('[data-testid="workflow-step-settings-modal"]').get_attribute("aria-hidden") == "false"
                     assert page.locator('[data-testid="workflow-settings-step-id"]').is_disabled() is True
@@ -1205,8 +1218,8 @@ Focus on scoped release work.
                     page.goto(f"{base_url}/orchestrations/new", wait_until="networkidle")
                     page.locator('button[data-set-locale="en"]').click()
                     page.wait_for_timeout(50)
-                    assert page.locator('#workflow-starter-select option[value="build_first"]').text_content() == "Build First"
-                    page.select_option("#workflow-starter-select", "triage_first")
+                    assert page.locator('#workflow-starter-select option[value="build_then_parallel_review"]').text_content() == "Build + Parallel Review"
+                    page.select_option("#workflow-starter-select", "evidence_first")
                     page.click("#load-workflow-starter-button")
                     page.locator('[data-testid="workflow-step-settings-button"]').first.click()
                     assert page.locator('[data-testid="workflow-settings-step-on-pass"] option[value="continue"]').text_content() == "Continue"

@@ -1,6 +1,6 @@
 # Workflow And Prompts
 
-> 最高原则：遵循 `../core-ideas/product-principle.md`。workflow 与 prompt 只是任务姿态的运行投影；它们必须服务于证据循环，不能变成独立的 role zoo 或 prompt pack。
+> 最高原则：遵循 `../core-ideas/product-principle.md`。workflow 与 prompt 只是外部任务治理的运行投影；它们必须服务于证据循环，不能变成独立的 role zoo 或 prompt pack。
 
 ## 1. 模块职责
 
@@ -9,21 +9,22 @@
 - `workflow`
 - `prompt`
 
-它回答的是“编排资产对外承诺什么”，而不是“资产如何落盘”。
+它回答的是“编排资产对外承诺什么”，而不是具体页面如何展示它们。
 
 ## 2. 资产契约
 
 | 资产 | 输入 | 输出 | 稳定承诺 |
 |------|------|------|----------|
-| orchestration asset | 名称、描述、workflow、prompt 资产 | 可复用编排定义 | 可被 loop 引用，也可被复制为新编排 |
-| role definition asset | 名称、角色模板、默认执行配置、prompt 资产 | 可复用角色模版 | 在 orchestration 中被选入后，会复制成角色快照 |
-| workflow snapshot | roles 与 steps | 运行期角色顺序与依赖关系 | run 开始后不再随外部编辑漂移 |
-| prompt asset | 元数据头 + Markdown 正文 | 角色运行提示 | 必须声明版本与适用角色模板 |
+| orchestration asset | 名称、描述、workflow、prompt 资产 | 可复用编排定义 | 可被 loop 引用，也可复制为新编排 |
+| role definition asset | 名称、角色模板、默认执行配置、prompt 资产 | 可复用角色模版 | 被 orchestration 选入后复制成角色快照 |
+| workflow snapshot | roles 与 steps | 运行期角色顺序与依赖关系 | run 开始后不随外部编辑漂移 |
+| prompt asset | 元数据头 + Markdown 正文 | 角色运行提示 | 声明版本与适用角色模板 |
 
-补充说明：
+稳定规则：
 
-- 内置 prompt 资产允许提供按语言区分的内容变体，只要 front matter 版本与 archetype 契约保持一致。
-- orchestration 保存或更新时，只持久化当前 workflow `roles[].prompt_ref` 实际引用到的 prompt 资产；未被当前 workflow 引用的 `prompt_files` 条目必须被裁掉，以保持 Web、CLI 与 API 的资产视图一致。
+- 内置 prompt 可提供多语言变体，只要 front matter 版本与 archetype 契约保持一致。
+- orchestration 保存或更新时，只保留当前 workflow 实际引用的 prompt 资产。
+- 运行期只消费冻结后的 workflow snapshot 和 prompt snapshot。
 
 ## 3. Workflow 结构
 
@@ -32,258 +33,221 @@ workflow 保持两层结构：
 - `roles[]`
 - `steps[]`
 
-workflow 还可以携带顶层 `collaboration_intent`，用于表达这次任务整体偏向哪种执行姿态，例如“先取证再推进”或“尽快收束到签字判断”。
+workflow 可携带顶层 `collaboration_intent`，用于表达本任务整体判断方式，例如“先取证再推进”或“尽快收束到签字判断”。
 
-### 3.1 roles 契约
+workflow 还可以携带可选 `controls[]`。它是高级误差控制机制，不是通用事件自动化。默认 starter 不要求用户理解 controls；只有当任务存在可解释的长程误差风险时，alignment 或专家编辑才应加入。
 
-每个 role 至少包含：
+每个 role 至少表达：
 
 | 字段 | 含义 |
 |------|------|
-| `id` | role 在当前 workflow 内的稳定标识 |
+| `id` | 当前 workflow 内稳定标识 |
 | `name` | 用户可读名称 |
 | `archetype` | 角色模板 |
-| `prompt_ref` | 该 role 使用的 prompt 资产内部引用；运行时和持久化会使用它，但角色定义页不要求用户手工命名 |
-| `executor_kind` / `executor_mode` | 该 role 默认使用的执行方式；内置执行器支持 `preset` 与 `command`，`custom` 执行器只支持 `command` |
-| `command_cli` / `command_args_text` | 可选，仅直接命令模式使用；`custom` 执行器必须依赖它们 |
-| `model` | 可选，role 级默认模型 |
-| `reasoning_effort` | 可选，role 级默认推理配置 |
-| `posture_notes` | 可选，本次任务里该角色应采用的 task-scoped 姿态说明 |
-| `role_definition_id` | 可选，表明它来源于某个角色定义 |
+| `prompt_ref` | 使用的 prompt 资产内部引用 |
+| `executor_kind` / `executor_mode` | 执行方式 |
+| `model` / `reasoning_effort` | 可选默认执行配置 |
+| `posture_notes` | 可选，本任务里的角色判断姿态 |
+| `role_definition_id` | 可选，来源 role definition |
 
-### 3.2 steps 契约
-
-每个 step 至少包含：
+每个 step 至少表达：
 
 | 字段 | 含义 |
 |------|------|
-| `id` | step 在当前 workflow 内的稳定标识 |
+| `id` | 当前 workflow 内稳定标识 |
 | `role_id` | 指向某个 role |
-| `on_pass` | 可选，仅 GateKeeper 使用，用于声明通过后的收敛行为 |
-| `model` | 可选，step 级模型覆盖 |
-| `inherit_session` | 可选，声明该 step 是否在下一轮继续自己的上一次 CLI session |
-| `extra_cli_args` | 可选，追加到当前 step CLI 调用的原始参数字符串 |
+| `on_pass` | 可选，仅 GateKeeper 用于声明收敛行为 |
+| `model` | 可选 step 级模型覆盖 |
+| `inherit_session` | 可选，当前 step 跨轮次续接自己的 CLI session |
+| `extra_cli_args` | 可选，当前 step CLI 调用的附加参数 |
+| `parallel_group` | 可选，把连续的只读检视 step 标记为同一并行组 |
+| `inputs` | 可选，声明当前 step 读取哪些 handoff、evidence 与上轮记忆 |
 
-补充约束：
+每个 control 至少表达：
 
-- `inherit_session` 的语义按“同一个 step 跨轮次续接自己的会话”解释，不按“当前目录最近一次会话”解释。
-- 当同一个 step 还没有可恢复的历史 session 时，执行器必须回退为该 step 启动一条新会话，而不是改为恢复“最近一次会话”或直接报错。
-- Codex 进入 `exec resume` 分支时，系统只能装配该子命令真实支持的参数；新会话专用参数如工作目录、sandbox 与输出 schema 不能继续附加到 resume 子命令上。
-- 当 Codex 进入 `exec resume` 分支后，结构化输出必须回退为“输出契约 + `output-last-message` 文件解析”策略；不能假设 resume 子命令仍支持 schema 强校验。
-- Builder step 默认继承 session；Inspector、GateKeeper、Guide 与 Custom step 默认不继承，除非调用方显式打开。
+| 字段 | 含义 |
+|------|------|
+| `id` | 当前 workflow 内稳定标识 |
+| `when.signal` | 受控触发信号 |
+| `when.after` | run 内 elapsed time 门槛，不是 calendar cron |
+| `call.role_id` | 要调用的既有 Inspector / Guide / GateKeeper role |
+| `mode` | `advisory / blocking / repair_guidance` |
+| `max_fires_per_run` | 单次 run 内最多触发次数，默认 `1` |
+
+稳定规则：
+
+- `inherit_session` 按“同一个 step 跨轮次续接自己的会话”解释，不按“当前目录最近一次会话”解释。
+- Builder step 默认继承 session；Inspector、GateKeeper、Guide 与 Custom step 默认不继承，除非显式打开。
+- `posture_notes` 是 task-scoped 治理注入位，不是 archetype 本身，也不是全局 task contract 的替代品。
 - `extra_cli_args` 必须是可被 shell 风格分词解析的字符串。
-- `posture_notes` 属于 task-scoped 姿态注入位；它不是 archetype 本身，也不是全局 task contract 的替代品。
+- `parallel_group` 第一阶段只支持连续的 Inspector / Custom step，用于 fan-out / fan-in 检视；它不是任意 DAG 语法。
+- 同一 `parallel_group` 内的 step 看到相同的上游快照，不读取彼此输出；组结束后按 workflow 原顺序汇聚 handoff 和 evidence。
+- `inputs.handoffs_from` 可按 step id、role id、runtime role、archetype 或 role name 选择当前轮上游 handoff。
+- `inputs.evidence_query` 可按 evidence 生产角色、验证目标和数量上限裁剪 evidence ledger 摘要；完整 ledger 仍是 canonical source。
+- `inputs.iteration_memory` 可选择 `default / none / same_step / same_role / summary_only`，用于控制轮次间信息传递。
+- `controls[].when.signal` v1 只允许 `no_evidence_progress / role_timeout / step_failed / gatekeeper_rejected`。
+- control 只能调用当前 workflow 中已有的 Inspector、Guide 或 GateKeeper；不能调用 Builder，避免自动修复污染工作区。
+- control invocation 是控制检查调用，不插入 canonical workflow 顺序；它只产生 evidence、handoff、blocker 或修复建议。
+- control 自身失败必须写入 run event stream，不能静默吞掉。
 
-### 3.3 内置预设编排目录
+## 4. 内置 starter orchestration
 
-系统对外默认展示以下 5 条核心 starter orchestration：
+系统默认提供以下 starter：
 
 | 预设 | 稳定流程 |
 |------|----------|
-| `build_first` | `Builder → Inspector → GateKeeper → Guide` |
-| `inspect_first` | `Inspector → Builder → GateKeeper → Guide` |
-| `benchmark_loop` | `GateKeeper (benchmark) → Builder` |
-| `triage_first` | `Inspector → Guide → Builder → GateKeeper(finish)` |
-| `repair_loop` | `Builder → Inspector → Guide → Builder → GateKeeper(finish)` |
+| `build_then_parallel_review` | `Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper` |
+| `evidence_first` | `Inspector -> Builder -> GateKeeper` |
+| `benchmark_gate` | `Benchmark Inspector -> Builder -> Regression Inspector -> GateKeeper` |
+| `repair_loop` | `Builder -> [Regression Inspector + Contract Inspector] -> Guide -> Builder -> GateKeeper` |
 
-补充约束：
+稳定规则：
 
-- 这些 starter orchestration 是内置资产，只能复制后再形成自定义编排。
-- `quality_gate` 与 `fast_lane` 继续作为兼容旧数据的内置 preset 保留，但不再属于默认推荐目录，也不应继续作为教程与主流程里的核心推荐。
-- `workflow.preset` 继续作为内置 starter 的稳定标识存在，供 Web、CLI 与 API 共享引用语义。
-- starter 元数据可以附带本地化的列表卡片说明，例如“适用场景”；这类文案属于预设元数据的一部分，应从统一元数据源提供。
-- starter 元数据应同时提供一条简短的“为什么选它而不是相邻流程”的说明，用于教程、流程卡片和选择提示。
-- starter 元数据也可以附带本地化的 spec 最佳实践摘要与完整 Markdown 范例；这类内容属于预设元数据的一部分，应从统一资产源提供。
-- 这些 starter 场景说明与 spec 范例必须描述“值得进入 loop 的任务”，并解释为什么当前角色顺序有意义，以及为什么它比附近的其他流程更合适；不能退化成单次 Builder 就能安全完成的小需求示例。
-- Web 编排编辑器允许默认从空白 workflow 开始；只有在显式载入 starter 或复制内置编排时，才写入对应的 `workflow.preset`。
-- 内置 starter 中的 Builder step 默认打开 `inherit_session`，其他 step 默认关闭；所有 starter 的 `extra_cli_args` 默认留空。
+- starter 是内置资产，只能复制后形成自定义编排。
+- `build_first`、`inspect_first`、`triage_first`、`benchmark_loop`、`quality_gate` 与 `fast_lane` 可作为兼容旧数据的内置 preset 保留，但不再属于默认推荐目录。
+- starter 场景说明必须描述值得进入 loop 的任务，解释为什么当前角色顺序有意义。
+- 默认 starter 总数必须保持少而强；新增 starter 前应先判断能否通过上述四类治理形状表达，避免把用户入口扩张成 role zoo。
 
-## 4. 角色原型
+## 5. 角色原型与执行器
 
 系统固定支持五种角色模板：
 
 | 模板 | 职责 |
 |------|------|
 | `builder` | 改动工作区并推进实现 |
-| `inspector` | 收集证据并执行检查 |
-| `gatekeeper` | 根据证据给出通过裁决 |
+| `inspector` | 广义证据生产者：可执行规则检查，也可按用户 posture 做语义检视；具体实例应按证据责任命名 |
+| `gatekeeper` | 根据 evidence ledger 给出通过裁决 |
 | `guide` | 在停滞或回退时给出方向调整 |
 | `custom` | 以最低权限读取现状、补充分析并给出建议 |
-
-兼容层仍接受旧别名，但运行时会收敛为上述稳定模板。
-
-补充约束：
-
-- 内置 archetype 的展示名在所有 locale 下都保持英文原文：`Builder`、`Inspector`、`GateKeeper`、`Guide`、`Custom Role`。
-- 用户自定义 role / role snapshot 的名称必须按用户提供的原文展示，不能因为 locale 切换而被系统翻译。
-
-## 4.1 执行器契约
 
 系统固定支持四类执行器：
 
 | 执行器 | 模式 | 稳定承诺 |
 |--------|------|----------|
-| `codex` | `preset` / `command` | 预设模式由系统拼装 CLI；直接命令模式允许用户覆盖 argv 模版 |
-| `claude` | `preset` / `command` | 预设模式由系统拼装 CLI；直接命令模式允许用户覆盖 argv 模版 |
-| `opencode` | `preset` / `command` | 预设模式由系统拼装 CLI；直接命令模式允许用户覆盖 argv 模版 |
-| `custom` | `command` only | 系统不再拼装预设 CLI；调用方必须提供可执行文件与 argv 模版，并在结束前把 JSON 结果写到 `{output_path}` |
+| `codex` | `preset` / `command` | 预设模式由系统拼装 CLI；直接命令模式允许覆盖 argv 模版 |
+| `claude` | `preset` / `command` | 同上 |
+| `opencode` | `preset` / `command` | 同上 |
+| `custom` | `command` only | 调用方必须提供可执行文件与 argv 模版，并按输出契约写出结果 |
 
-补充约束：
+稳定规则：
 
+- 内置 archetype 的展示名在所有 locale 下保持英文原文：`Builder`、`Inspector`、`GateKeeper`、`Guide`、`Custom Role`。
+- 用户自定义 role 名称按用户输入原样展示。
+- 已保存 role definition 的 archetype 固定；更新入口不能改变它。
 - `custom` 执行器保存前必须处于 `command` 模式。
-- 直接命令模式下，`command_cli` 与 `command_args_text` 是真正的执行来源；模型和推理强度只能作为只读参考或占位符输入，不再单独驱动命令装配。
-- 角色定义页的“最终命令预览”必须与运行时实际命令装配保持同一语义顺序。
-- 角色定义页在选择不同角色模板时，必须展示该模板对应的说明、适用建议与约束提醒；这些说明只改变界面引导，不改变底层 archetype 契约。
-- 已保存的 role definition archetype 必须保持固定；Web、CLI、API 的更新入口都必须拒绝 archetype 变更，只有新建角色流程才能选择角色模板。
 
-## 5. 验证规则
-
-### 5.1 Workflow 基础校验
+## 6. 验证规则
 
 workflow 保存前必须满足：
 
-- 至少 1 个 role
-- 至少 1 个 step
-- 每个 step 引用的 `role_id` 都存在
-
-### 5.2 Completion Mode 约束
-
-| completion mode | 约束 |
-|-----------------|------|
-| `gatekeeper` | 必须存在可在通过时结束流程的 GateKeeper 步骤 |
-| `rounds` | 允许没有 GateKeeper，达到计划轮数即可收敛 |
-
-额外约束：
-
-- 只有 `gatekeeper` step 可以声明 `on_pass=finish_run`
-- `custom` role 可以自由进入编排，但不能成为收敛裁决入口
-- Web 创建循环页在所选 workflow 不存在 `Guide` role 时，可以不暴露 `trigger_window` 与 `regression_window` 这两个停滞窗口输入；若 workflow 不存在可 `finish_run` 的 GateKeeper step，则只能暴露 `rounds` completion mode。
-
-### 5.3 Prompt 校验
+- 至少 1 个 role。
+- 至少 1 个 step。
+- 每个 step 引用的 `role_id` 都存在。
+- `gatekeeper` completion mode 必须存在可在通过时结束流程的 GateKeeper step。
+- `rounds` completion mode 允许没有 GateKeeper。
+- 只有 GateKeeper step 可以声明 `on_pass=finish_run`。
+- evidence ledger item 必须标记证据类型，例如 `handoff`、`inspection`、`verdict`、`advisory` 或 `observation`。
+- GateKeeper 输出通过时必须引用上游 `evidence_refs`；如果 GateKeeper 是本轮第一个证据读取者，则必须提供可度量 `metric_scores` 和具体 `evidence_claims`。自然语言 claims 单独不能结束 run。
+- `custom` role 可以进入编排，但不能成为收敛裁决入口。
+- 并行组必须是连续 step，且每组至少 2 个 step。
+- 并行组内第一阶段只允许 `inspector` 与 `custom`，不允许 `builder`、`gatekeeper` 或 `guide`，避免并发写入和并发收敛污染 run 状态。
+- 并行 Inspector 应表达不同证据责任，例如 contract、evidence、regression、benchmark 或 posture，而不是只复制多个同名 Inspector。
+- workflow controls 必须服务于误差控制，不能表达任意 cron、webhook、文件监听、外部事件、动态 DAG 或隐式 Builder 修复。
+- control signal 必须来自稳定枚举；未知 signal、未知 role、Builder target、无效 mode 或不受限触发配置必须被拒绝。
 
 prompt 资产必须满足：
 
-- 包含结构化元数据头
-- 声明受支持的版本
-- 声明与 role 一致的角色原型
-- 正文非空
-- `prompt_ref` 必须是落在 prompt 资产根目录下的安全相对引用；不允许绝对路径、空段或 `.` / `..` 段
-- `prompt_files` 映射里的每个 key 都必须遵守同一 `prompt_ref` 契约；Web、CLI、API 入口不能静默丢弃非法 key
-- 若同一个 `prompt_ref` 被多个 role 复用，它必须同时满足每个绑定 role 的 archetype 契约；不能借共享引用绕过角色模板校验
-- 角色定义页可以提供共享 Markdown workbench 形式的正文预览，但该预览只能基于“去掉 YAML front matter 后的正文”渲染；真正提交、保存和校验的仍必须是完整 prompt 源文
+- 包含结构化元数据头。
+- 声明受支持版本。
+- 声明与 role 一致的角色原型。
+- 正文非空。
+- `prompt_ref` 是安全相对引用，不允许绝对路径、空段或 `.` / `..` 段。
+- 内置 prompt 必须解释 Inspector 的广义证据生产者语义、并行检视时的分工、GateKeeper 对多证据分支的 fan-in 责任，以及 Builder 在并行检视前应留下可检查 handoff。
 
-## 6. 模型解析优先级
+## 7. 模型与 step 覆盖优先级
 
 模型选择优先级固定为：
 
-| 优先级 | 来源 |
-|--------|------|
-| 1 | `step.model` |
-| 2 | `role.model` |
-| 3 | role 默认执行配置中的模型默认值 |
+`step.model -> role.model -> role 默认执行配置`
 
-兼容层允许旧 snapshot 在缺少 role 级执行配置时回退到 loop 默认模型，但这不是新的资产归属规则。
+step 级执行附加项只影响当前 step：
 
-## 6.1 step 级执行附加项
+| 字段 | 稳定承诺 |
+|------|----------|
+| `inherit_session` | 只控制当前 step 的 CLI session 恢复策略 |
+| `extra_cli_args` | 只附加到当前 step 的 CLI 调用 |
+| `parallel_group` | 只控制当前连续组的并行 fan-out；不改变 role 权限 |
+| `inputs` | 只裁剪当前 step 的上下文输入；不删除 canonical artifact |
+| `controls` | 只在运行时误差风险出现时触发额外检查；不改变 canonical workflow 顺序 |
 
-step 级执行附加项的优先语义固定为：
+预设执行器可以把 `inherit_session` 映射到各自原生恢复语义；直接命令模式不承诺能自动恢复任意第三方命令的上下文。
 
-| 字段 | 作用范围 | 稳定承诺 |
-|------|----------|----------|
-| `inherit_session` | 当前 step 对应的 CLI session 恢复策略 | 只影响当前 step，不改 role snapshot 默认执行配置 |
-| `extra_cli_args` | 当前 step CLI 调用的附加 argv | 只附加到当前 step，不改 role snapshot 默认执行配置 |
-
-补充约束：
-
-- 预设执行器会把 `inherit_session` 映射到各自原生恢复语义：例如 Claude Code 的 `--continue/--resume`、OpenCode 的 `--continue/--session`，以及 Codex 的 `exec resume` 语义。
-- 直接命令模式不会为任意第三方命令自动推断恢复方式；若调用方仍打开 `inherit_session`，Loopora 只保留该 step 的语义字段，不承诺任意命令都能恢复历史上下文。
-- `extra_cli_args` 允许与预设执行器和直接命令模式一起使用，但它属于 step 级覆盖，不属于 role definition 默认执行配置。
-
-## 7. 运行时装配
+## 8. 运行时装配
 
 运行时 prompt 由稳定协议装配，顺序固定为：
 
-`系统安全约束 → 输出契约 → 用户 prompt → run contract 摘要 → 当前角色 role note（若存在）→ 当前轮次/当前 step 说明 → 紧邻上一步 handoff → 本轮已完成步骤摘要 → 上一轮同 step / 同 role handoff → 上一轮总结 → artifact refs`
+`系统安全约束 -> 输出契约 -> 用户 prompt -> run contract 摘要 -> 当前角色 note -> 当前轮次 / step 说明 -> step input policy -> 被选中的上游 handoff -> 被选中的上一轮信息 -> 被选中的 evidence ledger 摘要 -> artifact refs`
 
-补充约束：
+稳定规则：
 
-- 首轮必须显式声明“这是第一轮，没有上一轮结果”。
-- 后续轮次必须显式声明“这是第 N 轮，并给出上一轮关键结果”。
-- prompt 可以被自定义，但系统安全边界、输出契约和 context packet shape 不能被绕开。
-- `Role Notes` 只允许作为当前角色 prompt 的附加块注入；它不能新增全局成功标准，也不能放宽 `Task / Done When / Guardrails` 的约束。
-- `posture_notes` 与 workflow `collaboration_intent` 也会进入运行时 context；它们表达任务级协作姿态，但不能单独改写 spec 已定义的成功标准与 guardrails。
-- 当角色定义页加载内置 prompt 时，应优先使用当前语言对应的内置 prompt 变体；若缺失本地化版本，则回退到默认版本。
-- Builder 内置 prompt 在上游 blocker 明确指向“缺少运行时证据”时，必须优先引导角色补最小、可重复执行的验证产物，而不是继续扩大产品改动面。
-- 当当前执行环境阻断浏览器、截图或桌面控制能力时，Builder 内置 prompt 必须明确要求角色切换到“无额外安装的可执行 fallback 证明”路径，并把 richer 证据为何不可用写入 handoff。
-- GateKeeper 内置 prompt 在面对环境级浏览器阻断时，必须允许角色根据最强的可重复 fallback 证据做裁决；这类环境限制可以形成 residual risk，但不能被当成产品本身失败的唯一理由。
+- 首轮必须显式声明没有上一轮结果。
+- 后续轮次必须显式声明轮次编号和上一轮关键结果。
+- 系统安全边界、输出契约和 context packet shape 不能被自定义 prompt 绕开。
+- evidence ledger 摘要只传递近期 item、已知 evidence id 列表和 ledger 路径，避免把证据账本全文复制进每个 prompt。
+- `inputs` 只能裁剪当前 prompt 的可见上下文，不能改变 run 的 canonical evidence ledger、step output、handoff 或 iteration summary。
+- control prompt 必须显式说明触发信号、原因、读取的 evidence refs 和模式；它产生的 ledger item 使用 `evidence_kind=control`。
+- `Role Notes` / `posture_notes` / `collaboration_intent` 可以影响角色工作姿态，但不能改写 `Task / Done When / Guardrails`。
+- 当环境阻断浏览器、截图或桌面控制能力时，prompt 应引导角色切换到可重复 fallback 证据，并把环境限制写入 handoff。
 
-## 8. Context Protocol
+## 9. Context Protocol
 
 运行时使用以下内部稳定对象：
 
 | 对象 | 作用 | 稳定承诺 |
 |------|------|----------|
 | `RunContractSnapshot` | 冻结 spec、workflow、prompt refs、runtime 配置 | run 生命周期内不漂移 |
-| `StepContextPacket` | 在 step 开始前装配当前轮次、当前步骤、上游 handoff 与 artifact refs | shape 由代码固定生成 |
-| `StepHandoff` | 在 step 结束后给下游角色消费的结构化交接包 | 由代码从结构化输出派生，至少稳定包含 `status / summary / blocking_items / recommended_next_action` |
-| `IterationSummary` | 汇总本轮 handoff、得分、停滞状态与 latest refs | 作为下一轮的统一回看入口 |
+| `StepContextPacket` | step 开始前装配当前轮次、步骤、上游 handoff 与 artifact refs | shape 由代码固定生成 |
+| `StepHandoff` | step 结束后给下游角色消费的结构化交接包 | 至少稳定包含 `status / summary / blocking_items / recommended_next_action` |
+| `IterationSummary` | 汇总本轮 handoff、得分、停滞状态与 latest refs | 作为下一轮统一回看入口 |
 
-补充约束：
+`artifact_refs` 必须同时提供 run 内相对路径与 workspace 可直达路径，保证角色能定位 `.loopora/runs/...` 下的冻结产物。
 
-- `artifact_refs` 必须同时提供 run 内相对路径与 workspace 可直达路径，保证角色在项目根目录下也能定位 `.loopora/runs/...` 下的冻结产物，而不是只看到对 run 目录有意义的短相对路径。
+信息流分两层：
 
-## 9. 运行数据流
+- **角色间信息流**：由当前轮已完成 step 的 `StepHandoff` 与 `inputs.handoffs_from` 决定。
+- **轮次间信息流**：由上一轮同 step / 同 role / iteration summary 与 `inputs.iteration_memory` 决定。
 
-| 阶段 | 输入 | 输出 |
-|------|------|------|
-| 编排编辑 | orchestration / role definition | workflow 与 prompt 资产 |
-| loop 创建 | workflow、prompt、运行参数 | 冻结后的 loop snapshot |
-| run 执行 | snapshot | 分步骤证据、事件、终态摘要 |
-
-补充说明：
-
-- Web 界面可以把 workflow snapshot 投影成循环实例图，只要图中的节点顺序、角色名称和闭环语义仍然严格来自当前 workflow snapshot。
-- Web run 详情页可以把运行进度投影成“Checks terminal → workflow loop lane → Done terminal”的阶段图，但阶段数量、顺序、loop 关系与角色名称必须严格来自当前 run 冻结下来的 workflow snapshot，不能退化成固定 archetype 列表。
-- Web 编排编辑页可以采用上方实例图、下方步骤卡片的布局；实例图节点选择与步骤卡片高亮必须表达同一个 workflow snapshot。
-- Web 编排编辑页可以把角色快照信息直接显示在步骤卡片中，而不要求单独保留角色检查器或角色列表，只要卡片展示的仍是当前 workflow snapshot 中的角色快照。
-- Web 编排编辑页可以只保留一个“添加步骤”入口：当所选角色定义尚未进入当前编排时，先生成角色快照并创建首个步骤；当该角色快照已存在时，直接为它追加新步骤。
-- Web 编排编辑页可以把步骤主区展示为摘要卡片；卡片点击只负责切换当前角色与步骤高亮，不承担直接编辑语义。
-- Web 编排编辑页可以把 step 级执行附加项压缩成卡片内的紧凑标签，例如会话继承、模型覆盖与附加 CLI 参数；空值项可以不显示，但不能改变这些字段本身的提交语义。
-- Web 编排编辑页可以通过单个设置浮窗修改 step 级覆盖字段；同一个浮窗里展示的角色快照应作为只读信息查看，不在步骤设置里直接改写 snapshot 本身。
-- Web 角色模板列表与内置编排列表可以把“打开后如何派生”的公共说明收进分区标题的 tips 按钮；这类说明不应在每张卡片里重复出现。内置编排的主说明卡应优先表达适用场景，而不是重复点击行为。
-- Web 角色模板卡片可以为单个 archetype 提供专属 tips，用来解释它与相邻 archetype 的职责差异；例如 GateKeeper 可以额外说明它与 Inspector 的区别。这类 tips 应来自角色元数据，而不是在模板里硬编码散落。
-- 自定义角色的用户 prompt 之外，平台仍会追加系统级输出契约，确保它至少交回稳定的 takeaway 字段；是否提供 `score` 这类评审型字段由角色 archetype 决定，不能要求所有角色一律产出。
+这两层只影响 prompt 可见范围，不改变底层 artifact 留存。这样可以让 10+ 角色的复杂 workflow 保持可检查，而不是把全部上下文无差别塞给每个角色。
 
 ## 10. 跨入口一致性
 
-workflow 与 prompt 资产必须满足：
+workflow 与 prompt 资产必须：
 
-- 可通过 Web 编辑与复用
-- 可通过 CLI 或 API 引用、提交或校验
-- 角色定义必须先作为独立资产存在，再被 orchestration 选入
-- role definition 缺失 `prompt_ref` 时，系统会自动生成并稳定保留内部引用；已保存的 `prompt_ref` 不能再变更，且新建时不能与现有 role definition 或内置模板的 `prompt_ref` 冲突
-- step 级模型覆盖不能只在单一入口可表达
-- step 级 session 继承与附加 CLI 参数不能只在单一入口可表达
-- orchestration 不直接维护角色默认 prompt 与执行配置
+- 可通过 Web 编辑与复用。
+- 可通过 CLI 或 API 引用、提交或校验；CLI 对 `parallel_group` 与 `inputs` 的专家入口是 `--workflow-file`，默认不提供大量逐字段 flags。
+- 保持 role definition 先独立存在，再被 orchestration 选入的边界。
+- 保持 step 级模型覆盖、session 继承与附加 CLI 参数的跨入口表达能力。
+- 保持 orchestration 不直接维护角色默认 prompt 与执行配置。
 
 ## 11. 变更触发
 
 以下变化需要更新本文档：
 
-- workflow 结构变化
-- completion mode 语义变化
-- prompt 资产契约变化
-- 角色原型种类或职责变化
-- 角色执行配置的归属边界变化
+- workflow 结构变化。
+- completion mode 语义变化。
+- prompt 资产契约变化。
+- 角色原型种类或职责变化。
+- 角色执行配置的归属边界变化。
 
 以下变化通常不需要更新本文档：
 
-- prompt 具体文案调整
-- 兼容层实现细节变化
+- prompt 具体文案调整。
+- 局部 UI 呈现调整。
+- 兼容层实现细节变化。
 
 ## 12. 非目标
 
-- 不支持 DAG
-- 不支持并发 step
-- 不支持跳过角色原型校验提交任意 prompt
-- 不支持用户自定义任意输出协议
+- 不支持任意 DAG。
+- 不支持会并发写入工作区或并发收敛的 step。
+- 不支持跳过角色原型校验提交任意 prompt。
+- 不支持用户自定义任意输出协议。

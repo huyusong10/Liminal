@@ -52,6 +52,60 @@ role_definitions:
     command_args_text: ""
     model: ""
     reasoning_effort: ""
+  - key: "contract-inspector"
+    name: "Contract Inspector"
+    description: "..."
+    archetype: "inspector"
+    prompt_ref: "inspector.md"
+    prompt_markdown: |
+      ---
+      version: 1
+      archetype: inspector
+      ---
+      ...
+    posture_notes: "..."
+    executor_kind: "codex"
+    executor_mode: "preset"
+    command_cli: "codex"
+    command_args_text: ""
+    model: ""
+    reasoning_effort: ""
+  - key: "evidence-inspector"
+    name: "Evidence Inspector"
+    description: "..."
+    archetype: "inspector"
+    prompt_ref: "inspector.md"
+    prompt_markdown: |
+      ---
+      version: 1
+      archetype: inspector
+      ---
+      ...
+    posture_notes: "..."
+    executor_kind: "codex"
+    executor_mode: "preset"
+    command_cli: "codex"
+    command_args_text: ""
+    model: ""
+    reasoning_effort: ""
+  - key: "gatekeeper"
+    name: "GateKeeper"
+    description: "..."
+    archetype: "gatekeeper"
+    prompt_ref: "gatekeeper.md"
+    prompt_markdown: |
+      ---
+      version: 1
+      archetype: gatekeeper
+      ---
+      ...
+    posture_notes: "..."
+    executor_kind: "codex"
+    executor_mode: "preset"
+    command_cli: "codex"
+    command_args_text: ""
+    model: ""
+    reasoning_effort: ""
 workflow:
   version: 1
   preset: ""
@@ -59,19 +113,43 @@ workflow:
   roles:
     - id: "builder"
       role_definition_key: "builder"
-    - id: "inspector"
-      role_definition_key: "inspector"
+    - id: "contract_inspector"
+      role_definition_key: "contract-inspector"
+    - id: "evidence_inspector"
+      role_definition_key: "evidence-inspector"
     - id: "gatekeeper"
       role_definition_key: "gatekeeper"
   steps:
     - id: "builder_step"
       role_id: "builder"
       on_pass: "continue"
-    - id: "inspector_step"
-      role_id: "inspector"
+    - id: "contract_inspection_step"
+      role_id: "contract_inspector"
+      parallel_group: "inspection_pack"
+      inputs:
+        handoffs_from: ["builder_step"]
+        evidence_query:
+          archetypes: ["builder"]
+          limit: 12
+        iteration_memory: "summary_only"
+      on_pass: "continue"
+    - id: "evidence_inspection_step"
+      role_id: "evidence_inspector"
+      parallel_group: "inspection_pack"
+      inputs:
+        handoffs_from: ["builder_step"]
+        evidence_query:
+          archetypes: ["builder"]
+          limit: 12
+        iteration_memory: "summary_only"
       on_pass: "continue"
     - id: "gatekeeper_step"
       role_id: "gatekeeper"
+      inputs:
+        handoffs_from: ["contract_inspection_step", "evidence_inspection_step"]
+        evidence_query:
+          archetypes: ["builder", "inspector"]
+          limit: 24
       on_pass: "finish_run"
 ```
 
@@ -131,13 +209,28 @@ Use workflow for execution shape:
 - whether evidence comes before implementation
 - where Guide intervenes
 - whether the loop is tightly gated or more exploratory
+- whether bounded parallel inspection is needed
+- what upstream handoffs, evidence, and iteration memory each step should see
 
 Use `workflow.collaboration_intent` to capture the high-level execution bias.
 
 Runtime invariant:
 - If `loop.completion_mode` is `gatekeeper`, the workflow must include a role whose role definition has `archetype: "gatekeeper"` and at least one step for that role with `on_pass: "finish_run"`.
-- For fresh implementation bundles, prefer Builder -> Inspector -> GateKeeper unless the user’s task clearly calls for a different order.
+- For fresh implementation bundles where the target is clear enough to build, prefer Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper.
+- Use Inspector -> Builder -> GateKeeper when the first safe change is unclear.
+- Use Builder -> [parallel Inspectors] -> Guide -> Builder -> GateKeeper when the task expects a second repair pass.
+- Use Benchmark Inspector -> Builder -> Regression Inspector -> GateKeeper when an existing benchmark or contract proof should control the decision.
+- `parallel_group` is only for contiguous Inspector / Custom steps. Do not put Builder, Guide, or GateKeeper inside a parallel group.
+- Use `inputs.handoffs_from`, `inputs.evidence_query`, and `inputs.iteration_memory` to express information flow when the workflow has multiple review views or repair passes.
 - Every workflow role should have task-scoped `posture_notes`; Web alignment treats missing posture notes as a semantic lint failure.
+
+Optional runtime controls:
+- `workflow.controls[]` is an advanced error-control mechanism, not a general timer or event automation system.
+- Use controls only when the task has a concrete long-run risk: no evidence progress, role timeout/failure, or repeated GateKeeper rejection.
+- `when.signal` may only be `no_evidence_progress`, `role_timeout`, `step_failed`, or `gatekeeper_rejected`.
+- `call.role_id` must point to an existing Inspector, Guide, or GateKeeper role. Never use controls to call Builder or write directly to the workdir.
+- `mode` may only be `advisory`, `blocking`, or `repair_guidance`; `max_fires_per_run` should normally be `1`.
+- If you add a control, the surrounding `collaboration_intent`, spec evidence preferences, or role posture must make clear what error risk it controls. Do not add generic “periodic check” controls.
 
 ## Output rules
 

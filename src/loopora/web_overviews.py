@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 from loopora.branding import strip_run_summary_title
 from loopora.providers import executor_profile
-from loopora.run_artifacts import list_run_artifacts
+from loopora.run_artifacts import RunArtifactLayout, list_run_artifacts, read_jsonl
 from loopora.workflows import ARCHETYPES, display_name_for_archetype, normalize_role_display_name
 
 LEGACY_RUNTIME_ROLE_TO_ARCHETYPE = {
@@ -63,6 +63,21 @@ def _format_timeline_event(event: dict) -> dict:
     elif event["event_type"] == "step_handoff_written":
         title = "Step handoff written"
         detail = str(payload.get("summary") or payload.get("step_id") or "").strip()
+    elif event["event_type"] in {"control_triggered", "control_completed", "control_failed", "control_skipped"}:
+        title = {
+            "control_triggered": "Control triggered",
+            "control_completed": "Control completed",
+            "control_failed": "Control failed",
+            "control_skipped": "Control skipped",
+        }[event["event_type"]]
+        detail = " -> ".join(
+            item
+            for item in [
+                str(payload.get("signal") or "").strip(),
+                str(payload.get("role_id") or role or "").strip(),
+            ]
+            if item
+        )
     elif event["event_type"] == "iteration_summary_written":
         title = "Iteration summary written"
         detail = str(payload.get("composite_score", "")).strip()
@@ -216,6 +231,11 @@ def _build_role_takeaway_from_handoff(handoff: Mapping[str, object], *, composit
         "summary": _clean_takeaway_text(handoff.get("summary"), max_length=1200),
         "blocking_item": " · ".join(blocking_items),
         "next_action": next_action,
+        "evidence_refs": [
+            str(item).strip()
+            for item in list(handoff.get("evidence_refs") or [])
+            if str(item).strip()
+        ],
         "composite_score": composite_score,
     }
 
@@ -405,9 +425,14 @@ def _build_run_key_takeaways(run: dict) -> dict:
             iterations = [legacy_iteration]
     iterations = sorted(iterations, key=lambda item: int(item.get("iter") or -1), reverse=True)
     latest = iterations[0] if iterations else None
+    evidence_count = 0
+    runs_dir_value = str(run.get("runs_dir") or "").strip()
+    if runs_dir_value:
+        evidence_count = len(read_jsonl(RunArtifactLayout(Path(runs_dir_value)).evidence_ledger_path))
     return {
         "build_dir": str(Path(str(run.get("workdir") or "")).expanduser().resolve()) if run.get("workdir") else "",
         "log_dir": str(Path(str(run.get("runs_dir") or "")).expanduser().resolve()) if run.get("runs_dir") else "",
+        "evidence_count": evidence_count,
         "iteration_count": len(iterations),
         "role_conclusion_count": sum(len(list(iteration.get("roles") or [])) for iteration in iterations),
         "latest_display_iter": latest.get("display_iter") if latest else None,

@@ -14,7 +14,7 @@ from loopora.cli_shared import (
     workflow_bundle_from_entity,
 )
 from loopora.service import LooporaError
-from loopora.workflows import WorkflowError
+from loopora.workflows import DEFAULT_WORKFLOW_PRESET, WorkflowError
 
 
 def register_orchestration_commands(orchestrations_app: typer.Typer) -> None:
@@ -46,7 +46,7 @@ def register_orchestration_commands(orchestrations_app: typer.Typer) -> None:
     def create_orchestration(
         name: str = typer.Option(..., help="Orchestration name."),
         description: str = typer.Option("", help="Optional orchestration description."),
-        workflow_preset: WorkflowPresetOption = "build_first",
+        workflow_preset: WorkflowPresetOption = DEFAULT_WORKFLOW_PRESET,
         workflow_file: WorkflowFileOption = None,
         role_model: RoleModelOption = None,
     ) -> None:

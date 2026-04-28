@@ -7,8 +7,10 @@ from loopora.workflows import (
     build_preset_workflow,
     default_role_execution_settings,
     normalize_workflow,
+    preset_names,
     resolve_prompt_files,
     workflow_warnings,
+    load_workflow_file,
 )
 
 
@@ -143,6 +145,28 @@ def test_workflow_warnings_cover_stale_and_prechange_gatekeeper_paths() -> None:
     ]
 
 
+def test_visible_workflow_presets_are_curated_governance_shapes() -> None:
+    assert preset_names() == [
+        "build_then_parallel_review",
+        "evidence_first",
+        "benchmark_gate",
+        "repair_loop",
+    ]
+
+    default_workflow = normalize_workflow(None)
+    assert default_workflow["preset"] == "build_then_parallel_review"
+    assert [step.get("parallel_group", "") for step in default_workflow["steps"]] == [
+        "",
+        "inspection_pack",
+        "inspection_pack",
+        "",
+    ]
+    assert default_workflow["steps"][-1]["inputs"]["handoffs_from"] == [
+        "contract_inspection_step",
+        "evidence_inspection_step",
+    ]
+
+
 def test_normalize_workflow_preserves_collaboration_intent() -> None:
     workflow = normalize_workflow(
         {
@@ -161,6 +185,221 @@ def test_normalize_workflow_preserves_collaboration_intent() -> None:
     )
 
     assert workflow["collaboration_intent"] == "Start with evidence, then commit to one repair slice."
+
+
+def test_normalize_workflow_preserves_parallel_group_and_step_inputs() -> None:
+    workflow = normalize_workflow(
+        {
+            "version": 1,
+            "roles": [
+                {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                {"id": "accessibility_inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                {"id": "contract_inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                {"id": "gatekeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+            ],
+            "steps": [
+                {"id": "builder_step", "role_id": "builder"},
+                {
+                    "id": "accessibility_step",
+                    "role_id": "accessibility_inspector",
+                    "parallel_group": "inspection_pack",
+                    "inputs": {
+                        "handoffs_from": ["builder_step"],
+                        "evidence_query": {"archetypes": ["builder"], "limit": 12},
+                        "iteration_memory": "summary_only",
+                    },
+                },
+                {
+                    "id": "contract_step",
+                    "role_id": "contract_inspector",
+                    "parallel_group": "inspection_pack",
+                },
+                {
+                    "id": "gatekeeper_step",
+                    "role_id": "gatekeeper",
+                    "on_pass": "finish_run",
+                    "inputs": {"handoffs_from": ["accessibility_step", "contract_step"]},
+                },
+            ],
+        }
+    )
+
+    assert workflow["steps"][1]["parallel_group"] == "inspection_pack"
+    assert workflow["steps"][1]["inputs"] == {
+        "handoffs_from": ["builder_step"],
+        "evidence_query": {"archetypes": ["builder"], "limit": 12},
+        "iteration_memory": "summary_only",
+    }
+    assert workflow["steps"][2]["parallel_group"] == "inspection_pack"
+    assert workflow["steps"][3]["inputs"] == {"handoffs_from": ["accessibility_step", "contract_step"]}
+
+
+def test_normalize_workflow_preserves_control_triggers() -> None:
+    workflow = normalize_workflow(
+        {
+            "version": 1,
+            "roles": [
+                {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                {"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"},
+                {"id": "gatekeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+            ],
+            "steps": [
+                {"id": "builder_step", "role_id": "builder"},
+                {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+            ],
+            "controls": [
+                {
+                    "id": "stale_evidence_check",
+                    "when": {"signal": "no_evidence_progress", "after": "20m"},
+                    "call": {"role_id": "guide"},
+                    "mode": "repair_guidance",
+                    "max_fires_per_run": 1,
+                }
+            ],
+        }
+    )
+
+    assert workflow["controls"] == [
+        {
+            "id": "stale_evidence_check",
+            "when": {"signal": "no_evidence_progress", "after": "20m"},
+            "call": {"role_id": "guide"},
+            "mode": "repair_guidance",
+            "max_fires_per_run": 1,
+        }
+    ]
+
+
+def test_normalize_workflow_rejects_builder_control_targets() -> None:
+    with pytest.raises(WorkflowError, match="controls may only call Inspector, Guide, or GateKeeper"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                    {"id": "gatekeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                    {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+                ],
+                "controls": [
+                    {
+                        "id": "bad_repair",
+                        "when": {"signal": "step_failed", "after": "0s"},
+                        "call": {"role_id": "builder"},
+                    }
+                ],
+            }
+        )
+
+
+def test_normalize_workflow_rejects_unknown_control_signals() -> None:
+    with pytest.raises(WorkflowError, match="when.signal"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"},
+                ],
+                "steps": [
+                    {"id": "guide_step", "role_id": "guide"},
+                ],
+                "controls": [
+                    {
+                        "id": "generic_timer",
+                        "when": {"signal": "cron", "after": "20m"},
+                        "call": {"role_id": "guide"},
+                    }
+                ],
+            }
+        )
+
+
+def test_workflow_file_can_express_controls(tmp_path) -> None:
+    workflow_file = tmp_path / "workflow.yml"
+    workflow_file.write_text(
+        """
+        workflow:
+          version: 1
+          roles:
+            - id: builder
+              archetype: builder
+              prompt_ref: builder.md
+            - id: guide
+              archetype: guide
+              prompt_ref: guide.md
+          steps:
+            - id: builder_step
+              role_id: builder
+          controls:
+            - id: stale_check
+              when:
+                signal: no_evidence_progress
+                after: 20m
+              call:
+                role_id: guide
+              mode: repair_guidance
+        """,
+        encoding="utf-8",
+    )
+
+    workflow, _prompt_files = load_workflow_file(workflow_file)
+    normalized = normalize_workflow(workflow)
+
+    assert normalized["controls"][0]["id"] == "stale_check"
+    assert normalized["controls"][0]["mode"] == "repair_guidance"
+
+
+def test_normalize_workflow_rejects_write_roles_inside_parallel_groups() -> None:
+    with pytest.raises(WorkflowError, match="parallel_group currently supports inspector and custom steps"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "builder_a", "archetype": "builder", "prompt_ref": "builder.md"},
+                    {"id": "builder_b", "archetype": "builder", "prompt_ref": "builder.md"},
+                ],
+                "steps": [
+                    {"id": "builder_a_step", "role_id": "builder_a", "parallel_group": "builders"},
+                    {"id": "builder_b_step", "role_id": "builder_b", "parallel_group": "builders"},
+                ],
+            }
+        )
+
+
+def test_normalize_workflow_requires_parallel_group_steps_to_be_contiguous() -> None:
+    with pytest.raises(WorkflowError, match="parallel_group steps must be contiguous"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "inspector_a", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                    {"id": "inspector_b", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                    {"id": "inspector_c", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                ],
+                "steps": [
+                    {"id": "a", "role_id": "inspector_a", "parallel_group": "pack"},
+                    {"id": "b", "role_id": "inspector_b", "parallel_group": "other"},
+                    {"id": "c", "role_id": "inspector_c", "parallel_group": "pack"},
+                ],
+            }
+        )
+
+
+def test_normalize_workflow_rejects_unknown_input_policy_keys() -> None:
+    with pytest.raises(WorkflowError, match="workflow step inputs contains unknown keys"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                ],
+                "steps": [
+                    {"id": "inspector_step", "role_id": "inspector", "inputs": {"hidden_context": True}},
+                ],
+            }
+        )
 
 
 def test_resolve_prompt_files_drops_unused_entries() -> None:

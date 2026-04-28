@@ -16,6 +16,12 @@
         <span data-lang="zh">导出 YAML</span>
         <span data-lang="en">Export YAML</span>
       </a>
+      <form method="post" action="/bundles/{{ bundle.id }}/revise" class="inline-form">
+        <button class="secondary-button" type="submit" data-testid="bundle-revise-chat-button">
+          <span data-lang="zh">用对话修订方案</span>
+          <span data-lang="en">Revise with Chat</span>
+        </button>
+      </form>
       <a class="secondary-button" href="/loops/new/manual?replace_bundle_id={{ bundle.id }}#bundle-import-form" data-testid="bundle-import-revision-link">
         <span data-lang="zh">导入下一版 Revision</span>
         <span data-lang="en">Import next revision</span>
@@ -94,6 +100,35 @@
       {% endif %}
     </article>
   </section>
+
+  {% set workflow_controls = control_summary.controls if control_summary and control_summary.controls else [] %}
+  {% if workflow_controls %}
+  <section class="panel" data-testid="bundle-workflow-controls">
+    <header class="panel-header">
+      <div>
+        <h2><span data-lang="zh">运行控制</span><span data-lang="en">Runtime Controls</span></h2>
+        <p class="panel-note">
+          <span data-lang="zh">这些 trigger 只用于在长任务出现误差风险时调用现有 Inspector、Guide 或 GateKeeper；它们不会改变主 workflow 顺序，也不会自动让 Builder 写入。</span>
+          <span data-lang="en">These triggers only call existing Inspectors, Guides, or GateKeepers when error risk appears in a long task; they do not change the main workflow order or make Builders write automatically.</span>
+        </p>
+      </div>
+    </header>
+    <div class="bundle-control-grid">
+      {% for control in workflow_controls %}
+      <article class="bundle-control-card">
+        <strong>{{ control.id or control.signal }}</strong>
+        <dl>
+          <div><dt><span data-lang="zh">信号</span><span data-lang="en">Signal</span></dt><dd>{{ control.signal }}</dd></div>
+          <div><dt><span data-lang="zh">延迟</span><span data-lang="en">After</span></dt><dd>{{ control.after or "0s" }}</dd></div>
+          <div><dt><span data-lang="zh">调用</span><span data-lang="en">Calls</span></dt><dd>{{ control.role_name or control.role_id }}</dd></div>
+          <div><dt><span data-lang="zh">模式</span><span data-lang="en">Mode</span></dt><dd>{{ control.mode }}</dd></div>
+          <div><dt><span data-lang="zh">上限</span><span data-lang="en">Limit</span></dt><dd>{{ control.max_fires_per_run }}</dd></div>
+        </dl>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
   <form class="panel form-panel form-panel-wide" method="post" action="/bundles/{{ bundle.id }}/edit" data-testid="bundle-detail-form">
     <div class="field-status is-error" aria-live="polite" {% if not form_error %}hidden{% endif %}>{{ form_error or "" }}</div>

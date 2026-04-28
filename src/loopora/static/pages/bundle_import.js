@@ -17,6 +17,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const artifactRoles = document.getElementById("alignment-artifact-roles");
   const artifactFlow = document.getElementById("alignment-artifact-flow");
   const artifactWorkdir = document.getElementById("alignment-artifact-workdir");
+  const controlSummary = document.getElementById("alignment-control-summary");
   const artifactSource = document.getElementById("alignment-artifact-source");
   const sourcePathLabel = document.getElementById("alignment-source-path");
   const specPreview = document.getElementById("alignment-spec-preview");
@@ -96,6 +97,64 @@ document.addEventListener("DOMContentLoaded", () => {
       .map((step) => roleById.get(step.role_id) || step.role_id)
       .filter(Boolean)
       .join(" -> ");
+  }
+
+  function listSnippet(values) {
+    return (values || [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .slice(0, 2)
+      .join(" / ");
+  }
+
+  function renderControlSummary(summary) {
+    if (!controlSummary) {
+      return;
+    }
+    if (!summary) {
+      controlSummary.innerHTML = "";
+      return;
+    }
+    const workflow = summary.workflow || {};
+    const gatekeeper = summary.gatekeeper || {};
+    const controls = Array.isArray(summary.controls) ? summary.controls : [];
+    const controlSnippet = controls
+      .slice(0, 2)
+      .map((control) => {
+        const after = control.after && control.after !== "0s" ? `${control.after} · ` : "";
+        return `${after}${control.signal || "control"} -> ${control.role_name || control.role_id || "role"}`;
+      })
+      .join(" / ");
+    const cards = [
+      {
+        label: localeText("主要风险", "Main risk"),
+        value: listSnippet(summary.risks) || localeText("从 spec 中读取。", "Read from spec."),
+      },
+      {
+        label: localeText("证据路径", "Evidence path"),
+        value: listSnippet(summary.evidence) || localeText("由 workflow 运行时落账。", "Recorded by the workflow runtime."),
+      },
+      {
+        label: "workflow",
+        value: workflow.summary || localeText(`${workflow.step_count || 0} 个 step`, `${workflow.step_count || 0} steps`),
+      },
+      {
+        label: "GateKeeper",
+        value: gatekeeper.enabled
+          ? localeText("需要 evidence refs 才能结束。", "Requires evidence refs to finish.")
+          : localeText("未配置 GateKeeper。", "No GateKeeper configured."),
+      },
+      ...(controls.length ? [{
+        label: localeText("运行控制", "Runtime controls"),
+        value: controlSnippet || localeText("按误差风险触发检查。", "Triggered by error-control risk."),
+      }] : []),
+    ];
+    controlSummary.innerHTML = cards.map((card) => `
+      <div class="alignment-control-card">
+        <strong>${escapeHtml(card.label)}</strong>
+        <span>${escapeHtml(card.value)}</span>
+      </div>
+    `).join("");
   }
 
   function compactRoleSummary(role) {
@@ -194,6 +253,7 @@ document.addEventListener("DOMContentLoaded", () => {
     artifactFlow.textContent = workflowSummary(payload.workflow_preview) || localeText("workflow 已生成", "workflow generated");
     artifactWorkdir.textContent = basename(payload.bundle?.loop?.workdir || "");
     artifactWorkdir.title = payload.bundle?.loop?.workdir || "";
+    renderControlSummary(payload.control_summary || null);
     specPreview.innerHTML = payload.spec_rendered_html || "";
     if (sourceOpenButton) {
       sourceOpenButton.hidden = !payload.source_path;

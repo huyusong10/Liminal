@@ -339,17 +339,43 @@ def _real_bundle_yaml_for_workdir(workdir: Path, *, provider: str) -> str:
         ],
         "workflow": {
             "version": 1,
-            "preset": "build_first",
-            "collaboration_intent": "Check whether the fixture already satisfies the bundle contract, then close on proof evidence.",
+            "preset": "build_then_parallel_review",
+            "collaboration_intent": "Check whether the fixture satisfies the bundle contract from both contract and evidence views, then close on proof evidence.",
             "roles": [
                 {"id": "builder", "role_definition_key": "builder"},
-                {"id": "inspector", "role_definition_key": "inspector"},
+                {"id": "contract_inspector", "role_definition_key": "inspector", "name": "Contract Inspector"},
+                {"id": "evidence_inspector", "role_definition_key": "inspector", "name": "Evidence Inspector"},
                 {"id": "gatekeeper", "role_definition_key": "gatekeeper"},
             ],
             "steps": [
                 {"id": "builder_step", "role_id": "builder", "inherit_session": True},
-                {"id": "inspector_step", "role_id": "inspector"},
-                {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+                {
+                    "id": "contract_inspection_step",
+                    "role_id": "contract_inspector",
+                    "parallel_group": "inspection_pack",
+                    "inputs": {
+                        "handoffs_from": ["builder_step"],
+                        "evidence_query": {"archetypes": ["builder"], "limit": 12},
+                    },
+                },
+                {
+                    "id": "evidence_inspection_step",
+                    "role_id": "evidence_inspector",
+                    "parallel_group": "inspection_pack",
+                    "inputs": {
+                        "handoffs_from": ["builder_step"],
+                        "evidence_query": {"archetypes": ["builder"], "limit": 12},
+                    },
+                },
+                {
+                    "id": "gatekeeper_step",
+                    "role_id": "gatekeeper",
+                    "on_pass": "finish_run",
+                    "inputs": {
+                        "handoffs_from": ["contract_inspection_step", "evidence_inspection_step"],
+                        "evidence_query": {"archetypes": ["inspector", "builder"], "limit": 24},
+                    },
+                },
             ],
         },
     }

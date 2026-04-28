@@ -1,6 +1,6 @@
 # Spec Subsystem
 
-> 最高原则：遵循 `../core-ideas/product-principle.md`。本模块服务于 `任务 -> 方案 -> 证据 -> 修订` 闭环，只负责冻结任务契约，不把 spec 误扩展成完整 harness 或 prompt 包。
+> 最高原则：遵循 `../core-ideas/product-principle.md`。本模块服务于外部任务治理闭环，只负责冻结任务契约，不把 spec 误扩展成完整 harness 或 prompt 包。
 
 ## 1. Purpose
 
@@ -59,7 +59,7 @@
 2. `Done When` 可以缺失，但一旦进入某次 run，系统必须冻结一份 checks 集合。
 3. `Guardrails` 只是边界声明，不是执行计划。
 4. `Role Notes` 只能影响角色 prompt 的附加上下文，不能成为隐藏通过条件。
-5. `Success Surface`、`Fake Done`、`Evidence Preferences` 与 `Residual Risk` 属于 task contract 的稳定组成部分；它们表达任务级协作姿态，但不单独替代 role posture 或 workflow 形状。
+5. `Success Surface`、`Fake Done`、`Evidence Preferences` 与 `Residual Risk` 属于 task contract 的稳定组成部分；它们表达任务级治理判断，但不单独替代 role posture 或 workflow 形状。
 6. 编译结果必须比原始 Markdown 更稳定、更可枚举。
 7. 探索模式的自由度只能发生在 run 开始前，不得延续到 iteration 内部。
 8. UI 可以提供 spec 的读取、编辑、模板生成与渲染预览，但保存后的内容仍必须回到同一条 `spec.md -> compiled_spec` 编译边界；预览不能绕过编译器直接构造运行期 spec。
@@ -72,7 +72,7 @@
 - 用户可以写得松，但系统输出必须是结构化的。
 - spec 的职责是定义“任务、判断标准、边界，以及角色附加提示”，而不是定义完整工作流。
 - 角色附加提示只能改变角色工作姿态，不能改变全局 pass/fail。
-- task contract 可以表达成功面、假完成、证据偏好与残余风险，但不能单独取代 role posture 或 workflow 的协作语义。
+- task contract 可以表达成功面、假完成、证据偏好与残余风险，但不能单独取代 role posture 或 workflow 的治理语义。
 
 ## 7. Dependency Direction
 

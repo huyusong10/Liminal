@@ -15,6 +15,7 @@ from loopora.service import LooporaError, normalize_role_models
 from loopora.specs import SpecError, compile_markdown_spec
 from loopora.workflows import (
     ARCHETYPES,
+    DEFAULT_WORKFLOW_PRESET,
     build_preset_workflow,
     builtin_prompt_markdown,
     builtin_prompt_markdown_by_locale,
@@ -29,7 +30,7 @@ DEFAULT_LOOP_FORM = {
     "name": "",
     "workdir": "",
     "spec_path": "",
-    "orchestration_id": "builtin:build_first",
+    "orchestration_id": f"builtin:{DEFAULT_WORKFLOW_PRESET}",
     "completion_mode": "gatekeeper",
     "iteration_interval_seconds": 0,
     "max_iters": 8,
@@ -204,7 +205,7 @@ def _workflow_from_mapping(payload: Mapping[str, object], *, default_to_preset: 
         return workflow_json
     if not default_to_preset:
         return None
-    preset = str(payload.get("workflow_preset", "build_first")).strip() or "build_first"
+    preset = str(payload.get("workflow_preset", DEFAULT_WORKFLOW_PRESET)).strip() or DEFAULT_WORKFLOW_PRESET
     return build_preset_workflow(preset)
 
 

@@ -26,6 +26,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const roleDefinitionSelect = document.getElementById("role-definition-select");
   const addStepButton = document.getElementById("add-step-button");
   const workflowStepsList = document.getElementById("workflow-steps-list");
+  const workflowControlsList = document.getElementById("workflow-controls-list");
+  const workflowControlsJsonInput = document.getElementById("workflow-controls-json-input");
   const workflowJsonInput = document.getElementById("workflow-json-input");
   const promptFilesJsonInput = document.getElementById("prompt-files-json-input");
   const saveOrchestrationButton = document.getElementById("save-orchestration-button");
@@ -364,7 +366,12 @@ document.addEventListener("DOMContentLoaded", () => {
         workflowPayload.roles.find((role) => role.id === String(step.role_id || ""))?.archetype,
       )),
       extra_cli_args: String(step.extra_cli_args || ""),
+      ...(String(step.parallel_group || "").trim() ? {parallel_group: String(step.parallel_group || "").trim()} : {}),
+      ...(step.inputs && typeof step.inputs === "object" ? {inputs: clone(step.inputs)} : {}),
     })) : [];
+    workflowPayload.controls = Array.isArray(workflowPayload.controls)
+      ? workflowPayload.controls.map(normalizeControl)
+      : [];
     workflowState = workflowPayload;
     promptFilesState = {...(promptFiles || {})};
     if (openSettingsStepIndex >= workflowPayload.steps.length) {
@@ -383,6 +390,46 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     promptFilesState = nextPromptFiles;
     promptFilesJsonInput.value = JSON.stringify(promptFilesState, null, 2);
+  }
+
+  function normalizeControl(control, index) {
+    return {
+      id: String(control?.id || `control_${index + 1}`),
+      when: {
+        signal: String(control?.when?.signal || ""),
+        after: String(control?.when?.after || "0s"),
+      },
+      call: {role_id: String(control?.call?.role_id || "")},
+      mode: String(control?.mode || "advisory"),
+      max_fires_per_run: Number(control?.max_fires_per_run || 1),
+    };
+  }
+
+  function syncControlsJsonField() {
+    if (workflowControlsJsonInput) {
+      workflowControlsJsonInput.value = JSON.stringify(workflowState?.controls || [], null, 2);
+    }
+  }
+
+  function syncControlsFromJsonField() {
+    if (!workflowControlsJsonInput || isReadOnly) {
+      return true;
+    }
+    try {
+      const parsed = JSON.parse(workflowControlsJsonInput.value || "[]");
+      if (!Array.isArray(parsed)) {
+        throw new Error("controls must be an array");
+      }
+      workflowState.controls = parsed.map(normalizeControl);
+      return true;
+    } catch (_) {
+      showStatus(
+        workflowValidation,
+        localeText("运行控制 JSON 必须是数组。", "Runtime controls JSON must be an array."),
+        "error",
+      );
+      return false;
+    }
   }
 
   function setActiveStep(stepIndex, options = {}) {
@@ -465,6 +512,12 @@ document.addEventListener("DOMContentLoaded", () => {
       stepIds.add(step.id);
       if (!step.role_id || !roleIds.has(step.role_id)) {
         messages.push(localeText(`步骤 ${step.id || "(未命名)"} 引用了不存在的角色。`, `Step ${step.id || "(unnamed)"} references an unknown role.`));
+      }
+    });
+    (workflowState.controls || []).forEach((control) => {
+      const roleId = String(control.call?.role_id || "");
+      if (roleId && !roleIds.has(roleId)) {
+        messages.push(localeText(`控制器 ${control.id || "(未命名)"} 引用了不存在的角色。`, `Control ${control.id || "(unnamed)"} references an unknown role.`));
       }
     });
     return messages;
@@ -567,6 +620,69 @@ document.addEventListener("DOMContentLoaded", () => {
       : "";
   }
 
+  function controlSummaryLine(control) {
+    const signal = String(control?.when?.signal || "control");
+    const after = String(control?.when?.after || "0s");
+    const roleId = String(control?.call?.role_id || "");
+    const role = roleById(roleId);
+    const roleName = role ? displayRoleSnapshotName(role) : (roleId || localeText("未绑定角色", "Unbound role"));
+    return `${after} · ${signal} -> ${roleName}`;
+  }
+
+  function renderControls() {
+    if (!workflowControlsList) {
+      syncControlsJsonField();
+      return;
+    }
+    workflowControlsList.innerHTML = "";
+    const controls = workflowState.controls || [];
+    if (!controls.length) {
+      workflowControlsList.innerHTML = `
+        <div class="workflow-empty-state">
+          <strong>${localeText("没有运行控制", "No runtime controls")}</strong>
+          <p>${localeText("默认保持 5 分钟上手。只有当任务确实有空转、失败、超时或 GateKeeper 反复拒绝风险时，才在这里保留 trigger。", "The five-minute path stays clear by default. Keep triggers here only when the task really has stagnation, failure, timeout, or repeated GateKeeper rejection risk.")}</p>
+        </div>
+      `;
+      syncControlsJsonField();
+      return;
+    }
+    controls.forEach((control, index) => {
+      const roleId = String(control.call?.role_id || "");
+      const role = roleById(roleId);
+      const row = document.createElement("article");
+      row.className = "workflow-step-row workflow-control-row";
+      row.dataset.controlIndex = String(index);
+      row.innerHTML = `
+        <div class="workflow-step-card-top">
+          <div class="workflow-step-ident">
+            <span class="workflow-step-order-badge">${index + 1}</span>
+            <div class="workflow-step-title-stack">
+              <strong>${escapeHtml(control.id || `control_${index + 1}`)}</strong>
+              <p>${escapeHtml(controlSummaryLine(control))}</p>
+            </div>
+          </div>
+          <div class="workflow-step-actions">
+            <button type="button" class="ghost-button" data-control-action="copy-control" data-control-index="${index}">
+              ${escapeHtml(localeText("复制", "Copy"))}
+            </button>
+            <button type="button" class="ghost-button" data-control-action="remove-control" data-control-index="${index}" ${isReadOnly ? "hidden" : ""}>
+              ${escapeHtml(localeText("删除", "Delete"))}
+            </button>
+          </div>
+        </div>
+        <div class="workflow-step-chip-row">
+          <span class="workflow-chip">${escapeHtml(control.mode || "advisory")}</span>
+          <span class="workflow-chip workflow-chip-muted">${escapeHtml(control.when?.signal || "")}</span>
+          <span class="workflow-chip workflow-chip-muted">${escapeHtml(control.when?.after || "0s")}</span>
+          <span class="workflow-chip workflow-chip-muted">${escapeHtml(role ? roleLabel(role.archetype) : localeText("缺失角色", "Missing role"))}</span>
+          <span class="workflow-chip workflow-chip-muted">${escapeHtml(`${localeText("上限", "Limit")} ${control.max_fires_per_run || 1}`)}</span>
+        </div>
+      `;
+      workflowControlsList.appendChild(row);
+    });
+    syncControlsJsonField();
+  }
+
   function renderWorkflowLoopPreview() {
     if (!workflowLoopPreview || !window.LooporaWorkflowDiagram) {
       return;
@@ -627,6 +743,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <span class="workflow-chip workflow-chip-muted">${escapeHtml(stepSessionChipLabel(step))}</span>
           ${modelChip ? `<span class="workflow-chip workflow-chip-muted">${escapeHtml(modelChip)}</span>` : ""}
           ${cliArgsChip ? `<span class="workflow-chip workflow-chip-muted workflow-chip-code">${escapeHtml(cliArgsChip)}</span>` : ""}
+          ${step.parallel_group ? `<span class="workflow-chip workflow-chip-muted">${escapeHtml(`parallel:${step.parallel_group}`)}</span>` : ""}
         </div>
         <p class="workflow-step-summary-line">
           <span class="workflow-step-summary-label">${escapeHtml(localeText("角色快照", "Role snapshot"))}</span>
@@ -743,6 +860,7 @@ document.addEventListener("DOMContentLoaded", () => {
     syncWorkflowJsonFields();
     renderWorkflowLoopPreview();
     renderSteps();
+    renderControls();
     renderWorkflowSettingsModal();
     renderWorkflowValidation({forceErrors: forceValidation});
   }
@@ -1037,6 +1155,42 @@ document.addEventListener("DOMContentLoaded", () => {
     setActiveStep(Number(card.dataset.stepIndex));
   });
 
+  workflowControlsList?.addEventListener("click", async (event) => {
+    const actionButton = event.target.closest("[data-control-action]");
+    if (!actionButton) {
+      return;
+    }
+    const index = Number(actionButton.dataset.controlIndex);
+    const control = workflowState.controls?.[index];
+    if (!control) {
+      return;
+    }
+    const action = actionButton.dataset.controlAction;
+    if (action === "copy-control") {
+      const text = JSON.stringify(control, null, 2);
+      try {
+        await navigator.clipboard?.writeText(text);
+        showStatus(workflowValidation, localeText("已复制运行控制。", "Runtime control copied."), "success");
+      } catch (_) {
+        showStatus(workflowValidation, text, "");
+      }
+      return;
+    }
+    if (action === "remove-control") {
+      if (isReadOnly) {
+        return;
+      }
+      workflowState.controls.splice(index, 1);
+      renderWorkflowEditor({forceValidation: submitAttempted});
+    }
+  });
+
+  workflowControlsJsonInput?.addEventListener("blur", () => {
+    if (syncControlsFromJsonField()) {
+      renderWorkflowEditor({forceValidation: true});
+    }
+  });
+
   settingsModal?.addEventListener("click", (event) => {
     const closeTarget = event.target.closest("[data-close-workflow-settings]");
     if (closeTarget) {
@@ -1106,6 +1260,10 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     submitAttempted = true;
+    if (!syncControlsFromJsonField()) {
+      event.preventDefault();
+      return;
+    }
     if (!renderWorkflowValidation({forceErrors: true})) {
       event.preventDefault();
       showStatus(formError, localeText("编排结构不完整，请先修正。", "The orchestration is incomplete. Please fix it before saving."), "error");

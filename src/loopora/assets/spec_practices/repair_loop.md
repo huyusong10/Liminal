@@ -12,15 +12,15 @@ Leave explicit room for a fix, re-check, and second repair cycle so a full hybri
 
 ## Why this workflow fits
 
-This task begins with the expectation that one repair pass will not be enough. Builder needs an initial pass to remove the first bottleneck, Inspector needs to study the new runtime evidence, Guide needs to choose the second pass, and only then should Builder and GateKeeper close the loop.
+This task begins with the expectation that one repair pass will not be enough. Builder needs an initial pass to remove the first bottleneck. Then Regression Inspector and Contract Inspector review the result in parallel: one follows the runtime evidence, the other checks the task contract and fake-done risks. Guide chooses the second pass from those two views, and only then should Builder and GateKeeper close the loop.
 
 ## Why not the other workflows
 
-This is not `Build First` because the baseline path already exists. It is not `Inspect First` because the first repair is itself required to surface the next meaningful evidence. It is also not `Benchmark Loop`, because the deciding signal is not one score but the actual system bottleneck that remains after the first repair.
+This is not the default build-and-review path because the task already assumes a second repair pass after the first evidence read. It is not the evidence-first path because the first repair is itself required to surface the next meaningful evidence. It is also not the benchmark-gated path, because the deciding signal is not one score but the actual system bottleneck that remains after the first repair.
 
 ## Why not just let an AI Agent do it
 
-An AI Agent can certainly attempt the first repair. The problem is that humans would still need to come back after that repair to read the new traces, decide what the real second bottleneck is, and redirect the next pass. That repeated re-entry is exactly the bottleneck Loopora is meant to reduce. `Builder` creates the new runtime state, `Inspector` reads it, `Guide` narrows the second move, and `GateKeeper` decides whether the window is actually back under control.
+An AI Agent can certainly attempt the first repair. The problem is that humans would still need to come back after that repair to read the new traces, check whether the repair violated the broader contract, decide what the real second bottleneck is, and redirect the next pass. That repeated re-entry is exactly the bottleneck Loopora is meant to reduce. `Builder` creates the new runtime state, two Inspectors read different evidence surfaces, `Guide` narrows the second move, and `GateKeeper` decides whether the window is actually back under control.
 
 ## Example spec
 
@@ -47,9 +47,13 @@ Bring full hybrid-search reindexing back inside an acceptable maintenance window
 
 Use the first pass to remove the dominant known bottleneck, then use the second pass only for the largest verified gap that remains.
 
-## Inspector Notes
+## Regression Inspector Notes
 
 Compare the new reindex trace directly against the pre-repair baseline instead of inventing a lighter measurement path.
+
+## Contract Inspector Notes
+
+Check that the repair does not trade away index completeness, recoverability, incremental indexing, or live query behavior.
 
 ## Guide Notes
 

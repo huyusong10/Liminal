@@ -12,11 +12,10 @@ class WebRouteHelpPagesMixin:
         orchestrations = self.svc().list_orchestrations()
         builtin_orchestrations = [dict(item) for item in orchestrations if item.get("source") == "builtin"]
         tutorial_order = {
-            "build_first": 0,
-            "inspect_first": 1,
-            "triage_first": 2,
-            "repair_loop": 3,
-            "benchmark_loop": 4,
+            "build_then_parallel_review": 0,
+            "evidence_first": 1,
+            "repair_loop": 2,
+            "benchmark_gate": 3,
         }
         builtin_orchestrations.sort(key=lambda item: tutorial_order.get(str(item.get("preset", "")), 99))
         tutorial_spec_practices: dict[str, dict[str, str]] = {}

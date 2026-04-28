@@ -1,16 +1,16 @@
-# Web Bundle Alignment
+# Web Task Alignment
 
-> 最高原则：遵循 `../core-ideas/product-principle.md`。Web 对话页的主任务是让用户把长期 AI Agent 任务对齐成循环方案，并从 READY 方案进入运行、证据和修订闭环。
+> 最高原则：遵循 `../core-ideas/product-principle.md`。Web 对话页的主任务是把用户的长期 AI Agent 任务对齐成外部治理方案，并从 READY 方案进入运行、证据和修订闭环。
 
 ## 1. 模块职责
 
-本文档定义 Web 内置的 bundle 对齐入口。
+本文档定义 Web 内置的循环方案对齐入口。
 
 它的唯一理由是：
 
 - 让新手用户直接在 Web 里描述需求
-- 由后端调用本机 Agent CLI 完成多轮对齐
-- 在生成物通过硬校验后，把 bundle 预览、创建 loop 和运行收敛成一条主流程
+- 由后端调用本机 AI Agent CLI 完成多轮治理对齐
+- 在生成物通过硬校验后，把方案预览、创建 loop 和运行收敛成一条主流程
 
 它不是：
 
@@ -21,17 +21,20 @@
 
 ## 2. 产品判断
 
-现有推荐路径是：
+Web alignment 要解决的问题不是“少写一段 YAML”，而是让用户不必把任务治理长期维持在 Agent 对话上下文里。
 
-`用户描述任务 -> 外部 Agent + loopora-task-alignment Skill -> YAML bundle -> 手动创建页导入 -> 运行`
-
-Web bundle alignment 把前半段收进 Loopora Web：
+推荐路径是：
 
 `用户描述任务 -> Web alignment session -> 后端 Agent CLI -> YAML bundle -> READY 方案预览 -> 创建循环并运行`
+
+同一能力也承担修订路径：
+
+`已有方案 / run evidence -> Web alignment revision session -> revised YAML bundle -> READY 方案预览 -> 创建循环并运行`
 
 稳定承诺：
 
 - 用户可以完全不理解 Skill 安装、prompt 拼装或外部 Agent 操作。
+- 用户也不需要先理解 `bundle / spec / roles / workflow`，但 READY 预览必须让这些治理 surface 可检查。
 - 最终产物仍然必须是单文件 YAML bundle。
 - READY 只表示 bundle 文件已经存在并通过硬校验，不表示 loop 已经导入或运行成功。
 - 外部 Skill 安装路径继续保留，作为高级或跨工具路径。
@@ -90,6 +93,7 @@ alignment session 是 Web 内置对齐流程的最小状态单元。
 | working agreement | 最近一次等待确认或已确认的工作协议摘要与 checklist |
 | executor session ref | 后端 CLI 原生 session / rollout 引用，用于后续对话继承上下文 |
 | linked bundle / loop / run | 导入并运行后关联到现有对象 |
+| revision source | 修订模式下的来源 bundle、来源 run、evidence 摘要和 GateKeeper verdict |
 
 Session artifact 必须落在目标 workdir 下，并按事实源、事件流和调试材料分区：
 
@@ -149,6 +153,10 @@ Session artifact 必须落在目标 workdir 下，并按事实源、事件流和
 补充规则：
 
 - 不做版本管理；用户需要重新开始时主动新建 session。
+- revision 不是独立聊天系统；它是带有来源上下文的 alignment session。
+- revision session 必须把当前 bundle 写入 session `artifacts/bundle.yml` 作为 seed，并在 prompt 中明确这是“修订 harness”而不是从零创建。
+- 从 bundle 修订时带入 source bundle id；从 run 修订时还要带入 evidence ledger 摘要和 GateKeeper verdict。
+- revised bundle 应作为新 bundle revision 输出，保留 `source_bundle_id` lineage；导入运行仍走现有 bundle 生命周期。
 - 页面刷新后应能恢复当前 session 的 transcript、状态和 READY bundle。
 - 后续用户回复和自动修复默认继承同一 CLI session；若 provider resume 失败，系统回退到 transcript prompt，并记录可见事件。
 - 活动 session 必须能取消；取消应停止子进程并收敛为可解释状态。
@@ -226,15 +234,16 @@ bundle 检查器必须复用现有 bundle 契约校验。
 - 执行详情展开不应让主对话流、composer 或 READY artifact 大幅重新排版；可使用固定高度浮层、抽屉或等价稳定布局。
 - 失败卡片应给出下一步动作：继续修复、查看执行详情、调整 Agent 设置；不能只把原始红色错误长期压在页面上。
 
-## 8. Bundle 预览
+## 8. READY 方案预览
 
-session 进入 READY 后，页面自动展示 bundle artifact。已有 bundle YAML / 文件也可以先调用同一预览能力，再决定是否导入。
+session 进入 READY 后，页面自动展示循环方案 artifact。
 
 预览面按用户心智命名，而不是优先暴露内部术语：
 
 | 预览区 | 数据来源 | 用户语义 |
 |--------|----------|----------|
 | 摘要 | metadata、roles、workflow、workdir | 这是一份可以运行的循环方案 |
+| 控制摘要 | bundle preview projection | 这套方案主要控制哪些误差、靠什么证据、由谁收束 |
 | `spec` | `spec.markdown` | 这次要做什么、什么算完成、哪些假完成不可接受 |
 | `roles` | `role_definitions` | 每个 role 在本任务里的完整工作姿态 |
 | `workflow` | `workflow.roles / workflow.steps / collaboration_intent` | 谁先做、谁取证、谁裁决、何时收束 |
@@ -243,6 +252,7 @@ session 进入 READY 后，页面自动展示 bundle artifact。已有 bundle YA
 补充规则：
 
 - Artifact 默认只展示摘要和主操作；主体只保留 `spec / roles / workflow` 三个稳定视图。
+- 控制摘要必须由后端 bundle projection 生成，不能由前端临时猜测；它不是新的事实源，只是把 `spec / roles / workflow` 的误差控制结构投影给用户。
 - 中文界面也不翻译 `spec / roles / workflow` 这些 Loopora 专业术语。
 - YAML 不作为页面主要预览视图展示；需要时通过“打开源文件”进入资源管理器。
 - 若用户手动修改 READY `artifacts/bundle.yml`，页面应提供“重新同步源文件”能力：重新读取、硬校验、刷新 Artifact，并把同步成功或失败写入当前对话 transcript。
@@ -296,14 +306,16 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 | `GET /api/alignments/sessions/{id}/stream?after_id=` | SSE live 输出 |
 | `GET /api/alignments/sessions/{id}/bundle` | 返回 normalized bundle、YAML、spec HTML、workflow preview 与 validation |
 | `POST /api/alignments/sessions/{id}/bundle/sync` | 从 READY `artifacts/bundle.yml` 重新读取、校验并同步到 session transcript |
-| `POST /api/alignments/sessions/{id}/import` | 导入 READY bundle，可选择立即启动 run |
+| `POST /api/alignments/sessions/{id}/import` | 物化 READY 方案，可选择立即启动 run；接口名沿用 import 以复用 bundle 生命周期 |
+| `POST /api/bundles/{id}/revise` | 从已有 bundle 创建 revision alignment session |
+| `POST /api/runs/{id}/revise` | 从 run evidence 创建 revision alignment session |
 | `POST /api/bundles/preview` | 对用户提供的 bundle YAML 或路径做只读校验与预览投影 |
 
 稳定规则：
 
 - 这些 API 归属于 Web 内置入口；不要求 CLI 提供同构命令。
 - `GET /api/alignments/sessions/{id}` 返回的 `working_agreement` 可以包含 `readiness_checklist` 与 `readiness_evidence`；旧 session 没有 evidence 时仍可读取，但新 Web alignment 生成前必须具备 evidence。
-- `/api/alignments/*/import` 必须复用现有 bundle import 服务，不直接物化底层资产。
+- `/api/alignments/*/import` 必须复用现有 bundle import 服务，不直接绕过 bundle 生命周期物化底层资产。
 - `/api/bundles/preview` 不创建 bundle、loop 或 run；它只复用 bundle 契约校验和预览投影。
 
 ## 11. 错误与恢复
@@ -344,5 +356,5 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 - Agent 生成的 `bundle_yaml` 必须由服务层写入 session 指定路径。
 - READY 只在 bundle 文件存在且硬校验通过后出现。
 - READY 后自动展示 `spec / roles / workflow` 与源文件操作入口。
-- 用户可以一键导入 bundle 并启动 run。
+- 用户可以一键创建循环并启动 run；实现仍走 bundle 生命周期。
 - 外部 Skill 安装路径仍可用，且不与 Web 内置入口互相依赖。

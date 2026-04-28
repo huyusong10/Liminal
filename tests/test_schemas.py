@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from loopora.context_flow import (
+    EVIDENCE_ITEM_SCHEMA,
     ITERATION_SUMMARY_SCHEMA,
     LATEST_STATE_SCHEMA,
     STEP_CONTEXT_PACKET_SCHEMA,
@@ -22,6 +23,7 @@ def test_object_schemas_with_properties_are_strict_and_exhaustive() -> None:
         "TESTER_SCHEMA": TESTER_SCHEMA,
         "VERIFIER_SCHEMA": VERIFIER_SCHEMA,
         "CHALLENGER_SCHEMA": CHALLENGER_SCHEMA,
+        "EVIDENCE_ITEM_SCHEMA": EVIDENCE_ITEM_SCHEMA,
         "STEP_CONTEXT_PACKET_SCHEMA": STEP_CONTEXT_PACKET_SCHEMA,
         "STEP_HANDOFF_SCHEMA": STEP_HANDOFF_SCHEMA,
         "ITERATION_SUMMARY_SCHEMA": ITERATION_SUMMARY_SCHEMA,

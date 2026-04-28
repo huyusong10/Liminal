@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+import re
 import shutil
 
 from loopora.bundles import BundleError, bundle_to_yaml, load_bundle_file, load_bundle_text, normalize_bundle
@@ -13,6 +14,27 @@ from loopora.service_types import LooporaError
 from loopora.utils import make_id
 from loopora.utils import write_json
 from loopora.workflows import ROLE_EXECUTION_FIELDS, ROLE_POSTURE_FIELDS, has_finish_gatekeeper_step
+
+
+def _bundle_role_definition_key(value: object) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    return normalized or "role"
+
+
+def _preview_list_items(markdown_text: str, *, limit: int = 4) -> list[str]:
+    items = []
+    for line in str(markdown_text or "").splitlines():
+        cleaned = re.sub(r"^\s*[-*]\s+", "", line).strip()
+        cleaned = re.sub(r"^\s*\d+[.)]\s+", "", cleaned).strip()
+        if not cleaned or cleaned.startswith("#"):
+            continue
+        items.append(cleaned)
+        if len(items) >= limit:
+            break
+    if items:
+        return items
+    compact = re.sub(r"\s+", " ", str(markdown_text or "")).strip()
+    return [compact[:180]] if compact else []
 
 
 class ServiceBundleAssetMixin:
@@ -109,6 +131,7 @@ class ServiceBundleAssetMixin:
             "spec_rendered_html": render_safe_markdown_html(bundle["spec"]["markdown"]),
             "roles": bundle["role_definitions"],
             "workflow_preview": self._bundle_workflow_preview(bundle),
+            "control_summary": self._bundle_control_summary(bundle),
             "validation": validation or {"ok": True, "error": "", "source_path": source_path},
         }
 
@@ -131,6 +154,116 @@ class ServiceBundleAssetMixin:
             **bundle["workflow"],
             "roles": preview_roles,
             "steps": list(bundle["workflow"]["steps"]),
+        }
+
+    @staticmethod
+    def _bundle_control_summary(bundle: dict) -> dict:
+        try:
+            compiled_spec = compile_markdown_spec(str(bundle.get("spec", {}).get("markdown") or ""))
+        except SpecError:
+            compiled_spec = {"raw_sections": {}}
+        raw_sections = compiled_spec.get("raw_sections") if isinstance(compiled_spec, dict) else {}
+        if not isinstance(raw_sections, dict):
+            raw_sections = {}
+
+        roles = list(bundle.get("role_definitions") or [])
+        workflow = dict(bundle.get("workflow") or {})
+        workflow_roles = list(workflow.get("roles") or [])
+        steps = list(workflow.get("steps") or [])
+        role_definition_by_key = {str(role.get("key") or ""): role for role in roles if isinstance(role, dict)}
+        workflow_role_by_id = {
+            str(role.get("id") or ""): role
+            for role in workflow_roles
+            if isinstance(role, dict) and str(role.get("id") or "").strip()
+        }
+
+        def role_for_step(step: dict) -> dict:
+            workflow_role = workflow_role_by_id.get(str(step.get("role_id") or ""), {})
+            return role_definition_by_key.get(str(workflow_role.get("role_definition_key") or ""), {})
+
+        def step_label(step: dict) -> str:
+            role = role_for_step(step)
+            return str(role.get("name") or step.get("role_id") or step.get("id") or "").strip()
+
+        grouped_steps: list[str] = []
+        index = 0
+        while index < len(steps):
+            step = steps[index]
+            group = str(step.get("parallel_group") or "").strip()
+            if group:
+                grouped = []
+                while index < len(steps) and str(steps[index].get("parallel_group") or "").strip() == group:
+                    grouped.append(step_label(steps[index]))
+                    index += 1
+                grouped_steps.append("[" + " + ".join(item for item in grouped if item) + "]")
+                continue
+            grouped_steps.append(step_label(step))
+            index += 1
+
+        gatekeeper_steps = [
+            step
+            for step in steps
+            if str(role_for_step(step).get("archetype") or "").strip().lower() == "gatekeeper"
+        ]
+        finishing_gate_steps = [
+            str(step.get("id") or "").strip()
+            for step in gatekeeper_steps
+            if str(step.get("on_pass") or "").strip() == "finish_run"
+        ]
+        gatekeeper_roles = []
+        for step in gatekeeper_steps:
+            role_name = step_label(step)
+            if role_name and role_name not in gatekeeper_roles:
+                gatekeeper_roles.append(role_name)
+
+        control_summaries = []
+        for control in list(workflow.get("controls") or []):
+            if not isinstance(control, dict):
+                continue
+            role_id = str((control.get("call") or {}).get("role_id") or "").strip()
+            workflow_role = workflow_role_by_id.get(role_id, {})
+            role_definition = role_definition_by_key.get(str(workflow_role.get("role_definition_key") or ""), {})
+            control_summaries.append(
+                {
+                    "id": str(control.get("id") or "").strip(),
+                    "signal": str((control.get("when") or {}).get("signal") or "").strip(),
+                    "after": str((control.get("when") or {}).get("after") or "").strip(),
+                    "role_id": role_id,
+                    "role_name": str(role_definition.get("name") or role_id).strip(),
+                    "role_archetype": str(role_definition.get("archetype") or "").strip(),
+                    "mode": str(control.get("mode") or "").strip(),
+                    "max_fires_per_run": int(control.get("max_fires_per_run", 1) or 1),
+                }
+            )
+
+        return {
+            "risks": _preview_list_items(
+                str(raw_sections.get("Fake Done") or "") + "\n" + str(raw_sections.get("Residual Risk") or ""),
+                limit=4,
+            ),
+            "evidence": [
+                str(check.get("title") or "").strip()
+                for check in list(compiled_spec.get("checks") or [])[:4]
+                if isinstance(check, dict) and str(check.get("title") or "").strip()
+            ],
+            "workflow": {
+                "step_count": len(steps),
+                "parallel_groups": sorted(
+                    {
+                        str(step.get("parallel_group") or "").strip()
+                        for step in steps
+                        if str(step.get("parallel_group") or "").strip()
+                    }
+                ),
+                "summary": " -> ".join(item for item in grouped_steps if item),
+            },
+            "gatekeeper": {
+                "enabled": bool(gatekeeper_steps),
+                "roles": gatekeeper_roles,
+                "finish_steps": finishing_gate_steps,
+                "requires_evidence_refs": True,
+            },
+            "controls": control_summaries,
         }
 
     def derive_bundle_from_loop(
@@ -168,7 +301,7 @@ class ServiceBundleAssetMixin:
 
             role_definitions.append(
                 {
-                    "key": str(role.get("id", "") or "").strip(),
+                    "key": _bundle_role_definition_key(role.get("id", "")),
                     "name": str(snapshot_value("name") or "").strip(),
                     "description": str((role_definition or {}).get("description", "") or role.get("description", "") or "").strip(),
                     "archetype": str(snapshot_value("archetype") or "").strip(),
@@ -191,7 +324,7 @@ class ServiceBundleAssetMixin:
             "roles": [
                 {
                     "id": str(role.get("id", "") or "").strip(),
-                    "role_definition_key": str(role.get("id", "") or "").strip(),
+                    "role_definition_key": _bundle_role_definition_key(role.get("id", "")),
                 }
                 for role in workflow.get("roles", [])
             ],
@@ -203,10 +336,18 @@ class ServiceBundleAssetMixin:
                     "model": str(step.get("model", "") or "").strip(),
                     "inherit_session": bool(step.get("inherit_session")),
                     "extra_cli_args": str(step.get("extra_cli_args", "") or "").strip(),
+                    **(
+                        {"parallel_group": str(step.get("parallel_group", "") or "").strip()}
+                        if str(step.get("parallel_group", "") or "").strip()
+                        else {}
+                    ),
+                    **({"inputs": deepcopy(step.get("inputs"))} if isinstance(step.get("inputs"), dict) and step.get("inputs") else {}),
                 }
                 for step in workflow.get("steps", [])
             ],
         }
+        if workflow.get("controls"):
+            workflow_bundle["controls"] = deepcopy(workflow.get("controls") or [])
         bundle = {
             "version": 1,
             "metadata": {
@@ -383,6 +524,8 @@ class ServiceBundleAssetMixin:
                 ],
                 "steps": list(bundle["workflow"]["steps"]),
             }
+            if bundle["workflow"].get("controls"):
+                workflow_payload["controls"] = deepcopy(bundle["workflow"].get("controls") or [])
             orchestration = self.create_orchestration(
                 name=bundle["metadata"]["name"],
                 description=bundle["metadata"].get("description", ""),

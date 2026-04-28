@@ -85,18 +85,35 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     assert (run_dir / "events.jsonl").exists()
     assert (run_dir / "timeline" / "stagnation.json").exists()
     assert (run_dir / "stagnation.json").exists()
+    assert (run_dir / "evidence" / "ledger.jsonl").exists()
     assert (run_dir / "contract" / "compiled_spec.json").exists()
     assert (run_dir / "contract" / "workflow.json").exists()
     assert (run_dir / "contract" / "run_contract.json").exists()
     assert (run_dir / "context" / "latest_state.json").exists()
     assert (run_dir / "context" / "latest_iteration_summary.json").exists()
     assert (sample_workdir / ".loopora" / "loops" / loop["id"] / "compiled_spec.json").exists()
+    frozen_workflow = json.loads((run_dir / "contract" / "workflow.json").read_text(encoding="utf-8"))
+    run_contract = json.loads((run_dir / "contract" / "run_contract.json").read_text(encoding="utf-8"))
+    assert run_contract["workflow"]["steps"] == [
+        {
+            "id": step["id"],
+            "role_id": step["role_id"],
+            "on_pass": step.get("on_pass", ""),
+            "model": step.get("model", ""),
+            "inherit_session": bool(step.get("inherit_session")),
+            "extra_cli_args": step.get("extra_cli_args", ""),
+            "parallel_group": step.get("parallel_group", ""),
+            "inputs": step.get("inputs", {}),
+        }
+        for step in frozen_workflow["steps"]
+    ]
     assert step_outputs["inspector"]
     assert step_outputs["gatekeeper"]
     assert any((item["step_dir"] / "prompt.md").exists() for item in step_outputs["inspector"])
     assert any((item["step_dir"] / "prompt.md").exists() for item in step_outputs["gatekeeper"])
     summary = (run_dir / "summary.md").read_text(encoding="utf-8")
     assert "All checks passed in this iteration." in summary
+    assert "evidence/ledger.jsonl" in summary
     assert "timeline/iterations.jsonl" in summary
 
 
@@ -115,16 +132,24 @@ def test_successful_run_enriches_logs_and_role_outputs(
     tester_output = step_outputs["inspector"][-1]["output"]
     verifier_verdict = step_outputs["gatekeeper"][-1]["output"]
     metrics_history = _read_jsonl(run_dir / "timeline" / "metrics.jsonl")
+    evidence_ledger = _read_jsonl(run_dir / "evidence" / "ledger.jsonl")
     iteration_log = _read_jsonl(run_dir / "iteration_log.jsonl")
     latest_iteration_summary = json.loads((run_dir / "context" / "latest_iteration_summary.json").read_text(encoding="utf-8"))
 
     assert tester_output["status_counts"]["overall"]["passed"] >= 1
     assert "failed_items" in tester_output
     assert verifier_verdict["decision_summary"]
+    assert verifier_verdict["evidence_refs"]
+    assert verifier_verdict["evidence_gate_status"] == "passed"
     assert "failing_metrics" in verifier_verdict
     assert "next_actions" in verifier_verdict
     assert metrics_history[-1]["stagnation_mode"] in {"none", "plateau", "regression"}
     assert "score_delta" in metrics_history[-1]
+    assert metrics_history[-1]["evidence_refs"] == verifier_verdict["evidence_refs"]
+    assert evidence_ledger
+    assert {entry["archetype"] for entry in evidence_ledger} >= {"inspector", "gatekeeper"}
+    assert {entry["evidence_kind"] for entry in evidence_ledger} >= {"inspection", "verdict"}
+    assert step_outputs["inspector"][-1]["metadata"]["archetype"] == "inspector"
 
     complete_entries = [entry for entry in iteration_log if entry["phase"] == "complete"]
     assert complete_entries
@@ -135,6 +160,8 @@ def test_successful_run_enriches_logs_and_role_outputs(
     assert latest_entry["score"]["composite"] == verifier_verdict["composite_score"]
     assert latest_iteration_summary["score"]["composite"] == verifier_verdict["composite_score"]
     assert latest_iteration_summary["step_handoffs"]
+    assert all(handoff["evidence_refs"] for handoff in latest_iteration_summary["step_handoffs"])
+    assert all("parallel_group" in item for item in latest_iteration_summary["workflow"])
 
 
 def test_successful_run_emits_structured_service_logs(
@@ -274,7 +301,7 @@ def test_workflow_role_events_include_step_metadata(
         and event["payload"].get("step_id") in {"builder_step", "builder_repair_step"}
     ]
     assert {event["payload"]["step_id"] for event in builder_starts} == {"builder_step", "builder_repair_step"}
-    assert {event["payload"]["step_order"] for event in builder_starts} == {0, 3}
+    assert {event["payload"]["step_order"] for event in builder_starts} == {0, 4}
 
     repair_summary = next(
         event
@@ -302,9 +329,17 @@ def test_benchmark_loop_can_finish_before_builder_runs(
                     "feedback_to_builder": "No code change is required.",
                     "blocking_issues": [],
                     "metrics": [],
+                    "metric_scores": {
+                        "check_pass_rate": {"value": 1.0, "threshold": 1.0, "passed": True},
+                        "quality_score": {"value": 1.0, "threshold": 0.9, "passed": True},
+                    },
                     "failed_check_ids": [],
                     "priority_failures": [],
                     "composite_score": 1.0,
+                    "evidence_refs": [],
+                    "evidence_claims": [
+                        "The benchmark fixture is already satisfied by the existing project-owned proof output."
+                    ],
                 }
                 request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
                 return payload
@@ -327,6 +362,98 @@ def test_benchmark_loop_can_finish_before_builder_runs(
     assert run["status"] == "succeeded"
     assert "builder" not in step_outputs
     assert step_outputs["gatekeeper"][-1]["output"]["passed"] is True
+
+
+def test_gatekeeper_pass_without_evidence_is_blocked(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    class UnsupportedPassingExecutor(CodexExecutor):
+        def execute(self, request, emit_event, should_stop, set_child_pid):
+            set_child_pid(None)
+            if request.role_archetype != "gatekeeper":
+                raise AssertionError("Only GateKeeper should run in this fixture.")
+            payload = {
+                "passed": True,
+                "decision_summary": "Looks good from a quick read.",
+                "feedback_to_builder": "No code change is required.",
+                "blocking_issues": [],
+                "metrics": [],
+                "failed_check_ids": [],
+                "priority_failures": [],
+                "composite_score": 1.0,
+            }
+            request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            return payload
+
+    service = service_factory(scenario="success")
+    service.executor_factory = lambda: UnsupportedPassingExecutor()
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Unsupported Gate Loop",
+        max_iters=1,
+        workflow={"preset": "benchmark_loop"},
+    )
+
+    run = service.rerun(loop["id"])
+    run_dir = Path(run["runs_dir"])
+    gatekeeper_output = _step_outputs_by_archetype(run_dir)["gatekeeper"][-1]["output"]
+
+    assert run["status"] == "failed"
+    assert gatekeeper_output["passed"] is False
+    assert "gatekeeper_pass_requires_evidence_refs" in gatekeeper_output["blocking_issues"]
+    assert gatekeeper_output["evidence_gate_status"] == "blocked"
+
+
+def test_gatekeeper_pass_with_claims_but_no_measured_evidence_is_blocked(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    class ClaimOnlyExecutor(CodexExecutor):
+        def execute(self, request, emit_event, should_stop, set_child_pid):
+            set_child_pid(None)
+            if request.role_archetype != "gatekeeper":
+                raise AssertionError("Only GateKeeper should run in this fixture.")
+            payload = {
+                "passed": True,
+                "decision_summary": "Looks finished from the visible description.",
+                "feedback_to_builder": "No code change is required.",
+                "blocking_issues": [],
+                "metrics": [],
+                "failed_check_ids": [],
+                "priority_failures": [],
+                "composite_score": 1.0,
+                "evidence_refs": ["self"],
+                "evidence_claims": [
+                    "The task appears complete based on a prose inspection without a measured proof path."
+                ],
+            }
+            request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            return payload
+
+    service = service_factory(scenario="success")
+    service.executor_factory = lambda: ClaimOnlyExecutor()
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Claim Only Gate Loop",
+        max_iters=1,
+        workflow={"preset": "benchmark_loop"},
+    )
+
+    run = service.rerun(loop["id"])
+    run_dir = Path(run["runs_dir"])
+    gatekeeper_output = _step_outputs_by_archetype(run_dir)["gatekeeper"][-1]["output"]
+
+    assert run["status"] == "failed"
+    assert gatekeeper_output["passed"] is False
+    assert "gatekeeper_pass_requires_upstream_or_measured_evidence" in gatekeeper_output["blocking_issues"]
+    assert gatekeeper_output["evidence_refs"] == ["ev_000_00_gatekeeper_step"]
 
 
 def test_workflow_step_can_resume_its_own_previous_session_and_append_extra_cli_args(
@@ -421,6 +548,260 @@ def test_workflow_step_can_resume_its_own_previous_session_and_append_extra_cli_
     assert second_builder_request["inherit_session"] is True
     assert second_builder_request["resume_session_id"] == "builder-session-0"
     assert second_builder_request["extra_cli_args_text"] == "--verbose"
+
+
+def test_parallel_inspection_group_fans_out_then_gatekeeper_sees_all_evidence(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    class ParallelInspectionExecutor(CodexExecutor):
+        def __init__(self) -> None:
+            self.barrier = threading.Barrier(2)
+            self.timings: dict[str, dict[str, float]] = {}
+            self.lock = threading.Lock()
+
+        def execute(self, request, emit_event, should_stop, set_child_pid):
+            set_child_pid(None)
+            if request.role_archetype == "builder":
+                payload = {
+                    "attempted": "Prepared the first working slice.",
+                    "summary": "Builder produced a concrete candidate for inspection.",
+                    "changed_files": [],
+                }
+            elif request.role_archetype == "inspector":
+                with self.lock:
+                    self.timings[request.step_id] = {"start": time.perf_counter()}
+                self.barrier.wait(timeout=2)
+                time.sleep(0.1)
+                with self.lock:
+                    self.timings[request.step_id]["end"] = time.perf_counter()
+                payload = {
+                    "execution_summary": {
+                        "total_checks": 1,
+                        "passed": 1,
+                        "failed": 0,
+                        "errored": 0,
+                        "total_duration_ms": 100,
+                    },
+                    "check_results": [
+                        {
+                            "id": request.step_id,
+                            "title": f"{request.step_id} evidence",
+                            "status": "passed",
+                            "notes": "Parallel inspector collected direct evidence.",
+                        }
+                    ],
+                    "dynamic_checks": [],
+                    "tester_observations": f"{request.step_id} completed its independent inspection.",
+                }
+            else:
+                context_packet = request.extra_context["context_packet"]
+                evidence_refs = [
+                    item["id"]
+                    for item in context_packet["evidence"]["items"]
+                    if item.get("archetype") == "inspector"
+                ]
+                payload = {
+                    "passed": True,
+                    "decision_summary": "Both inspection branches passed.",
+                    "feedback_to_builder": "",
+                    "blocking_issues": [],
+                    "metrics": [],
+                    "failed_check_ids": [],
+                    "priority_failures": [],
+                    "composite_score": 1.0,
+                    "evidence_refs": evidence_refs,
+                    "evidence_claims": [],
+                }
+            request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            return payload
+
+    executor = ParallelInspectionExecutor()
+    service = service_factory(scenario="success")
+    service.executor_factory = lambda: executor
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            {"id": "accessibility", "name": "Accessibility Inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+            {"id": "contract", "name": "Contract Inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+            {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "accessibility_step", "role_id": "accessibility", "parallel_group": "inspection_pack"},
+            {"id": "contract_step", "role_id": "contract", "parallel_group": "inspection_pack"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+        ],
+    }
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Parallel Inspection Loop", workflow=workflow)
+
+    run = service.rerun(loop["id"])
+    run_dir = Path(run["runs_dir"])
+    evidence_ledger = _read_jsonl(run_dir / "evidence" / "ledger.jsonl")
+    gatekeeper_output = _step_outputs_by_archetype(run_dir)["gatekeeper"][-1]["output"]
+
+    assert run["status"] == "succeeded"
+    assert max(item["start"] for item in executor.timings.values()) < min(
+        item["end"] for item in executor.timings.values()
+    )
+    assert {entry["step_id"] for entry in evidence_ledger if entry["archetype"] == "inspector"} == {
+        "accessibility_step",
+        "contract_step",
+    }
+    assert set(gatekeeper_output["evidence_refs"]) >= {
+        "ev_000_01_accessibility_step",
+        "ev_000_02_contract_step",
+    }
+    events = service.stream_events(run["id"], limit=500)
+    assert any(event["event_type"] == "parallel_group_started" for event in events)
+    assert any(event["event_type"] == "parallel_group_finished" for event in events)
+
+
+def test_workflow_control_records_runtime_evidence_and_respects_fire_limit(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="plateau")
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            {"id": "inspector", "name": "Inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+            {"id": "guide", "name": "Guide", "archetype": "guide", "prompt_ref": "guide.md"},
+            {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "inspector_step", "role_id": "inspector"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+        ],
+        "controls": [
+            {
+                "id": "gatekeeper_rejection_guidance",
+                "when": {"signal": "gatekeeper_rejected", "after": "0s"},
+                "call": {"role_id": "guide"},
+                "mode": "repair_guidance",
+                "max_fires_per_run": 1,
+            }
+        ],
+    }
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Controlled Rejection Loop",
+        workflow=workflow,
+        max_iters=3,
+    )
+
+    run = service.rerun(loop["id"])
+    run_dir = Path(run["runs_dir"])
+    events = service.stream_events(run["id"], limit=500)
+    evidence_ledger = _read_jsonl(run_dir / "evidence" / "ledger.jsonl")
+
+    assert run["status"] == "failed"
+    assert [event["event_type"] for event in events].count("control_triggered") == 1
+    assert [event["event_type"] for event in events].count("control_completed") == 1
+    assert any(event["event_type"] == "control_skipped" for event in events)
+    control_entries = [entry for entry in evidence_ledger if entry["evidence_kind"] == "control"]
+    assert len(control_entries) == 1
+    assert control_entries[0]["source"] == "workflow_control"
+    assert "control:gatekeeper_rejected" in control_entries[0]["verifies"]
+
+
+def test_step_input_policy_filters_handoffs_and_evidence_context(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    recorded_gate_context: dict = {}
+
+    class InputPolicyExecutor(CodexExecutor):
+        def execute(self, request, emit_event, should_stop, set_child_pid):
+            set_child_pid(None)
+            if request.role_archetype == "builder":
+                payload = {
+                    "attempted": "Built a candidate.",
+                    "summary": "Builder completed the candidate.",
+                    "changed_files": [],
+                }
+            elif request.role_archetype == "inspector":
+                payload = {
+                    "execution_summary": {
+                        "total_checks": 1,
+                        "passed": 1,
+                        "failed": 0,
+                        "errored": 0,
+                        "total_duration_ms": 50,
+                    },
+                    "check_results": [
+                        {
+                            "id": request.step_id,
+                            "title": request.step_id,
+                            "status": "passed",
+                            "notes": "Filtered evidence path.",
+                        }
+                    ],
+                    "dynamic_checks": [],
+                    "tester_observations": f"{request.step_id} evidence.",
+                }
+            else:
+                context_packet = request.extra_context["context_packet"]
+                recorded_gate_context.update(context_packet)
+                evidence_refs = [item["id"] for item in context_packet["evidence"]["items"]]
+                payload = {
+                    "passed": True,
+                    "decision_summary": "Filtered context was enough.",
+                    "feedback_to_builder": "",
+                    "blocking_issues": [],
+                    "metrics": [],
+                    "failed_check_ids": [],
+                    "priority_failures": [],
+                    "composite_score": 1.0,
+                    "evidence_refs": evidence_refs,
+                    "evidence_claims": [],
+                }
+            request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            return payload
+
+    service = service_factory(scenario="success")
+    service.executor_factory = lambda: InputPolicyExecutor()
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            {"id": "ux", "name": "UX Inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+            {"id": "contract", "name": "Contract Inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+            {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "ux_step", "role_id": "ux"},
+            {"id": "contract_step", "role_id": "contract"},
+            {
+                "id": "gatekeeper_step",
+                "role_id": "gatekeeper",
+                "on_pass": "finish_run",
+                "inputs": {
+                    "handoffs_from": ["contract_step"],
+                    "evidence_query": {"archetypes": ["inspector"], "limit": 1},
+                },
+            },
+        ],
+    }
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Filtered Context Loop", workflow=workflow)
+
+    run = service.rerun(loop["id"])
+
+    assert run["status"] == "succeeded"
+    assert [
+        item["source"]["step_id"]
+        for item in recorded_gate_context["upstream"]["completed_steps_this_iteration"]
+    ] == ["contract_step"]
+    assert [item["step_id"] for item in recorded_gate_context["evidence"]["items"]] == ["contract_step"]
 
 
 def test_triage_first_workflow_runs_inspector_then_guide_then_builder(
@@ -754,7 +1135,7 @@ def test_destructive_tester_is_blocked_by_workspace_guard(
 
     assert run["status"] == "failed"
     assert "workspace safety guard" in (run["error_message"] or "")
-    assert guard["role"] == "tester"
+    assert guard["role"] == "contract_inspector"
     assert guard["deleted_original_count"] == 3
 
 
@@ -1186,7 +1567,14 @@ def test_plateau_run_records_challenger_execution_summary(
     sample_workdir: Path,
 ) -> None:
     service = service_factory(scenario="plateau")
-    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Plateau Loop")
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Plateau Loop",
+        workflow={"preset": "repair_loop"},
+        max_iters=4,
+    )
 
     run = service.rerun(loop["id"])
 

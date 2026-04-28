@@ -26,6 +26,12 @@
     </div>
   </div>
   <div class="card-actions hero-actions">
+    <form method="post" action="/runs/{{ run.id }}/revise" class="inline-form">
+      <button class="primary-button" type="submit" data-testid="run-revise-chat-button">
+        <span data-lang="zh">基于证据修订方案</span>
+        <span data-lang="en">Revise from Evidence</span>
+      </button>
+    </form>
     <a class="secondary-button" href="/loops/{{ run.loop_id }}">
       <span data-lang="zh">返回循环</span>
       <span data-lang="en">Back to loop</span>
@@ -1463,6 +1469,9 @@
     if (role?.composite_score !== null && role?.composite_score !== undefined && role?.archetype === "gatekeeper") {
       bits.push(localeText(`综合分 ${formatScore(role.composite_score)}`, `Composite ${formatScore(role.composite_score)}`));
     }
+    if (Array.isArray(role?.evidence_refs) && role.evidence_refs.length) {
+      bits.push(localeText(`证据 ${role.evidence_refs.length} 条`, `${role.evidence_refs.length} evidence ref${role.evidence_refs.length === 1 ? "" : "s"}`));
+    }
     return bits.join(" · ");
   }
 
@@ -1473,6 +1482,10 @@
     }
     if (iteration?.role_count) {
       bits.push(localeText(`${iteration.role_count} 条角色结论`, `${iteration.role_count} role conclusion${iteration.role_count === 1 ? "" : "s"}`));
+    }
+    const evidenceCount = Number(takeawaySnapshot?.evidence_count || 0);
+    if (evidenceCount > 0) {
+      bits.push(localeText(`${evidenceCount} 条证据`, `${evidenceCount} evidence item${evidenceCount === 1 ? "" : "s"}`));
     }
     if (iteration?.timestamp) {
       bits.push(formatAbsoluteDate(iteration.timestamp));
@@ -1563,8 +1576,8 @@
     setTextContentIfChanged("takeaway-log-path", takeawaySnapshot?.log_dir || "-");
     meta.textContent = latestIter
       ? localeText(
-        `最近到第 ${latestIter} 轮 · ${takeawaySnapshot.role_conclusion_count || 0} 条角色结论`,
-        `Up to iter ${latestIter} · ${takeawaySnapshot.role_conclusion_count || 0} role conclusions`
+        `最近到第 ${latestIter} 轮 · ${takeawaySnapshot.role_conclusion_count || 0} 条角色结论 · ${takeawaySnapshot.evidence_count || 0} 条证据`,
+        `Up to iter ${latestIter} · ${takeawaySnapshot.role_conclusion_count || 0} role conclusions · ${takeawaySnapshot.evidence_count || 0} evidence items`
       )
       : localeText("角色 handoff 写出来后，这里会自动更新。", "This updates as soon as the first role handoff lands.");
     if (!iterations.length) {
@@ -2016,6 +2029,29 @@
         collapsed: true,
       })];
     }
+    if (["control_triggered", "control_completed", "control_failed", "control_skipped"].includes(event.event_type)) {
+      const tone = event.event_type === "control_failed"
+        ? "error"
+        : event.event_type === "control_skipped"
+          ? "warning"
+          : event.event_type === "control_completed"
+            ? "success"
+            : "system";
+      const label = {
+        control_triggered: localeText("运行控制已触发", "Control triggered"),
+        control_completed: localeText("运行控制已完成", "Control completed"),
+        control_failed: localeText("运行控制失败", "Control failed"),
+        control_skipped: localeText("运行控制已跳过", "Control skipped"),
+      }[event.event_type];
+      return [buildConsoleEntry(event, {
+        tone,
+        channel: tone === "error" ? "error" : tone === "warning" ? "warning" : "context",
+        filterKey: tone === "error" ? "result" : "actions",
+        summary: `${label} · ${payload.signal || "-"} -> ${payload.role_id || "-"}`,
+        text: prettyConsoleJson(payload),
+        collapsed: true,
+      })];
+    }
     if (event.event_type === "iteration_summary_written") {
       return [buildConsoleEntry(event, {
         tone: payload.passed ? "success" : "system",
@@ -2298,6 +2334,18 @@
         detail: String(payload.summary || payload.step_id || ""),
       };
     }
+    if (["control_triggered", "control_completed", "control_failed", "control_skipped"].includes(event.event_type)) {
+      const titleByType = {
+        control_triggered: localeText("运行控制已触发", "Control triggered"),
+        control_completed: localeText("运行控制已完成", "Control completed"),
+        control_failed: localeText("运行控制失败", "Control failed"),
+        control_skipped: localeText("运行控制已跳过", "Control skipped"),
+      };
+      return {
+        title: titleByType[event.event_type],
+        detail: `${payload.signal || "-"} -> ${payload.role_id || "-"} · ${payload.reason || payload.skip_reason || ""}`,
+      };
+    }
     if (event.event_type === "iteration_summary_written") {
       return {
         title: localeText("轮次摘要已冻结", "Iteration summary written"),
@@ -2516,6 +2564,10 @@
       "step_context_prepared",
       "role_execution_summary",
       "step_handoff_written",
+      "control_triggered",
+      "control_completed",
+      "control_failed",
+      "control_skipped",
       "run_aborted",
       "run_finished",
     ].includes(event?.event_type);
@@ -2661,13 +2713,13 @@
     }
     eventSource.close();
   });
-  ["run_started", "checks_resolved", "role_request_prepared", "step_context_prepared", "role_execution_summary", "step_handoff_written", "iteration_summary_written", "role_degraded", "challenger_done", "stop_requested", "run_aborted", "workspace_guard_triggered"].forEach((eventName) => {
+  ["run_started", "checks_resolved", "role_request_prepared", "step_context_prepared", "role_execution_summary", "step_handoff_written", "control_triggered", "control_completed", "control_failed", "control_skipped", "iteration_summary_written", "role_degraded", "challenger_done", "stop_requested", "run_aborted", "workspace_guard_triggered"].forEach((eventName) => {
     eventSource.addEventListener(eventName, (message) => {
       handleStreamEvent(message, {
         console: true,
         timeline: true,
         refresh: true,
-        refreshTakeaways: ["checks_resolved", "role_execution_summary", "challenger_done", "run_aborted", "workspace_guard_triggered", "step_handoff_written", "iteration_summary_written"].includes(eventName),
+        refreshTakeaways: ["checks_resolved", "role_execution_summary", "challenger_done", "run_aborted", "workspace_guard_triggered", "step_handoff_written", "control_completed", "control_failed", "iteration_summary_written"].includes(eventName),
       });
     });
   });

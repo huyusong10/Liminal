@@ -7,6 +7,30 @@ from loopora.utils import read_json, utc_now, write_json
 from loopora.workflows import LEGACY_ROLE_BY_ARCHETYPE
 
 
+def _string_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _has_measured_gate_evidence(metric_scores: object, metrics: object) -> bool:
+    if isinstance(metric_scores, dict):
+        for value in metric_scores.values():
+            if not isinstance(value, dict):
+                continue
+            if isinstance(value.get("value"), (int, float)) and isinstance(value.get("threshold"), (int, float)):
+                return True
+    if isinstance(metrics, list):
+        for value in metrics:
+            if not isinstance(value, dict):
+                continue
+            if isinstance(value.get("value"), (int, float)) and isinstance(value.get("threshold"), (int, float)):
+                return True
+    return False
+
+
 class ServiceWorkflowSupportMixin:
     def _output_schema_for_archetype(self, archetype: str) -> dict:
         if archetype == "builder":
@@ -26,18 +50,46 @@ class ServiceWorkflowSupportMixin:
         *,
         compiled_spec: dict,
         inspector_output: dict | None,
+        evidence_context: dict | None = None,
+        current_evidence_id: str = "",
     ) -> dict:
         if archetype == "inspector":
             return self._enrich_tester_result(output)
         if archetype == "gatekeeper":
-            gatekeeper_output = self._coerce_gatekeeper_output(output)
+            gatekeeper_output = self._coerce_gatekeeper_output(
+                output,
+                evidence_context=evidence_context,
+                current_evidence_id=current_evidence_id,
+            )
             return self._enrich_verifier_result(gatekeeper_output, compiled_spec, inspector_output or {})
         return dict(output)
 
-    def _coerce_gatekeeper_output(self, output: dict) -> dict:
+    def _coerce_gatekeeper_output(
+        self,
+        output: dict,
+        *,
+        evidence_context: dict | None = None,
+        current_evidence_id: str = "",
+    ) -> dict:
         result = dict(output)
         feedback = str(result.get("feedback_to_builder") or result.get("feedback_to_generator") or "").strip()
-        blocking_issues = list(result.get("blocking_issues") or result.get("hard_constraint_violations") or [])
+        blocking_issues = _string_list(result.get("blocking_issues") or result.get("hard_constraint_violations"))
+        evidence_refs = _string_list(result.get("evidence_refs") or result.get("evidence_item_ids"))
+        evidence_claims = _string_list(result.get("evidence_claims") or result.get("evidence_summary"))
+        known_evidence_by_id = {
+            str(item.get("id") or "").strip(): item
+            for item in list((evidence_context or {}).get("items") or [])
+            if isinstance(item, dict) and str(item.get("id") or "").strip()
+        }
+        known_evidence_ids = {
+            str(item.get("id") or "").strip()
+            for item in list((evidence_context or {}).get("items") or [])
+            if isinstance(item, dict) and str(item.get("id") or "").strip()
+        }
+        known_evidence_ids.update(_string_list((evidence_context or {}).get("known_ids")))
+        current_evidence_id = str(current_evidence_id or "").strip()
+        if current_evidence_id:
+            evidence_refs = [current_evidence_id if item == "self" else item for item in evidence_refs]
         metric_scores = result.get("metric_scores")
         if not isinstance(metric_scores, dict):
             metric_scores = {}
@@ -69,6 +121,39 @@ class ServiceWorkflowSupportMixin:
                 for name, value in metric_scores.items()
             ]
         result["passed"] = bool(result.get("passed", False))
+        invalid_refs = [
+            item for item in evidence_refs if item != current_evidence_id and item not in known_evidence_ids
+        ]
+        concrete_claims = [item for item in evidence_claims if len(item) >= 24]
+        if result["passed"]:
+            has_measured_evidence = _has_measured_gate_evidence(metric_scores, result.get("metrics"))
+            if not evidence_refs and current_evidence_id and concrete_claims and has_measured_evidence:
+                evidence_refs = [current_evidence_id]
+            invalid_refs = [
+                item for item in evidence_refs if item != current_evidence_id and item not in known_evidence_ids
+            ]
+            supporting_refs = [
+                item
+                for item in evidence_refs
+                if item != current_evidence_id
+                and item in known_evidence_ids
+                and str(known_evidence_by_id.get(item, {}).get("archetype") or "").strip().lower() != "gatekeeper"
+            ]
+            if invalid_refs:
+                blocking_issues.append(
+                    "gatekeeper_evidence_refs_unknown: "
+                    + ", ".join(invalid_refs[:4])
+                    + ("..." if len(invalid_refs) > 4 else "")
+                )
+                result["passed"] = False
+            elif not evidence_refs:
+                blocking_issues.append("gatekeeper_pass_requires_evidence_refs")
+                result["passed"] = False
+            elif not supporting_refs and not has_measured_evidence:
+                blocking_issues.append("gatekeeper_pass_requires_upstream_or_measured_evidence")
+                result["passed"] = False
+        if not result["passed"] and float(composite_score or 0.0) >= 0.9 and blocking_issues:
+            composite_score = 0.89
         result["decision_summary"] = str(result.get("decision_summary") or "").strip() or (
             "The workflow still needs more evidence." if not result["passed"] else "All checks passed."
         )
@@ -78,6 +163,9 @@ class ServiceWorkflowSupportMixin:
         result["hard_constraint_violations"] = blocking_issues
         result["metric_scores"] = metric_scores
         result["composite_score"] = float(composite_score or 0.0)
+        result["evidence_refs"] = evidence_refs
+        result["evidence_claims"] = evidence_claims
+        result["evidence_gate_status"] = "passed" if result["passed"] else ("blocked" if blocking_issues else "not_passed")
         result.setdefault("failed_check_ids", [])
         result.setdefault("priority_failures", [])
         return result
@@ -108,6 +196,10 @@ class ServiceWorkflowSupportMixin:
                 "iter": iter_id,
                 "inherit_session": bool(step.get("inherit_session")),
                 "extra_cli_args": str(step.get("extra_cli_args") or ""),
+                "parallel_group": str(step.get("parallel_group") or ""),
+                "inputs": dict(step.get("inputs") or {}),
+                "control_id": str(step.get("control_id") or ""),
+                "control": dict(step.get("control") or {}) if isinstance(step.get("control"), dict) else {},
             },
         )
         write_json(layout.step_handoff_path(iter_id, step_order, step["id"]), handoff)
@@ -174,6 +266,7 @@ class ServiceWorkflowSupportMixin:
                     "role_name": item["role"]["name"],
                     "archetype": item["role"]["archetype"],
                     "model": item.get("resolved_model") or "",
+                    "parallel_group": str(item["step"].get("parallel_group") or ""),
                 }
                 for item in step_results
             ],
@@ -181,6 +274,10 @@ class ServiceWorkflowSupportMixin:
             "inspector": by_archetype.get("inspector", {}),
             "gatekeeper": gatekeeper_output,
             "guide": by_archetype.get("guide", {}),
+            "evidence": {
+                "gatekeeper_refs": list(gatekeeper_output.get("evidence_refs", [])),
+                "gatekeeper_status": gatekeeper_output.get("evidence_gate_status"),
+            },
             "score": {
                 "composite": gatekeeper_output.get("composite_score"),
                 "delta": round(gatekeeper_output["composite_score"] - previous_composite, 6)
@@ -274,7 +371,7 @@ class ServiceWorkflowSupportMixin:
             [
                 "",
                 "## Artifacts",
-                "- Inspect `contract/workflow.json`, `timeline/iterations.jsonl`, `timeline/events.jsonl`, and `iterations/` for full details.",
+                "- Inspect `evidence/ledger.jsonl`, `contract/workflow.json`, `timeline/iterations.jsonl`, `timeline/events.jsonl`, and `iterations/` for full details.",
             ]
         )
         return "\n".join(lines).rstrip() + "\n"

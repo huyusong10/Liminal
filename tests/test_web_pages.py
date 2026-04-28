@@ -148,6 +148,8 @@ def test_run_detail_places_takeaways_and_console_before_timeline(
     assert "Run Detail Loop" in response.text
     assert run["id"] in response.text
     assert "hero-run-detail" in response.text
+    _assert_has_testid(response.text, "run-revise-chat-button")
+    assert f'/runs/{run["id"]}/revise' in response.text
     assert response.text.index("Progress") < response.text.index("Key takeaways")
     assert response.text.index("Key takeaways") < response.text.index("Console")
     assert response.text.index("Console") < response.text.index("Timeline")
@@ -351,7 +353,8 @@ def test_run_detail_progress_stages_follow_workflow_snapshot(
     assert response.status_code == 200
     assert 'data-stage="checks"' in response.text
     assert 'data-stage="step:builder_step"' in response.text
-    assert 'data-stage="step:inspector_step"' in response.text
+    assert 'data-stage="step:regression_inspection_step"' in response.text
+    assert 'data-stage="step:contract_inspection_step"' in response.text
     assert 'data-stage="step:guide_step"' in response.text
     assert 'data-stage="step:builder_repair_step"' in response.text
     assert 'data-stage="step:gatekeeper_step"' in response.text
@@ -584,6 +587,7 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(bundle_response.text, "alignment-live-details")
     _assert_has_testid(bundle_response.text, "alignment-ready-preview")
     _assert_has_testid(bundle_response.text, "alignment-artifact-summary")
+    _assert_has_testid(bundle_response.text, "alignment-control-summary")
     _assert_has_testid(bundle_response.text, "alignment-preview-tabs")
     _assert_has_testid(bundle_response.text, "alignment-preview-tab-spec")
     _assert_has_testid(bundle_response.text, "alignment-preview-tab-roles")
@@ -739,7 +743,7 @@ def test_new_loop_page_keeps_draft_restore_enabled_for_default_equivalent_query_
     client = TestClient(build_app(service=service))
     response = client.get(
         "/loops/new/manual"
-        "?orchestration_id=builtin:build_first"
+        "?orchestration_id=builtin:build_then_parallel_review"
         "&max_iters=8"
         "&max_role_retries=2"
         "&delta_threshold=0.005"
@@ -831,7 +835,7 @@ def test_orchestrations_pages_render_as_resource_library_feature(service_factory
     _assert_has_testid(list_response.text, "builtin-orchestration-scenario")
     assert '<title>Orchestrations</title>' in list_response.text
     assert "Orchestrations" in list_response.text
-    assert 'data-open-card="/orchestrations/builtin:build_first/edit"' in list_response.text
+    assert 'data-open-card="/orchestrations/builtin:build_then_parallel_review/edit"' in list_response.text
     assert "Create loop" not in list_response.text
     assert 'class="page-stack page-stack--catalog"' in list_response.text
     _assert_has_testid(list_response.text, "orchestration-loop-diagram")
@@ -894,7 +898,7 @@ def test_orchestrations_pages_render_as_resource_library_feature(service_factory
     assert 'data-testid="workflow-role-inspector"' not in new_response.text
     assert 'data-testid="workflow-preset-input"' not in new_response.text
     assert 'data-testid="workflow-roles-list"' not in new_response.text
-    assert 'option value="build_first" selected' not in new_response.text
+    assert 'option value="build_then_parallel_review" selected' not in new_response.text
     assert "role-definitions-json" in new_response.text
     assert '<title>Save orchestration</title>' in new_response.text
     assert 'data-label-zh="空白开始"' in new_response.text
@@ -905,32 +909,32 @@ def test_orchestrations_pages_render_as_resource_library_feature(service_factory
     assert '<title>保存编排</title>' in zh_new_response.text
     assert 'data-label-zh="空白开始"' in zh_new_response.text
     assert ">空白开始</option>" in zh_new_response.text
-    assert 'data-label-zh="先构建，再验收"' in zh_new_response.text
-    assert "先构建，再验收" in zh_new_response.text
+    assert 'data-label-zh="构建后并行检视"' in zh_new_response.text
+    assert "构建后并行检视" in zh_new_response.text
     assert "空白开始 / Start blank" not in zh_new_response.text
-    assert "先构建，再验收 / Build First" not in zh_new_response.text
+    assert "构建后并行检视 / Build + Parallel Review" not in zh_new_response.text
     zh_on_pass_markup = zh_new_response.text.split('id="workflow-settings-step-on-pass"', 1)[1].split("</select>", 1)[0]
     assert ">继续后续步骤</option>" in zh_on_pass_markup
     assert ">通过后结束流程</option>" in zh_on_pass_markup
     assert ">Continue</option>" not in zh_on_pass_markup
     assert ">Finish run</option>" not in zh_on_pass_markup
 
-    builtin_edit_response = client.get("/orchestrations/builtin:build_first/edit")
+    builtin_edit_response = client.get("/orchestrations/builtin:build_then_parallel_review/edit")
     assert builtin_edit_response.status_code == 200
     assert "默认编排是固定的" in builtin_edit_response.text
     _assert_has_testid(builtin_edit_response.text, "orchestration-editor-form")
     assert 'data-readonly="true"' in builtin_edit_response.text
-    assert 'name="name" value="Build First" required readonly' in builtin_edit_response.text
+    assert 'name="name" value="Build + Parallel Review" required readonly' in builtin_edit_response.text
     assert 'id="workflow-starter-select" data-testid="workflow-starter-select" disabled' in builtin_edit_response.text
     assert 'id="save-orchestration-button"' not in builtin_edit_response.text
-    assert '/orchestrations/new?workflow_preset=build_first' in builtin_edit_response.text
+    assert '/orchestrations/new?workflow_preset=build_then_parallel_review' in builtin_edit_response.text
     _assert_has_testid(builtin_edit_response.text, "open-orchestration-spec-practice-modal-button")
     _assert_has_testid(builtin_edit_response.text, "orchestration-spec-practice-modal")
     _assert_has_testid(builtin_edit_response.text, "orchestration-spec-practice-preview-shell")
     _assert_has_testid(builtin_edit_response.text, "orchestration-spec-practice-preview")
     assert "Real scenario example" in builtin_edit_response.text
-    assert "knowledge-base product is replacing keyword-only search with hybrid search" in builtin_edit_response.text
-    assert "help-center slice ready for shadow traffic" in builtin_edit_response.text
+    assert "two independent evidence views" in builtin_edit_response.text
+    assert "Build the first inspectable result" in builtin_edit_response.text
     assert "# Task" in builtin_edit_response.text
     assert 'data-testid="orchestration-spec-practice-curated"' not in builtin_edit_response.text
     assert 'data-testid="orchestration-spec-practice-template-workbench"' not in builtin_edit_response.text
@@ -1121,10 +1125,12 @@ def test_bundles_pages_render_list_and_detail(
     _assert_has_testid(detail_response.text, "bundle-detail-form")
     _assert_has_testid(detail_response.text, "bundle-spec-preview")
     _assert_has_testid(detail_response.text, "bundle-yaml-preview")
+    _assert_has_testid(detail_response.text, "bundle-revise-chat-button")
     _assert_has_testid(detail_response.text, "bundle-import-revision-link")
     assert "Web Bundle" in detail_response.text
     assert "Prefer evidence and visible proof." in detail_response.text
     assert f'/bundles/{imported["id"]}/edit' in detail_response.text
+    assert f'/bundles/{imported["id"]}/revise' in detail_response.text
     assert f'/api/bundles/{imported["id"]}/export' in detail_response.text
     assert f'?return_to=/bundles/{imported["id"]}' in detail_response.text
     assert f'/loops/new/manual?replace_bundle_id={imported["id"]}#bundle-import-form' in detail_response.text
@@ -1255,22 +1261,25 @@ def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None
     assert "one AI Agent pass plus one human review is usually enough" in response.text
     assert "First ask: does this really need Loopora?" in response.text
     assert "which workflow matches this posture" in response.text
-    assert "Inspect First" in response.text
-    assert "Build First" in response.text
-    assert "Triage First" in response.text
+    assert "Build + Parallel Review" in response.text
+    assert "Evidence First" in response.text
+    assert "Benchmark Gate" in response.text
     assert "Repair Loop" in response.text
-    assert "Benchmark Loop" in response.text
+    assert "Build First" not in response.text
+    assert "Inspect First" not in response.text
+    assert "Triage First" not in response.text
+    assert "Benchmark Loop" not in response.text
     assert "Fast Lane" not in response.text
     assert "Quality Gate" not in response.text
     assert "Loopora decision tree" in response.text
     assert "tutorial-decision-tree-copy" not in response.text
     assert "tutorial-decision-tree-image" not in response.text
     assert "What question it answers" in response.text
-    assert "help-center slice ready for shadow traffic" in response.text
-    assert "high-value queries regress" in response.text
+    assert "two independent evidence views" in response.text
+    assert "first trustworthy evidence boundary" in response.text
     assert "full search reindexing" in response.text
-    assert 'data-open-tutorial-spec-practice="builtin:build_first"' in response.text
-    assert 'data-open-tutorial-spec-practice="builtin:inspect_first"' in response.text
+    assert 'data-open-tutorial-spec-practice="builtin:build_then_parallel_review"' in response.text
+    assert 'data-open-tutorial-spec-practice="builtin:evidence_first"' in response.text
     assert 'id="tutorial-spec-practices-json"' in response.text
     assert "/static/pages/tutorial.js?v=" in response.text
     assert "/tools" in response.text
@@ -1289,7 +1298,7 @@ def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None
     assert "你要省下的是产出，还是判断" in zh_response.text
     assert "为什么不先手工编排" in zh_response.text
     assert "对话生成循环方案" in zh_response.text
-    assert "帮助中心" in zh_response.text
+    assert "两个独立证据视角" in zh_response.text
 
 
 def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -> None:

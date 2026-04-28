@@ -73,6 +73,7 @@ def test_alignment_service_writes_validates_previews_imports_and_runs(
     assert preview["ok"] is True
     assert preview["bundle"]["loop"]["workdir"] == str(sample_workdir.resolve())
     assert preview["workflow_preview"]["roles"][0]["name"] == "Focused Builder"
+    assert preview["control_summary"]["gatekeeper"]["requires_evidence_refs"] is True
     assert "Ship the focused starter experience" in preview["spec_rendered_html"]
 
     imported = service.import_alignment_bundle(session["id"], start_immediately=True)
@@ -83,6 +84,52 @@ def test_alignment_service_writes_validates_previews_imports_and_runs(
     assert final_session["linked_bundle_id"] == imported["bundle"]["id"]
     assert final_session["linked_loop_id"] == imported["bundle"]["loop_id"]
     assert final_session["linked_run_id"] == imported["run"]["id"]
+
+
+def test_alignment_revision_session_can_start_from_existing_bundle(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a focused starter experience.",
+    )
+    ready = _confirm_alignment_agreement(service, created["id"])
+    imported = service.import_alignment_bundle(ready["id"], start_immediately=False)
+
+    revision = service.create_bundle_revision_session(imported["bundle"]["id"], start_immediately=False)
+    preview = service.get_alignment_bundle(revision["id"])
+
+    assert revision["status"] == "idle"
+    assert revision["linked_bundle_id"] == imported["bundle"]["id"]
+    assert revision["working_agreement"]["mode"] == "revision"
+    assert revision["working_agreement"]["source"]["source_type"] == "bundle"
+    assert preview["ok"] is True
+    assert preview["bundle"]["metadata"]["source_bundle_id"] == imported["bundle"]["id"]
+    assert preview["bundle"]["metadata"]["revision"] > imported["bundle"]["revision"]
+
+
+def test_alignment_revision_session_can_start_from_run_evidence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a focused starter experience.",
+    )
+    ready = _confirm_alignment_agreement(service, created["id"])
+    imported = service.import_alignment_bundle(ready["id"], start_immediately=False)
+    run = service.rerun(imported["bundle"]["loop_id"])
+
+    revision = service.create_run_revision_session(run["id"], start_immediately=False)
+
+    assert revision["status"] == "idle"
+    assert revision["linked_bundle_id"] == imported["bundle"]["id"]
+    assert revision["linked_run_id"] == run["id"]
+    assert revision["working_agreement"]["source"]["source_type"] == "run"
+    assert revision["working_agreement"]["source"]["evidence_summary"]
 
 
 def test_alignment_service_waits_for_user_question(service_factory, sample_workdir: Path) -> None:
@@ -335,6 +382,44 @@ def test_alignment_api_covers_session_events_bundle_and_import(
     assert delete_response.json()["deleted"] is True
     assert client.get(f"/api/alignments/sessions/{session_id}").status_code == 400
     assert client.get("/api/alignments/sessions").json()["sessions"] == []
+
+
+def test_alignment_api_creates_revision_sessions_from_bundle_and_run(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a focused starter experience.",
+    )
+    ready = _confirm_alignment_agreement(service, created["id"])
+    imported = service.import_alignment_bundle(ready["id"], start_immediately=False)
+    run = service.rerun(imported["bundle"]["loop_id"])
+
+    bundle_response = client.post(
+        f"/api/bundles/{imported['bundle']['id']}/revise",
+        json={"message": "Make the evidence gate stricter."},
+    )
+    assert bundle_response.status_code == 201
+    bundle_session_id = bundle_response.json()["session"]["id"]
+    bundle_session = _wait_for_status(service, bundle_session_id, "waiting_user")
+    assert bundle_response.json()["redirect_url"] == f"/loops/new/bundle?alignment_session_id={bundle_session_id}"
+    assert bundle_session["working_agreement"]["source"]["source_type"] == "bundle"
+    assert bundle_session["linked_bundle_id"] == imported["bundle"]["id"]
+
+    run_response = client.post(
+        f"/api/runs/{run['id']}/revise",
+        json={"message": "Revise from the latest run evidence."},
+    )
+    assert run_response.status_code == 201
+    run_session_id = run_response.json()["session"]["id"]
+    run_session = _wait_for_status(service, run_session_id, "waiting_user")
+    assert run_response.json()["redirect_url"] == f"/loops/new/bundle?alignment_session_id={run_session_id}"
+    assert run_session["working_agreement"]["source"]["source_type"] == "run"
+    assert run_session["working_agreement"]["source"]["evidence_summary"]
+    assert run_session["linked_run_id"] == run["id"]
 
 
 def test_alignment_service_lazily_migrates_legacy_flat_artifacts(service_factory, sample_workdir: Path) -> None:

@@ -150,6 +150,157 @@ def test_service_imports_and_exports_bundle_round_trip(service_factory, sample_w
     assert rerun["status"] == "succeeded"
 
 
+def test_bundle_round_trip_preserves_parallel_groups_and_step_inputs(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    yaml_text = _bundle_yaml(sample_workdir).replace(
+        '  - key: "gatekeeper"\n'
+        '    name: "Conservative GateKeeper"',
+        '  - key: "semantic-inspector"\n'
+        '    name: "Semantic Inspector"\n'
+        '    description: "Checks task posture and fake-done risk."\n'
+        '    archetype: "inspector"\n'
+        '    prompt_markdown: |\n'
+        '      ---\n'
+        '      version: 1\n'
+        '      archetype: inspector\n'
+        '      ---\n\n'
+        '      Inspect semantic task fit and evidence gaps.\n'
+        '    posture_notes: |\n'
+        '      Prefer task-specific fake-done evidence over generic checklist confidence.\n'
+        '  - key: "gatekeeper"\n'
+        '    name: "Conservative GateKeeper"',
+    ).replace(
+        '  roles:\n'
+        '    - id: "inspector"\n'
+        '      role_definition_key: "inspector"\n'
+        '    - id: "builder"\n'
+        '      role_definition_key: "builder"\n'
+        '    - id: "gatekeeper"\n'
+        '      role_definition_key: "gatekeeper"\n'
+        '  steps:\n'
+        '    - id: "inspector_step"\n'
+        '      role_id: "inspector"\n'
+        '    - id: "builder_step"\n'
+        '      role_id: "builder"\n'
+        '    - id: "gatekeeper_step"\n'
+        '      role_id: "gatekeeper"\n'
+        '      on_pass: "finish_run"',
+        '  roles:\n'
+        '    - id: "builder"\n'
+        '      role_definition_key: "builder"\n'
+        '    - id: "inspector"\n'
+        '      role_definition_key: "inspector"\n'
+        '    - id: "semantic"\n'
+        '      role_definition_key: "semantic-inspector"\n'
+        '    - id: "gatekeeper"\n'
+        '      role_definition_key: "gatekeeper"\n'
+        '  steps:\n'
+        '    - id: "builder_step"\n'
+        '      role_id: "builder"\n'
+        '    - id: "inspector_step"\n'
+        '      role_id: "inspector"\n'
+        '      parallel_group: "inspection_pack"\n'
+        '      inputs:\n'
+        '        handoffs_from: ["builder_step"]\n'
+        '        evidence_query:\n'
+        '          archetypes: ["builder"]\n'
+        '          limit: 8\n'
+        '    - id: "semantic_step"\n'
+        '      role_id: "semantic"\n'
+        '      parallel_group: "inspection_pack"\n'
+        '    - id: "gatekeeper_step"\n'
+        '      role_id: "gatekeeper"\n'
+        '      on_pass: "finish_run"\n'
+        '      inputs:\n'
+        '        handoffs_from: ["inspector_step", "semantic_step"]',
+    )
+
+    imported = service.import_bundle_text(yaml_text)
+    exported = service.export_bundle(imported["id"])
+    steps = exported["workflow"]["steps"]
+
+    assert steps[1]["parallel_group"] == "inspection_pack"
+    assert steps[1]["inputs"]["handoffs_from"] == ["builder_step"]
+    assert steps[1]["inputs"]["evidence_query"] == {"archetypes": ["builder"], "limit": 8}
+    assert steps[2]["parallel_group"] == "inspection_pack"
+    assert steps[3]["inputs"] == {"handoffs_from": ["inspector_step", "semantic_step"]}
+
+
+def test_bundle_round_trip_preserves_workflow_controls(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    yaml_text = _bundle_yaml(sample_workdir).replace(
+        '      on_pass: "finish_run"\n',
+        '      on_pass: "finish_run"\n'
+        "  controls:\n"
+        '    - id: "gatekeeper_rejection_review"\n'
+        "      when:\n"
+        '        signal: "gatekeeper_rejected"\n'
+        '        after: "0s"\n'
+        "      call:\n"
+        '        role_id: "inspector"\n'
+        '      mode: "advisory"\n'
+        "      max_fires_per_run: 1\n",
+    )
+
+    imported = service.import_bundle_text(yaml_text)
+    exported = service.export_bundle(imported["id"])
+
+    assert exported["workflow"]["controls"] == [
+        {
+            "id": "gatekeeper_rejection_review",
+            "when": {"signal": "gatekeeper_rejected", "after": "0s"},
+            "call": {"role_id": "inspector"},
+            "mode": "advisory",
+            "max_fires_per_run": 1,
+        }
+    ]
+
+
+def test_bundle_rejects_controls_that_call_builders(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    yaml_text = _bundle_yaml(sample_workdir).replace(
+        '      on_pass: "finish_run"\n',
+        '      on_pass: "finish_run"\n'
+        "  controls:\n"
+        '    - id: "implicit_repair"\n'
+        "      when:\n"
+        '        signal: "step_failed"\n'
+        '        after: "0s"\n'
+        "      call:\n"
+        '        role_id: "builder"\n',
+    )
+
+    with pytest.raises(LooporaError, match="controls may only call Inspector, Guide, or GateKeeper"):
+        service.preview_bundle_text(yaml_text)
+
+
+def test_bundle_preview_projects_error_control_summary(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+
+    yaml_text = _bundle_yaml(sample_workdir).replace(
+        '      on_pass: "finish_run"\n',
+        '      on_pass: "finish_run"\n'
+        "  controls:\n"
+        '    - id: "gatekeeper_rejection_review"\n'
+        "      when:\n"
+        '        signal: "gatekeeper_rejected"\n'
+        '        after: "0s"\n'
+        "      call:\n"
+        '        role_id: "inspector"\n'
+        '      mode: "advisory"\n',
+    )
+    preview = service.preview_bundle_text(yaml_text)
+
+    summary = preview["control_summary"]
+    assert summary["risks"]
+    assert summary["evidence"]
+    assert summary["gatekeeper"]["enabled"] is True
+    assert summary["gatekeeper"]["requires_evidence_refs"] is True
+    assert summary["workflow"]["step_count"] == 3
+    assert summary["controls"][0]["signal"] == "gatekeeper_rejected"
+    assert summary["controls"][0]["role_name"] == "Evidence Inspector"
+
+
 def test_bundle_preview_rejects_spec_markdown_that_cannot_compile(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     invalid_yaml = _bundle_yaml(sample_workdir).replace("## Builder Notes", "Builder notes without a subheading")
@@ -550,6 +701,35 @@ def test_derive_bundle_uses_saved_loop_spec_snapshot(
     derived = service.derive_bundle_from_loop(loop["id"], name="Derived From Saved Snapshot")
 
     assert derived["spec"]["markdown"] == sample_spec_text.strip()
+
+
+def test_derive_bundle_keeps_role_definition_keys_consistent(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Parallel Review Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        orchestration_id="builtin:build_then_parallel_review",
+    )
+
+    derived = service.derive_bundle_from_loop(loop["id"], name="Derived Parallel Review")
+
+    role_definition_keys = {role["key"] for role in derived["role_definitions"]}
+    workflow_keys = {role["role_definition_key"] for role in derived["workflow"]["roles"]}
+    assert workflow_keys <= role_definition_keys
+    assert "contract-inspector" in role_definition_keys
+    assert "evidence-inspector" in role_definition_keys
 
 
 def test_derive_bundle_uses_saved_loop_workflow_and_prompt_snapshot(

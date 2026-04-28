@@ -6,6 +6,7 @@ from pathlib import Path
 from loopora.specs import resolve_role_note
 
 from loopora.run_artifacts import RunArtifactLayout, artifact_ref
+from loopora.utils import utc_now
 
 ARTIFACT_REF_SCHEMA = {
     "type": "object",
@@ -28,6 +29,7 @@ STEP_HANDOFF_SCHEMA = {
         "summary",
         "blocking_items",
         "recommended_next_action",
+        "evidence_refs",
         "artifact_refs",
     ],
     "properties": {
@@ -49,6 +51,52 @@ STEP_HANDOFF_SCHEMA = {
         "summary": {"type": "string"},
         "blocking_items": {"type": "array", "items": {"type": "string"}},
         "recommended_next_action": {"type": "string"},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}},
+        "artifact_refs": {"type": "array", "items": ARTIFACT_REF_SCHEMA},
+    },
+    "additionalProperties": False,
+}
+
+EVIDENCE_ITEM_SCHEMA = {
+    "type": "object",
+    "required": [
+        "id",
+        "timestamp",
+        "iter",
+        "step_id",
+        "step_order",
+        "role_id",
+        "role_name",
+        "runtime_role",
+        "archetype",
+        "evidence_kind",
+        "source",
+        "method",
+        "claim",
+        "result",
+        "verifies",
+        "related_evidence_ids",
+        "residual_risk",
+        "artifact_refs",
+    ],
+    "properties": {
+        "id": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "iter": {"type": "integer"},
+        "step_id": {"type": "string"},
+        "step_order": {"type": "integer"},
+        "role_id": {"type": "string"},
+        "role_name": {"type": "string"},
+        "runtime_role": {"type": "string"},
+        "archetype": {"type": "string"},
+        "evidence_kind": {"type": "string"},
+        "source": {"type": "string"},
+        "method": {"type": "string"},
+        "claim": {"type": "string"},
+        "result": {"type": "string"},
+        "verifies": {"type": "array", "items": {"type": "string"}},
+        "related_evidence_ids": {"type": "array", "items": {"type": "string"}},
+        "residual_risk": {"type": "string"},
         "artifact_refs": {"type": "array", "items": ARTIFACT_REF_SCHEMA},
     },
     "additionalProperties": False,
@@ -56,7 +104,7 @@ STEP_HANDOFF_SCHEMA = {
 
 STEP_CONTEXT_PACKET_SCHEMA = {
     "type": "object",
-    "required": ["contract", "iteration", "current_step", "upstream", "artifacts"],
+    "required": ["contract", "iteration", "current_step", "upstream", "evidence", "artifacts"],
     "properties": {
         "contract": {
             "type": "object",
@@ -119,6 +167,9 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "model",
                 "executor_kind",
                 "executor_mode",
+                "parallel_group",
+                "inputs",
+                "control",
             ],
             "properties": {
                 "step_id": {"type": "string"},
@@ -129,6 +180,9 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "model": {"type": "string"},
                 "executor_kind": {"type": "string"},
                 "executor_mode": {"type": "string"},
+                "parallel_group": {"type": "string"},
+                "inputs": {"type": "object"},
+                "control": {"type": "object"},
             },
             "additionalProperties": False,
         },
@@ -150,6 +204,16 @@ STEP_CONTEXT_PACKET_SCHEMA = {
             },
             "additionalProperties": False,
         },
+        "evidence": {
+            "type": "object",
+            "required": ["ledger_path", "items", "known_ids"],
+            "properties": {
+                "ledger_path": {"type": "string"},
+                "items": {"type": "array", "items": EVIDENCE_ITEM_SCHEMA},
+                "known_ids": {"type": "array", "items": {"type": "string"}},
+            },
+            "additionalProperties": False,
+        },
         "artifacts": {"type": "array", "items": ARTIFACT_REF_SCHEMA},
     },
     "additionalProperties": False,
@@ -166,7 +230,16 @@ ITERATION_SUMMARY_SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "required": ["step_id", "role_id", "role_name", "runtime_role", "archetype", "model", "status"],
+                "required": [
+                    "step_id",
+                    "role_id",
+                    "role_name",
+                    "runtime_role",
+                    "archetype",
+                    "model",
+                    "status",
+                    "parallel_group",
+                ],
                 "properties": {
                     "step_id": {"type": "string"},
                     "role_id": {"type": "string"},
@@ -175,6 +248,7 @@ ITERATION_SUMMARY_SCHEMA = {
                     "archetype": {"type": "string"},
                     "model": {"type": "string"},
                     "status": {"type": "string"},
+                    "parallel_group": {"type": "string"},
                 },
                 "additionalProperties": False,
             },
@@ -284,9 +358,15 @@ def build_run_contract_snapshot(
                     "id": str(step.get("id") or ""),
                     "role_id": str(step.get("role_id") or ""),
                     "on_pass": str(step.get("on_pass") or ""),
+                    "model": str(step.get("model") or ""),
+                    "inherit_session": bool(step.get("inherit_session")),
+                    "extra_cli_args": str(step.get("extra_cli_args") or ""),
+                    "parallel_group": str(step.get("parallel_group") or ""),
+                    "inputs": dict(step.get("inputs") or {}),
                 }
                 for step in workflow.get("steps", [])
             ],
+            "controls": list(workflow.get("controls") or []),
         },
         "prompt_refs": sorted(prompt_files.keys()),
         "workspace_baseline": {
@@ -313,6 +393,7 @@ def build_run_contract_snapshot(
                 label="timeline-iterations",
             ),
             "timeline_metrics": artifact_ref(layout, layout.timeline_metrics_path, kind="timeline", label="timeline-metrics"),
+            "evidence_ledger": artifact_ref(layout, layout.evidence_ledger_path, kind="evidence", label="evidence-ledger"),
         },
     }
 
@@ -333,6 +414,8 @@ def build_step_context_packet(
     previous_iteration_summary: dict | None,
     previous_composite: float | None,
     stagnation_mode: str,
+    evidence_items: list[dict] | None = None,
+    evidence_known_ids: list[str] | None = None,
 ) -> dict:
     compiled_spec = run_contract.get("compiled_spec") or {}
     workflow_snapshot = run_contract.get("workflow") or {}
@@ -367,6 +450,9 @@ def build_step_context_packet(
             "model": str(execution_settings.get("model") or ""),
             "executor_kind": str(execution_settings.get("executor_kind") or ""),
             "executor_mode": str(execution_settings.get("executor_mode") or ""),
+            "parallel_group": str(step.get("parallel_group") or ""),
+            "inputs": dict(step.get("inputs") or {}),
+            "control": dict(step.get("control") or {}) if isinstance(step.get("control"), dict) else {},
         },
         "upstream": {
             "immediate_previous_step": immediate_previous_step,
@@ -375,6 +461,11 @@ def build_step_context_packet(
             "previous_iteration_same_role": previous_iteration_same_role,
             "previous_iteration_summary": previous_iteration_summary,
         },
+        "evidence": {
+            "ledger_path": layout.relative(layout.evidence_ledger_path),
+            "items": list(evidence_items or []),
+            "known_ids": list(evidence_known_ids or []),
+        },
         "artifacts": [
             artifact_ref(layout, layout.run_contract_path, kind="contract", label="run-contract"),
             artifact_ref(layout, layout.latest_state_path, kind="state", label="latest-state"),
@@ -382,6 +473,7 @@ def build_step_context_packet(
             artifact_ref(layout, layout.timeline_events_path, kind="timeline", label="timeline-events"),
             artifact_ref(layout, layout.timeline_iterations_path, kind="timeline", label="timeline-iterations"),
             artifact_ref(layout, layout.timeline_metrics_path, kind="timeline", label="timeline-metrics"),
+            artifact_ref(layout, layout.evidence_ledger_path, kind="evidence", label="evidence-ledger"),
         ],
     }
 
@@ -459,6 +551,7 @@ def build_step_handoff(
         "summary": summary,
         "blocking_items": blocking_items,
         "recommended_next_action": recommended_next_action,
+        "evidence_refs": [],
         "artifact_refs": [
             artifact_ref(layout, layout.step_output_raw_path(iter_id, step_order, step["id"]), kind="step", label="output-raw"),
             artifact_ref(
@@ -470,6 +563,127 @@ def build_step_handoff(
             artifact_ref(layout, layout.step_metadata_path(iter_id, step_order, step["id"]), kind="step", label="metadata"),
         ],
     }
+
+
+def evidence_entry_id(iter_id: int, step_order: int, step_id: str) -> str:
+    cleaned_step = "".join(ch if ch.isalnum() or ch in {"_", "-"} else "_" for ch in str(step_id))
+    return f"ev_{int(iter_id):03d}_{int(step_order):02d}_{cleaned_step}"
+
+
+def build_step_evidence_entry(
+    *,
+    layout: RunArtifactLayout,
+    iter_id: int,
+    step: dict,
+    step_order: int,
+    role: dict,
+    runtime_role: str,
+    output: dict,
+    handoff: dict,
+) -> dict:
+    archetype = str(role["archetype"])
+    verifies = _evidence_verifies(archetype, output)
+    related_evidence_ids = _string_list(output.get("evidence_refs"))
+    if evidence_entry_id(iter_id, step_order, step["id"]) in related_evidence_ids:
+        related_evidence_ids = [
+            item for item in related_evidence_ids if item != evidence_entry_id(iter_id, step_order, step["id"])
+        ]
+    evidence_claims = _string_list(output.get("evidence_claims"))
+    claim = _clean_text(output.get("decision_summary") if archetype == "gatekeeper" else handoff.get("summary"))
+    if evidence_claims:
+        claim = " ".join([claim, "Evidence:", "; ".join(evidence_claims[:4])]).strip()
+    residual_risk = _evidence_residual_risk(archetype, output, handoff)
+    control = step.get("control") if isinstance(step.get("control"), dict) else {}
+    is_control = bool(step.get("control_id") or control)
+    if is_control:
+        signal = str(control.get("signal") or "").strip()
+        reason = _clean_text(control.get("reason")) or f"Workflow control `{signal or 'control'}` ran."
+        trigger_refs = _string_list(control.get("trigger_evidence_refs"))
+        related_evidence_ids = list(dict.fromkeys([*trigger_refs, *related_evidence_ids]))[:20]
+        claim = f"{reason} {claim}".strip()
+        verifies = list(dict.fromkeys([f"control:{signal}", *verifies]))[:20]
+    return {
+        "id": evidence_entry_id(iter_id, step_order, step["id"]),
+        "timestamp": utc_now(),
+        "iter": int(iter_id),
+        "step_id": str(step["id"]),
+        "step_order": int(step_order),
+        "role_id": str(role["id"]),
+        "role_name": str(role["name"]),
+        "runtime_role": str(runtime_role),
+        "archetype": archetype,
+        "evidence_kind": "control" if is_control else _evidence_kind(archetype),
+        "source": "workflow_control" if is_control else _evidence_source(archetype),
+        "method": f"workflow_control:{control.get('signal', '')}" if is_control else _evidence_method(archetype),
+        "claim": claim or "This step produced a workflow handoff.",
+        "result": _clean_text(handoff.get("status")) or "completed",
+        "verifies": verifies,
+        "related_evidence_ids": related_evidence_ids,
+        "residual_risk": residual_risk,
+        "artifact_refs": list(handoff.get("artifact_refs") or []),
+    }
+
+
+def _evidence_method(archetype: str) -> str:
+    return {
+        "builder": "implementation_handoff",
+        "inspector": "inspection",
+        "gatekeeper": "gatekeeper_verdict",
+        "guide": "stagnation_guidance",
+        "custom": "supporting_observation",
+    }.get(archetype, "workflow_handoff")
+
+
+def _evidence_kind(archetype: str) -> str:
+    return {
+        "builder": "handoff",
+        "inspector": "inspection",
+        "gatekeeper": "verdict",
+        "guide": "advisory",
+        "custom": "observation",
+    }.get(archetype, "observation")
+
+
+def _evidence_source(archetype: str) -> str:
+    return {
+        "builder": "workspace_change",
+        "inspector": "check_execution",
+        "gatekeeper": "verdict",
+        "guide": "stagnation_analysis",
+        "custom": "supporting_role",
+    }.get(archetype, "role_output")
+
+
+def _evidence_verifies(archetype: str, output: dict) -> list[str]:
+    refs: list[str] = []
+    if archetype == "inspector":
+        for bucket_name in ("check_results", "dynamic_checks"):
+            for item in output.get(bucket_name, []) or []:
+                if not isinstance(item, dict):
+                    continue
+                item_id = str(item.get("id") or item.get("title") or "").strip()
+                status = str(item.get("status") or "").strip()
+                if item_id:
+                    refs.append(f"{bucket_name}:{item_id}:{status or 'unknown'}")
+    elif archetype == "gatekeeper":
+        refs.extend(f"check:{item}" for item in _string_list(output.get("failed_check_ids")))
+        refs.extend(f"evidence:{item}" for item in _string_list(output.get("evidence_refs")))
+    else:
+        refs.extend(_string_list(output.get("changed_files")))
+        refs.extend(_string_list(output.get("observations")))
+    return refs[:20]
+
+
+def _evidence_residual_risk(archetype: str, output: dict, handoff: dict) -> str:
+    risks: list[str] = []
+    risks.extend(_string_list(output.get("residual_risks")))
+    risks.extend(_string_list(output.get("hard_constraint_violations")))
+    risks.extend(_string_list(output.get("blocking_issues")))
+    if not risks:
+        risks.extend(_string_list(handoff.get("blocking_items")))
+    if archetype == "gatekeeper" and not risks and output.get("passed") is True:
+        return "No blocking residual risk was reported by GateKeeper."
+    return "; ".join(risks[:6])
 
 
 def build_iteration_summary(
@@ -526,6 +740,7 @@ def build_iteration_summary(
                 "archetype": str(item["role"]["archetype"]),
                 "model": str(item.get("resolved_model") or ""),
                 "status": str(item["handoff"]["status"]),
+                "parallel_group": str(item["step"].get("parallel_group") or ""),
             }
             for item in step_results
         ],
@@ -619,6 +834,7 @@ def render_step_prompt(
             empty_text="This role has no previous-iteration handoff yet.",
         ),
         render_previous_iteration_summary(packet["upstream"]["previous_iteration_summary"]),
+        render_evidence_section(packet.get("evidence") or {}),
         render_artifact_refs(packet["artifacts"]),
         f"Prompt template: {prompt_label}",
     ]
@@ -671,7 +887,9 @@ def output_contract_prompt(archetype: str) -> str:
     if archetype == "gatekeeper":
         return (
             "Output contract: return JSON with passed, decision_summary, feedback_to_builder, blocking_issues, "
-            "metrics, failed_check_ids, priority_failures, and composite_score."
+            "metrics, failed_check_ids, priority_failures, composite_score, evidence_refs, and evidence_claims. "
+            "A pass must cite upstream evidence_refs from the Evidence ledger. If this is the first gate in the workflow, "
+            "claims alone are not enough; provide concrete metric_scores tied to the evidence you inspected."
         )
     if archetype == "custom":
         return (
@@ -732,6 +950,14 @@ def render_iteration_section(packet: dict) -> str:
             f"This is iteration {iter_display}. Reference the previous iteration result before continuing. "
             f"Previous composite score: {iteration['previous_composite']}."
         )
+    control = current_step.get("control") if isinstance(current_step.get("control"), dict) else {}
+    control_lines = ""
+    if control:
+        control_lines = (
+            f"- Control trigger: {control.get('signal') or 'unknown'}\n"
+            f"- Control mode: {control.get('mode') or 'advisory'}\n"
+            f"- Control reason: {control.get('reason') or 'runtime control check'}\n"
+        )
     return (
         "Current execution frame:\n"
         f"- Iteration: {iter_display}\n"
@@ -740,6 +966,9 @@ def render_iteration_section(packet: dict) -> str:
         f"- Role: {current_step['role_name']} ({current_step['archetype']})\n"
         f"- Model: {current_step['model'] or 'default'}\n"
         f"- Executor: {current_step['executor_kind']} / {current_step['executor_mode']}\n"
+        f"- Parallel group: {current_step.get('parallel_group') or 'none'}\n"
+        f"- Input policy: {json.dumps(current_step.get('inputs') or {}, ensure_ascii=False)}\n"
+        f"{control_lines}"
         f"- Stagnation mode: {iteration['stagnation_mode']}\n\n"
         f"{previous_line}"
     )
@@ -756,6 +985,7 @@ def render_handoff_section(title: str, handoff: dict | None, *, empty_text: str)
         f"- Status: {handoff['status']}\n"
         f"- Summary: {handoff['summary']}\n"
         f"- Blocking items: {json.dumps(handoff['blocking_items'], ensure_ascii=False)}\n"
+        f"- Evidence refs: {json.dumps(handoff.get('evidence_refs', []), ensure_ascii=False)}\n"
         f"- Recommended next action: {handoff['recommended_next_action']}"
     )
 
@@ -768,6 +998,7 @@ def render_handoff_list_section(title: str, handoffs: list[dict], *, empty_text:
         source = handoff["source"]
         lines.append(
             f"- {source['step_order'] + 1}. {source['role_name']} ({source['archetype']}) :: {handoff['status']} :: {handoff['summary']}"
+            f" :: evidence={json.dumps(handoff.get('evidence_refs', []), ensure_ascii=False)}"
         )
     return "\n".join(lines)
 
@@ -790,8 +1021,34 @@ def render_previous_iteration_summary(summary: dict | None) -> str:
             f"- Previous step {source.get('step_order', 0) + 1} :: {source.get('role_name', '-')}"
             f" :: {handoff.get('status', '-')}"
             f" :: {handoff.get('summary', '-')}"
+            f" :: evidence={json.dumps(handoff.get('evidence_refs', []), ensure_ascii=False)}"
             f" :: next={handoff.get('recommended_next_action', '-')}"
         )
+    return "\n".join(lines)
+
+
+def render_evidence_section(evidence: dict) -> str:
+    items = list(evidence.get("items") or [])
+    ledger_path = str(evidence.get("ledger_path") or "").strip()
+    lines = ["Evidence ledger:"]
+    if ledger_path:
+        lines.append(f"- Path: {ledger_path}")
+    known_ids = [str(item).strip() for item in list(evidence.get("known_ids") or []) if str(item).strip()]
+    if known_ids:
+        lines.append(f"- Known ids: {json.dumps(known_ids[-40:], ensure_ascii=False)}")
+    if not items:
+        lines.append("- No evidence items have been written yet.")
+        return "\n".join(lines)
+    for item in items[-12:]:
+        if not isinstance(item, dict):
+            continue
+        lines.append(
+            f"- {item.get('id', '-')}: {item.get('role_name', '-')} ({item.get('archetype', '-')}) "
+            f"::{item.get('result', '-')} :: {item.get('claim', '-')}"
+        )
+        related = item.get("related_evidence_ids") if isinstance(item.get("related_evidence_ids"), list) else []
+        if related:
+            lines.append(f"  related={json.dumps(related, ensure_ascii=False)}")
     return "\n".join(lines)
 
 

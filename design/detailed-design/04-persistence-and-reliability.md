@@ -1,6 +1,6 @@
 # Persistence and Reliability
 
-> 最高原则：遵循 `../core-ideas/product-principle.md`。持久化与可靠性设计必须保护长期任务的事实源、证据链和方案修订历史，而不是只保存临时运行状态。
+> 最高原则：遵循 `../core-ideas/product-principle.md`。持久化与可靠性设计必须保护长期任务的事实源、证据链和 harness 修订历史，而不是只保存临时运行状态。
 
 ## 1. 模块职责
 
@@ -64,6 +64,7 @@ run 目录使用统一 canonical layout：
 - `timeline/iterations.jsonl`
 - `timeline/metrics.jsonl`
 - `timeline/stagnation.json`
+- `evidence/ledger.jsonl`
 - `iterations/iter_XXX/summary.json`
 - `iterations/iter_XXX/steps/NN__<step_id>/{metadata,input.context,prompt,output.raw,output.normalized,handoff}.json|md`
 

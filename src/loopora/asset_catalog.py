@@ -184,8 +184,7 @@ class WorkflowAssetCatalog:
                 continue
 
             definition = self.get_role_definition(role_definition_id)
-            snapshot_fields = ("name", "archetype", "prompt_ref", *ROLE_EXECUTION_FIELDS)
-            snapshot_fields = (*snapshot_fields, *ROLE_POSTURE_FIELDS)
+            snapshot_fields = ("archetype", "prompt_ref", *ROLE_EXECUTION_FIELDS)
             role_label = str(role.get("id", "")).strip() or role_definition_id
             for field in snapshot_fields:
                 if field in role:
@@ -195,6 +194,11 @@ class WorkflowAssetCatalog:
                         raise WorkflowError(
                             f"workflow role {role_label} conflicts with role_definition_id {role_definition_id} on {field}"
                         )
+                if field not in role:
+                    role[field] = definition.get(field, "")
+            if "name" not in role:
+                role["name"] = definition.get("name", "")
+            for field in ROLE_POSTURE_FIELDS:
                 if field not in role:
                     role[field] = definition.get(field, "")
 

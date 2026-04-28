@@ -459,6 +459,189 @@ class ServiceAlignmentMixin:
             "redirect_url": redirect_url,
         }
 
+    def create_bundle_revision_session(
+        self,
+        bundle_id: str,
+        *,
+        message: str = "",
+        start_immediately: bool = True,
+        executor_kind: str = "codex",
+        executor_mode: str = "preset",
+        command_cli: str = "",
+        command_args_text: str = "",
+        model: str = "",
+        reasoning_effort: str = "",
+    ) -> dict:
+        source_bundle = self.export_bundle(bundle_id)
+        seed_bundle = self._revision_seed_bundle(source_bundle, source_bundle_id=bundle_id)
+        return self._create_revision_alignment_session(
+            seed_bundle,
+            message=message
+            or "请先阅读这份已有循环方案，帮我用对话修订成下一版。先指出你需要确认的最小问题，不要直接生成。",
+            start_immediately=start_immediately,
+            source_context={
+                "mode": "revision",
+                "source_type": "bundle",
+                "source_bundle_id": bundle_id,
+                "source_run_id": "",
+                "reason": "adapt_or_improve_existing_bundle",
+                "evidence_summary": [],
+                "gatekeeper_verdict": {},
+            },
+            linked_bundle_id=bundle_id,
+            linked_run_id="",
+            executor_kind=executor_kind,
+            executor_mode=executor_mode,
+            command_cli=command_cli,
+            command_args_text=command_args_text,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+
+    def create_run_revision_session(
+        self,
+        run_id: str,
+        *,
+        message: str = "",
+        start_immediately: bool = True,
+        executor_kind: str = "codex",
+        executor_mode: str = "preset",
+        command_cli: str = "",
+        command_args_text: str = "",
+        model: str = "",
+        reasoning_effort: str = "",
+    ) -> dict:
+        run = self.get_run(run_id)
+        loop = self.get_loop(run["loop_id"])
+        source_bundle_id = str((loop.get("bundle") or {}).get("id") or "").strip()
+        if source_bundle_id:
+            source_bundle = self.export_bundle(source_bundle_id)
+        else:
+            source_bundle = self.derive_bundle_from_loop(
+                run["loop_id"],
+                name=str(loop.get("name") or "Run revision base"),
+                description="Derived as the revision base for a run without an imported bundle.",
+                collaboration_summary="Revision base derived from the current loop.",
+            )
+        seed_bundle = self._revision_seed_bundle(source_bundle, source_bundle_id=source_bundle_id)
+        return self._create_revision_alignment_session(
+            seed_bundle,
+            message=message
+            or "请基于这次 run 的 evidence 和 GateKeeper verdict 修订循环方案。先说明最可能要改的治理点，再问我最小必要问题。",
+            start_immediately=start_immediately,
+            source_context={
+                "mode": "revision",
+                "source_type": "run",
+                "source_bundle_id": source_bundle_id,
+                "source_run_id": run_id,
+                "reason": "revise_from_run_evidence",
+                "evidence_summary": self._alignment_run_evidence_summary(run),
+                "gatekeeper_verdict": run.get("last_verdict") or {},
+            },
+            linked_bundle_id=source_bundle_id,
+            linked_run_id=run_id,
+            executor_kind=executor_kind,
+            executor_mode=executor_mode,
+            command_cli=command_cli,
+            command_args_text=command_args_text,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+
+    def _create_revision_alignment_session(
+        self,
+        seed_bundle: dict,
+        *,
+        message: str,
+        start_immediately: bool,
+        source_context: dict,
+        linked_bundle_id: str,
+        linked_run_id: str,
+        executor_kind: str,
+        executor_mode: str,
+        command_cli: str,
+        command_args_text: str,
+        model: str,
+        reasoning_effort: str,
+    ) -> dict:
+        workdir = Path(seed_bundle["loop"]["workdir"])
+        session = self.create_alignment_session(
+            workdir=workdir,
+            message=message,
+            executor_kind=executor_kind,
+            executor_mode=executor_mode,
+            command_cli=command_cli,
+            command_args_text=command_args_text,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            start_immediately=False,
+        )
+        bundle_path = Path(session["bundle_path"])
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(bundle_to_yaml(seed_bundle), encoding="utf-8")
+        working_agreement = {
+            "mode": "revision",
+            "source": source_context,
+            "seed_bundle_metadata": seed_bundle.get("metadata", {}),
+        }
+        self.repository.update_alignment_session(
+            session["id"],
+            working_agreement=working_agreement,
+            linked_bundle_id=linked_bundle_id,
+            linked_run_id=linked_run_id,
+        )
+        self.repository.append_alignment_event(
+            session["id"],
+            "alignment_revision_seeded",
+            {
+                "source_type": source_context.get("source_type", ""),
+                "source_bundle_id": linked_bundle_id,
+                "source_run_id": linked_run_id,
+                "bundle_path": str(bundle_path),
+            },
+        )
+        self._write_alignment_transcript_log(self.get_alignment_session(session["id"]))
+        if start_immediately:
+            self.start_alignment_session_async(session["id"])
+        return self.get_alignment_session(session["id"])
+
+    @staticmethod
+    def _revision_seed_bundle(source_bundle: dict, *, source_bundle_id: str) -> dict:
+        seed = json.loads(json.dumps(source_bundle, ensure_ascii=False))
+        metadata = dict(seed.get("metadata") or {})
+        metadata["bundle_id"] = ""
+        if source_bundle_id:
+            metadata["source_bundle_id"] = source_bundle_id
+        metadata["revision"] = int(metadata.get("revision", 1) or 1) + 1
+        seed["metadata"] = metadata
+        return seed
+
+    def _alignment_run_evidence_summary(self, run: dict, *, limit: int = 8) -> list[dict]:
+        layout = self._run_artifact_layout(Path(run["runs_dir"]))
+        if not layout.evidence_ledger_path.exists():
+            return []
+        items: list[dict] = []
+        for line in layout.evidence_ledger_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            items.append(
+                {
+                    "id": str(item.get("id") or ""),
+                    "kind": str(item.get("evidence_kind") or ""),
+                    "archetype": str(item.get("archetype") or ""),
+                    "step_id": str(item.get("step_id") or ""),
+                    "claim": str(item.get("claim") or "")[:500],
+                    "result": str(item.get("result") or ""),
+                    "residual_risk": str(item.get("residual_risk") or "")[:300],
+                    "verifies": list(item.get("verifies") or [])[:8],
+                }
+            )
+        return items[-limit:]
+
     def _execute_alignment_session(self, session_id: str) -> None:
         key = self._alignment_thread_key(session_id)
         mode = "normal"
@@ -737,6 +920,10 @@ class ServiceAlignmentMixin:
                 "confirmed_at": "",
                 "confirmation_message": "",
             }
+            working_agreement = self._merge_alignment_revision_context(
+                session.get("working_agreement"),
+                working_agreement,
+            )
             updated = self.repository.update_alignment_session(
                 session_id,
                 alignment_stage="agreement_ready",
@@ -822,10 +1009,26 @@ class ServiceAlignmentMixin:
             agreement["confirmation_message"] = ""
             return {"alignment_stage": "clarifying", "working_agreement": agreement}
         if status in {"ready", "imported", "running_loop"}:
-            return {"alignment_stage": "clarifying", "working_agreement": {}}
+            return {
+                "alignment_stage": "clarifying",
+                "working_agreement": ServiceAlignmentMixin._merge_alignment_revision_context(
+                    session.get("working_agreement"),
+                    {},
+                ),
+            }
         if status == "failed" and stage not in ALIGNMENT_CONFIRMED_STAGES:
             return {"alignment_stage": "clarifying"}
         return {}
+
+    @staticmethod
+    def _merge_alignment_revision_context(previous: object, working_agreement: dict) -> dict:
+        if not isinstance(previous, dict) or previous.get("mode") != "revision":
+            return working_agreement
+        merged = dict(working_agreement)
+        for key in ("mode", "source", "seed_bundle_metadata"):
+            if key in previous and key not in merged:
+                merged[key] = previous[key]
+        return merged
 
     @staticmethod
     def _message_confirms_alignment_agreement(message: str) -> bool:
@@ -999,6 +1202,41 @@ class ServiceAlignmentMixin:
         return "\n".join(lines)
 
     @staticmethod
+    def _alignment_revision_context_text(session: dict) -> str:
+        agreement = session.get("working_agreement") if isinstance(session.get("working_agreement"), dict) else {}
+        if str(agreement.get("mode") or "") != "revision":
+            return ""
+        source = agreement.get("source") if isinstance(agreement.get("source"), dict) else {}
+        return f"""
+## Revision Context
+
+This alignment session is revising an existing Loopora harness, not starting from a blank task.
+
+- Source type: `{source.get("source_type", "")}`
+- Source bundle id: `{source.get("source_bundle_id", "")}`
+- Source run id: `{source.get("source_run_id", "")}`
+- Revision reason: `{source.get("reason", "")}`
+
+Rules for this revision:
+- Treat the Current Bundle as the base harness.
+- Do not merely polish wording. Identify which governance surface should change: `spec`, `roles`, `workflow`, evidence expectations, GateKeeper strictness, or revision hooks.
+- The revised bundle should be a new revision. Prefer leaving `metadata.bundle_id` empty or new, set `metadata.source_bundle_id` to the source bundle id when present, and keep `metadata.revision` greater than the source revision.
+- If run evidence is present, cite it in your reasoning and translate it into harness changes, not just code advice.
+
+Run evidence summary:
+
+```json
+{json.dumps(source.get("evidence_summary") or [], ensure_ascii=False, indent=2)}
+```
+
+GateKeeper verdict:
+
+```json
+{json.dumps(source.get("gatekeeper_verdict") or {}, ensure_ascii=False, indent=2)}
+```
+""".strip()
+
+    @staticmethod
     def _alignment_manifest_payload(session: dict) -> dict:
         transcript = [item for item in (session.get("transcript") or []) if isinstance(item, dict)]
         first_user = ""
@@ -1103,6 +1341,7 @@ class ServiceAlignmentMixin:
             current_bundle = bundle_path.read_text(encoding="utf-8")
         transcript_text = json.dumps(session.get("transcript") or [], ensure_ascii=False, indent=2)
         working_agreement_text = json.dumps(session.get("working_agreement") or {}, ensure_ascii=False, indent=2)
+        revision_context = self._alignment_revision_context_text(session)
         alignment_stage = str(session.get("alignment_stage", "") or "clarifying")
         user_language_hint = self._alignment_user_language_hint(session)
         workdir_snapshot = self._alignment_workdir_snapshot(Path(session["workdir"]))
@@ -1149,7 +1388,7 @@ You must return one JSON object matching the provided schema:
 - `alignment_phase`: one of "clarifying", "agreement", "confirmed", "bundle", or "blocked".
 - `agreement_summary`: the current working agreement summary; empty until you have enough stable information to summarize.
 - `readiness_checklist`: booleans for `task_scope`, `success_surface`, `fake_done_risks`, `evidence_preferences`, `role_posture`, `workflow_shape`, and `explicit_confirmation`.
-- `readiness_evidence`: concrete prose evidence for `task_scope`, `success_surface`, `fake_done_risks`, `evidence_preferences`, `role_posture`, `workflow_shape`, `workdir_facts`, and `open_questions`. These strings explain why the checklist is true or what is still missing.
+- `readiness_evidence`: concrete prose evidence for `task_scope`, `success_surface`, `fake_done_risks`, `evidence_preferences`, `role_posture`, `workflow_shape`, `workdir_facts`, and `open_questions`. These strings explain why the checklist is true or what is still missing. `workflow_shape` must explain order, any bounded parallel inspection, and information flow when relevant.
 
 Important output discipline:
 - Do not write files yourself.
@@ -1157,7 +1396,7 @@ Important output discipline:
 - If the bundle is ready, put the full YAML in `bundle_yaml`; Loopora will write `{session["bundle_path"]}` and validate it.
 - The bundle `loop.workdir` must be exactly `{session["workdir"]}`.
 - Loopora compiles `spec.markdown` during validation: `# Done When`, `# Success Surface`, `# Fake Done`, and `# Evidence Preferences` must use top-level `-` bullets when present; `# Role Notes` must use `## <Role Name> Notes` subheadings.
-- Preserve task-scoped dialogue. Ask focused questions that change the bundle shape, success criteria, evidence strategy, or role posture.
+- Preserve task-scoped dialogue. Ask focused questions that change the bundle shape, success criteria, evidence strategy, role posture, workflow shape, or information flow.
 - You are a task-judgment interviewer and harness compiler, not a YAML generator. Never optimize for ending the interview quickly.
 - A boolean checklist is not enough. Every true readiness item must be supported by specific `readiness_evidence`.
 - Use the workdir snapshot as observed context. Do not invent facts that are not in the transcript or snapshot; label uncertain items as assumptions.
@@ -1182,8 +1421,18 @@ Alignment stage gate:
 - If any readiness evidence item is vague, generic, or missing, ask the next smallest useful question even when the user asks you to generate.
 - When you are ready to ask for confirmation, set `alignment_phase` to "agreement", `status` to "question", `needs_user_input` to true, put the summary in `agreement_summary`, and leave `bundle_yaml` empty.
 - Only after a prior assistant turn has presented that working agreement and the user has confirmed it may you set `alignment_phase` to "bundle" and include `bundle_yaml`.
-- For fresh implementation tasks, default to a Builder -> Inspector -> GateKeeper workflow unless the user has a clear reason for a different shape.
+- For fresh implementation tasks where the target is clear enough to build, default to Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper. Use a single Inspector only when one evidence responsibility is truly enough.
+- Use Inspector -> Builder -> GateKeeper when the first safe change is unclear.
+- Use Builder -> [parallel Inspectors] -> Guide -> Builder -> GateKeeper when the task expects a second repair pass.
+- Use Benchmark Inspector -> Builder -> Regression Inspector -> GateKeeper when an existing benchmark or contract proof should control the decision.
+- When using bounded parallel inspection, set the same `parallel_group` on two or more contiguous Inspector or Custom steps. Do not put Builder, Guide, or GateKeeper inside a parallel group.
+- Use `inputs.handoffs_from`, `inputs.evidence_query`, and `inputs.iteration_memory` to make role-to-role and iteration-to-iteration information flow explicit when the workflow has multiple reviewers or repair passes.
+- Name specialized Inspector roles by evidence responsibility, for example Contract Inspector, Evidence Inspector, Regression Inspector, Benchmark Inspector, or Posture Inspector. Do not generate generic "Inspector 1" / "Inspector 2" roles.
 - If `loop.completion_mode` is "gatekeeper", the bundle must include a GateKeeper role and at least one GateKeeper workflow step with `on_pass: "finish_run"`.
+- Optional `workflow.controls` are advanced runtime controls, not automation features. Generate them only when the user or workdir facts show a specific long-task error risk: no-evidence progress, role timeout/failure, or repeated GateKeeper rejection.
+- v1 controls may use only `when.signal` values `no_evidence_progress`, `role_timeout`, `step_failed`, or `gatekeeper_rejected`; they may call only an existing Inspector, Guide, or GateKeeper role; they must never call Builder.
+- Every control must explain a concrete error risk through its surrounding `collaboration_intent`, role posture, or spec evidence preferences. Do not add generic timers such as "check every 20 minutes" unless the timer protects against a named evidence-staleness risk.
+- Keep the default workflow simple. If the task does not clearly need controls, omit `workflow.controls`.
 
 ## Target Runtime
 
@@ -1209,6 +1458,8 @@ This is a lightweight Loopora-provided snapshot. Treat it as observed context, n
 ```json
 {working_agreement_text}
 ```
+
+{revision_context}
 
 ## Embedded Skill
 

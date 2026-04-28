@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Scenario-driven heavy real-provider coverage for the five tutorial workflows.
+"""Scenario-driven heavy real-provider coverage for the curated tutorial workflows.
 
 These tests preserve their workspaces and Loopora run artifacts under
 artifacts/real_search_loop_e2e so humans can inspect the final work later.
@@ -50,18 +50,18 @@ class SearchLoopCase:
 
 CASES = (
     SearchLoopCase(
-        slug="build_first",
-        workflow_preset="build_first",
+        slug="build_then_parallel_review",
+        workflow_preset="build_then_parallel_review",
         completion_mode="gatekeeper",
         max_iters=3,
         fixture_dir="search_rollout_build_first",
         proof_script="tests/contract/help_center_shadow_proof.py",
         proof_output="tests/evidence/help_center_shadow_proof.json",
-        expectation="The first help-center slice should be good enough for a real shadow-traffic decision.",
+        expectation="The first help-center slice should be inspected from both contract and evidence perspectives before closing.",
     ),
     SearchLoopCase(
-        slug="inspect_first",
-        workflow_preset="inspect_first",
+        slug="evidence_first",
+        workflow_preset="evidence_first",
         completion_mode="gatekeeper",
         max_iters=3,
         fixture_dir="search_rollout_inspect_first",
@@ -70,28 +70,18 @@ CASES = (
         expectation="The loop should pin the first failing layer for the shadow regression and repair it without rewriting the whole stack.",
     ),
     SearchLoopCase(
-        slug="triage_first",
-        workflow_preset="triage_first",
-        completion_mode="gatekeeper",
-        max_iters=3,
-        fixture_dir="search_rollout_triage_first",
-        proof_script="tests/contract/triage_blocker_proof.py",
-        proof_output="tests/evidence/triage_blocker_proof.json",
-        expectation="The loop should narrow the rollout noise to the permission leak blocker and repair that blocker first.",
-    ),
-    SearchLoopCase(
         slug="repair_loop",
         workflow_preset="repair_loop",
         completion_mode="gatekeeper",
-        max_iters=3,
+        max_iters=4,
         fixture_dir="search_rollout_repair_loop",
         proof_script="tests/contract/reindex_window_proof.py",
         proof_output="tests/evidence/reindex_window_proof.json",
         expectation="The loop should bring full reindexing back inside the maintenance window and leave behind a trustworthy repair review.",
     ),
     SearchLoopCase(
-        slug="benchmark_loop",
-        workflow_preset="benchmark_loop",
+        slug="benchmark_gate",
+        workflow_preset="benchmark_gate",
         completion_mode="gatekeeper",
         max_iters=4,
         fixture_dir="search_rollout_benchmark_loop",

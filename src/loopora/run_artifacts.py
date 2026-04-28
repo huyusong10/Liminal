@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -86,6 +87,14 @@ RUN_ARTIFACT_SPECS = (
         "label_en": "Timeline metrics",
         "description_zh": "每轮分数与停滞信息的 canonical 时间线。",
         "description_en": "The canonical metric timeline for this run.",
+    },
+    {
+        "id": "evidence-ledger",
+        "relative_path": "evidence/ledger.jsonl",
+        "label_zh": "证据账本",
+        "label_en": "Evidence ledger",
+        "description_zh": "本次 run 的 canonical 证据账本，记录证明了什么、没证明什么，以及结论对应的 artifact。",
+        "description_en": "The canonical evidence ledger for this run: what was proven, what remains unproven, and which artifacts support each claim.",
     },
 )
 
@@ -215,6 +224,14 @@ class RunArtifactLayout:
         return self.timeline_dir / "workspace_guard.json"
 
     @property
+    def evidence_dir(self) -> Path:
+        return self.run_dir / "evidence"
+
+    @property
+    def evidence_ledger_path(self) -> Path:
+        return self.evidence_dir / "ledger.jsonl"
+
+    @property
     def iterations_dir(self) -> Path:
         return self.run_dir / "iterations"
 
@@ -283,11 +300,13 @@ class RunArtifactLayout:
         self.context_dir.mkdir(parents=True, exist_ok=True)
         self.check_planner_dir.mkdir(parents=True, exist_ok=True)
         self.timeline_dir.mkdir(parents=True, exist_ok=True)
+        self.evidence_dir.mkdir(parents=True, exist_ok=True)
         self.iterations_dir.mkdir(parents=True, exist_ok=True)
         for path in (
             self.timeline_events_path,
             self.timeline_iterations_path,
             self.timeline_metrics_path,
+            self.evidence_ledger_path,
             self.legacy_events_path,
             self.legacy_iterations_path,
             self.legacy_metrics_path,
@@ -346,6 +365,24 @@ def write_text_with_mirrors(path: Path, text: str, *, mirror_paths: Iterable[Pat
             continue
         ensure_parent(mirror_path)
         mirror_path.write_text(text, encoding="utf-8")
+
+
+def read_jsonl(path: Path, *, limit: int | None = None) -> list[dict]:
+    if not path.exists() or not path.is_file():
+        return []
+    records: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(payload, dict):
+            records.append(payload)
+    if limit is not None and limit >= 0:
+        return records[-limit:]
+    return records
 
 
 def list_run_artifacts(run: dict) -> list[dict]:

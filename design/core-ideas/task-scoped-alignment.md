@@ -1,187 +1,77 @@
 # Task-Scoped Alignment
 
-> 最高原则：遵循 `product-principle.md`。Alignment 的目标不是尽快产出 YAML，而是把长期 AI Agent 任务的判断方式对齐成可运行、可取证、可修订的循环方案。
+> 最高原则：遵循 `product-principle.md`。Alignment 的目标不是尽快产出 YAML，而是把当前长期任务的治理结构对齐成可预览、可运行、可取证、可修订的循环方案。
 
 ## 1. 目标
 
-本文档定义 Loopora 的默认入口如何从“手工选择 workflow”演进为“任务驱动对齐，再导入 bundle 运行”。
+本文档定义 Loopora 的默认新建路径如何从“用户手工拼 workflow”变成“先对齐任务治理，再运行循环方案”。
 
-一句话概括：
+一句话：
 
-> Web 内置 alignment 或外部 Agent + Skill 负责对齐当前任务的 collaboration posture；Loopora 本体负责消费 bundle，并把它作为本地证据循环运行。
+> Alignment is the compiler front-end for Loopora's external task-governance harness.
 
-这不是在现有编排系统旁边新增一套系统，而是把现有 `spec / role definitions / workflow / loop` 解释为同一份任务姿态的不同运行面。
+## 2. 对齐对象
 
-## 2. 核心判断
+Alignment 对齐的不是抽象人格，也不是通用最佳实践，而是当前任务的治理问题：
 
-### 2.1 对齐对象是当前任务，不是抽象人格
+- 什么算真实进展？
+- 什么是假完成？
+- 用户信任哪些证据？
+- 哪些残余风险可以接受，哪些必须阻断？
+- 谁负责构建，谁负责取证，谁负责裁决？
+- 什么时候应继续推进、修复、收窄，或停止？
 
-人类在不同任务、不同风险和不同时间里的偏好并不完全稳定。
+这些问题必须先形成 working agreement，再编译成循环方案。
 
-因此，Loopora 不建立一个长期、统一、全局的人格模型，而是回答更具体的问题：
+## 3. Working Agreement
 
-- 在这次任务里，用户最在意什么？
-- 在这次任务里，用户最担心哪类失败？
-- 在这次任务里，用户如何接受或拒绝残余风险？
-- 在这次任务里，哪些判断不应继续由人类反复回场完成？
-
-新系统的理解对象是：
-
-> 当前任务语境下，用户希望 AI 如何行动、取证、裁决和纠偏。
-
-### 2.2 Alignment 是编译前端
-
-用户通常无法直接写出完整的 runtime surfaces。
-
-更自然的路径是：
-
-1. 用户描述任务。
-2. Web 内置 alignment 或外部 Agent + Skill 追问成功面、风险、证据、假完成和判断风格。
-3. alignment agent 产出 working agreement，让用户确认姿态理解。
-4. alignment agent 编译 YAML bundle。
-5. Loopora 导入 bundle 并物化运行资产。
-
-这意味着 Skill 的职责不是替用户运行任务，而是把任务姿态编译成 Loopora 能运行的资产。
-
-### 2.3 Bundle 是默认入口
-
-bundle 是对齐结果的稳定交换单元。
-
-它必须同时是：
-
-- readable agreement：用户能读懂为什么这样协作
-- runnable config：Loopora 能直接导入运行
-- revisable unit：后续反馈能生成下一版
-
-默认入口应是：
-
-`任务输入 -> 新建任务 / 外部 Agent + Skill -> working agreement -> YAML bundle -> READY 预览 -> run`
-
-手动入口继续存在，但它是 expert mode：
-
-`spec / role definitions / workflow / loop 手动编辑`
-
-两条路径导向同一套底层资产，不形成两套产品。
-
-## 3. Working Agreement 的地位
-
-`working agreement` 是编译时中间产物，不是运行期资产。
+`working agreement` 是编译期中间产物，不是运行期资产。
 
 它的作用是：
 
 - 让 alignment agent 有明确收敛目标。
-- 让用户在生成最终 bundle 前确认“系统理解的协作方式是否正确”。
-- 作为 bundle 编译前的人类可读检查点。
+- 让用户确认系统是否理解本次任务的判断方式。
+- 给 bundle 编译前提供人类可读检查点。
 
-它不需要被 Loopora 本体长期保存为第四类运行面。
-
-运行期真正需要被执行和复盘的仍然是：
+运行期真正需要执行和复盘的仍然是：
 
 - `spec`
 - `role definitions`
 - `workflow / orchestration`
 - `loop / run evidence`
 
-因此：
+## 4. Bundle 的位置
 
-> agreement 用来确认理解；bundle 用来交换；runtime surfaces 用来执行；run evidence 用来修订。
+`bundle` 是循环方案的内部交换单元，不是新手默认心智。
 
-## 4. Bundle 的角色
+它必须同时是：
 
-### 4.1 Bundle 是整包生命周期单元
+- readable agreement：用户能看懂为什么这样协作
+- runnable config：Loopora 能导入并物化为本地资产
+- revisable unit：后续反馈能生成下一版 harness
 
-bundle 不只是参数集合，而是一次任务姿态的完整编译结果。
+默认路径应表达为：
 
-它至少包含：
+`任务输入 -> 对齐循环方案 -> READY 预览 -> 创建并运行 -> 证据 -> 修订`
 
-| 区域 | 作用 |
-|------|------|
-| metadata | 名称、描述、revision、来源 |
-| collaboration summary | 这次任务姿态的可读摘要 |
-| loop | workdir、运行参数和 loop 入口 |
-| spec | task contract |
-| role definitions | 各角色的 task-scoped posture |
-| workflow | 角色顺序、步骤结构和 collaboration intent |
+专家路径可以继续表达为：
 
-### 4.2 Bundle 必须能回到三种运行面
+`YAML bundle -> 导入 / 导出 / 派生 / 删除`
 
-Loopora 本体不执行“姿态”这个抽象对象。
+## 5. Runtime surfaces
 
-导入 bundle 时，系统必须把它物化为：
+Loopora 不执行一个独立 agreement 文件。导入 bundle 后，系统必须把治理结构物化到：
 
-- `spec`，用于冻结任务合同和 checks
-- `role definitions`，用于冻结角色姿态
-- `workflow / orchestration`，用于冻结协作骨架
-- `loop definition`，用于绑定 workdir、执行器和运行策略
+| surface | 职责 |
+|---------|------|
+| `spec` | task contract、成功面、假完成、证据偏好、残余风险 |
+| `role definitions` | 各角色的 task-scoped posture 与证据责任 |
+| `workflow / orchestration` | 角色顺序、handoff、纠偏入口、收束条件 |
+| `loop definition` | workdir、执行器、运行策略 |
 
-这就是循环方案入口与老编排系统的衔接点：bundle 是更高层入口背后的内部交换单元，老资产是运行形态。
+这些 surface 是同一份治理结构的不同投影，不应在后续编辑中彼此漂移。
 
-### 4.3 Bundle revision 是姿态微调的主要对象
-
-用户对 run 的反馈不应被迫翻译成底层字段改动。
-
-合理路径是：
-
-1. 读取旧 bundle。
-2. 读取 run evidence。
-3. 读取用户模糊反馈。
-4. Skill 解释 posture delta。
-5. 产出下一版 agreement 和 bundle。
-
-例如：
-
-- “这次太偷懒了。”可能加强 Inspector 和 GateKeeper 对证据与完整性的要求。
-- “这次不够重视重构。”可能改变 spec 的 fake-done 描述和 Builder 姿态。
-- “我可以接受这个 residual risk。”可能调整 GateKeeper 的放行解释方式。
-
-## 5. Runtime surfaces 的分工
-
-### 5.1 Spec 是 task contract
-
-`spec` 不只是任务描述，而是本次任务的稳定合同。
-
-它承载：
-
-- `Task`
-- `Done When / checks`
-- `Guardrails`
-- 成功面
-- 假完成
-- 证据偏好
-- 残余风险姿态
-
-它不负责定义完整流程，也不能单独替代 role posture。
-
-### 5.2 Role definitions 是角色姿态投影
-
-角色定义不只是 archetype。
-
-它承载某个角色在本次任务中的姿态，例如：
-
-- `Inspector` 更重视可重复证据。
-- `GateKeeper` 更保守地处理残余风险。
-- `Builder` 更愿意做内部清理而不是只追求最短路径。
-- `Guide` 更倾向收窄切口而不是扩大目标。
-
-### 5.3 Workflow 是协作骨架
-
-workflow 不是旧系统遗留，而是 posture 的时间结构。
-
-它表达：
-
-- 谁先介入
-- 何时取证
-- 何时裁决
-- 是否需要 triage
-- 是否需要 repair loop
-- 是否需要 benchmark 先行
-- Guide 何时介入
-
-因此，workflow 仍然是核心资产，但它的产品解释从“用户先手工拼流程”转为“posture 被编译后的协作骨架”。
-
-## 6. Loopora 本体与外部 Skill 的边界
-
-### 6.1 Loopora 本体
+## 6. Loopora 本体与 Alignment Agent
 
 Loopora 本体负责：
 
@@ -189,67 +79,47 @@ Loopora 本体负责：
 - 导入 / 导出 / 派生 / 删除 bundle
 - 物化 `spec / roles / workflow / loop`
 - 启动 run
-- 调用外部 LLM / Agent
+- 调用外部 AI Agent CLI
 - 记录事件、产物、证据和终态
 
-Loopora 本体不负责：
-
-- 在运行期执行独立 agreement 文件
-- 替用户静默改写 task contract
-- 让 Web 内置 alignment 绕过 bundle 导入直接创建底层运行资产
-
-### 6.2 Alignment Agent 与 Skill Prompt
-
-alignment agent 负责：
+Alignment agent 负责：
 
 - 与用户沟通
 - 暴露关键 tradeoff
-- 收敛 task-scoped posture
+- 收敛 task-scoped governance
 - 产出 working agreement
 - 编译 YAML bundle
 - 基于 run evidence 和反馈产出下一版 bundle
 
-它可以来自 Web 内置 alignment session，也可以来自外部 Agent 加载 repo-local Skill。Web 内置路径不要求用户安装 Skill，而是把同一份 Skill 内容作为 prompt 输入交给后端 Agent CLI。
+Alignment agent 可以来自 Web 内置 session，也可以来自外部 AI Agent 加载 repo-local Skill。两条路径必须产出同一种可运行 bundle。
 
-Skill 的输出不是一句建议，而是一份可导入、可运行、可修订的 bundle。
+## 7. Revision
 
-## 7. UX 演进方向
+用户对 run 的反馈不应被迫翻译成底层字段改动。
 
-### 7.1 默认心智：从 bundle 开始
+合理路径是：
 
-新用户默认不应先理解所有内部资产。
+1. 读取旧 bundle。
+2. 读取 run evidence。
+3. 读取用户反馈。
+4. 解释治理偏移。
+5. 产出下一版 working agreement 和 bundle。
 
-推荐路径应持续表达为：
+例如：
 
-- 在 Web 里直接描述任务生成 bundle
-- 或去 Tools 安装对齐 Skill，让外部 Agent 生成 bundle
-- 在 Create Loop 导入 bundle
-- 从 run 结果和反馈生成下一版 bundle
-
-### 7.2 Expert 心智：知道 surface 才手动改
-
-手动编辑仍然重要，但应以 surface 责任为入口：
-
-- 任务合同错了，改 `spec`
-- 角色行为错了，改 role definition
-- 判断时机错了，改 workflow
-- 整体姿态要改，回到 bundle revision
-
-### 7.3 Bundle 生命周期应保持整包语义
-
-导入后的 bundle-owned 资产默认属于同一组。
-
-删除、导出、派生和 revision 应优先按 bundle 生命周期表达，避免用户把同一份姿态拆成互相漂移的零散对象。
+- “这次太偷懒了。”可能加强 Inspector 和 GateKeeper 的证据要求。
+- “这次不够重视重构。”可能改变 spec 的 fake-done 描述和 Builder 姿态。
+- “这个 residual risk 我可以接受。”可能调整 GateKeeper 的放行解释方式。
 
 ## 8. 变更触发
 
 以下变化需要更新本文档：
 
-- 默认入口不再是 task alignment -> bundle -> import
+- 默认新建路径不再是 task alignment -> loop plan -> run
 - working agreement 变成运行期资产
-- bundle 不再是单文件 YAML
-- posture 不再由 `spec / role definitions / workflow` 共同承载
-- 内置对齐绕过 bundle 导入，直接创建底层运行资产
+- bundle 不再是单文件 YAML 交换单元
+- 治理结构不再由 `spec / role definitions / workflow` 共同承载
+- Web 内置 alignment 绕过 bundle 导入，直接创建底层资产
 
 以下变化通常不需要更新本文档：
 

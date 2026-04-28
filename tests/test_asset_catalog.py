@@ -45,7 +45,7 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
 
     builtin_role = next(item for item in role_definitions if item["id"] == "builtin:builder")
     custom_role = next(item for item in role_definitions if item["id"] == role_definition["id"])
-    builtin_orchestration = next(item for item in orchestrations if item["id"] == "builtin:build_first")
+    builtin_orchestration = next(item for item in orchestrations if item["id"] == "builtin:build_then_parallel_review")
     custom_orchestration = next(item for item in orchestrations if item["id"] == orchestration["id"])
 
     assert builtin_role["source"] == "builtin"
@@ -57,7 +57,7 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
     assert custom_role["executor_kind"] == "claude"
 
     assert builtin_orchestration["source"] == "builtin"
-    assert builtin_orchestration["workflow_json"]["preset"] == "build_first"
+    assert builtin_orchestration["workflow_json"]["preset"] == "build_then_parallel_review"
     assert builtin_orchestration["workflow_json"]["steps"][0]["inherit_session"] is True
     assert builtin_orchestration["workflow_json"]["steps"][1]["inherit_session"] is False
     assert builtin_orchestration["workflow_json"]["steps"][0]["extra_cli_args"] == ""
@@ -86,19 +86,25 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
         assert "Builder Notes" in item["spec_practice_markdown_en"]
         assert "GateKeeper Notes" in item["spec_practice_markdown_zh"]
         assert "GateKeeper Notes" in item["spec_practice_markdown_en"]
-    assert len(builtin_orchestrations) == 5
+    assert len(builtin_orchestrations) == 4
+    assert any(item["id"] == "builtin:evidence_first" for item in builtin_orchestrations)
+    assert any(item["id"] == "builtin:benchmark_gate" for item in builtin_orchestrations)
     assert all(item["id"] != "builtin:fast_lane" for item in builtin_orchestrations)
     assert all(item["id"] != "builtin:quality_gate" for item in builtin_orchestrations)
+    assert all(item["id"] != "builtin:build_first" for item in builtin_orchestrations)
     assert custom_orchestration["source"] == "custom"
     assert custom_orchestration["workflow_json"]["preset"] == "inspect_first"
     assert isinstance(custom_orchestration["workflow_warnings"], list)
 
     hidden_fast_lane = catalog.get_orchestration("builtin:fast_lane")
     hidden_quality_gate = catalog.get_orchestration("builtin:quality_gate")
+    hidden_build_first = catalog.get_orchestration("builtin:build_first")
     assert hidden_fast_lane["name"] == "Fast Lane"
     assert hidden_fast_lane["workflow_json"]["preset"] == "fast_lane"
     assert hidden_quality_gate["name"] == "Quality Gate"
     assert hidden_quality_gate["workflow_json"]["preset"] == "quality_gate"
+    assert hidden_build_first["name"] == "Build First"
+    assert hidden_build_first["workflow_json"]["preset"] == "build_first"
 
 
 def test_asset_catalog_resolves_builtin_orchestration_input_and_applies_role_overrides(tmp_path: Path) -> None:
@@ -216,6 +222,74 @@ def test_asset_catalog_hydrates_role_posture_notes_from_role_definition_id(tmp_p
     )
 
     assert resolved["workflow"]["roles"][0]["posture_notes"] == "Treat maintainability debt as first-class in this task."
+
+
+def test_asset_catalog_allows_task_scoped_posture_notes_with_role_definition_id(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+    role_definition = catalog.create_role_definition(
+        name="Focused Builder",
+        description="Ships focused release work.",
+        archetype="builder",
+        prompt_ref="focused-builder.md",
+        prompt_markdown=_prompt_markdown("builder", "Focus on safe release work."),
+        posture_notes="Treat maintainability debt as first-class in this task.",
+    )
+
+    resolved = catalog.resolve_orchestration_input(
+        orchestration_id=None,
+        workflow={
+            "version": 1,
+            "roles": [
+                {
+                    "id": "builder",
+                    "role_definition_id": role_definition["id"],
+                    "posture_notes": "Create an inspectable handoff for two reviewers.",
+                },
+            ],
+            "steps": [
+                {"id": "builder_step", "role_id": "builder"},
+            ],
+        },
+        prompt_files=None,
+        role_models=None,
+    )
+
+    assert resolved["workflow"]["roles"][0]["posture_notes"] == "Create an inspectable handoff for two reviewers."
+
+
+def test_asset_catalog_allows_workflow_role_label_with_role_definition_id(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    catalog = WorkflowAssetCatalog(repository)
+    role_definition = catalog.create_role_definition(
+        name="Generic Inspector",
+        description="Checks evidence.",
+        archetype="inspector",
+        prompt_ref="generic-inspector.md",
+        prompt_markdown=_prompt_markdown("inspector", "Inspect the result."),
+    )
+
+    resolved = catalog.resolve_orchestration_input(
+        orchestration_id=None,
+        workflow={
+            "version": 1,
+            "roles": [
+                {
+                    "id": "contract_inspector",
+                    "name": "Contract Inspector",
+                    "role_definition_id": role_definition["id"],
+                },
+            ],
+            "steps": [
+                {"id": "contract_inspection_step", "role_id": "contract_inspector"},
+            ],
+        },
+        prompt_files=None,
+        role_models=None,
+    )
+
+    assert resolved["workflow"]["roles"][0]["name"] == "Contract Inspector"
+    assert resolved["workflow"]["roles"][0]["archetype"] == "inspector"
 
 
 def test_asset_catalog_rejects_unknown_role_definition_ids_in_workflow(tmp_path: Path) -> None:

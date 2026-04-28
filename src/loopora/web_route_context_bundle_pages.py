@@ -52,6 +52,7 @@ class WebRouteBundlePagesMixin:
         spec_path = Path(self.svc()._bundle_spec_path(bundle_id))
         spec_markdown = spec_path.read_text(encoding="utf-8") if spec_path.exists() else ""
         bundle_yaml = self.svc().export_bundle_yaml(bundle_id)
+        exported_bundle = self.svc().export_bundle(bundle_id)
         form_values = {
             "description": str(bundle.get("description", "")),
             "collaboration_summary": str(bundle.get("collaboration_summary", "")),
@@ -70,6 +71,7 @@ class WebRouteBundlePagesMixin:
                 "form_values": form_values,
                 "form_error": form_error,
                 "bundle_yaml": bundle_yaml,
+                "control_summary": self.svc()._bundle_control_summary(exported_bundle),
                 "spec_rendered_html": render_safe_markdown_html(str(form_values.get("spec_markdown", ""))),
                 "access_state": self.access_state,
             },

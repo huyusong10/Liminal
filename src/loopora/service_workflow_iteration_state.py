@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from loopora.context_flow import build_step_handoff
+from loopora.context_flow import build_step_evidence_entry, build_step_handoff
 from loopora.diagnostics import get_logger, log_event
 from loopora.run_artifacts import append_jsonl_with_mirrors, write_json_with_mirrors
 from loopora.stagnation import update_stagnation
@@ -98,6 +98,8 @@ class ServiceWorkflowIterationStateMixin:
                 "metric_scores": normalized_output.get("metric_scores", {}),
                 "failed_check_ids": normalized_output.get("failed_check_ids", []),
                 "failed_check_titles": normalized_output.get("failed_check_titles", []),
+                "evidence_refs": normalized_output.get("evidence_refs", []),
+                "evidence_gate_status": normalized_output.get("evidence_gate_status", ""),
                 "stagnation_mode": stagnation["stagnation_mode"],
             },
             mirror_paths=[layout.legacy_metrics_path],
@@ -126,6 +128,18 @@ class ServiceWorkflowIterationStateMixin:
             runtime_role=runtime_role,
             output=normalized_output,
         )
+        evidence_entry = build_step_evidence_entry(
+            layout=layout,
+            iter_id=iter_id,
+            step=step,
+            step_order=step_order,
+            role=role,
+            runtime_role=runtime_role,
+            output=normalized_output,
+            handoff=handoff,
+        )
+        handoff["evidence_refs"] = [evidence_entry["id"]]
+        append_jsonl_with_mirrors(layout.evidence_ledger_path, evidence_entry)
         self._write_step_outputs(
             layout,
             iter_id,
@@ -146,6 +160,8 @@ class ServiceWorkflowIterationStateMixin:
                 "role_name": role["name"],
                 "archetype": role["archetype"],
                 "handoff_path": layout.relative(layout.step_handoff_path(iter_id, step_order, step["id"])),
+                "evidence_ledger_path": layout.relative(layout.evidence_ledger_path),
+                "evidence_refs": handoff["evidence_refs"],
                 "status": handoff["status"],
                 "summary": handoff["summary"],
                 "blocking_count": len(handoff["blocking_items"]),

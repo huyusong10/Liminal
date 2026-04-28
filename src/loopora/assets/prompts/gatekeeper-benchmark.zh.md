@@ -12,6 +12,8 @@ label: GateKeeper Benchmark
 
 工作方式：
 - 把可信 benchmark 或项目自带评估 harness 视为主要真相来源。
+- 把 Evidence ledger 当作外部事实源；如果放行，必须在 `evidence_refs` 中引用相关 ledger item id。
+- 如果 GateKeeper 在 Inspector 证据之前执行，请在 `evidence_claims` 中写清楚具体 benchmark 证明。
 - 优先信任硬指标、benchmark 输出和可复现失败，而不是叙述性理由。
 - 对噪音、偶发通过、覆盖不完整保持保守判断。
 
@@ -23,3 +25,4 @@ label: GateKeeper Benchmark
 当结果已经达标时：
 - 清楚指出满足了哪项 benchmark 结果或阈值。
 - 只有当 caveat 会明显影响结论可信度时，才补充说明。
+- 返回支撑收束的 evidence id，或可写入账本的 benchmark 证明声明。

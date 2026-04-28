@@ -90,6 +90,7 @@ def test_api_loop_creation_run_preview_and_stream(
     artifact_payload = artifacts.json()
     assert any(item["id"] == "original-spec" and item["available"] for item in artifact_payload)
     assert any(item["id"] == "summary" and item["available"] for item in artifact_payload)
+    assert any(item["id"] == "evidence-ledger" and item["available"] for item in artifact_payload)
 
     original_spec_artifact = client.get(f"/api/runs/{run_id}/artifacts/original-spec")
     assert original_spec_artifact.status_code == 200
@@ -105,6 +106,11 @@ def test_api_loop_creation_run_preview_and_stream(
     assert latest_state_artifact.status_code == 200
     assert latest_state_artifact.json()["kind"] == "file"
     assert "\"latest_iteration\"" in latest_state_artifact.json()["content"]
+
+    evidence_artifact = client.get(f"/api/runs/{run_id}/artifacts/evidence-ledger")
+    assert evidence_artifact.status_code == 200
+    assert evidence_artifact.json()["kind"] == "file"
+    assert "gatekeeper" in evidence_artifact.json()["content"]
 
     binary_path = sample_workdir / ".DS_Store"
     binary_path.write_bytes(b"\x00\x01\x02binary-data")

@@ -132,7 +132,7 @@
             </span>
           </div>
           {% for orchestration in builtin_orchestrations %}
-          <article class="tutorial-decision-tree-flow-card tutorial-decision-tree-flow-card--{{ orchestration.preset | replace('_', '-') }}{% if orchestration.preset == 'benchmark_loop' %} is-accent{% endif %}" data-testid="tutorial-decision-tree-flow-card">
+          <article class="tutorial-decision-tree-flow-card tutorial-decision-tree-flow-card--{{ orchestration.preset | replace('_', '-') }}{% if orchestration.preset == 'benchmark_gate' %} is-accent{% endif %}" data-testid="tutorial-decision-tree-flow-card">
             <div class="tutorial-decision-tree-flow-copy">
               <span data-lang="zh">{{ orchestration.decision_zh }}</span>
               <span data-lang="en">{{ orchestration.decision_en }}</span>
