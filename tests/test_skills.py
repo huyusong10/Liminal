@@ -8,6 +8,7 @@ def test_loopora_task_alignment_skill_validates() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     skill_dir = repo_root / "skills" / "loopora-task-alignment"
     skill_md = skill_dir / "SKILL.md"
+    product_primer = skill_dir / "references" / "product-primer.md"
     alignment_playbook = skill_dir / "references" / "alignment-playbook.md"
     quality_rubric = skill_dir / "references" / "quality-rubric.md"
     bundle_contract = skill_dir / "references" / "bundle-contract.md"
@@ -15,6 +16,7 @@ def test_loopora_task_alignment_skill_validates() -> None:
     examples = skill_dir / "references" / "examples.md"
 
     assert skill_md.exists()
+    assert product_primer.exists()
     assert alignment_playbook.exists()
     assert quality_rubric.exists()
     assert bundle_contract.exists()
@@ -22,8 +24,12 @@ def test_loopora_task_alignment_skill_validates() -> None:
     assert examples.exists()
     skill_text = skill_md.read_text(encoding="utf-8")
     assert "[TODO" not in skill_text
+    assert "product-primer.md" in skill_text
     assert "task-judgment interviewer" in skill_text
     assert "parallel_group" in skill_text
+    primer_text = product_primer.read_text(encoding="utf-8")
+    assert "external task-governance harness" in primer_text
+    assert "Execution roles can be narrow" in primer_text
     assert "Contract Inspector" in examples.read_text(encoding="utf-8")
     assert "inputs.handoffs_from" in alignment_playbook.read_text(encoding="utf-8")
     assert "bounded parallel inspection" in quality_rubric.read_text(encoding="utf-8")

@@ -15,106 +15,100 @@
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-D66A36">
 </p>
 
-Loopora is local-first task governance for long-running AI Agent work.
+Loopora is a local-first task-governance harness for long-running AI Agent work.
 
-It takes the part that usually lives inside a fragile Agent conversation, the task contract, user judgment, evidence expectations, role boundaries, and stopping rules, and turns it into an external system that is persistent, inspectable, runnable, and revisable.
+It is for the moment when "just ask the Agent again" stops being enough.
 
-## If an AI Agent can already do the work, why use Loopora?
+## Why Should This Exist?
 
-That is the question Loopora has to earn.
+If one AI Agent pass plus one human review is enough, you do not need Loopora.
 
-If the task is small, obvious, and reviewable in one pass, do not use Loopora. Ask your AI Agent, review once, and move on.
+But long tasks create a different bottleneck. You keep coming back to decide:
 
-But what if the hard part is not the first answer?
+- Did the last round prove the right thing?
+- Is the result truly done, or only locally plausible?
+- What kind of fake progress should be rejected?
+- Should the next round build, inspect, repair, narrow scope, or stop?
+- Did this run expose a flaw in the task harness itself?
 
-What if the hard part is that you keep coming back to decide:
+When those questions repeat, generation is not the bottleneck anymore. Governance is.
 
-- did this round prove the right thing?
-- is it actually done, or just locally plausible?
-- should the next round build, inspect, repair, narrow the scope, or stop?
-- what evidence would make the result trustworthy?
-- what should change in the working system because this run exposed a weakness?
+**Loopora moves task governance out of the Agent's context and into an external, persistent, inspectable, runnable, and revisable control system.**
 
-When those questions repeat, the bottleneck is no longer generation. The bottleneck is governance.
+## How Is This Different From an Agent Plugin?
 
-**Loopora exists to move task governance out of the Agent's context and into a durable error-control harness.**
+Most Agent plugins improve behavior inside one Agent context: skills, commands, checklists, roles, or collaboration patterns. That can be very useful.
 
-## Why not just use a better Agent plugin?
+Loopora works at the layer around the Agent.
 
-Most Agent plugins improve the Agent from inside the conversation. They add skills, commands, roles, checklists, or expert collaboration patterns. That is useful, and for many tasks it is enough.
-
-Loopora works at a different layer.
-
-It does not only tell the Agent to behave better. It externalizes the control system around the Agent:
-
-| Inside an Agent context | In Loopora |
+| In a plugin-style Agent context | In Loopora |
 | --- | --- |
-| A prompt says what good means | A task contract freezes success, fake-done states, evidence, and residual risk |
-| A role reminds the Agent to review | Separate roles build, inspect, gate, and redirect with explicit handoffs |
-| A checklist depends on model discipline | Workflow gates decide when judgment happens and when a run may finish |
-| Logs explain what happened after the fact | Evidence artifacts become the source for review and revision |
-| Feedback becomes another prompt | Feedback revises the harness itself |
+| A prompt says what good means | `spec` freezes the task contract, fake-done risks, evidence, and residual risk |
+| A role reminds the Agent to review | `roles` separate build, inspect, gate, and redirect responsibilities |
+| A checklist depends on model discipline | `workflow` decides when judgment happens, what evidence flows, and what can end the run |
+| Logs explain what happened | `evidence` becomes the source for review and revision |
+| Feedback becomes another prompt | `revision` changes the harness itself |
 
-Other systems can make an Agent more disciplined. Loopora makes the task's control structure durable outside the Agent.
+Loopora does not try to replace your AI Agent. It gives the Agent an external error-control harness.
 
-## What Loopora Actually Manages
+## The Core Idea
 
-Loopora's core unit is a **loop plan**.
+Loopora's user-facing object is a **loop plan**.
 
-A loop plan is not a longer prompt. It is a task governance contract with five surfaces:
+A loop plan is a task-governance contract with five surfaces:
 
-| Surface | What it protects |
+| Surface | Job |
 | --- | --- |
-| `spec` | task scope, success surface, fake done, guardrails, evidence preferences |
-| `roles` | how each AI Agent role should build, inspect, gate, or redirect for this task |
-| `workflow` | when those judgments happen and what can end the run |
-| `evidence` | what each run actually changed, checked, concluded, and failed to prove |
-| `revision` | how feedback changes the next version of the harness |
+| `spec` | Defines scope, success, fake done, guardrails, evidence preference, and residual risk |
+| `roles` | Defines how each AI Agent role should build, inspect, gate, or redirect for this task |
+| `workflow` | Defines order, handoff, evidence routing, parallel inspection, controls, and stop conditions |
+| `evidence` | Records what each run changed, checked, proved, failed to prove, and decided |
+| `revision` | Turns run evidence and user feedback into the next harness version |
 
-Internally, Loopora stores the runnable plan as a YAML **bundle**. Users do not need to start there. The Web UI lets you describe the task, align the plan through conversation, preview the governance surfaces, and create a run only after the plan validates.
-
-## The Five-Minute Rule
-
-Loopora can become more powerful, but the first run must stay simple:
-
-> describe the task, choose a workdir, confirm the loop plan, run it, inspect evidence, revise.
-
-Advanced workflow controls, parallel reviewers, evidence routing, and trigger rules are compiled into the plan when they help control long-task error. They are not concepts a new user has to configure before getting value.
+Internally, Loopora stores the runnable plan as a YAML **bundle**. Users do not need to start there. The Web UI helps you describe the task, align the loop plan through conversation, preview the governance surfaces, and create a run only after the plan validates.
 
 ## A Concrete Example
 
-Suppose you ask:
+Suppose you say:
 
 > Build an English learning website.
 
-A normal AI Agent path may start building screens: a landing page, vocabulary cards, buttons, maybe polished visuals. It can look finished before proving that a learner can complete one real learning cycle.
+A normal AI Agent may start producing screens: a landing page, vocabulary cards, exercises, buttons, and polished visuals. It can look finished before proving that a learner can complete one real learning cycle.
 
-Loopora slows down at the governance layer:
+Loopora asks the governance questions first:
 
-- What is the real first product: a runnable learning path or a product sketch?
-- What is fake done: a pretty page with no real study loop?
-- What evidence proves that a learner can choose a goal, study, practice, and see progress?
-- Should a GateKeeper reject shallow polish even if the UI looks good?
+- Is the first version a real learning path or a product sketch?
+- What is fake done: good-looking pages without a usable study loop?
+- Which evidence proves the learner can choose a goal, study, practice, and see progress?
+- Should the final GateKeeper reject UI polish if the learning loop is not real?
 
-The resulting loop plan might use:
+That may compile into:
 
 ```text
 Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper
 ```
 
-`Builder` implements the first end-to-end learning slice.
-`Contract Inspector` checks whether it matches the learning-task promise and fake-done risks.
-`Evidence Inspector` independently proves whether the learning path is real and repeatable.
-`GateKeeper` fans in both evidence branches and decides whether the run can finish or must loop again.
+- `Builder` creates the first end-to-end learning slice.
+- `Contract Inspector` checks the task promise and fake-done risks.
+- `Evidence Inspector` independently proves whether the learning path is real and repeatable.
+- `GateKeeper` closes only when the evidence supports the verdict.
 
-If the result is still wrong, the next step is not random prompt editing. The next step is to revise the plan from run evidence.
+If the run still feels wrong, the next move is not random prompt editing. The next move is to revise the harness from evidence.
 
-## How the Web Flow Works
+## Five-Minute Rule
+
+Loopora can become powerful, but first use must stay simple:
+
+> describe the task, choose a workdir, confirm the loop plan, run it, inspect evidence, revise.
+
+Advanced features such as parallel Inspectors, evidence routing, workflow controls, trigger rules, and provider-specific execution are compiled into the plan when they help control long-task error. They are not concepts a new user must configure up front.
+
+## Web Flow
 
 ```mermaid
 flowchart LR
     A["Describe task"] --> B["Align loop plan"]
-    B --> C["Preview governance surfaces"]
+    B --> C["Preview governance"]
     C --> D["Create and run"]
     D --> E["Collect evidence"]
     E --> F["Revise harness"]
@@ -122,12 +116,12 @@ flowchart LR
 
 In the local Web UI:
 
-1. **Workbench** shows current work and run state.
-2. **New Task** opens the chat-first loop-plan alignment page.
-3. Loopora calls your local AI Agent CLI and asks the questions needed to form a task-specific harness.
+1. **Workbench** shows current loops and run state.
+2. **New Task** opens the chat-first loop-plan alignment flow.
+3. Loopora calls your local AI Agent CLI and asks only questions that change the harness.
 4. READY plans show the task contract, roles, workflow diagram, and source file action.
 5. **Create and run** materializes the plan and starts the loop.
-6. **Plans** stores reusable governance patterns and their runnable bundle files.
+6. **Plans** stores reusable task-governance patterns and their bundle files.
 
 Manual creation remains available for expert users who already know which `spec`, `roles`, or `workflow` surface they want to edit.
 
@@ -145,9 +139,9 @@ Start the local Web console:
 uv run loopora serve --host 127.0.0.1 --port 8742
 ```
 
-Open [http://127.0.0.1:8742](http://127.0.0.1:8742), choose **New Task**, select a workdir, and describe the long-running task.
+Open [http://127.0.0.1:8742](http://127.0.0.1:8742), choose **New Task**, select a workdir, and describe the task.
 
-## When Should You Use Loopora?
+## When Should You Use It?
 
 Ask the negative question first:
 
@@ -155,21 +149,19 @@ Ask the negative question first:
 
 If yes, skip Loopora.
 
-Now ask the positive question:
+Then ask:
 
 > Would a human otherwise return after each meaningful round to judge what the result means?
 
-If yes, Loopora may fit.
+Loopora fits tasks that are:
 
-Use it when the task is:
-
-- long enough that one pass will not settle it
-- stateful enough that every round changes the evidence
+- long enough that one pass will not settle them
+- stateful enough that each round changes the evidence
 - ambiguous enough that success is more than "tests passed"
 - risky enough that fake done must be blocked
 - reusable enough that the way of judging the task should survive one chat
 
-Do not use it when another round will not create new evidence. A loop without new evidence is drift.
+Do not use a loop when another round will not create new evidence. A loop without evidence becomes drift.
 
 <p align="center">
   <img src="./.github/assets/readme-decision-tree.en.png" alt="Loopora decision board" width="1120" />
@@ -181,7 +173,7 @@ The Web UI is the recommended path because it keeps alignment, validation, previ
 
 If you prefer to align outside the Web UI, open **Resources -> Tools & Skill** and install the repo-local `loopora-task-alignment` Skill into Codex, Claude Code, OpenCode, or another compatible AI Agent CLI.
 
-That path produces the same YAML bundle. Import it from the expert manual creation path when you want Loopora to run it.
+That Skill now includes a Product Primer so the alignment Agent does not need prior Loopora knowledge. It produces the same YAML bundle, which you can import from the expert manual path when you want Loopora to run it.
 
 ## CLI
 
@@ -192,7 +184,7 @@ uv run loopora run \
   --spec ./demo-spec.md \
   --workdir /absolute/path/to/project \
   --executor codex \
-  --model gpt-5.4 \
+  --model <model> \
   --max-iters 8
 ```
 
@@ -202,11 +194,11 @@ Loopora is experimental and local-first.
 
 Stable commitments:
 
-- task governance should live outside a single Agent conversation
+- task governance should live outside a single AI Agent conversation
 - loop plans remain inspectable and file-backed
 - bundle import/export stays explicit and local
 - runs must produce evidence, not only logs
-- future revisions should come from evidence and feedback, not hidden prompt drift
+- revision should come from evidence and feedback, not hidden prompt drift
 
 ## Development
 

@@ -170,18 +170,20 @@ Session artifact 必须落在目标 workdir 下，并按事实源、事件流和
 系统 prompt 由以下内容装配：
 
 1. `loopora-task-alignment/SKILL.md`
-2. `references/alignment-playbook.md`
-3. `references/quality-rubric.md`
-4. `references/bundle-contract.md`
-5. `references/examples.md`
-6. 若是修订或优化，追加 `references/feedback-revision.md`
-7. 当前 session transcript
-8. 目标 workdir 的轻量只读 snapshot、bundle 输出路径、当前校验结果
-9. 输出纪律：若尚需澄清，直接提问；若 bundle 已成形，必须把完整 YAML 放入结构化字段 `bundle_yaml`
+2. `references/product-primer.md`
+3. `references/alignment-playbook.md`
+4. `references/quality-rubric.md`
+5. `references/bundle-contract.md`
+6. `references/examples.md`
+7. 若是修订或优化，追加 `references/feedback-revision.md`
+8. 当前 session transcript
+9. 目标 workdir 的轻量只读 snapshot、bundle 输出路径、当前校验结果
+10. 输出纪律：若尚需澄清，直接提问；若 bundle 已成形，必须把完整 YAML 放入结构化字段 `bundle_yaml`
 
 稳定规则：
 
 - 这里的 Skill 内容只是 prompt 输入，不是外部工具安装或运行时 Skill 调用。
+- Product Primer 必须作为 Web alignment Agent 的首要上下文。它负责说明 Loopora 是外部任务治理 harness、bundle 是 error-control contract、alignment Agent 必须理解完整产品语义，而下游执行角色只需做好本 role 的窄任务。
 - Agent 可以进行多轮澄清，但 READY 前必须返回单文件 YAML bundle 的完整文本。
 - Agent 不直接写入 session canonical 文件；服务层从结构化 `bundle_yaml` 写入 session `artifacts/bundle.yml`。
 - 后端不接受模型自由声明“已经生成好了”作为 READY 依据。

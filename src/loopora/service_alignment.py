@@ -1330,6 +1330,7 @@ GateKeeper verdict:
     ) -> str:
         source_dir = load_task_alignment_skill_bundle().source_dir
         skill_text = (source_dir / "SKILL.md").read_text(encoding="utf-8")
+        product_primer = (source_dir / "references" / "product-primer.md").read_text(encoding="utf-8")
         alignment_playbook = (source_dir / "references" / "alignment-playbook.md").read_text(encoding="utf-8")
         quality_rubric = (source_dir / "references" / "quality-rubric.md").read_text(encoding="utf-8")
         bundle_contract = (source_dir / "references" / "bundle-contract.md").read_text(encoding="utf-8")
@@ -1377,7 +1378,8 @@ The session already has a bundle. If the latest user message asks for optimizati
 You are Loopora's built-in Web bundle alignment agent.
 
 The user is using an internal Web flow, so do not ask them to install or invoke a Skill manually.
-Use the Skill text and bundle contract below as instructions embedded in this prompt.
+Assume you know nothing about Loopora except what is embedded below.
+Start from the Product Primer before applying the Skill text, schema rules, or bundle contract.
 
 You must return one JSON object matching the provided schema:
 - `status`: "question" if you need user input, "bundle" if `bundle_yaml` is complete, or "blocked" if you cannot proceed.
@@ -1464,6 +1466,10 @@ This is a lightweight Loopora-provided snapshot. Treat it as observed context, n
 ## Embedded Skill
 
 {skill_text}
+
+## Loopora Product Primer
+
+{product_primer}
 
 ## Alignment Playbook
 

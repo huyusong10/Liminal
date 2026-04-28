@@ -160,6 +160,9 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
     prompt_text = (artifact_root / "invocations" / "0001" / "prompt.md").read_text(encoding="utf-8")
 
     assert "User language hint: `Chinese" in prompt_text
+    assert "Assume you know nothing about Loopora except what is embedded below." in prompt_text
+    assert "Loopora Product Primer" in prompt_text
+    assert "external task-governance harness" in prompt_text
     assert "Preserve Loopora domain terms exactly" in prompt_text
     assert "Alignment Playbook" in prompt_text
     assert "Alignment Quality Rubric" in prompt_text
