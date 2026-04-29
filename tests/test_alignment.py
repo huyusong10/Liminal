@@ -132,6 +132,8 @@ def test_alignment_revision_session_can_start_from_run_evidence(
     assert revision["linked_bundle_id"] == imported["bundle"]["id"]
     assert revision["linked_run_id"] == run["id"]
     assert revision["working_agreement"]["source"]["source_type"] == "run"
+    assert revision["working_agreement"]["source"]["coverage_summary"]["status"]
+    assert revision["working_agreement"]["source"]["coverage_summary"]["top_gaps"]
     assert revision["working_agreement"]["source"]["evidence_summary"]
 
 

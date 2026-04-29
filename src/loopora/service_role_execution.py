@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from loopora.diagnostics import get_logger, log_event
+from loopora.evidence_coverage import with_coverage_targets, write_evidence_coverage_projection
 from loopora.executor import CodexExecutor, ExecutionStopped, RoleRequest
 from loopora.recovery import RetryConfig, execute_with_recovery
 from loopora.run_artifacts import write_json_with_mirrors
@@ -123,12 +124,15 @@ class ServiceRoleExecutionMixin:
         if not resolved_checks:
             raise LooporaError("check planner returned no checks")
 
-        resolved_spec = {
-            **compiled_spec,
-            "checks": resolved_checks,
-            "check_mode": "auto_generated",
-            "check_generation_notes": str(planner_result.get("generation_notes", "")).strip(),
-        }
+        resolved_spec = with_coverage_targets(
+            {
+                **compiled_spec,
+                "checks": resolved_checks,
+                "check_mode": "auto_generated",
+                "check_generation_notes": str(planner_result.get("generation_notes", "")).strip(),
+            },
+            completion_mode=str(run.get("completion_mode", "gatekeeper")),
+        )
         write_json_with_mirrors(layout.contract_compiled_spec_path, resolved_spec)
         write_json_with_mirrors(
             layout.contract_auto_checks_path,
@@ -144,6 +148,7 @@ class ServiceRoleExecutionMixin:
         if run_contract:
             run_contract["compiled_spec"] = resolved_spec
             write_json_with_mirrors(layout.run_contract_path, run_contract)
+        write_evidence_coverage_projection(layout)
         self.repository.update_run(run["id"], compiled_spec=resolved_spec)
         self.repository.append_event(
             run["id"],

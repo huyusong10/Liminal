@@ -18,18 +18,23 @@
 | run event stream | 面向 run 时间线与 UI 增量观察 | 保持业务事件语义，不承担全局系统诊断职责 |
 | run artifacts | 记录 prompt、输出、summary、metrics 等复盘材料 | 用于还原单次 run 的细节，不替代系统级日志 |
 | evidence ledger | 记录本次 run 的证明项、未覆盖风险和对应 artifact refs | 作为 GateKeeper verdict、run 复盘和后续 revision 的 canonical 证据事实源 |
+| evidence coverage projection | 从 run contract 与 evidence ledger 重算覆盖状态 | 面向 UI 摘要、revision seed 和白盒追溯；不是新的事实源 |
 
 稳定规则：
 
 - application log、run event stream、run artifacts 与 evidence ledger 必须并存，不能互相替代。
 - 同一诊断场景优先用共享关联字段串联三者，而不是复制大段内容。
 - evidence ledger 的 canonical 文件是 `evidence/ledger.jsonl`；它不是 timeline、metrics 或 raw output 的复制品。
+- evidence coverage 的 canonical artifact 是 `evidence/coverage.json`，但它是 derived projection；任何冲突都以 `contract/compiled_spec.json`、`evidence/ledger.jsonl` 和 GateKeeper verdict 为准。
+- coverage target 由后端从 `# Done When`、`# Fake Done`、`# Evidence Preferences` 与 GateKeeper 收束方式派生；用户界面不要求用户手工维护 target。
 - 每个 evidence item 至少要能表达 claim、method、result、artifact refs、produced by、verifies 与 residual risk。
+- evidence item 的 `verifies` 可以引用 coverage target；旧的 `check_results:<check_id>:<status>` 仍兼容，新的 target 引用使用稳定 id，例如 `target:done_when.check_001:covered`。
 - Step handoff 可以摘要证据，但必须通过 `evidence_refs` 指回 ledger item；面向用户的结论不能只停留在自由文本。
 - 并行检视组中的多个 evidence producer 共享同一上游快照；ledger 按 workflow step 顺序落账，并保留各自的 `step_id / role_id / archetype / iter`。
 - GateKeeper pass 必须能回到 evidence ledger；没有 evidence refs 或可落账 evidence claims 的 pass 不能成为新 run 的强收敛条件。
+- `Fake Done` 与 `Evidence Preferences` 在第一阶段属于 advisory coverage；缺口会让 projection 标记为 weak 并进入 revision seed，但不扩大当前 GateKeeper 硬失败条件。
 - Web 终端必须把关键系统动作白盒化投影出来，不能只展示底层命令输出。
-- 面向用户的 run 详情页应优先消费 run artifacts 中已经冻结的 handoff / iteration summary 来生成“关键结论”，而不是把原始 artifact 文件逐个暴露为主界面导航；原始 artifact 仍保留在 `.loopora` 中供追查与下载。
+- 面向用户的 run 详情页应优先消费 run artifacts 中已经冻结的 handoff、iteration summary 与 coverage projection 来生成“关键结论”，默认只展示简洁状态与主要原因；完整 target、ledger 和 artifact 链路通过白盒追溯入口查看。
 - 当新的 `step_handoff_written`、`control_completed`、`control_failed`、`iteration_summary_written` 或 `run_finished` 事件到达时，run 详情页里的“关键结论”必须在当前会话内自动拉取最新 artifacts 并刷新；不能要求用户手动刷新整页后才能看到最新轮次结论。
 - 提供给角色 prompt 的 artifact refs 必须能从 workspace 直接定位到 `.loopora/runs/...` 下的真实文件，不能只暴露对 run 目录内部才有意义的短相对路径。
 - 当角色尝试获取浏览器或截图证据失败时，诊断线索必须保留在 run event stream 与 step handoff 中，便于后续角色区分“产品问题”与“宿主环境阻断”。
@@ -170,7 +175,7 @@ run event stream 中，以下事件属于稳定白盒事件：
 - `iteration_summary_written`
 
 这些事件必须能被终端观察面直接订阅并渲染。
-其中 `step_handoff_written` 必须携带 evidence ledger 路径和本 step 的 evidence refs，方便 UI 与调试工具从事件回到 canonical 证据源。
+其中 `step_handoff_written` 必须携带 evidence ledger 路径、coverage projection 路径和本 step 的 evidence refs，方便 UI 与调试工具从事件回到 canonical 证据源与派生覆盖结论。
 `parallel_group_started / finished` 只表达执行形状，不替代各 step 自己的 context、handoff 与 evidence 事件。
 `control_*` 事件只表达受控误差机制的生命周期：为什么触发、调用了谁、引用了哪些 evidence refs、是否阻断或失败。control 完成时还必须在 evidence ledger 写入 `evidence_kind=control` 的 item；control 失败不能被静默吞掉。
 

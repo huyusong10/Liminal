@@ -96,6 +96,14 @@ RUN_ARTIFACT_SPECS = (
         "description_zh": "本次 run 的 canonical 证据账本，记录证明了什么、没证明什么，以及结论对应的 artifact。",
         "description_en": "The canonical evidence ledger for this run: what was proven, what remains unproven, and which artifacts support each claim.",
     },
+    {
+        "id": "evidence-coverage",
+        "relative_path": "evidence/coverage.json",
+        "label_zh": "证据覆盖投影",
+        "label_en": "Evidence coverage",
+        "description_zh": "从运行契约与证据账本重算得到的覆盖投影，用于追溯收束结论。",
+        "description_en": "A derived coverage projection rebuilt from the run contract and evidence ledger for tracing closure decisions.",
+    },
 )
 
 STEP_ARTIFACT_FILENAMES = {
@@ -230,6 +238,10 @@ class RunArtifactLayout:
     @property
     def evidence_ledger_path(self) -> Path:
         return self.evidence_dir / "ledger.jsonl"
+
+    @property
+    def evidence_coverage_path(self) -> Path:
+        return self.evidence_dir / "coverage.json"
 
     @property
     def iterations_dir(self) -> Path:

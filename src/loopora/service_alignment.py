@@ -13,6 +13,7 @@ from typing import Any
 from loopora.branding import state_dir_for_workdir
 from loopora.bundles import BundleError, bundle_to_yaml, lint_alignment_bundle_semantics, load_bundle_text
 from loopora.diagnostics import get_logger, log_event, log_exception
+from loopora.evidence_coverage import load_or_build_evidence_coverage_projection, summarize_evidence_coverage_projection
 from loopora.executor import ExecutionStopped, ExecutorError, RoleRequest, validate_command_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
 from loopora.service_types import LooporaError
@@ -535,6 +536,7 @@ class ServiceAlignmentMixin:
                 "source_bundle_id": source_bundle_id,
                 "source_run_id": run_id,
                 "reason": "revise_from_run_evidence",
+                "coverage_summary": self._alignment_run_coverage_summary(run),
                 "evidence_summary": self._alignment_run_evidence_summary(run),
                 "gatekeeper_verdict": run.get("last_verdict") or {},
             },
@@ -641,6 +643,21 @@ class ServiceAlignmentMixin:
                 }
             )
         return items[-limit:]
+
+    def _alignment_run_coverage_summary(self, run: dict) -> dict:
+        layout = self._run_artifact_layout(Path(run["runs_dir"]))
+        projection = load_or_build_evidence_coverage_projection(layout)
+        summary = summarize_evidence_coverage_projection(
+            projection,
+            coverage_path_available=layout.evidence_coverage_path.exists(),
+        )
+        return {
+            "status": summary.get("status", ""),
+            "reason": (summary.get("summary") or {}).get("reason", ""),
+            "coverage_path": summary.get("coverage_path", ""),
+            "top_gaps": list(summary.get("top_gaps") or [])[:5],
+            "latest_gatekeeper": summary.get("latest_gatekeeper") or {},
+        }
 
     def _execute_alignment_session(self, session_id: str) -> None:
         key = self._alignment_thread_key(session_id)
@@ -1227,6 +1244,12 @@ Run evidence summary:
 
 ```json
 {json.dumps(source.get("evidence_summary") or [], ensure_ascii=False, indent=2)}
+```
+
+Coverage summary:
+
+```json
+{json.dumps(source.get("coverage_summary") or {}, ensure_ascii=False, indent=2)}
 ```
 
 GateKeeper verdict:

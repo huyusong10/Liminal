@@ -65,6 +65,7 @@ run 目录使用统一 canonical layout：
 - `timeline/metrics.jsonl`
 - `timeline/stagnation.json`
 - `evidence/ledger.jsonl`
+- `evidence/coverage.json`
 - `iterations/iter_XXX/summary.json`
 - `iterations/iter_XXX/steps/NN__<step_id>/{metadata,input.context,prompt,output.raw,output.normalized,handoff}.json|md`
 

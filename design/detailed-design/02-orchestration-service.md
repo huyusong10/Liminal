@@ -79,6 +79,7 @@
 - 在每个 step 开始前生成稳定的 `StepContextPacket`
 - 在每个 step 结束后生成稳定的 `StepHandoff`
 - 在每个 step 结束后写入 `evidence/ledger.jsonl`，并让 `StepHandoff.evidence_refs` 指向本 step 的 evidence item
+- 在 run 注册和每个 step evidence 落账后刷新 `evidence/coverage.json`，该文件只能从 run contract、ledger 与 GateKeeper verdict 重算
 - 在每轮结束后生成 `IterationSummary`
 - 角色上下文主键必须以 `step_id` 和 `role_id` 为主，`archetype` 只能作为聚类与回退
 - 同一份 workflow snapshot 内，`role_id` 与 `step_id` 都必须唯一，避免上下文、事件与产物主键冲突
@@ -103,6 +104,7 @@ GateKeeper evidence gate：
 - GateKeeper 的 `passed=true` 不是充分条件。
 - 新 run 的 GateKeeper verdict 必须引用已有 evidence item，或提供可落账的具体 `evidence_claims`，否则服务层必须把该 verdict 改写为未通过。
 - 未通过的 evidence gate 必须进入 `blocking_issues / hard_constraint_violations`，使 run 在 `gatekeeper` completion mode 下继续迭代或最终失败。
+- coverage projection 可以把 `Fake Done` 与 `Evidence Preferences` 缺口标记为 `weak` 并带入 revision seed；这不改变当前 GateKeeper evidence gate 的硬失败边界。
 - 旧 run / legacy verdict 可以继续展示原文本，但不能被解释成同等级的强门禁通过。
 
 ## 5. 模型解析契约

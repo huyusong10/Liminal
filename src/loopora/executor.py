@@ -962,6 +962,7 @@ class FakeCodexExecutor(CodexExecutor):
                 "check_results": results,
                 "dynamic_checks": [],
                 "tester_observations": "Fake executor evaluated the compiled Markdown checks.",
+                "coverage_results": [],
             }
 
         if archetype in {"verifier", "gatekeeper"}:

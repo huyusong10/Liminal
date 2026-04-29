@@ -1522,22 +1522,27 @@
   function evidenceCoverageStatusLabel(status) {
     switch (status) {
       case "covered":
-        return localeText("证据已覆盖", "Evidence covered");
-      case "checks_covered":
-        return localeText("检查已覆盖", "Checks covered");
+        return localeText("可收束", "Ready to close");
+      case "weak":
+        return localeText("证据偏弱", "Weak evidence");
       case "partial":
-        return localeText("证据不足", "Partial evidence");
+        return localeText("缺关键证据", "Missing key evidence");
+      case "blocked":
+        return localeText("被阻断", "Blocked");
+      case "legacy":
+        return localeText("旧版证据", "Legacy evidence");
       default:
         return localeText("等待证据", "Waiting for evidence");
     }
   }
 
-  function evidenceCoverageCard(labelZh, labelEn, value, detail) {
+  function evidenceCoverageCard(labelZh, labelEn, value, detail, actionHtml) {
     return `
       <article class="takeaway-evidence-card">
         <span class="takeaway-evidence-label">${escapeHtml(localeText(labelZh, labelEn))}</span>
         <strong>${escapeHtml(String(value || "-"))}</strong>
         ${detail ? `<p>${escapeHtml(detail)}</p>` : ""}
+        ${actionHtml || ""}
       </article>
     `;
   }
@@ -1551,26 +1556,34 @@
     const evidenceCount = Number(coverage.evidence_count || takeawaySnapshot?.evidence_count || 0);
     const checkCount = Number(coverage.check_count || 0);
     const coveredChecks = Number(coverage.covered_check_count || 0);
+    const coveragePath = String(coverage.coverage_path || "");
     const gatekeeperRefs = Array.isArray(coverage.latest_gatekeeper?.evidence_refs)
       ? coverage.latest_gatekeeper.evidence_refs.length
       : 0;
     const riskCount = Number(coverage.residual_risk_count || 0);
-    const statusDetail = coverage.ledger_path
-      ? localeText(`${evidenceCount} 条证据 · 账本 ${coverage.ledger_path}`, `${evidenceCount} evidence item${evidenceCount === 1 ? "" : "s"} · Ledger ${coverage.ledger_path}`)
+    const primaryGap = Array.isArray(coverage.top_gaps) && coverage.top_gaps.length ? coverage.top_gaps[0] : null;
+    const statusReason = coverage.summary?.reason || "";
+    const traceAction = coveragePath
+      ? `<a class="takeaway-evidence-link" href="/api/runs/${encodeURIComponent(runId)}/artifacts/evidence-coverage" target="_blank" rel="noreferrer">${escapeHtml(localeText("查看证据链", "View trace"))}</a>`
+      : "";
+    const statusDetail = statusReason
+      ? statusReason
+      : coverage.ledger_path
+        ? localeText(`${evidenceCount} 条证据 · 账本 ${coverage.ledger_path}`, `${evidenceCount} evidence item${evidenceCount === 1 ? "" : "s"} · Ledger ${coverage.ledger_path}`)
       : localeText("run 开始后会写入证据账本。", "The ledger appears after the run starts.");
     const checkDetail = checkCount
-      ? localeText(`${coverage.missing_check_count || 0} 条检查仍缺直接通过证据`, `${coverage.missing_check_count || 0} check(s) still lack direct passing evidence`)
+      ? localeText(`${coverage.missing_check_count || 0} 条完成条件仍缺直接证据`, `${coverage.missing_check_count || 0} completion target(s) still lack direct evidence`)
       : localeText("当前 spec 没有冻结 Done When 检查。", "The current spec has no frozen Done When checks.");
     const gatekeeperDetail = gatekeeperRefs
       ? localeText("GateKeeper verdict 已引用上游证据。", "The GateKeeper verdict cites upstream evidence.")
       : localeText("等待 GateKeeper 引用证据后收束。", "Waiting for the GateKeeper to cite evidence.");
     const riskDetail = riskCount
       ? (coverage.risk_signals || []).slice(0, 1).join(" · ")
-      : localeText("没有新的阻塞残余风险。", "No new blocking residual risk.");
+      : primaryGap?.text || localeText("没有新的阻塞残余风险。", "No new blocking residual risk.");
     node.hidden = false;
     node.innerHTML = [
-      evidenceCoverageCard("覆盖状态", "Coverage status", evidenceCoverageStatusLabel(coverage.status), statusDetail),
-      evidenceCoverageCard("检查证据", "Check evidence", checkCount ? `${coveredChecks}/${checkCount}` : "-", checkDetail),
+      evidenceCoverageCard("覆盖状态", "Coverage status", evidenceCoverageStatusLabel(coverage.status), statusDetail, traceAction),
+      evidenceCoverageCard("完成条件", "Completion evidence", checkCount ? `${coveredChecks}/${checkCount}` : "-", checkDetail),
       evidenceCoverageCard("GateKeeper 引用", "GateKeeper refs", String(gatekeeperRefs), gatekeeperDetail),
       evidenceCoverageCard("残余风险", "Residual risk", String(riskCount), riskDetail),
     ].join("");

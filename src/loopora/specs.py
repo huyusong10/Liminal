@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from loopora.evidence_coverage import with_coverage_targets
 from loopora.workflows import build_preset_workflow, display_name_for_archetype, normalize_role_display_name, normalize_workflow
 
 REQUIRED_SECTIONS = ["Task"]
@@ -196,7 +197,7 @@ def compile_markdown_spec(markdown_text: str) -> dict:
             }
         )
 
-    return {
+    compiled = {
         "goal": sections["Task"].strip(),
         "constraints": sections.get("Guardrails", "").strip(),
         "checks": compiled_checks,
@@ -206,6 +207,7 @@ def compile_markdown_spec(markdown_text: str) -> dict:
         **text_sections,
         "raw_sections": {key: value.strip() for key, value in sections.items()},
     }
+    return with_coverage_targets(compiled)
 
 
 def read_and_compile(path: Path) -> tuple[str, dict]:

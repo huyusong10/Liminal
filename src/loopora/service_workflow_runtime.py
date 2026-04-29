@@ -388,6 +388,7 @@ class ServiceWorkflowRuntimeMixin:
                     "completion_mode": "gatekeeper",
                     "workflow_preset": "custom",
                     "workflow_collaboration_intent": "",
+                    "coverage_targets": list(compiled_spec.get("coverage_targets") or []),
                     "success_surface": list(compiled_spec.get("success_surface") or []),
                     "fake_done_states": list(compiled_spec.get("fake_done_states") or []),
                     "evidence_preferences": list(compiled_spec.get("evidence_preferences") or []),

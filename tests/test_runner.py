@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from loopora.executor import CodexExecutor, ExecutorError
+from loopora.executor import CodexExecutor, ExecutorError, FakeCodexExecutor
 from loopora.service import LooporaError, LooporaService
 from loopora.settings import app_home, configure_logging
 
@@ -86,6 +86,7 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     assert (run_dir / "timeline" / "stagnation.json").exists()
     assert (run_dir / "stagnation.json").exists()
     assert (run_dir / "evidence" / "ledger.jsonl").exists()
+    assert (run_dir / "evidence" / "coverage.json").exists()
     assert (run_dir / "contract" / "compiled_spec.json").exists()
     assert (run_dir / "contract" / "workflow.json").exists()
     assert (run_dir / "contract" / "run_contract.json").exists()
@@ -94,6 +95,11 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     assert (sample_workdir / ".loopora" / "loops" / loop["id"] / "compiled_spec.json").exists()
     frozen_workflow = json.loads((run_dir / "contract" / "workflow.json").read_text(encoding="utf-8"))
     run_contract = json.loads((run_dir / "contract" / "run_contract.json").read_text(encoding="utf-8"))
+    coverage = json.loads((run_dir / "evidence" / "coverage.json").read_text(encoding="utf-8"))
+    assert coverage["coverage_path"] == "evidence/coverage.json"
+    assert coverage["ledger_path"] == "evidence/ledger.jsonl"
+    assert coverage["status"] in {"covered", "weak"}
+    assert coverage["targets"]
     assert run_contract["workflow"]["steps"] == [
         {
             "id": step["id"],
@@ -162,6 +168,47 @@ def test_successful_run_enriches_logs_and_role_outputs(
     assert latest_iteration_summary["step_handoffs"]
     assert all(handoff["evidence_refs"] for handoff in latest_iteration_summary["step_handoffs"])
     assert all("parallel_group" in item for item in latest_iteration_summary["workflow"])
+
+
+def test_coverage_results_cover_advisory_targets(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    class CoverageExecutor(FakeCodexExecutor):
+        def _build_payload(self, request):
+            payload = super()._build_payload(request)
+            if request.role_archetype == "inspector":
+                targets = list((request.extra_context.get("compiled_spec") or {}).get("coverage_targets") or [])
+                payload["coverage_results"] = [
+                    {
+                        "target_id": target["id"],
+                        "status": "covered",
+                        "evidence_refs": [],
+                        "note": "Inspector explicitly verified this advisory target.",
+                    }
+                    for target in targets
+                    if target.get("kind") in {"fake_done", "evidence_preference"}
+                ]
+            return payload
+
+    service = service_factory(scenario="success")
+    service.executor_factory = lambda: CoverageExecutor(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Coverage Target Loop")
+
+    run = service.rerun(loop["id"])
+
+    run_dir = Path(run["runs_dir"])
+    coverage = json.loads((run_dir / "evidence" / "coverage.json").read_text(encoding="utf-8"))
+    evidence_ledger = _read_jsonl(run_dir / "evidence" / "ledger.jsonl")
+    target_status = {target["id"]: target["status"] for target in coverage["targets"]}
+
+    assert run["status"] == "succeeded"
+    assert coverage["status"] == "covered"
+    assert target_status["fake_done.risk_001"] == "covered"
+    assert target_status["evidence_preference.pref_001"] == "covered"
+    assert any("target:fake_done.risk_001:covered" in entry["verifies"] for entry in evidence_ledger)
+    assert any("target:evidence_preference.pref_001:covered" in entry["verifies"] for entry in evidence_ledger)
 
 
 def test_successful_run_emits_structured_service_logs(
@@ -1156,6 +1203,7 @@ def test_exploratory_run_generates_and_freezes_checks(
 
     assert compiled_spec["check_mode"] == "auto_generated"
     assert len(compiled_spec["checks"]) >= 3
+    assert any(target["id"] == "done_when.check_001" for target in compiled_spec["coverage_targets"])
     assert auto_checks["count"] == len(compiled_spec["checks"])
     assert tester_output["execution_summary"]["total_checks"] == len(compiled_spec["checks"])
     assert tester_output["check_results"]

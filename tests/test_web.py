@@ -91,6 +91,7 @@ def test_api_loop_creation_run_preview_and_stream(
     assert any(item["id"] == "original-spec" and item["available"] for item in artifact_payload)
     assert any(item["id"] == "summary" and item["available"] for item in artifact_payload)
     assert any(item["id"] == "evidence-ledger" and item["available"] for item in artifact_payload)
+    assert any(item["id"] == "evidence-coverage" and item["available"] for item in artifact_payload)
 
     original_spec_artifact = client.get(f"/api/runs/{run_id}/artifacts/original-spec")
     assert original_spec_artifact.status_code == 200
@@ -111,6 +112,11 @@ def test_api_loop_creation_run_preview_and_stream(
     assert evidence_artifact.status_code == 200
     assert evidence_artifact.json()["kind"] == "file"
     assert "gatekeeper" in evidence_artifact.json()["content"]
+
+    coverage_artifact = client.get(f"/api/runs/{run_id}/artifacts/evidence-coverage")
+    assert coverage_artifact.status_code == 200
+    assert coverage_artifact.json()["kind"] == "file"
+    assert "\"targets\"" in coverage_artifact.json()["content"]
 
     binary_path = sample_workdir / ".DS_Store"
     binary_path.write_bytes(b"\x00\x01\x02binary-data")
@@ -202,11 +208,17 @@ def test_api_run_key_takeaways_returns_iteration_role_conclusions(
     assert gatekeeper["composite_score"] is not None
     coverage = payload["evidence_coverage"]
     assert coverage["ledger_path"] == "evidence/ledger.jsonl"
+    assert coverage["coverage_path"] == "evidence/coverage.json"
     assert coverage["evidence_count"] == payload["evidence_count"]
+    assert coverage["status"] == "weak"
+    assert coverage["summary"]["reason"]
     assert coverage["check_count"] == 2
     assert coverage["covered_check_count"] == 2
     assert coverage["missing_check_count"] == 0
     assert set(coverage["covered_check_ids"]) == {"check_001", "check_002"}
+    assert coverage["target_count"] >= 5
+    assert coverage["missing_target_count"] >= 1
+    assert coverage["top_gaps"]
     assert coverage["latest_gatekeeper"]["evidence_refs"]
     assert coverage["evidence_kind_counts"]["inspection"] >= 1
     assert coverage["evidence_kind_counts"]["verdict"] >= 1

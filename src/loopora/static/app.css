@@ -6110,6 +6110,17 @@ html[data-locale="zh"] .takeaway-evidence-label {
   overflow-wrap: anywhere;
 }
 
+.takeaway-evidence-link {
+  color: var(--accent);
+  font-size: 0.84rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.takeaway-evidence-link:hover {
+  text-decoration: underline;
+}
+
 .takeaway-selector-label {
   color: var(--muted);
   font-size: 0.9rem;

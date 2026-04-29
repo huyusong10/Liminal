@@ -159,6 +159,7 @@ class ServiceRunPromptMixin:
             "Keep the verdict concise and tied to direct evidence. Do not rewrite the whole spec as policy prose.\n"
             "When the main evidence comes from a project-owned benchmark or harness, treat those artifacts as primary evidence.\n"
             "Distinguish product or knowledge failures from harness-process defects, and surface harness defects as first-class failures when they block trustworthy evaluation.\n"
+            "Return `coverage_results` as an empty list unless you can explicitly verify or reject Fake Done or Evidence Preferences coverage targets; entries must include target_id, status, evidence_refs, and note.\n"
             f"Iteration: {iter_id}\n"
             f"Mode: {mode}\n"
             f"Goal:\n{compiled_spec['goal']}\n\n"
@@ -263,7 +264,7 @@ CHECK_PLANNER_SCHEMA = {
 
 TESTER_SCHEMA = {
     "type": "object",
-    "required": ["execution_summary", "check_results", "dynamic_checks", "tester_observations"],
+    "required": ["execution_summary", "check_results", "dynamic_checks", "tester_observations", "coverage_results"],
     "properties": {
         "execution_summary": {
             "type": "object",
@@ -306,6 +307,20 @@ TESTER_SCHEMA = {
             },
         },
         "tester_observations": {"type": "string"},
+        "coverage_results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["target_id", "status", "evidence_refs", "note"],
+                "properties": {
+                    "target_id": {"type": "string"},
+                    "status": {"type": "string"},
+                    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                    "note": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        },
     },
     "additionalProperties": False,
 }

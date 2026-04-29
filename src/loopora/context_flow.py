@@ -117,6 +117,7 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "completion_mode",
                 "workflow_preset",
                 "workflow_collaboration_intent",
+                "coverage_targets",
                 "success_surface",
                 "fake_done_states",
                 "evidence_preferences",
@@ -131,6 +132,7 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "completion_mode": {"type": "string"},
                 "workflow_preset": {"type": "string"},
                 "workflow_collaboration_intent": {"type": "string"},
+                "coverage_targets": {"type": "array", "items": {"type": "object"}},
                 "success_surface": {"type": "array", "items": {"type": "string"}},
                 "fake_done_states": {"type": "array", "items": {"type": "string"}},
                 "evidence_preferences": {"type": "array", "items": {"type": "string"}},
@@ -429,6 +431,7 @@ def build_step_context_packet(
             "completion_mode": str(run_contract.get("completion_mode") or "gatekeeper"),
             "workflow_preset": str(workflow_snapshot.get("preset") or "custom"),
             "workflow_collaboration_intent": str(workflow_snapshot.get("collaboration_intent") or "").strip(),
+            "coverage_targets": list(compiled_spec.get("coverage_targets") or []),
             "success_surface": list(compiled_spec.get("success_surface") or []),
             "fake_done_states": list(compiled_spec.get("fake_done_states") or []),
             "evidence_preferences": list(compiled_spec.get("evidence_preferences") or []),
@@ -584,6 +587,9 @@ def build_step_evidence_entry(
     archetype = str(role["archetype"])
     verifies = _evidence_verifies(archetype, output)
     related_evidence_ids = _string_list(output.get("evidence_refs"))
+    for coverage_result in list(output.get("coverage_results") or []):
+        if isinstance(coverage_result, dict):
+            related_evidence_ids.extend(_string_list(coverage_result.get("evidence_refs")))
     if evidence_entry_id(iter_id, step_order, step["id"]) in related_evidence_ids:
         related_evidence_ids = [
             item for item in related_evidence_ids if item != evidence_entry_id(iter_id, step_order, step["id"])
@@ -656,6 +662,7 @@ def _evidence_source(archetype: str) -> str:
 
 def _evidence_verifies(archetype: str, output: dict) -> list[str]:
     refs: list[str] = []
+    refs.extend(_coverage_result_verify_refs(output.get("coverage_results")))
     if archetype == "inspector":
         for bucket_name in ("check_results", "dynamic_checks"):
             for item in output.get(bucket_name, []) or []:
@@ -672,6 +679,21 @@ def _evidence_verifies(archetype: str, output: dict) -> list[str]:
         refs.extend(_string_list(output.get("changed_files")))
         refs.extend(_string_list(output.get("observations")))
     return refs[:20]
+
+
+def _coverage_result_verify_refs(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    refs: list[str] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        target_id = str(item.get("target_id") or "").strip()
+        if not target_id or ":" in target_id:
+            continue
+        status = str(item.get("status") or "unknown").strip() or "unknown"
+        refs.append(f"target:{target_id}:{status}")
+    return refs
 
 
 def _evidence_residual_risk(archetype: str, output: dict, handoff: dict) -> str:
@@ -883,7 +905,10 @@ def output_contract_prompt(archetype: str) -> str:
     if archetype == "builder":
         return "Output contract: return JSON with attempted, abandoned, assumption, summary, and changed_files."
     if archetype == "inspector":
-        return "Output contract: return JSON with execution_summary, check_results, dynamic_checks, and tester_observations."
+        return (
+            "Output contract: return JSON with execution_summary, check_results, dynamic_checks, tester_observations, "
+            "and coverage_results. Use an empty coverage_results list unless you can explicitly verify or reject coverage target ids."
+        )
     if archetype == "gatekeeper":
         return (
             "Output contract: return JSON with passed, decision_summary, feedback_to_builder, blocking_issues, "
@@ -904,6 +929,7 @@ def render_run_contract_section(contract: dict, compiled_spec: dict) -> str:
     success_surface = json.dumps(contract.get("success_surface") or [], ensure_ascii=False, indent=2)
     fake_done_states = json.dumps(contract.get("fake_done_states") or [], ensure_ascii=False, indent=2)
     evidence_preferences = json.dumps(contract.get("evidence_preferences") or [], ensure_ascii=False, indent=2)
+    coverage_targets = json.dumps(contract.get("coverage_targets") or [], ensure_ascii=False, indent=2)
     workflow_collaboration_intent = str(contract.get("workflow_collaboration_intent") or "No explicit workflow collaboration intent was provided.").strip()
     residual_risk = str(contract.get("residual_risk") or "No explicit residual-risk stance was provided.").strip()
     return (
@@ -916,6 +942,7 @@ def render_run_contract_section(contract: dict, compiled_spec: dict) -> str:
         f"Goal:\n{contract.get('goal', '').strip()}\n\n"
         f"Checks:\n{json.dumps(compiled_spec.get('checks', []), ensure_ascii=False, indent=2)}\n\n"
         f"Constraints:\n{constraints}\n\n"
+        f"Coverage targets:\n{coverage_targets}\n\n"
         f"Success surface:\n{success_surface}\n\n"
         f"Fake done states:\n{fake_done_states}\n\n"
         f"Evidence preferences:\n{evidence_preferences}\n\n"

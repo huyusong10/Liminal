@@ -7,6 +7,7 @@ import re
 import shutil
 
 from loopora.bundles import BundleError, bundle_to_yaml, load_bundle_file, load_bundle_text, normalize_bundle
+from loopora.evidence_coverage import with_coverage_targets
 from loopora.markdown_tools import render_safe_markdown_html
 from loopora.settings import app_home
 from loopora.specs import compile_markdown_spec, SpecError
@@ -943,6 +944,10 @@ class ServiceBundleAssetMixin:
         else:
             effective_spec_markdown = str(spec_markdown or "").strip() + "\n"
             compiled_spec = compile_markdown_spec(effective_spec_markdown)
+        compiled_spec = with_coverage_targets(
+            compiled_spec,
+            completion_mode=str(loop.get("completion_mode", "gatekeeper")),
+        )
         role_models = _normalize_role_models(loop.get("role_models_json") or loop.get("role_models") or {})
         resolved_orchestration = self._resolve_bundle_orchestration_for_snapshot(bundle, role_models=role_models)
         normalized_workflow = resolved_orchestration["workflow"]

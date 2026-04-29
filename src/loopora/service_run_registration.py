@@ -5,6 +5,7 @@ from pathlib import Path
 
 from loopora.context_flow import build_run_contract_snapshot
 from loopora.diagnostics import log_event
+from loopora.evidence_coverage import with_coverage_targets, write_evidence_coverage_projection
 from loopora.executor import coerce_reasoning_effort, normalize_reasoning_effort, validate_command_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode
 from loopora.run_artifacts import INITIAL_STAGNATION_STATE, write_json_with_mirrors, write_text_with_mirrors
@@ -106,6 +107,7 @@ class ServiceRunRegistrationMixin:
             )
 
         spec_markdown, compiled_spec = self._read_and_compile_spec(spec_path)
+        compiled_spec = with_coverage_targets(compiled_spec, completion_mode=completion_mode)
         loop_id = make_id("loop")
         loop_dir = self._ensure_loop_dir(workdir, loop_id)
         persisted_spec_path = loop_dir / "spec.md"
@@ -190,7 +192,11 @@ class ServiceRunRegistrationMixin:
             dict(INITIAL_STAGNATION_STATE),
             mirror_paths=[layout.run_dir / "stagnation.json"],
         )
-        write_json_with_mirrors(layout.contract_compiled_spec_path, loop["compiled_spec_json"])
+        compiled_spec = with_coverage_targets(
+            loop["compiled_spec_json"],
+            completion_mode=str(loop.get("completion_mode", "gatekeeper")),
+        )
+        write_json_with_mirrors(layout.contract_compiled_spec_path, compiled_spec)
         write_text_with_mirrors(layout.contract_spec_path, loop["spec_markdown"])
         write_json_with_mirrors(layout.contract_workflow_path, workflow)
         self._persist_prompt_files(layout.contract_dir, prompt_files)
@@ -215,13 +221,14 @@ class ServiceRunRegistrationMixin:
                     loop.get("executor_kind", "codex"),
                 ),
             },
-            compiled_spec=loop["compiled_spec_json"],
+            compiled_spec=compiled_spec,
             workflow=workflow,
             prompt_files=prompt_files,
             workspace_baseline=workspace_baseline,
             layout=layout,
         )
         write_json_with_mirrors(layout.run_contract_path, run_contract)
+        write_evidence_coverage_projection(layout)
 
         run = self.repository.create_run(
             {
@@ -230,7 +237,7 @@ class ServiceRunRegistrationMixin:
                 "workdir": loop["workdir"],
                 "spec_path": loop["spec_path"],
                 "spec_markdown": loop["spec_markdown"],
-                "compiled_spec": loop["compiled_spec_json"],
+                "compiled_spec": compiled_spec,
                 "executor_kind": loop.get("executor_kind", "codex"),
                 "executor_mode": loop.get("executor_mode", "preset"),
                 "command_cli": loop.get("command_cli", ""),

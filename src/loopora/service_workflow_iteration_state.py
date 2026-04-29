@@ -5,6 +5,7 @@ from pathlib import Path
 
 from loopora.context_flow import build_step_evidence_entry, build_step_handoff
 from loopora.diagnostics import get_logger, log_event
+from loopora.evidence_coverage import write_evidence_coverage_projection
 from loopora.run_artifacts import append_jsonl_with_mirrors, write_json_with_mirrors
 from loopora.stagnation import update_stagnation
 from loopora.utils import append_jsonl, utc_now
@@ -140,6 +141,7 @@ class ServiceWorkflowIterationStateMixin:
         )
         handoff["evidence_refs"] = [evidence_entry["id"]]
         append_jsonl_with_mirrors(layout.evidence_ledger_path, evidence_entry)
+        coverage_projection = write_evidence_coverage_projection(layout)
         self._write_step_outputs(
             layout,
             iter_id,
@@ -161,6 +163,7 @@ class ServiceWorkflowIterationStateMixin:
                 "archetype": role["archetype"],
                 "handoff_path": layout.relative(layout.step_handoff_path(iter_id, step_order, step["id"])),
                 "evidence_ledger_path": layout.relative(layout.evidence_ledger_path),
+                "evidence_coverage_path": coverage_projection.get("coverage_path", ""),
                 "evidence_refs": handoff["evidence_refs"],
                 "status": handoff["status"],
                 "summary": handoff["summary"],

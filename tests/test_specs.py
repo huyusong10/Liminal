@@ -23,6 +23,16 @@ def test_compile_markdown_spec_extracts_sections(sample_spec_text: str) -> None:
     assert compiled["evidence_preferences"] == [
         "Prefer structured run artifacts and reproducible checks over role self-report.",
     ]
+    target_ids = [item["id"] for item in compiled["coverage_targets"]]
+    assert target_ids == [
+        "done_when.check_001",
+        "done_when.check_002",
+        "fake_done.risk_001",
+        "evidence_preference.pref_001",
+        "gatekeeper.finish",
+    ]
+    assert compiled["coverage_targets"][0]["required"] is True
+    assert compiled["coverage_targets"][2]["required"] is False
     assert "unverifiable completion should fail closed" in compiled["residual_risk"]
     assert compiled["role_notes"]["builder"] == "Move the workspace toward a verifiable state with focused edits."
 
@@ -32,6 +42,7 @@ def test_compile_markdown_spec_allows_missing_checks_for_exploration(exploratory
     assert compiled["goal"] == "Build a rough prototype that proves the main interaction is promising."
     assert compiled["check_mode"] == "auto_generated"
     assert compiled["checks"] == []
+    assert [item["id"] for item in compiled["coverage_targets"]] == ["gatekeeper.finish"]
 
 
 def test_compile_markdown_spec_requires_task() -> None:
@@ -135,4 +146,10 @@ Minor copy polish can wait, but structural regressions should fail closed.
     assert compiled["evidence_preferences"] == [
         "Prefer real project commands and reproducible tests over screenshots alone.",
     ]
+    assert {item["id"] for item in compiled["coverage_targets"]} >= {
+        "done_when.check_001",
+        "fake_done.risk_001",
+        "evidence_preference.pref_001",
+        "gatekeeper.finish",
+    }
     assert compiled["residual_risk"] == "Minor copy polish can wait, but structural regressions should fail closed."
