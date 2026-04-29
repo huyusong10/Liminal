@@ -8,7 +8,7 @@
       <p>{{ bundle.collaboration_summary }}</p>
       <p class="field-note">
         <span data-lang="zh">方案版本 r{{ bundle.revision }}</span>
-        <span data-lang="en">Plan revision r{{ bundle.revision }}</span>
+        <span data-lang="en">Plan version r{{ bundle.revision }}</span>
       </p>
     </div>
     <div class="card-actions">
@@ -16,16 +16,16 @@
         <span data-lang="zh">导出方案</span>
         <span data-lang="en">Export plan</span>
       </a>
+      <a class="secondary-button" href="/loops/new/manual?replace_bundle_id={{ bundle.id }}#bundle-import-form" data-testid="bundle-replace-yaml-link">
+        <span data-lang="zh">导入 YAML 替换</span>
+        <span data-lang="en">Replace from YAML</span>
+      </a>
       <form method="post" action="/bundles/{{ bundle.id }}/revise" class="inline-form">
-        <button class="secondary-button" type="submit" data-testid="bundle-revise-chat-button">
-          <span data-lang="zh">用对话修订方案</span>
-          <span data-lang="en">Revise with Chat</span>
+        <button class="secondary-button" type="submit" data-testid="bundle-improve-chat-button">
+          <span data-lang="zh">对话改进方案</span>
+          <span data-lang="en">Improve in chat</span>
         </button>
       </form>
-      <a class="secondary-button" href="/loops/new/manual?replace_bundle_id={{ bundle.id }}#bundle-import-form" data-testid="bundle-import-revision-link">
-        <span data-lang="zh">导入下一版方案</span>
-        <span data-lang="en">Import next plan</span>
-      </a>
       {% if bundle.loop %}
       <a class="ghost-button" href="/loops/{{ bundle.loop.id }}">
         <span data-lang="zh">打开运行配置</span>
@@ -47,16 +47,16 @@
   <section class="panel" data-testid="bundle-revision-lineage">
     <header class="panel-header">
       <div>
-        <h2><span data-lang="zh">修订脉络</span><span data-lang="en">Revision lineage</span></h2>
+        <h2><span data-lang="zh">版本来源</span><span data-lang="en">Version lineage</span></h2>
         <p class="panel-note">
-          <span data-lang="zh">这里投影当前方案和来源方案的关系，帮助判断这次修订改变了哪些治理面。</span>
-          <span data-lang="en">This projects how the current plan relates to its source plan, so changed governance surfaces stay visible.</span>
+          <span data-lang="zh">这里投影当前方案和来源方案的关系，帮助追查治理面变化。</span>
+          <span data-lang="en">This projects how the current plan relates to its source plan, so governance surface changes stay visible.</span>
         </p>
       </div>
     </header>
     <div class="bundle-revision-grid">
       <article class="bundle-revision-card">
-        <span class="bundle-revision-label"><span data-lang="zh">当前版本</span><span data-lang="en">Current revision</span></span>
+        <span class="bundle-revision-label"><span data-lang="zh">当前版本</span><span data-lang="en">Current version</span></span>
         <strong>{{ revision_summary.revision }}</strong>
         <p><span data-lang="zh">方案 ID 在专家信息中查看。</span><span data-lang="en">Plan ID is available in expert details.</span></p>
       </article>
@@ -66,7 +66,7 @@
         <strong>{{ revision_summary.source_bundle.name }}</strong>
         <p>
           <span data-lang="zh">方案版本 r{{ revision_summary.source_bundle.revision }}</span>
-          <span data-lang="en">Plan revision r{{ revision_summary.source_bundle.revision }}</span>
+          <span data-lang="en">Plan version r{{ revision_summary.source_bundle.revision }}</span>
         </p>
         {% elif revision_summary.source_bundle_id %}
         <strong><span data-lang="zh">来源方案</span><span data-lang="en">Source plan</span></strong>
@@ -101,8 +101,8 @@
       {% else %}
       <p class="panel-note" data-testid="bundle-revision-no-diff">
         {% if revision_summary.lineage_state == "in_place_revision" %}
-        <span data-lang="zh">这份方案是原地替换的 revision；上一版已被当前 bundle 记录覆盖，因此无法做逐 surface diff。</span>
-        <span data-lang="en">This plan was revised in place; the previous revision was replaced by the current bundle record, so per-surface diff is unavailable.</span>
+        <span data-lang="zh">这份方案是原地替换的版本；上一版已被当前 bundle 记录覆盖，因此无法做逐 surface diff。</span>
+        <span data-lang="en">This plan was replaced in place; the previous version was replaced by the current bundle record, so per-surface diff is unavailable.</span>
         {% elif revision_summary.source_bundle_id %}
         <span data-lang="zh">当前还没有可比较的来源方案。</span>
         <span data-lang="en">There is no comparable source plan right now.</span>
@@ -213,13 +213,13 @@
     {% if request.query_params.get("surface_updated") == "workflow" %}
     <div class="field-status is-success" data-testid="bundle-surface-updated-workflow">
       <span data-lang="zh">流程编排已保存，方案版本也已同步更新。</span>
-      <span data-lang="en">The orchestration was saved, and the plan revision was updated in sync.</span>
+      <span data-lang="en">The orchestration was saved, and the plan version was updated in sync.</span>
     </div>
     {% endif %}
     {% if request.query_params.get("surface_updated", "").startswith("role:") %}
     <div class="field-status is-success" data-testid="bundle-surface-updated-role">
       <span data-lang="zh">角色定义已保存，方案版本也已同步更新。</span>
-      <span data-lang="en">The role definition was saved, and the plan revision was updated in sync.</span>
+      <span data-lang="en">The role definition was saved, and the plan version was updated in sync.</span>
     </div>
     {% endif %}
 
@@ -280,8 +280,8 @@
       </div>
     </header>
     <p class="panel-note">
-      <span data-lang="zh">这里展示的是当前 revision 的完整 YAML。外部 agent 产出新版本后，可以用上面的“导入下一版方案”直接替换。</span>
-      <span data-lang="en">This is the full YAML for the current revision. When an external agent produces the next version, use “Import next plan” above to replace it in place.</span>
+      <span data-lang="zh">这里展示的是当前版本的完整 YAML。用户在系统外得到新 YAML 后，可以用上面的“导入 YAML 替换”显式替换。</span>
+      <span data-lang="en">This is the full YAML for the current version. When you produce a new YAML outside Loopora, use “Replace from YAML” above to replace it explicitly.</span>
     </p>
     <label class="wide">
       <span><span data-lang="zh">Bundle 文件位置</span><span data-lang="en">Bundle file path</span></span>

@@ -30,8 +30,8 @@
       <h2><span data-lang="zh">从现有 Loop 派生方案</span><span data-lang="en">Derive a Plan From a Loop</span></h2>
     </header>
     <p class="panel-note">
-      <span data-lang="zh">这条路径适合把手动编排过的 loop 导出成可复用方案，再交给外部 agent、团队成员或后续 revision 流程使用。</span>
-      <span data-lang="en">Use this path to export an existing manual loop into a reusable plan for an external agent, teammate, or later revision flow.</span>
+      <span data-lang="zh">这条路径适合把手动编排过的 loop 导出成可复用方案，再交给外部 agent、团队成员或其他工具使用。</span>
+      <span data-lang="en">Use this path to export an existing manual loop into a reusable plan for an external agent, teammate, or another tool.</span>
     </p>
     <form class="form-panel" method="post" action="/bundles/derive" data-testid="bundle-derive-form">
       <div class="field-status is-error" aria-live="polite" {% if not derive_error %}hidden{% endif %}>{{ derive_error or "" }}</div>

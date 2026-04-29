@@ -26,21 +26,23 @@ from loopora.workflows import WorkflowError
 
 def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/bundles/{bundle_id}/revise")
-    async def create_bundle_revision_from_form(request: Request, bundle_id: str):
+    async def create_bundle_improvement_from_form(request: Request, bundle_id: str):
         form = await request.form()
+        message = str(form.get("message", "") or "")
         session = ctx.svc().create_bundle_revision_session(
             bundle_id,
-            message=str(form.get("message", "") or ""),
+            message=message,
             start_immediately=True,
         )
         return RedirectResponse(url=f"/loops/new/bundle?alignment_session_id={session['id']}", status_code=303)
 
     @app.post("/runs/{run_id}/revise")
-    async def create_run_revision_from_form(request: Request, run_id: str):
+    async def create_run_improvement_from_form(request: Request, run_id: str):
         form = await request.form()
+        message = str(form.get("message", "") or "")
         session = ctx.svc().create_run_revision_session(
             run_id,
-            message=str(form.get("message", "") or ""),
+            message=message,
             start_immediately=True,
         )
         return RedirectResponse(url=f"/loops/new/bundle?alignment_session_id={session['id']}", status_code=303)

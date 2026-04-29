@@ -15,7 +15,7 @@
   <img alt="Status" src="https://img.shields.io/badge/status-实验中-D66A36">
 </p>
 
-Loopora 是面向长期 AI Agent 任务的本地任务治理 harness。
+Loopora 是面向长期 AI Agent 任务的本地任务平台。
 
 它解决的是这样一个时刻：只是“再问一次 Agent”已经不够了。
 
@@ -23,17 +23,17 @@ Loopora 是面向长期 AI Agent 任务的本地任务治理 harness。
 
 如果一次 AI Agent 执行加一轮人工 review 就足够，那你不需要 Loopora。
 
-但长期任务的瓶颈经常不是第一版生成，而是你总要反复回来判断：
+但长期任务的瓶颈经常不是第一版生成，而是你需要先编排一个 Loop，让系统按角色和 workflow 自动迭代，并留下足够证据来验证：
 
 - 这一轮证明了正确的东西吗？
 - 结果是真的完成，还是只是局部看起来合理？
 - 哪些假进展必须被拒绝？
-- 下一轮应该继续构建、先检查、修一轮、收窄范围，还是停止？
-- 这次 run 暴露出来的问题，是否应该改变任务 harness 本身？
+- 哪个角色应该构建、检查、修复、收窄范围，或者停止？
+- 哪些证据应该保留下来，供 run 外部复盘？
 
-当这些问题反复出现，瓶颈就不再是生成，而是治理。
+当这些问题反复出现，瓶颈就不再是生成，而是编排、运行、观察和裁决长期任务。
 
-**Loopora 的目标，是把任务治理从 Agent 的上下文里拿出来，变成一个外部的、持久的、可检查的、可运行的、可修订的控制系统。**
+**Loopora 的目标，是让用户编排一个长期任务 Loop，把它交给系统自动迭代，并查看系统留下的白盒证据和裁决结果。**
 
 ## 它和 Agent 插件有什么不同？
 
@@ -46,26 +46,25 @@ Loopora 站在 Agent 外围那一层。
 | prompt 里写“什么算好” | `spec` 冻结任务契约、假完成、证据和残余风险 |
 | 某个角色提醒 Agent review | `roles` 分离构建、检查、裁决和纠偏责任 |
 | checklist 依赖模型自觉执行 | `workflow` 决定何时判断、证据如何流动、什么条件能结束 run |
-| 日志解释发生了什么 | `evidence` 成为 review 和 revision 的事实源 |
-| 反馈变成下一段 prompt | `revision` 修改 harness 本身 |
+| 日志解释发生了什么 | `evidence` 成为 review 的事实源 |
+| 反馈变成下一段 prompt | bundle 导入 / 导出让用户拥有的改动保持显式 |
 
-Loopora 不试图替代你的 AI Agent。它给 AI Agent 一个外部误差控制 harness。
+Loopora 不试图替代你的 AI Agent。它给 AI Agent 一个可运行的 Loop，也给用户一个外部可观察的证据面。
 
 ## 核心概念
 
-Loopora 面向用户的核心对象是 **循环方案**。
+Loopora 面向用户的核心对象是 **Loop**。
 
-循环方案不是更长的 prompt，而是一份任务治理契约，包含五个运行面：
+Loop 不是更长的 prompt，而是一套长期任务编排，包含三个运行输入面和一个观察输出面：
 
 | 运行面 | 职责 |
 | --- | --- |
 | `spec` | 定义范围、成功面、假完成、guardrails、证据偏好和残余风险 |
 | `roles` | 定义每个 AI Agent 角色在本任务中如何构建、检查、裁决或纠偏 |
-| `workflow` | 定义顺序、handoff、证据路由、并行检视、controls 和停止条件 |
+| `workflow` | 定义顺序、handoff、证据路由、自动迭代、并行检视、controls 和停止条件 |
 | `evidence` | 记录每次 run 改了什么、检查了什么、证明了什么、没证明什么、如何裁决 |
-| `revision` | 把 run 证据和用户反馈变成下一版 harness |
 
-在内部，Loopora 会把可运行方案保存为 YAML **bundle**。用户不需要一开始理解这个格式。Web UI 会让你描述任务、通过对话对齐循环方案、预览治理结构，并且只有在方案通过校验后才创建 run。
+在内部，Loopora 可以把可运行 Loop 保存或交换为 YAML **bundle**。用户不需要一开始理解这个格式。Web UI 会让你描述任务、通过对话编排 Loop、预览治理结构，并且只有在候选 Loop 通过校验后才创建 run。
 
 ## 一个具体例子
 
@@ -93,13 +92,11 @@ Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper
 - `Evidence Inspector` 独立证明学习路径是否真实、可重复。
 - `GateKeeper` 只有在证据支持时才允许收束。
 
-如果 run 的结果仍然不对，下一步不是随机改 prompt，而是根据证据修订 harness。
-
 ## 五分钟上手原则
 
 Loopora 可以越来越强，但第一次使用必须保持简单：
 
-> 描述任务，选择 workdir，确认循环方案，运行，看证据，修订。
+> 描述任务，选择 workdir，确认 Loop，运行，看证据。
 
 并行 Inspector、证据路由、workflow controls、触发规则和 provider 执行差异，只有在它们确实能控制长期任务误差时，才由 Loopora 编译进方案。它们不是新用户开始前必须手动配置的概念。
 
@@ -107,23 +104,24 @@ Loopora 可以越来越强，但第一次使用必须保持简单：
 
 ```mermaid
 flowchart LR
-    A["描述任务"] --> B["对齐循环方案"]
-    B --> C["预览治理结构"]
-    C --> D["创建并运行"]
-    D --> E["收集证据"]
-    E --> F["修订 harness"]
+    A["编排 Loop"] --> B["运行 Loop"]
+    B --> C["自动迭代"]
+    C --> D["收集证据"]
+    D --> E["查看裁决"]
 ```
 
 在本地 Web UI 中：
 
 1. **工作台** 展示当前 loop 和 run 状态。
-2. **新建任务** 打开对话式循环方案页面。
-3. Loopora 调用本机 AI Agent CLI，只追问会改变 harness 的问题。
-4. READY 方案会展示任务契约、角色、workflow 图和源文件操作。
-5. **创建并运行** 会物化方案并启动 loop。
-6. **方案库** 保存可复用的任务治理模式和 bundle 文件。
+2. **新建任务** 打开对话式 Loop 编排页面。
+3. Loopora 调用本机 AI Agent CLI，只追问会改变 Loop 的问题。
+4. READY Loop 会展示任务契约、角色、workflow 图和源文件操作。
+5. **创建并运行** 会物化 Loop 并启动 run。
+6. **方案库** 保存可复用的 Loop 和 bundle 文件。
 
 手动创建仍然存在，但它是 expert path，适合你已经明确知道要改哪个 `spec`、`roles` 或 `workflow` 运行面。
+
+导入 YAML，或从已有 bundle / run evidence 发起对话改进，也是编排 Loop 的场景。它们很有用，但不是主工作流；候选 Loop 通过校验后，仍然进入同一条运行、证据和裁决路径。
 
 ## 快速开始
 
@@ -169,11 +167,11 @@ uv run loopora serve --host 127.0.0.1 --port 8742
 
 ## 外部 AI Agent 路径
 
-Web UI 是推荐路径，因为它把对齐、校验、预览、运行、证据和修订放在同一条引导流程里。
+Web UI 是推荐路径，因为它把 Loop 编排、校验、预览、运行和证据放在同一条引导流程里。
 
 如果你更喜欢在 Web 之外做对齐，可以打开 **资源与设置 -> 工具与 Skill**，把 repo-local `loopora-task-alignment` Skill 安装到 Codex、Claude Code、OpenCode 或其他兼容 AI Agent CLI。
 
-这个 Skill 现在内置 Product Primer，所以 alignment Agent 不需要预先知道 Loopora 是什么。它产出的仍是同一种 YAML bundle，需要运行时从 expert 手动路径导入即可。
+这个 Skill 现在内置 Product Primer，所以 alignment Agent 不需要预先知道 Loopora 是什么。它产出的仍是同一种 YAML bundle，需要运行时从 expert 手动路径导入为 Loop 即可。
 
 ## CLI
 
@@ -194,11 +192,11 @@ Loopora 仍处于实验阶段，并坚持 local-first。
 
 稳定承诺：
 
-- 任务治理应该存在于单次 AI Agent 对话之外
-- 循环方案保持可检查、文件化
+- 长期任务编排应该存在于单次 AI Agent 对话之外
+- Loop 保持可检查、文件化
 - bundle 导入 / 导出保持显式、本地
 - run 必须产生证据，而不只是日志
-- revision 应来自证据和反馈，而不是隐藏的 prompt 漂移
+- bundle 改动应通过导入 / 导出显式发生，而不是隐藏的 prompt 漂移
 
 ## 开发
 

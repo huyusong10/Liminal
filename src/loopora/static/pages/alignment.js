@@ -57,7 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const artifactVerdict = document.getElementById("alignment-artifact-verdict");
   const artifactWorkdir = document.getElementById("alignment-artifact-workdir");
   const controlSummary = document.getElementById("alignment-control-summary");
-  const revisionSummary = document.getElementById("alignment-revision-summary");
+  const versionSummary = document.getElementById("alignment-version-summary");
   const artifactSource = document.getElementById("alignment-artifact-source");
   const sourcePathLabel = document.getElementById("alignment-source-path");
   const specPreview = document.getElementById("alignment-spec-preview");
@@ -963,14 +963,14 @@ document.addEventListener("DOMContentLoaded", () => {
     `).join("");
   }
 
-  function renderRevisionSummary(summary) {
-    if (!revisionSummary) {
+  function renderVersionSummary(summary) {
+    if (!versionSummary) {
       return;
     }
     const sourceId = String(summary?.source_bundle_id || "").trim();
     if (!sourceId) {
-      revisionSummary.hidden = true;
-      revisionSummary.innerHTML = "";
+      versionSummary.hidden = true;
+      versionSummary.innerHTML = "";
       return;
     }
     const source = summary.source_bundle || {};
@@ -978,7 +978,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ? source.name
       : localeText("来源方案", "Source plan");
     const revisionText = summary.revision
-      ? localeText(`方案版本 r${summary.revision}`, `Plan revision r${summary.revision}`)
+      ? localeText(`方案版本 r${summary.revision}`, `Plan version r${summary.revision}`)
       : "-";
     const cards = [
       {
@@ -986,16 +986,16 @@ document.addEventListener("DOMContentLoaded", () => {
         value: sourceText,
       },
       {
-        label: localeText("当前版本", "Current revision"),
+        label: localeText("当前版本", "Current version"),
         value: revisionText,
       },
       {
-        label: localeText("修订状态", "Revision state"),
-        value: localeText("下一版方案已准备好。", "Next plan is ready."),
+        label: localeText("导入状态", "Import state"),
+        value: localeText("已读取来源版本信息。", "Source version metadata is available."),
       },
     ];
-    revisionSummary.hidden = false;
-    revisionSummary.innerHTML = cards.map((card) => `
+    versionSummary.hidden = false;
+    versionSummary.innerHTML = cards.map((card) => `
       <div class="alignment-control-card">
         <strong>${escapeHtml(card.label)}</strong>
         <span>${escapeHtml(card.value)}</span>
@@ -1093,7 +1093,7 @@ document.addEventListener("DOMContentLoaded", () => {
     artifactWorkdir.textContent = labeledSummary("运行目录", "Workdir", basename(payload.bundle?.loop?.workdir || ""));
     artifactWorkdir.title = payload.bundle?.loop?.workdir || "";
     renderControlSummary(summary || null);
-    renderRevisionSummary(payload.revision_summary || null);
+    renderVersionSummary(payload.revision_summary || null);
     specPreview.innerHTML = payload.spec_rendered_html || "";
     if (sourceOpenButton) {
       sourceOpenButton.hidden = !payload.source_path;

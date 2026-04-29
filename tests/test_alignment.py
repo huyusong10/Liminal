@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from loopora.bundles import bundle_to_yaml
 from loopora.web import build_app
 
 
@@ -86,57 +87,6 @@ def test_alignment_service_writes_validates_previews_imports_and_runs(
     assert final_session["linked_run_id"] == imported["run"]["id"]
 
 
-def test_alignment_revision_session_can_start_from_existing_bundle(
-    service_factory,
-    sample_workdir: Path,
-) -> None:
-    service = service_factory(scenario="success")
-    created = service.create_alignment_session(
-        workdir=sample_workdir,
-        message="Build a focused starter experience.",
-    )
-    ready = _confirm_alignment_agreement(service, created["id"])
-    imported = service.import_alignment_bundle(ready["id"], start_immediately=False)
-
-    revision = service.create_bundle_revision_session(imported["bundle"]["id"], start_immediately=False)
-    preview = service.get_alignment_bundle(revision["id"])
-
-    assert revision["status"] == "idle"
-    assert revision["linked_bundle_id"] == imported["bundle"]["id"]
-    assert revision["working_agreement"]["mode"] == "revision"
-    assert revision["working_agreement"]["source"]["source_type"] == "bundle"
-    assert preview["ok"] is True
-    assert preview["bundle"]["metadata"]["source_bundle_id"] == imported["bundle"]["id"]
-    assert preview["bundle"]["metadata"]["revision"] > imported["bundle"]["revision"]
-    assert preview["revision_summary"]["source_bundle_id"] == imported["bundle"]["id"]
-    assert preview["revision_summary"]["lineage_state"] == "source_available"
-    assert {item["status"] for item in preview["revision_summary"]["surface_deltas"]} == {"unchanged"}
-
-
-def test_alignment_revision_session_can_start_from_run_evidence(
-    service_factory,
-    sample_workdir: Path,
-) -> None:
-    service = service_factory(scenario="success")
-    created = service.create_alignment_session(
-        workdir=sample_workdir,
-        message="Build a focused starter experience.",
-    )
-    ready = _confirm_alignment_agreement(service, created["id"])
-    imported = service.import_alignment_bundle(ready["id"], start_immediately=False)
-    run = service.rerun(imported["bundle"]["loop_id"])
-
-    revision = service.create_run_revision_session(run["id"], start_immediately=False)
-
-    assert revision["status"] == "idle"
-    assert revision["linked_bundle_id"] == imported["bundle"]["id"]
-    assert revision["linked_run_id"] == run["id"]
-    assert revision["working_agreement"]["source"]["source_type"] == "run"
-    assert revision["working_agreement"]["source"]["coverage_summary"]["status"]
-    assert revision["working_agreement"]["source"]["coverage_summary"]["top_gaps"]
-    assert revision["working_agreement"]["source"]["evidence_summary"]
-
-
 def test_alignment_service_waits_for_user_question(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="alignment_question")
 
@@ -167,7 +117,7 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
     assert "User language hint: `Chinese" in prompt_text
     assert "Assume you know nothing about Loopora except what is embedded below." in prompt_text
     assert "Loopora Product Primer" in prompt_text
-    assert "external task-governance harness" in prompt_text
+    assert "local-first platform for composing, running, and observing long-running AI Agent tasks" in prompt_text
     assert "Preserve Loopora domain terms exactly" in prompt_text
     assert "Alignment Playbook" in prompt_text
     assert "Alignment Quality Rubric" in prompt_text
@@ -392,42 +342,145 @@ def test_alignment_api_covers_session_events_bundle_and_import(
     assert client.get("/api/alignments/sessions").json()["sessions"] == []
 
 
-def test_alignment_api_creates_revision_sessions_from_bundle_and_run(
+def test_alignment_improvement_session_can_start_from_existing_bundle(
     service_factory,
+    sample_spec_file: Path,
     sample_workdir: Path,
 ) -> None:
     service = service_factory(scenario="success")
-    client = TestClient(build_app(service=service))
-    created = service.create_alignment_session(
+    loop = service.create_loop(
+        name="Improvement Source Loop",
+        spec_path=sample_spec_file,
         workdir=sample_workdir,
-        message="Build a focused starter experience.",
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
     )
-    ready = _confirm_alignment_agreement(service, created["id"])
-    imported = service.import_alignment_bundle(ready["id"], start_immediately=False)
-    run = service.rerun(imported["bundle"]["loop_id"])
+    source = service.import_bundle_text(
+        bundle_to_yaml(
+            service.derive_bundle_from_loop(
+                loop["id"],
+                name="Improvement Source Bundle",
+                description="Start from an existing bundle.",
+                collaboration_summary="Prefer evidence before changing posture.",
+            )
+        )
+    )
 
-    bundle_response = client.post(
-        f"/api/bundles/{imported['bundle']['id']}/revise",
-        json={"message": "Make the evidence gate stricter."},
+    session = service.create_bundle_revision_session(source["id"], start_immediately=False)
+
+    agreement = session["working_agreement"]
+    assert agreement["mode"] == "improvement"
+    assert agreement["source"]["source_type"] == "bundle"
+    assert agreement["source"]["source_bundle_id"] == source["id"]
+    assert agreement["source"]["source_run_id"] == ""
+    preview = service.get_alignment_bundle(session["id"])
+    assert preview["ok"] is True
+    assert preview["bundle"]["metadata"]["source_bundle_id"] == source["id"]
+    assert preview["bundle"]["metadata"]["revision"] == source["revision"] + 1
+    events = service.list_alignment_events(session["id"])
+    assert any(event["event_type"] == "alignment_bundle_improvement_seeded" for event in events)
+
+
+def test_alignment_improvement_session_can_start_from_run_evidence(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Run Evidence Source Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
     )
+    source = service.import_bundle_text(
+        bundle_to_yaml(
+            service.derive_bundle_from_loop(
+                loop["id"],
+                name="Run Evidence Source Bundle",
+                description="Start from run evidence.",
+                collaboration_summary="Use GateKeeper evidence to improve the plan.",
+            )
+        )
+    )
+    run = service.rerun(source["loop_id"])
+
+    session = service.create_run_revision_session(run["id"], start_immediately=False)
+
+    agreement = session["working_agreement"]
+    assert agreement["mode"] == "improvement"
+    assert agreement["source"]["source_type"] == "run"
+    assert agreement["source"]["source_bundle_id"] == source["id"]
+    assert agreement["source"]["source_run_id"] == run["id"]
+    assert "coverage_summary" in agreement["source"]
+    assert "gatekeeper_verdict" in agreement["source"]
+    preview = service.get_alignment_bundle(session["id"])
+    assert preview["ok"] is True
+    assert preview["bundle"]["metadata"]["source_bundle_id"] == source["id"]
+
+
+def test_alignment_api_creates_improvement_sessions_from_bundle_and_run(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="API Improvement Source Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    source = service.import_bundle_text(
+        bundle_to_yaml(
+            service.derive_bundle_from_loop(
+                loop["id"],
+                name="API Improvement Source Bundle",
+                description="API improvement source.",
+                collaboration_summary="Keep the source posture visible.",
+            )
+        )
+    )
+    run = service.rerun(source["loop_id"])
+    client = TestClient(build_app(service=service))
+
+    bundle_response = client.post(f"/api/bundles/{source['id']}/revise", json={"start_immediately": False})
     assert bundle_response.status_code == 201
-    bundle_session_id = bundle_response.json()["session"]["id"]
-    bundle_session = _wait_for_status(service, bundle_session_id, "waiting_user")
-    assert bundle_response.json()["redirect_url"] == f"/loops/new/bundle?alignment_session_id={bundle_session_id}"
-    assert bundle_session["working_agreement"]["source"]["source_type"] == "bundle"
-    assert bundle_session["linked_bundle_id"] == imported["bundle"]["id"]
-
-    run_response = client.post(
-        f"/api/runs/{run['id']}/revise",
-        json={"message": "Revise from the latest run evidence."},
+    bundle_payload = bundle_response.json()
+    assert bundle_payload["redirect_url"] == (
+        f"/loops/new/bundle?alignment_session_id={bundle_payload['session']['id']}"
     )
+    assert bundle_payload["session"]["working_agreement"]["mode"] == "improvement"
+    assert bundle_payload["session"]["working_agreement"]["source"]["source_type"] == "bundle"
+    assert bundle_payload["session"]["working_agreement"]["source"]["source_bundle_id"] == source["id"]
+
+    run_response = client.post(f"/api/runs/{run['id']}/revise", json={"start_immediately": False})
     assert run_response.status_code == 201
-    run_session_id = run_response.json()["session"]["id"]
-    run_session = _wait_for_status(service, run_session_id, "waiting_user")
-    assert run_response.json()["redirect_url"] == f"/loops/new/bundle?alignment_session_id={run_session_id}"
-    assert run_session["working_agreement"]["source"]["source_type"] == "run"
-    assert run_session["working_agreement"]["source"]["evidence_summary"]
-    assert run_session["linked_run_id"] == run["id"]
+    run_payload = run_response.json()
+    assert run_payload["redirect_url"] == f"/loops/new/bundle?alignment_session_id={run_payload['session']['id']}"
+    assert run_payload["session"]["working_agreement"]["mode"] == "improvement"
+    assert run_payload["session"]["working_agreement"]["source"]["source_type"] == "run"
+    assert run_payload["session"]["working_agreement"]["source"]["source_run_id"] == run["id"]
 
 
 def test_alignment_service_lazily_migrates_legacy_flat_artifacts(service_factory, sample_workdir: Path) -> None:

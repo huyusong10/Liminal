@@ -53,13 +53,3 @@ User:
 Better response:
 
 > 这类任务适合 `Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper`：Builder 先做可运行页面，Contract Inspector 看报表口径、筛选和权限是否符合任务契约，Evidence Inspector 独立跑浏览器路径或数据检查证明报表确实可信。两个 Inspector 并行看同一个 Builder handoff，GateKeeper 只在两边证据都足够时通过。再确认一个会改变 spec 的点：你更信任哪类证据，真实浏览器操作、数据 fixture 对账，还是项目已有测试？
-
-## Revision example
-
-User:
-
-> 这个 bundle 太偷懒了，跑出来只是页面能看
-
-Better response:
-
-> 我会把这当成 bundle-level revision，不只改 GateKeeper 一句话。当前反馈说明成功面和 fake-done 太弱，Inspector/GateKeeper 对视觉-only 完成不够敏感，workflow 也可能太快进入签字。我的修订方向是：强化 `# Fake Done`、提高浏览器或测试证据要求、让 Inspector 明确阻断静态页面，并让 GateKeeper 只有在真实用户路径可复验时 finish。请确认这个方向，或说明你更在意结构债还是证据深度。

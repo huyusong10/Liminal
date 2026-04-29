@@ -189,7 +189,7 @@
         <span id="alignment-artifact-workdir">-</span>
       </div>
       <div class="alignment-control-summary" id="alignment-control-summary" data-testid="alignment-control-summary"></div>
-      <div class="alignment-revision-summary" id="alignment-revision-summary" data-testid="alignment-revision-summary" hidden></div>
+      <div class="alignment-version-summary" id="alignment-version-summary" data-testid="alignment-version-summary" hidden></div>
       <div class="alignment-artifact-source" id="alignment-artifact-source" data-testid="alignment-artifact-source" hidden>
         <span class="alignment-artifact-source-path" id="alignment-source-path"></span>
         <div class="alignment-artifact-source-actions">
@@ -392,9 +392,9 @@
     </div>
   </header>
   {% if import_values.replace_bundle_id %}
-  <div class="field-status is-success" data-testid="bundle-revision-target-note">
-    <span data-lang="zh">当前会把导入结果作为 bundle <code>{{ import_values.replace_bundle_id }}</code> 的下一版 revision 导入。</span>
-    <span data-lang="en">The next import will replace bundle <code>{{ import_values.replace_bundle_id }}</code> in place as the next revision.</span>
+  <div class="field-status is-success" data-testid="bundle-replace-target-note">
+    <span data-lang="zh">当前导入会显式替换已有方案 <code>{{ import_values.replace_bundle_id }}</code>。</span>
+    <span data-lang="en">The next import will explicitly replace plan <code>{{ import_values.replace_bundle_id }}</code>.</span>
   </div>
   {% endif %}
   <form class="manual-bundle-import-form" id="bundle-import-form-fields" method="post" action="/loops/new/manual/import-bundle" data-testid="loop-bundle-import-form">
@@ -465,7 +465,7 @@
       <span id="alignment-artifact-workdir">-</span>
     </div>
     <div class="alignment-control-summary" id="alignment-control-summary" data-testid="alignment-control-summary"></div>
-    <div class="alignment-revision-summary" id="alignment-revision-summary" data-testid="alignment-revision-summary" hidden></div>
+    <div class="alignment-version-summary" id="alignment-version-summary" data-testid="alignment-version-summary" hidden></div>
     <div class="alignment-artifact-source" id="alignment-artifact-source" data-testid="alignment-artifact-source" hidden>
       <span class="alignment-artifact-source-path" id="alignment-source-path"></span>
       <div class="alignment-artifact-source-actions">

@@ -1,6 +1,6 @@
 # Spec Subsystem
 
-> 最高原则：遵循 `../core-ideas/product-principle.md`。本模块服务于外部任务治理闭环，只负责冻结任务契约，不把 spec 误扩展成完整 harness 或 prompt 包。
+> 最高原则：遵循 `../core-ideas/product-principle.md`。本模块服务于长期任务 Loop 的运行契约，只负责冻结任务契约，不把 spec 误扩展成完整 Loop 或 prompt 包。
 
 ## 1. Purpose
 

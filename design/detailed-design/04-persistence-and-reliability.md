@@ -1,6 +1,6 @@
 # Persistence and Reliability
 
-> 最高原则：遵循 `../core-ideas/product-principle.md`。持久化与可靠性设计必须保护长期任务的事实源、证据链和 harness 修订历史，而不是只保存临时运行状态。
+> 最高原则：遵循 `../core-ideas/product-principle.md`。持久化与可靠性设计必须保护长期任务的事实源、证据链和 Loop / bundle 来源，而不是只保存临时运行状态。
 
 ## 1. 模块职责
 

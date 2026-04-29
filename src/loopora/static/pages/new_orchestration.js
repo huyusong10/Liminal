@@ -599,7 +599,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ? localeText("通过后结束", "Finish on pass")
         : localeText("通过后继续", "Continue on pass");
     }
-    return localeText("交给下一步", "Hand off to next");
+    return localeText("继续交接", "Continue handoff");
   }
 
   function stepSessionChipLabel(step) {

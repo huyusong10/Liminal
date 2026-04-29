@@ -6,9 +6,9 @@
 
 最高产品原则见 `core-ideas/product-principle.md`：
 
-> Loopora 是面向长期 AI Agent 任务的外部任务治理层。所有设计都必须服务于 `任务输入 -> 对齐治理方案 -> 运行并收集证据 -> 基于证据修订 harness` 的闭环，而不是退化成 role zoo、prompt pack、loop script、通用聊天界面或内部资产 CRUD console。
+> Loopora 是面向长期 AI Agent 任务的本地任务平台。所有设计都必须服务于 `编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出证据裁决与结果` 的主工作流，而不是退化成 role zoo、prompt pack、loop script、通用聊天界面或内部资产 CRUD console。
 
-同一原则还包含“5 分钟上手”硬约束：高级治理能力只能服务于误差控制，并且必须默认隐藏在循环方案、专家编辑或修订路径中，不能让第一次使用变成配置 workflow 平台。
+同一原则还包含“主次关系”和“5 分钟上手”硬约束：核心概念必须围绕 Loop 的编排、运行、自动迭代、证据和裁决；Web 问答、手动编排、导入 YAML 和对话改进只是取得或调整 Loop 的场景。
 
 文档分成两个子模块：
 
@@ -47,11 +47,11 @@
 | 子模块 | 文档 | 主题 | 主要代码边界 |
 | --- | --- | --- | --- |
 | 核心思想 | `core-ideas/README.md` | 项目公理、反例、非目标 | 全局 |
-| 核心思想 | `core-ideas/product-principle.md` | 最高产品原则、外部任务治理与默认用户心智 | 全局 |
-| 核心思想 | `core-ideas/concept-map.md` | 术语层级、主生命周期与易混边界 | 全局 |
-| 核心思想 | `core-ideas/core-contract.md` | 当前五个治理 surface、巡检流程与测试对齐锚点 | 全局 |
+| 核心思想 | `core-ideas/product-principle.md` | 最高产品原则、长期任务平台主工作流与默认用户心智 | 全局 |
+| 核心思想 | `core-ideas/concept-map.md` | 术语层级、主工作流、场景边界与易混边界 | 全局 |
+| 核心思想 | `core-ideas/core-contract.md` | 当前治理 surface、巡检流程与测试对齐锚点 | 全局 |
 | 核心思想 | `core-ideas/collaboration-posture.md` | 用户判断姿态如何成为治理输入 | 全局 |
-| 核心思想 | `core-ideas/task-scoped-alignment.md` | 任务驱动对齐、working agreement 与循环方案演进 | 全局 |
+| 核心思想 | `core-ideas/task-scoped-alignment.md` | 任务驱动对齐、working agreement 与 Loop 编排场景 | 全局 |
 | 细节设计 | `detailed-design/01-spec-subsystem.md` | `spec.md` 编译与 checks 冻结 | `src/loopora/specs.py`, `src/loopora/service.py` |
 | 细节设计 | `detailed-design/02-orchestration-service.md` | loop/run 编排与角色循环 | `src/loopora/service.py` |
 | 细节设计 | `detailed-design/03-executor-subsystem.md` | 执行器、provider 适配、命令模式 | `src/loopora/executor.py`, `src/loopora/providers.py` |

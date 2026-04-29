@@ -1,6 +1,6 @@
 # Orchestration Service
 
-> 最高原则：遵循 `../core-ideas/product-principle.md`。编排服务必须把循环方案物化成可运行、可取证、可复盘的外部治理系统，而不是只管理一组角色或流程 CRUD。
+> 最高原则：遵循 `../core-ideas/product-principle.md`。编排服务必须把 Loop 物化成可运行、可自动迭代、可取证、可复盘的长期任务系统，而不是只管理一组角色或流程 CRUD。
 
 ## 1. 模块职责
 
@@ -104,7 +104,7 @@ GateKeeper evidence gate：
 - GateKeeper 的 `passed=true` 不是充分条件。
 - 新 run 的 GateKeeper verdict 必须引用已有 evidence item，或提供可落账的具体 `evidence_claims`，否则服务层必须把该 verdict 改写为未通过。
 - 未通过的 evidence gate 必须进入 `blocking_issues / hard_constraint_violations`，使 run 在 `gatekeeper` completion mode 下继续迭代或最终失败。
-- coverage projection 可以把 `Fake Done` 与 `Evidence Preferences` 缺口标记为 `weak` 并带入 revision seed；这不改变当前 GateKeeper evidence gate 的硬失败边界。
+- coverage projection 可以把 `Fake Done` 与 `Evidence Preferences` 缺口标记为 `weak`；这不改变当前 GateKeeper evidence gate 的硬失败边界。
 - 旧 run / legacy verdict 可以继续展示原文本，但不能被解释成同等级的强门禁通过。
 
 ## 5. 模型解析契约
@@ -126,11 +126,11 @@ GateKeeper evidence gate：
 - orchestration 只负责编排角色快照与步骤，不直接维护角色 prompt 或执行配置。
 - context / handoff 的 shape 必须由代码固定生成，不能依赖模型自由发挥。
 - 首轮与后续轮次的上下文语义必须显式区分。
-- 下一步角色看到的上游信息必须来自结构化 handoff、显式 `inputs` 和 evidence ledger 摘要，而不是非约束的自由文本。
+- 下游角色看到的上游信息必须来自结构化 handoff、显式 `inputs` 和 evidence ledger 摘要，而不是非约束的自由文本。
 - 非零轮次间隔必须可被 stop 请求打断。
 - 每个 run 只能落到一个终态。
 - 每次状态变化都必须能投影到外部观察面。
-- 编排服务不负责和用户对话生成循环方案；Web 内置 alignment 或外部 Agent + Skill 都必须先产出 bundle，再由服务层消费 bundle 产物并把它物化为可运行资产。
+- 编排服务不负责和用户对话编排 Loop；Web 内置 alignment 或外部 Agent + Skill 都必须先产出 bundle，再由服务层消费 bundle 产物并把它物化为可运行 Loop 资产。
 
 ## 7. 依赖边界
 

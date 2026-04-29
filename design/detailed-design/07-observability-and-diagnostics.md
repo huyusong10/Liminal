@@ -1,6 +1,6 @@
 # Observability and Diagnostics
 
-> 最高原则：遵循 `../core-ideas/product-principle.md`。观察面必须优先回答“这轮产生了什么证据、为什么过或没过、下一版 harness 应如何修订”，而不是只堆日志。
+> 最高原则：遵循 `../core-ideas/product-principle.md`。观察面必须优先回答“这轮产生了什么证据、为什么过或没过”，而不是只堆日志。
 
 ## 1. 模块职责
 
@@ -17,8 +17,8 @@
 | application log | 记录模块动作、异常、自愈、入口请求与运行里程碑 | 采用统一结构、统一事件命名、统一分级规则 |
 | run event stream | 面向 run 时间线与 UI 增量观察 | 保持业务事件语义，不承担全局系统诊断职责 |
 | run artifacts | 记录 prompt、输出、summary、metrics 等复盘材料 | 用于还原单次 run 的细节，不替代系统级日志 |
-| evidence ledger | 记录本次 run 的证明项、未覆盖风险和对应 artifact refs | 作为 GateKeeper verdict、run 复盘和后续 revision 的 canonical 证据事实源 |
-| evidence coverage projection | 从 run contract 与 evidence ledger 重算覆盖状态 | 面向 UI 摘要、revision seed 和白盒追溯；不是新的事实源 |
+| evidence ledger | 记录本次 run 的证明项、未覆盖风险和对应 artifact refs | 作为 GateKeeper verdict 和 run 复盘的 canonical 证据事实源 |
+| evidence coverage projection | 从 run contract 与 evidence ledger 重算覆盖状态 | 面向 UI 摘要和白盒追溯；不是新的事实源 |
 
 稳定规则：
 
@@ -32,13 +32,13 @@
 - Step handoff 可以摘要证据，但必须通过 `evidence_refs` 指回 ledger item；面向用户的结论不能只停留在自由文本。
 - 并行检视组中的多个 evidence producer 共享同一上游快照；ledger 按 workflow step 顺序落账，并保留各自的 `step_id / role_id / archetype / iter`。
 - GateKeeper pass 必须能回到 evidence ledger；没有 evidence refs 或可落账 evidence claims 的 pass 不能成为新 run 的强收敛条件。
-- `Fake Done` 与 `Evidence Preferences` 在第一阶段属于 advisory coverage；缺口会让 projection 标记为 weak 并进入 revision seed，但不扩大当前 GateKeeper 硬失败条件。
+- `Fake Done` 与 `Evidence Preferences` 在第一阶段属于 advisory coverage；缺口会让 projection 标记为 weak，但不扩大当前 GateKeeper 硬失败条件。
 - Web 终端必须把关键系统动作白盒化投影出来，不能只展示底层命令输出。
 - 面向用户的 run 详情页应优先消费 run artifacts 中已经冻结的 handoff、iteration summary 与 coverage projection 来生成“关键结论”，默认只展示简洁状态与主要原因；完整 target、ledger 和 artifact 链路通过白盒追溯入口查看。
 - 当新的 `step_handoff_written`、`control_completed`、`control_failed`、`iteration_summary_written` 或 `run_finished` 事件到达时，run 详情页里的“关键结论”必须在当前会话内自动拉取最新 artifacts 并刷新；不能要求用户手动刷新整页后才能看到最新轮次结论。
 - 提供给角色 prompt 的 artifact refs 必须能从 workspace 直接定位到 `.loopora/runs/...` 下的真实文件，不能只暴露对 run 目录内部才有意义的短相对路径。
 - 当角色尝试获取浏览器或截图证据失败时，诊断线索必须保留在 run event stream 与 step handoff 中，便于后续角色区分“产品问题”与“宿主环境阻断”。
-- run 详情页的证据不应成为孤立终点。稳定目标是提供“基于本次证据修订方案”的入口，把 GateKeeper verdict、关键 blocker、残余风险和用户反馈带回 alignment revision；若当前实现暂未接入完整 API，也必须在设计上保留这条闭环，不把用户重新推回手工 prompt 编辑。
+- run 详情页的证据裁决与结果是 Loopora 的输出边界。系统应提供清楚的证据、artifact 和导出路径；用户如何基于这些材料调整 Loop 属于用户主动编排场景。
 
 ## 2.1 真实 CLI 集成验证
 

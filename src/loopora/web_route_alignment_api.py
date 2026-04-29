@@ -13,6 +13,44 @@ from loopora.web_route_context import WebRouteContext
 
 
 def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+    @app.post("/api/bundles/{bundle_id}/revise")
+    async def api_create_bundle_improvement_session(bundle_id: str, request: Request) -> JSONResponse:
+        payload = await ctx.read_json_mapping(request)
+        session = ctx.svc().create_bundle_revision_session(
+            bundle_id,
+            message=str(payload.get("message", "") or ""),
+            executor_kind=str(payload.get("executor_kind", "codex")).strip() or "codex",
+            executor_mode=str(payload.get("executor_mode", "preset")).strip() or "preset",
+            command_cli=str(payload.get("command_cli", "")).strip(),
+            command_args_text=str(payload.get("command_args_text", "")),
+            model=str(payload.get("model", "")).strip(),
+            reasoning_effort=str(payload.get("reasoning_effort", "")).strip(),
+            start_immediately=_coerce_bool(payload.get("start_immediately", True)),
+        )
+        return JSONResponse(
+            {"session": session, "redirect_url": f"/loops/new/bundle?alignment_session_id={session['id']}"},
+            status_code=201,
+        )
+
+    @app.post("/api/runs/{run_id}/revise")
+    async def api_create_run_improvement_session(run_id: str, request: Request) -> JSONResponse:
+        payload = await ctx.read_json_mapping(request)
+        session = ctx.svc().create_run_revision_session(
+            run_id,
+            message=str(payload.get("message", "") or ""),
+            executor_kind=str(payload.get("executor_kind", "codex")).strip() or "codex",
+            executor_mode=str(payload.get("executor_mode", "preset")).strip() or "preset",
+            command_cli=str(payload.get("command_cli", "")).strip(),
+            command_args_text=str(payload.get("command_args_text", "")),
+            model=str(payload.get("model", "")).strip(),
+            reasoning_effort=str(payload.get("reasoning_effort", "")).strip(),
+            start_immediately=_coerce_bool(payload.get("start_immediately", True)),
+        )
+        return JSONResponse(
+            {"session": session, "redirect_url": f"/loops/new/bundle?alignment_session_id={session['id']}"},
+            status_code=201,
+        )
+
     @app.post("/api/alignments/sessions")
     async def api_create_alignment_session(request: Request) -> JSONResponse:
         payload = await ctx.read_json_mapping(request)
@@ -32,44 +70,6 @@ def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             start_immediately=True,
         )
         return JSONResponse({"session": session}, status_code=201)
-
-    @app.post("/api/bundles/{bundle_id}/revise")
-    async def api_create_bundle_revision_session(bundle_id: str, request: Request) -> JSONResponse:
-        payload = await ctx.read_json_mapping(request)
-        session = ctx.svc().create_bundle_revision_session(
-            bundle_id,
-            message=str(payload.get("message", "") or ""),
-            executor_kind=str(payload.get("executor_kind", "codex")).strip() or "codex",
-            executor_mode=str(payload.get("executor_mode", "preset")).strip() or "preset",
-            command_cli=str(payload.get("command_cli", "")).strip(),
-            command_args_text=str(payload.get("command_args_text", "")),
-            model=str(payload.get("model", "")).strip(),
-            reasoning_effort=str(payload.get("reasoning_effort", "")).strip(),
-            start_immediately=True,
-        )
-        return JSONResponse(
-            {"session": session, "redirect_url": f"/loops/new/bundle?alignment_session_id={session['id']}"},
-            status_code=201,
-        )
-
-    @app.post("/api/runs/{run_id}/revise")
-    async def api_create_run_revision_session(run_id: str, request: Request) -> JSONResponse:
-        payload = await ctx.read_json_mapping(request)
-        session = ctx.svc().create_run_revision_session(
-            run_id,
-            message=str(payload.get("message", "") or ""),
-            executor_kind=str(payload.get("executor_kind", "codex")).strip() or "codex",
-            executor_mode=str(payload.get("executor_mode", "preset")).strip() or "preset",
-            command_cli=str(payload.get("command_cli", "")).strip(),
-            command_args_text=str(payload.get("command_args_text", "")),
-            model=str(payload.get("model", "")).strip(),
-            reasoning_effort=str(payload.get("reasoning_effort", "")).strip(),
-            start_immediately=True,
-        )
-        return JSONResponse(
-            {"session": session, "redirect_url": f"/loops/new/bundle?alignment_session_id={session['id']}"},
-            status_code=201,
-        )
 
     @app.get("/api/alignments/sessions")
     async def api_list_alignment_sessions(limit: int = 30) -> JSONResponse:

@@ -5,8 +5,8 @@
   <div class="hero-copy-stack">
     <h1>{{ run.loop_name or run.id }}</h1>
     <p>
-      <span data-lang="zh">先看这轮证明了什么、哪里没过线，再决定要不要修订方案。</span>
-      <span data-lang="en">Start with what this run proved, what missed the bar, and whether the plan needs revision.</span>
+      <span data-lang="zh">先看这轮证明了什么、哪里没过线，以及证据能否支撑裁决。</span>
+      <span data-lang="en">Start with what this run proved, what missed the bar, and whether the evidence supports the verdict.</span>
     </p>
     <div class="hero-meta-row">
       <div class="hero-meta-pill hero-meta-pill-strong">
@@ -26,16 +26,16 @@
     </div>
   </div>
   <div class="card-actions hero-actions">
-    <form method="post" action="/runs/{{ run.id }}/revise" class="inline-form">
-      <button class="primary-button" type="submit" data-testid="run-revise-chat-button">
-        <span data-lang="zh">修订方案</span>
-        <span data-lang="en">Revise plan</span>
-      </button>
-    </form>
     <a class="secondary-button" href="/loops/{{ run.loop_id }}">
       <span data-lang="zh">返回循环</span>
       <span data-lang="en">Back to loop</span>
     </a>
+    <form method="post" action="/runs/{{ run.id }}/revise" class="inline-form">
+      <button class="primary-button" type="submit" data-testid="run-improve-chat-button">
+        <span data-lang="zh">用证据改进方案</span>
+        <span data-lang="en">Improve plan with evidence</span>
+      </button>
+    </form>
     {% if run.status in ["queued", "running"] %}
     <button class="ghost-button" id="stop-run">
       <span data-lang="zh">停止运行</span>
@@ -51,22 +51,22 @@
       <div>
         <h2><span data-lang="zh">关键结论</span><span data-lang="en">Key takeaways</span></h2>
         <p class="takeaway-copy">
-          <span data-lang="zh">先看证据覆盖、GateKeeper 裁决和下一步建议；原始 prompt、context、output 继续沉到追查材料里。</span>
-          <span data-lang="en">Start with evidence coverage, the GateKeeper verdict, and the next recommendation; raw prompts, context, and outputs stay in trace material.</span>
+          <span data-lang="zh">先看证据覆盖和 GateKeeper 裁决；原始 prompt、context、output 继续沉到追查材料里。</span>
+          <span data-lang="en">Start with evidence coverage and the GateKeeper verdict; raw prompts, context, and outputs stay in trace material.</span>
         </p>
       </div>
       <div class="takeaway-meta" id="takeaway-meta">-</div>
     </header>
-    <div class="takeaway-next-step-card" id="takeaway-next-step-card" data-testid="run-revision-recommendation">
-      <div class="takeaway-next-step-copy">
-        <span class="takeaway-path-label"><span data-lang="zh">下一步</span><span data-lang="en">Next step</span></span>
-        <strong id="takeaway-next-step-title">-</strong>
-        <p id="takeaway-next-step-detail">-</p>
+    <div class="takeaway-outcome-card" id="takeaway-outcome-card" data-testid="run-evidence-outcome">
+      <div class="takeaway-outcome-copy">
+        <span class="takeaway-path-label"><span data-lang="zh">证据结论</span><span data-lang="en">Evidence outcome</span></span>
+        <strong id="takeaway-outcome-title">-</strong>
+        <p id="takeaway-outcome-detail">-</p>
       </div>
       <form method="post" action="/runs/{{ run.id }}/revise" class="inline-form">
-        <button class="primary-button" type="submit" id="takeaway-revise-button" data-testid="run-evidence-revise-button">
-          <span data-lang="zh">基于证据修订方案</span>
-          <span data-lang="en">Revise from evidence</span>
+        <button class="secondary-button" type="submit" id="takeaway-improve-button" data-testid="run-evidence-improve-button">
+          <span data-lang="zh">对话改进方案</span>
+          <span data-lang="en">Improve in chat</span>
         </button>
       </form>
     </div>
@@ -1193,8 +1193,8 @@
       guide: {
         title: localeText("正在寻找新方向", "Looking for a new direction"),
         detail: localeText(
-          "它在分析为什么会停住，并尝试提出一条更有希望的下一步路线。",
-          "It is analyzing why progress stalled and trying to suggest a more promising next move."
+          "它在分析为什么会停住，并尝试提出更清楚的推进方向。",
+          "It is analyzing why progress stalled and trying to suggest a clearer direction."
         ),
       },
       custom: {
@@ -1316,11 +1316,11 @@
     }
 
     const stageSpecific = {
-      builder: localeText("它现在多半在落地改动，命令跑完后会继续写文件或整理下一步。", "It is likely applying changes right now; once the command ends, it will continue writing files or planning the next step."),
-      inspector: localeText("它现在在收集测试证据，命令跑完后通常会给出通过、失败或下一条验证动作。", "It is gathering test evidence right now; once the command ends, it will usually produce a pass/fail signal or the next verification action."),
+      builder: localeText("它现在多半在落地改动，命令跑完后会继续写文件或整理推进方向。", "It is likely applying changes right now; once the command ends, it will continue writing files or planning the direction."),
+      inspector: localeText("它现在在收集测试证据，命令跑完后通常会给出通过、失败或新的验证动作。", "It is gathering test evidence right now; once the command ends, it will usually produce a pass/fail signal or another verification action."),
       gatekeeper: localeText("它现在在补验证证据，这条命令结束后会更接近最终结论。", "It is filling in verification evidence; once this command ends, it will be closer to the final verdict."),
       checks: localeText("它在补足检查项上下文，命令跑完后会更快冻结本轮检查集。", "It is collecting context for the checks; once the command ends, it can freeze this run's check set."),
-      guide: localeText("它在为下一步寻找突破口，命令跑完后会更容易给出新方向。", "It is probing for a better next move; once the command ends, it can suggest a clearer new direction."),
+      guide: localeText("它在寻找突破口，命令跑完后会更容易给出新方向。", "It is probing for a better opening; once the command ends, it can suggest a clearer direction."),
       custom: localeText("它正在执行这个自定义步骤，命令结束后会更接近新的交接结果。", "It is executing this custom step right now; once the command ends, it will be closer to a fresh handoff."),
     };
 
@@ -1484,7 +1484,7 @@
       return localeText(`阻塞：${role.blocking_item}`, `Blocker: ${role.blocking_item}`);
     }
     if (role?.next_action) {
-      return localeText(`下一步：${role.next_action}`, `Next: ${role.next_action}`);
+      return localeText(`建议动作：${role.next_action}`, `Suggested action: ${role.next_action}`);
     }
     return "";
   }
@@ -1613,7 +1613,7 @@
     ].join("");
   }
 
-  function revisionRecommendation() {
+  function evidenceOutcome() {
     const coverage = takeawaySnapshot?.evidence_coverage || {};
     const status = String(takeawaySnapshot?.latest_status || currentRun?.status || "").toLowerCase();
     const coverageStatus = String(coverage.status || "").toLowerCase();
@@ -1624,60 +1624,52 @@
     if (["failed", "blocked"].includes(status) || ["blocked", "partial"].includes(coverageStatus) || blockedCount > 0 || missingCount > 0) {
       return {
         soft: false,
-        button: localeText("基于证据修订方案", "Revise from evidence"),
-        title: localeText("证据还没过线，建议修订方案", "Evidence has not cleared the bar; revise the plan"),
+        title: localeText("证据还没过线", "Evidence has not cleared the bar"),
         detail: primaryGap?.text || localeText(
-          "把这次 GateKeeper 裁决、证据缺口和阻塞项带回循环方案，调整下一版判断方式。",
-          "Bring this verdict, evidence gap, and blockers back into the loop plan for the next version."
+          "GateKeeper 裁决、证据缺口和阻塞项已保留在本次 run 的证据材料里。",
+          "The verdict, evidence gaps, and blockers are preserved in this run's evidence material."
         ),
       };
     }
     if (coverageStatus === "weak" || weakCount > 0) {
       return {
         soft: false,
-        button: localeText("加强下一版方案", "Strengthen next plan"),
-        title: localeText("证据偏弱，建议收紧下一版方案", "Evidence is weak; tighten the next plan"),
+        title: localeText("证据覆盖偏弱", "Evidence coverage is weak"),
         detail: primaryGap?.text || localeText(
-          "这次可能能继续推进，但下一版应加强证据偏好、Inspector 责任或 GateKeeper 门槛。",
-          "This may be enough to continue, but the next plan should strengthen evidence preferences, Inspector duties, or the GateKeeper bar."
+          "本轮已经留下弱覆盖信号；请查看证据链判断哪些完成条件仍缺直接证明。",
+          "This run preserved weak-coverage signals; inspect the evidence trace to see which completion targets still lack direct proof."
         ),
       };
     }
     if (status === "passed" || coverageStatus === "covered") {
       return {
         soft: true,
-        button: localeText("修订下一版方案", "Revise next plan"),
         title: localeText("本轮证据支持通过", "This run is supported by evidence"),
         detail: localeText(
-          "可以复盘证据后继续使用；如果要接受残余风险或调整下一轮判断，也可以生成下一版方案。",
-          "You can keep using the plan after reviewing the evidence; revise the next version if residual risk or future judgment should change."
+          "GateKeeper 裁决和证据覆盖已形成可复盘结论。",
+          "The GateKeeper verdict and evidence coverage now form a reviewable outcome."
         ),
       };
     }
     return {
       soft: true,
-      button: localeText("准备修订方案", "Prepare revision"),
       title: localeText("等待更多证据", "Waiting for more evidence"),
       detail: localeText(
-        "角色 handoff、证据账本或 GateKeeper 裁决写出后，这里会给出更具体的修订建议。",
-        "Once role handoffs, the evidence ledger, or the GateKeeper verdict lands, this will show a sharper revision recommendation."
+        "角色 handoff、证据账本或 GateKeeper 裁决写出后，这里会收敛成证据结论。",
+        "Once role handoffs, the evidence ledger, or the GateKeeper verdict lands, this will settle into an evidence outcome."
       ),
     };
   }
 
-  function renderRevisionRecommendation() {
-    const card = document.getElementById("takeaway-next-step-card");
+  function renderEvidenceOutcome() {
+    const card = document.getElementById("takeaway-outcome-card");
     if (!card) {
       return;
     }
-    const recommendation = revisionRecommendation();
-    card.classList.toggle("is-soft", recommendation.soft);
-    setTextContentIfChanged("takeaway-next-step-title", recommendation.title);
-    setTextContentIfChanged("takeaway-next-step-detail", recommendation.detail);
-    const button = document.getElementById("takeaway-revise-button");
-    if (button) {
-      button.textContent = recommendation.button;
-    }
+    const outcome = evidenceOutcome();
+    card.classList.toggle("is-soft", outcome.soft);
+    setTextContentIfChanged("takeaway-outcome-title", outcome.title);
+    setTextContentIfChanged("takeaway-outcome-detail", outcome.detail);
   }
 
   function ensureSelectedTakeawayIter(iterations) {
@@ -1737,7 +1729,7 @@
     setTextContentIfChanged("takeaway-build-path", takeawaySnapshot?.build_dir || "-");
     setTextContentIfChanged("takeaway-log-path", takeawaySnapshot?.log_dir || "-");
     renderEvidenceCoverage();
-    renderRevisionRecommendation();
+    renderEvidenceOutcome();
     meta.textContent = latestIter
       ? localeText(
         `最近到第 ${latestIter} 轮 · ${takeawaySnapshot.role_conclusion_count || 0} 条角色结论 · ${takeawaySnapshot.evidence_count || 0} 条证据`,

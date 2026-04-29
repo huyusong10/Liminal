@@ -1,12 +1,12 @@
 # Interfaces
 
-> 最高原则：遵循 `../core-ideas/product-principle.md`。接口层默认表达“任务、循环方案、证据、修订”，把 `bundle / spec / roles / workflow` 等内部资产留给专家路径。
+> 最高原则：遵循 `../core-ideas/product-principle.md`。接口层默认表达“任务、Loop、运行、证据和裁决结果”，把 `bundle / spec / roles / workflow` 等内部资产留给专家路径。
 
 ## 1. 模块职责
 
 接口层存在的唯一理由：
 
-- 让 Web、CLI、HTTP API 以一致语义访问同一套任务治理、loop 编排和 run 观察能力。
+- 让 Web、CLI、HTTP API 以一致语义访问同一套 Loop 编排、运行、自动迭代和 run 观察能力。
 
 它负责输入规范化、边缘校验、可视投影和权限边界，不负责业务编排本身。
 
@@ -14,19 +14,19 @@
 
 | 对象 | 用户目的 | 稳定语义 |
 |------|----------|----------|
-| `loop` | 保存一套可重复执行的任务治理配置 | 绑定 workdir、spec、runtime 策略与 orchestration |
-| `bundle` | 导入、导出或派生循环方案 | 把 `spec / role definitions / workflow / loop` 组织成单文件生命周期单元 |
+| `loop` | 保存一套可重复执行的长期任务编排 | 绑定 workdir、spec、runtime 策略与 orchestration |
+| `bundle` | 导入、导出或派生 Loop | 把 `spec / role definitions / workflow / loop` 组织成单文件交换单元 |
 | `orchestration` | 编辑可复用 workflow | 管理角色快照、步骤顺序与收敛规则 |
 | `role definition` | 定义可复用角色模版 | 供 orchestration 复制成角色快照，并定义默认执行配置 |
 | `run` | 观察一次具体执行 | 提供状态、事件、摘要、证据产物与终态 |
-| `alignment session` | 把任务对话编译成循环方案 | 调用本机 AI Agent CLI，在 bundle 通过校验后提供 READY 预览与创建运行 |
+| `alignment session` | 通过任务对话编排或调整 Loop | 调用本机 AI Agent CLI，在 bundle 通过校验后提供 READY 预览与创建运行 |
 | `skill installer` | 分发 repo-local Skill 到外部 AI Agent 工具 | 只做文件安装 / 下载辅助，不改变 Web 内置 alignment 的语义 |
 
 ## 3. 入口职责
 
 | 入口 | 负责内容 | 不负责内容 |
 |------|----------|------------|
-| Web UI | 任务工作台、对话生成循环方案、方案库、专家资源编辑、run 观察 | 直接实现业务编排 |
+| Web UI | 任务工作台、对话编排 Loop、方案库、专家资源编辑、run 观察 | 直接实现业务编排 |
 | CLI | 自动化、脚本化创建 / 运行 / 校验 / 导入导出 | 维护独立业务状态 |
 | HTTP API | Web 与集成调用方的结构化访问面 | 暴露底层存储实现 |
 
@@ -35,30 +35,32 @@ Web 顶层信息架构按用户任务组织：
 | 顶层入口 | 稳定目的 | 路由 |
 |----------|----------|------|
 | 工作台 / Workbench | 查看当前任务、loop 与最近 run 状态 | `/` |
-| 新建任务 / New Task | 通过对话生成循环方案并创建运行 | `/loops/new/bundle` |
-| 方案库 / Plans | 管理可复用循环方案与 bundle 文件 | `/bundles` |
+| 新建任务 / New Task | 默认通过对话编排 Loop 并创建运行 | `/loops/new/bundle` |
+| 方案库 / Plans | 管理可复用 Loop 与 bundle 文件 | `/bundles` |
 
 角色定义、workflow / orchestration、手动创建、工具与 Skill、教程、主题和语言设置属于资源与设置入口。它们保留独立路由与对象管理能力，但不作为默认顶层任务导航词。
 
 ## 3.1 默认语言与专家语言
 
-接口层必须把默认主路径压成五个用户动作：
+接口层必须把默认主工作流压成四个用户动作：
 
-`描述任务 -> 确认循环方案 -> 运行 -> 看证据结论 -> 修订方案`
+`编排 Loop -> 运行 -> 看证据 -> 看裁决结果`
 
 稳定语言边界：
 
 | 场景 | 默认语言 | 可出现的专家语言 |
 |------|----------|------------------|
-| 新建任务主路径 | 任务、循环方案、证据、裁决、修订 | 只在展开的专家视图、tab 标签或源文件操作中出现 `spec / roles / workflow` |
+| 新建任务主路径 | 任务、Loop、运行、证据、裁决结果 | 只在展开的专家视图、tab 标签或源文件操作中出现 `spec / roles / workflow` |
 | READY 预览 | 任务目标、主要风险、证据路径、裁决方式、运行目录 | YAML、bundle、import、orchestration 只属于专家操作或调试材料 |
-| run 详情首屏 | 关键结论、证据覆盖、GateKeeper 裁决、下一步建议 | ledger、artifact、event stream、raw output 只属于追查入口 |
-| 方案库默认列表 | 方案、修订、导出、删除 | Bundle ID、surface diff、YAML、linked assets 属于详情页专家区 |
+| run 详情首屏 | 关键结论、证据覆盖、GateKeeper 裁决 | ledger、artifact、event stream、raw output 只属于追查入口 |
+| 方案库默认列表 | Loop、导出、删除 | Bundle ID、surface diff、YAML、linked assets 属于详情页专家区 |
 
 稳定规则：
 
 - 默认路径不要求用户先理解 `bundle / orchestration / workflow controls / YAML`。
-- `READY` 可以作为内部状态或小状态标识，但默认主动作表达为“方案已准备好，可以创建并运行”。
+- Web 问答、直接导入 bundle 与专家手动创建 loop 是取得 Loop 的并列场景；默认顶层可推荐 Web 问答，但不能把它写成唯一主工作流。
+- 方案详情和 run 详情可以提供“对话改进方案”能力；它是用户主动调用的候选 Loop 生成入口，不进入默认主工作流概念。
+- `READY` 可以作为内部状态或小状态标识，但默认主动作表达为“Loop 已准备好，可以创建并运行”。
 - 专家语言必须保留可达性；隐藏只是信息层级调整，不能删除导入、导出、派生、surface 编辑或源文件同步能力。
 - 页面测试优先断言用户动作、可达区域和 `data-testid`，不要把具体中英文文案锁成契约。
 
@@ -91,9 +93,9 @@ CLI 对高阶 workflow 的稳定承诺：
 | 路由 | 用户心智 | 稳定职责 |
 |------|----------|----------|
 | `/` | 工作台 | 当前任务、loop 与 run 状态入口 |
-| `/loops/new/bundle` | 新建任务 | 对话生成循环方案、READY 预览、创建并运行 |
-| `/loops/new/manual` | 专家手动创建 | 手动选择 spec、workflow、executor，或导入已有 bundle YAML |
-| `/bundles` | 方案库 | 管理可复用循环方案、导出、删除、派生和 revision 入口 |
+| `/loops/new/bundle` | 新建任务 | 默认通过对话编排 Loop、READY 预览、创建并运行 |
+| `/loops/new/manual` | 专家手动创建 / 导入 | 手动选择 spec、workflow、executor，或导入已有 bundle YAML |
+| `/bundles` | 方案库 | 管理可复用 Loop、导出、删除和派生 |
 | `/roles` / `/orchestrations` | 资源库 | 编辑可复用角色与 workflow 资产 |
 | `/tools` | 工具与 Skill | 管理外部 AI Agent Skill 安装与下载 |
 | `/tutorial` | 使用教程 | 帮用户判断何时使用 Loopora，以及从哪条路径开始 |

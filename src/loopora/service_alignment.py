@@ -478,14 +478,14 @@ class ServiceAlignmentMixin:
         return self._create_revision_alignment_session(
             seed_bundle,
             message=message
-            or "请先阅读这份已有循环方案，帮我用对话修订成下一版。先指出你需要确认的最小问题，不要直接生成。",
+            or "请先阅读这份已有循环方案，和我对话改进它。先指出你需要确认的最小问题，不要直接生成。",
             start_immediately=start_immediately,
             source_context={
-                "mode": "revision",
+                "mode": "improvement",
                 "source_type": "bundle",
                 "source_bundle_id": bundle_id,
                 "source_run_id": "",
-                "reason": "adapt_or_improve_existing_bundle",
+                "reason": "improve_imported_bundle",
                 "evidence_summary": [],
                 "gatekeeper_verdict": {},
             },
@@ -520,22 +520,22 @@ class ServiceAlignmentMixin:
         else:
             source_bundle = self.derive_bundle_from_loop(
                 run["loop_id"],
-                name=str(loop.get("name") or "Run revision base"),
-                description="Derived as the revision base for a run without an imported bundle.",
-                collaboration_summary="Revision base derived from the current loop.",
+                name=str(loop.get("name") or "Run improvement base"),
+                description="Derived as the improvement base for a run without an imported bundle.",
+                collaboration_summary="Improvement base derived from the current loop.",
             )
         seed_bundle = self._revision_seed_bundle(source_bundle, source_bundle_id=source_bundle_id)
         return self._create_revision_alignment_session(
             seed_bundle,
             message=message
-            or "请基于这次 run 的 evidence 和 GateKeeper verdict 修订循环方案。先说明最可能要改的治理点，再问我最小必要问题。",
+            or "请基于这次 run 的 evidence 和 GateKeeper verdict，和我对话改进循环方案。先说明最可能要改的治理点，再问我最小必要问题。",
             start_immediately=start_immediately,
             source_context={
-                "mode": "revision",
+                "mode": "improvement",
                 "source_type": "run",
                 "source_bundle_id": source_bundle_id,
                 "source_run_id": run_id,
-                "reason": "revise_from_run_evidence",
+                "reason": "improve_from_run_evidence",
                 "coverage_summary": self._alignment_run_coverage_summary(run),
                 "evidence_summary": self._alignment_run_evidence_summary(run),
                 "gatekeeper_verdict": run.get("last_verdict") or {},
@@ -582,7 +582,7 @@ class ServiceAlignmentMixin:
         bundle_path.parent.mkdir(parents=True, exist_ok=True)
         bundle_path.write_text(bundle_to_yaml(seed_bundle), encoding="utf-8")
         working_agreement = {
-            "mode": "revision",
+            "mode": "improvement",
             "source": source_context,
             "seed_bundle_metadata": seed_bundle.get("metadata", {}),
         }
@@ -594,7 +594,7 @@ class ServiceAlignmentMixin:
         )
         self.repository.append_alignment_event(
             session["id"],
-            "alignment_revision_seeded",
+            "alignment_bundle_improvement_seeded",
             {
                 "source_type": source_context.get("source_type", ""),
                 "source_bundle_id": linked_bundle_id,
@@ -937,7 +937,7 @@ class ServiceAlignmentMixin:
                 "confirmed_at": "",
                 "confirmation_message": "",
             }
-            working_agreement = self._merge_alignment_revision_context(
+            working_agreement = self._merge_alignment_improvement_context(
                 session.get("working_agreement"),
                 working_agreement,
             )
@@ -1028,7 +1028,7 @@ class ServiceAlignmentMixin:
         if status in {"ready", "imported", "running_loop"}:
             return {
                 "alignment_stage": "clarifying",
-                "working_agreement": ServiceAlignmentMixin._merge_alignment_revision_context(
+                "working_agreement": ServiceAlignmentMixin._merge_alignment_improvement_context(
                     session.get("working_agreement"),
                     {},
                 ),
@@ -1038,8 +1038,8 @@ class ServiceAlignmentMixin:
         return {}
 
     @staticmethod
-    def _merge_alignment_revision_context(previous: object, working_agreement: dict) -> dict:
-        if not isinstance(previous, dict) or previous.get("mode") != "revision":
+    def _merge_alignment_improvement_context(previous: object, working_agreement: dict) -> dict:
+        if not isinstance(previous, dict) or previous.get("mode") != "improvement":
             return working_agreement
         merged = dict(working_agreement)
         for key in ("mode", "source", "seed_bundle_metadata"):
@@ -1219,43 +1219,45 @@ class ServiceAlignmentMixin:
         return "\n".join(lines)
 
     @staticmethod
-    def _alignment_revision_context_text(session: dict) -> str:
+    def _alignment_improvement_context_text(session: dict) -> str:
         agreement = session.get("working_agreement") if isinstance(session.get("working_agreement"), dict) else {}
-        if str(agreement.get("mode") or "") != "revision":
+        if str(agreement.get("mode") or "") != "improvement":
             return ""
         source = agreement.get("source") if isinstance(agreement.get("source"), dict) else {}
+        evidence_items = source.get("evidence_summary") if isinstance(source.get("evidence_summary"), list) else []
+        evidence_text = json.dumps(evidence_items[:8], ensure_ascii=False, indent=2)
+        coverage_text = json.dumps(source.get("coverage_summary") or {}, ensure_ascii=False, indent=2)
+        verdict_text = json.dumps(source.get("gatekeeper_verdict") or {}, ensure_ascii=False, indent=2)
         return f"""
-## Revision Context
+## Bundle Improvement Context
 
-This alignment session is revising an existing Loopora harness, not starting from a blank task.
+This alignment session starts from an existing Loopora bundle. Help the user improve the candidate bundle through dialogue, but do not present this as a required product lifecycle stage.
 
-- Source type: `{source.get("source_type", "")}`
-- Source bundle id: `{source.get("source_bundle_id", "")}`
-- Source run id: `{source.get("source_run_id", "")}`
-- Revision reason: `{source.get("reason", "")}`
+- Source type: {source.get("source_type", "")}
+- Source bundle id: {source.get("source_bundle_id", "")}
+- Source run id: {source.get("source_run_id", "")}
+- Reason: {source.get("reason", "")}
 
-Rules for this revision:
-- Treat the Current Bundle as the base harness.
-- Do not merely polish wording. Identify which governance surface should change: `spec`, `roles`, `workflow`, evidence expectations, GateKeeper strictness, or revision hooks.
-- The revised bundle should be a new revision. Prefer leaving `metadata.bundle_id` empty or new, set `metadata.source_bundle_id` to the source bundle id when present, and keep `metadata.revision` greater than the source revision.
-- If run evidence is present, cite it in your reasoning and translate it into harness changes, not just code advice.
-
-Run evidence summary:
-
-```json
-{json.dumps(source.get("evidence_summary") or [], ensure_ascii=False, indent=2)}
-```
+Rules:
+- Treat the Current Bundle as the base candidate.
+- Do not merely polish wording. Identify which governance surface should change: `spec`, `roles`, `workflow`, evidence expectations, or GateKeeper strictness.
+- The improved bundle should remain a complete bundle. Prefer leaving `metadata.bundle_id` empty or new, set `metadata.source_bundle_id` to the source bundle id when present, and keep `metadata.revision` greater than the source revision.
+- If run evidence is present, cite it in reasoning and translate it into bundle changes, not just code advice.
+- This is an optional Web capability for user-directed improvement. Do not describe it as Loopora's required lifecycle or as a built-in stage after every run.
 
 Coverage summary:
-
 ```json
-{json.dumps(source.get("coverage_summary") or {}, ensure_ascii=False, indent=2)}
+{coverage_text}
+```
+
+Recent evidence summary:
+```json
+{evidence_text}
 ```
 
 GateKeeper verdict:
-
 ```json
-{json.dumps(source.get("gatekeeper_verdict") or {}, ensure_ascii=False, indent=2)}
+{verdict_text}
 ```
 """.strip()
 
@@ -1357,18 +1359,18 @@ GateKeeper verdict:
         alignment_playbook = (source_dir / "references" / "alignment-playbook.md").read_text(encoding="utf-8")
         quality_rubric = (source_dir / "references" / "quality-rubric.md").read_text(encoding="utf-8")
         bundle_contract = (source_dir / "references" / "bundle-contract.md").read_text(encoding="utf-8")
-        revision_guide = (source_dir / "references" / "feedback-revision.md").read_text(encoding="utf-8")
         examples = (source_dir / "references" / "examples.md").read_text(encoding="utf-8")
+        feedback_improvement = (source_dir / "references" / "feedback-improvement.md").read_text(encoding="utf-8")
         current_bundle = ""
         bundle_path = Path(session["bundle_path"])
         if bundle_path.exists():
             current_bundle = bundle_path.read_text(encoding="utf-8")
         transcript_text = json.dumps(session.get("transcript") or [], ensure_ascii=False, indent=2)
         working_agreement_text = json.dumps(session.get("working_agreement") or {}, ensure_ascii=False, indent=2)
-        revision_context = self._alignment_revision_context_text(session)
         alignment_stage = str(session.get("alignment_stage", "") or "clarifying")
         user_language_hint = self._alignment_user_language_hint(session)
         workdir_snapshot = self._alignment_workdir_snapshot(Path(session["workdir"]))
+        improvement_context = self._alignment_improvement_context_text(session)
         repair_text = ""
         if mode == "repair":
             repair_text = f"""
@@ -1390,7 +1392,7 @@ Previous invalid YAML:
             repair_text = f"""
 ## Current Bundle
 
-The session already has a bundle. If the latest user message asks for optimization or revision, revise the bundle holistically.
+The session already has a bundle. If the latest user message asks to adjust this candidate before import, update the whole plan coherently.
 
 ```yaml
 {current_bundle}
@@ -1398,7 +1400,7 @@ The session already has a bundle. If the latest user message asks for optimizati
 """
 
         return f"""
-You are Loopora's built-in Web bundle alignment agent.
+You are Loopora's built-in Web Loop alignment agent.
 
 The user is using an internal Web flow, so do not ask them to install or invoke a Skill manually.
 Assume you know nothing about Loopora except what is embedded below.
@@ -1422,7 +1424,7 @@ Important output discipline:
 - The bundle `loop.workdir` must be exactly `{session["workdir"]}`.
 - Loopora compiles `spec.markdown` during validation: `# Done When`, `# Success Surface`, `# Fake Done`, and `# Evidence Preferences` must use top-level `-` bullets when present; `# Role Notes` must use `## <Role Name> Notes` subheadings.
 - Preserve task-scoped dialogue. Ask focused questions that change the bundle shape, success criteria, evidence strategy, role posture, workflow shape, or information flow.
-- You are a task-judgment interviewer and harness compiler, not a YAML generator. Never optimize for ending the interview quickly.
+- You are a task-judgment interviewer and Loop compiler, not a YAML generator. Never optimize for ending the interview quickly.
 - A boolean checklist is not enough. Every true readiness item must be supported by specific `readiness_evidence`.
 - Use the workdir snapshot as observed context. Do not invent facts that are not in the transcript or snapshot; label uncertain items as assumptions.
 
@@ -1438,7 +1440,7 @@ Alignment stage gate:
 - Move through these stages: clarify the task -> summarize the working agreement -> wait for explicit user confirmation -> generate the bundle.
 - The backend stage below is authoritative. Do not infer confirmation yourself.
 - If backend stage is `clarifying`, ask a focused question or produce an `agreement` phase summary; do not include bundle YAML.
-- If backend stage is `agreement_ready`, wait for the user to confirm or revise the agreement; do not include bundle YAML.
+- If backend stage is `agreement_ready`, wait for the user to confirm or adjust the agreement; do not include bundle YAML.
 - If backend stage is `confirmed` or `compiling`, you may generate or repair the bundle when the checklist is complete.
 - Explicit confirmation is necessary but not sufficient. Only generate a bundle when every `readiness_checklist` item is true.
 - Explicit confirmation is also not sufficient without concrete `readiness_evidence` for every bundle-shaping dimension.
@@ -1484,7 +1486,7 @@ This is a lightweight Loopora-provided snapshot. Treat it as observed context, n
 {working_agreement_text}
 ```
 
-{revision_context}
+{improvement_context}
 
 ## Embedded Skill
 
@@ -1506,13 +1508,13 @@ This is a lightweight Loopora-provided snapshot. Treat it as observed context, n
 
 {bundle_contract}
 
-## Revision Guide
-
-{revision_guide}
-
 ## Alignment Examples
 
 {examples}
+
+## Bundle Improvement Guide
+
+{feedback_improvement}
 
 ## Session Transcript
 

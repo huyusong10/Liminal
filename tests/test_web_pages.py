@@ -149,9 +149,9 @@ def test_run_detail_places_takeaways_and_console_before_timeline(
     assert response.status_code == 200
     assert "Run Detail Loop" in response.text
     assert run["id"] in response.text
-    _assert_has_testid(response.text, "run-revise-chat-button")
-    _assert_has_testid(response.text, "run-evidence-revise-button")
-    _assert_has_testid(response.text, "run-revision-recommendation")
+    _assert_has_testid(response.text, "run-evidence-outcome")
+    _assert_has_testid(response.text, "run-improve-chat-button")
+    _assert_has_testid(response.text, "run-evidence-improve-button")
     assert f'/runs/{run["id"]}/revise' in response.text
     _assert_testids_in_order(
         response.text,
@@ -1040,8 +1040,8 @@ def test_bundles_pages_render_list_and_detail(
     _assert_has_testid(detail_response.text, "bundle-detail-form")
     _assert_has_testid(detail_response.text, "bundle-spec-preview")
     _assert_has_testid(detail_response.text, "bundle-yaml-preview")
-    _assert_has_testid(detail_response.text, "bundle-revise-chat-button")
-    _assert_has_testid(detail_response.text, "bundle-import-revision-link")
+    _assert_has_testid(detail_response.text, "bundle-replace-yaml-link")
+    _assert_has_testid(detail_response.text, "bundle-improve-chat-button")
     assert "Web Bundle" in detail_response.text
     assert "Prefer evidence and visible proof." in detail_response.text
     assert f'/bundles/{imported["id"]}/edit' in detail_response.text
@@ -1060,7 +1060,7 @@ def test_bundles_pages_render_list_and_detail(
     assert revision_target_response.headers["location"] == f"/loops/new/manual?replace_bundle_id={imported['id']}#bundle-import-form"
     revision_target_page = client.get(f"/loops/new/manual?replace_bundle_id={imported['id']}")
     assert revision_target_page.status_code == 200
-    _assert_has_testid(revision_target_page.text, "bundle-revision-target-note")
+    _assert_has_testid(revision_target_page.text, "bundle-replace-target-note")
 
     legacy_revision_response = client.get(f"/bundles?replace_bundle_id={imported['id']}", follow_redirects=False)
     assert legacy_revision_response.status_code == 303
