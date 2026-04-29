@@ -5,8 +5,8 @@
   <div class="hero-copy-stack">
     <h1>{{ run.loop_name or run.id }}</h1>
     <p>
-      <span data-lang="zh">先看看它这一轮正在忙什么，再决定要不要插手。</span>
-      <span data-lang="en">See what this run is busy with right now before deciding whether to step in.</span>
+      <span data-lang="zh">先看这轮证明了什么、哪里没过线，再决定要不要修订方案。</span>
+      <span data-lang="en">Start with what this run proved, what missed the bar, and whether the plan needs revision.</span>
     </p>
     <div class="hero-meta-row">
       <div class="hero-meta-pill hero-meta-pill-strong">
@@ -28,8 +28,8 @@
   <div class="card-actions hero-actions">
     <form method="post" action="/runs/{{ run.id }}/revise" class="inline-form">
       <button class="primary-button" type="submit" data-testid="run-revise-chat-button">
-        <span data-lang="zh">基于证据修订方案</span>
-        <span data-lang="en">Revise from Evidence</span>
+        <span data-lang="zh">修订方案</span>
+        <span data-lang="en">Revise plan</span>
       </button>
     </form>
     <a class="secondary-button" href="/loops/{{ run.loop_id }}">
@@ -46,6 +46,86 @@
 </section>
 
 <section class="dashboard-grid">
+  <article class="panel takeaway-panel" data-testid="run-takeaway-panel">
+    <header class="panel-header takeaway-panel-header">
+      <div>
+        <h2><span data-lang="zh">关键结论</span><span data-lang="en">Key takeaways</span></h2>
+        <p class="takeaway-copy">
+          <span data-lang="zh">先看证据覆盖、GateKeeper 裁决和下一步建议；原始 prompt、context、output 继续沉到追查材料里。</span>
+          <span data-lang="en">Start with evidence coverage, the GateKeeper verdict, and the next recommendation; raw prompts, context, and outputs stay in trace material.</span>
+        </p>
+      </div>
+      <div class="takeaway-meta" id="takeaway-meta">-</div>
+    </header>
+    <div class="takeaway-next-step-card" id="takeaway-next-step-card" data-testid="run-revision-recommendation">
+      <div class="takeaway-next-step-copy">
+        <span class="takeaway-path-label"><span data-lang="zh">下一步</span><span data-lang="en">Next step</span></span>
+        <strong id="takeaway-next-step-title">-</strong>
+        <p id="takeaway-next-step-detail">-</p>
+      </div>
+      <form method="post" action="/runs/{{ run.id }}/revise" class="inline-form">
+        <button class="primary-button" type="submit" id="takeaway-revise-button" data-testid="run-evidence-revise-button">
+          <span data-lang="zh">基于证据修订方案</span>
+          <span data-lang="en">Revise from evidence</span>
+        </button>
+      </form>
+    </div>
+    <div class="takeaway-shortcuts">
+      <div class="takeaway-path-grid">
+        <article class="takeaway-path-card">
+          <span class="takeaway-path-label"><span data-lang="zh">工作目录</span><span data-lang="en">Workdir</span></span>
+          <code id="takeaway-build-path">{{ run.workdir }}</code>
+        </article>
+        <article class="takeaway-path-card">
+          <span class="takeaway-path-label"><span data-lang="zh">追查材料</span><span data-lang="en">Trace material</span></span>
+          <code id="takeaway-log-path">{{ run.runs_dir }}</code>
+        </article>
+      </div>
+      <div class="takeaway-actions">
+        <button
+          type="button"
+          class="ghost-button"
+          id="takeaway-open-build"
+          data-testid="takeaway-open-build"
+          {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}
+        >
+          <span data-lang="zh">打开构建目录</span>
+          <span data-lang="en">Open build folder</span>
+        </button>
+        <button
+          type="button"
+          class="ghost-button"
+          id="takeaway-open-logs"
+          data-testid="takeaway-open-logs"
+          {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}
+        >
+          <span data-lang="zh">打开 .loopora 日志</span>
+          <span data-lang="en">Open .loopora logs</span>
+        </button>
+        <span class="takeaway-feedback" id="takeaway-feedback"></span>
+      </div>
+    </div>
+    <div class="takeaway-evidence-strip" id="takeaway-evidence-strip" hidden></div>
+    <div class="takeaway-selector-row" id="takeaway-selector-row" hidden>
+      <label class="takeaway-selector-label" for="takeaway-iteration-select">
+        <span data-lang="zh">查看轮次</span>
+        <span data-lang="en">View iteration</span>
+      </label>
+      <select class="takeaway-iteration-select" id="takeaway-iteration-select" data-testid="takeaway-iteration-select"></select>
+    </div>
+    <div class="takeaway-iteration-view" id="takeaway-iteration-view" data-testid="takeaway-iteration-view"></div>
+    <div class="takeaway-empty" id="takeaway-empty" hidden>
+      <strong>
+        <span data-lang="zh">还没有稳定结论</span>
+        <span data-lang="en">No stable takeaways yet</span>
+      </strong>
+      <p>
+        <span data-lang="zh">角色 handoff 或 iteration summary 写出后，这里会自动收敛成简洁结论。</span>
+        <span data-lang="en">As soon as a role handoff or iteration summary lands, this area condenses it into concise takeaways.</span>
+      </p>
+    </div>
+  </article>
+
   <article class="panel progress-panel" data-testid="run-progress-panel">
     <header class="panel-header progress-panel-header">
       <div>
@@ -180,80 +260,13 @@
     </div>
   </article>
 
-  <article class="panel takeaway-panel" data-testid="run-takeaway-panel">
-    <header class="panel-header takeaway-panel-header">
-      <div>
-        <h2><span data-lang="zh">关键结论</span><span data-lang="en">Key takeaways</span></h2>
-        <p class="takeaway-copy">
-          <span data-lang="zh">只保留每轮角色的结论与最终 verdict；原始 prompt、context、output 继续沉到 <code>.loopora</code> 日志里。</span>
-          <span data-lang="en">Only the per-iteration role conclusions and final verdict stay here. Raw prompts, context, and outputs remain in the <code>.loopora</code> logs.</span>
-        </p>
-      </div>
-      <div class="takeaway-meta" id="takeaway-meta">-</div>
-    </header>
-    <div class="takeaway-shortcuts">
-      <div class="takeaway-path-grid">
-        <article class="takeaway-path-card">
-          <span class="takeaway-path-label"><span data-lang="zh">构建目录</span><span data-lang="en">Build folder</span></span>
-          <code id="takeaway-build-path">{{ run.workdir }}</code>
-        </article>
-        <article class="takeaway-path-card">
-          <span class="takeaway-path-label"><span data-lang="zh">原始日志</span><span data-lang="en">Raw logs</span></span>
-          <code id="takeaway-log-path">{{ run.runs_dir }}</code>
-        </article>
-      </div>
-      <div class="takeaway-actions">
-        <button
-          type="button"
-          class="ghost-button"
-          id="takeaway-open-build"
-          data-testid="takeaway-open-build"
-          {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}
-        >
-          <span data-lang="zh">打开构建目录</span>
-          <span data-lang="en">Open build folder</span>
-        </button>
-        <button
-          type="button"
-          class="ghost-button"
-          id="takeaway-open-logs"
-          data-testid="takeaway-open-logs"
-          {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}
-        >
-          <span data-lang="zh">打开 .loopora 日志</span>
-          <span data-lang="en">Open .loopora logs</span>
-        </button>
-        <span class="takeaway-feedback" id="takeaway-feedback"></span>
-      </div>
-    </div>
-    <div class="takeaway-evidence-strip" id="takeaway-evidence-strip" hidden></div>
-    <div class="takeaway-selector-row" id="takeaway-selector-row" hidden>
-      <label class="takeaway-selector-label" for="takeaway-iteration-select">
-        <span data-lang="zh">查看轮次</span>
-        <span data-lang="en">View iteration</span>
-      </label>
-      <select class="takeaway-iteration-select" id="takeaway-iteration-select" data-testid="takeaway-iteration-select"></select>
-    </div>
-    <div class="takeaway-iteration-view" id="takeaway-iteration-view" data-testid="takeaway-iteration-view"></div>
-    <div class="takeaway-empty" id="takeaway-empty" hidden>
-      <strong>
-        <span data-lang="zh">还没有稳定结论</span>
-        <span data-lang="en">No stable takeaways yet</span>
-      </strong>
-      <p>
-        <span data-lang="zh">角色 handoff 或 iteration summary 写出后，这里会自动收敛成简洁结论。</span>
-        <span data-lang="en">As soon as a role handoff or iteration summary lands, this area condenses it into concise takeaways.</span>
-      </p>
-    </div>
-  </article>
-
   <article class="panel console-panel" data-testid="run-console-panel">
     <header class="panel-header console-panel-header">
       <div>
         <h2><span data-lang="zh">控制台</span><span data-lang="en">Console</span></h2>
         <p class="console-copy">
-          <span data-lang="zh">这里会白盒化展示命令下发、终端输出、阶段进展和关键错误，让这轮 run 正在做什么尽量一眼可见。</span>
-          <span data-lang="en">This console white-boxes issued commands, terminal output, stage progress, and critical errors so the current run feels legible at a glance.</span>
+          <span data-lang="zh">追查命令下发、终端输出、阶段进展和关键错误；默认判断先看上方证据结论。</span>
+          <span data-lang="en">Trace commands, terminal output, stage progress, and critical errors; use the evidence summary above as the default judgment surface.</span>
         </p>
       </div>
       <div class="console-meta">
@@ -293,10 +306,10 @@
   <article class="panel timeline-panel" data-testid="run-timeline-panel">
     <header class="panel-header timeline-panel-header">
       <div>
-        <h2><span data-lang="zh">时间线</span><span data-lang="en">Timeline</span></h2>
+        <h2><span data-lang="zh">追查时间线</span><span data-lang="en">Trace timeline</span></h2>
         <p class="timeline-copy">
-          <span data-lang="zh">只保留关键节点，让这一轮是怎么走到现在的能一眼看明白。</span>
-          <span data-lang="en">Only the key milestones stay here, so you can understand this run's path at a glance.</span>
+          <span data-lang="zh">只保留关键节点，用来追查这一轮如何走到当前结论。</span>
+          <span data-lang="en">Only key milestones stay here so you can trace how this run reached the current conclusion.</span>
         </p>
       </div>
       <span class="timeline-count" id="timeline-count">-</span>
@@ -1600,6 +1613,73 @@
     ].join("");
   }
 
+  function revisionRecommendation() {
+    const coverage = takeawaySnapshot?.evidence_coverage || {};
+    const status = String(takeawaySnapshot?.latest_status || currentRun?.status || "").toLowerCase();
+    const coverageStatus = String(coverage.status || "").toLowerCase();
+    const weakCount = Number(coverage.weak_target_count || 0);
+    const missingCount = Number(coverage.missing_target_count || 0);
+    const blockedCount = Number(coverage.blocked_target_count || 0);
+    const primaryGap = Array.isArray(coverage.top_gaps) && coverage.top_gaps.length ? coverage.top_gaps[0] : null;
+    if (["failed", "blocked"].includes(status) || ["blocked", "partial"].includes(coverageStatus) || blockedCount > 0 || missingCount > 0) {
+      return {
+        soft: false,
+        button: localeText("基于证据修订方案", "Revise from evidence"),
+        title: localeText("证据还没过线，建议修订方案", "Evidence has not cleared the bar; revise the plan"),
+        detail: primaryGap?.text || localeText(
+          "把这次 GateKeeper 裁决、证据缺口和阻塞项带回循环方案，调整下一版判断方式。",
+          "Bring this verdict, evidence gap, and blockers back into the loop plan for the next version."
+        ),
+      };
+    }
+    if (coverageStatus === "weak" || weakCount > 0) {
+      return {
+        soft: false,
+        button: localeText("加强下一版方案", "Strengthen next plan"),
+        title: localeText("证据偏弱，建议收紧下一版方案", "Evidence is weak; tighten the next plan"),
+        detail: primaryGap?.text || localeText(
+          "这次可能能继续推进，但下一版应加强证据偏好、Inspector 责任或 GateKeeper 门槛。",
+          "This may be enough to continue, but the next plan should strengthen evidence preferences, Inspector duties, or the GateKeeper bar."
+        ),
+      };
+    }
+    if (status === "passed" || coverageStatus === "covered") {
+      return {
+        soft: true,
+        button: localeText("修订下一版方案", "Revise next plan"),
+        title: localeText("本轮证据支持通过", "This run is supported by evidence"),
+        detail: localeText(
+          "可以复盘证据后继续使用；如果要接受残余风险或调整下一轮判断，也可以生成下一版方案。",
+          "You can keep using the plan after reviewing the evidence; revise the next version if residual risk or future judgment should change."
+        ),
+      };
+    }
+    return {
+      soft: true,
+      button: localeText("准备修订方案", "Prepare revision"),
+      title: localeText("等待更多证据", "Waiting for more evidence"),
+      detail: localeText(
+        "角色 handoff、证据账本或 GateKeeper 裁决写出后，这里会给出更具体的修订建议。",
+        "Once role handoffs, the evidence ledger, or the GateKeeper verdict lands, this will show a sharper revision recommendation."
+      ),
+    };
+  }
+
+  function renderRevisionRecommendation() {
+    const card = document.getElementById("takeaway-next-step-card");
+    if (!card) {
+      return;
+    }
+    const recommendation = revisionRecommendation();
+    card.classList.toggle("is-soft", recommendation.soft);
+    setTextContentIfChanged("takeaway-next-step-title", recommendation.title);
+    setTextContentIfChanged("takeaway-next-step-detail", recommendation.detail);
+    const button = document.getElementById("takeaway-revise-button");
+    if (button) {
+      button.textContent = recommendation.button;
+    }
+  }
+
   function ensureSelectedTakeawayIter(iterations) {
     if (!Array.isArray(iterations) || !iterations.length) {
       selectedTakeawayIter = null;
@@ -1657,6 +1737,7 @@
     setTextContentIfChanged("takeaway-build-path", takeawaySnapshot?.build_dir || "-");
     setTextContentIfChanged("takeaway-log-path", takeawaySnapshot?.log_dir || "-");
     renderEvidenceCoverage();
+    renderRevisionRecommendation();
     meta.textContent = latestIter
       ? localeText(
         `最近到第 ${latestIter} 轮 · ${takeawaySnapshot.role_conclusion_count || 0} 条角色结论 · ${takeawaySnapshot.evidence_count || 0} 条证据`,

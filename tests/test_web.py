@@ -1988,7 +1988,9 @@ def test_bundle_api_and_detail_include_revision_lineage(
     assert any(item["surface"] == "summary" and item["status"] == "changed" for item in revision_summary["surface_deltas"])
     assert page_response.status_code == 200
     assert 'data-testid="bundle-revision-lineage"' in page_response.text
-    assert f"{source['id']} · Revision {source['revision']}" in page_response.text
+    assert f"Plan revision r{source['revision']}" in page_response.text
+    assert 'data-testid="bundle-surface-diff"' in page_response.text
+    assert f'value="{source["id"]}"' in page_response.text
     assert 'data-testid="bundle-revision-delta-summary"' in page_response.text
     assert list_response.status_code == 200
     assert f'data-testid="bundle-governance-card-{revised["id"]}"' in list_response.text

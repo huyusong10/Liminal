@@ -18,6 +18,8 @@ The test suite protects behavior contracts, not implementation shape.
 - Do not assert static UI copy as the main contract.
 - Do not assert CSS classes, DOM nesting, or script source internals unless the behavior has no better public anchor.
 - Keep language-specific checks narrow and focused on locale selection or presence of translated resources, not exact phrasing.
+- Default-path UI tests should assert the five user actions: describe task, confirm loop plan, run, inspect evidence, revise plan.
+- Expert terms such as `bundle`, `YAML`, `orchestration`, and `workflow controls` should be asserted only on expert paths or debug/source panels, not as required default-path copy.
 - Keep legacy compatibility coverage separate from new-path quality assertions.
 - Prefer one high-value journey over many tests that mirror individual implementation branches.
 - Keep `tests/scenarios/` small; merge adjacent UI flows into one journey instead of adding one file per page tweak.

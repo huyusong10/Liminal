@@ -1037,6 +1037,31 @@ html[data-locale="zh"] .bundle-revision-delta span {
   background: rgba(214, 106, 54, 0.07);
 }
 
+.expert-disclosure {
+  display: block;
+}
+
+.expert-disclosure > summary,
+.bundle-card-expert > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.expert-disclosure > summary {
+  margin-bottom: 14px;
+  font-size: 0.94rem;
+}
+
+.bundle-card-expert {
+  display: grid;
+  gap: 10px;
+}
+
+.bundle-card-expert > summary {
+  font-size: 0.82rem;
+}
+
 .bundle-card-status {
   display: flex;
   flex-direction: column;
@@ -2106,26 +2131,29 @@ html[data-locale="zh"] .alignment-role-title em {
 }
 
 .alignment-artifact-summary {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 14px;
 }
 
 .alignment-artifact-summary span {
   min-width: 0;
-  padding: 5px 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
+  padding: 10px 12px;
+  border: 1px solid rgba(var(--outline-rgb), 0.08);
+  background: rgba(var(--panel-rgb), 0.5);
+  color: var(--text);
   font-size: 0.88rem;
+  line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
 .alignment-artifact-summary span + span::before {
-  content: "·";
-  margin-right: 10px;
-  color: var(--muted);
+  content: none;
+}
+
+.alignment-artifact-summary span:first-child {
+  grid-column: 1 / -1;
 }
 
 .alignment-control-summary,
@@ -2190,6 +2218,12 @@ html[data-locale="zh"] .alignment-role-title em {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.alignment-preview-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
 }
 
 .alignment-preview-tabs {
@@ -5975,10 +6009,20 @@ html[data-locale="zh"] .loop-detail-spec-label {
 
 .console-panel {
   grid-column: 1 / -1;
+  order: 3;
 }
 
 .takeaway-panel {
   grid-column: 1 / -1;
+  order: -1;
+}
+
+.progress-panel {
+  order: 1;
+}
+
+.timeline-panel {
+  order: 4;
 }
 
 .takeaway-panel-header {
@@ -5987,6 +6031,36 @@ html[data-locale="zh"] .loop-detail-spec-label {
 
 .takeaway-copy {
   margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.takeaway-next-step-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid rgba(var(--outline-rgb), 0.1);
+  background: rgba(var(--accent-rgb), 0.08);
+}
+
+.takeaway-next-step-card.is-soft {
+  background: rgba(var(--glass-rgb), 0.58);
+}
+
+.takeaway-next-step-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.takeaway-next-step-copy strong {
+  font-size: 1.02rem;
+}
+
+.takeaway-next-step-copy p {
+  margin: 0;
   color: var(--muted);
 }
 
@@ -6430,6 +6504,10 @@ html[data-locale="zh"] .takeaway-iteration-label {
 
 @media (max-width: 1120px) {
   .takeaway-shortcuts {
+    grid-template-columns: 1fr;
+  }
+
+  .takeaway-next-step-card {
     grid-template-columns: 1fr;
   }
 

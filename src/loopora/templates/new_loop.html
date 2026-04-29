@@ -30,8 +30,8 @@
       <span data-lang="en">Choose how this loop starts.</span>
     </h1>
     <p>
-      <span data-lang="zh">如果你还在描述目标和判断方式，从循环方案对话开始。只有当 spec、角色定义和流程规则都已经想清楚时，再进入手动专家模式。</span>
-      <span data-lang="en">Start with the loop-plan conversation when you are still shaping task judgment. Use manual expert mode only when the spec, roles, and workflow rules are already clear.</span>
+      <span data-lang="zh">如果你还在描述目标和判断方式，从循环方案对话开始。只有当底层运行资产都已经想清楚时，再进入手动专家模式。</span>
+      <span data-lang="en">Start with the loop-plan conversation when you are still shaping task judgment. Use manual expert mode only when the underlying runtime assets are already clear.</span>
     </p>
   </div>
 </section>
@@ -42,8 +42,8 @@
       <span class="eyebrow"><span data-lang="zh">推荐</span><span data-lang="en">Recommended</span></span>
       <h2><span data-lang="zh">对话生成循环方案</span><span data-lang="en">Generate a Loop Plan</span></h2>
       <p>
-        <span data-lang="zh">像和 LLM 聊天一样描述需求，Loopora 会让本机 Agent 对齐任务判断、生成循环方案，并在 READY 后展示任务契约、角色和流程。</span>
-        <span data-lang="en">Describe the request like a normal LLM chat. Loopora asks a local Agent to align task judgment, generate a loop plan, and preview the contract, roles, and workflow when READY.</span>
+        <span data-lang="zh">像和 LLM 聊天一样描述需求，Loopora 会让本机 Agent 对齐任务判断，并展示目标、风险、证据路径和裁决方式。</span>
+        <span data-lang="en">Describe the request like a normal LLM chat. Loopora asks a local Agent to align task judgment, then previews the goal, risks, evidence path, and verdict path.</span>
       </p>
     </div>
     <a class="primary-button" href="/loops/new/bundle" data-testid="loop-create-bundle-link">
@@ -125,8 +125,8 @@
     <div class="bundle-chat-scroll" id="alignment-scroll-region" data-testid="alignment-scroll-region">
     <div class="bundle-chat-empty" id="alignment-empty-state" data-testid="alignment-empty-state">
       <h1>
-        <span data-lang="zh">想创建什么循环？</span>
-        <span data-lang="en">What loop should Loopora create?</span>
+        <span data-lang="zh">想让 Loopora 处理什么任务？</span>
+        <span data-lang="en">What task should Loopora handle?</span>
       </h1>
     </div>
 
@@ -176,14 +176,16 @@
         </div>
         <div class="card-actions card-actions-compact">
           <button class="primary-button" type="button" id="alignment-import-run-button" data-testid="alignment-import-run-button">
-            <span data-lang="zh">创建循环并运行</span>
-            <span data-lang="en">Create and run loop</span>
+            <span data-lang="zh">创建并运行</span>
+            <span data-lang="en">Create and run</span>
           </button>
         </div>
       </header>
       <div class="alignment-artifact-summary" id="alignment-artifact-summary" data-testid="alignment-artifact-summary">
-        <span id="alignment-artifact-roles">-</span>
-        <span id="alignment-artifact-flow">-</span>
+        <span id="alignment-artifact-task">-</span>
+        <span id="alignment-artifact-risk">-</span>
+        <span id="alignment-artifact-evidence">-</span>
+        <span id="alignment-artifact-verdict">-</span>
         <span id="alignment-artifact-workdir">-</span>
       </div>
       <div class="alignment-control-summary" id="alignment-control-summary" data-testid="alignment-control-summary"></div>
@@ -201,6 +203,10 @@
           </button>
         </div>
       </div>
+      <p class="alignment-preview-note">
+        <span data-lang="zh">专家视图：用于检查这份方案如何落到 Loopora 的稳定运行面。</span>
+        <span data-lang="en">Expert views: inspect how this plan maps onto Loopora's stable runtime surfaces.</span>
+      </p>
       <div class="alignment-preview-tabs" data-testid="alignment-preview-tabs" role="tablist" aria-label="{{ '循环方案预览' if page_locale == 'zh' else 'Loop plan preview' }}">
         <button type="button" class="alignment-preview-tab is-active" data-preview-tab="spec" data-testid="alignment-preview-tab-spec" role="tab" aria-selected="true">
           <span>spec</span>

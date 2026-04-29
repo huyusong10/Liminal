@@ -150,11 +150,13 @@ def test_run_detail_places_takeaways_and_console_before_timeline(
     assert "Run Detail Loop" in response.text
     assert run["id"] in response.text
     _assert_has_testid(response.text, "run-revise-chat-button")
+    _assert_has_testid(response.text, "run-evidence-revise-button")
+    _assert_has_testid(response.text, "run-revision-recommendation")
     assert f'/runs/{run["id"]}/revise' in response.text
     _assert_testids_in_order(
         response.text,
-        "run-progress-panel",
         "run-takeaway-panel",
+        "run-progress-panel",
         "run-console-panel",
         "run-timeline-panel",
     )
@@ -496,6 +498,10 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(bundle_response.text, "alignment-live-details")
     _assert_has_testid(bundle_response.text, "alignment-ready-preview")
     _assert_has_testid(bundle_response.text, "alignment-artifact-summary")
+    assert 'id="alignment-artifact-task"' in bundle_response.text
+    assert 'id="alignment-artifact-risk"' in bundle_response.text
+    assert 'id="alignment-artifact-evidence"' in bundle_response.text
+    assert 'id="alignment-artifact-verdict"' in bundle_response.text
     _assert_has_testid(bundle_response.text, "alignment-control-summary")
     _assert_has_testid(bundle_response.text, "alignment-preview-tabs")
     _assert_has_testid(bundle_response.text, "alignment-preview-tab-spec")
@@ -1043,7 +1049,8 @@ def test_bundles_pages_render_list_and_detail(
     assert f'/api/bundles/{imported["id"]}/export' in detail_response.text
     assert f'?return_to=/bundles/{imported["id"]}' in detail_response.text
     assert f'/loops/new/manual?replace_bundle_id={imported["id"]}#bundle-import-form' in detail_response.text
-    assert "Current Bundle YAML" in detail_response.text
+    assert "Current plan source" in detail_response.text
+    assert "Expert details: source file and YAML" in detail_response.text
     assert "bundle-surface-grid" in detail_response.text
     assert "bundle-surface-card--wide" in detail_response.text
     assert 'style="margin-top: 1rem;"' not in detail_response.text

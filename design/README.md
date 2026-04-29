@@ -48,6 +48,7 @@
 | --- | --- | --- | --- |
 | 核心思想 | `core-ideas/README.md` | 项目公理、反例、非目标 | 全局 |
 | 核心思想 | `core-ideas/product-principle.md` | 最高产品原则、外部任务治理与默认用户心智 | 全局 |
+| 核心思想 | `core-ideas/concept-map.md` | 术语层级、主生命周期与易混边界 | 全局 |
 | 核心思想 | `core-ideas/core-contract.md` | 当前五个治理 surface、巡检流程与测试对齐锚点 | 全局 |
 | 核心思想 | `core-ideas/collaboration-posture.md` | 用户判断姿态如何成为治理输入 | 全局 |
 | 核心思想 | `core-ideas/task-scoped-alignment.md` | 任务驱动对齐、working agreement 与循环方案演进 | 全局 |
@@ -63,7 +64,7 @@
 
 ## 5. 读者约定
 
-- 产品与架构讨论先读 `core-ideas/README.md`。
+- 产品与架构讨论先读 `core-ideas/README.md`；如果被术语层级绕住，先读 `core-ideas/concept-map.md`。
 - 改某个模块前先读对应的 `detailed-design/*.md`。
 - 演进路线、阶段性落点和非契约规划记录放在 `planning/`，不作为模块改动前的必读设计契约。
 - 涉及跨模块变更时，至少同时检查：

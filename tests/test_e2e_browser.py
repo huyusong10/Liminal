@@ -257,9 +257,8 @@ def _wait_for_run_status(service: LooporaService, run_id: str, *statuses: str, t
     raise AssertionError(f"run stayed in {run['status']}, expected {sorted(expected)}")
 
 
-def _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page) -> None:
+def _assert_preview_has_expert_tabs_and_stable_hover(page) -> None:
     page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
-    page.get_by_test_id("alignment-artifact-summary").wait_for(state="visible", timeout=5_000)
     assert page.get_by_test_id("alignment-spec-preview").inner_html().strip()
     page.get_by_test_id("alignment-preview-tab-roles").click()
     assert page.locator('[data-testid="alignment-role-list"] .alignment-role-card').count() >= 3
@@ -368,6 +367,17 @@ def _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page) ->
     if layout_before["composer"] and layout_after["composer"]:
         assert abs(layout_before["composer"]["y"] - layout_after["composer"]["y"]) <= 1
         assert abs(layout_before["composer"]["height"] - layout_after["composer"]["height"]) <= 1
+
+
+def _assert_plan_preview_has_default_summary_and_expert_tabs(page) -> None:
+    page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
+    page.get_by_test_id("alignment-artifact-summary").wait_for(state="visible", timeout=5_000)
+    summary_text = page.get_by_test_id("alignment-artifact-summary").text_content() or ""
+    assert "Task" in summary_text or "任务目标" in summary_text
+    assert "Evidence" in summary_text or "证据路径" in summary_text
+    assert "Verdict" in summary_text or "裁决方式" in summary_text
+    assert "Workdir" in summary_text or "运行目录" in summary_text
+    _assert_preview_has_expert_tabs_and_stable_hover(page)
 
 
 def test_local_listener_permission_errors_become_skips() -> None:
@@ -484,9 +494,7 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
                 page.get_by_test_id("alignment-workdir-chip").click()
                 page.get_by_test_id("alignment-tools-menu").wait_for(state="visible", timeout=5_000)
                 page.get_by_test_id("alignment-workdir").fill(str(workdir))
-                page.get_by_test_id("alignment-message-input").fill(
-                    "帮我为这个仓库生成一个先小步实现、再取证验收、最后保守放行的 Loopora bundle。"
-                )
+                page.get_by_test_id("alignment-message-input").fill("帮我为这个仓库生成一个先小步实现、再取证验收、最后保守放行的循环方案。")
                 page.get_by_test_id("alignment-send-button").click()
 
                 page.get_by_test_id("alignment-chat").wait_for(state="visible", timeout=5_000)
@@ -525,7 +533,7 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
                 assert (artifact_dir / "artifacts" / "validation.json").exists()
 
                 transcript_text = page.get_by_test_id("alignment-transcript").text_content() or ""
-                assert "Loopora bundle" in transcript_text
+                assert "循环方案" in transcript_text
                 assert page.locator('[data-testid="alignment-console-output"] .console-line').count() >= 2
                 assert page.locator(".alignment-history-item").count() == 1
                 page.get_by_test_id("alignment-source-open-button").wait_for(state="visible", timeout=5_000)
@@ -538,13 +546,13 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
                 assert sidebar_before and sidebar_after and composer_before and composer_after
                 assert abs(sidebar_before["y"] - sidebar_after["y"]) <= 2
                 assert abs(composer_before["y"] - composer_after["y"]) <= 2
-                _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page)
+                _assert_plan_preview_has_default_summary_and_expert_tabs(page)
                 page.get_by_test_id("alignment-new-session-button").click()
                 page.get_by_test_id("alignment-ready-preview").wait_for(state="hidden", timeout=5_000)
                 page.locator(".alignment-history-open").first.click()
                 page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
                 page.get_by_test_id("alignment-status-pill").click()
-                _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page)
+                _assert_plan_preview_has_default_summary_and_expert_tabs(page)
 
                 page.get_by_test_id("alignment-import-run-button").click()
                 page.wait_for_url("**/runs/**", wait_until="networkidle", timeout=10_000)
@@ -667,7 +675,7 @@ def test_bundle_yaml_preview_imports_and_runs_from_browser(tmp_path: Path) -> No
                 page.get_by_test_id("bundle-preview-import-button").wait_for(state="visible", timeout=10_000)
                 assert page.get_by_test_id("alignment-import-run-button").count() == 0
                 assert page.get_by_test_id("alignment-source-open-button").is_hidden()
-                _assert_bundle_preview_has_contract_roles_workflow_and_stable_hover(page)
+                _assert_preview_has_expert_tabs_and_stable_hover(page)
 
                 page.get_by_test_id("bundle-preview-import-button").click()
                 page.wait_for_url("**/runs/**", wait_until="networkidle", timeout=10_000)

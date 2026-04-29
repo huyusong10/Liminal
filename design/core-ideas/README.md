@@ -10,6 +10,8 @@ Loopora 是面向长期 AI Agent 任务的外部任务治理层。
 
 `product-principle.md` 是本目录的最高原则。下方公理都服务于同一件事：让长期任务的控制结构不只依赖 Agent 自律。
 
+如果讨论卡在 `bundle / loop / run / harness / alignment session` 等术语层级上，先读 `concept-map.md`。它只负责澄清概念分层和主生命周期，不新增运行契约。
+
 ## 1. 设计公理
 
 1. **治理必须外部化。**
