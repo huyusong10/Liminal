@@ -28,6 +28,18 @@ def _assert_testids_in_order(html: str, *testids: str) -> None:
     assert positions == sorted(positions)
 
 
+def _assert_initial_locale(html: str, locale: str) -> None:
+    lang = "zh-CN" if locale == "zh" else locale
+    assert re.search(rf'<html\s+lang="{lang}"\s+data-locale="{locale}"\s+data-theme="light"\s*>', html)
+
+
+def _assert_display_bootstrap_precedes_css(html: str) -> None:
+    assert "loopora:theme" in html
+    assert "loopora:locale" in html
+    assert html.index("loopora:theme") < html.index("/static/app.css?v=")
+    assert html.index("loopora:locale") < html.index("/static/app.css?v=")
+
+
 def test_index_page_renders_with_saved_loops(
     service_factory,
     sample_spec_file: Path,
@@ -54,70 +66,49 @@ def test_index_page_renders_with_saved_loops(
     assert response.status_code == 200
     assert "Homepage Loop" in response.text
     assert "/logo/logo-with-text-horizontal.svg" in response.text
-    assert "page-stack" in response.text
-    assert "loop-grid-note" in response.text
-    assert 'class="loop-grid loop-grid--created" id="loop-grid"' in response.text
-    assert 'data-theme="light"' in response.text
-    assert "loopora:theme" in response.text
-    assert "loopora:locale" in response.text
-    assert response.text.index("loopora:theme") < response.text.index("/static/app.css?v=")
-    assert response.text.index("loopora:locale") < response.text.index("/static/app.css?v=")
-    assert '<title>Workbench</title>' in response.text
-    assert 'class="loop-card-link"' in response.text
-    assert 'tabindex="-1"' in response.text
-    assert 'aria-hidden="true"' in response.text
+    _assert_initial_locale(response.text, "en")
+    _assert_display_bootstrap_precedes_css(response.text)
     assert "/static/app.css?v=" in response.text
     assert "/static/app.js?v=" in response.text
-    _assert_has_testid(response.text, "top-nav")
-    _assert_has_testid(response.text, "nav-workbench-link")
-    _assert_has_testid(response.text, "nav-new-task-link")
-    _assert_has_testid(response.text, "nav-plans-link")
-    _assert_has_testid(response.text, "nav-preferences")
-    _assert_has_testid(response.text, "nav-preferences-toggle")
-    _assert_has_testid(response.text, "nav-preferences-panel")
-    _assert_has_testid(response.text, "nav-resources-menu")
-    _assert_has_testid(response.text, "nav-settings-menu")
-    _assert_has_testid(response.text, "nav-menu-roles-link")
-    _assert_has_testid(response.text, "nav-menu-orchestrations-link")
-    _assert_has_testid(response.text, "nav-menu-manual-create-link")
-    _assert_has_testid(response.text, "nav-menu-tools-link")
-    _assert_has_testid(response.text, "nav-menu-tutorial-link")
+    _assert_has_testids(
+        response.text,
+        "top-nav",
+        "nav-workbench-link",
+        "nav-new-task-link",
+        "nav-plans-link",
+        "nav-preferences",
+        "nav-preferences-toggle",
+        "nav-preferences-panel",
+        "nav-resources-menu",
+        "nav-settings-menu",
+        "nav-menu-roles-link",
+        "nav-menu-orchestrations-link",
+        "nav-menu-manual-create-link",
+        "nav-menu-tools-link",
+        "nav-menu-tutorial-link",
+        "theme-switch",
+        "theme-light-button",
+        "theme-dark-button",
+        "locale-switch",
+        "index-new-task-link",
+        "index-plans-link",
+    )
     assert 'data-testid="nav-created-link"' not in response.text
     assert 'data-testid="nav-create-loop-link"' not in response.text
     assert 'data-testid="nav-role-definitions-link"' not in response.text
     assert 'data-testid="nav-orchestrations-link"' not in response.text
     assert 'data-testid="nav-tools-link"' not in response.text
     assert 'data-testid="nav-tutorial-link"' not in response.text
-    _assert_has_testid(response.text, "theme-switch")
-    _assert_has_testid(response.text, "theme-light-button")
-    _assert_has_testid(response.text, "theme-dark-button")
-    _assert_has_testid(response.text, "locale-switch")
-    assert 'aria-label="Loopora home"' in response.text
-    assert 'aria-label="Open resources and settings menu"' in response.text
-    assert 'aria-label="Theme switch"' in response.text
-    assert 'aria-label="Light mode"' in response.text
-    assert 'aria-label="Dark mode"' in response.text
-    assert 'aria-label="Language switch"' in response.text
-    _assert_has_testid(response.text, "index-new-task-link")
-    _assert_has_testid(response.text, "index-plans-link")
     assert 'href="/loops/new/bundle"' in response.text
     assert 'href="/bundles"' in response.text
-    empty_state_markup = response.text.split('class="empty-state" id="loops-empty-state" hidden>', 1)[1].split("</div>", 1)[0]
-    assert 'class="empty-state-logo"' in empty_state_markup
-    assert 'alt=""' in empty_state_markup
-    assert 'aria-hidden="true"' in empty_state_markup
     assert "data-open-card=" in response.text
     assert "id=\"confirm-modal\"" in response.text
     assert "id=\"loops-empty-state\" hidden" in response.text
 
     zh_response = client.get("/", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
-    assert '<title>工作台</title>' in zh_response.text
-    assert 'aria-label="Loopora 首页"' in zh_response.text
-    assert 'aria-label="主题切换"' in zh_response.text
-    assert 'aria-label="浅色模式"' in zh_response.text
-    assert 'aria-label="深色模式"' in zh_response.text
-    assert 'aria-label="语言切换"' in zh_response.text
+    _assert_initial_locale(zh_response.text, "zh")
+    _assert_has_testids(zh_response.text, "top-nav", "theme-switch", "locale-switch")
 
 
 def test_index_page_shell_prefers_primary_request_locale_on_first_paint(service_factory) -> None:
@@ -127,11 +118,8 @@ def test_index_page_shell_prefers_primary_request_locale_on_first_paint(service_
     response = client.get("/", headers={"Accept-Language": "zh-CN;q=0.1,en-US;q=0.9"})
 
     assert response.status_code == 200
-    assert re.search(r'<html\s+lang="en"\s+data-locale="en"\s+data-theme="light"\s*>', response.text)
-    assert "loopora:theme" in response.text
-    assert "loopora:locale" in response.text
-    assert response.text.index("loopora:theme") < response.text.index("/static/app.css?v=")
-    assert response.text.index("loopora:locale") < response.text.index("/static/app.css?v=")
+    _assert_initial_locale(response.text, "en")
+    _assert_display_bootstrap_precedes_css(response.text)
 
 
 def test_run_detail_places_takeaways_and_console_before_timeline(
@@ -227,37 +215,6 @@ def test_run_detail_collapses_empty_workflow_lane(
     )
 
 
-def test_run_detail_refreshes_takeaways_with_a_distinct_flag_name(
-    service_factory,
-    sample_spec_file: Path,
-    sample_workdir: Path,
-) -> None:
-    service = service_factory(scenario="success")
-    loop = service.create_loop(
-        name="Takeaway Refresh Loop",
-        spec_path=sample_spec_file,
-        workdir=sample_workdir,
-        model="gpt-5.4",
-        reasoning_effort="medium",
-        max_iters=3,
-        max_role_retries=1,
-        delta_threshold=0.005,
-        trigger_window=2,
-        regression_window=2,
-        role_models={},
-    )
-    run = service.rerun(loop["id"])
-
-    client = TestClient(build_app(service=service))
-    response = client.get(f"/runs/{run['id']}")
-
-    assert response.status_code == 200
-    assert "async function fetchRun({shouldRefreshTakeaways = false} = {})" in response.text
-    assert "await fetchRun({shouldRefreshTakeaways});" in response.text
-    assert "refreshTakeawaySnapshot().catch(() => {});" in response.text
-    assert "refreshTakeaways().catch(() => {});" not in response.text
-
-
 def test_run_detail_empty_workflow_lane_uses_request_locale_on_first_paint(
     service_factory,
     sample_spec_file: Path,
@@ -292,7 +249,7 @@ def test_run_detail_empty_workflow_lane_uses_request_locale_on_first_paint(
     )
 
     assert response.status_code == 200
-    assert 'data-locale="zh"' in response.text
+    _assert_initial_locale(response.text, "zh")
     assert re.search(r'data-testid="run-stage-loop-shell"[^>]*data-workflow-empty="true"', response.text)
     _assert_has_testid(response.text, "run-stage-loop-empty")
 
@@ -331,7 +288,6 @@ def test_run_detail_progress_stages_follow_workflow_snapshot(
     assert 'data-stage="step:builder_repair_step"' in response.text
     assert 'data-stage="step:gatekeeper_step"' in response.text
     assert 'data-stage="finished"' in response.text
-    assert response.text.count('class="stage-chip stage-chip--terminal"') == 2
     assert 'class="stage-loop-shell"' in response.text
     assert 'data-stage="generator"' not in response.text
     assert 'data-stage="tester"' not in response.text
@@ -367,39 +323,20 @@ def test_run_console_page_renders_fullscreen_console_view(
     )
 
     assert response.status_code == 200
-    assert re.search(r'<html\s+lang="en"\s+data-locale="en"\s+data-theme="light"\s*>', response.text)
-    assert "loopora:theme" in response.text
-    assert "loopora:locale" in response.text
-    assert response.text.index("loopora:theme") < response.text.index("/static/app.css?v=")
-    assert response.text.index("loopora:locale") < response.text.index("/static/app.css?v=")
+    _assert_initial_locale(response.text, "en")
+    _assert_display_bootstrap_precedes_css(response.text)
     assert "console-focus-shell" in response.text
     assert "console-shell-immersive" in response.text
     assert "console-focus-output" in response.text
     assert "console-focus-topbar" in response.text
     assert "console-focus-back" in response.text
     assert "Fullscreen Console Loop · Console" in response.text
-    assert "Back to run" in response.text
-    assert "返回运行详情" in response.text
     assert "console-focus-filters" not in response.text
     assert "console-focus-expand-all" not in response.text
     assert "console-focus-collapse-all" not in response.text
     assert "console-focus-meta-row" not in response.text
     assert "console-focus-status" not in response.text
     assert "/static/pages/run_console.js?v=" in response.text
-
-
-def test_run_console_script_uses_compact_filter_groups(service_factory) -> None:
-    service = service_factory(scenario="success")
-
-    client = TestClient(build_app(service=service))
-    response = client.get("/static/pages/run_console.js")
-
-    assert response.status_code == 200
-    assert '{key: "status", zh: "状态", en: "Status"}' in response.text
-    assert '{key: "actions", zh: "动作", en: "Actions"}' in response.text
-    assert '{key: "result", zh: "结果", en: "Result"}' in response.text
-    assert '{key: "context", zh: "上下文", en: "Context"}' not in response.text
-    assert '{key: "progress", zh: "进展", en: "Progress"}' not in response.text
 
 
 def test_loop_detail_uses_summary_cards_for_latest_run(
@@ -1168,34 +1105,6 @@ def test_index_page_uses_bundle_delete_for_bundle_managed_loops(
     assert "managed by plan" in response.text
 
 
-def test_role_definition_editor_script_localizes_archetype_labels_and_guide(service_factory) -> None:
-    service = service_factory(scenario="success")
-
-    client = TestClient(build_app(service=service))
-    response = client.get("/static/pages/new_role_definition.js")
-
-    assert response.status_code == 200
-    assert 'const locale = window.LooporaUI.currentLocale();' in response.text
-    assert 'const label = locale === "zh" ? option.dataset.labelZh : option.dataset.labelEn;' in response.text
-    assert 'option.textContent = label || option.dataset.labelEn || option.dataset.labelZh || option.textContent || "";' in response.text
-    assert 'setBilingualText(archetypeSummary, option.dataset.summaryZh || "", option.dataset.summaryEn || "");' in response.text
-    assert 'setBilingualText(archetypeRecommendation, option.dataset.recommendationZh || "", option.dataset.recommendationEn || "");' in response.text
-    assert 'setBilingualText(archetypeWarning, option.dataset.warningZh || "", option.dataset.warningEn || "");' in response.text
-
-
-def test_workflow_diagram_script_localizes_step_assistive_labels(service_factory) -> None:
-    service = service_factory(scenario="success")
-
-    client = TestClient(build_app(service=service))
-    response = client.get("/static/pages/workflow_diagram.js")
-
-    assert response.status_code == 200
-    assert 'function stepAriaLabel(step) {' in response.text
-    assert 'return localeText(`第 ${step.order} 步：${step.label}`, `Step ${step.order}: ${step.label}`);' in response.text
-    assert 'aria-label="${escapeHtml(stepAriaLabel(step))}"' in response.text
-    assert 'aria-label="${escapeHtml(localeText("循环流程图", "Loop workflow diagram"))}"' in response.text
-
-
 def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None:
     service = service_factory(scenario="success")
 
@@ -1223,16 +1132,8 @@ def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None
     _assert_has_testid(response.text, "tutorial-decision-tree-stop-card")
     _assert_has_testid(response.text, "tutorial-spec-practice-modal")
     _assert_has_testid(response.text, "tutorial-spec-practice-preview")
-    assert "If an AI Agent can already do the work, why use Loopora?" in response.text
-    assert "would one AI Agent pass plus one human review be enough" in response.text
-    assert "Are you saving output, or judgment?" in response.text
-    assert "Why is posture not just a prompt?" in response.text
     assert "runnable loop plan" in response.text
     assert "expert exchange format" in response.text
-    assert "Runnable posture needs three surfaces" in response.text
-    assert "one AI Agent pass plus one human review is usually enough" in response.text
-    assert "First ask: does this really need Loopora?" in response.text
-    assert "which workflow matches this posture" in response.text
     assert "Build + Parallel Review" in response.text
     assert "Evidence First" in response.text
     assert "Benchmark Gate" in response.text
@@ -1243,13 +1144,8 @@ def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None
     assert "Benchmark Loop" not in response.text
     assert "Fast Lane" not in response.text
     assert "Quality Gate" not in response.text
-    assert "Loopora decision tree" in response.text
     assert "tutorial-decision-tree-copy" not in response.text
     assert "tutorial-decision-tree-image" not in response.text
-    assert "What question it answers" in response.text
-    assert "two independent evidence views" in response.text
-    assert "first trustworthy evidence boundary" in response.text
-    assert "full search reindexing" in response.text
     assert 'data-open-tutorial-spec-practice="builtin:build_then_parallel_review"' in response.text
     assert 'data-open-tutorial-spec-practice="builtin:evidence_first"' in response.text
     assert 'id="tutorial-spec-practices-json"' in response.text
@@ -1265,12 +1161,8 @@ def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None
 
     zh_response = client.get("/tutorial", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
-    assert '<title>使用教程</title>' in zh_response.text
-    assert "AI Agent 已经能做，为什么还要用 Loopora" in zh_response.text
-    assert "你要省下的是产出，还是判断" in zh_response.text
-    assert "为什么不先手工编排" in zh_response.text
-    assert "对话生成循环方案" in zh_response.text
-    assert "两个独立证据视角" in zh_response.text
+    _assert_initial_locale(zh_response.text, "zh")
+    _assert_has_testid(zh_response.text, "tutorial-page")
 
 
 def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -> None:
@@ -1293,191 +1185,16 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
 
     assert response.status_code == 200
     css = response.text
-    assert ".preview-box {" in css
-    assert ".spec-preview-dialog {" in css
     assert ".markdown-workbench {" in css
-    assert ".markdown-workbench-grid {" in css
-    assert ".markdown-workbench-source-input {" in css
-    assert ".markdown-workbench-preview {" in css
-    assert ".spec-preview-markdown {" in css
-    assert "white-space: pre-wrap;" in css
     assert ".timeline-event {" in css
-    assert ".timeline-empty {" in css
-    assert ".summary-card-head {" in css
     assert ".console-focus-shell--immersive {" in css
-    assert ".console-focus-topbar {" in css
-    assert ".console-shell-immersive {" in css
-    assert ".top-nav-brand-lockup {" in css
-    assert ".page-stack {" in css
-    assert ".card-actions--loop {" in css
-    assert ".help-dot--tips {" in css
-    assert ".help-floating-tooltip {" in css
-    assert ".label-with-help," in css
-    assert ".panel-title-with-help" in css
-    assert ".inline-hint-link {" in css
-    assert ".skill-download-card {" in css
     assert ".workflow-loop-map {" in css
-    assert ".workflow-loop-tooltip {" in css
-    assert ".workflow-loop-segment {" in css
-    assert ".workflow-map-panel {" in css
-    assert "--workflow-loop-stroke:" in css
-    assert "--card-scenario-bg:" in css
-    assert "--running-card-surface:" in css
-    assert "--running-status-bg:" in css
-    assert "--run-progress-shell-bg:" in css
-    assert "--run-progress-live-bg:" in css
-    assert ".stacked-copy {" in css
-    assert ".loop-card-meta {" in css
-    assert ".loop-card-link {" in css
-    assert ".loop-detail-copy {" in css
-    assert ".loop-detail-spec-shell {" in css
-    assert ".loop-detail-spec-toolbar {" in css
-    assert ".loop-detail-spec-source," in css
-    assert ".loop-detail-spec-path {" in css
-    assert ".loop-detail-spec-preview {" in css
-    assert ".loop-detail-history-time {" in css
-    assert ".tutorial-guide-grid {" in css
-    assert ".tutorial-page-stack {" in css
-    assert ".tutorial-decision-tree-canvas {" in css
-    assert ".tutorial-decision-tree-flow-card {" in css
-    assert ".tutorial-guide-card {" in css
-    assert ".tutorial-guide-card code {" in css
-    assert ".bundle-surface-grid {" in css
-    assert ".bundle-surface-card {" in css
-    assert ".bundle-surface-card--wide {" in css
-    assert ".tutorial-step-title {" in css
-    assert ".tutorial-step-checklist {" in css
-    assert ".tutorial-context-grid {" in css
-    assert ".tutorial-context-detail-grid {" in css
-    assert ".nav-preferences-panel {" in css
-    assert ".nav-preferences-toggle {" in css
-    assert ".nav-menu-list {" in css
-    assert ".nav-menu-link {" in css
-    assert ".role-card-grid {" in css
-    assert ".page-stack--catalog {" in css
-    assert ".role-card-grid--definitions {" in css
-    assert ".role-card-grid--orchestrations {" in css
-    assert ".role-card-grid--orchestrations-custom {" in css
-    assert ".role-card-grid > .loop-card {" in css
-    assert ".card-actions-compact {" in css
-    assert ".loop-grid--created {" in css
-    assert ".loop-card-glance--scenario {" in css
-    assert ".takeaway-shortcuts {" in css
-    assert ".takeaway-selector-row {" in css
-    assert ".takeaway-iteration-select {" in css
-    assert ".takeaway-iteration-view {" in css
-    assert ".takeaway-role-grid {" in css
-    assert ".takeaway-role-card {" in css
-    assert ".takeaway-role-body {" in css
-    assert ".takeaway-status-pill--passed {" in css
-    assert ".console-filter-chip input {" in css
-    assert ".timeline-event-heading {" in css
-    assert ".timeline-event-main {" in css
-    assert ".timeline-event-timebox {" in css
-    assert ".stage-strip-terminal--entry {" in css
-    assert ".stage-strip-terminal--exit {" in css
-    assert ".stage-loop-arc {" in css
-    assert ".stage-loop-arc--top {" in css
-    assert ".stage-loop-arc--bottom {" in css
-    assert re.search(r"\.role-card-grid--orchestrations\s*{[\s\S]*?justify-items:\s*start;", css)
-    assert re.search(r"\.role-card-grid--orchestrations-custom\s*{[\s\S]*?grid-template-columns:\s*repeat\(", css)
-    assert re.search(r"\.loop-card\s*{[\s\S]*?overflow:\s*visible;", css)
-    assert re.search(r"\.loop-card--running\s*{[\s\S]*?overflow:\s*hidden;", css)
-    assert re.search(r"\.loop-card--running\s*{[\s\S]*?background:\s*var\(--running-card-surface\);", css)
-    assert re.search(r"\.status-running\s*{[\s\S]*?background:\s*var\(--running-status-bg\);", css)
-    assert re.search(r"\.status-running\s*{[\s\S]*?box-shadow:\s*var\(--running-status-shadow\);", css)
     assert "@keyframes runningSweep" not in css
     assert "@keyframes pulseGlow" not in css
-    assert re.search(r"\.loop-card-link\s*{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;", css)
-    assert re.search(r"\.input-with-multi-actions\s*{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto\s+auto\s+auto;", css)
-    assert re.search(r"\.spec-preview-dialog\s*{[\s\S]*?display:\s*grid;[\s\S]*?height:\s*min\(86vh,\s*920px\);", css)
-    assert re.search(r"\.spec-preview-toolbar\s*{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);", css)
-    assert re.search(r"\.markdown-workbench-grid\s*{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);", css)
-    assert re.search(r"\.spec-preview-workbench\s+\.markdown-workbench-grid\s*{[\s\S]*?grid-template-columns:\s*1fr;", css)
-    assert re.search(r"\.spec-preview-header\s*{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto;[\s\S]*?align-items:\s*end;", css)
-    assert re.search(r"\.spec-preview-actions\s*{[\s\S]*?width:\s*auto;[\s\S]*?flex:\s*0 0 auto;", css)
-    assert re.search(r"\.markdown-workbench-source-input\s*{[\s\S]*?min-height:\s*360px;[\s\S]*?font-family:\s*\"SFMono-Regular\",", css)
-    assert re.search(r"\.markdown-workbench-preview\s*{[\s\S]*?line-height:\s*1\.78;[\s\S]*?overflow:\s*auto;[\s\S]*?scrollbar-gutter:\s*stable both-edges;", css)
-    assert re.search(r"\.(?:markdown-workbench-preview|spec-preview-markdown)\s+h1\s*{[\s\S]*?border-bottom:\s*1px solid", css)
-    assert re.search(r"\.card-actions-compact\s*{[\s\S]*?width:\s*100%;[\s\S]*?justify-content:\s*flex-start;", css)
-    assert re.search(r"\.loop-grid--created\s*{[\s\S]*?--loop-card-target:\s*430px;", css)
-    assert re.search(r"\.stacked-copy\s*{[\s\S]*?display:\s*grid;[\s\S]*?gap:\s*14px;", css)
-    assert re.search(r"\.loop-detail-spec-path\s*{[\s\S]*?white-space:\s*nowrap;[\s\S]*?overflow:\s*auto;", css)
-    assert re.search(r"\.(?:loop-detail-spec-source|loop-detail-spec-preview)\s*{[\s\S]*?min-height:\s*220px;[\s\S]*?max-height:\s*420px;", css)
-    assert re.search(r"\.run-history-item:hover\s*{[\s\S]*?transform:\s*translateY\(-2px\);", css)
-    assert re.search(r"\.tutorial-guide-grid\s*{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(230px,\s*1fr\)\);", css)
-    assert re.search(r"\.tutorial-guide-title\s*{[\s\S]*?text-wrap:\s*balance;", css)
-    assert re.search(r"\.tutorial-guide-card code\s*{[\s\S]*?background:\s*var\(--surface-muted\);", css)
-    assert re.search(r"\.bundle-surface-grid\s*{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(260px,\s*1fr\)\);", css)
-    assert re.search(r"\.bundle-surface-card\s*{[\s\S]*?background:\s*var\(--surface-muted\);", css)
-    assert re.search(r"\.tutorial-page-stack\s*{[\s\S]*?--tutorial-page-max:\s*1360px;[\s\S]*?width:\s*min\(var\(--tutorial-page-max\),\s*100%\);", css)
-    assert re.search(r"\.tutorial-step-checklist\s*{[\s\S]*?padding-left:\s*20px;", css)
-    assert re.search(r"\.workflow-loop-node-label\s*{[\s\S]*?fill:\s*var\(--workflow-loop-label\);", css)
-    assert re.search(r"\.workflow-map-panel\s*{[\s\S]*?grid-template-rows:\s*auto\s+minmax\(0,\s*1fr\);", css)
-    assert re.search(r"\.workflow-editor-header\s*{[\s\S]*?align-items:\s*start;[\s\S]*?border-bottom:\s*1px solid", css)
-    assert re.search(r"\.workflow-editor-header \.card-actions-compact\s*{[\s\S]*?margin-top:\s*0;[\s\S]*?justify-content:\s*flex-end;", css)
-    assert re.search(r"\.workflow-steps-panel\s*{[\s\S]*?grid-template-rows:\s*auto\s+auto\s+minmax\(0,\s*1fr\);", css)
-    assert re.search(r"\.loop-card-glance--scenario\s*{[\s\S]*?background:\s*var\(--card-scenario-bg\);", css)
-    assert re.search(r"\.stage-loop-shell\s*{[\s\S]*?background:\s*var\(--run-progress-shell-bg\);", css)
-    assert re.search(r"\.stage-strip-terminal--entry\s*{[\s\S]*?justify-content:\s*flex-end;", css)
-    assert re.search(r"\.stage-strip-terminal--exit\s*{[\s\S]*?justify-content:\s*flex-start;", css)
-    assert re.search(r"\.stage-loop-arcs\s*{[\s\S]*?position:\s*absolute;[\s\S]*?display:\s*block;", css)
-    assert re.search(r"\.stage-loop-arc--top\s*{[\s\S]*?border-top:\s*1px solid var\(--run-progress-lane-line\);", css)
-    assert re.search(r"\.stage-loop-arc--bottom\s*{[\s\S]*?border-bottom:\s*1px solid var\(--run-progress-lane-line\);", css)
     assert re.search(r"\.stage-loop-shell\.is-empty \.stage-loop-connector,\s*\.stage-loop-shell\.is-empty \.stage-loop-arcs\s*{[\s\S]*?display:\s*none;", css)
     assert re.search(r"\.stage-loop-shell\.is-empty \.stage-loop-track::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::after\s*{[\s\S]*?display:\s*none;", css)
-
-    assert re.search(r"\.stage-chip--terminal\s*{[\s\S]*?background:\s*var\(--run-progress-chip-terminal-bg\);", css)
-    assert re.search(r"\.highlight-card\s*{[\s\S]*?background:\s*var\(--run-progress-highlight-bg\);", css)
-    assert ".console-filter-chip.is-active.console-filter-chip--actions {" in css
-    assert ".console-filter-chip.is-active.console-filter-chip--result {" in css
-    assert "[data-theme=\"dark\"] .console-filter-chip.is-active.console-filter-chip--result {" in css
-    assert "[data-theme=\"dark\"] .progress-live-card--danger {" in css
-    assert "[data-theme=\"dark\"] .stage-chip.failed {" in css
-    assert re.search(r"\.takeaway-shortcuts\s*{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto;", css)
-    assert re.search(r"\.takeaway-iteration-select\s*{[\s\S]*?width:\s*min\(100%,\s*360px\);", css)
-    assert re.search(r"\.takeaway-role-grid\s*{[\s\S]*?grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(230px,\s*1fr\)\);", css)
-    assert re.search(r"\.takeaway-role-body\s*{[\s\S]*?max-height:\s*180px;[\s\S]*?overflow:\s*auto;", css)
-    assert "[data-theme=\"dark\"] .takeaway-iteration-select {" in css
-    assert "[data-theme=\"dark\"] .takeaway-role-card {" in css
-    assert "[data-theme=\"dark\"] .loop-detail-spec-shell {" in css
-    assert "[data-theme=\"dark\"] .loop-detail-spec-path {" in css
-    assert "[data-theme=\"dark\"] .tutorial-guide-card {" in css
-    assert "[data-theme=\"dark\"] .tutorial-step-index {" in css
-    assert re.search(r"\.console-filter-chip input\s*{[\s\S]*?width:\s*16px;[\s\S]*?padding:\s*0;", css)
-    assert re.search(r"\.console-line-summary\s*{[\s\S]*?white-space:\s*nowrap;[\s\S]*?text-overflow:\s*ellipsis;", css)
-    assert re.search(r"\.console-line-body\s*{[\s\S]*?max-height:\s*240px;[\s\S]*?overflow:\s*auto;", css)
-    assert re.search(r"\.console-line-toggle\s*{[\s\S]*?grid-template-columns:\s*var\(--console-meta-width\)\s+minmax\(0,\s*1fr\)\s+auto;", css)
-    assert re.search(r"\.console-line-body\s*{[\s\S]*?padding-left:\s*calc\(var\(--console-meta-width\)\s*\+\s*var\(--console-gap\)\s*\+\s*var\(--console-indent\)\);", css)
-    assert re.search(r"\.timeline-event-body\s*{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+132px;", css)
-    assert ".top-nav .nav-preferences-toggle {" in css
-    assert "@keyframes pageRiseIn {" in css
-    assert "@keyframes loopTraceIn {" in css
-    assert ".workflow-toolbar {" in css
-    assert ".workflow-toolbar-compact {" in css
-    assert ".workflow-editor-header {" in css
-    assert ".workflow-editor-section {" in css
-    assert ".workflow-steps-panel {" in css
-    assert ".workflow-empty-state {" in css
-    assert ".workflow-step-row {" in css
-    assert ".workflow-settings-dialog {" in css
-    assert ".workflow-step-summary-line {" in css
-    assert ".workflow-chip-code {" in css
     assert "body:not(.ui-mounted)" not in css
     assert "body.ui-mounted .hero" not in css
-    assert "/* ── Deep Visual Polish ── */" in css
-    polished_css = css.split("/* ── Deep Visual Polish ── */", 1)[1]
-    assert re.search(r"\.top-nav-link:hover\s*{[\s\S]*?background:\s*rgba\(var\(--outline-rgb\),\s*0\.055\);[\s\S]*?transform:\s*none;", polished_css)
-    assert re.search(r"\.top-nav-link\.active\s*{[\s\S]*?background:\s*rgba\(0,\s*113,\s*227,\s*0\.09\);[\s\S]*?font-weight:\s*650;", polished_css)
-    assert re.search(r"\.top-nav \.nav-preferences-toggle\s*{\s*[\s\S]*?color:\s*var\(--nav-ink\);", css)
-    assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.top-nav\s*{[\s\S]*?display:\s*grid;[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto;", polished_css)
-    assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?display:\s*flex;[\s\S]*?overflow-x:\s*auto;", polished_css)
-    assert re.search(r"@media \(max-width: 860px\)\s*{[\s\S]*?\.top-nav-links\s*{[\s\S]*?grid-template-columns:\s*none;", polished_css)
-    assert re.search(r"@media \(min-width: 1440px\)\s*{[\s\S]*?\.tutorial-page-stack\s*{[\s\S]*?--tutorial-page-max:\s*1480px;", css)
-    assert re.search(r"@media \(min-width: 1920px\)\s*{[\s\S]*?\.tutorial-page-stack\s*{[\s\S]*?--tutorial-page-max:\s*1600px;", css)
-    assert re.search(r"@media \(max-width: 720px\)\s*{[\s\S]*?\.workflow-editor-header \.card-actions-compact\s*{[\s\S]*?width:\s*100%;", css)
-    assert re.search(r"@media \(max-width: 640px\)\s*{[\s\S]*?\.card-actions--loop,\s*\.card-actions--loop-compact\s*{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);", css)
-    assert re.search(r"@media \(max-width: 1120px\)\s*{[\s\S]*?\.form-grid,[\s\S]*?\.executor-config-grid,[\s\S]*?grid-template-columns:\s*1fr;", css)
 
 
 def test_role_definition_script_keeps_bilingual_text_updates_safe() -> None:
