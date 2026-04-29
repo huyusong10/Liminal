@@ -46,7 +46,9 @@ loopora = [
   "static/pages/*.js",
   "assets/logo/*.svg",
   "assets/prompts/*.md",
+  "assets/spec_practices/*.md",
   "skills/assets/*/SKILL.md",
+  "skills/assets/*/agents/*.yaml",
   "skills/assets/*/references/*.md",
 ]
 

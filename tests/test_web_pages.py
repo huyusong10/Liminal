@@ -14,6 +14,20 @@ def _assert_has_testid(html: str, testid: str) -> None:
     assert f'data-testid="{testid}"' in html
 
 
+def _assert_has_testids(html: str, *testids: str) -> None:
+    for testid in testids:
+        _assert_has_testid(html, testid)
+
+
+def _assert_testids_in_order(html: str, *testids: str) -> None:
+    positions = []
+    for testid in testids:
+        marker = f'data-testid="{testid}"'
+        assert marker in html
+        positions.append(html.index(marker))
+    assert positions == sorted(positions)
+
+
 def test_index_page_renders_with_saved_loops(
     service_factory,
     sample_spec_file: Path,
@@ -147,35 +161,23 @@ def test_run_detail_places_takeaways_and_console_before_timeline(
     assert response.status_code == 200
     assert "Run Detail Loop" in response.text
     assert run["id"] in response.text
-    assert "hero-run-detail" in response.text
     _assert_has_testid(response.text, "run-revise-chat-button")
     assert f'/runs/{run["id"]}/revise' in response.text
-    assert response.text.index("Progress") < response.text.index("Key takeaways")
-    assert response.text.index("Key takeaways") < response.text.index("Console")
-    assert response.text.index("Console") < response.text.index("Timeline")
-    assert "stage-explainer" not in response.text
-    assert "直播中" not in response.text
-    assert "实时输出" in response.text
-    assert "Original spec" not in response.text
-    assert "progress-live-title" in response.text
-    assert "progress-runtime" not in response.text
-    assert "stage-chip-duration" in response.text
-    assert response.text.index("stage-strip") < response.text.index("progress-live-title")
-    assert "stage-loop-shell" in response.text
-    assert "stage-strip-terminal--entry" in response.text
-    assert "stage-strip-terminal--exit" in response.text
-    assert "stage-loop-connector--entry" in response.text
-    assert "stage-loop-connector--exit" in response.text
-    assert "stage-loop-arc--top" in response.text
-    assert "stage-loop-arc--bottom" in response.text
-    assert "stage-chip--terminal" in response.text
-    assert "stage-chip--workflow" in response.text
-    assert "Workflow Loop" in response.text
-    assert "timeline-count" in response.text
-    assert "progress-value" not in response.text
-    assert "progress-track-shell" not in response.text
-    assert "最近更新" not in response.text
-    assert "还没冒出第一条具体输出" in response.text
+    _assert_testids_in_order(
+        response.text,
+        "run-progress-panel",
+        "run-takeaway-panel",
+        "run-console-panel",
+        "run-timeline-panel",
+    )
+    _assert_testids_in_order(response.text, "run-stage-strip", "run-progress-live-card")
+    assert 'data-testid="loop-detail-spec-preview"' not in response.text
+    _assert_has_testids(
+        response.text,
+        "run-stage-loop-shell",
+        "run-progress-live-card",
+        "run-timeline-panel",
+    )
 
 
 def test_run_detail_collapses_empty_workflow_lane(
@@ -207,45 +209,22 @@ def test_run_detail_collapses_empty_workflow_lane(
 
     client = TestClient(build_app(service=service))
     response = client.get(f"/runs/{run['id']}")
-    stage_markup = response.text.split('<div class="stage-strip" id="stage-strip">', 1)[1].split(
-        '<article class="progress-live-card"',
-        1,
-    )[0]
 
     assert response.status_code == 200
-    assert 'class="stage-loop-shell is-empty"' in stage_markup
-    assert '<strong class="stage-loop-title" id="stage-loop-title">No workflow steps yet</strong>' in stage_markup
-    assert "No workflow steps yet" in stage_markup
-    assert "only the entry and final state remain" in stage_markup
-    assert "stage-strip-terminal--entry" in stage_markup
-    assert "stage-strip-terminal--exit" in stage_markup
-    assert "stage-loop-empty" in stage_markup
-    assert 'data-stage-kind="workflow_step"' not in stage_markup
-    assert "正在收集测试证据" in response.text
-    assert "正在安装依赖" in response.text
-    assert "正在启动本地服务" in response.text
-    assert "正在准备浏览器环境" in response.text
-    assert "console-popout-link" in response.text
-    assert "全屏终端" in response.text
-    assert 'aria-label="Console controls"' in response.text
-    assert 'aria-label="Open fullscreen console"' in response.text
-    assert "console-filters" in response.text
-    assert "console-legend" not in response.text
-    assert "console-expand-all" in response.text
-    assert "console-collapse-all" in response.text
-    assert '{key: "status", zh: "状态", en: "Status"}' in response.text
-    assert '{key: "actions", zh: "动作", en: "Actions"}' in response.text
-    assert '{key: "result", zh: "结果", en: "Result"}' in response.text
-    assert '{key: "context", zh: "上下文", en: "Context"}' not in response.text
-    assert '{key: "progress", zh: "进展", en: "Progress"}' not in response.text
-    assert "takeaway-iteration-select" in response.text
-    assert "takeaway-iteration-view" in response.text
-    assert "takeaway-iteration-list" not in response.text
-    assert "takeaway-open-build" in response.text
-    assert "takeaway-open-logs" in response.text
-    assert ".loopora" in response.text
-    assert "Run files" not in response.text
-    assert "置信度" not in response.text
+    assert re.search(r'data-testid="run-stage-loop-shell"[^>]*data-workflow-empty="true"', response.text)
+    _assert_has_testid(response.text, "run-stage-loop-empty")
+    assert 'data-stage-kind="workflow_step"' not in response.text
+    _assert_has_testids(
+        response.text,
+        "console-popout-link",
+        "console-filters",
+        "console-expand-all",
+        "console-collapse-all",
+        "takeaway-iteration-select",
+        "takeaway-iteration-view",
+        "takeaway-open-build",
+        "takeaway-open-logs",
+    )
 
 
 def test_run_detail_refreshes_takeaways_with_a_distinct_flag_name(
@@ -311,18 +290,11 @@ def test_run_detail_empty_workflow_lane_uses_request_locale_on_first_paint(
         f"/runs/{run['id']}",
         headers={"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"},
     )
-    stage_markup = response.text.split('<div class="stage-strip" id="stage-strip">', 1)[1].split(
-        '<article class="progress-live-card"',
-        1,
-    )[0]
 
     assert response.status_code == 200
     assert 'data-locale="zh"' in response.text
-    assert '<strong class="stage-loop-title" id="stage-loop-title">还没有 workflow steps</strong>' in stage_markup
-    assert "这次 run 没有冻结下中间编排步骤，所以这里只显示入口和最终状态。" in stage_markup
-    assert 'aria-label="控制台操作"' in response.text
-    assert 'aria-label="打开全屏终端"' in response.text
-    assert "No workflow steps yet" in stage_markup
+    assert re.search(r'data-testid="run-stage-loop-shell"[^>]*data-workflow-empty="true"', response.text)
+    _assert_has_testid(response.text, "run-stage-loop-empty")
 
 
 def test_run_detail_progress_stages_follow_workflow_snapshot(

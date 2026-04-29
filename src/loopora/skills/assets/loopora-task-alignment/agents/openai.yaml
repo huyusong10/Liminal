@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loopora Task Alignment"
+  short_description: "Interview task judgment and compile a Loopora loop plan"
+  default_prompt: "Use $loopora-task-alignment to interview me about this task, capture the task-specific judgment posture, and compile a Loopora loop plan bundle only after confirmation."

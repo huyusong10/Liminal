@@ -58,7 +58,7 @@
 | 细节设计 | `detailed-design/05-interfaces.md` | Web / CLI / API 交互面 | `src/loopora/cli.py`, `src/loopora/web.py`, `src/loopora/templates/`, `src/loopora/static/` |
 | 细节设计 | `detailed-design/06-workflow-and-prompts.md` | workflow、prompt 与角色快照契约 | `src/loopora/workflows.py`, `src/loopora/context_flow.py` |
 | 细节设计 | `detailed-design/07-observability-and-diagnostics.md` | 统一日志契约、事件命名与分级规则 | `src/loopora/diagnostics.py`, `src/loopora/settings.py`, `src/loopora/db.py`, `src/loopora/service.py`, `src/loopora/web.py`, `src/loopora/cli.py` |
-| 细节设计 | `detailed-design/08-bundles-and-alignment.md` | bundle 生命周期、外部 skill 边界与 task-scoped alignment 落点 | `src/loopora/bundles.py`, `src/loopora/service_bundle_assets.py`, `skills/loopora-task-alignment/` |
+| 细节设计 | `detailed-design/08-bundles-and-alignment.md` | bundle 生命周期、外部 skill 边界与 task-scoped alignment 落点 | `src/loopora/bundles.py`, `src/loopora/service_bundle_assets.py`, `skills/loopora-task-alignment/`, `src/loopora/skills/assets/loopora-task-alignment/` |
 | 细节设计 | `detailed-design/09-web-bundle-alignment.md` | Web 内置任务对齐入口、alignment session、READY 预览与创建运行 | `src/loopora/web_route_*.py`, `src/loopora/templates/`, `src/loopora/static/`, `src/loopora/executor.py`, `src/loopora/bundles.py` |
 
 ## 5. 读者约定

@@ -27,6 +27,7 @@
 - Loopora 不执行独立 agreement 文件。
 - 最终运行输入仍然是 `spec / role definitions / workflow / loop`。
 - 外部 Skill 与 Web 内置对齐必须产出同一种 bundle，避免形成两套产品。
+- repo-local Skill 是开发态事实源；安装包内必须携带等价 packaged copy，保证从 wheel 安装后仍能安装 / 下载同一份 task-alignment Skill。
 
 ## 3. Bundle 契约
 

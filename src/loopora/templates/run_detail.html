@@ -46,7 +46,7 @@
 </section>
 
 <section class="dashboard-grid">
-  <article class="panel progress-panel">
+  <article class="panel progress-panel" data-testid="run-progress-panel">
     <header class="panel-header progress-panel-header">
       <div>
         <h2><span data-lang="zh">运行进度</span><span data-lang="en">Progress</span></h2>
@@ -62,7 +62,7 @@
     {% set checks_stage = progress_stages[0] if progress_stages else None %}
     {% set finished_stage = progress_stages[-1] if progress_stages else None %}
     {% set workflow_stages = progress_stages[1:-1] if progress_stages|length > 2 else [] %}
-    <div class="stage-strip" id="stage-strip">
+    <div class="stage-strip" id="stage-strip" data-testid="run-stage-strip">
       {% if checks_stage %}
       <div class="stage-strip-terminal stage-strip-terminal--entry">
         <div class="stage-chip stage-chip--terminal" data-stage="{{ checks_stage.key }}" data-stage-kind="{{ checks_stage.kind }}" tabindex="0">
@@ -76,7 +76,11 @@
         </div>
       </div>
       {% endif %}
-      <div class="stage-loop-shell{% if not workflow_stages %} is-empty{% endif %}">
+      <div
+        class="stage-loop-shell{% if not workflow_stages %} is-empty{% endif %}"
+        data-testid="run-stage-loop-shell"
+        data-workflow-empty="{{ 'false' if workflow_stages else 'true' }}"
+      >
         <div class="stage-loop-banner">
           <span class="stage-loop-eyebrow" id="stage-loop-eyebrow">
             <span data-lang="zh">Workflow Loop</span>
@@ -104,7 +108,7 @@
               </div>
               {% endfor %}
             {% else %}
-            <div class="stage-loop-empty">
+            <div class="stage-loop-empty" data-testid="run-stage-loop-empty">
               <strong>
                 <span data-lang="zh">还没有 workflow steps</span>
                 <span data-lang="en">No workflow steps yet</span>
@@ -137,7 +141,7 @@
       </div>
       {% endif %}
     </div>
-    <article class="progress-live-card" id="progress-live-card">
+    <article class="progress-live-card" id="progress-live-card" data-testid="run-progress-live-card">
       <div class="progress-live-head">
         <div class="progress-live-title-row">
           <span class="progress-live-dot" aria-hidden="true"></span>
@@ -176,7 +180,7 @@
     </div>
   </article>
 
-  <article class="panel takeaway-panel">
+  <article class="panel takeaway-panel" data-testid="run-takeaway-panel">
     <header class="panel-header takeaway-panel-header">
       <div>
         <h2><span data-lang="zh">关键结论</span><span data-lang="en">Key takeaways</span></h2>
@@ -203,6 +207,7 @@
           type="button"
           class="ghost-button"
           id="takeaway-open-build"
+          data-testid="takeaway-open-build"
           {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}
         >
           <span data-lang="zh">打开构建目录</span>
@@ -212,6 +217,7 @@
           type="button"
           class="ghost-button"
           id="takeaway-open-logs"
+          data-testid="takeaway-open-logs"
           {% if not access_state.native_dialogs_enabled %}disabled aria-disabled="true"{% endif %}
         >
           <span data-lang="zh">打开 .loopora 日志</span>
@@ -226,9 +232,9 @@
         <span data-lang="zh">查看轮次</span>
         <span data-lang="en">View iteration</span>
       </label>
-      <select class="takeaway-iteration-select" id="takeaway-iteration-select"></select>
+      <select class="takeaway-iteration-select" id="takeaway-iteration-select" data-testid="takeaway-iteration-select"></select>
     </div>
-    <div class="takeaway-iteration-view" id="takeaway-iteration-view"></div>
+    <div class="takeaway-iteration-view" id="takeaway-iteration-view" data-testid="takeaway-iteration-view"></div>
     <div class="takeaway-empty" id="takeaway-empty" hidden>
       <strong>
         <span data-lang="zh">还没有稳定结论</span>
@@ -241,7 +247,7 @@
     </div>
   </article>
 
-  <article class="panel console-panel">
+  <article class="panel console-panel" data-testid="run-console-panel">
     <header class="panel-header console-panel-header">
       <div>
         <h2><span data-lang="zh">控制台</span><span data-lang="en">Console</span></h2>
@@ -263,6 +269,7 @@
         <a
           class="ghost-button console-popout-button"
           id="console-popout-link"
+          data-testid="console-popout-link"
           href="/runs/{{ run.id }}/console"
           target="_blank"
           rel="noreferrer"
@@ -271,10 +278,10 @@
           <span data-lang="zh">打开全屏终端</span>
           <span data-lang="en">Open fullscreen console</span>
         </a>
-        <button type="button" class="ghost-button" id="console-expand-all"></button>
-        <button type="button" class="ghost-button" id="console-collapse-all"></button>
+        <button type="button" class="ghost-button" id="console-expand-all" data-testid="console-expand-all"></button>
+        <button type="button" class="ghost-button" id="console-collapse-all" data-testid="console-collapse-all"></button>
       </div>
-      <div class="console-filter-group" id="console-filters"></div>
+      <div class="console-filter-group" id="console-filters" data-testid="console-filters"></div>
     </div>
     <div class="console-shell-frame">
       <div class="console-shell" id="console-shell">
@@ -283,7 +290,7 @@
     </div>
   </article>
 
-  <article class="panel timeline-panel">
+  <article class="panel timeline-panel" data-testid="run-timeline-panel">
     <header class="panel-header timeline-panel-header">
       <div>
         <h2><span data-lang="zh">时间线</span><span data-lang="en">Timeline</span></h2>
@@ -709,6 +716,8 @@
 
     const loopShell = document.createElement("div");
     loopShell.className = `stage-loop-shell${workflowStages.length ? "" : " is-empty"}`;
+    loopShell.dataset.testid = "run-stage-loop-shell";
+    loopShell.dataset.workflowEmpty = workflowStages.length ? "false" : "true";
     loopShell.innerHTML = `
       <div class="stage-loop-banner">
         <span class="stage-loop-eyebrow" id="stage-loop-eyebrow">-</span>
@@ -730,7 +739,7 @@
       workflowContainer.replaceChildren(...workflowStages.map(createStageChip));
     } else {
       workflowContainer.innerHTML = `
-        <div class="stage-loop-empty">
+        <div class="stage-loop-empty" data-testid="run-stage-loop-empty">
           <strong>${escapeHtml(localeText("还没有 workflow steps", "No workflow steps yet"))}</strong>
           <p>${escapeHtml(localeText(
             "这次 run 没有冻结下中间编排步骤，所以这里只显示入口和最终状态。",
@@ -757,7 +766,9 @@
     setTextContentIfChanged("stage-loop-copy", summary.detail);
     const loopShell = document.querySelector("#stage-strip .stage-loop-shell");
     if (loopShell) {
-      loopShell.classList.toggle("is-empty", !getProgressStages(run).some((stage) => stage.kind === "workflow_step"));
+      const workflowEmpty = !getProgressStages(run).some((stage) => stage.kind === "workflow_step");
+      loopShell.classList.toggle("is-empty", workflowEmpty);
+      loopShell.dataset.workflowEmpty = workflowEmpty ? "true" : "false";
     }
   }
 
