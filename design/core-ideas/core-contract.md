@@ -12,7 +12,7 @@ Stable definition:
 
 Every user-facing path and implementation boundary should serve this workflow:
 
-`compose Loop -> run Loop -> automatic iteration with evidence -> evidence verdict and result`
+`compose Loop -> run Loop -> automatic iteration with evidence -> run status, task verdict, and result`
 
 ## 2. Stable Surfaces
 
@@ -33,6 +33,19 @@ Rules:
   trace back to one of these surfaces.
 - Legacy data may remain readable, but it must not be presented as having the same
   evidence quality as new runs.
+- Run status and task verdict are separate projections. A run can finish normally
+  while the task remains unproven, rejected, or accepted only with residual risk.
+
+User-facing evidence summaries should prefer these stable buckets over raw ledger
+language:
+
+| Bucket | Meaning |
+| --- | --- |
+| Proven | Evidence supports a success surface or claim. |
+| Weak | Evidence exists but is thin, indirect, stale, or incomplete. |
+| Unproven | A promised surface has no adequate supporting evidence. |
+| Blocking | A hard guardrail, fake-done risk, or GateKeeper issue prevents acceptance. |
+| Residual risk | Known remaining risk that is either accepted or rejected by the verdict. |
 
 ## 3. Inspection Flow
 
@@ -46,7 +59,9 @@ Core flow inspection should follow this path, in order:
 | Automatic iteration | Did the system advance through roles and workflow because each round produced new evidence, handoff, or verdict context? | Iteration summaries, workflow events, step handoffs |
 | Evidence | Can the run answer what was proven and what remains unproven? | Evidence ledger, artifact refs, coverage projection |
 | GateKeeper | Did finish require cited evidence rather than model self-report? | GateKeeper verdict envelope and runtime evidence gate |
-| Result | Can the user inspect what the run proved, failed to prove, and why it passed or failed? | Evidence summary, verdict context, ledger and artifact links |
+| Run status | Can the user tell whether the run finished, failed, stopped, or timed out? | Run record status, terminal events, failure / stop reason |
+| Task verdict | Can the user inspect what the evidence proved, failed to prove, and why the task passed or did not pass? | Evidence summary, verdict context, ledger and artifact links |
+| User decision | Can the user choose the next action without Loopora silently owning evolution history? | Result page actions such as accept, rerun, revise Loop, export, or stop |
 
 This flow is the default audit checklist for large refactors. A change that improves
 one stage but disconnects it from the next stage is incomplete.
@@ -56,7 +71,7 @@ one stage but disconnects it from the next stage is incomplete.
 Tests should primarily lock behavior at the governance boundary, not internal helper
 shape. The highest-value regression path is:
 
-`Loop composition -> Loop confirmation -> run -> automatic iteration -> evidence ledger -> GateKeeper verdict -> result`
+`Loop composition -> Loop confirmation -> run -> automatic iteration -> evidence ledger -> run status + task verdict -> user decision`
 
 Stable test anchors:
 
@@ -74,7 +89,9 @@ Update this document when a change alters:
 - the default inspection flow,
 - the canonical evidence source,
 - GateKeeper finish semantics,
-- bundle version metadata,
+- the boundary between run status and task verdict,
+- evidence projection buckets,
+- bundle exchange metadata,
 - or the intended boundary between the user-facing Loop and internal bundles.
 
 Do not update it for wording-only UI changes, small field additions, or provider option

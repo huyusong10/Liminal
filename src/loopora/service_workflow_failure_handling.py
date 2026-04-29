@@ -28,6 +28,7 @@ class ServiceWorkflowFailureHandlingMixin:
             run_dir,
             status=final_status,
             summary=summary,
+            final_reason=final_reason,
             hydrate=True,
         )
         self.repository.append_event(
@@ -56,6 +57,7 @@ class ServiceWorkflowFailureHandlingMixin:
             run_dir,
             status="stopped",
             summary=summary,
+            final_reason="stopped",
             hydrate=True,
         )
         self.repository.append_event(run_id, "run_finished", {"status": "stopped"})
@@ -109,6 +111,7 @@ class ServiceWorkflowFailureHandlingMixin:
             summary=summary,
             error_message=error_text,
             last_verdict=verdict,
+            final_reason="role_execution_abort",
             hydrate=True,
         )
         self._append_run_aborted_event(
@@ -177,6 +180,7 @@ class ServiceWorkflowFailureHandlingMixin:
             summary=summary,
             error_message=error_text,
             last_verdict=verdict,
+            final_reason="workspace_safety_guard",
             hydrate=True,
         )
         self._append_run_aborted_event(

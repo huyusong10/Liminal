@@ -496,7 +496,11 @@ def _build_run_key_takeaways(run: dict) -> dict:
     if runs_dir_value:
         evidence_count = len(read_jsonl(RunArtifactLayout(Path(runs_dir_value)).evidence_ledger_path))
     evidence_coverage = _build_evidence_coverage(run)
+    task_verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), Mapping) else {}
     return {
+        "run_status": str(run.get("run_status") or run.get("status") or "").strip(),
+        "task_verdict": task_verdict,
+        "evidence_buckets": dict(task_verdict.get("buckets") or {}) if isinstance(task_verdict, Mapping) else {},
         "build_dir": str(Path(str(run.get("workdir") or "")).expanduser().resolve()) if run.get("workdir") else "",
         "log_dir": str(Path(str(run.get("runs_dir") or "")).expanduser().resolve()) if run.get("runs_dir") else "",
         "evidence_count": evidence_count,
@@ -537,15 +541,19 @@ def _decorate_loop_overview(loop: dict) -> dict:
     latest_status = loop.get("latest_status") or "draft"
     summary_excerpt = _summary_excerpt(loop.get("latest_summary_md"))
     workflow = loop.get("workflow_json") or {}
+    task_verdict = loop.get("latest_task_verdict_json") if isinstance(loop.get("latest_task_verdict_json"), Mapping) else {}
+    task_status = str(task_verdict.get("status") or "").strip()
     hints = {
         "draft": ("还没有运行，先检查 spec 和工作目录。", "No run yet. Start by checking the spec and workdir."),
         "queued": ("已经进入队列，点进去看最新状态。", "Queued up. Open it to see the current state."),
         "running": ("正在推进中，点进去看实时进展。", "Actively progressing. Open it for live updates."),
-        "succeeded": ("最近一次运行已经通过。", "The latest run passed."),
-        "failed": ("最近一次运行失败，建议先看验证结论。", "The latest run failed. Start with the verdict."),
+        "succeeded": ("最近一次运行已结束，点进去看任务裁决。", "The latest run finished. Open it for the task verdict."),
+        "failed": ("最近一次运行失败，建议先看运行状态和任务裁决。", "The latest run failed. Start with run status and task verdict."),
         "stopped": ("最近一次运行已停止。", "The latest run was stopped."),
     }
     hint_zh, hint_en = hints.get(latest_status, hints["draft"])
+    if latest_status == "succeeded" and task_status in {"passed", "passed_with_residual_risk"}:
+        hint_zh, hint_en = ("最近一次任务裁决已通过。", "The latest task verdict passed.")
     bundle = loop.get("bundle") if isinstance(loop.get("bundle"), Mapping) else None
     managed_by_bundle = bool(bundle and bundle.get("id"))
     return {
@@ -625,22 +633,27 @@ def _progress_stage_seed(run: Mapping[str, object] | None) -> list[dict[str, str
 
 
 def _build_run_summary_snapshot(run: dict) -> dict:
-    verdict = run.get("last_verdict_json") or {}
-    failed_count = len(verdict.get("failed_check_ids") or [])
-    composite_score = verdict.get("composite_score")
-    passed = verdict.get("passed")
-    if passed is True:
-        verdict_title = ("最新结论：已通过", "Latest verdict: passed")
-        verdict_note = ("关键 checks 都已通过，可以继续扩展目标。", "All key checks are passing. You can safely expand the target.")
-    elif passed is False:
-        verdict_title = ("最新结论：未通过", "Latest verdict: not passed")
+    task_verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), Mapping) else {}
+    raw_verdict = run.get("last_verdict_json") or {}
+    buckets = task_verdict.get("buckets") if isinstance(task_verdict.get("buckets"), Mapping) else {}
+    failed_count = len(buckets.get("blocking") or raw_verdict.get("failed_check_ids") or [])
+    composite_score = raw_verdict.get("composite_score")
+    task_status = str(task_verdict.get("status") or "not_evaluated")
+    if task_status in {"passed", "passed_with_residual_risk"}:
+        verdict_title = ("任务裁决：已通过", "Task verdict: passed")
+        verdict_note = (task_verdict.get("summary") or "证据支持本次任务结论。", task_verdict.get("summary") or "Evidence supports the task conclusion.")
+    elif task_status == "failed":
+        verdict_title = ("任务裁决：未通过", "Task verdict: failed")
         verdict_note = (
-            f"还有 {failed_count} 条 checks 没过，优先看失败点。",
-            f"{failed_count} check(s) are still failing. Start with the misses.",
+            task_verdict.get("summary") or f"还有 {failed_count} 个阻断项，优先看证据桶。",
+            task_verdict.get("summary") or f"{failed_count} blocker(s) remain. Start with the evidence buckets.",
         )
+    elif task_status == "insufficient_evidence":
+        verdict_title = ("任务裁决：证据不足", "Task verdict: insufficient evidence")
+        verdict_note = (task_verdict.get("summary") or "运行已到边界，但证据还不足以证明任务通过。", task_verdict.get("summary") or "The run reached its boundary, but evidence is not strong enough for a task pass.")
     else:
-        verdict_title = ("还没有结论", "No verdict yet")
-        verdict_note = ("GateKeeper 产出后这里会更新。", "This updates once the GateKeeper produces a verdict.")
+        verdict_title = ("任务裁决：未评估", "Task verdict: not evaluated")
+        verdict_note = (task_verdict.get("summary") or "还没有可用的证据裁决。", task_verdict.get("summary") or "No evidence-based task verdict is available yet.")
 
     status_notes = {
         "queued": ("运行已创建，正在等待执行。", "The run is created and waiting to start."),

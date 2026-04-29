@@ -381,8 +381,10 @@ def test_alignment_improvement_session_can_start_from_existing_bundle(
     assert agreement["source"]["source_run_id"] == ""
     preview = service.get_alignment_bundle(session["id"])
     assert preview["ok"] is True
-    assert preview["bundle"]["metadata"]["source_bundle_id"] == source["id"]
-    assert preview["bundle"]["metadata"]["revision"] == source["revision"] + 1
+    assert preview["bundle"]["metadata"]["source_bundle_id"] == ""
+    assert preview["bundle"]["metadata"]["revision"] == 1
+    assert "source_bundle_id" not in preview["yaml"]
+    assert "revision:" not in preview["yaml"]
     events = service.list_alignment_events(session["id"])
     assert any(event["event_type"] == "alignment_bundle_improvement_seeded" for event in events)
 
@@ -429,7 +431,8 @@ def test_alignment_improvement_session_can_start_from_run_evidence(
     assert "gatekeeper_verdict" in agreement["source"]
     preview = service.get_alignment_bundle(session["id"])
     assert preview["ok"] is True
-    assert preview["bundle"]["metadata"]["source_bundle_id"] == source["id"]
+    assert preview["bundle"]["metadata"]["source_bundle_id"] == ""
+    assert "source_bundle_id" not in preview["yaml"]
 
 
 def test_alignment_api_creates_improvement_sessions_from_bundle_and_run(

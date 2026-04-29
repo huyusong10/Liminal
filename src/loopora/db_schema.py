@@ -76,6 +76,7 @@ class RepositorySchemaMixin:
                     finished_at TEXT,
                     error_message TEXT,
                     last_verdict_json TEXT,
+                    task_verdict_json TEXT,
                     summary_md TEXT,
                     runs_dir TEXT NOT NULL,
                     created_at TEXT NOT NULL,
@@ -192,6 +193,7 @@ class RepositorySchemaMixin:
             self._ensure_column(connection, "loop_runs", "command_args_text", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(connection, "loop_definitions", "workflow_json", "TEXT NOT NULL DEFAULT '{}'")
             self._ensure_column(connection, "loop_runs", "workflow_json", "TEXT NOT NULL DEFAULT '{}'")
+            self._ensure_column(connection, "loop_runs", "task_verdict_json", "TEXT")
             self._ensure_column(connection, "loop_definitions", "completion_mode", "TEXT NOT NULL DEFAULT 'gatekeeper'")
             self._ensure_column(connection, "loop_runs", "completion_mode", "TEXT NOT NULL DEFAULT 'gatekeeper'")
             self._ensure_column(connection, "loop_definitions", "iteration_interval_seconds", "REAL NOT NULL DEFAULT 0")

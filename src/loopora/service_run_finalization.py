@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from loopora.diagnostics import get_logger, log_exception
+from loopora.task_verdicts import build_task_verdict
 from loopora.utils import utc_now, write_json
 
 logger = get_logger(__name__)
@@ -61,15 +62,29 @@ class ServiceRunFinalizationMixin:
         summary: str,
         error_message: str | None = None,
         last_verdict: dict | None = None,
+        final_reason: str = "",
         hydrate: bool = False,
     ) -> dict:
         self._persist_summary_file(run_dir, summary)
+        existing_run = self.repository.get_run(run_id) or {}
+        task_verdict = build_task_verdict(
+            {
+                **existing_run,
+                "status": status,
+                "last_verdict_json": last_verdict
+                if last_verdict is not None
+                else existing_run.get("last_verdict_json"),
+            },
+            run_dir=run_dir,
+            final_reason=final_reason,
+        )
         result = self.repository.update_run(
             run_id,
             status=status,
             finished_at=utc_now(),
             error_message=error_message,
             last_verdict=last_verdict,
+            task_verdict=task_verdict,
             summary_md=summary,
         )
         return self._hydrate_run_files(result) if hydrate else result
@@ -90,11 +105,17 @@ class ServiceRunFinalizationMixin:
         )
         self._persist_summary_file(run_dir, summary)
         try:
+            task_verdict = build_task_verdict(
+                {**run, "status": "failed"},
+                run_dir=run_dir,
+                final_reason="crashed",
+            )
             failed = self.repository.update_run(
                 run_id,
                 status="failed",
                 finished_at=utc_now(),
                 error_message=error_text,
+                task_verdict=task_verdict,
                 summary_md=summary,
             )
         except Exception:

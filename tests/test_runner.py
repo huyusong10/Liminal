@@ -100,6 +100,9 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     assert coverage["ledger_path"] == "evidence/ledger.jsonl"
     assert coverage["status"] in {"covered", "weak"}
     assert coverage["targets"]
+    assert run["run_status"] == "succeeded"
+    assert run["task_verdict"]["status"] == "passed"
+    assert run["task_verdict"]["source"] == "gatekeeper"
     assert run_contract["workflow"]["steps"] == [
         {
             "id": step["id"],
@@ -110,9 +113,18 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
             "extra_cli_args": step.get("extra_cli_args", ""),
             "parallel_group": step.get("parallel_group", ""),
             "inputs": step.get("inputs", {}),
+            "action_policy": step.get("action_policy", {}),
         }
         for step in frozen_workflow["steps"]
     ]
+    role_requests = _read_jsonl(run_dir / "context" / "role_requests.jsonl")
+    builder_request = next(item for item in role_requests if item["role_archetype"] == "builder")
+    inspector_request = next(item for item in role_requests if item["role_archetype"] == "inspector")
+    gatekeeper_request = next(item for item in role_requests if item["role_archetype"] == "gatekeeper")
+    assert builder_request["sandbox"] == "workspace-write"
+    assert inspector_request["sandbox"] == "read-only"
+    assert gatekeeper_request["sandbox"] == "read-only"
+    assert "action_policy" in builder_request["extra_context_keys"]
     assert step_outputs["inspector"]
     assert step_outputs["gatekeeper"]
     assert any((item["step_dir"] / "prompt.md").exists() for item in step_outputs["inspector"])
@@ -498,6 +510,9 @@ def test_gatekeeper_pass_with_claims_but_no_measured_evidence_is_blocked(
     gatekeeper_output = _step_outputs_by_archetype(run_dir)["gatekeeper"][-1]["output"]
 
     assert run["status"] == "failed"
+    assert run["run_status"] == "failed"
+    assert run["task_verdict"]["status"] == "failed"
+    assert "blocking" in run["task_verdict"]["buckets"]
     assert gatekeeper_output["passed"] is False
     assert "gatekeeper_pass_requires_upstream_or_measured_evidence" in gatekeeper_output["blocking_issues"]
     assert gatekeeper_output["evidence_refs"] == ["ev_000_00_gatekeeper_step"]
@@ -1095,6 +1110,9 @@ def test_round_completion_mode_can_finish_without_gatekeeper(
     run = service.rerun(loop["id"])
 
     assert run["status"] == "succeeded"
+    assert run["run_status"] == "succeeded"
+    assert run["task_verdict"]["status"] == "insufficient_evidence"
+    assert run["task_verdict"]["source"] == "rounds_completion"
     iteration_log = _read_jsonl(Path(run["runs_dir"]) / "iteration_log.jsonl")
     assert len([entry for entry in iteration_log if entry["phase"] == "complete"]) == 2
     events = service.stream_events(run["id"], limit=200)
@@ -1102,6 +1120,23 @@ def test_round_completion_mode_can_finish_without_gatekeeper(
         event["event_type"] == "run_finished" and event["payload"].get("reason") == "rounds_completed"
         for event in events
     )
+
+
+def test_failed_run_without_verdict_is_not_evaluated(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Failed Without Verdict Loop")
+    run = service.start_run(loop["id"])
+
+    service.repository.update_run(run["id"], status="failed", error_message="setup failed before evidence")
+    refreshed = service.get_run(run["id"])
+
+    assert refreshed["run_status"] == "failed"
+    assert refreshed["task_verdict"]["status"] == "not_evaluated"
+    assert refreshed["task_verdict"]["source"] == "run_status"
 
 
 def test_iteration_interval_emits_wait_events_between_rounds(

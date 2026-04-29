@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from pathlib import Path
 import re
@@ -123,15 +122,14 @@ class ServiceBundleAssetMixin:
             name=bundle["name"],
             description=str(bundle.get("description", "")),
             collaboration_summary=str(bundle.get("collaboration_summary", "")),
-            source_bundle_id=str(bundle.get("source_bundle_id", "")),
-            revision=int(bundle.get("revision", 1) or 1),
         )
 
     def export_bundle_yaml(self, bundle_id: str) -> str:
         return bundle_to_yaml(self.export_bundle(bundle_id))
 
     def get_bundle_revision_summary(self, bundle_id: str) -> dict:
-        return self._bundle_revision_summary(self.export_bundle(bundle_id), current_bundle_id=bundle_id)
+        _bundle = self.get_bundle(bundle_id)
+        return self._bundle_revision_summary({}, current_bundle_id=bundle_id)
 
     def get_bundle_governance_summary(self, bundle_id: str) -> dict:
         return self._bundle_governance_summary(self.export_bundle(bundle_id), current_bundle_id=bundle_id)
@@ -154,7 +152,6 @@ class ServiceBundleAssetMixin:
             "roles": bundle["role_definitions"],
             "workflow_preview": self._bundle_workflow_preview(bundle),
             "control_summary": self._bundle_control_summary(bundle),
-            "revision_summary": self._bundle_revision_summary(bundle),
             "validation": validation or {"ok": True, "error": "", "source_path": source_path},
         }
 
@@ -298,13 +295,7 @@ class ServiceBundleAssetMixin:
         if not isinstance(raw_sections, dict):
             raw_sections = {}
         control_summary = self._bundle_control_summary(bundle)
-        revision_summary = self._bundle_revision_summary(bundle, current_bundle_id=current_bundle_id)
         gatekeeper = dict(control_summary.get("gatekeeper") or {})
-        changed_surfaces = [
-            str(item.get("surface") or "").strip()
-            for item in list(revision_summary.get("surface_deltas") or [])
-            if str(item.get("status") or "").strip() == "changed"
-        ]
         evidence_preferences = _preview_list_items(str(raw_sections.get("Evidence Preferences") or ""), limit=3)
         if not evidence_preferences:
             evidence_preferences = list(control_summary.get("evidence") or [])[:3]
@@ -323,12 +314,6 @@ class ServiceBundleAssetMixin:
                 "finish_steps": list(gatekeeper.get("finish_steps") or []),
                 "strictness": "evidence_refs_required" if gatekeeper.get("enabled") else "not_configured",
             },
-            "revision": {
-                "revision": int(revision_summary.get("revision", 1) or 1),
-                "source_bundle_id": str(revision_summary.get("source_bundle_id") or ""),
-                "lineage_state": str(revision_summary.get("lineage_state") or "root"),
-                "changed_surfaces": changed_surfaces,
-            },
         }
 
     @staticmethod
@@ -345,157 +330,17 @@ class ServiceBundleAssetMixin:
                 "finish_steps": [],
                 "strictness": "unavailable",
             },
-            "revision": {
-                "revision": 1,
-                "source_bundle_id": "",
-                "lineage_state": "unavailable",
-                "changed_surfaces": [],
-            },
         }
 
     def _bundle_revision_summary(self, bundle: dict, *, current_bundle_id: str = "") -> dict:
-        metadata = dict(bundle.get("metadata") or {})
-        current_id = str(current_bundle_id or metadata.get("bundle_id") or "").strip()
-        source_bundle_id = str(metadata.get("source_bundle_id") or "").strip()
-        revision = int(metadata.get("revision", 1) or 1)
-        if not source_bundle_id:
-            return {
-                "revision": revision,
-                "source_bundle_id": "",
-                "source_bundle": None,
-                "lineage_state": "root",
-                "can_compare": False,
-                "surface_deltas": [],
-            }
-
-        if current_id and source_bundle_id == current_id:
-            return {
-                "revision": revision,
-                "source_bundle_id": source_bundle_id,
-                "source_bundle": {
-                    "id": source_bundle_id,
-                    "name": str(metadata.get("name") or current_id),
-                    "revision": max(revision - 1, 1),
-                },
-                "lineage_state": "in_place_revision",
-                "can_compare": False,
-                "surface_deltas": [],
-            }
-
-        source_record = self.repository.get_bundle(source_bundle_id)
-        if not source_record:
-            return {
-                "revision": revision,
-                "source_bundle_id": source_bundle_id,
-                "source_bundle": None,
-                "lineage_state": "source_missing",
-                "can_compare": False,
-                "surface_deltas": [],
-            }
-
-        try:
-            source_bundle = self.export_bundle(source_bundle_id)
-        except LooporaError:
-            return {
-                "revision": revision,
-                "source_bundle_id": source_bundle_id,
-                "source_bundle": {
-                    "id": source_bundle_id,
-                    "name": str(source_record.get("name") or source_bundle_id),
-                    "revision": int(source_record.get("revision", 1) or 1),
-                },
-                "lineage_state": "source_unreadable",
-                "can_compare": False,
-                "surface_deltas": [],
-            }
-
         return {
-            "revision": revision,
-            "source_bundle_id": source_bundle_id,
-            "source_bundle": {
-                "id": source_bundle_id,
-                "name": str(source_record.get("name") or source_bundle["metadata"].get("name") or source_bundle_id),
-                "revision": int(source_record.get("revision", source_bundle["metadata"].get("revision", 1)) or 1),
-            },
-            "lineage_state": "source_available",
-            "can_compare": True,
-            "surface_deltas": self._bundle_surface_deltas(bundle, source_bundle),
+            "revision": 1,
+            "source_bundle_id": "",
+            "source_bundle": None,
+            "lineage_state": "not_tracked",
+            "can_compare": False,
+            "surface_deltas": [],
         }
-
-    @staticmethod
-    def _bundle_surface_deltas(bundle: dict, source_bundle: dict) -> list[dict]:
-        def stable_json(value: object) -> str:
-            return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
-
-        def surface(name: str, current: object, previous: object, changed: str, unchanged: str) -> dict:
-            status = "changed" if stable_json(current) != stable_json(previous) else "unchanged"
-            return {
-                "surface": name,
-                "status": status,
-                "summary": changed if status == "changed" else unchanged,
-            }
-
-        current_metadata = dict(bundle.get("metadata") or {})
-        previous_metadata = dict(source_bundle.get("metadata") or {})
-        current_loop = dict(bundle.get("loop") or {})
-        previous_loop = dict(source_bundle.get("loop") or {})
-
-        def role_contracts(payload: dict) -> list[dict]:
-            return [
-                {
-                    key: value
-                    for key, value in dict(role).items()
-                    if key != "prompt_ref"
-                }
-                for role in list(payload.get("role_definitions") or [])
-                if isinstance(role, dict)
-            ]
-
-        return [
-            surface(
-                "summary",
-                {
-                    "name": current_metadata.get("name"),
-                    "description": current_metadata.get("description"),
-                    "collaboration_summary": bundle.get("collaboration_summary"),
-                },
-                {
-                    "name": previous_metadata.get("name"),
-                    "description": previous_metadata.get("description"),
-                    "collaboration_summary": source_bundle.get("collaboration_summary"),
-                },
-                "Plan summary or collaboration posture changed.",
-                "Plan summary and collaboration posture are unchanged.",
-            ),
-            surface(
-                "spec",
-                bundle.get("spec"),
-                source_bundle.get("spec"),
-                "Task contract, success surface, evidence expectations, or risk language changed.",
-                "Task contract is unchanged.",
-            ),
-            surface(
-                "roles",
-                role_contracts(bundle),
-                role_contracts(source_bundle),
-                "Role posture, prompts, or execution settings changed.",
-                "Role definitions are unchanged.",
-            ),
-            surface(
-                "workflow",
-                bundle.get("workflow"),
-                source_bundle.get("workflow"),
-                "Workflow order, handoffs, controls, or GateKeeper shape changed.",
-                "Workflow shape is unchanged.",
-            ),
-            surface(
-                "runtime",
-                {key: value for key, value in current_loop.items() if key != "workdir"},
-                {key: value for key, value in previous_loop.items() if key != "workdir"},
-                "Runtime settings changed.",
-                "Runtime settings are unchanged.",
-            ),
-        ]
 
     def derive_bundle_from_loop(
         self,
@@ -567,6 +412,7 @@ class ServiceBundleAssetMixin:
                     "model": str(step.get("model", "") or "").strip(),
                     "inherit_session": bool(step.get("inherit_session")),
                     "extra_cli_args": str(step.get("extra_cli_args", "") or "").strip(),
+                    "action_policy": deepcopy(step.get("action_policy") or {}),
                     **(
                         {"parallel_group": str(step.get("parallel_group", "") or "").strip()}
                         if str(step.get("parallel_group", "") or "").strip()
@@ -585,8 +431,6 @@ class ServiceBundleAssetMixin:
                 "bundle_id": bundle_id,
                 "name": name or str(loop.get("name", "") or "").strip() or loop_id,
                 "description": description,
-                "source_bundle_id": source_bundle_id,
-                "revision": int(revision or 1),
             },
             "collaboration_summary": collaboration_summary or description or str(loop.get("name", "") or "").strip(),
             "loop": {
@@ -664,8 +508,8 @@ class ServiceBundleAssetMixin:
             "loop_id": bundle.get("loop_id", ""),
             "orchestration_id": bundle.get("orchestration_id", ""),
             "role_definition_ids": bundle.get("role_definition_ids", []),
-            "source_bundle_id": bundle.get("source_bundle_id", ""),
-            "revision": int(bundle.get("revision", 1) or 1) + (1 if bump_revision else 0),
+            "source_bundle_id": "",
+            "revision": int(bundle.get("revision", 1) or 1),
             "imported_from_path": bundle.get("imported_from_path", ""),
         }
         if snapshot is not None:
@@ -718,7 +562,7 @@ class ServiceBundleAssetMixin:
         loop_id = ""
         saved = None
         committed = False
-        prompt_ref_namespace = target_bundle_id if not existing else f"{target_bundle_id}/{make_id('revision')}"
+        prompt_ref_namespace = target_bundle_id if not existing else f"{target_bundle_id}/{make_id('replace')}"
         try:
             bundle_dir.mkdir(parents=True, exist_ok=True)
             spec_path = self._bundle_spec_path(target_bundle_id)
@@ -795,8 +639,8 @@ class ServiceBundleAssetMixin:
                 "loop_id": loop_id,
                 "orchestration_id": orchestration_id,
                 "role_definition_ids": created_role_ids,
-                "source_bundle_id": bundle["metadata"].get("source_bundle_id", ""),
-                "revision": int((existing or {}).get("revision", 0) or 0) + 1 if existing else int(bundle["metadata"].get("revision", 1) or 1),
+                "source_bundle_id": "",
+                "revision": int((existing or {}).get("revision", 1) or 1) if existing else 1,
                 "imported_from_path": imported_from_path,
             }
             export_payload = self.derive_bundle_from_loop(
@@ -805,8 +649,6 @@ class ServiceBundleAssetMixin:
                 name=payload["name"],
                 description=payload["description"],
                 collaboration_summary=payload["collaboration_summary"],
-                source_bundle_id=payload["source_bundle_id"],
-                revision=payload["revision"],
             )
             self._bundle_yaml_path(target_bundle_id).write_text(bundle_to_yaml(export_payload), encoding="utf-8")
             if existing:

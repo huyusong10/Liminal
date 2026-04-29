@@ -6,7 +6,8 @@ from loopora.branding import state_dir_for_workdir
 from loopora.run_artifacts import RunArtifactLayout
 from loopora.service_asset_common import _normalize_role_models
 from loopora.service_types import LooporaError
-from loopora.workflows import DEFAULT_WORKFLOW_PRESET, WorkflowError, build_preset_workflow, prompt_asset_path, resolve_prompt_files, workflow_warnings
+from loopora.task_verdicts import hydrate_run_status_and_task_verdict
+from loopora.workflows import DEFAULT_WORKFLOW_PRESET, WorkflowError, build_preset_workflow, normalize_workflow, prompt_asset_path, resolve_prompt_files, workflow_warnings
 
 
 class ServiceLoopRecordMixin:
@@ -15,6 +16,13 @@ class ServiceLoopRecordMixin:
             loop_or_run.get("role_models_json") or loop_or_run.get("role_models") or {}
         )
         return build_preset_workflow(DEFAULT_WORKFLOW_PRESET, role_models=role_models)
+
+    def _normalized_workflow_from_record(self, loop_or_run: dict) -> dict:
+        workflow = loop_or_run.get("workflow_json") or self._legacy_workflow_from_loop(loop_or_run)
+        try:
+            return normalize_workflow(workflow)
+        except WorkflowError:
+            return workflow
 
     def _prompt_dir(self, base_dir: Path) -> Path:
         return base_dir / "prompts"
@@ -53,7 +61,7 @@ class ServiceLoopRecordMixin:
     def _hydrate_loop_files(self, loop: dict) -> dict:
         if not loop:
             return loop
-        workflow = loop.get("workflow_json") or self._legacy_workflow_from_loop(loop)
+        workflow = self._normalized_workflow_from_record(loop)
         loop["workflow_json"] = workflow
         loop["workflow_warnings"] = workflow_warnings(workflow)
         if loop.get("orchestration_id"):
@@ -78,7 +86,8 @@ class ServiceLoopRecordMixin:
         if not run:
             return run
         self._reap_terminal_thread_handle(run.get("id"), status=run.get("status"))
-        workflow = run.get("workflow_json") or self._legacy_workflow_from_loop(run)
+        hydrate_run_status_and_task_verdict(run)
+        workflow = self._normalized_workflow_from_record(run)
         run["workflow_json"] = workflow
         run["workflow_warnings"] = workflow_warnings(workflow)
         if run.get("orchestration_id"):

@@ -2156,8 +2156,7 @@ html[data-locale="zh"] .alignment-role-title em {
   grid-column: 1 / -1;
 }
 
-.alignment-control-summary,
-.alignment-version-summary {
+.alignment-control-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
@@ -2315,8 +2314,7 @@ html[data-locale="zh"] .alignment-role-title em {
     grid-template-columns: 1fr;
   }
 
-  .alignment-control-summary,
-  .alignment-version-summary {
+  .alignment-control-summary {
     grid-template-columns: 1fr;
   }
 

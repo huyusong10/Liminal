@@ -171,6 +171,7 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "executor_mode",
                 "parallel_group",
                 "inputs",
+                "action_policy",
                 "control",
             ],
             "properties": {
@@ -184,6 +185,16 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "executor_mode": {"type": "string"},
                 "parallel_group": {"type": "string"},
                 "inputs": {"type": "object"},
+                "action_policy": {
+                    "type": "object",
+                    "required": ["workspace", "can_block", "can_finish_run"],
+                    "properties": {
+                        "workspace": {"type": "string"},
+                        "can_block": {"type": "boolean"},
+                        "can_finish_run": {"type": "boolean"},
+                    },
+                    "additionalProperties": False,
+                },
                 "control": {"type": "object"},
             },
             "additionalProperties": False,
@@ -365,6 +376,7 @@ def build_run_contract_snapshot(
                     "extra_cli_args": str(step.get("extra_cli_args") or ""),
                     "parallel_group": str(step.get("parallel_group") or ""),
                     "inputs": dict(step.get("inputs") or {}),
+                    "action_policy": dict(step.get("action_policy") or {}),
                 }
                 for step in workflow.get("steps", [])
             ],
@@ -455,6 +467,7 @@ def build_step_context_packet(
             "executor_mode": str(execution_settings.get("executor_mode") or ""),
             "parallel_group": str(step.get("parallel_group") or ""),
             "inputs": dict(step.get("inputs") or {}),
+            "action_policy": dict(step.get("action_policy") or {}),
             "control": dict(step.get("control") or {}) if isinstance(step.get("control"), dict) else {},
         },
         "upstream": {
@@ -978,6 +991,7 @@ def render_iteration_section(packet: dict) -> str:
             f"Previous composite score: {iteration['previous_composite']}."
         )
     control = current_step.get("control") if isinstance(current_step.get("control"), dict) else {}
+    action_policy = current_step.get("action_policy") if isinstance(current_step.get("action_policy"), dict) else {}
     control_lines = ""
     if control:
         control_lines = (
@@ -995,6 +1009,7 @@ def render_iteration_section(packet: dict) -> str:
         f"- Executor: {current_step['executor_kind']} / {current_step['executor_mode']}\n"
         f"- Parallel group: {current_step.get('parallel_group') or 'none'}\n"
         f"- Input policy: {json.dumps(current_step.get('inputs') or {}, ensure_ascii=False)}\n"
+        f"- Action policy: {json.dumps(action_policy, ensure_ascii=False)}\n"
         f"{control_lines}"
         f"- Stagnation mode: {iteration['stagnation_mode']}\n\n"
         f"{previous_line}"

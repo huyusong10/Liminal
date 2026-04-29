@@ -251,6 +251,7 @@ class ServiceRunLifecycleMixin:
             status="failed",
             summary=summary,
             error_message=reason,
+            final_reason="orphaned_worker",
         )
         self.repository.release_run_slot(run["id"])
         self._append_run_aborted_event(

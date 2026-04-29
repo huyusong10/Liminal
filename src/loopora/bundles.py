@@ -15,6 +15,7 @@ from loopora.workflows import (
     normalize_prompt_ref,
     normalize_role_execution_settings,
     normalize_step_inherit_session,
+    normalize_step_action_policy,
     normalize_step_inputs,
     normalize_step_on_pass,
     normalize_step_parallel_group,
@@ -267,6 +268,11 @@ def _normalize_bundle_workflow(raw_workflow: object, *, role_definitions: list[d
         try:
             on_pass = normalize_step_on_pass(entry.get("on_pass"), archetype=archetype, default=defaults["on_pass"])
             inherit_session = normalize_step_inherit_session(entry.get("inherit_session"), archetype=archetype)
+            action_policy = normalize_step_action_policy(
+                entry.get("action_policy"),
+                archetype=archetype,
+                on_pass=on_pass,
+            )
             from loopora.executor import validate_extra_cli_args_text
 
             extra_cli_args = str(entry.get("extra_cli_args", "") or "").strip()
@@ -282,6 +288,7 @@ def _normalize_bundle_workflow(raw_workflow: object, *, role_definitions: list[d
             "model": str(entry.get("model", "") or "").strip(),
             "inherit_session": inherit_session,
             "extra_cli_args": extra_cli_args,
+            "action_policy": action_policy,
         }
         if parallel_group:
             step_payload["parallel_group"] = parallel_group
@@ -449,8 +456,13 @@ def load_bundle_text(raw_text: str) -> dict[str, Any]:
 
 def bundle_to_yaml(bundle: Mapping[str, object]) -> str:
     normalized = normalize_bundle(bundle)
+    export_payload = json.loads(json.dumps(normalized, ensure_ascii=False))
+    metadata = export_payload.get("metadata")
+    if isinstance(metadata, dict):
+        metadata.pop("source_bundle_id", None)
+        metadata.pop("revision", None)
     return yaml.safe_dump(
-        json.loads(json.dumps(normalized, ensure_ascii=False)),
+        export_payload,
         allow_unicode=True,
         sort_keys=False,
         default_flow_style=False,

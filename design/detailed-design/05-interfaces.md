@@ -1,12 +1,12 @@
 # Interfaces
 
-> 最高原则：遵循 `../core-ideas/product-principle.md`。接口层默认表达“任务、Loop、运行、证据和裁决结果”，把 `bundle / spec / roles / workflow` 等内部资产留给专家路径。
+> 最高原则：遵循 `../core-ideas/product-principle.md`。接口层默认表达“任务、Loop、运行、证据、运行状态和任务裁决”，把 `bundle / spec / roles / workflow` 等内部资产留给专家路径。
 
 ## 1. 模块职责
 
 接口层存在的唯一理由：
 
-- 让 Web、CLI、HTTP API 以一致语义访问同一套 Loop 编排、运行、自动迭代和 run 观察能力。
+- 让 Web、CLI、HTTP API 以一致语义访问同一套 Loop 编排、运行、自动迭代、运行状态、任务裁决和 run 观察能力。
 
 它负责输入规范化、边缘校验、可视投影和权限边界，不负责业务编排本身。
 
@@ -17,8 +17,8 @@
 | `loop` | 保存一套可重复执行的长期任务编排 | 绑定 workdir、spec、runtime 策略与 orchestration |
 | `bundle` | 导入、导出或派生 Loop | 把 `spec / role definitions / workflow / loop` 组织成单文件交换单元 |
 | `orchestration` | 编辑可复用 workflow | 管理角色快照、步骤顺序与收敛规则 |
-| `role definition` | 定义可复用角色模版 | 供 orchestration 复制成角色快照，并定义默认执行配置 |
-| `run` | 观察一次具体执行 | 提供状态、事件、摘要、证据产物与终态 |
+| `role definition` | 定义可复用角色模版 | 供 orchestration 复制成角色快照，并定义默认执行配置；本次 step 的实际行动权限由 workflow 决定 |
+| `run` | 观察一次具体执行 | 提供运行状态、事件、摘要、证据产物、任务裁决与终态原因 |
 | `alignment session` | 通过任务对话编排或调整 Loop | 调用本机 AI Agent CLI，在 bundle 通过校验后提供 READY 预览与创建运行 |
 | `skill installer` | 分发 repo-local Skill 到外部 AI Agent 工具 | 只做文件安装 / 下载辅助，不改变 Web 内置 alignment 的语义 |
 
@@ -44,16 +44,17 @@ Web 顶层信息架构按用户任务组织：
 
 接口层必须把默认主工作流压成四个用户动作：
 
-`编排 Loop -> 运行 -> 看证据 -> 看裁决结果`
+`编排 Loop -> 运行 -> 看证据 -> 看运行状态与任务裁决`
 
 稳定语言边界：
 
 | 场景 | 默认语言 | 可出现的专家语言 |
 |------|----------|------------------|
-| 新建任务主路径 | 任务、Loop、运行、证据、裁决结果 | 只在展开的专家视图、tab 标签或源文件操作中出现 `spec / roles / workflow` |
+| 新建任务主路径 | 任务、Loop、运行、证据、运行状态、任务裁决 | 只在展开的专家视图、tab 标签或源文件操作中出现 `spec / roles / workflow` |
 | READY 预览 | 任务目标、主要风险、证据路径、裁决方式、运行目录 | YAML、bundle、import、orchestration 只属于专家操作或调试材料 |
-| run 详情首屏 | 关键结论、证据覆盖、GateKeeper 裁决 | ledger、artifact、event stream、raw output 只属于追查入口 |
-| 方案库默认列表 | Loop、导出、删除 | Bundle ID、surface diff、YAML、linked assets 属于详情页专家区 |
+| run 详情首屏 | 运行状态、任务裁决、已证明、未证明、阻断问题、残余风险 | ledger、artifact、event stream、raw output 只属于追查入口 |
+| 结果后动作 | 接受结果、再次运行、修改 Loop、导出、停止 | 对话改进、YAML、source artifact 只属于用户主动入口 |
+| 方案库默认列表 | Loop、导出、删除 | Bundle ID、YAML、linked assets 属于详情页专家区 |
 
 稳定规则：
 
@@ -63,6 +64,7 @@ Web 顶层信息架构按用户任务组织：
 - `READY` 可以作为内部状态或小状态标识，但默认主动作表达为“Loop 已准备好，可以创建并运行”。
 - 专家语言必须保留可达性；隐藏只是信息层级调整，不能删除导入、导出、派生、surface 编辑或源文件同步能力。
 - 页面测试优先断言用户动作、可达区域和 `data-testid`，不要把具体中英文文案锁成契约。
+- 运行状态与任务裁决必须分开展示；`succeeded`、`failed`、`stopped` 等 run status 不能替代 GateKeeper / evidence 得出的 task verdict。
 
 ## 4. 跨入口一致性
 
@@ -74,10 +76,11 @@ Web 顶层信息架构按用户任务组织：
 | 导入 / 导出 / 派生 / 删除 bundle | 表达同一整包生命周期语义 |
 | 预览 bundle | 只读校验与投影，不创建底层资产 |
 | 选择 orchestration | 引用同一编排资产 |
-| 编辑 role definition | 角色模版、权限边界、执行配置与 prompt 语义一致 |
+| 编辑 role definition | 角色模版、判断姿态、执行默认值与 prompt 语义一致；写入、只读和收束等本次行动权限属于 workflow step |
 | 配置 completion mode | `gatekeeper` 与 `rounds` 的收敛语义一致 |
 | 启动、停止、删除 run | 生命周期语义一致 |
 | 观察 run artifacts / evidence | artifact 列表用于追查细节，`evidence/ledger.jsonl` 是证明项与 GateKeeper verdict 的事实源 |
+| 展示 run status / task verdict | run status 表达系统生命周期；task verdict 表达任务达标、未达标、证据不足或残余风险 |
 | 安装 task-alignment Skill | 只分发 repo-local Skill，不改变 bundle 或 run 契约 |
 
 允许交互形态不同，例如 Web 可以提供可视化 workflow 编辑器、对话式 alignment、主题和语言偏好；CLI 可以提供同步等待与后台执行开关。但这些差异不能改变底层语义。
@@ -135,6 +138,7 @@ CLI 对高阶 workflow 的稳定承诺：
 - 某个核心对象只能在单一入口创建或编辑
 - 角色定义 / 编排 / 创建循环的责任边界变化
 - 安全边界变化
+- 运行状态与任务裁决的展示边界变化
 
 以下变化通常不需要更新本文档：
 

@@ -19,6 +19,8 @@
 | run artifacts | 记录 prompt、输出、summary、metrics 等复盘材料 | 用于还原单次 run 的细节，不替代系统级日志 |
 | evidence ledger | 记录本次 run 的证明项、未覆盖风险和对应 artifact refs | 作为 GateKeeper verdict 和 run 复盘的 canonical 证据事实源 |
 | evidence coverage projection | 从 run contract 与 evidence ledger 重算覆盖状态 | 面向 UI 摘要和白盒追溯；不是新的事实源 |
+| run status projection | 从 run record 和终态事件投影系统生命周期 | 只说明 run 是否结束、失败、停止或超时 |
+| task verdict projection | 从 GateKeeper verdict、runtime evidence gate 与 coverage 投影任务裁决 | 说明任务是否被证明、未证明、阻断或带残余风险 |
 
 稳定规则：
 
@@ -33,12 +35,14 @@
 - 并行检视组中的多个 evidence producer 共享同一上游快照；ledger 按 workflow step 顺序落账，并保留各自的 `step_id / role_id / archetype / iter`。
 - GateKeeper pass 必须能回到 evidence ledger；没有 evidence refs 或可落账 evidence claims 的 pass 不能成为新 run 的强收敛条件。
 - `Fake Done` 与 `Evidence Preferences` 在第一阶段属于 advisory coverage；缺口会让 projection 标记为 weak，但不扩大当前 GateKeeper 硬失败条件。
+- run status 与 task verdict 必须分开投影。`run_finished` 或 `succeeded` 只能说明系统生命周期，不代表任务已经通过。
+- 面向用户的 evidence projection 应优先使用稳定语义桶：已证明、证据薄弱、未证明、阻断问题、残余风险。完整 ledger 仍通过追查入口访问。
 - Web 终端必须把关键系统动作白盒化投影出来，不能只展示底层命令输出。
 - 面向用户的 run 详情页应优先消费 run artifacts 中已经冻结的 handoff、iteration summary 与 coverage projection 来生成“关键结论”，默认只展示简洁状态与主要原因；完整 target、ledger 和 artifact 链路通过白盒追溯入口查看。
 - 当新的 `step_handoff_written`、`control_completed`、`control_failed`、`iteration_summary_written` 或 `run_finished` 事件到达时，run 详情页里的“关键结论”必须在当前会话内自动拉取最新 artifacts 并刷新；不能要求用户手动刷新整页后才能看到最新轮次结论。
 - 提供给角色 prompt 的 artifact refs 必须能从 workspace 直接定位到 `.loopora/runs/...` 下的真实文件，不能只暴露对 run 目录内部才有意义的短相对路径。
 - 当角色尝试获取浏览器或截图证据失败时，诊断线索必须保留在 run event stream 与 step handoff 中，便于后续角色区分“产品问题”与“宿主环境阻断”。
-- run 详情页的证据裁决与结果是 Loopora 的输出边界。系统应提供清楚的证据、artifact 和导出路径；用户如何基于这些材料调整 Loop 属于用户主动编排场景。
+- run 详情页的运行状态、任务裁决与结果是 Loopora 的输出边界。系统应提供清楚的证据、artifact、再次运行、修改 Loop、导出和停止入口；用户如何基于这些材料调整 Loop 属于用户主动编排场景，不形成系统持有的演化历史。
 
 ## 2.1 真实 CLI 集成验证
 

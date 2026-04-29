@@ -22,6 +22,7 @@ class RepositoryRunStateRecordsMixin:
         finished_at: str | None = None,
         error_message: str | None = None,
         last_verdict: dict | None = None,
+        task_verdict: dict | None = None,
         compiled_spec: dict | None = None,
         summary_md: str | None = None,
         clear_child_pid: bool = False,
@@ -47,6 +48,8 @@ class RepositoryRunStateRecordsMixin:
             updates["error_message"] = error_message
         if last_verdict is not None:
             updates["last_verdict_json"] = json.dumps(last_verdict, ensure_ascii=False)
+        if task_verdict is not None:
+            updates["task_verdict_json"] = json.dumps(task_verdict, ensure_ascii=False)
         if compiled_spec is not None:
             updates["compiled_spec_json"] = json.dumps(compiled_spec, ensure_ascii=False)
         if summary_md is not None:

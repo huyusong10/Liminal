@@ -57,7 +57,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const artifactVerdict = document.getElementById("alignment-artifact-verdict");
   const artifactWorkdir = document.getElementById("alignment-artifact-workdir");
   const controlSummary = document.getElementById("alignment-control-summary");
-  const versionSummary = document.getElementById("alignment-version-summary");
   const artifactSource = document.getElementById("alignment-artifact-source");
   const sourcePathLabel = document.getElementById("alignment-source-path");
   const specPreview = document.getElementById("alignment-spec-preview");
@@ -963,46 +962,6 @@ document.addEventListener("DOMContentLoaded", () => {
     `).join("");
   }
 
-  function renderVersionSummary(summary) {
-    if (!versionSummary) {
-      return;
-    }
-    const sourceId = String(summary?.source_bundle_id || "").trim();
-    if (!sourceId) {
-      versionSummary.hidden = true;
-      versionSummary.innerHTML = "";
-      return;
-    }
-    const source = summary.source_bundle || {};
-    const sourceText = source.name
-      ? source.name
-      : localeText("来源方案", "Source plan");
-    const revisionText = summary.revision
-      ? localeText(`方案版本 r${summary.revision}`, `Plan version r${summary.revision}`)
-      : "-";
-    const cards = [
-      {
-        label: localeText("来源方案", "Source plan"),
-        value: sourceText,
-      },
-      {
-        label: localeText("当前版本", "Current version"),
-        value: revisionText,
-      },
-      {
-        label: localeText("导入状态", "Import state"),
-        value: localeText("已读取来源版本信息。", "Source version metadata is available."),
-      },
-    ];
-    versionSummary.hidden = false;
-    versionSummary.innerHTML = cards.map((card) => `
-      <div class="alignment-control-card">
-        <strong>${escapeHtml(card.label)}</strong>
-        <span>${escapeHtml(card.value)}</span>
-      </div>
-    `).join("");
-  }
-
   function compactRoleSummary(role) {
     const description = String(role.description || "").trim();
     const posture = String(role.posture_notes || "").trim();
@@ -1093,7 +1052,6 @@ document.addEventListener("DOMContentLoaded", () => {
     artifactWorkdir.textContent = labeledSummary("运行目录", "Workdir", basename(payload.bundle?.loop?.workdir || ""));
     artifactWorkdir.title = payload.bundle?.loop?.workdir || "";
     renderControlSummary(summary || null);
-    renderVersionSummary(payload.revision_summary || null);
     specPreview.innerHTML = payload.spec_rendered_html || "";
     if (sourceOpenButton) {
       sourceOpenButton.hidden = !payload.source_path;

@@ -474,7 +474,7 @@ class ServiceAlignmentMixin:
         reasoning_effort: str = "",
     ) -> dict:
         source_bundle = self.export_bundle(bundle_id)
-        seed_bundle = self._revision_seed_bundle(source_bundle, source_bundle_id=bundle_id)
+        seed_bundle = self._revision_seed_bundle(source_bundle)
         return self._create_revision_alignment_session(
             seed_bundle,
             message=message
@@ -524,7 +524,7 @@ class ServiceAlignmentMixin:
                 description="Derived as the improvement base for a run without an imported bundle.",
                 collaboration_summary="Improvement base derived from the current loop.",
             )
-        seed_bundle = self._revision_seed_bundle(source_bundle, source_bundle_id=source_bundle_id)
+        seed_bundle = self._revision_seed_bundle(source_bundle)
         return self._create_revision_alignment_session(
             seed_bundle,
             message=message
@@ -608,13 +608,12 @@ class ServiceAlignmentMixin:
         return self.get_alignment_session(session["id"])
 
     @staticmethod
-    def _revision_seed_bundle(source_bundle: dict, *, source_bundle_id: str) -> dict:
+    def _revision_seed_bundle(source_bundle: dict) -> dict:
         seed = json.loads(json.dumps(source_bundle, ensure_ascii=False))
         metadata = dict(seed.get("metadata") or {})
         metadata["bundle_id"] = ""
-        if source_bundle_id:
-            metadata["source_bundle_id"] = source_bundle_id
-        metadata["revision"] = int(metadata.get("revision", 1) or 1) + 1
+        metadata.pop("source_bundle_id", None)
+        metadata.pop("revision", None)
         seed["metadata"] = metadata
         return seed
 
@@ -1234,14 +1233,13 @@ class ServiceAlignmentMixin:
 This alignment session starts from an existing Loopora bundle. Help the user improve the candidate bundle through dialogue, but do not present this as a required product lifecycle stage.
 
 - Source type: {source.get("source_type", "")}
-- Source bundle id: {source.get("source_bundle_id", "")}
 - Source run id: {source.get("source_run_id", "")}
 - Reason: {source.get("reason", "")}
 
 Rules:
 - Treat the Current Bundle as the base candidate.
 - Do not merely polish wording. Identify which governance surface should change: `spec`, `roles`, `workflow`, evidence expectations, or GateKeeper strictness.
-- The improved bundle should remain a complete bundle. Prefer leaving `metadata.bundle_id` empty or new, set `metadata.source_bundle_id` to the source bundle id when present, and keep `metadata.revision` greater than the source revision.
+- The improved bundle should remain a complete standalone bundle. Prefer leaving `metadata.bundle_id` empty or new. Do not set `metadata.source_bundle_id` or `metadata.revision`.
 - If run evidence is present, cite it in reasoning and translate it into bundle changes, not just code advice.
 - This is an optional Web capability for user-directed improvement. Do not describe it as Loopora's required lifecycle or as a built-in stage after every run.
 
@@ -1454,6 +1452,7 @@ Alignment stage gate:
 - Use Benchmark Inspector -> Builder -> Regression Inspector -> GateKeeper when an existing benchmark or contract proof should control the decision.
 - When using bounded parallel inspection, set the same `parallel_group` on two or more contiguous Inspector or Custom steps. Do not put Builder, Guide, or GateKeeper inside a parallel group.
 - Use `inputs.handoffs_from`, `inputs.evidence_query`, and `inputs.iteration_memory` to make role-to-role and iteration-to-iteration information flow explicit when the workflow has multiple reviewers or repair passes.
+- Use step `action_policy` only for current-step permissions. In v1, Builder may use `workspace: "workspace_write"`; Inspector, GateKeeper, Guide, and Custom roles should use `workspace: "read_only"`. Only GateKeeper with `on_pass: "finish_run"` may set `can_finish_run: true`, and parallel groups must stay read-only.
 - Name specialized Inspector roles by evidence responsibility, for example Contract Inspector, Evidence Inspector, Regression Inspector, Benchmark Inspector, or Posture Inspector. Do not generate generic "Inspector 1" / "Inspector 2" roles.
 - If `loop.completion_mode` is "gatekeeper", the bundle must include a GateKeeper role and at least one GateKeeper workflow step with `on_pass: "finish_run"`.
 - Optional `workflow.controls` are advanced runtime controls, not automation features. Generate them only when the user or workdir facts show a specific long-task error risk: no-evidence progress, role timeout/failure, or repeated GateKeeper rejection.

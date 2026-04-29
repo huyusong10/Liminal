@@ -274,6 +274,7 @@ class ServiceWorkflowIterationStateMixin:
             status="succeeded",
             summary=summary,
             last_verdict=normalized_output,
+            final_reason="gatekeeper_passed",
             hydrate=True,
         )
         self.repository.append_event(run_id, "run_finished", {"status": "succeeded", "iter": iter_id})

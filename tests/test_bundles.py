@@ -5,6 +5,7 @@ from textwrap import dedent
 
 import pytest
 
+from loopora.bundles import bundle_to_yaml
 from loopora.service import LooporaError
 
 
@@ -226,6 +227,43 @@ def test_bundle_round_trip_preserves_parallel_groups_and_step_inputs(service_fac
     assert steps[3]["inputs"] == {"handoffs_from": ["inspector_step", "semantic_step"]}
 
 
+def test_bundle_round_trip_preserves_explicit_step_action_policy(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    yaml_text = _bundle_yaml(sample_workdir).replace(
+        '    - id: "inspector_step"\n'
+        '      role_id: "inspector"\n'
+        '    - id: "builder_step"\n'
+        '      role_id: "builder"\n',
+        '    - id: "inspector_step"\n'
+        '      role_id: "inspector"\n'
+        "      action_policy:\n"
+        '        workspace: "read_only"\n'
+        "        can_block: false\n"
+        "        can_finish_run: false\n"
+        '    - id: "builder_step"\n'
+        '      role_id: "builder"\n'
+        "      action_policy:\n"
+        '        workspace: "workspace_write"\n'
+        "        can_block: false\n"
+        "        can_finish_run: false\n",
+    )
+
+    imported = service.import_bundle_text(yaml_text)
+    exported = service.export_bundle(imported["id"])
+    policies = {step["id"]: step["action_policy"] for step in exported["workflow"]["steps"]}
+
+    assert policies["inspector_step"] == {
+        "workspace": "read_only",
+        "can_block": False,
+        "can_finish_run": False,
+    }
+    assert policies["builder_step"] == {
+        "workspace": "workspace_write",
+        "can_block": False,
+        "can_finish_run": False,
+    }
+
+
 def test_bundle_round_trip_preserves_workflow_controls(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     yaml_text = _bundle_yaml(sample_workdir).replace(
@@ -387,7 +425,7 @@ def test_bundle_delete_cleans_imported_group_but_keeps_unrelated_assets(
         service.get_bundle(imported["id"])
 
 
-def test_bundle_replace_updates_revision_and_links(service_factory, sample_workdir: Path) -> None:
+def test_bundle_replace_updates_plan_without_advancing_revision(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
 
@@ -400,7 +438,8 @@ def test_bundle_replace_updates_revision_and_links(service_factory, sample_workd
     )
 
     assert revised["id"] == imported["id"]
-    assert revised["revision"] == imported["revision"] + 1
+    assert revised["revision"] == imported["revision"]
+    assert revised["source_bundle_id"] == ""
     exported = service.export_bundle(revised["id"])
     assert exported["collaboration_summary"].startswith("Prefer maintainability")
 
@@ -418,13 +457,15 @@ def test_bundle_governance_cards_project_contract_controls(service_factory, samp
     assert governance["workflow_shape"]
     assert governance["gatekeeper"]["enabled"] is True
     assert governance["gatekeeper"]["strictness"] == "evidence_refs_required"
-    assert governance["revision"]["lineage_state"] == "root"
 
 
-def test_bundle_revision_summary_compares_source_surfaces(service_factory, sample_workdir: Path) -> None:
+def test_legacy_bundle_lineage_metadata_imports_but_new_exports_omit_lineage(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
     service = service_factory(scenario="success")
     source = service.import_bundle_text(_bundle_yaml(sample_workdir))
-    revised_yaml = _bundle_yaml(
+    legacy_yaml = _bundle_yaml(
         sample_workdir,
         collaboration_summary="Prefer stronger evidence coverage before revising again.",
     ).replace(
@@ -439,19 +480,18 @@ def test_bundle_revision_summary_compares_source_surfaces(service_factory, sampl
         "- The implementation stays maintainable for the next round.\n"
         "            - Evidence coverage is visible before another revision starts.",
     )
-    revised = service.import_bundle_text(revised_yaml)
+    imported = service.import_bundle_text(legacy_yaml)
+    exported_yaml = bundle_to_yaml(service.export_bundle(imported["id"]))
+    summary = service.get_bundle_revision_summary(imported["id"])
 
-    summary = service.get_bundle_revision_summary(revised["id"])
-    deltas = {item["surface"]: item["status"] for item in summary["surface_deltas"]}
-
-    assert summary["source_bundle_id"] == source["id"]
-    assert summary["source_bundle"]["id"] == source["id"]
-    assert summary["lineage_state"] == "source_available"
-    assert summary["can_compare"] is True
-    assert deltas["summary"] == "changed"
-    assert deltas["spec"] == "changed"
-    assert deltas["roles"] == "unchanged"
-    assert deltas["workflow"] == "unchanged"
+    assert imported["source_bundle_id"] == ""
+    assert imported["revision"] == 1
+    assert "source_bundle_id" not in exported_yaml
+    assert "revision:" not in exported_yaml
+    assert summary["lineage_state"] == "not_tracked"
+    assert summary["source_bundle_id"] == ""
+    assert summary["can_compare"] is False
+    assert summary["surface_deltas"] == []
 
 
 def test_failed_bundle_replace_preserves_existing_bundle(service_factory, sample_workdir: Path) -> None:
@@ -559,7 +599,10 @@ def test_bundle_owned_assets_cannot_be_deleted_individually(service_factory, sam
         service.delete_role_definition(role_definition["id"])
 
 
-def test_bundle_revision_bumps_when_imported_role_definition_changes(service_factory, sample_workdir: Path) -> None:
+def test_imported_role_definition_changes_update_bundle_without_revision_bump(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
     service = service_factory(scenario="success")
     imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
     role_definition = imported["role_definitions"][0]
@@ -585,11 +628,14 @@ def test_bundle_revision_bumps_when_imported_role_definition_changes(service_fac
     exported_role = next(item for item in exported["role_definitions"] if item["name"] == updated_role["name"])
 
     assert updated_role["posture_notes"] == "Raise the refactor bar before passing this work."
-    assert refreshed["revision"] == imported["revision"] + 1
+    assert refreshed["revision"] == imported["revision"]
     assert "Raise the refactor bar" in exported_role["posture_notes"]
 
 
-def test_bundle_revision_bumps_when_imported_orchestration_changes(service_factory, sample_workdir: Path) -> None:
+def test_imported_orchestration_changes_update_bundle_without_revision_bump(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
     service = service_factory(scenario="success")
     imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
     orchestration = imported["orchestration"]
@@ -609,7 +655,7 @@ def test_bundle_revision_bumps_when_imported_orchestration_changes(service_facto
     exported = service.export_bundle(imported["id"])
 
     assert updated_orchestration["workflow_json"]["collaboration_intent"].startswith("Inspect first")
-    assert refreshed["revision"] == imported["revision"] + 1
+    assert refreshed["revision"] == imported["revision"]
     assert exported["workflow"]["collaboration_intent"].startswith("Inspect first")
 
 
@@ -693,7 +739,7 @@ def test_bundle_orchestration_edit_updates_runnable_loop_snapshot(service_factor
     assert run["workflow_json"]["collaboration_intent"].startswith("Inspect refactor risk")
 
 
-def test_invalid_bundle_orchestration_edit_rolls_back_asset_and_revision(
+def test_invalid_bundle_orchestration_edit_rolls_back_asset_and_bundle(
     service_factory,
     sample_workdir: Path,
 ) -> None:
@@ -704,7 +750,7 @@ def test_invalid_bundle_orchestration_edit_rolls_back_asset_and_revision(
     workflow["steps"] = [dict(step) for step in workflow["steps"]]
     workflow["steps"][-1]["on_pass"] = "continue"
 
-    with pytest.raises(LooporaError, match="requires a GateKeeper step"):
+    with pytest.raises(LooporaError, match="action_policy.can_finish_run=true requires on_pass=finish_run"):
         service.update_orchestration(
             orchestration["id"],
             name=orchestration["name"],

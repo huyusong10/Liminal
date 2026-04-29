@@ -6,10 +6,6 @@
     <div class="hero-copy-stack">
       <h1>{{ bundle.name }}</h1>
       <p>{{ bundle.collaboration_summary }}</p>
-      <p class="field-note">
-        <span data-lang="zh">方案版本 r{{ bundle.revision }}</span>
-        <span data-lang="en">Plan version r{{ bundle.revision }}</span>
-      </p>
     </div>
     <div class="card-actions">
       <a class="primary-button" href="/api/bundles/{{ bundle.id }}/export">
@@ -44,85 +40,14 @@
     </div>
   </section>
 
-  <section class="panel" data-testid="bundle-revision-lineage">
-    <header class="panel-header">
-      <div>
-        <h2><span data-lang="zh">版本来源</span><span data-lang="en">Version lineage</span></h2>
-        <p class="panel-note">
-          <span data-lang="zh">这里投影当前方案和来源方案的关系，帮助追查治理面变化。</span>
-          <span data-lang="en">This projects how the current plan relates to its source plan, so governance surface changes stay visible.</span>
-        </p>
-      </div>
-    </header>
-    <div class="bundle-revision-grid">
-      <article class="bundle-revision-card">
-        <span class="bundle-revision-label"><span data-lang="zh">当前版本</span><span data-lang="en">Current version</span></span>
-        <strong>{{ revision_summary.revision }}</strong>
-        <p><span data-lang="zh">方案 ID 在专家信息中查看。</span><span data-lang="en">Plan ID is available in expert details.</span></p>
-      </article>
-      <article class="bundle-revision-card">
-        <span class="bundle-revision-label"><span data-lang="zh">来源方案</span><span data-lang="en">Source plan</span></span>
-        {% if revision_summary.source_bundle %}
-        <strong>{{ revision_summary.source_bundle.name }}</strong>
-        <p>
-          <span data-lang="zh">方案版本 r{{ revision_summary.source_bundle.revision }}</span>
-          <span data-lang="en">Plan version r{{ revision_summary.source_bundle.revision }}</span>
-        </p>
-        {% elif revision_summary.source_bundle_id %}
-        <strong><span data-lang="zh">来源方案</span><span data-lang="en">Source plan</span></strong>
-        <p>
-          <span data-lang="zh">来源方案当前不可读取，ID 在专家信息中查看。</span>
-          <span data-lang="en">The source plan is not readable right now; its ID is available in expert details.</span>
-        </p>
-        {% else %}
-        <strong><span data-lang="zh">根方案</span><span data-lang="en">Root plan</span></strong>
-        <p>
-          <span data-lang="zh">这份方案没有记录上游 bundle。</span>
-          <span data-lang="en">This plan does not record an upstream bundle.</span>
-        </p>
-        {% endif %}
-      </article>
-    </div>
-    <details class="expert-disclosure" data-testid="bundle-surface-diff">
-      <summary>
-        <span data-lang="zh">专家信息：治理面差异</span>
-        <span data-lang="en">Expert details: governance surface diff</span>
-      </summary>
-      {% if revision_summary.surface_deltas %}
-      <div class="bundle-revision-delta-grid">
-        {% for delta in revision_summary.surface_deltas %}
-        <article class="bundle-revision-delta bundle-revision-delta--{{ delta.status }}" data-testid="bundle-revision-delta-{{ delta.surface }}">
-          <span>{{ delta.surface }}</span>
-          <strong>{{ delta.status }}</strong>
-          <p>{{ delta.summary }}</p>
-        </article>
-        {% endfor %}
-      </div>
-      {% else %}
-      <p class="panel-note" data-testid="bundle-revision-no-diff">
-        {% if revision_summary.lineage_state == "in_place_revision" %}
-        <span data-lang="zh">这份方案是原地替换的版本；上一版已被当前 bundle 记录覆盖，因此无法做逐 surface diff。</span>
-        <span data-lang="en">This plan was replaced in place; the previous version was replaced by the current bundle record, so per-surface diff is unavailable.</span>
-        {% elif revision_summary.source_bundle_id %}
-        <span data-lang="zh">当前还没有可比较的来源方案。</span>
-        <span data-lang="en">There is no comparable source plan right now.</span>
-        {% else %}
-        <span data-lang="zh">根方案没有上游 diff。</span>
-        <span data-lang="en">Root plans have no upstream diff.</span>
-        {% endif %}
-      </p>
-      {% endif %}
-    </details>
-  </section>
-
   <details class="panel expert-disclosure" data-testid="bundle-linked-assets">
     <summary>
       <span data-lang="zh">专家信息：底层资产</span>
       <span data-lang="en">Expert details: underlying assets</span>
     </summary>
     <p class="panel-note">
-      <span data-lang="zh">Bundle 的协作姿态由 spec、角色定义和流程编排共同承载。你可以分别微调它们；保存后 bundle revision 会同步前进，并重新导出同一份 YAML。</span>
-      <span data-lang="en">The collaboration posture is carried jointly by the spec, role definitions, and orchestration. You can tweak them separately; saving any of them advances the bundle revision and regenerates the same YAML package.</span>
+      <span data-lang="zh">Bundle 的协作姿态由 spec、角色定义和流程编排共同承载。你可以分别微调它们；保存后会重新导出同一份 YAML。</span>
+      <span data-lang="en">The collaboration posture is carried jointly by the spec, role definitions, and orchestration. You can tweak them separately; saving regenerates the same YAML package.</span>
     </p>
     <div class="bundle-surface-grid">
       <article class="bundle-surface-card">
@@ -212,14 +137,14 @@
     {% endif %}
     {% if request.query_params.get("surface_updated") == "workflow" %}
     <div class="field-status is-success" data-testid="bundle-surface-updated-workflow">
-      <span data-lang="zh">流程编排已保存，方案版本也已同步更新。</span>
-      <span data-lang="en">The orchestration was saved, and the plan version was updated in sync.</span>
+      <span data-lang="zh">流程编排已保存，方案 YAML 已更新。</span>
+      <span data-lang="en">The orchestration was saved, and the plan YAML was updated.</span>
     </div>
     {% endif %}
     {% if request.query_params.get("surface_updated", "").startswith("role:") %}
     <div class="field-status is-success" data-testid="bundle-surface-updated-role">
-      <span data-lang="zh">角色定义已保存，方案版本也已同步更新。</span>
-      <span data-lang="en">The role definition was saved, and the plan version was updated in sync.</span>
+      <span data-lang="zh">角色定义已保存，方案 YAML 已更新。</span>
+      <span data-lang="en">The role definition was saved, and the plan YAML was updated.</span>
     </div>
     {% endif %}
 
@@ -280,8 +205,8 @@
       </div>
     </header>
     <p class="panel-note">
-      <span data-lang="zh">这里展示的是当前版本的完整 YAML。用户在系统外得到新 YAML 后，可以用上面的“导入 YAML 替换”显式替换。</span>
-      <span data-lang="en">This is the full YAML for the current version. When you produce a new YAML outside Loopora, use “Replace from YAML” above to replace it explicitly.</span>
+      <span data-lang="zh">这里展示的是当前方案的完整 YAML。用户在系统外得到新 YAML 后，可以用上面的“导入 YAML 替换”显式替换。</span>
+      <span data-lang="en">This is the full YAML for the current plan. When you produce a new YAML outside Loopora, use “Replace from YAML” above to replace it explicitly.</span>
     </p>
     <label class="wide">
       <span><span data-lang="zh">Bundle 文件位置</span><span data-lang="en">Bundle file path</span></span>
@@ -291,12 +216,6 @@
       <span><span data-lang="zh">Bundle ID</span><span data-lang="en">Bundle ID</span></span>
       <input value="{{ bundle.id }}" readonly />
     </label>
-    {% if revision_summary.source_bundle_id %}
-    <label class="wide">
-      <span><span data-lang="zh">来源 Bundle ID</span><span data-lang="en">Source Bundle ID</span></span>
-      <input value="{{ revision_summary.source_bundle_id }}" readonly />
-    </label>
-    {% endif %}
     <label class="wide">
       <span><span data-lang="zh">YAML 预览</span><span data-lang="en">YAML preview</span></span>
       <textarea rows="20" readonly>{{- bundle_yaml -}}</textarea>

@@ -196,6 +196,10 @@ def test_api_run_key_takeaways_returns_iteration_role_conclusions(
     payload = response.json()
     assert payload["build_dir"] == str(sample_workdir.resolve())
     assert payload["log_dir"].endswith(f"/.loopora/runs/{run['id']}")
+    assert payload["run_status"] == "succeeded"
+    assert payload["task_verdict"]["status"] == "passed"
+    assert payload["task_verdict"]["source"] == "gatekeeper"
+    assert set(payload["evidence_buckets"]) == {"proven", "weak", "unproven", "blocking", "residual_risk"}
     assert payload["iteration_count"] >= 1
     assert payload["role_conclusion_count"] >= 2
     latest_iteration = payload["iterations"][0]
@@ -478,6 +482,50 @@ def test_api_stop_run_rejects_finished_runs(
 
     assert response.status_code == 400
     assert "cannot stop run in status" in response.json()["error"]
+
+
+def test_run_detail_separates_status_verdict_and_reruns_terminal_run(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Rerun From Detail Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    client = TestClient(build_app(service=service))
+
+    page_response = client.get(f"/runs/{run['id']}")
+    assert page_response.status_code == 200
+    assert "Run status" in page_response.text
+    assert "Task verdict" in page_response.text
+    assert 'data-testid="run-rerun-button"' in page_response.text
+    assert 'id="stop-run"' not in page_response.text
+
+    rerun_response = client.post(f"/runs/{run['id']}/rerun", follow_redirects=False)
+
+    assert rerun_response.status_code == 303
+    new_run_id = rerun_response.headers["location"].removeprefix("/runs/")
+    assert new_run_id and new_run_id != run["id"]
+    assert service.get_run(new_run_id)["loop_id"] == loop["id"]
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        new_run = service.get_run(new_run_id)
+        if new_run["status"] in {"succeeded", "failed", "stopped"}:
+            break
+        time.sleep(0.05)
+    assert service.get_run(new_run_id)["status"] in {"succeeded", "failed", "stopped"}
 
 
 def test_api_loop_creation_supports_provider_specific_defaults(
@@ -1887,7 +1935,7 @@ def test_create_loop_page_imports_bundle_as_loop_creation_flow(
     assert service.get_loop(imported_bundle["loop_id"])["name"] == "Create Page Bundle Source"
 
 
-def test_api_bundle_update_bumps_revision(
+def test_api_bundle_update_updates_plan_without_bumping_revision(
     service_factory,
     sample_spec_file: Path,
     sample_workdir: Path,
@@ -1931,10 +1979,11 @@ def test_api_bundle_update_bumps_revision(
     bundle = response.json()["bundle"]
     assert bundle["description"] == "After API update."
     assert bundle["collaboration_summary"] == "Updated collaboration summary."
-    assert bundle["revision"] == imported["revision"] + 1
+    assert bundle["revision"] == imported["revision"]
+    assert bundle["source_bundle_id"] == ""
 
 
-def test_bundle_api_and_detail_include_revision_lineage(
+def test_bundle_api_and_detail_hide_legacy_lineage_surfaces(
     service_factory,
     sample_spec_file: Path,
     sample_workdir: Path,
@@ -1963,42 +2012,44 @@ def test_bundle_api_and_detail_include_revision_lineage(
             )
         )
     )
-    revised = service.import_bundle_text(
-        bundle_to_yaml(
-            service.derive_bundle_from_loop(
-                loop["id"],
-                name="Lineage Revision Bundle",
-                description="Revision source should remain visible.",
-                collaboration_summary="Updated governance posture.",
-                source_bundle_id=source["id"],
-                revision=source["revision"] + 1,
-            )
+    legacy_yaml = bundle_to_yaml(
+        service.derive_bundle_from_loop(
+            loop["id"],
+            name="Lineage Revision Bundle",
+            description="Revision source should remain hidden.",
+            collaboration_summary="Updated governance posture.",
         )
+    ).replace(
+        "metadata:\n  name: Lineage Revision Bundle\n  description: Revision source should remain hidden.",
+        "metadata:\n"
+        "  name: Lineage Revision Bundle\n"
+        "  description: Revision source should remain hidden.\n"
+        f"  source_bundle_id: {source['id']}\n"
+        f"  revision: {source['revision'] + 1}",
     )
+    imported = service.import_bundle_text(legacy_yaml)
     client = TestClient(build_app(service=service))
 
-    api_response = client.get(f"/api/bundles/{revised['id']}")
+    api_response = client.get(f"/api/bundles/{imported['id']}")
     list_response = client.get("/bundles")
-    page_response = client.get(f"/bundles/{revised['id']}")
+    page_response = client.get(f"/bundles/{imported['id']}")
 
     assert api_response.status_code == 200
-    revision_summary = api_response.json()["revision_summary"]
-    assert revision_summary["source_bundle_id"] == source["id"]
-    assert revision_summary["lineage_state"] == "source_available"
-    assert any(item["surface"] == "summary" and item["status"] == "changed" for item in revision_summary["surface_deltas"])
+    assert "revision_summary" not in api_response.json()
+    assert api_response.json()["source_bundle_id"] == ""
     assert page_response.status_code == 200
-    assert 'data-testid="bundle-revision-lineage"' in page_response.text
-    assert f"Plan version r{source['revision']}" in page_response.text
-    assert 'data-testid="bundle-surface-diff"' in page_response.text
-    assert f'value="{source["id"]}"' in page_response.text
-    assert 'data-testid="bundle-revision-delta-summary"' in page_response.text
+    assert 'data-testid="bundle-revision-lineage"' not in page_response.text
+    assert "Plan version" not in page_response.text
+    assert 'data-testid="bundle-surface-diff"' not in page_response.text
+    assert f'value="{source["id"]}"' not in page_response.text
+    assert 'data-testid="bundle-revision-delta-summary"' not in page_response.text
     assert list_response.status_code == 200
-    assert f'data-testid="bundle-governance-card-{revised["id"]}"' in list_response.text
+    assert f'data-testid="bundle-governance-card-{imported["id"]}"' in list_response.text
     assert 'data-testid="bundle-governance-failure"' in list_response.text
     assert 'data-testid="bundle-governance-evidence"' in list_response.text
     assert 'data-testid="bundle-governance-workflow"' in list_response.text
     assert 'data-testid="bundle-governance-gatekeeper"' in list_response.text
-    assert 'data-testid="bundle-governance-changed-surfaces"' in list_response.text
+    assert 'data-testid="bundle-governance-changed-surfaces"' not in list_response.text
 
 
 def test_bundle_owned_surface_edit_redirects_back_to_bundle_detail(

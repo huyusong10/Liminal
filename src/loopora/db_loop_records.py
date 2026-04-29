@@ -114,7 +114,8 @@ class RepositoryLoopRecordsMixin:
                 r.finished_at AS latest_finished_at,
                 r.updated_at AS latest_run_updated_at,
                 r.summary_md AS latest_summary_md,
-                r.last_verdict_json AS latest_verdict_json
+                r.last_verdict_json AS latest_verdict_json,
+                r.task_verdict_json AS latest_task_verdict_json
             FROM loop_definitions l
             LEFT JOIN loop_runs r ON r.id = l.latest_run_id
             ORDER BY l.updated_at DESC

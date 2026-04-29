@@ -193,14 +193,47 @@ def test_corrupted_run_json_columns_fall_back_to_empty_objects(tmp_path: Path) -
 
     with repository.transaction() as connection:
         connection.execute(
-            "UPDATE loop_runs SET last_verdict_json = ?, workflow_json = ? WHERE id = ?",
-            ("{", "{", run["id"]),
+            "UPDATE loop_runs SET last_verdict_json = ?, task_verdict_json = ?, workflow_json = ? WHERE id = ?",
+            ("{", "{", "{", run["id"]),
         )
 
     refreshed = repository.get_run(run["id"])
 
     assert refreshed["last_verdict_json"] == {}
+    assert refreshed["task_verdict_json"] == {}
     assert refreshed["workflow_json"] == {}
+
+
+def test_run_schema_persists_task_verdict_separately_from_raw_verdict(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    run = _create_run(repository, tmp_path, run_id="run_task_verdict", status="running")
+
+    with repository.transaction() as connection:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(loop_runs)").fetchall()}
+    assert "task_verdict_json" in columns
+
+    repository.update_run(
+        run["id"],
+        status="succeeded",
+        last_verdict={"passed": True, "decision_summary": "Raw GateKeeper pass."},
+        task_verdict={
+            "status": "passed",
+            "source": "gatekeeper",
+            "summary": "Evidence-backed task pass.",
+            "buckets": {
+                "proven": [],
+                "weak": [],
+                "unproven": [],
+                "blocking": [],
+                "residual_risk": [],
+            },
+        },
+    )
+
+    refreshed = repository.get_run(run["id"])
+
+    assert refreshed["last_verdict_json"]["decision_summary"] == "Raw GateKeeper pass."
+    assert refreshed["task_verdict_json"]["summary"] == "Evidence-backed task pass."
 
 
 def test_corrupted_event_payload_json_falls_back_to_empty_object(tmp_path: Path) -> None:

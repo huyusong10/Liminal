@@ -36,6 +36,7 @@ class RepositoryRowDecodingMixin:
             "workflow_json",
             "prompt_files_json",
             "last_verdict_json",
+            "task_verdict_json",
             "payload_json",
             "role_definition_ids_json",
             "transcript_json",

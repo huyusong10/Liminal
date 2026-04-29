@@ -15,10 +15,10 @@
 | 对象 | 输入 | 输出 | 稳定承诺 |
 |------|------|------|----------|
 | `orchestration` | 名称、描述、workflow、prompt 资产 | 可复用编排定义 | 可创建、读取、更新、列出、删除；内置编排只能复制，不能原地改写 |
-| `role definition` | 名称、角色模板、默认执行配置、prompt 资产 | 可复用角色模版 | 可创建、读取、更新、列出、删除；内置角色定义只能复制，不能原地改写 |
+| `role definition` | 名称、角色模板、默认执行配置、prompt 资产 | 可复用角色模版 | 可创建、读取、更新、列出、删除；内置角色定义只能复制，不能原地改写；不持有本次 step 的行动权限 |
 | `loop definition` | workdir、spec、runtime 策略、completion mode、编排引用 | 可执行模板 | 创建时完成输入规范化与快照冻结 |
 | `bundle` | 单文件 YAML，或从现有 loop 派生出的 bundle 内容 | 一组整包管理的 spec / role definitions / orchestration / loop | 可导入、导出、派生、列出、删除；删除时按整包清理其拥有的资产 |
-| `run` | loop definition | 运行状态、事件流、终态摘要、结构化产物 | 同一 run 只有一个终态，且终态必须可观察、可复盘 |
+| `run` | loop definition | 运行状态、任务裁决、事件流、终态摘要、结构化产物 | 同一 run 只有一个系统终态；任务是否达标由 evidence 与 task verdict 表达 |
 
 ## 3. 角色职责边界
 
@@ -33,7 +33,8 @@
 稳定规则：
 
 - 角色职责边界稳定，步骤顺序可配置。
-- 角色默认执行工具、默认模型与默认权限边界属于 `role definition`，不属于 `loop definition`。
+- 角色默认执行工具与默认模型属于 `role definition`，不属于 `loop definition`。
+- 写入、只读、可收束等本次行动权限属于 `workflow step`，不配置到每个 role definition。role 定义“以什么姿态判断”，step 定义“此刻允许做什么”。
 - `Guide` 只应出现在停滞相关分支，不应成为每轮必跑步骤。
 - `GateKeeper` 是 `gatekeeper` completion mode 的唯一收敛裁决入口。
 - `Custom (Restricted)` 可以被编排自由引用，但不能成为流程收敛入口。
@@ -66,7 +67,7 @@
 
 ### 4.2 Run 执行
 
-`loop definition → 线性步骤 / 有限并行检视组执行 → 事件与产物汇聚 → run 状态更新`
+`loop definition → 线性步骤 / 有限并行检视组执行 → 事件与产物汇聚 → run 状态与任务裁决更新`
 
 服务层必须完成：
 
@@ -93,11 +94,18 @@
 
 | completion mode | 收敛条件 | 结果 |
 |-----------------|----------|------|
-| `gatekeeper` | 存在可结束流程的 GateKeeper 步骤，且该步骤给出通过裁决，并通过服务层 evidence gate 校验 | `succeeded` |
-| `rounds` | 达到计划轮数 | `succeeded` |
+| `gatekeeper` | 存在可结束流程的 GateKeeper 步骤，且该步骤给出通过裁决，并通过服务层 evidence gate 校验 | run status=`succeeded`；task verdict=`passed` 或带残余风险的通过 |
+| `rounds` | 达到计划轮数 | run status=`succeeded`；task verdict 必须独立表达为未裁决、证据不足、未通过或由已有证据支持的结论 |
 
 失败与停止同样必须收敛为明确终态，并带可读原因。
 一旦终态已经对外可观察，服务层本地活动 bookkeeping 也必须同步收敛，不能继续把该 run 保留为活动后台 worker。
+
+运行状态与任务裁决必须分离：
+
+- run status 只回答系统生命周期：running / succeeded / failed / stopped / timed out。
+- task verdict 回答任务语义：passed / failed / insufficient evidence / passed with residual risk / not evaluated。
+- 任何界面或 API 都不能把 `succeeded` 直接解释成任务通过。
+- GateKeeper 是 `gatekeeper` 模式下产生强 task verdict 的默认入口；`rounds` 模式若没有裁决 evidence，必须清楚表达“运行完成但任务未被证明”。
 
 GateKeeper evidence gate：
 
@@ -119,7 +127,7 @@ GateKeeper evidence gate：
 
 - 单次 iteration 支持线性步骤和有限 fan-out / fan-in 检视组，不支持任意 DAG。
 - workflow controls 只支持受控误差信号，不支持任意 cron、webhook、文件监听、外部事件或动态 DAG。
-- 同一时刻只允许一个活动角色写入工作区；并行组第一阶段只允许证据生产型角色，并且服务层按原 step 顺序落账其 handoff / evidence。
+- 同一时刻只允许一个活动 step 获得写入工作区的行动权限；并行组第一阶段只允许证据生产型 step，并且服务层按原 step 顺序落账其 handoff / evidence。
 - `gatekeeper` completion mode 必须依赖可结束流程的 GateKeeper 步骤。
 - `gatekeeper` completion mode 的通过必须依赖 evidence gate，而不是只依赖模型输出的 `passed` 字段。
 - `rounds` completion mode 允许没有 GateKeeper。

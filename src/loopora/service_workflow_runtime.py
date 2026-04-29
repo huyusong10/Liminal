@@ -9,7 +9,7 @@ from loopora.recovery import RetryConfig
 from loopora.run_artifacts import RunArtifactLayout, read_jsonl
 from loopora.service_types import LooporaError
 from loopora.utils import write_json
-from loopora.workflows import WorkflowError, role_uses_execution_snapshot
+from loopora.workflows import WorkflowError, default_step_action_policy, role_uses_execution_snapshot
 
 
 class ServiceWorkflowRuntimeMixin:
@@ -208,7 +208,7 @@ class ServiceWorkflowRuntimeMixin:
             output_schema=self._output_schema_for_archetype(role["archetype"]),
             output_path=output_path,
             run_dir=layout.run_dir,
-            sandbox=self._sandbox_for_archetype(role["archetype"]),
+            sandbox=self._sandbox_for_action_policy(step.get("action_policy")),
             idle_timeout_seconds=self.settings.role_idle_timeout_seconds,
             extra_context={
                 "iter_id": iter_id,
@@ -216,6 +216,7 @@ class ServiceWorkflowRuntimeMixin:
                 "archetype": role["archetype"],
                 "step_id": step["id"],
                 "role_name": role["name"],
+                "action_policy": dict(step.get("action_policy") or {}),
                 "step_model": execution_settings["step_model"],
                 "inherit_session": bool(execution_settings["inherit_session"]),
                 "extra_cli_args_text": str(execution_settings["extra_cli_args_text"]),
@@ -410,6 +411,10 @@ class ServiceWorkflowRuntimeMixin:
                     "model": "",
                     "executor_kind": "",
                     "executor_mode": "",
+                    "parallel_group": "",
+                    "inputs": {},
+                    "action_policy": default_step_action_policy(archetype=role["archetype"], on_pass="continue"),
+                    "control": {},
                 },
                 "upstream": {
                     "immediate_previous_step": None,
@@ -438,8 +443,10 @@ class ServiceWorkflowRuntimeMixin:
             raise LooporaError(str(exc)) from exc
 
     def _sandbox_for_archetype(self, archetype: str) -> str:
-        if archetype == "builder":
-            return "workspace-write"
-        if archetype == "inspector":
+        return self._sandbox_for_action_policy(default_step_action_policy(archetype=archetype, on_pass="continue"))
+
+    def _sandbox_for_action_policy(self, action_policy: dict | None) -> str:
+        policy = action_policy if isinstance(action_policy, dict) else {}
+        if str(policy.get("workspace") or "").strip() == "workspace_write":
             return "workspace-write"
         return "read-only"

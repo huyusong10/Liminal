@@ -6,11 +6,11 @@
 
 Loopora 的稳定主工作流是：
 
-`编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出证据裁决与结果`
+`编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出运行状态、任务裁决与结果`
 
 本文解决两个层级问题：
 
-- 核心概念必须集中在主工作流上：长期任务、Loop、Run、自动迭代、证据、裁决、结果。
+- 核心概念必须集中在主工作流上：长期任务、Loop、Run、自动迭代、证据、运行状态、任务裁决、结果。
 - Web 问答创建、手动编排、导入 YAML、对话改进既重要，也必须保留，但它们是取得或调整 Loop 的场景，不是主工作流本身。
 
 ## 2. 默认用户概念
@@ -21,16 +21,18 @@ Loopora 的稳定主工作流是：
 | Loop | 一套可运行的长期任务编排，定义如何执行、检查、裁决、迭代和停止。 | `loop definition` 加上 `spec / roles / workflow` |
 | 运行 | 按某个 Loop 执行一次长期任务。 | `run` record、run contract、events、artifacts |
 | 自动迭代 | 系统按 Loop 中的 roles 和 workflow 多轮推进，直到收束或失败。 | iteration、workflow steps、controls、completion mode |
-| 证据 | run 中留下的可追溯事实，说明做了什么、检查了什么、证明了什么。 | evidence ledger、artifact refs、coverage |
-| 裁决 | GateKeeper 或 rounds completion 对 run 是否可收束的判断。 | GateKeeper verdict、runtime evidence gate、run status |
-| 结果 | 用户可读的本次运行结论，包括通过、未通过、未证明内容和残余风险。 | key takeaways、coverage projection、verdict context |
+| 证据 | run 中留下的可追溯事实，说明做了什么、检查了什么、证明了什么、什么仍未证明。 | evidence ledger、artifact refs、coverage |
+| 运行状态 | 本次 run 的系统生命周期结论。 | run status、failure reason、stop reason、timeout |
+| 任务裁决 | 证据是否足以说明任务达标。 | GateKeeper verdict、runtime evidence gate、coverage projection |
+| 结果 | 用户可读的本次结论，包括运行状态、任务裁决、已证明、未证明、阻断问题和残余风险。 | key takeaways、coverage projection、verdict context |
 
 稳定规则：
 
 - `Loop` 是默认用户主对象；“循环方案”可以作为中文解释，但文档应避免让 bundle/YAML 看起来比 Loop 更核心。
-- `bundle`、YAML、READY、Bundle ID、source bundle id、revision、surface diff 是交换、状态或调试对象，不是默认用户概念。
+- `bundle`、YAML、READY、Bundle ID 是交换、状态或调试对象，不是默认用户概念。
 - `spec / roles / workflow` 是专家可见的 Loop 运行面；默认用户不需要先理解它们才能开始。
 - “对话改进方案”是用户主动调整 Loop 的一种场景，不是 run 完成后的默认阶段。
+- 运行状态与任务裁决必须分开表达；`run succeeded` 不能被界面暗示为“任务已证明完成”。
 
 ## 3. 专家概念
 
@@ -41,6 +43,8 @@ Loopora 的稳定主工作流是：
 | 主工作流 | `loop definition` | 可重复运行的长期任务编排模板，绑定 workdir、runtime 策略和治理 surface。 |
 | 主工作流 | `run` | 某个 Loop 的一次冻结执行实例。 |
 | 主工作流 | `iteration` | run 内部的一轮角色执行和证据积累。 |
+| 主工作流 | `run status` | 系统执行生命周期状态，例如运行中、成功结束、失败、停止或超时。 |
+| 主工作流 | `task verdict` | 基于 evidence 对任务达标程度的裁决，例如通过、未通过、证据不足或带残余风险通过。 |
 | 治理 surface | `spec` | 任务契约、成功面、假完成风险、guardrails、证据偏好与残余风险。 |
 | 治理 surface | `role definitions` / `roles` | 各角色在本任务中的构建、取证、裁决、纠偏姿态。 |
 | 治理 surface | `workflow` | 步骤顺序、handoff、fan-out / fan-in、controls 与收束方式。 |
@@ -53,8 +57,8 @@ Loopora 的稳定主工作流是：
 - `GateKeeper` 不能和 `roles` 并列。它在 `roles` 里是一个 role archetype，在 `workflow` 里可以是 finish step，在 `evidence` / run result 里表现为 verdict。
 - `Builder / Inspector / GateKeeper / Guide / Custom Restricted` 是 role archetype，归属于 `roles`。
 - `steps / parallel_group / inputs / handoff / controls / finish_run` 归属于 `workflow`。
-- `evidence ledger / coverage / artifact refs / GateKeeper verdict` 归属于 `evidence`。
-- `Bundle ID / source bundle id / revision / lineage / surface diff` 是 `bundle` 的属性或投影，不是独立概念。
+- `evidence ledger / coverage / artifact refs / GateKeeper verdict` 归属于 `evidence` 与任务裁决投影。
+- `Bundle ID` 是 `bundle` 的属性，不是独立概念。Loopora 不把 Loop 演化历史、lineage、diff 或回滚作为系统持有的核心概念。
 
 ## 4. 内部持有概念
 
@@ -80,15 +84,16 @@ Loopora 的稳定主工作流是：
 -> 系统按 roles / workflow 自动迭代
 -> 每个 step 和 iteration 留下 evidence
 -> GateKeeper 或 completion mode 收束
--> 用户查看证据裁决与结果
+-> 用户查看运行状态、任务裁决与结果
 ```
 
 稳定规则：
 
 - 编排方式可以不同，但进入运行后必须落到同一套 Loop / run / evidence 语义。
-- 每个可见结果必须能追溯到 `spec / roles / workflow / evidence`，而不是只追溯到聊天记录或 UI 摘要。
+- 每个可见任务裁决必须能追溯到 `spec / roles / workflow / evidence`，而不是只追溯到聊天记录或 UI 摘要。
 - 自动迭代必须以新证据、handoff 或裁决推进为理由；没有新证据的重复调用不是 Loopora 的核心价值。
 - 用户调整 Loop 后再次运行，仍然回到同一主工作流；调整动作本身不成为 run 生命周期的一部分。
+- run 结束后，界面可以引导用户接受结果、再次运行、修改 Loop、导出材料或停止；这些是用户决策出口，不是系统自动演化历史。
 
 ## 6. 场景：如何取得 Loop
 
@@ -136,9 +141,9 @@ Loopora 的稳定主工作流是：
 
 | 场景 | 用户动作 | Loopora 职责 |
 | --- | --- | --- |
-| 手动修改 | 用户直接编辑 spec、roles、workflow 或相关资源。 | 校验、保存、更新 bundle version 元数据，并保持可导出。 |
+| 手动修改 | 用户直接编辑 spec、roles、workflow 或相关资源。 | 校验、保存，并保持可导出；不记录系统级演化历史。 |
 | 导入替换 YAML | 用户在系统外得到新 bundle 后导入。 | 校验、预览、显式替换或创建新 Loop。 |
-| 对话改进 | 用户从 bundle detail 或 run evidence 发起问答，让 Agent 生成候选 bundle。 | 携带 source context，生成候选 bundle，回到 READY 预览和导入 / 运行。 |
+| 对话改进 | 用户从方案详情或 run evidence 发起问答，让 Agent 生成候选 Loop。 | 临时携带当前方案或 evidence 作为输入，生成独立候选 bundle，回到 READY 预览和导入 / 运行。 |
 
 稳定规则：
 
@@ -159,7 +164,8 @@ Loopora 的稳定主工作流是：
 | `spec` vs `workflow` | spec 冻结任务契约、成功面、假完成、证据偏好和边界；workflow 决定判断顺序、handoff 和收束方式。 |
 | `posture` vs `contract` | posture 是本任务里用户如何判断风险和证据的信号；它必须投影到 `spec / roles / workflow`，不能在 run 内静默改写已确认 contract。 |
 | `evidence ledger` vs 日志 | evidence ledger 是裁决和证据结论的证明事实源；日志、事件和 raw output 是追溯材料。 |
-| `bundle revision` vs 用户迭代行为 | bundle revision 是版本元数据；用户如何迭代 Loop 发生在系统外部或用户主动发起的编排场景中。 |
+| `run status` vs `task verdict` | run status 说明系统生命周期是否结束；task verdict 说明证据是否证明任务达标。 |
+| Loop 调整 vs 系统演化历史 | 用户可以基于 evidence 生成候选 Loop 并再次运行；Loopora 不记录 Loop 的系统级演化历史、lineage、diff 或回滚。 |
 
 ## 9. 读法
 
@@ -176,6 +182,7 @@ Loopora 的稳定主工作流是：
 - 主工作流发生改变。
 - 新增或删除取得 / 调整 Loop 的稳定场景。
 - `loop / run / evidence / bundle` 等核心对象的责任边界改变。
+- 运行状态与任务裁决的边界改变。
 - 新增一层稳定治理边界。
 
 以下变化通常不需要更新本文：

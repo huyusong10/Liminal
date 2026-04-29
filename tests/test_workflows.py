@@ -5,6 +5,7 @@ import pytest
 from loopora.workflows import (
     WorkflowError,
     build_preset_workflow,
+    default_step_action_policy,
     default_role_execution_settings,
     normalize_workflow,
     preset_names,
@@ -48,6 +49,64 @@ def test_normalize_workflow_parses_boolean_like_step_session_flags() -> None:
 
     assert workflow["steps"][0]["inherit_session"] is False
     assert workflow["steps"][1]["inherit_session"] is True
+
+
+def test_normalize_workflow_adds_default_step_action_policies() -> None:
+    workflow = normalize_workflow(
+        {
+            "version": 1,
+            "roles": [
+                {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                {"id": "inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                {"id": "gatekeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+                {"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"},
+                {"id": "custom", "archetype": "custom", "prompt_ref": "custom.md"},
+            ],
+            "steps": [
+                {"id": "builder_step", "role_id": "builder"},
+                {"id": "inspector_step", "role_id": "inspector"},
+                {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+                {"id": "guide_step", "role_id": "guide"},
+                {"id": "custom_step", "role_id": "custom"},
+            ],
+        }
+    )
+
+    policies = {step["id"]: step["action_policy"] for step in workflow["steps"]}
+    assert policies["builder_step"] == {
+        "workspace": "workspace_write",
+        "can_block": False,
+        "can_finish_run": False,
+    }
+    assert policies["inspector_step"] == {
+        "workspace": "read_only",
+        "can_block": True,
+        "can_finish_run": False,
+    }
+    assert policies["gatekeeper_step"] == {
+        "workspace": "read_only",
+        "can_block": True,
+        "can_finish_run": True,
+    }
+    assert policies["guide_step"] == {
+        "workspace": "read_only",
+        "can_block": False,
+        "can_finish_run": False,
+    }
+    assert policies["custom_step"] == {
+        "workspace": "read_only",
+        "can_block": False,
+        "can_finish_run": False,
+    }
+
+
+def test_default_gatekeeper_action_policy_only_finishes_when_step_finishes_run() -> None:
+    assert default_step_action_policy(archetype="gatekeeper", on_pass="continue") == {
+        "workspace": "read_only",
+        "can_block": True,
+        "can_finish_run": False,
+    }
+    assert default_step_action_policy(archetype="gatekeeper", on_pass="finish_run")["can_finish_run"] is True
 
 
 def test_normalize_workflow_materializes_execution_defaults_when_role_only_overrides_model() -> None:
@@ -352,7 +411,7 @@ def test_workflow_file_can_express_controls(tmp_path) -> None:
 
 
 def test_normalize_workflow_rejects_write_roles_inside_parallel_groups() -> None:
-    with pytest.raises(WorkflowError, match="parallel_group currently supports inspector and custom steps"):
+    with pytest.raises(WorkflowError, match="parallel_group steps must be read-only"):
         normalize_workflow(
             {
                 "version": 1,
@@ -363,6 +422,69 @@ def test_normalize_workflow_rejects_write_roles_inside_parallel_groups() -> None
                 "steps": [
                     {"id": "builder_a_step", "role_id": "builder_a", "parallel_group": "builders"},
                     {"id": "builder_b_step", "role_id": "builder_b", "parallel_group": "builders"},
+                ],
+            }
+        )
+
+
+def test_normalize_workflow_rejects_non_builder_workspace_write() -> None:
+    with pytest.raises(WorkflowError, match="only Builder steps may set action_policy.workspace=workspace_write"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                ],
+                "steps": [
+                    {
+                        "id": "inspector_step",
+                        "role_id": "inspector",
+                        "action_policy": {"workspace": "workspace_write"},
+                    },
+                ],
+            }
+        )
+
+
+def test_normalize_workflow_rejects_non_gatekeeper_finish_permission() -> None:
+    with pytest.raises(WorkflowError, match="only GateKeeper steps may set action_policy.can_finish_run=true"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                ],
+                "steps": [
+                    {
+                        "id": "builder_step",
+                        "role_id": "builder",
+                        "action_policy": {
+                            "workspace": "workspace_write",
+                            "can_finish_run": True,
+                        },
+                    },
+                ],
+            }
+        )
+
+
+def test_normalize_workflow_rejects_parallel_finish_permissions() -> None:
+    with pytest.raises(WorkflowError, match="parallel_group steps may not finish runs"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "gatekeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+                    {"id": "inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                ],
+                "steps": [
+                    {
+                        "id": "gatekeeper_step",
+                        "role_id": "gatekeeper",
+                        "on_pass": "finish_run",
+                        "parallel_group": "review_pack",
+                    },
+                    {"id": "inspector_step", "role_id": "inspector", "parallel_group": "review_pack"},
                 ],
             }
         )

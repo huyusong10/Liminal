@@ -41,7 +41,7 @@ class ServiceLegacyExecutionMixin:
         )
         self._mark_run_active(run_id)
         run_dir = Path(run["runs_dir"])
-        workflow = run.get("workflow_json") or self._legacy_workflow_from_loop(run)
+        workflow = self._normalized_workflow_from_record(run)
         if workflow:
             return self._execute_workflow_run(run_id, run, run_dir, workflow)
 
@@ -252,6 +252,7 @@ class ServiceLegacyExecutionMixin:
                         status="succeeded",
                         summary=summary,
                         last_verdict=verifier_result,
+                        final_reason="gatekeeper_passed",
                     )
                     self.repository.append_event(run_id, "run_finished", {"status": "succeeded", "iter": iter_id})
                     log_event(
@@ -293,6 +294,7 @@ class ServiceLegacyExecutionMixin:
                     run_dir,
                     status="succeeded" if completion_mode == "rounds" else "failed",
                     summary=summary,
+                    final_reason="rounds_completed" if completion_mode == "rounds" else "max_iters_exhausted",
                 )
                 self.repository.append_event(
                     run_id,
@@ -327,6 +329,7 @@ class ServiceLegacyExecutionMixin:
                 run_dir,
                 status="stopped",
                 summary=summary,
+                final_reason="stopped",
             )
             self.repository.append_event(run_id, "run_finished", {"status": "stopped"})
             log_event(
@@ -368,6 +371,7 @@ class ServiceLegacyExecutionMixin:
                 summary=summary,
                 error_message=error_text,
                 last_verdict=verdict,
+                final_reason="role_execution_abort",
             )
             self._append_run_aborted_event(
                 run_id,
@@ -426,6 +430,7 @@ class ServiceLegacyExecutionMixin:
                 summary=summary,
                 error_message=error_text,
                 last_verdict=verdict,
+                final_reason="workspace_safety_guard",
             )
             self._append_run_aborted_event(
                 run_id,

@@ -198,6 +198,7 @@ class ServiceWorkflowSupportMixin:
                 "extra_cli_args": str(step.get("extra_cli_args") or ""),
                 "parallel_group": str(step.get("parallel_group") or ""),
                 "inputs": dict(step.get("inputs") or {}),
+                "action_policy": dict(step.get("action_policy") or {}),
                 "control_id": str(step.get("control_id") or ""),
                 "control": dict(step.get("control") or {}) if isinstance(step.get("control"), dict) else {},
             },

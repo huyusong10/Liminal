@@ -90,7 +90,7 @@ alignment session 是 Web 内置对齐流程的最小状态单元。
 | working agreement | 最近一次等待确认或已确认的工作协议摘要与 checklist |
 | executor session ref | 后端 CLI 原生 session / rollout 引用，用于后续对话继承上下文 |
 | linked bundle / loop / run | 导入并运行后关联到现有对象 |
-| source context | 记录可选对话改进入口的来源 bundle 或 run evidence；默认新建任务路径不依赖它 |
+| source context | 可选对话改进入口的临时输入，来自当前 bundle 或 run evidence；默认新建任务路径不依赖它，且不形成系统级 lineage |
 
 Session artifact 必须落在目标 workdir 下，并按事实源、事件流和调试材料分区：
 
@@ -168,7 +168,7 @@ Session artifact 必须落在目标 workdir 下，并按事实源、事件流和
 4. `references/quality-rubric.md`
 5. `references/bundle-contract.md`
 6. `references/examples.md`
-7. 可选 `references/feedback-improvement.md` 与 source context，用于已有 bundle 或 run evidence 的对话改进入口
+7. 可选 `references/feedback-improvement.md` 与 source context，用于已有 bundle 或 run evidence 的对话改进入口；它只作为生成候选 Loop 的上下文，不作为持久演化历史
 8. 当前 session transcript
 9. 目标 workdir 的轻量只读 snapshot、bundle 输出路径、当前校验结果
 10. 输出纪律：若尚需澄清，直接提问；若 bundle 已成形，必须把完整 YAML 放入结构化字段 `bundle_yaml`
@@ -282,7 +282,7 @@ READY 后提供主操作：
 稳定规则：
 
 - 导入后的资产仍属于同一 bundle 生命周期。
-- 后续删除、导出、派生、surface 编辑和 bundle version bump 继续沿用现有 bundle 语义。
+- 后续删除、导出、复制为候选和 surface 编辑继续沿用现有 bundle 语义；Loopora 不维护 bundle 版本历史、diff 或回滚。
 - alignment session 只是上游生成入口，不改变 bundle 导入后的生命周期。
 - 方案详情和 run 详情可以创建 user-directed improvement session；兼容路由仍可命名为 `/revise`，但界面语义必须表达为“对话改进方案”或“用证据改进方案”，不得把它描述成默认阶段。
 
@@ -312,7 +312,7 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 - 这些 API 归属于 Web 内置入口；不要求 CLI 提供同构命令。
 - `GET /api/alignments/sessions/{id}` 返回的 `working_agreement` 可以包含 `readiness_checklist` 与 `readiness_evidence`；旧 session 没有 evidence 时仍可读取，但新 Web alignment 生成前必须具备 evidence。
 - `/api/alignments/*/import` 必须复用现有 bundle import 服务，不直接绕过 bundle 生命周期物化底层资产。
-- `/api/bundles/{id}/revise` 与 `/api/runs/{id}/revise` 是向后兼容的 API 名称；产品语言不得把它们包装成 Loopora 的默认后续阶段。
+- `/api/bundles/{id}/revise` 与 `/api/runs/{id}/revise` 是向后兼容的 API 名称；产品语言不得把它们包装成 Loopora 的默认后续阶段，也不得暗示系统会记录候选 Loop 与原 Loop 的演化关系。
 - `/api/bundles/preview` 不创建 bundle、loop 或 run；它只复用 bundle 契约校验和预览投影。
 
 ## 11. 错误与恢复

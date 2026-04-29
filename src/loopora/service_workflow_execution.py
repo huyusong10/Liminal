@@ -15,6 +15,7 @@ from loopora.run_artifacts import INITIAL_STAGNATION_STATE
 from loopora.service_types import LooporaError, RoleExecutionError, StopRequested, WorkspaceSafetyError, normalize_completion_mode
 from loopora.service_workflow_failure_handling import ServiceWorkflowFailureHandlingMixin
 from loopora.service_workflow_iteration_state import ServiceWorkflowIterationStateMixin
+from loopora.workflows import default_step_action_policy
 from loopora.utils import read_json
 
 logger = get_logger(__name__)
@@ -298,7 +299,7 @@ class ServiceWorkflowExecutionMixin(
                         if (
                             completion_mode == "gatekeeper"
                             and normalized_output["passed"]
-                            and step.get("on_pass") == "finish_run"
+                            and bool((step.get("action_policy") or {}).get("can_finish_run"))
                         ):
                             return self._finish_workflow_gatekeeper_success(
                                 run_id=run_id,
@@ -400,6 +401,10 @@ class ServiceWorkflowExecutionMixin(
                             "model": "",
                             "inherit_session": False,
                             "extra_cli_args": "",
+                            "action_policy": default_step_action_policy(
+                                archetype=role.get("archetype"),
+                                on_pass="continue",
+                            ),
                             "inputs": {
                                 "iteration_memory": "summary_only",
                                 "evidence_query": {"limit": 40},

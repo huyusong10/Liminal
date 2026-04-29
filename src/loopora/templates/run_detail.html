@@ -36,6 +36,14 @@
         <span data-lang="en">Improve plan with evidence</span>
       </button>
     </form>
+    {% if run.status in ["succeeded", "failed", "stopped"] %}
+    <form method="post" action="/runs/{{ run.id }}/rerun" class="inline-form">
+      <button class="secondary-button" type="submit" data-testid="run-rerun-button">
+        <span data-lang="zh">重新运行</span>
+        <span data-lang="en">Rerun</span>
+      </button>
+    </form>
+    {% endif %}
     {% if run.status in ["queued", "running"] %}
     <button class="ghost-button" id="stop-run">
       <span data-lang="zh">停止运行</span>
@@ -240,13 +248,13 @@
     </article>
     <div class="highlight-grid">
       <article class="highlight-card" id="focus-card">
-        <span class="highlight-label"><span data-lang="zh">当前焦点</span><span data-lang="en">Current focus</span></span>
+        <span class="highlight-label"><span data-lang="zh">运行状态</span><span data-lang="en">Run status</span></span>
         <strong id="focus-title">-</strong>
         <p id="focus-detail">-</p>
         <span class="highlight-meta" id="focus-meta">-</span>
       </article>
       <article class="highlight-card" id="output-card">
-        <span class="highlight-label"><span data-lang="zh">最近关键输出</span><span data-lang="en">Latest output</span></span>
+        <span class="highlight-label"><span data-lang="zh">任务裁决</span><span data-lang="en">Task verdict</span></span>
         <strong id="output-title">-</strong>
         <p id="output-detail">-</p>
         <span class="highlight-meta" id="output-meta">-</span>
@@ -1584,7 +1592,6 @@
     const gatekeeperRefs = Array.isArray(coverage.latest_gatekeeper?.evidence_refs)
       ? coverage.latest_gatekeeper.evidence_refs.length
       : 0;
-    const riskCount = Number(coverage.residual_risk_count || 0);
     const primaryGap = Array.isArray(coverage.top_gaps) && coverage.top_gaps.length ? coverage.top_gaps[0] : null;
     const statusReason = coverage.summary?.reason || "";
     const traceAction = coveragePath
@@ -1595,66 +1602,97 @@
       : coverage.ledger_path
         ? localeText(`${evidenceCount} 条证据 · 账本 ${coverage.ledger_path}`, `${evidenceCount} evidence item${evidenceCount === 1 ? "" : "s"} · Ledger ${coverage.ledger_path}`)
       : localeText("run 开始后会写入证据账本。", "The ledger appears after the run starts.");
-    const checkDetail = checkCount
-      ? localeText(`${coverage.missing_check_count || 0} 条完成条件仍缺直接证据`, `${coverage.missing_check_count || 0} completion target(s) still lack direct evidence`)
-      : localeText("当前 spec 没有冻结 Done When 检查。", "The current spec has no frozen Done When checks.");
-    const gatekeeperDetail = gatekeeperRefs
-      ? localeText("GateKeeper verdict 已引用上游证据。", "The GateKeeper verdict cites upstream evidence.")
-      : localeText("等待 GateKeeper 引用证据后收束。", "Waiting for the GateKeeper to cite evidence.");
-    const riskDetail = riskCount
-      ? (coverage.risk_signals || []).slice(0, 1).join(" · ")
-      : primaryGap?.text || localeText("没有新的阻塞残余风险。", "No new blocking residual risk.");
+    const provenCount = evidenceBucketCount("proven");
+    const weakBucketCount = evidenceBucketCount("weak");
+    const unprovenCount = evidenceBucketCount("unproven");
+    const blockingCount = evidenceBucketCount("blocking");
+    const riskCount = evidenceBucketCount("residual_risk") || Number(coverage.residual_risk_count || 0);
     node.hidden = false;
     node.innerHTML = [
-      evidenceCoverageCard("覆盖状态", "Coverage status", evidenceCoverageStatusLabel(coverage.status), statusDetail, traceAction),
-      evidenceCoverageCard("完成条件", "Completion evidence", checkCount ? `${coveredChecks}/${checkCount}` : "-", checkDetail),
-      evidenceCoverageCard("GateKeeper 引用", "GateKeeper refs", String(gatekeeperRefs), gatekeeperDetail),
-      evidenceCoverageCard("残余风险", "Residual risk", String(riskCount), riskDetail),
+      evidenceCoverageCard("裁决状态", "Verdict status", taskVerdictStatusLabel(takeawaySnapshot?.task_verdict?.status), statusDetail, traceAction),
+      evidenceCoverageCard("已证明", "Proven", String(provenCount || coveredChecks || 0), firstBucketText("proven") || (checkCount ? `${coveredChecks}/${checkCount}` : "")),
+      evidenceCoverageCard("偏弱", "Weak", String(weakBucketCount), firstBucketText("weak")),
+      evidenceCoverageCard("未证明", "Unproven", String(unprovenCount), firstBucketText("unproven") || primaryGap?.text || ""),
+      evidenceCoverageCard("阻断 / 风险", "Blockers / risk", `${blockingCount}/${riskCount}`, firstBucketText("blocking", "residual_risk") || (gatekeeperRefs ? localeText("GateKeeper 已引用上游证据。", "GateKeeper cited upstream evidence.") : "")),
     ].join("");
   }
 
+  function taskVerdictStatusLabel(status) {
+    const normalized = String(status || "not_evaluated").toLowerCase();
+    const labels = {
+      not_evaluated: localeText("未评估", "Not evaluated"),
+      passed: localeText("已通过", "Passed"),
+      failed: localeText("未通过", "Failed"),
+      insufficient_evidence: localeText("证据不足", "Insufficient evidence"),
+      passed_with_residual_risk: localeText("有残余风险地通过", "Passed with residual risk"),
+    };
+    return labels[normalized] || normalized;
+  }
+
+  function evidenceBucketCount(bucketName) {
+    const buckets = takeawaySnapshot?.task_verdict?.buckets || takeawaySnapshot?.evidence_buckets || {};
+    return Array.isArray(buckets[bucketName]) ? buckets[bucketName].length : 0;
+  }
+
+  function firstBucketText(...bucketNames) {
+    const buckets = takeawaySnapshot?.task_verdict?.buckets || takeawaySnapshot?.evidence_buckets || {};
+    for (const bucketName of bucketNames) {
+      const items = Array.isArray(buckets[bucketName]) ? buckets[bucketName] : [];
+      const item = items[0];
+      if (!item) {
+        continue;
+      }
+      const text = item.text || item.label || item.reason || "";
+      if (String(text).trim()) {
+        return String(text).trim();
+      }
+    }
+    return "";
+  }
+
   function evidenceOutcome() {
+    const taskVerdict = takeawaySnapshot?.task_verdict || currentRun?.task_verdict || {};
+    const taskStatus = String(taskVerdict.status || "not_evaluated").toLowerCase();
     const coverage = takeawaySnapshot?.evidence_coverage || {};
-    const status = String(takeawaySnapshot?.latest_status || currentRun?.status || "").toLowerCase();
     const coverageStatus = String(coverage.status || "").toLowerCase();
     const weakCount = Number(coverage.weak_target_count || 0);
     const missingCount = Number(coverage.missing_target_count || 0);
     const blockedCount = Number(coverage.blocked_target_count || 0);
     const primaryGap = Array.isArray(coverage.top_gaps) && coverage.top_gaps.length ? coverage.top_gaps[0] : null;
-    if (["failed", "blocked"].includes(status) || ["blocked", "partial"].includes(coverageStatus) || blockedCount > 0 || missingCount > 0) {
+    if (taskStatus === "passed" || taskStatus === "passed_with_residual_risk") {
+      return {
+        soft: taskStatus === "passed",
+        title: taskVerdictStatusLabel(taskStatus),
+        detail: taskVerdict.summary || localeText(
+          "任务裁决由证据桶支撑；可继续查看 proven / residual risk 的明细。",
+          "The task verdict is backed by evidence buckets; inspect proven and residual-risk details as needed."
+        ),
+      };
+    }
+    if (taskStatus === "failed" || ["blocked", "partial"].includes(coverageStatus) || blockedCount > 0 || missingCount > 0) {
       return {
         soft: false,
-        title: localeText("证据还没过线", "Evidence has not cleared the bar"),
-        detail: primaryGap?.text || localeText(
+        title: taskVerdictStatusLabel(taskStatus === "failed" ? "failed" : "insufficient_evidence"),
+        detail: taskVerdict.summary || firstBucketText("blocking", "unproven", "weak") || primaryGap?.text || localeText(
           "GateKeeper 裁决、证据缺口和阻塞项已保留在本次 run 的证据材料里。",
           "The verdict, evidence gaps, and blockers are preserved in this run's evidence material."
         ),
       };
     }
-    if (coverageStatus === "weak" || weakCount > 0) {
+    if (taskStatus === "insufficient_evidence" || coverageStatus === "weak" || weakCount > 0) {
       return {
         soft: false,
-        title: localeText("证据覆盖偏弱", "Evidence coverage is weak"),
-        detail: primaryGap?.text || localeText(
+        title: taskVerdictStatusLabel("insufficient_evidence"),
+        detail: taskVerdict.summary || firstBucketText("weak", "unproven") || primaryGap?.text || localeText(
           "本轮已经留下弱覆盖信号；请查看证据链判断哪些完成条件仍缺直接证明。",
           "This run preserved weak-coverage signals; inspect the evidence trace to see which completion targets still lack direct proof."
         ),
       };
     }
-    if (status === "passed" || coverageStatus === "covered") {
-      return {
-        soft: true,
-        title: localeText("本轮证据支持通过", "This run is supported by evidence"),
-        detail: localeText(
-          "GateKeeper 裁决和证据覆盖已形成可复盘结论。",
-          "The GateKeeper verdict and evidence coverage now form a reviewable outcome."
-        ),
-      };
-    }
     return {
       soft: true,
-      title: localeText("等待更多证据", "Waiting for more evidence"),
-      detail: localeText(
+      title: taskVerdictStatusLabel(taskStatus),
+      detail: taskVerdict.summary || localeText(
         "角色 handoff、证据账本或 GateKeeper 裁决写出后，这里会收敛成证据结论。",
         "Once role handoffs, the evidence ledger, or the GateKeeper verdict lands, this will settle into an evidence outcome."
       ),
@@ -2545,23 +2583,36 @@
     return getStageDefinition(stage, run).title || stage;
   }
 
-  function summarizeVerdict(verdict) {
-    if (!verdict) {
-      return {
-        title: localeText("还没有结论", "No verdict yet"),
-        detail: localeText("等 GateKeeper 产出后，这里会马上更新。", "This updates once the GateKeeper produces a verdict."),
-        meta: "",
-      };
+  function summarizeTaskVerdict(verdict) {
+    const taskVerdict = verdict && typeof verdict === "object" ? verdict : {};
+    const status = String(taskVerdict.status || "not_evaluated").toLowerCase();
+    const buckets = taskVerdict.buckets || {};
+    const bucketMeta = [
+      `${localeText("已证明", "proven")} ${Array.isArray(buckets.proven) ? buckets.proven.length : 0}`,
+      `${localeText("未证明", "unproven")} ${Array.isArray(buckets.unproven) ? buckets.unproven.length : 0}`,
+      `${localeText("阻断", "blocking")} ${Array.isArray(buckets.blocking) ? buckets.blocking.length : 0}`,
+    ].join(" · ");
+    const title = taskVerdictStatusLabel(status);
+    const detail = taskVerdict.summary || localeText(
+      "还没有可用的证据裁决。",
+      "No evidence-based task verdict is available yet."
+    );
+    const meta = `${localeText("来源", "Source")} ${taskVerdict.source || "-"} · ${bucketMeta}`;
+    return {title, detail, meta, status};
+  }
+
+  function taskVerdictTone(status) {
+    const normalized = String(status || "").toLowerCase();
+    if (normalized === "passed") {
+      return "tone-success";
     }
-    const failedCount = Array.isArray(verdict.failed_check_ids) ? verdict.failed_check_ids.length : 0;
-    const title = verdict.passed
-      ? localeText("最新结论：通过", "Latest verdict: passed")
-      : localeText("最新结论：未通过", "Latest verdict: not passed");
-    const detail = verdict.passed
-      ? localeText("所有关键检查项都已经通过。", "All key checks are passing.")
-      : localeText(`还有 ${failedCount} 条检查项没过。`, `${failedCount} check(s) still failing.`);
-    const meta = `${localeText("综合分", "Composite")} ${verdict.composite_score ?? "-"}`;
-    return {title, detail, meta};
+    if (normalized === "passed_with_residual_risk" || normalized === "insufficient_evidence") {
+      return "tone-warning";
+    }
+    if (normalized === "failed") {
+      return "tone-warning";
+    }
+    return "tone-neutral";
   }
 
   function summarizeLatestEvent() {
@@ -2662,26 +2713,24 @@
   }
 
   function updateHighlights(run) {
-    const status = run?.status || "draft";
+    const status = run?.run_status || run?.status || "draft";
     const stage = getCurrentStage(run);
     const focusName = stageDisplayName(stage, run);
-    const focusTitle = status === "running"
-      ? `${focusName} ${localeText("处理中", "in progress")}`
-      : `${window.LooporaUI.translateStatus(status)} · ${focusName}`;
+    const focusTitle = window.LooporaUI.translateStatus(status);
     const focusDetail = status === "running"
-      ? localeText("系统会随着阶段推进持续刷新下方摘要。", "The summaries below keep updating as the run advances.")
-      : localeText("当前没有活跃角色在执行。", "There is no active role executing right now.");
+      ? localeText(`${focusName} 正在处理中；任务裁决会在终态后单独收束。`, `${focusName} is in progress; the task verdict settles separately at terminal state.`)
+      : localeText(`生命周期状态是 ${window.LooporaUI.translateStatus(status)}，这不等于任务是否通过。`, `Lifecycle status is ${window.LooporaUI.translateStatus(status)}; it is separate from task pass/fail.`);
     const focusMeta = `${localeText("迭代", "Iter")} ${displayIter(run?.current_iter)} · ${localeText("耗时", "Duration")} ${formatDuration(run?.started_at, run?.finished_at)}`;
     document.getElementById("focus-title").textContent = focusTitle;
     document.getElementById("focus-detail").textContent = focusDetail;
     document.getElementById("focus-meta").textContent = focusMeta;
     document.getElementById("focus-card").className = `highlight-card ${status === "running" ? "tone-active" : "tone-neutral"}`;
 
-    const verdict = summarizeVerdict(run?.last_verdict_json);
+    const verdict = summarizeTaskVerdict(run?.task_verdict);
     document.getElementById("output-title").textContent = verdict.title;
     document.getElementById("output-detail").textContent = verdict.detail;
     document.getElementById("output-meta").textContent = verdict.meta || truncateText(stripMarkdown(run?.summary_md), 120) || localeText("等待首轮输出。", "Waiting for the first substantive output.");
-    document.getElementById("output-card").className = `highlight-card ${run?.last_verdict_json?.passed === true ? "tone-success" : (run?.last_verdict_json?.passed === false ? "tone-warning" : "tone-neutral")}`;
+    document.getElementById("output-card").className = `highlight-card ${taskVerdictTone(verdict.status)}`;
 
     const latestEvent = summarizeLatestEvent();
     document.getElementById("event-title").textContent = latestEvent.title;

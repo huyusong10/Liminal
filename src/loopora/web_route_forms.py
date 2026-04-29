@@ -47,6 +47,14 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         )
         return RedirectResponse(url=f"/loops/new/bundle?alignment_session_id={session['id']}", status_code=303)
 
+    @app.post("/runs/{run_id}/rerun")
+    async def rerun_from_run_detail(run_id: str):
+        run = ctx.svc().get_run(run_id)
+        if run.get("status") not in {"succeeded", "failed", "stopped"}:
+            raise LooporaError(f"cannot rerun from active run in status {run.get('status')}")
+        new_run = ctx.svc().rerun(run["loop_id"], background=True)
+        return RedirectResponse(url=f"/runs/{new_run['id']}", status_code=303)
+
     @app.post("/loops/new/manual")
     @app.post("/loops/new")
     async def create_loop_from_form(request: Request):

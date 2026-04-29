@@ -70,9 +70,12 @@ STEP_EXECUTION_FIELDS = (
     "extra_cli_args",
     "parallel_group",
     "inputs",
+    "action_policy",
 )
 PARALLEL_GROUP_ARCHETYPES = {"inspector", "custom"}
 STEP_INPUT_KEYS = {"handoffs_from", "evidence_query", "iteration_memory"}
+STEP_ACTION_POLICY_KEYS = {"workspace", "can_block", "can_finish_run"}
+STEP_ACTION_POLICY_WORKSPACES = {"read_only", "workspace_write"}
 STEP_ITERATION_MEMORY_POLICIES = {"default", "none", "same_step", "same_role", "summary_only"}
 WORKFLOW_CONTROL_SIGNALS = {"no_evidence_progress", "role_timeout", "step_failed", "gatekeeper_rejected"}
 WORKFLOW_CONTROL_MODES = {"advisory", "blocking", "repair_guidance"}
@@ -193,6 +196,22 @@ def normalize_step_inherit_session(value: Any, *, archetype: str | None = None) 
     raise WorkflowError("workflow step inherit_session must be a boolean")
 
 
+def normalize_step_policy_boolean(value: Any, *, field_name: str, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    raise WorkflowError(f"workflow step action_policy.{field_name} must be a boolean")
+
+
 def normalize_step_on_pass(
     value: Any,
     *,
@@ -306,6 +325,68 @@ def normalize_step_inputs(value: Any) -> dict[str, Any]:
             result["iteration_memory"] = iteration_memory
 
     return result
+
+
+def default_step_action_policy(*, archetype: str | None = None, on_pass: str = "continue") -> dict[str, Any]:
+    normalized_archetype = LEGACY_ROLE_TO_ARCHETYPE.get(str(archetype or "").strip().lower(), "")
+    if normalized_archetype == "builder":
+        return {"workspace": "workspace_write", "can_block": False, "can_finish_run": False}
+    if normalized_archetype == "inspector":
+        return {"workspace": "read_only", "can_block": True, "can_finish_run": False}
+    if normalized_archetype == "gatekeeper":
+        return {
+            "workspace": "read_only",
+            "can_block": True,
+            "can_finish_run": str(on_pass or "continue").strip() == "finish_run",
+        }
+    return {"workspace": "read_only", "can_block": False, "can_finish_run": False}
+
+
+def normalize_step_action_policy(
+    value: Any,
+    *,
+    archetype: str | None = None,
+    on_pass: str = "continue",
+) -> dict[str, Any]:
+    normalized_archetype = LEGACY_ROLE_TO_ARCHETYPE.get(str(archetype or "").strip().lower(), "")
+    defaults = default_step_action_policy(archetype=normalized_archetype, on_pass=on_pass)
+    if value is None:
+        policy = dict(defaults)
+    else:
+        if not isinstance(value, Mapping):
+            raise WorkflowError("workflow step action_policy must be an object")
+        unknown_keys = sorted(str(key) for key in value.keys() if str(key) not in STEP_ACTION_POLICY_KEYS)
+        if unknown_keys:
+            raise WorkflowError(f"workflow step action_policy contains unknown keys: {', '.join(unknown_keys)}")
+        raw_workspace = str(value.get("workspace", defaults["workspace"]) or defaults["workspace"]).strip().lower()
+        raw_workspace = raw_workspace.replace("-", "_")
+        if raw_workspace in {"readonly", "read"}:
+            raw_workspace = "read_only"
+        elif raw_workspace in {"write", "workspace"}:
+            raw_workspace = "workspace_write"
+        if raw_workspace not in STEP_ACTION_POLICY_WORKSPACES:
+            raise WorkflowError("workflow step action_policy.workspace must be read_only or workspace_write")
+        policy = {
+            "workspace": raw_workspace,
+            "can_block": normalize_step_policy_boolean(
+                value.get("can_block"),
+                field_name="can_block",
+                default=bool(defaults["can_block"]),
+            ),
+            "can_finish_run": normalize_step_policy_boolean(
+                value.get("can_finish_run"),
+                field_name="can_finish_run",
+                default=bool(defaults["can_finish_run"]),
+            ),
+        }
+
+    if policy["workspace"] == "workspace_write" and normalized_archetype != "builder":
+        raise WorkflowError("only Builder steps may set action_policy.workspace=workspace_write in v1")
+    if policy["can_finish_run"] and normalized_archetype != "gatekeeper":
+        raise WorkflowError("only GateKeeper steps may set action_policy.can_finish_run=true")
+    if policy["can_finish_run"] and str(on_pass or "continue").strip() != "finish_run":
+        raise WorkflowError("action_policy.can_finish_run=true requires on_pass=finish_run")
+    return policy
 
 
 def normalize_workflow_controls(value: Any, *, role_by_id: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -460,22 +541,29 @@ def _preset_step(
     extra_cli_args: str = "",
     parallel_group: str = "",
     inputs: dict[str, Any] | None = None,
+    action_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     defaults = default_step_execution_settings(archetype=archetype)
+    normalized_on_pass = normalize_step_on_pass(
+        on_pass,
+        archetype=archetype,
+        default=defaults["on_pass"],
+    )
     step = {
         "id": step_id,
         "role_id": role_id,
-        "on_pass": normalize_step_on_pass(
-            on_pass,
-            archetype=archetype,
-            default=defaults["on_pass"],
-        ),
+        "on_pass": normalized_on_pass,
         "model": model,
         "inherit_session": normalize_step_inherit_session(
             inherit_session,
             archetype=archetype,
         ),
         "extra_cli_args": str(extra_cli_args or ""),
+        "action_policy": normalize_step_action_policy(
+            action_policy,
+            archetype=archetype,
+            on_pass=normalized_on_pass,
+        ),
     }
     normalized_parallel_group = normalize_step_parallel_group(parallel_group)
     if normalized_parallel_group:
@@ -1206,6 +1294,11 @@ def validate_workflow_parallel_groups(steps: list[dict[str, Any]], role_by_id: d
         if active_group and group != active_group:
             seen_closed_groups.add(active_group)
         active_group = group
+        action_policy = step.get("action_policy") if isinstance(step.get("action_policy"), Mapping) else {}
+        if str(action_policy.get("workspace") or "").strip() == "workspace_write":
+            raise WorkflowError("workflow parallel_group steps must be read-only")
+        if bool(action_policy.get("can_finish_run")):
+            raise WorkflowError("workflow parallel_group steps may not finish runs")
         if archetype not in PARALLEL_GROUP_ARCHETYPES:
             raise WorkflowError("workflow parallel_group currently supports inspector and custom steps only")
     if active_group:
@@ -1306,6 +1399,11 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
             "model": model,
             "inherit_session": inherit_session,
             "extra_cli_args": extra_cli_args,
+            "action_policy": normalize_step_action_policy(
+                raw_step.get("action_policy"),
+                archetype=role["archetype"],
+                on_pass=on_pass,
+            ),
         }
         parallel_group = normalize_step_parallel_group(raw_step.get("parallel_group"))
         if parallel_group:

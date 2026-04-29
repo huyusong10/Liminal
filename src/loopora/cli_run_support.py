@@ -28,10 +28,17 @@ def print_run_result(result: dict) -> None:
     from loopora.cli_common import echo_json
 
     typer.echo(f"run: {result['id']}")
-    typer.echo(f"status: {result['status']}")
+    typer.echo(f"run_status: {result.get('run_status') or result['status']}")
     typer.echo(f"run_dir: {result['runs_dir']}")
+    task_verdict = result.get("task_verdict") or result.get("task_verdict_json")
+    if task_verdict:
+        typer.echo(f"task_verdict: {task_verdict.get('status', 'not_evaluated')}")
+        if task_verdict.get("source"):
+            typer.echo(f"task_verdict_source: {task_verdict['source']}")
+        if task_verdict.get("summary"):
+            typer.echo(f"task_verdict_summary: {task_verdict['summary']}")
     if result.get("last_verdict_json"):
-        typer.echo("verdict:")
+        typer.echo("raw_last_verdict_json:")
         echo_json(result["last_verdict_json"])
 
 

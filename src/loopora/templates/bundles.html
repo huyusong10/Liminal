@@ -76,7 +76,6 @@
       <div class="loop-grid loop-grid--created" id="bundle-grid">
         {% for bundle in bundles %}
         {% set governance = bundle.governance_summary %}
-        {% set revision = governance.revision %}
         {% set gatekeeper = governance.gatekeeper %}
         <article
           class="loop-card is-clickable"
@@ -89,15 +88,6 @@
             <div class="loop-card-copy">
               <h3>{{ bundle.name }}</h3>
               <p>{{ bundle.collaboration_summary }}</p>
-            </div>
-            <div class="bundle-card-status">
-              <span class="status-pill status-draft">r{{ bundle.revision }}</span>
-              {% if revision.source_bundle_id %}
-              <span class="bundle-lineage-pill">
-                <span data-lang="zh">来自 {{ revision.source_bundle_id }}</span>
-                <span data-lang="en">from {{ revision.source_bundle_id }}</span>
-              </span>
-              {% endif %}
             </div>
           </div>
           <div class="bundle-governance-grid" data-testid="bundle-governance-summary">
@@ -142,14 +132,6 @@
               </strong>
             </div>
           </div>
-          {% if revision.changed_surfaces %}
-          <details class="bundle-changed-surfaces bundle-card-expert" data-testid="bundle-governance-changed-surfaces">
-            <summary><span data-lang="zh">本版变化</span><span data-lang="en">Changed</span></summary>
-            {% for surface in revision.changed_surfaces %}
-            <em>{{ surface }}</em>
-            {% endfor %}
-          </details>
-          {% endif %}
           <details class="bundle-card-expert">
             <summary><span data-lang="zh">专家信息</span><span data-lang="en">Expert details</span></summary>
           <dl class="meta-grid">
