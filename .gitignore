@@ -4,6 +4,7 @@ __pycache__/
 .loopora/
 .log/
 artifacts/real_search_loop_e2e/
+/tmp/
 .DS_Store
 *.egg-info/
 build/
