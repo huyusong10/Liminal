@@ -709,11 +709,12 @@ document.addEventListener("DOMContentLoaded", () => {
     sessions.forEach((session) => {
       const item = document.createElement("article");
       item.className = "alignment-history-item";
+      item.dataset.testid = "alignment-history-item";
       item.dataset.sessionId = session.id;
       item.classList.toggle("is-active", currentSession?.id === session.id);
       const isActive = ACTIVE_STATUSES.has(String(session.status || ""));
       item.innerHTML = `
-        <button class="alignment-history-open" type="button">
+        <button class="alignment-history-open" type="button" data-testid="alignment-history-open">
           <strong>${escapeHtml(session.title || session.id)}</strong>
           <span>${escapeHtml(statusLabel(session.status))} · ${escapeHtml(session.executor_kind || "")}</span>
         </button>

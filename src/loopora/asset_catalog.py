@@ -26,6 +26,14 @@ from loopora.workflows import (
 )
 
 
+class AssetCatalogError(ValueError):
+    """Base error for workflow asset catalog validation failures."""
+
+
+class AssetCatalogNotFoundError(AssetCatalogError):
+    """Raised when a stable role definition or orchestration asset is missing."""
+
+
 class WorkflowAssetCatalog:
     """Owns orchestration and role-definition asset records."""
 
@@ -303,10 +311,10 @@ class WorkflowAssetCatalog:
             for record in self._builtin_role_definitions:
                 if record["id"] == definition_key:
                     return deepcopy(record)
-            raise ValueError(f"unknown built-in role definition: {definition_key}")
+            raise AssetCatalogNotFoundError(f"unknown built-in role definition: {definition_key}")
         record = self.repository.get_role_definition(definition_key)
         if not record:
-            raise ValueError(f"unknown role definition: {definition_key}")
+            raise AssetCatalogNotFoundError(f"unknown role definition: {definition_key}")
         return self._decorate_role_definition(record, source="custom")
 
     def create_role_definition(
@@ -399,7 +407,7 @@ class WorkflowAssetCatalog:
         )
         updated = self.repository.update_role_definition(role_definition_id, payload)
         if not updated:
-            raise ValueError(f"unknown role definition: {role_definition_id}")
+            raise AssetCatalogNotFoundError(f"unknown role definition: {role_definition_id}")
         return self._decorate_role_definition(updated, source="custom")
 
     def delete_role_definition(self, role_definition_id: str) -> dict:
@@ -407,7 +415,7 @@ class WorkflowAssetCatalog:
         if existing.get("source") == "builtin":
             raise ValueError("built-in role definitions cannot be deleted")
         if not self.repository.delete_role_definition(role_definition_id):
-            raise ValueError(f"unknown role definition: {role_definition_id}")
+            raise AssetCatalogNotFoundError(f"unknown role definition: {role_definition_id}")
         return {"id": role_definition_id, "deleted": True}
 
     def list_orchestrations(self) -> list[dict]:
@@ -430,10 +438,10 @@ class WorkflowAssetCatalog:
             for record in self._builtin_orchestrations:
                 if record["id"] == orchestration_key:
                     return deepcopy(record)
-            raise ValueError(f"unknown built-in orchestration: {orchestration_key.split(':', 1)[1]}")
+            raise AssetCatalogNotFoundError(f"unknown built-in orchestration: {orchestration_key.split(':', 1)[1]}")
         record = self.repository.get_orchestration(orchestration_key)
         if not record:
-            raise ValueError(f"unknown orchestration: {orchestration_key}")
+            raise AssetCatalogNotFoundError(f"unknown orchestration: {orchestration_key}")
         return self._decorate_orchestration(record, source="custom")
 
     def resolve_orchestration_input(
@@ -470,7 +478,7 @@ class WorkflowAssetCatalog:
         if derived_id:
             try:
                 derived_name = self.get_orchestration(derived_id)["name"]
-            except ValueError:
+            except AssetCatalogNotFoundError:
                 derived_name = ""
         if not derived_id and normalized_workflow.get("preset"):
             derived_id = f"builtin:{normalized_workflow['preset']}"
@@ -555,7 +563,7 @@ class WorkflowAssetCatalog:
             },
         )
         if not orchestration:
-            raise ValueError(f"unknown orchestration: {orchestration_id}")
+            raise AssetCatalogNotFoundError(f"unknown orchestration: {orchestration_id}")
         return self._decorate_orchestration(orchestration, source="custom")
 
     def delete_orchestration(self, orchestration_id: str) -> dict:
@@ -563,5 +571,5 @@ class WorkflowAssetCatalog:
         if orchestration.get("source") == "builtin":
             raise ValueError("built-in orchestrations cannot be deleted")
         if not self.repository.delete_orchestration(orchestration_id):
-            raise ValueError(f"unknown orchestration: {orchestration_id}")
+            raise AssetCatalogNotFoundError(f"unknown orchestration: {orchestration_id}")
         return orchestration

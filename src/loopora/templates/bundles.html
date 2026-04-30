@@ -175,7 +175,7 @@
         </article>
         {% endfor %}
       </div>
-      <p class="panel-note bundle-grid-note">
+      <p class="panel-note bundle-grid-note" data-testid="bundle-grid-note">
         <span data-lang="zh">删除方案会一起清理它导入的 loop、流程编排和角色定义，不会影响不属于该方案的手动资源。</span>
         <span data-lang="en">Deleting a plan also removes its imported loop, orchestration, and role definitions, without touching unrelated manual assets.</span>
       </p>
@@ -189,7 +189,7 @@
       </div>
     {% else %}
       <div class="loop-grid loop-grid--created" id="bundle-grid" hidden></div>
-      <p class="panel-note bundle-grid-note" hidden>
+      <p class="panel-note bundle-grid-note" data-testid="bundle-grid-note" hidden>
         <span data-lang="zh">删除方案会一起清理它导入的 loop、流程编排和角色定义，不会影响不属于该方案的手动资源。</span>
         <span data-lang="en">Deleting a plan also removes its imported loop, orchestration, and role definitions, without touching unrelated manual assets.</span>
       </p>

@@ -6,15 +6,20 @@ import re
 import shutil
 
 from loopora.bundles import BundleError, bundle_to_yaml, load_bundle_file, load_bundle_text, normalize_bundle
+from loopora.branding import state_dir_for_workdir
+from loopora.diagnostics import get_logger
 from loopora.evidence_coverage import with_coverage_targets
 from loopora.markdown_tools import render_safe_markdown_html
-from loopora.settings import app_home
+from loopora.service_cleanup_diagnostics import best_effort_rmtree, cleanup_diagnostic_payload, log_cleanup_diagnostic
+from loopora.settings import app_home, load_recent_workdirs
 from loopora.specs import compile_markdown_spec, SpecError
 from loopora.service_asset_common import _normalize_role_models
-from loopora.service_types import LooporaError
+from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError
 from loopora.utils import make_id
 from loopora.utils import write_json
 from loopora.workflows import ROLE_EXECUTION_FIELDS, ROLE_POSTURE_FIELDS, has_finish_gatekeeper_step
+
+logger = get_logger(__name__)
 
 
 def _bundle_role_definition_key(value: object) -> str:
@@ -51,6 +56,188 @@ class ServiceBundleAssetMixin:
     def list_bundles(self) -> list[dict]:
         return [self._hydrate_bundle_links(bundle) for bundle in self.repository.list_bundles()]
 
+    def local_asset_diagnostics(self) -> dict:
+        bundles = self.repository.list_bundles()
+        bundle_ids = {str(bundle.get("id") or "").strip() for bundle in bundles if str(bundle.get("id") or "").strip()}
+        registry_rows = (
+            self.repository.list_local_asset_roots()
+            if hasattr(self.repository, "list_local_asset_roots")
+            else []
+        )
+        bundle_root = app_home() / "bundles"
+        orphan_bundle_dirs = []
+        orphan_bundle_paths: set[str] = set()
+        if bundle_root.exists():
+            for path in sorted(item for item in bundle_root.iterdir() if item.is_dir()):
+                if path.name not in bundle_ids:
+                    orphan_bundle_dirs.append({"bundle_id": path.name, "path": str(path)})
+                    orphan_bundle_paths.add(str(path))
+        for row in registry_rows:
+            if row.get("resource_type") != "bundle" or row.get("state") == "cleaned":
+                continue
+            bundle_id = str(row.get("resource_id") or "").strip()
+            path = Path(str(row.get("path") or ""))
+            if path.exists() and (bundle_id not in bundle_ids or row.get("state") == "orphaned"):
+                normalized_path = str(path)
+                if normalized_path not in orphan_bundle_paths:
+                    orphan_bundle_dirs.append({"bundle_id": bundle_id, "path": normalized_path})
+                    orphan_bundle_paths.add(normalized_path)
+
+        alignment_sessions = (
+            self.repository.list_all_alignment_sessions()
+            if hasattr(self.repository, "list_all_alignment_sessions")
+            else self.repository.list_alignment_sessions(limit=100)
+        )
+        alignment_session_ids = {
+            str(session.get("id") or "").strip()
+            for session in alignment_sessions
+            if str(session.get("id") or "").strip()
+        }
+        known_workdirs = {
+            str(loop.get("workdir") or "").strip()
+            for loop in self.repository.list_loops()
+            if str(loop.get("workdir") or "").strip()
+        }
+        known_workdirs.update(
+            str(session.get("workdir") or "").strip()
+            for session in alignment_sessions
+            if str(session.get("workdir") or "").strip()
+        )
+        known_workdirs.update(
+            str(row.get("workdir") or "").strip()
+            for row in registry_rows
+            if row.get("resource_type") == "alignment_session" and str(row.get("workdir") or "").strip()
+        )
+        known_workdirs.update(
+            str(row.get("workdir") or "").strip()
+            for row in registry_rows
+            if row.get("resource_type") == "run" and str(row.get("workdir") or "").strip()
+        )
+        known_workdirs.update(load_recent_workdirs(limit=100))
+
+        run_records = []
+        for loop in self.repository.list_loops():
+            loop_id = str(loop.get("id") or "").strip()
+            if not loop_id:
+                continue
+            run_records.extend(self.repository.list_runs_for_loop(loop_id, limit=5000))
+        run_ids = {str(run.get("id") or "").strip() for run in run_records if str(run.get("id") or "").strip()}
+        orphan_run_dirs = []
+        orphan_run_paths: set[str] = set()
+        for row in registry_rows:
+            if row.get("resource_type") != "run" or row.get("state") == "cleaned":
+                continue
+            run_id = str(row.get("resource_id") or "").strip()
+            path = Path(str(row.get("path") or ""))
+            if path.exists() and (run_id not in run_ids or row.get("state") == "orphaned"):
+                normalized_path = str(path)
+                if normalized_path not in orphan_run_paths:
+                    orphan_run_dirs.append(
+                        {
+                            "run_id": run_id,
+                            "workdir": str(row.get("workdir") or ""),
+                            "path": normalized_path,
+                            "source": "registry",
+                        }
+                    )
+                    orphan_run_paths.add(normalized_path)
+        for workdir in sorted(path for path in known_workdirs if path):
+            root = state_dir_for_workdir(workdir) / "runs"
+            if not root.exists():
+                continue
+            for path in sorted(item for item in root.iterdir() if item.is_dir()):
+                if path.name in run_ids:
+                    continue
+                normalized_path = str(path)
+                if normalized_path in orphan_run_paths:
+                    continue
+                orphan_run_dirs.append(
+                    {
+                        "run_id": path.name,
+                        "workdir": workdir,
+                        "path": normalized_path,
+                        "source": "recent_workdir",
+                    }
+                )
+                orphan_run_paths.add(normalized_path)
+
+        orphan_alignment_dirs = []
+        orphan_alignment_paths: set[str] = set()
+        for workdir in sorted(path for path in known_workdirs if path):
+            root = state_dir_for_workdir(workdir) / "alignment_sessions"
+            if not root.exists():
+                continue
+            for path in sorted(item for item in root.iterdir() if item.is_dir()):
+                if path.name not in alignment_session_ids:
+                    orphan_alignment_dirs.append({"session_id": path.name, "workdir": workdir, "path": str(path)})
+                    orphan_alignment_paths.add(str(path))
+        for row in registry_rows:
+            if row.get("resource_type") != "alignment_session" or row.get("state") == "cleaned":
+                continue
+            session_id = str(row.get("resource_id") or "").strip()
+            path = Path(str(row.get("path") or ""))
+            if path.exists() and (session_id not in alignment_session_ids or row.get("state") == "orphaned"):
+                normalized_path = str(path)
+                if normalized_path not in orphan_alignment_paths:
+                    orphan_alignment_dirs.append(
+                        {"session_id": session_id, "workdir": str(row.get("workdir") or ""), "path": normalized_path}
+                    )
+                    orphan_alignment_paths.add(normalized_path)
+
+        record_without_dir = []
+        for bundle in bundles:
+            bundle_id = str(bundle.get("id") or "").strip()
+            if bundle_id and not self._bundle_dir(bundle_id).exists():
+                record_without_dir.append(
+                    {"resource_type": "bundle", "resource_id": bundle_id, "path": str(self._bundle_dir(bundle_id))}
+                )
+        for session in alignment_sessions:
+            session_id = str(session.get("id") or "").strip()
+            if not session_id:
+                continue
+            root = self._alignment_session_root(session) if hasattr(self, "_alignment_session_root") else (
+                state_dir_for_workdir(session.get("workdir", "")) / "alignment_sessions" / session_id
+            )
+            if not root.exists():
+                record_without_dir.append(
+                    {"resource_type": "alignment_session", "resource_id": session_id, "path": str(root)}
+                )
+        for run in run_records:
+            run_id = str(run.get("id") or "").strip()
+            runs_dir = str(run.get("runs_dir") or "").strip()
+            if run_id and runs_dir and not Path(runs_dir).exists():
+                record_without_dir.append({"resource_type": "run", "resource_id": run_id, "path": runs_dir})
+        record_without_dir_keys = {
+            (str(item.get("resource_type") or ""), str(item.get("resource_id") or ""), str(item.get("path") or ""))
+            for item in record_without_dir
+        }
+        for row in registry_rows:
+            if row.get("state") == "cleaned":
+                continue
+            resource_type = str(row.get("resource_type") or "").strip()
+            resource_id = str(row.get("resource_id") or "").strip()
+            path = Path(str(row.get("path") or ""))
+            if not resource_type or not resource_id or path.exists():
+                continue
+            key = (resource_type, resource_id, str(path))
+            if key in record_without_dir_keys:
+                continue
+            if resource_type == "bundle" and resource_id not in bundle_ids:
+                continue
+            if resource_type == "alignment_session" and resource_id not in alignment_session_ids:
+                continue
+            if resource_type == "run" and resource_id not in run_ids:
+                continue
+            record_without_dir.append({"resource_type": resource_type, "resource_id": resource_id, "path": str(path)})
+            record_without_dir_keys.add(key)
+
+        return {
+            "orphan_alignment_dirs": orphan_alignment_dirs,
+            "orphan_bundle_dirs": orphan_bundle_dirs,
+            "orphan_run_dirs": orphan_run_dirs,
+            "record_without_dir": record_without_dir,
+        }
+
     def list_bundle_governance_cards(self) -> list[dict]:
         cards = []
         for bundle in self.list_bundles():
@@ -68,7 +255,7 @@ class ServiceBundleAssetMixin:
     def get_bundle(self, bundle_id: str) -> dict:
         bundle = self.repository.get_bundle(bundle_id)
         if not bundle:
-            raise LooporaError(f"unknown bundle: {bundle_id}")
+            raise LooporaNotFoundError(f"unknown bundle: {bundle_id}")
         return self._hydrate_bundle_links(bundle)
 
     def import_bundle_file(self, path: Path, *, replace_bundle_id: str | None = None) -> dict:
@@ -551,9 +738,10 @@ class ServiceBundleAssetMixin:
         target_bundle_id = str(replace_bundle_id or bundle["metadata"].get("bundle_id") or make_id("bundle")).strip()
         existing = self.repository.get_bundle(target_bundle_id)
         if existing and not replace_bundle_id:
-            raise LooporaError(f"bundle already exists: {target_bundle_id}")
+            raise LooporaConflictError(f"bundle already exists: {target_bundle_id}")
+        old_local_paths: list[Path] = []
         if existing:
-            self._assert_bundle_links_replaceable(existing)
+            old_local_paths = self._preflight_existing_bundle_graph(existing)
         bundle_dir = self._bundle_dir(target_bundle_id)
         backup_dir = self._backup_bundle_dir(bundle_dir) if existing else None
         role_definition_id_by_key: dict[str, str] = {}
@@ -652,13 +840,25 @@ class ServiceBundleAssetMixin:
             )
             self._bundle_yaml_path(target_bundle_id).write_text(bundle_to_yaml(export_payload), encoding="utf-8")
             if existing:
-                saved = self.repository.update_bundle(target_bundle_id, payload)
+                saved = self.repository.replace_bundle_graph(target_bundle_id, payload)
+                saved = self.repository.get_bundle(target_bundle_id) if saved else None
             else:
                 saved = self.repository.create_bundle(payload)
             if not saved:
                 raise LooporaError(f"failed to persist bundle: {target_bundle_id}")
             if existing:
-                self._delete_bundle_links(existing, delete_record=False, delete_managed_dir=False)
+                for path in old_local_paths:
+                    best_effort_rmtree(
+                        path,
+                        logger,
+                        operation="bundle_replaced_artifact_delete",
+                        owner_id=target_bundle_id,
+                    )
+                    self._mark_local_asset_cleanup_by_path(
+                        path,
+                        operation="bundle_replaced_artifact_delete",
+                        owner_id=target_bundle_id,
+                    )
             committed = True
             return self.get_bundle(saved["id"])
         except Exception:
@@ -669,6 +869,7 @@ class ServiceBundleAssetMixin:
                     else:
                         self.repository.delete_bundle(target_bundle_id)
                 self._cleanup_created_bundle_assets(
+                    owner_id=target_bundle_id,
                     loop_id=loop_id,
                     orchestration_id=orchestration_id,
                     role_definition_ids=created_role_ids,
@@ -681,16 +882,34 @@ class ServiceBundleAssetMixin:
             raise
         finally:
             if backup_dir and backup_dir.exists():
-                shutil.rmtree(backup_dir, ignore_errors=True)
+                try:
+                    shutil.rmtree(backup_dir)
+                except OSError as exc:
+                    self._record_bundle_cleanup_failure(
+                        operation="bundle_backup_cleanup",
+                        resource_type="path",
+                        resource_id=backup_dir,
+                        owner_id=target_bundle_id,
+                        error=exc,
+                    )
 
     def _assert_bundle_links_replaceable(self, bundle: dict) -> None:
+        self._preflight_existing_bundle_graph(bundle)
+
+    def _preflight_existing_bundle_graph(self, bundle: dict) -> list[Path]:
         loop_id = str(bundle.get("loop_id", "") or "").strip()
-        if not loop_id:
-            return
-        loop = self.get_loop(loop_id)
-        active_runs = [run["id"] for run in loop.get("runs", []) if run.get("status") in {"queued", "running"}]
-        if active_runs:
-            raise LooporaError(f"cannot replace bundle with active loop runs: {', '.join(active_runs)}")
+        orchestration_id = str(bundle.get("orchestration_id", "") or "").strip()
+        role_definition_ids = [
+            str(item).strip()
+            for item in (bundle.get("role_definition_ids") or bundle.get("role_definition_ids_json") or [])
+            if str(item).strip()
+        ]
+        return self._preflight_bundle_graph_delete(
+            bundle,
+            loop_id=loop_id,
+            orchestration_id=orchestration_id,
+            role_definition_ids=role_definition_ids,
+        )
 
     def _backup_bundle_dir(self, bundle_dir: Path) -> Path | None:
         if not bundle_dir.exists():
@@ -709,10 +928,34 @@ class ServiceBundleAssetMixin:
         if had_existing:
             if backup_dir is None:
                 return
-            shutil.rmtree(bundle_dir, ignore_errors=True)
-            shutil.copytree(backup_dir, bundle_dir)
+            best_effort_rmtree(
+                bundle_dir,
+                logger,
+                operation="bundle_failed_import_restore",
+                owner_id=bundle_dir.name,
+            )
+            try:
+                shutil.copytree(backup_dir, bundle_dir)
+            except OSError as exc:
+                self._record_bundle_cleanup_failure(
+                    operation="bundle_failed_import_restore",
+                    resource_type="path",
+                    resource_id=bundle_dir,
+                    owner_id=bundle_dir.name,
+                    error=exc,
+                )
             return
-        shutil.rmtree(bundle_dir, ignore_errors=True)
+        best_effort_rmtree(
+            bundle_dir,
+            logger,
+            operation="bundle_failed_import_cleanup",
+            owner_id=bundle_dir.name,
+        )
+        self._mark_local_asset_cleanup_by_path(
+            bundle_dir,
+            operation="bundle_failed_import_cleanup",
+            owner_id=bundle_dir.name,
+        )
 
     def _bundle_payload_from_record(self, bundle: dict) -> dict:
         role_definition_ids = [
@@ -736,6 +979,7 @@ class ServiceBundleAssetMixin:
     def _cleanup_created_bundle_assets(
         self,
         *,
+        owner_id: str,
         loop_id: str,
         orchestration_id: str,
         role_definition_ids: list[str],
@@ -743,17 +987,36 @@ class ServiceBundleAssetMixin:
         if loop_id:
             try:
                 self.delete_loop(loop_id, allow_bundle_owned=True)
-            except LooporaError:
-                pass
+            except LooporaError as exc:
+                self._record_bundle_cleanup_failure(
+                    operation="bundle_import_rollback",
+                    resource_type="loop",
+                    resource_id=loop_id,
+                    owner_id=owner_id,
+                    error=exc,
+                )
         if orchestration_id:
             try:
                 self.delete_orchestration(orchestration_id, allow_bundle_owned=True)
-            except LooporaError:
-                pass
+            except LooporaError as exc:
+                self._record_bundle_cleanup_failure(
+                    operation="bundle_import_rollback",
+                    resource_type="orchestration",
+                    resource_id=orchestration_id,
+                    owner_id=owner_id,
+                    error=exc,
+                )
         for role_definition_id in role_definition_ids:
             try:
                 self.delete_role_definition(role_definition_id, allow_bundle_owned=True)
-            except LooporaError:
+            except LooporaError as exc:
+                self._record_bundle_cleanup_failure(
+                    operation="bundle_import_rollback",
+                    resource_type="role_definition",
+                    resource_id=role_definition_id,
+                    owner_id=owner_id,
+                    error=exc,
+                )
                 continue
 
     def _sync_bundle_loop_snapshot(self, bundle_id: str) -> dict | None:
@@ -770,13 +1033,13 @@ class ServiceBundleAssetMixin:
     ) -> dict | None:
         bundle = self.repository.get_bundle(bundle_id)
         if not bundle:
-            raise LooporaError(f"unknown bundle: {bundle_id}")
+            raise LooporaNotFoundError(f"unknown bundle: {bundle_id}")
         loop_id = str(bundle.get("loop_id", "") or "").strip()
         if not loop_id:
             return None
         loop = self.repository.get_loop(loop_id)
         if not loop:
-            raise LooporaError(f"unknown bundle loop: {loop_id}")
+            raise LooporaNotFoundError(f"unknown bundle loop: {loop_id}")
 
         spec_path = self._bundle_spec_path(bundle_id)
         if spec_markdown is None:
@@ -1005,6 +1268,48 @@ class ServiceBundleAssetMixin:
             for item in (bundle.get("role_definition_ids") or bundle.get("role_definition_ids_json") or [])
             if str(item).strip()
         ]
+        if delete_record:
+            local_paths = self._preflight_bundle_graph_delete(
+                bundle,
+                loop_id=loop_id,
+                orchestration_id=orchestration_id,
+                role_definition_ids=role_definition_ids,
+            )
+            deleted = self.repository.delete_bundle_graph(bundle["id"])
+            if not deleted:
+                raise LooporaError(f"failed to delete bundle: {bundle['id']}")
+            for path in local_paths:
+                best_effort_rmtree(
+                    path,
+                    logger,
+                    operation="bundle_link_artifact_delete",
+                    owner_id=bundle["id"],
+                )
+                self._mark_local_asset_cleanup_by_path(
+                    path,
+                    operation="bundle_link_artifact_delete",
+                    owner_id=bundle["id"],
+                )
+            bundle_dir = self._bundle_dir(bundle["id"])
+            if delete_managed_dir and bundle_dir.exists():
+                best_effort_rmtree(
+                    bundle_dir,
+                    logger,
+                    operation="bundle_managed_dir_delete",
+                    owner_id=bundle["id"],
+                )
+                self._mark_local_asset_cleanup_by_path(
+                    bundle_dir,
+                    operation="bundle_managed_dir_delete",
+                    owner_id=bundle["id"],
+                )
+            elif delete_managed_dir:
+                self._mark_local_asset_cleanup_by_path(
+                    bundle_dir,
+                    operation="bundle_managed_dir_delete",
+                    owner_id=bundle["id"],
+                )
+            return
         if loop_id:
             try:
                 self.delete_loop(loop_id, allow_bundle_owned=True)
@@ -1013,19 +1318,161 @@ class ServiceBundleAssetMixin:
         if orchestration_id:
             try:
                 self.delete_orchestration(orchestration_id, allow_bundle_owned=True)
-            except LooporaError:
-                pass
+            except LooporaError as exc:
+                self._record_bundle_cleanup_failure(
+                    operation="bundle_link_delete",
+                    resource_type="orchestration",
+                    resource_id=orchestration_id,
+                    owner_id=bundle["id"],
+                    error=exc,
+                )
         for role_definition_id in role_definition_ids:
             try:
                 self.delete_role_definition(role_definition_id, allow_bundle_owned=True)
-            except LooporaError:
+            except LooporaError as exc:
+                self._record_bundle_cleanup_failure(
+                    operation="bundle_link_delete",
+                    resource_type="role_definition",
+                    resource_id=role_definition_id,
+                    owner_id=bundle["id"],
+                    error=exc,
+                )
                 continue
-        bundle_dir = self._bundle_dir(bundle["id"])
-        if delete_managed_dir and bundle_dir.exists():
-            shutil.rmtree(bundle_dir, ignore_errors=True)
         if delete_record:
             self.repository.delete_bundle(bundle["id"])
+        bundle_dir = self._bundle_dir(bundle["id"])
+        if delete_managed_dir and bundle_dir.exists():
+            try:
+                shutil.rmtree(bundle_dir)
+                self._mark_local_asset_cleanup_by_path(
+                    bundle_dir,
+                    operation="bundle_managed_dir_delete",
+                    owner_id=bundle["id"],
+                )
+            except OSError as exc:
+                self._record_bundle_cleanup_failure(
+                    operation="bundle_managed_dir_delete",
+                    resource_type="path",
+                    resource_id=bundle_dir,
+                    owner_id=bundle["id"],
+                    error=exc,
+                )
+                self._mark_local_asset_cleanup_by_path(
+                    bundle_dir,
+                    operation="bundle_managed_dir_delete",
+                    owner_id=bundle["id"],
+                )
+        elif delete_managed_dir:
+            self._mark_local_asset_cleanup_by_path(
+                bundle_dir,
+                operation="bundle_managed_dir_delete",
+                owner_id=bundle["id"],
+            )
+
+    def _preflight_bundle_graph_delete(
+        self,
+        bundle: dict,
+        *,
+        loop_id: str,
+        orchestration_id: str,
+        role_definition_ids: list[str],
+    ) -> list[Path]:
+        paths: list[Path] = []
+        expected_assets: list[tuple[str, str]] = []
+        if loop_id:
+            expected_assets.append(("loop", loop_id))
+        if orchestration_id:
+            expected_assets.append(("orchestration", orchestration_id))
+        expected_assets.extend(("role_definition", role_definition_id) for role_definition_id in role_definition_ids)
+        for asset_type, asset_id in expected_assets:
+            owner_id = self.repository.get_bundle_asset_owner(asset_type, asset_id)
+            if owner_id != bundle["id"]:
+                reason = "unowned" if not owner_id else f"owned by {owner_id}"
+                raise LooporaConflictError(
+                    f"bundle {bundle['id']} cannot delete {asset_type} {asset_id}: asset is {reason}"
+                )
+        loop = self.repository.get_loop(loop_id) if loop_id else None
+        if loop:
+            linked_orchestration_id = str(loop.get("orchestration_id", "") or "").strip()
+            if orchestration_id and linked_orchestration_id and linked_orchestration_id != orchestration_id:
+                raise LooporaConflictError(
+                    f"bundle {bundle['id']} loop {loop_id} points at orchestration {linked_orchestration_id}, not {orchestration_id}"
+                )
+            runs = self.repository.list_runs_for_loop(loop_id, limit=5000)
+            active_runs = [str(run["id"]) for run in runs if run.get("status") in {"queued", "running"}]
+            if active_runs:
+                raise LooporaConflictError(f"cannot delete bundle with active loop runs: {', '.join(active_runs)}")
+            paths.extend(Path(run["runs_dir"]) for run in runs if str(run.get("runs_dir") or "").strip())
+            paths.append(self._loop_artifact_dir_for_record(loop))
+        orchestration = self.repository.get_orchestration(orchestration_id) if orchestration_id else None
+        if orchestration_id:
+            shared_loop_ids = [
+                str(loop_record.get("id") or "").strip()
+                for loop_record in self.repository.list_loops()
+                if str(loop_record.get("orchestration_id") or "").strip() == orchestration_id
+                and str(loop_record.get("id") or "").strip() != loop_id
+            ]
+            if shared_loop_ids:
+                raise LooporaConflictError(
+                    f"bundle {bundle['id']} cannot delete orchestration {orchestration_id}; "
+                    f"it is referenced by loops: {', '.join(shared_loop_ids)}"
+                )
+        if orchestration and role_definition_ids:
+            workflow = orchestration.get("workflow_json") or {}
+            referenced_role_ids = {
+                str(role.get("role_definition_id", "") or "").strip()
+                for role in workflow.get("roles", [])
+                if isinstance(role, dict)
+            }
+            unexpected = sorted(role_id for role_id in role_definition_ids if role_id not in referenced_role_ids)
+            if referenced_role_ids and unexpected:
+                raise LooporaConflictError(
+                    f"bundle {bundle['id']} role definitions are not owned by orchestration {orchestration_id}: {', '.join(unexpected)}"
+                )
+        role_ids = set(role_definition_ids)
+        if role_ids:
+            external_orchestrations = []
+            for candidate in self.repository.list_orchestrations():
+                candidate_id = str(candidate.get("id") or "").strip()
+                if candidate_id == orchestration_id:
+                    continue
+                workflow = candidate.get("workflow_json") or {}
+                referenced = {
+                    str(role.get("role_definition_id", "") or "").strip()
+                    for role in workflow.get("roles", [])
+                    if isinstance(role, dict)
+                }
+                if role_ids & referenced:
+                    external_orchestrations.append(candidate_id)
+            if external_orchestrations:
+                raise LooporaConflictError(
+                    f"bundle {bundle['id']} cannot delete shared role definitions; "
+                    f"referenced by orchestrations: {', '.join(sorted(external_orchestrations))}"
+                )
+        return paths
+
+    @staticmethod
+    def _loop_artifact_dir_for_record(loop: dict) -> Path:
+        return state_dir_for_workdir(loop["workdir"]) / "loops" / loop["id"]
 
     def _sync_bundle_yaml(self, bundle_id: str) -> None:
         self._bundle_yaml_path(bundle_id).parent.mkdir(parents=True, exist_ok=True)
         self._bundle_yaml_path(bundle_id).write_text(self.export_bundle_yaml(bundle_id), encoding="utf-8")
+
+    @staticmethod
+    def _record_bundle_cleanup_failure(
+        *,
+        operation: str,
+        resource_type: str,
+        resource_id: object,
+        owner_id: object,
+        error: BaseException,
+    ) -> None:
+        payload = cleanup_diagnostic_payload(
+            operation=operation,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            owner_id=owner_id,
+            error=error,
+        )
+        log_cleanup_diagnostic(logger, **payload)

@@ -20,6 +20,10 @@
   {%- endif -%}
 {% endblock %}
 {% block main_class %}{% if create_page_mode == "bundle" %}site-main--bundle{% endif %}{% endblock %}
+{% block styles %}
+<link rel="stylesheet" href="{{ static_asset_url('pages/workflow_editor.css') }}" />
+<link rel="stylesheet" href="{{ static_asset_url('pages/alignment.css') }}" />
+{% endblock %}
 {% block content %}
 <div class="page-stack" data-testid="loop-create-page" data-create-mode="{{ create_page_mode }}">
 {% if create_page_mode == "choice" %}

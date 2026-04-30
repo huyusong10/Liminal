@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from loopora.diagnostics import log_exception
 from loopora.service_alignment import ALIGNMENT_ACTIVE_STATUSES
 from loopora.web_route_context import WebRouteContext
+from loopora.web_streaming import stream_error_payload
 
 
 def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
@@ -122,7 +123,7 @@ def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
                         session_id=session_id,
                         after_id=last_id,
                     )
-                    payload = {"session_id": session_id, "after_id": last_id, "error": str(exc)}
+                    payload = stream_error_payload(owner_key="session_id", owner_id=session_id, after_id=last_id)
                     yield "event: stream_error\n"
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
                     break

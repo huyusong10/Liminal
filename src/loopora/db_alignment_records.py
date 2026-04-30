@@ -55,6 +55,26 @@ class RepositoryAlignmentRecordsMixin:
                     payload.get("error_message", ""),
                 ),
             )
+            session_root = self._alignment_event_artifact_root(Path(payload["bundle_path"]))
+            connection.execute(
+                """
+                INSERT INTO local_asset_roots
+                    (resource_type, resource_id, path, workdir, owner_id, state, updated_at)
+                VALUES ('alignment_session', ?, ?, ?, ?, 'active', ?)
+                ON CONFLICT(resource_type, resource_id, path) DO UPDATE SET
+                    workdir = excluded.workdir,
+                    owner_id = excluded.owner_id,
+                    state = 'active',
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    payload["id"],
+                    str(session_root),
+                    payload["workdir"],
+                    payload["id"],
+                    now,
+                ),
+            )
         session = self.get_alignment_session(payload["id"])
         log_event(
             logger,
@@ -157,6 +177,16 @@ class RepositoryAlignmentRecordsMixin:
                 LIMIT ?
                 """,
                 (safe_limit,),
+            ).fetchall()
+        return [self._decode_row(row) for row in rows]
+
+    def list_all_alignment_sessions(self) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM alignment_sessions
+                ORDER BY updated_at DESC, created_at DESC
+                """
             ).fetchall()
         return [self._decode_row(row) for row in rows]
 

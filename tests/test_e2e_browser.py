@@ -229,6 +229,24 @@ def serve_app(app):
         thread.join(timeout=5)
 
 
+@contextmanager
+def launch_chromium(**kwargs):
+    with playwright.sync_playwright() as playwright_driver:
+        try:
+            browser = playwright_driver.chromium.launch(**kwargs)
+        except Exception as exc:  # pragma: no cover - environment dependent
+            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+        try:
+            yield browser
+        finally:
+            browser.close()
+
+
+def open_nav_preferences(page) -> None:
+    page.get_by_test_id("nav-preferences-toggle").click()
+    page.get_by_test_id("nav-preferences-panel").wait_for(state="visible")
+
+
 def _bundle_yaml_for_workdir(workdir: Path) -> str:
     return FakeCodexExecutor._alignment_bundle_yaml(str(workdir.expanduser().resolve()))
 
@@ -257,16 +275,21 @@ def _wait_for_run_status(service: LooporaService, run_id: str, *statuses: str, t
     raise AssertionError(f"run stayed in {run['status']}, expected {sorted(expected)}")
 
 
+def test_browser_tests_do_not_use_nested_sync_api_entrypoint() -> None:
+    forbidden = "playwright.sync_api" + ".sync_playwright"
+    assert forbidden not in Path(__file__).read_text(encoding="utf-8")
+
+
 def _assert_preview_has_expert_tabs_and_stable_hover(page) -> None:
     page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
     assert page.get_by_test_id("alignment-spec-preview").inner_html().strip()
     page.get_by_test_id("alignment-preview-tab-roles").click()
-    assert page.locator('[data-testid="alignment-role-list"] .alignment-role-card').count() >= 3
+    assert page.locator('[data-testid="alignment-role-list"] [data-testid="alignment-role-card"]').count() >= 3
 
     page.get_by_test_id("alignment-preview-tab-workflow").click()
     diagram = page.get_by_test_id("alignment-workflow-diagram")
     diagram.locator("svg").wait_for(state="visible", timeout=5_000)
-    assert diagram.locator(".workflow-loop-node").count() >= 3
+    assert diagram.get_by_test_id("workflow-loop-node").count() >= 3
     assert page.get_by_test_id("alignment-preview-tab-yaml").count() == 0
     page.get_by_test_id("alignment-preview-tab-roles").click()
     first_role = page.locator('[data-testid="alignment-role-card"]').first
@@ -287,7 +310,7 @@ def _assert_preview_has_expert_tabs_and_stable_hover(page) -> None:
         assert metrics["scrollHeight"] <= metrics["clientHeight"] + 1
 
     page.get_by_test_id("alignment-preview-tab-workflow").click()
-    node = diagram.locator(".workflow-loop-node").nth(1)
+    node = diagram.get_by_test_id("workflow-loop-node").nth(1)
     node.scroll_into_view_if_needed()
     layout_before = page.evaluate(
         """() => {
@@ -321,7 +344,7 @@ def _assert_preview_has_expert_tabs_and_stable_hover(page) -> None:
         }"""
     )
     node.hover()
-    tooltip = diagram.locator(".workflow-loop-tooltip")
+    tooltip = diagram.get_by_test_id("workflow-loop-tooltip")
     tooltip.wait_for(state="visible", timeout=2_000)
     tooltip_text = tooltip.text_content() or ""
     assert "2" in tooltip_text
@@ -439,22 +462,17 @@ def test_e2e_calculator_loop_runs_and_works_in_browser(tmp_path: Path) -> None:
     assert run["status"] == "succeeded"
 
     with serve_directory(workdir) as base_url:
-        try:
-            with playwright.sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
-                page.goto(f"{base_url}/index.html")
-                page.get_by_role("button", name="7").click()
-                page.get_by_role("button", name="+").click()
-                page.get_by_role("button", name="5").click()
-                page.get_by_role("button", name="=").click()
-                assert page.locator('[data-testid="display"]').input_value() == "12"
+        with launch_chromium(headless=True) as browser:
+            page = browser.new_page()
+            page.goto(f"{base_url}/index.html")
+            page.get_by_role("button", name="7").click()
+            page.get_by_role("button", name="+").click()
+            page.get_by_role("button", name="5").click()
+            page.get_by_role("button", name="=").click()
+            assert page.locator('[data-testid="display"]').input_value() == "12"
 
-                page.get_by_role("button", name="C").click()
-                assert page.locator('[data-testid="display"]').input_value() == "0"
-                browser.close()
-        except Exception as exc:  # pragma: no cover - environment dependent
-            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+            page.get_by_role("button", name="C").click()
+            assert page.locator('[data-testid="display"]').input_value() == "0"
 
 
 def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: Path) -> None:
@@ -470,11 +488,7 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
     )
 
     with serve_app(build_app(service=service)) as base_url:
-        with playwright.sync_playwright() as p:
-            try:
-                browser = p.chromium.launch(headless=True)
-            except Exception as exc:  # pragma: no cover - environment dependent
-                pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+        with launch_chromium(headless=True) as browser:
             page = browser.new_page(viewport={"width": 1440, "height": 1100})
             try:
                 page.goto(f"{base_url}/loops/new/bundle", wait_until="networkidle")
@@ -535,7 +549,7 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
                 transcript_text = page.get_by_test_id("alignment-transcript").text_content() or ""
                 assert "循环方案" in transcript_text
                 assert page.locator('[data-testid="alignment-console-output"] .console-line').count() >= 2
-                assert page.locator(".alignment-history-item").count() == 1
+                assert page.get_by_test_id("alignment-history-item").count() == 1
                 page.get_by_test_id("alignment-source-open-button").wait_for(state="visible", timeout=5_000)
                 page.get_by_test_id("alignment-source-sync-button").wait_for(state="visible", timeout=5_000)
                 sidebar_before = page.get_by_test_id("alignment-history-panel").bounding_box()
@@ -549,7 +563,7 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
                 _assert_plan_preview_has_default_summary_and_expert_tabs(page)
                 page.get_by_test_id("alignment-new-session-button").click()
                 page.get_by_test_id("alignment-ready-preview").wait_for(state="hidden", timeout=5_000)
-                page.locator(".alignment-history-open").first.click()
+                page.get_by_test_id("alignment-history-open").first.click()
                 page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
                 page.get_by_test_id("alignment-status-pill").click()
                 _assert_plan_preview_has_default_summary_and_expert_tabs(page)
@@ -564,7 +578,7 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
                 assert bundles[0]["loop_id"] == run["loop_id"]
                 assert service.get_alignment_session(session["id"])["linked_run_id"] == run_id
             finally:
-                browser.close()
+                page.close()
 
 
 def test_bundle_chat_shell_initial_layout_is_minimal_and_responsive(tmp_path: Path) -> None:
@@ -573,46 +587,39 @@ def test_bundle_chat_shell_initial_layout_is_minimal_and_responsive(tmp_path: Pa
     service = LooporaService(repository=repository, settings=settings)
 
     with serve_app(build_app(service=service)) as base_url:
-        with playwright.sync_playwright() as p:
-            try:
-                browser = p.chromium.launch(headless=True)
-            except Exception as exc:  # pragma: no cover - environment dependent
-                pytest.skip(f"Playwright browser launch is unavailable: {exc}")
-            try:
-                for viewport in ({"width": 1440, "height": 960}, {"width": 390, "height": 844}):
-                    page = browser.new_page(viewport=viewport)
-                    page.goto(f"{base_url}/loops/new/bundle", wait_until="networkidle")
-                    page.get_by_test_id("alignment-empty-state").wait_for(state="visible", timeout=5_000)
-                    assert page.get_by_test_id("alignment-chat").is_hidden()
-                    assert page.get_by_test_id("alignment-ready-preview").is_hidden()
-                    assert page.locator("#bundle-import-yaml").count() == 0
-                    assert page.get_by_test_id("alignment-import-open-button").count() == 0
-                    assert page.get_by_test_id("alignment-tools-menu").is_hidden()
-                    page.get_by_test_id("alignment-workdir-chip").click()
-                    page.get_by_test_id("alignment-tools-menu").wait_for(state="visible", timeout=5_000)
-                    page.keyboard.press("Escape")
-                    page.get_by_test_id("alignment-tools-menu").wait_for(state="hidden", timeout=5_000)
-                    metrics = page.evaluate(
-                        """() => ({
-                          bodyWidth: document.body.scrollWidth,
-                          docScrollHeight: document.documentElement.scrollHeight,
-                          viewportHeight: window.innerHeight,
-                          viewportWidth: window.innerWidth,
-                          composer: document.querySelector('[data-testid="alignment-start-form"]').getBoundingClientRect()
-                        })"""
-                    )
-                    assert metrics["bodyWidth"] <= metrics["viewportWidth"] + 1
-                    assert metrics["docScrollHeight"] <= metrics["viewportHeight"] + 1
-                    assert metrics["composer"]["left"] >= -1
-                    assert metrics["composer"]["right"] <= metrics["viewportWidth"] + 1
-                    page.close()
-                page = browser.new_page(viewport={"width": 1280, "height": 900})
-                page.goto(f"{base_url}/loops/new/bundle#bundle-import-form", wait_until="networkidle")
-                page.wait_for_url("**/loops/new/manual#bundle-import-form", timeout=5_000)
-                page.get_by_test_id("manual-bundle-import-panel").wait_for(state="visible", timeout=5_000)
+        with launch_chromium(headless=True) as browser:
+            for viewport in ({"width": 1440, "height": 960}, {"width": 390, "height": 844}):
+                page = browser.new_page(viewport=viewport)
+                page.goto(f"{base_url}/loops/new/bundle", wait_until="networkidle")
+                page.get_by_test_id("alignment-empty-state").wait_for(state="visible", timeout=5_000)
+                assert page.get_by_test_id("alignment-chat").is_hidden()
+                assert page.get_by_test_id("alignment-ready-preview").is_hidden()
+                assert page.locator("#bundle-import-yaml").count() == 0
+                assert page.get_by_test_id("alignment-import-open-button").count() == 0
+                assert page.get_by_test_id("alignment-tools-menu").is_hidden()
+                page.get_by_test_id("alignment-workdir-chip").click()
+                page.get_by_test_id("alignment-tools-menu").wait_for(state="visible", timeout=5_000)
+                page.keyboard.press("Escape")
+                page.get_by_test_id("alignment-tools-menu").wait_for(state="hidden", timeout=5_000)
+                metrics = page.evaluate(
+                    """() => ({
+                      bodyWidth: document.body.scrollWidth,
+                      docScrollHeight: document.documentElement.scrollHeight,
+                      viewportHeight: window.innerHeight,
+                      viewportWidth: window.innerWidth,
+                      composer: document.querySelector('[data-testid="alignment-start-form"]').getBoundingClientRect()
+                    })"""
+                )
+                assert metrics["bodyWidth"] <= metrics["viewportWidth"] + 1
+                assert metrics["docScrollHeight"] <= metrics["viewportHeight"] + 1
+                assert metrics["composer"]["left"] >= -1
+                assert metrics["composer"]["right"] <= metrics["viewportWidth"] + 1
                 page.close()
-            finally:
-                browser.close()
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            page.goto(f"{base_url}/loops/new/bundle#bundle-import-form", wait_until="networkidle")
+            page.wait_for_url("**/loops/new/manual#bundle-import-form", timeout=5_000)
+            page.get_by_test_id("manual-bundle-import-panel").wait_for(state="visible", timeout=5_000)
+            page.close()
 
 
 def test_bundle_chat_history_items_can_be_deleted_from_browser(tmp_path: Path) -> None:
@@ -628,22 +635,18 @@ def test_bundle_chat_history_items_can_be_deleted_from_browser(tmp_path: Path) -
     )
 
     with serve_app(build_app(service=service)) as base_url:
-        with playwright.sync_playwright() as p:
-            try:
-                browser = p.chromium.launch(headless=True)
-            except Exception as exc:  # pragma: no cover - environment dependent
-                pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+        with launch_chromium(headless=True) as browser:
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             try:
                 page.goto(f"{base_url}/loops/new/bundle", wait_until="networkidle")
-                page.locator(".alignment-history-item").wait_for(state="visible", timeout=5_000)
-                assert page.locator(".alignment-history-item").count() == 1
+                page.get_by_test_id("alignment-history-item").wait_for(state="visible", timeout=5_000)
+                assert page.get_by_test_id("alignment-history-item").count() == 1
                 page.get_by_test_id("alignment-history-delete").click()
-                page.locator(".alignment-history-item").wait_for(state="detached", timeout=5_000)
+                page.get_by_test_id("alignment-history-item").wait_for(state="detached", timeout=5_000)
                 assert service.list_alignment_sessions(limit=10) == []
                 assert not Path(session["artifact_dir"]).exists()
             finally:
-                browser.close()
+                page.close()
 
 
 def test_bundle_yaml_preview_imports_and_runs_from_browser(tmp_path: Path) -> None:
@@ -660,11 +663,7 @@ def test_bundle_yaml_preview_imports_and_runs_from_browser(tmp_path: Path) -> No
     )
 
     with serve_app(build_app(service=service)) as base_url:
-        with playwright.sync_playwright() as p:
-            try:
-                browser = p.chromium.launch(headless=True)
-            except Exception as exc:  # pragma: no cover - environment dependent
-                pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+        with launch_chromium(headless=True) as browser:
             page = browser.new_page(viewport={"width": 1280, "height": 1100})
             try:
                 page.goto(f"{base_url}/loops/new/manual#bundle-import-form", wait_until="networkidle")
@@ -687,7 +686,7 @@ def test_bundle_yaml_preview_imports_and_runs_from_browser(tmp_path: Path) -> No
                 assert bundles[0]["loop_id"] == run["loop_id"]
                 assert service.get_loop(run["loop_id"])["bundle"]["id"] == bundles[0]["id"]
             finally:
-                browser.close()
+                page.close()
 
 
 def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(
@@ -719,105 +718,99 @@ def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(
 
     try:
         with serve_app(build_app(service=service)) as base_url:
-            try:
-                with playwright.sync_playwright() as p:
-                    browser = p.chromium.launch(headless=True)
-                    page = browser.new_page(viewport={"width": 375, "height": 844})
+            with launch_chromium(headless=True) as browser:
+                page = browser.new_page(viewport={"width": 375, "height": 844})
 
-                    page.goto(f"{base_url}/", wait_until="networkidle")
-                    assert page.locator(".top-nav-brand-lockup").get_attribute("src") == "/logo/logo-with-text-horizontal.svg"
+                page.goto(f"{base_url}/", wait_until="networkidle")
+                assert page.get_by_test_id("top-nav-brand-lockup").get_attribute("src") == "/logo/logo-with-text-horizontal.svg"
 
-                    index_mobile = page.evaluate(
-                        """() => ({
-                          docW: document.documentElement.scrollWidth,
-                          clientW: document.documentElement.clientWidth,
-                          navW: document.querySelector(".top-nav").scrollWidth,
-                          cardCount: document.querySelectorAll(".loop-card").length,
-                          pageStackWidth: document.querySelector(".page-stack").getBoundingClientRect().width,
-                          noteCount: document.querySelectorAll(".loop-grid-note").length,
-                          actionWidths: Array.from(document.querySelectorAll(".loop-card:first-of-type .card-actions > *")).map((node) => Math.round(node.getBoundingClientRect().width))
-                        })"""
-                    )
-                    assert index_mobile["docW"] == index_mobile["clientW"]
-                    assert index_mobile["navW"] == index_mobile["clientW"]
-                    assert index_mobile["cardCount"] == len(created_loop_ids)
-                    assert index_mobile["noteCount"] == 1
-                    assert len(set(index_mobile["actionWidths"])) == 1
+                index_mobile = page.evaluate(
+                    """() => ({
+                      docW: document.documentElement.scrollWidth,
+                      clientW: document.documentElement.clientWidth,
+                      navW: document.querySelector("[data-testid='top-nav']").scrollWidth,
+                      cardCount: document.querySelectorAll("[data-testid='loop-card']").length,
+                      pageStackWidth: document.querySelector(".page-stack").getBoundingClientRect().width,
+                      noteCount: document.querySelectorAll("[data-testid='loop-grid-note']").length,
+                      actionWidths: Array.from(document.querySelector("[data-testid='loop-card'] [data-testid='loop-card-actions']").children).map((node) => Math.round(node.getBoundingClientRect().width))
+                    })"""
+                )
+                assert index_mobile["docW"] == index_mobile["clientW"]
+                assert index_mobile["navW"] == index_mobile["clientW"]
+                assert index_mobile["cardCount"] == len(created_loop_ids)
+                assert index_mobile["noteCount"] == 1
+                assert len(set(index_mobile["actionWidths"])) == 1
 
-                    page.set_viewport_size({"width": 1440, "height": 1200})
-                    page.goto(f"{base_url}/", wait_until="networkidle")
-                    index_desktop = page.evaluate(
-                        """() => ({
-                          pageStackWidth: document.querySelector(".page-stack").getBoundingClientRect().width,
-                          actionWidths: Array.from(document.querySelectorAll(".loop-card:first-of-type .card-actions > *")).map((node) => Math.round(node.getBoundingClientRect().width))
-                        })"""
-                    )
-                    assert len(set(index_desktop["actionWidths"])) == 1
+                page.set_viewport_size({"width": 1440, "height": 1200})
+                page.goto(f"{base_url}/", wait_until="networkidle")
+                index_desktop = page.evaluate(
+                    """() => ({
+                      pageStackWidth: document.querySelector(".page-stack").getBoundingClientRect().width,
+                      actionWidths: Array.from(document.querySelector("[data-testid='loop-card'] [data-testid='loop-card-actions']").children).map((node) => Math.round(node.getBoundingClientRect().width))
+                    })"""
+                )
+                assert len(set(index_desktop["actionWidths"])) == 1
 
-                    page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
-                    desktop_form = page.evaluate(
-                        """() => {
-                          const form = document.getElementById("new-loop-form").getBoundingClientRect();
-                          const hero = document.querySelector(".hero-form").getBoundingClientRect();
-                          const stack = document.querySelector(".page-stack").getBoundingClientRect();
-                          return {
-                            docW: document.documentElement.scrollWidth,
-                            clientW: document.documentElement.clientWidth,
-                            formWidth: form.width,
-                            heroWidth: hero.width,
-                            formLeft: form.left,
-                            formRight: form.right,
-                            pageStackWidth: stack.width
-                          };
-                        }"""
-                    )
-                    assert desktop_form["docW"] == desktop_form["clientW"]
-                    assert desktop_form["formWidth"] >= 1180
-                    assert desktop_form["heroWidth"] >= 1180
-                    assert abs(desktop_form["pageStackWidth"] - index_desktop["pageStackWidth"]) <= 2
-                    left_gutter = desktop_form["formLeft"]
-                    right_gutter = desktop_form["clientW"] - desktop_form["formRight"]
-                    assert abs(left_gutter - right_gutter) <= 24
+                page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
+                desktop_form = page.evaluate(
+                    """() => {
+                      const form = document.getElementById("new-loop-form").getBoundingClientRect();
+                      const hero = document.querySelector(".hero-form").getBoundingClientRect();
+                      const stack = document.querySelector(".page-stack").getBoundingClientRect();
+                      return {
+                        docW: document.documentElement.scrollWidth,
+                        clientW: document.documentElement.clientWidth,
+                        formWidth: form.width,
+                        heroWidth: hero.width,
+                        formLeft: form.left,
+                        formRight: form.right,
+                        pageStackWidth: stack.width
+                      };
+                    }"""
+                )
+                assert desktop_form["docW"] == desktop_form["clientW"]
+                assert desktop_form["formWidth"] >= 1180
+                assert desktop_form["heroWidth"] >= 1180
+                assert abs(desktop_form["pageStackWidth"] - index_desktop["pageStackWidth"]) <= 2
+                left_gutter = desktop_form["formLeft"]
+                right_gutter = desktop_form["clientW"] - desktop_form["formRight"]
+                assert abs(left_gutter - right_gutter) <= 24
 
-                    page.goto(f"{base_url}/tools", wait_until="networkidle")
-                    tools_desktop = page.evaluate(
-                        """() => ({
-                          pageStackWidth: document.querySelector(".page-stack").getBoundingClientRect().width,
-                          hasTipsButton: Boolean(document.querySelector(".help-dot--tips")),
-                          tipsButtonText: document.querySelector(".help-dot--tips")?.textContent?.trim() || "",
-                          nativeTitle: document.querySelector(".help-dot--tips")?.getAttribute("title")
-                        })"""
-                    )
-                    assert abs(tools_desktop["pageStackWidth"] - index_desktop["pageStackWidth"]) <= 2
-                    assert tools_desktop["hasTipsButton"] is True
-                    assert tools_desktop["tipsButtonText"] == "i"
-                    assert tools_desktop["nativeTitle"] is None
+                page.goto(f"{base_url}/tools", wait_until="networkidle")
+                tools_desktop = page.evaluate(
+                    """() => ({
+                      pageStackWidth: document.querySelector(".page-stack").getBoundingClientRect().width,
+                      hasTipsButton: Boolean(document.querySelector(".help-dot--tips")),
+                      tipsButtonText: document.querySelector(".help-dot--tips")?.textContent?.trim() || "",
+                      nativeTitle: document.querySelector(".help-dot--tips")?.getAttribute("title")
+                    })"""
+                )
+                assert abs(tools_desktop["pageStackWidth"] - index_desktop["pageStackWidth"]) <= 2
+                assert tools_desktop["hasTipsButton"] is True
+                assert tools_desktop["tipsButtonText"] == "i"
+                assert tools_desktop["nativeTitle"] is None
 
-                    page.set_viewport_size({"width": 390, "height": 844})
-                    page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
-                    mobile_form = page.evaluate(
-                        """() => {
-                          const form = document.getElementById("new-loop-form").getBoundingClientRect();
-                          const stack = document.querySelector(".page-stack").getBoundingClientRect();
-                          return {
-                            docW: document.documentElement.scrollWidth,
-                            clientW: document.documentElement.clientWidth,
-                            formWidth: form.width,
-                            formLeft: form.left,
-                            formRight: form.right,
-                            pageStackWidth: stack.width
-                          };
-                        }"""
-                    )
-                    assert mobile_form["docW"] == mobile_form["clientW"]
-                    assert 320 <= mobile_form["formWidth"] <= mobile_form["clientW"]
-                    assert mobile_form["formLeft"] >= 0
-                    assert mobile_form["formRight"] <= mobile_form["clientW"] + 1
-                    assert mobile_form["pageStackWidth"] <= mobile_form["clientW"]
-
-                    browser.close()
-            except Exception as exc:  # pragma: no cover - environment dependent
-                pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
+                mobile_form = page.evaluate(
+                    """() => {
+                      const form = document.getElementById("new-loop-form").getBoundingClientRect();
+                      const stack = document.querySelector(".page-stack").getBoundingClientRect();
+                      return {
+                        docW: document.documentElement.scrollWidth,
+                        clientW: document.documentElement.clientWidth,
+                        formWidth: form.width,
+                        formLeft: form.left,
+                        formRight: form.right,
+                        pageStackWidth: stack.width
+                      };
+                    }"""
+                )
+                assert mobile_form["docW"] == mobile_form["clientW"]
+                assert 320 <= mobile_form["formWidth"] <= mobile_form["clientW"]
+                assert mobile_form["formLeft"] >= 0
+                assert mobile_form["formRight"] <= mobile_form["clientW"] + 1
+                assert mobile_form["pageStackWidth"] <= mobile_form["clientW"]
     finally:
         for loop_id in list(created_loop_ids):
             try:
@@ -855,30 +848,23 @@ def test_new_loop_page_restores_saved_browser_draft(tmp_path: Path) -> None:
     )
 
     with serve_app(build_app(service=service)) as base_url:
-        try:
-            with playwright.sync_api.sync_playwright() as playwright_driver:
-                browser = playwright_driver.chromium.launch()
-                page = browser.new_page()
-                try:
-                    page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
-                    page.locator('input[name="name"]').fill("Recovered browser draft")
-                    page.locator('input[name="workdir"]').fill(str(workdir))
-                    page.locator('input[name="spec_path"]').fill(str(spec_path))
-                    page.locator('select[name="orchestration_id"]').select_option("builtin:evidence_first")
-                    page.locator('select[name="completion_mode"]').select_option("rounds")
-                    page.reload(wait_until="networkidle")
+        with launch_chromium() as browser:
+            page = browser.new_page()
+            page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
+            page.locator('input[name="name"]').fill("Recovered browser draft")
+            page.locator('input[name="workdir"]').fill(str(workdir))
+            page.locator('input[name="spec_path"]').fill(str(spec_path))
+            page.locator('select[name="orchestration_id"]').select_option("builtin:evidence_first")
+            page.locator('select[name="completion_mode"]').select_option("rounds")
+            page.reload(wait_until="networkidle")
 
-                    assert page.locator('input[name="name"]').input_value() == "Recovered browser draft"
-                    assert page.locator('input[name="workdir"]').input_value() == str(workdir)
-                    assert page.locator('input[name="spec_path"]').input_value() == str(spec_path)
-                    assert page.locator('select[name="orchestration_id"]').input_value() == "builtin:evidence_first"
-                    assert page.locator('select[name="completion_mode"]').input_value() == "rounds"
-                    assert page.locator("#draft-status").is_visible()
-                    assert page.locator("#clear-draft-button").is_visible()
-                finally:
-                    browser.close()
-        except Exception as exc:  # pragma: no cover - environment dependent
-            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+            assert page.locator('input[name="name"]').input_value() == "Recovered browser draft"
+            assert page.locator('input[name="workdir"]').input_value() == str(workdir)
+            assert page.locator('input[name="spec_path"]').input_value() == str(spec_path)
+            assert page.locator('select[name="orchestration_id"]').input_value() == "builtin:evidence_first"
+            assert page.locator('select[name="completion_mode"]').input_value() == "rounds"
+            assert page.locator("#draft-status").is_visible()
+            assert page.locator("#clear-draft-button").is_visible()
 
 
 def test_new_loop_page_does_not_restore_pristine_only_browser_defaults(tmp_path: Path) -> None:
@@ -905,30 +891,23 @@ def test_new_loop_page_does_not_restore_pristine_only_browser_defaults(tmp_path:
     )
 
     with serve_app(build_app(service=service)) as base_url:
-        try:
-            with playwright.sync_api.sync_playwright() as playwright_driver:
-                browser = playwright_driver.chromium.launch()
-                page = browser.new_page()
-                try:
-                    page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
-                    name_input = page.locator('input[name="name"]')
-                    name_input.fill("Temporary draft")
-                    name_input.fill("")
-                    page.locator('input[name="workdir"]').fill(str(workdir))
-                    page.locator('input[name="workdir"]').fill("")
-                    page.locator('input[name="spec_path"]').fill(str(spec_path))
-                    page.locator('input[name="spec_path"]').fill("")
-                    page.reload(wait_until="networkidle")
+        with launch_chromium() as browser:
+            page = browser.new_page()
+            page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
+            name_input = page.locator('input[name="name"]')
+            name_input.fill("Temporary draft")
+            name_input.fill("")
+            page.locator('input[name="workdir"]').fill(str(workdir))
+            page.locator('input[name="workdir"]').fill("")
+            page.locator('input[name="spec_path"]').fill(str(spec_path))
+            page.locator('input[name="spec_path"]').fill("")
+            page.reload(wait_until="networkidle")
 
-                    assert page.locator('input[name="name"]').input_value() == ""
-                    assert page.locator('input[name="workdir"]').input_value() == ""
-                    assert page.locator('input[name="spec_path"]').input_value() == ""
-                    assert page.locator("#draft-status").is_hidden()
-                    assert page.locator("#clear-draft-button").is_hidden()
-                finally:
-                    browser.close()
-        except Exception as exc:  # pragma: no cover - environment dependent
-            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+            assert page.locator('input[name="name"]').input_value() == ""
+            assert page.locator('input[name="workdir"]').input_value() == ""
+            assert page.locator('input[name="spec_path"]').input_value() == ""
+            assert page.locator("#draft-status").is_hidden()
+            assert page.locator("#clear-draft-button").is_hidden()
 
 
 def test_new_loop_page_can_edit_spec_in_a_markdown_workbench_modal(tmp_path: Path) -> None:
@@ -968,51 +947,158 @@ def test_new_loop_page_can_edit_spec_in_a_markdown_workbench_modal(tmp_path: Pat
     )
 
     with serve_app(build_app(service=service)) as base_url:
-        try:
-            with playwright.sync_api.sync_playwright() as playwright_driver:
-                browser = playwright_driver.chromium.launch()
-                page = browser.new_page(viewport={"width": 1440, "height": 960})
-                try:
-                    page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
-                    page.locator('input[name="spec_path"]').fill(str(spec_path))
-                    page.get_by_test_id("spec-editor-button").click()
+        with launch_chromium() as browser:
+            page = browser.new_page(viewport={"width": 1440, "height": 960})
+            page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
+            page.locator('input[name="spec_path"]').fill(str(spec_path))
+            page.get_by_test_id("spec-editor-button").click()
 
-                    modal = page.get_by_test_id("spec-editor-modal")
-                    assert modal.get_attribute("aria-hidden") == "false"
-                    assert page.get_by_test_id("spec-editor-validation-pill").is_visible()
-                    assert page.locator("#spec-preview-path").text_content() == str(spec_path)
-                    editor = page.get_by_test_id("spec-editor-input")
-                    assert "# Task" in editor.input_value()
-                    assert page.locator("#spec-editor-source-panel").is_visible()
-                    assert page.locator("#spec-editor-preview-panel").is_hidden()
-                    header_box = page.locator(".spec-preview-copy").bounding_box()
-                    assert header_box is not None and header_box["width"] > 320
-                    editor.fill("# Task\n\nUpdated from the modal.\n\n# Done When\n\n- Save to disk\n")
-                    page.get_by_test_id("save-spec-document-button").click()
-                    page.wait_for_timeout(120)
-                    assert "Updated from the modal." in spec_path.read_text(encoding="utf-8")
-                    page.get_by_test_id("spec-editor-preview-toggle-button").click()
-                    assert page.locator("#spec-editor-source-panel").is_hidden()
-                    assert page.locator("#spec-editor-preview-panel").is_visible()
-                    preview_html = page.locator("#spec-preview-content").inner_html()
-                    assert "<script>" not in preview_html
-                    assert "Updated from the modal." in preview_html
-                    preview_metrics = page.locator("#spec-preview-content").evaluate(
-                        """(node) => ({
-                          overflowY: window.getComputedStyle(node).overflowY,
-                          clientHeight: node.clientHeight,
-                          scrollHeight: node.scrollHeight,
-                        })"""
-                    )
-                    assert preview_metrics["overflowY"] == "auto"
-                    assert preview_metrics["scrollHeight"] >= preview_metrics["clientHeight"]
+            modal = page.get_by_test_id("spec-editor-modal")
+            assert modal.get_attribute("aria-hidden") == "false"
+            assert page.get_by_test_id("spec-editor-validation-pill").is_visible()
+            assert page.locator("#spec-preview-path").text_content() == str(spec_path)
+            editor = page.get_by_test_id("spec-editor-input")
+            assert "# Task" in editor.input_value()
+            assert page.locator("#spec-editor-source-panel").is_visible()
+            assert page.locator("#spec-editor-preview-panel").is_hidden()
+            header_box = page.locator(".spec-preview-copy").bounding_box()
+            assert header_box is not None and header_box["width"] > 320
+            editor.fill("# Task\n\nUpdated from the modal.\n\n# Done When\n\n- Save to disk\n")
+            page.get_by_test_id("save-spec-document-button").click()
+            deadline = time.time() + 3
+            while time.time() < deadline and "Updated from the modal." not in spec_path.read_text(encoding="utf-8"):
+                time.sleep(0.05)
+            assert "Updated from the modal." in spec_path.read_text(encoding="utf-8")
+            page.get_by_test_id("spec-editor-preview-toggle-button").click()
+            assert page.locator("#spec-editor-source-panel").is_hidden()
+            assert page.locator("#spec-editor-preview-panel").is_visible()
+            page.wait_for_function(
+                "() => document.getElementById('spec-preview-content')?.textContent.includes('Updated from the modal.')"
+            )
+            preview_html = page.locator("#spec-preview-content").inner_html()
+            assert "<script>" not in preview_html
+            assert "Updated from the modal." in preview_html
+            preview_metrics = page.locator("#spec-preview-content").evaluate(
+                """(node) => ({
+                  overflowY: window.getComputedStyle(node).overflowY,
+                  clientHeight: node.clientHeight,
+                  scrollHeight: node.scrollHeight,
+                })"""
+            )
+            assert preview_metrics["overflowY"] == "auto"
+            assert preview_metrics["scrollHeight"] >= preview_metrics["clientHeight"]
 
-                    page.locator("#spec-preview-close").click()
-                    assert modal.get_attribute("aria-hidden") == "true"
-                finally:
-                    browser.close()
-        except Exception as exc:  # pragma: no cover - environment dependent
-            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+            page.locator("#spec-preview-close").click()
+            assert modal.get_attribute("aria-hidden") == "true"
+
+
+def test_run_detail_renders_sanitized_command_event_summary(tmp_path: Path) -> None:
+    workdir = tmp_path / "command-event-workdir"
+    workdir.mkdir()
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text(
+        "# Task\n\nRender sanitized command events.\n\n# Done When\n\n- The command summary appears.\n",
+        encoding="utf-8",
+    )
+    service = LooporaService(
+        repository=LooporaRepository(tmp_path / "app.db"),
+        settings=AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2),
+        executor_factory=lambda: FakeCodexExecutor(scenario="success"),
+    )
+    loop = service.create_loop(
+        name="Command Event Loop",
+        spec_path=spec_path,
+        workdir=workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    service.repository.append_event(
+        run["id"],
+        "codex_event",
+        {
+            "type": "command",
+            "message": "codex exec '<prompt omitted>' --auth-token '<secret omitted>'",
+            "prompt_omitted": True,
+            "token_omitted": True,
+        },
+    )
+
+    with serve_app(build_app(service=service)) as base_url:
+        with launch_chromium(headless=True) as browser:
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            try:
+                page.goto(f"{base_url}/runs/{run['id']}", wait_until="domcontentloaded")
+                page.wait_for_function(
+                    "() => ['ready', 'finished'].includes(document.querySelector('[data-testid=\"run-observation-status\"]')?.dataset.observationState)"
+                )
+                command_line = page.get_by_test_id("run-console-line").filter(has_text="$ codex exec")
+                command_line.wait_for(state="visible", timeout=5_000)
+                console_text = page.get_by_test_id("run-console-output").text_content() or ""
+                assert "Command" in console_text or "命令" in console_text
+                assert "<prompt omitted>" in console_text
+                assert "<secret omitted>" in console_text
+                assert "PROMPT_SECRET_MARKER" not in console_text
+            finally:
+                page.close()
+
+
+def test_run_detail_marks_snapshot_failure_as_degraded(tmp_path: Path) -> None:
+    workdir = tmp_path / "snapshot-failure-workdir"
+    workdir.mkdir()
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text("# Task\n\nObserve degraded snapshot loading.\n", encoding="utf-8")
+    service = LooporaService(
+        repository=LooporaRepository(tmp_path / "app.db"),
+        settings=AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2),
+        executor_factory=lambda: FakeCodexExecutor(scenario="success"),
+    )
+    loop = service.create_loop(
+        name="Snapshot Failure Loop",
+        spec_path=spec_path,
+        workdir=workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+
+    with serve_app(build_app(service=service)) as base_url:
+        with launch_chromium(headless=True) as browser:
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            try:
+                page.route(
+                    "**/api/runs/*/observation-snapshot",
+                    lambda route: route.fulfill(
+                        status=500,
+                        content_type="application/json",
+                        body='{"error":"forced snapshot failure"}',
+                    ),
+                )
+
+                def delayed_stream(route):
+                    time.sleep(0.3)
+                    route.fulfill(status=204, body="")
+
+                page.route("**/api/runs/*/stream*", delayed_stream)
+                page.goto(f"{base_url}/runs/{run['id']}", wait_until="domcontentloaded")
+                page.wait_for_function(
+                    "() => document.querySelector('[data-testid=\"run-observation-status\"]')?.dataset.observationState === 'degraded'"
+                )
+                assert page.get_by_test_id("run-observation-status").is_visible()
+            finally:
+                page.close()
 
 
 def test_new_loop_page_adapts_runtime_controls_to_selected_orchestration(tmp_path: Path) -> None:
@@ -1025,48 +1111,48 @@ def test_new_loop_page_adapts_runtime_controls_to_selected_orchestration(tmp_pat
     )
 
     with serve_app(build_app(service=service)) as base_url:
-        try:
-            with playwright.sync_api.sync_playwright() as playwright_driver:
-                browser = playwright_driver.chromium.launch()
-                page = browser.new_page()
-                try:
-                    page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
+        with launch_chromium() as browser:
+            page = browser.new_page()
+            rounds_only = service.create_orchestration(
+                name="Rounds Only Compatibility",
+                workflow={
+                    "version": 1,
+                    "roles": [
+                        {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                    ],
+                    "steps": [
+                        {"id": "builder_step", "role_id": "builder"},
+                    ],
+                },
+            )
+            page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
 
-                    legacy_benchmark = service.create_orchestration(
-                        name="Legacy Benchmark Compatibility",
-                        workflow={"preset": "benchmark_loop"},
-                    )
+            page.locator('select[name="orchestration_id"]').select_option("builtin:repair_loop")
+            assert page.locator('[data-testid="loop-trigger-window-field"]').is_visible()
+            assert page.locator('[data-testid="loop-regression-window-field"]').is_visible()
+            assert page.locator('select[name="completion_mode"]').input_value() == "gatekeeper"
 
-                    page.locator('select[name="orchestration_id"]').select_option("builtin:build_then_parallel_review")
-                    assert page.locator('[data-testid="loop-trigger-window-field"]').is_visible()
-                    assert page.locator('[data-testid="loop-regression-window-field"]').is_visible()
-                    assert page.locator('select[name="completion_mode"]').input_value() == "gatekeeper"
-
-                    page.locator('select[name="orchestration_id"]').select_option(legacy_benchmark["id"])
-                    assert page.locator('select[name="completion_mode"]').input_value() == "rounds"
-                    assert page.locator("#completion-mode-note").is_visible()
-                    policy = page.evaluate(
-                        """() => {
-                          const completion = document.querySelector('select[name="completion_mode"]');
-                          const gatekeeperOption = completion.querySelector('option[value="gatekeeper"]');
-                          return {
-                            triggerHidden: document.querySelector('[data-testid="loop-trigger-window-field"]').hidden,
-                            regressionHidden: document.querySelector('[data-testid="loop-regression-window-field"]').hidden,
-                            gatekeeperDisabled: gatekeeperOption.disabled,
-                            gatekeeperHidden: gatekeeperOption.hidden,
-                            note: document.getElementById('completion-mode-note').textContent.trim()
-                          };
-                        }"""
-                    )
-                    assert policy["triggerHidden"] is True
-                    assert policy["regressionHidden"] is True
-                    assert policy["gatekeeperDisabled"] is True
-                    assert policy["gatekeeperHidden"] is True
-                    assert "GateKeeper" in policy["note"] or "守门人" in policy["note"]
-                finally:
-                    browser.close()
-        except Exception as exc:  # pragma: no cover - environment dependent
-            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+            page.locator('select[name="orchestration_id"]').select_option(rounds_only["id"])
+            assert page.locator('select[name="completion_mode"]').input_value() == "rounds"
+            assert page.locator("#completion-mode-note").is_visible()
+            policy = page.evaluate(
+                """() => {
+                  const completion = document.querySelector('select[name="completion_mode"]');
+                  const gatekeeperOption = completion.querySelector('option[value="gatekeeper"]');
+                  return {
+                    triggerHidden: document.querySelector('[data-testid="loop-trigger-window-field"]').hidden,
+                    regressionHidden: document.querySelector('[data-testid="loop-regression-window-field"]').hidden,
+                    gatekeeperDisabled: gatekeeperOption.disabled,
+                    gatekeeperHidden: gatekeeperOption.hidden,
+                    note: document.getElementById('completion-mode-note').textContent.trim()
+                  };
+                }"""
+            )
+            assert policy["triggerHidden"] is True
+            assert policy["regressionHidden"] is True
+            assert policy["gatekeeperDisabled"] is True
+            assert policy["gatekeeperHidden"] is True
+            assert "GateKeeper" in policy["note"] or "守门人" in policy["note"]
 
 
 def test_role_definition_page_localizes_archetype_options_without_mixed_labels(tmp_path: Path) -> None:
@@ -1079,24 +1165,23 @@ def test_role_definition_page_localizes_archetype_options_without_mixed_labels(t
     )
 
     with serve_app(build_app(service=service)) as base_url:
-        try:
-            with playwright.sync_api.sync_playwright() as playwright_driver:
-                browser = playwright_driver.chromium.launch()
-                page = browser.new_page()
-                try:
-                    page.goto(f"{base_url}/roles/new", wait_until="networkidle")
+        with launch_chromium() as browser:
+            page = browser.new_page()
+            page.goto(f"{base_url}/roles/new", wait_until="networkidle")
 
-                    page.locator('button[data-set-locale="en"]').click()
-                    page.wait_for_timeout(50)
-                    assert page.locator('#role-definition-archetype-input option[value="inspector"]').text_content() == "Inspector"
+            open_nav_preferences(page)
+            page.locator('button[data-set-locale="en"]').click()
+            page.wait_for_function(
+                "() => document.querySelector('#role-definition-archetype-input option[value=\"inspector\"]')?.textContent === 'Inspector'"
+            )
+            assert page.locator('#role-definition-archetype-input option[value="inspector"]').text_content() == "Inspector"
 
-                    page.locator('button[data-set-locale="zh"]').click()
-                    page.wait_for_timeout(50)
-                    assert page.locator('#role-definition-archetype-input option[value="inspector"]').text_content() == "Inspector"
-                finally:
-                    browser.close()
-        except Exception as exc:  # pragma: no cover - environment dependent
-            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+            open_nav_preferences(page)
+            page.locator('button[data-set-locale="zh"]').click()
+            page.wait_for_function(
+                "() => document.querySelector('#role-definition-archetype-input option[value=\"inspector\"]')?.textContent === 'Inspector'"
+            )
+            assert page.locator('#role-definition-archetype-input option[value="inspector"]').text_content() == "Inspector"
 
 
 def test_role_definition_page_updates_template_guidance_and_builtin_prompt_with_selection(tmp_path: Path) -> None:
@@ -1109,40 +1194,39 @@ def test_role_definition_page_updates_template_guidance_and_builtin_prompt_with_
     )
 
     with serve_app(build_app(service=service)) as base_url:
-        try:
-            with playwright.sync_api.sync_playwright() as playwright_driver:
-                browser = playwright_driver.chromium.launch()
-                page = browser.new_page()
-                try:
-                    page.goto(f"{base_url}/roles/new", wait_until="networkidle")
+        with launch_chromium() as browser:
+            page = browser.new_page()
+            page.goto(f"{base_url}/roles/new", wait_until="networkidle")
 
-                    page.locator('button[data-set-locale="zh"]').click()
-                    page.select_option("#role-definition-archetype-input", "gatekeeper")
-                    page.wait_for_timeout(50)
+            open_nav_preferences(page)
+            page.locator('button[data-set-locale="zh"]').click()
+            page.select_option("#role-definition-archetype-input", "gatekeeper")
+            page.wait_for_function(
+                "() => document.querySelector('#role-definition-archetype-summary')?.textContent.includes('负责做放行判断')"
+            )
 
-                    assert "负责做放行判断" in (page.locator("#role-definition-archetype-summary").text_content() or "")
-                    assert "建议只放一个" in (page.locator("#role-definition-archetype-recommendation").text_content() or "")
-                    assert "不建议把它当成实现角色" in (page.locator("#role-definition-archetype-warning").text_content() or "")
-                    assert "# GateKeeper Prompt" in page.locator("#role-definition-prompt-markdown-input").input_value()
-                    assert "你是 Loopora 内部的 GateKeeper" in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
-                    assert "version: 1" not in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
-                    assert "archetype: gatekeeper" not in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
+            assert "负责做放行判断" in (page.locator("#role-definition-archetype-summary").text_content() or "")
+            assert "建议只放一个" in (page.locator("#role-definition-archetype-recommendation").text_content() or "")
+            assert "不建议把它当成实现角色" in (page.locator("#role-definition-archetype-warning").text_content() or "")
+            assert "# GateKeeper Prompt" in page.locator("#role-definition-prompt-markdown-input").input_value()
+            assert "你是 Loopora 内部的 GateKeeper" in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
+            assert "version: 1" not in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
+            assert "archetype: gatekeeper" not in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
 
-                    page.locator('button[data-set-locale="en"]').click()
-                    page.wait_for_timeout(50)
+            open_nav_preferences(page)
+            page.locator('button[data-set-locale="en"]').click()
+            page.wait_for_function(
+                "() => document.querySelector('#role-definition-archetype-summary')?.textContent.includes('Owns the pass/fail decision')"
+            )
 
-                    assert page.locator('#role-definition-archetype-input option[value="gatekeeper"]').text_content() == "GateKeeper"
-                    assert "Owns the pass/fail decision" in (page.locator("#role-definition-archetype-summary").text_content() or "")
-                    assert "Keep one of these near the end of the workflow" in (page.locator("#role-definition-archetype-recommendation").text_content() or "")
-                    assert "Do not use it as an implementation role" in (page.locator("#role-definition-archetype-warning").text_content() or "")
-                    assert "# GateKeeper Prompt" in page.locator("#role-definition-prompt-markdown-input").input_value()
-                    assert "You are the GateKeeper inside Loopora" in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
-                    assert "version: 1" not in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
-                    assert "archetype: gatekeeper" not in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
-                finally:
-                    browser.close()
-        except Exception as exc:  # pragma: no cover - environment dependent
-            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+            assert page.locator('#role-definition-archetype-input option[value="gatekeeper"]').text_content() == "GateKeeper"
+            assert "Owns the pass/fail decision" in (page.locator("#role-definition-archetype-summary").text_content() or "")
+            assert "Keep one of these near the end of the workflow" in (page.locator("#role-definition-archetype-recommendation").text_content() or "")
+            assert "Do not use it as an implementation role" in (page.locator("#role-definition-archetype-warning").text_content() or "")
+            assert "# GateKeeper Prompt" in page.locator("#role-definition-prompt-markdown-input").input_value()
+            assert "You are the GateKeeper inside Loopora" in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
+            assert "version: 1" not in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
+            assert "archetype: gatekeeper" not in (page.locator("#role-definition-prompt-markdown-preview").text_content() or "")
 
 
 def test_existing_role_page_locks_template_and_orchestration_page_renders_loop_diagrams(tmp_path: Path) -> None:
@@ -1170,68 +1254,64 @@ Focus on scoped release work.
     )
 
     with serve_app(build_app(service=service)) as base_url:
-        try:
-            with playwright.sync_api.sync_playwright() as playwright_driver:
-                browser = playwright_driver.chromium.launch()
-                page = browser.new_page()
-                try:
-                    page.goto(f"{base_url}/roles/{custom_role['id']}/edit", wait_until="networkidle")
-                    expect_disabled = page.locator("#role-definition-archetype-input")
-                    assert expect_disabled.is_disabled() is True
+        with launch_chromium() as browser:
+            page = browser.new_page()
+            page.goto(f"{base_url}/roles/{custom_role['id']}/edit", wait_until="networkidle")
+            expect_disabled = page.locator("#role-definition-archetype-input")
+            assert expect_disabled.is_disabled() is True
 
-                    page.goto(f"{base_url}/orchestrations", wait_until="networkidle")
-                    first_diagram = page.locator('[data-testid="orchestration-loop-diagram"]').first
-                    expect_svg = first_diagram.locator("svg")
-                    expect_legend = first_diagram.locator(".workflow-loop-pill")
-                    assert expect_svg.count() == 1
-                    assert expect_legend.count() >= 2
+            page.goto(f"{base_url}/orchestrations", wait_until="networkidle")
+            first_diagram = page.locator('[data-testid="orchestration-loop-diagram"]').first
+            expect_svg = first_diagram.locator("svg")
+            expect_legend = first_diagram.get_by_test_id("workflow-loop-pill")
+            assert expect_svg.count() == 1
+            assert expect_legend.count() >= 2
 
-                    page.goto(f"{base_url}/orchestrations/new", wait_until="networkidle")
-                    assert page.locator(".workflow-step-row").count() == 0
-                    page.select_option("#workflow-starter-select", "repair_loop")
-                    page.click("#load-workflow-starter-button")
-                    assert page.locator(".workflow-step-row").count() == 6
-                    builder_card = page.locator(".workflow-step-row").nth(4)
-                    builder_card.click(position={"x": 160, "y": 84})
-                    assert "is-active" in (builder_card.get_attribute("class") or "")
-                    builder_card.locator('[data-testid="workflow-step-settings-button"]').click()
-                    modal = page.locator('[data-testid="workflow-step-settings-modal"]')
-                    assert modal.get_attribute("aria-hidden") == "false"
-                    assert page.locator('[data-testid="workflow-settings-role-name"]').evaluate("node => node.tagName") == "STRONG"
-                    assert "Builder" in (page.locator('[data-testid="workflow-settings-role-name"]').text_content() or "")
-                    assert page.locator('[data-testid="workflow-settings-step-inherit-session"]').is_checked() is True
-                    step_model_input = page.locator('[data-testid="workflow-settings-step-model"]')
-                    step_model_input.fill("gpt-5.4-mini")
-                    step_extra_cli_args_input = page.locator('[data-testid="workflow-settings-step-extra-cli-args"]')
-                    step_extra_cli_args_input.fill("--verbose")
-                    page.click('[data-close-workflow-settings="1"]')
-                    assert "gpt-5.4-mini" in (builder_card.text_content() or "")
-                    assert "--verbose" in (builder_card.text_content() or "")
-                    guide_pill = page.locator(".workflow-loop-pill").filter(has_text="Guide").first
-                    guide_pill.hover()
-                    assert "is-active" in (page.locator(".workflow-step-row").nth(3).get_attribute("class") or "")
-                    guide_pill.click()
-                    assert "is-active" in (page.locator(".workflow-step-row").nth(3).get_attribute("class") or "")
+            page.goto(f"{base_url}/orchestrations/new", wait_until="networkidle")
+            assert page.get_by_test_id("workflow-step-row").count() == 0
+            page.select_option("#workflow-starter-select", "repair_loop")
+            page.click("#load-workflow-starter-button")
+            assert page.get_by_test_id("workflow-step-row").count() == 6
+            builder_card = page.get_by_test_id("workflow-step-row").nth(4)
+            builder_card.click(position={"x": 160, "y": 84})
+            assert builder_card.get_attribute("data-active") == "true"
+            builder_card.locator('[data-testid="workflow-step-settings-button"]').click()
+            modal = page.locator('[data-testid="workflow-step-settings-modal"]')
+            assert modal.get_attribute("aria-hidden") == "false"
+            assert page.locator('[data-testid="workflow-settings-role-name"]').evaluate("node => node.tagName") == "STRONG"
+            assert "Builder" in (page.locator('[data-testid="workflow-settings-role-name"]').text_content() or "")
+            assert page.locator('[data-testid="workflow-settings-step-inherit-session"]').is_checked() is True
+            step_model_input = page.locator('[data-testid="workflow-settings-step-model"]')
+            step_model_input.fill("gpt-5.4-mini")
+            step_extra_cli_args_input = page.locator('[data-testid="workflow-settings-step-extra-cli-args"]')
+            step_extra_cli_args_input.fill("--verbose")
+            page.click('button[data-close-workflow-settings="1"]')
+            assert "gpt-5.4-mini" in (builder_card.text_content() or "")
+            assert "--verbose" in (builder_card.text_content() or "")
+            guide_pill = page.get_by_test_id("workflow-loop-pill").filter(has_text="Guide").first
+            guide_pill.hover()
+            assert page.get_by_test_id("workflow-step-row").nth(3).get_attribute("data-role-active") == "true"
+            guide_pill.click()
+            assert page.get_by_test_id("workflow-step-row").nth(3).get_attribute("data-active") == "true"
 
-                    inspector_card = page.locator(".workflow-step-row").nth(1)
-                    inspector_card.locator('[data-testid="workflow-step-settings-button"]').click()
-                    assert page.locator('[data-testid="workflow-settings-step-inherit-session"]').is_checked() is False
-                    page.click('[data-close-workflow-settings="1"]')
+            inspector_card = page.get_by_test_id("workflow-step-row").nth(1)
+            inspector_card.locator('[data-testid="workflow-step-settings-button"]').click()
+            assert page.locator('[data-testid="workflow-settings-step-inherit-session"]').is_checked() is False
+            page.click('button[data-close-workflow-settings="1"]')
 
-                    page.goto(f"{base_url}/orchestrations/builtin:build_then_parallel_review/edit", wait_until="networkidle")
-                    page.locator('[data-testid="workflow-step-settings-button"]').first.click()
-                    assert page.locator('[data-testid="workflow-step-settings-modal"]').get_attribute("aria-hidden") == "false"
-                    assert page.locator('[data-testid="workflow-settings-step-id"]').is_disabled() is True
+            page.goto(f"{base_url}/orchestrations/builtin:build_then_parallel_review/edit", wait_until="networkidle")
+            page.locator('[data-testid="workflow-step-settings-button"]').first.click()
+            assert page.locator('[data-testid="workflow-step-settings-modal"]').get_attribute("aria-hidden") == "false"
+            assert page.locator('[data-testid="workflow-settings-step-id"]').is_disabled() is True
 
-                    page.goto(f"{base_url}/orchestrations/new", wait_until="networkidle")
-                    page.locator('button[data-set-locale="en"]').click()
-                    page.wait_for_timeout(50)
-                    assert page.locator('#workflow-starter-select option[value="build_then_parallel_review"]').text_content() == "Build + Parallel Review"
-                    page.select_option("#workflow-starter-select", "evidence_first")
-                    page.click("#load-workflow-starter-button")
-                    page.locator('[data-testid="workflow-step-settings-button"]').first.click()
-                    assert page.locator('[data-testid="workflow-settings-step-on-pass"] option[value="continue"]').text_content() == "Continue"
-                finally:
-                    browser.close()
-        except Exception as exc:  # pragma: no cover - environment dependent
-            pytest.skip(f"Playwright browser launch is unavailable: {exc}")
+            page.goto(f"{base_url}/orchestrations/new", wait_until="networkidle")
+            open_nav_preferences(page)
+            page.locator('button[data-set-locale="en"]').click()
+            page.wait_for_function(
+                "() => document.querySelector('#workflow-starter-select option[value=\"build_then_parallel_review\"]')?.textContent === 'Build + Parallel Review'"
+            )
+            assert page.locator('#workflow-starter-select option[value="build_then_parallel_review"]').text_content() == "Build + Parallel Review"
+            page.select_option("#workflow-starter-select", "evidence_first")
+            page.click("#load-workflow-starter-button")
+            page.locator('[data-testid="workflow-step-settings-button"]').first.click()
+            assert page.locator('[data-testid="workflow-settings-step-on-pass"] option[value="continue"]').text_content() == "Continue"

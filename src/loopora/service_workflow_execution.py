@@ -12,7 +12,14 @@ from loopora.diagnostics import get_logger, log_event
 from loopora.executor import ExecutionStopped
 from loopora.recovery import RetryConfig
 from loopora.run_artifacts import INITIAL_STAGNATION_STATE
-from loopora.service_types import LooporaError, RoleExecutionError, StopRequested, WorkspaceSafetyError, normalize_completion_mode
+from loopora.service_types import (
+    LooporaError,
+    LooporaNotFoundError,
+    RoleExecutionError,
+    StopRequested,
+    WorkspaceSafetyError,
+    normalize_completion_mode,
+)
 from loopora.service_workflow_failure_handling import ServiceWorkflowFailureHandlingMixin
 from loopora.service_workflow_iteration_state import ServiceWorkflowIterationStateMixin
 from loopora.workflows import default_step_action_policy
@@ -51,7 +58,7 @@ class ServiceWorkflowExecutionMixin(
             self._wait_for_slot(run_id)
             run = self.repository.get_run(run_id)
             if not run:
-                raise LooporaError(f"unknown run after queue wait: {run_id}")
+                raise LooporaNotFoundError(f"unknown run after queue wait: {run_id}")
             if run["status"] == "stopped":
                 return self._hydrate_run_files(run)
 
@@ -82,7 +89,7 @@ class ServiceWorkflowExecutionMixin(
             previous_session_refs_by_step: dict[str, dict] = {}
             last_gatekeeper_result: dict | None = None
 
-            self.repository.append_event(run_id, "run_started", {"status": "running"})
+            self.append_run_event(run_id, "run_started", {"status": "running"})
             self._write_summary(run_id, "running", "Resolving checks for this run.")
             compiled_spec = self._resolve_run_checks(run, executor, compiled_spec, run_dir, retry_config)
             self._write_summary(run_id, "running", "Waiting for the first workflow iteration to complete.")
@@ -322,7 +329,7 @@ class ServiceWorkflowExecutionMixin(
                             )
                     elif role["archetype"] == "guide":
                         current_guide_result = normalized_output
-                        self.repository.append_event(
+                        self.append_run_event(
                             run_id,
                             "challenger_done",
                             {
@@ -371,14 +378,14 @@ class ServiceWorkflowExecutionMixin(
                             "trigger_evidence_refs": list(trigger.get("evidence_refs") or []),
                         }
                         if fired >= max_fires:
-                            self.repository.append_event(
+                            self.append_run_event(
                                 run_id,
                                 "control_skipped",
                                 {**base_payload, "skip_reason": "max_fires_per_run"},
                             )
                             continue
                         if elapsed_seconds < _workflow_control_after_seconds(after):
-                            self.repository.append_event(
+                            self.append_run_event(
                                 run_id,
                                 "control_skipped",
                                 {**base_payload, "skip_reason": "after_not_elapsed"},
@@ -386,7 +393,7 @@ class ServiceWorkflowExecutionMixin(
                             continue
                         role = role_by_id.get(role_id)
                         if not role:
-                            self.repository.append_event(
+                            self.append_run_event(
                                 run_id,
                                 "control_failed",
                                 {**base_payload, "error": "control role not found"},
@@ -412,7 +419,7 @@ class ServiceWorkflowExecutionMixin(
                             "control_id": control_id,
                             "control": base_payload,
                         }
-                        self.repository.append_event(run_id, "control_triggered", base_payload, role=role_id)
+                        self.append_run_event(run_id, "control_triggered", base_payload, role=role_id)
                         try:
                             result = run_step_once(
                                 control_order,
@@ -422,7 +429,7 @@ class ServiceWorkflowExecutionMixin(
                             )
                             finish_result = commit_step_result(result)
                             evidence_id = evidence_entry_id(iter_id, control_order, control_step["id"])
-                            self.repository.append_event(
+                            self.append_run_event(
                                 run_id,
                                 "control_completed",
                                 {
@@ -435,14 +442,14 @@ class ServiceWorkflowExecutionMixin(
                                 role=role_id,
                             )
                             if finish_result is not None:
-                                self.repository.append_event(
+                                self.append_run_event(
                                     run_id,
                                     "control_skipped",
                                     {**base_payload, "skip_reason": "control_cannot_finish_run"},
                                     role=role_id,
                                 )
                         except Exception as exc:
-                            self.repository.append_event(
+                            self.append_run_event(
                                 run_id,
                                 "control_failed",
                                 {**base_payload, "error": str(exc)},
@@ -487,7 +494,7 @@ class ServiceWorkflowExecutionMixin(
                         group_items.append((step_index, workflow_steps[step_index]))
                         step_index += 1
                     group_snapshot = state_snapshot()
-                    self.repository.append_event(
+                    self.append_run_event(
                         run_id,
                         "parallel_group_started",
                         {
@@ -535,7 +542,7 @@ class ServiceWorkflowExecutionMixin(
                         finish_result = commit_step_result(result)
                         if finish_result is not None:
                             return finish_result
-                    self.repository.append_event(
+                    self.append_run_event(
                         run_id,
                         "parallel_group_finished",
                         {

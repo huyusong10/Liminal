@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from typing import Callable
 
-from loopora.asset_catalog import WorkflowAssetCatalog
+from loopora.asset_catalog import AssetCatalogError, AssetCatalogNotFoundError, WorkflowAssetCatalog
 from loopora.db import LooporaRepository
 from loopora.executor import CodexExecutor, executor_from_environment
 from loopora.service_assets import ServiceAssetMixin
@@ -22,7 +22,7 @@ from loopora.service_role_execution import ServiceRoleExecutionMixin
 from loopora.service_run_lifecycle import ServiceRunLifecycleMixin
 from loopora.service_role_requests import ServiceRoleRequestMixin
 from loopora.service_run_finalization import ServiceRunFinalizationMixin
-from loopora.service_types import LooporaError
+from loopora.service_types import LooporaError, LooporaNotFoundError
 from loopora.service_workflow_execution import ServiceWorkflowExecutionMixin
 from loopora.service_workflow_support import ServiceWorkflowSupportMixin
 from loopora.service_workflow_runtime import ServiceWorkflowRuntimeMixin
@@ -74,6 +74,7 @@ class LooporaService(
         self.executor_factory = executor_factory or executor_from_environment
         self._threads: dict[str, threading.Thread] = {}
         self._reconcile_stale_runs()
+        self._backfill_missing_run_takeaway_projections()
 
     def _loop_log_context(self, loop: dict | None, **context) -> dict[str, object]:
         payload = dict(context)
@@ -95,6 +96,10 @@ class LooporaService(
     def _asset_call(self, callback: Callable, *args, **kwargs):
         try:
             return callback(*args, **kwargs)
+        except AssetCatalogNotFoundError as exc:
+            raise LooporaNotFoundError(str(exc)) from exc
+        except AssetCatalogError as exc:
+            raise LooporaError(str(exc)) from exc
         except (WorkflowError, ValueError) as exc:
             raise LooporaError(str(exc)) from exc
 

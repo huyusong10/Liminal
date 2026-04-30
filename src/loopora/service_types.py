@@ -9,6 +9,20 @@ TERMINAL_RUN_STATUSES = frozenset({"succeeded", "failed", "stopped"})
 class LooporaError(RuntimeError):
     """Domain error surfaced to CLI and API consumers."""
 
+    status_code = 400
+
+
+class LooporaNotFoundError(LooporaError):
+    """Raised when a stable domain resource cannot be found."""
+
+    status_code = 404
+
+
+class LooporaConflictError(LooporaError):
+    """Raised when a request conflicts with active lifecycle state."""
+
+    status_code = 409
+
 
 class RoleExecutionError(LooporaError):
     def __init__(self, role: str, result: RecoveryResult) -> None:

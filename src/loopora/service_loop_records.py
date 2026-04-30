@@ -5,7 +5,7 @@ from pathlib import Path
 from loopora.branding import state_dir_for_workdir
 from loopora.run_artifacts import RunArtifactLayout
 from loopora.service_asset_common import _normalize_role_models
-from loopora.service_types import LooporaError
+from loopora.service_types import LooporaNotFoundError
 from loopora.task_verdicts import hydrate_run_status_and_task_verdict
 from loopora.workflows import DEFAULT_WORKFLOW_PRESET, WorkflowError, build_preset_workflow, normalize_workflow, prompt_asset_path, resolve_prompt_files, workflow_warnings
 
@@ -109,7 +109,7 @@ class ServiceLoopRecordMixin:
         self._reconcile_local_orphaned_runs()
         loop = self.repository.get_loop(loop_id)
         if not loop:
-            raise LooporaError(f"unknown loop: {loop_id}")
+            raise LooporaNotFoundError(f"unknown loop: {loop_id}")
         loop = self._hydrate_loop_files(loop)
         loop["runs"] = [self._hydrate_run_files(run) for run in self.repository.list_runs_for_loop(loop_id)]
         return loop
@@ -118,7 +118,7 @@ class ServiceLoopRecordMixin:
         self._reconcile_local_orphaned_runs()
         run = self.repository.get_run(run_id)
         if not run:
-            raise LooporaError(f"unknown run: {run_id}")
+            raise LooporaNotFoundError(f"unknown run: {run_id}")
         loop = self.repository.get_loop(run["loop_id"])
         if loop:
             run["loop_name"] = loop["name"]
@@ -128,7 +128,7 @@ class ServiceLoopRecordMixin:
         self._reconcile_local_orphaned_runs()
         found = self.repository.get_loop_or_run(identifier)
         if not found:
-            raise LooporaError(f"unknown identifier: {identifier}")
+            raise LooporaNotFoundError(f"unknown identifier: {identifier}")
         kind, payload = found
         if kind == "loop":
             payload = self._hydrate_loop_files(payload)

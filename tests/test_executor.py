@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from loopora.executor import ExecutorError, RealCodexExecutor, RoleRequest
+from loopora.executor import ExecutorError, RealCodexExecutor, RoleRequest, build_command_event_payload
 
 
 def test_real_executor_times_out_after_idle_period(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -93,6 +93,50 @@ def test_real_executor_supports_custom_command_mode(tmp_path: Path, monkeypatch:
     assert payload == {"ok": True, "engine": "custom"}
     assert request.output_path.exists()
     assert ("codex_event", {"type": "stdout", "message": "custom wrapper complete"}) in emitted
+
+
+def test_command_event_payload_redacts_prompt_schema_and_secret_values(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    request = RoleRequest(
+        run_id="run_test",
+        role="custom_helper",
+        prompt="PROMPT_SECRET_MARKER write the whole plan",
+        workdir=tmp_path,
+        model="",
+        reasoning_effort="",
+        output_schema={
+            "type": "object",
+            "properties": {"SCHEMA_SECRET_MARKER": {"type": "string"}},
+        },
+        output_path=run_dir / "custom_output.json",
+        run_dir=run_dir,
+    )
+    schema_text = '{"type": "object", "properties": {"SCHEMA_SECRET_MARKER": {"type": "string"}}}'
+
+    payload = build_command_event_payload(
+        request,
+        [
+            "custom-tool",
+            "--json-schema",
+            schema_text,
+            "--auth-token",
+            "TOKEN_SECRET_MARKER",
+            "prefix PROMPT_SECRET_MARKER write the whole plan",
+        ],
+    )
+
+    assert payload["type"] == "command"
+    assert payload["prompt_omitted"] is True
+    assert payload["json_schema_omitted"] is True
+    assert payload["token_omitted"] is True
+    assert payload["command_truncated"] is False
+    assert "PROMPT_SECRET_MARKER" not in payload["message"]
+    assert "SCHEMA_SECRET_MARKER" not in payload["message"]
+    assert "TOKEN_SECRET_MARKER" not in payload["message"]
+    assert "<prompt omitted>" in payload["message"]
+    assert "<json schema omitted>" in payload["message"]
+    assert "<secret omitted>" in payload["message"]
 
 
 def test_real_codex_executor_can_parse_resume_output_without_schema(

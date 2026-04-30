@@ -105,6 +105,67 @@ CLI 对高阶 workflow 的稳定承诺：
 
 旧路由可以保持兼容跳转，但新的默认心智不得再要求新手先理解内部对象。
 
+## 5.1 Run 观察 API
+
+run 详情页依赖两类稳定接口：
+
+| 接口 | 稳定职责 |
+|------|----------|
+| `GET /api/runs/{run_id}/observation-snapshot` | 返回 run 详情首屏所需的有界观察投影 |
+| `GET /api/runs/{run_id}/events` | 兼容既有调用方，按 `after_id` 顺序读取 run event stream |
+| `GET /api/runs/{run_id}/stream` | 按 SSE wire shape 增量推送 run event stream |
+
+`observation-snapshot` 只服务 run 观察投影，不成为新的事实源。响应保持：
+
+- `run`
+- `latest_event_id`
+- `timeline_events`：最多 40 条格式化里程碑事件
+- `console_events`：最多 160 条脱敏原始事件
+- `progress_events`：最多 2000 条 progress 相关脱敏事件
+- `key_takeaways`
+
+稳定规则：
+
+- run detail HTML 只内联 `runId` 与最小 `initialRun`，不得 seed 大量 event payload。
+- snapshot 必须由 service/repository 只读边界构建，route 只做 HTTP 包装和 timeline 展示格式化；接口层不得再次拼装 key takeaways。
+- snapshot 必须基于同一次只读 cutoff 构建：读取 run row、当前 `latest_event_id`、timeline / console / progress 投影必须共享同一个观察上界；返回数组里的每条事件都必须满足 `event.id <= latest_event_id`。
+- `key_takeaways` 属于 snapshot 观察投影的一部分，必须来自持久化 takeaway projection，并带有不超过本次 cutoff 的真实 `source_event_id`。snapshot 不得现场读取 artifact 文件生成关键结论；没有可用 projection 时可退化为 run status 最小结论，`source_event_id` 设为本次 cutoff。
+- `GET /api/runs/{run_id}/key-takeaways` 仍表示“当前最新”结论，可以读取最新 artifacts 现算；它和 snapshot projection 的职责不同，不受 snapshot cutoff 约束。
+- 页面先拉 snapshot，再用 `latest_event_id` 建立 SSE；cutoff 后追加的事件必须能通过 `/events` 或 `/stream?after_id=<latest_event_id>` 继续读取，重复事件按 event `id` 去重。
+- snapshot 拉取失败只降低观察面质量，不改变 run 生命周期事实。页面必须保留最小 run 信息，并继续从最后已知 `latest_event_id` 或 `0` 建立 SSE。
+- run detail 页面通过稳定锚点 `data-testid="run-observation-status"` 暴露观察链路状态；`data-observation-state` 只表达观察质量，取值为 `loading / ready / degraded / stream-stale / stream-error / finished`，不得被 service 层当作 run status。
+- SSE `stream_error` 和连接错误只影响观察链路状态。活动 run 可以有限退避重连；终态 run 不因 stream 失败重新连接。
+- SSE `stream_error` 事件不能回显后端异常文本、路径、数据库错误或堆栈。run stream payload 固定为 `{"run_id": "...", "after_id": 123, "error": "stream_unavailable", "retryable": true}`；alignment stream payload 固定为 `{"session_id": "...", "after_id": 123, "error": "stream_unavailable", "retryable": true}`。
+- snapshot 中的事件仍必须走 run event 写入边界的最终脱敏；接口层不得重新暴露 prompt、schema、token 或完整敏感命令内容。
+- unknown run 返回 `404`，错误体仍为 `{"error": "..."}`。
+- `/events` 与 `/stream` 的既有语义不因 snapshot 新增而改变。
+
+## 5.2 Local Diagnostics Interfaces
+
+local-first 诊断接口只服务本机维护和测试，不改变 Loop/run 主工作流：
+
+| 接口 | 稳定职责 |
+|------|----------|
+| `GET /api/diagnostics/local-assets` | 只读扫描本地资产目录与 durable record 的明显不一致 |
+| `loopora diagnose event-redaction [--fix]` | 审计历史 run events 和 timeline JSONL 是否仍含旧敏感 payload；默认 dry-run |
+
+`/api/diagnostics/local-assets` 返回本地资产不一致的只读数组：
+
+- `orphan_alignment_dirs`
+- `orphan_bundle_dirs`
+- `orphan_run_dirs`
+- `record_without_dir`
+
+稳定规则：
+
+- diagnostics API 不自动删除本地目录，不改变任何 durable record；错误体继续保持 `{"error": "..."}`。
+- `orphan_run_dirs` 是兼容扩展，item 使用 `{run_id, workdir, path, source}`；`source` 只表达诊断来源，取值为 `registry` 或 `recent_workdir`。
+- local asset diagnostics 必须同时消费当前 durable records、本地资产 registry 与最近 workdir 扫描结果；即使 alignment session、bundle record 或 run record 已删除，只要 registry 或 recent workdir 仍能定位未清理目录，仍应能发现 orphan 资产。
+- durable record 或 registry active row 指向缺失目录时，必须进入 `record_without_dir`；run 目录缺失使用 `resource_type="run"`。
+- Tools 页面可以显示只读健康摘要和计数，但不得提供删除按钮或把诊断结果变成主工作流阻塞条件。
+- `diagnose event-redaction --fix` 只能使用当前 run event redaction 规则重写可确定修复的 DB payload 和 timeline JSONL；扫描来源包括 DB run events、registry 中未 cleaned 的 run dirs，以及最近 workdir 下的 legacy `.loopora/runs/*` timeline。无法解析或无法安全判断的条目进入报告，不得猜测修复。
+- dry-run 不写 DB 或文件；`--fix` 后仍必须保留 command 摘要等可读观察信息。
+
 ## 6. 安全边界
 
 | 边界 | 接口层责任 |
@@ -115,6 +176,20 @@ CLI 对高阶 workflow 的稳定承诺：
 | 输入规范化 | 坏 JSON、缺失字段、越界参数必须返回明确 4xx |
 | workdir 操作 | 不得绕过 workspace safety guard 或 run lock |
 | 本地化 | 文案可变；测试锚点和接口契约不能绑定某种展示语言 |
+
+API 错误状态码的稳定语义：
+
+| 场景 | 状态码 | 响应体 |
+|------|--------|--------|
+| 坏 JSON、缺失字段、非法参数、domain input 不满足当前契约 | `400` | `{"error": "..."}` |
+| 请求引用的稳定资源不存在，例如 unknown loop / run / bundle / alignment session / orchestration / role definition | `404` | `{"error": "..."}` |
+| 请求与当前生命周期或所有权状态冲突，例如已有 active run 占用 workdir、active alignment session、已终态 run stop、bundle-owned asset 删除 | `409` | `{"error": "..."}` |
+
+稳定规则：
+
+- API 层必须把 FastAPI 请求校验错误也归一为 `400`，避免接口调用方同时处理框架默认 `422` 与 Loopora 自己的 domain input 错误。
+- service 层应基于领域错误类型映射 `404 / 409 / 400`，不能通过错误文案前缀猜测资源是否不存在。
+- 错误响应体保持 `{"error": "..."}`，新增错误分类不得要求调用方迁移响应 body shape。
 
 ## 7. 依赖方向
 

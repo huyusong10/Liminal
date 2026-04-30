@@ -10,7 +10,7 @@ from loopora.executor import coerce_reasoning_effort, normalize_reasoning_effort
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode
 from loopora.run_artifacts import INITIAL_STAGNATION_STATE, write_json_with_mirrors, write_text_with_mirrors
 from loopora.service_asset_common import _normalize_role_models, logger
-from loopora.service_types import LooporaError, normalize_completion_mode
+from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError, normalize_completion_mode
 from loopora.utils import make_id, write_json
 from loopora.workflows import has_finish_gatekeeper_step
 
@@ -166,7 +166,7 @@ class ServiceRunRegistrationMixin:
     def start_run(self, loop_id: str) -> dict:
         loop = self.repository.get_loop(loop_id)
         if not loop:
-            raise LooporaError(f"unknown loop: {loop_id}")
+            raise LooporaNotFoundError(f"unknown loop: {loop_id}")
         log_event(
             logger,
             logging.INFO,
@@ -175,7 +175,7 @@ class ServiceRunRegistrationMixin:
             **self._loop_log_context(loop),
         )
         if self.repository.has_active_run_for_workdir(loop["workdir"]):
-            raise LooporaError(f"another active run is already using {loop['workdir']}")
+            raise LooporaConflictError(f"another active run is already using {loop['workdir']}")
 
         run_id = make_id("run")
         run_dir = self._ensure_run_dir(Path(loop["workdir"]), run_id)
@@ -263,7 +263,7 @@ class ServiceRunRegistrationMixin:
                 "summary_md": queued_summary,
             }
         )
-        self.repository.append_event(run_id, "run_registered", {"loop_id": loop_id, "status": "queued"})
+        self.append_run_event(run_id, "run_registered", {"loop_id": loop_id, "status": "queued"})
         log_event(
             logger,
             logging.INFO,

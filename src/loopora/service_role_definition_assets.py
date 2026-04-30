@@ -4,7 +4,7 @@ import logging
 
 from loopora.diagnostics import log_event
 from loopora.service_asset_common import logger
-from loopora.service_types import LooporaError
+from loopora.service_types import LooporaConflictError, LooporaError
 
 
 class ServiceRoleDefinitionAssetMixin:
@@ -140,7 +140,9 @@ class ServiceRoleDefinitionAssetMixin:
         if not allow_bundle_owned and hasattr(self, "_bundle_record_for_role_definition_id"):
             bundle = self._bundle_record_for_role_definition_id(role_definition_id)
             if bundle:
-                raise LooporaError(f"role definition {role_definition_id} is managed by bundle {bundle['id']}; delete the bundle instead")
+                raise LooporaConflictError(
+                    f"role definition {role_definition_id} is managed by bundle {bundle['id']}; delete the bundle instead"
+                )
         result = self._asset_call(self.asset_catalog.delete_role_definition, role_definition_id)
         log_event(
             logger,

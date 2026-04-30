@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "loopora"
 version = "0.1.0"
-description = "CLI-first Codex orchestration with a local web console."
+description = "Local-first platform for long-running AI Agent tasks."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

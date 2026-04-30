@@ -77,7 +77,8 @@ bundle 生命周期服务于 Loop 编排和交换：
 稳定规则：
 
 - 导入后的 spec、role definitions、orchestration、loop 默认属于同一 bundle。
-- 删除 bundle 默认清理它拥有的底层资产，但不得影响无关手动资产。
+- 删除或替换 bundle 默认只处理它明确拥有的底层资产，不得影响无关手动资产；durable bundle graph（bundle record、linked loop、runs、orchestration、role definitions 与 ownership）必须在同一 repository transaction 内删除或替换，本地 managed dir 与 loop/run artifacts 只能在 durable transaction 成功后 best-effort 清理。
+- bundle replace 不得走逐个 service delete 路径。它必须与 delete 共享 ownership preflight：旧资产缺失 ownership、归属其他 bundle、存在外部引用或有 active run 时返回 conflict，并保留旧 graph 与本地目录。
 - 被 bundle 拥有的底层资产不应被鼓励为互相漂移的零散对象。
 - 从现有 loop 复制出候选 bundle 时，结果必须回到单文件 YAML，并被视为独立候选，而不是被写入系统级 lineage。
 - 用户如何基于证据迭代 bundle 属于系统外部行为；Loopora 可提供从已有 bundle 或 run evidence 发起的对话改进入口，但该入口只产出独立候选 bundle，不成为 bundle 生命周期的必经阶段。

@@ -231,7 +231,7 @@ class ServiceWorkflowSupportMixin:
         latest_state = derive_latest_state(read_json(layout.latest_state_path), iteration_summary)
         write_json(layout.latest_iteration_summary_path, iteration_summary)
         write_json(layout.latest_state_path, latest_state)
-        self.repository.append_event(
+        self.append_run_event(
             run_id,
             "iteration_summary_written",
             {

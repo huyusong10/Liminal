@@ -294,7 +294,7 @@
         countId: "loop-count",
         gridId: "loop-grid",
         emptyStateId: "loops-empty-state",
-        noteSelector: ".loop-grid-note",
+        noteSelector: "[data-testid='loop-grid-note']",
         detail(name) {
           return pickText({
             zh: `“${name}” 和它保存下来的运行记录都会一起消失，这次就真的不回头了。`,
@@ -317,7 +317,7 @@
         countId: "bundle-count",
         gridId: "bundle-grid",
         emptyStateId: "bundles-empty-state",
-        noteSelector: ".bundle-grid-note",
+        noteSelector: "[data-testid='bundle-grid-note']",
         detail(name) {
           return pickText({
             zh: `“${name}” 和它导入的 loop、流程编排、角色定义都会一起清理。手动资源不会被影响。`,

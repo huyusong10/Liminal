@@ -38,6 +38,15 @@
 - run status 与 task verdict 必须分开投影。`run_finished` 或 `succeeded` 只能说明系统生命周期，不代表任务已经通过。
 - 面向用户的 evidence projection 应优先使用稳定语义桶：已证明、证据薄弱、未证明、阻断问题、残余风险。完整 ledger 仍通过追查入口访问。
 - Web 终端必须把关键系统动作白盒化投影出来，不能只展示底层命令输出。
+- run event 写入边界必须在数据库和 `timeline/events.jsonl` mirror 前做最终脱敏；完整 prompt、JSON schema、token / secret 参数值不得进入 event stream、数据库镜像或 `timeline/events.jsonl`。command 事件只能展示脱敏命令预览。
+- `codex_event` 属于高风险白盒观察事件，写入边界必须按事件形状保留白名单字段，并丢弃未承诺的 raw payload；stdout、command、tool item、file change、todo 和 agent message 只能保存可读预览，长文本必须裁剪并标记截断。
+- 历史 run events 可能早于当前 redaction 规则；本地诊断命令必须提供 dry-run 审计与显式 `--fix` 修复入口。修复只复用当前 redaction 规则，不能猜测或重写无法安全判断的 payload。
+- run 详情页 HTML 不得内联大量 run events；页面只保留最小 run seed，启动后通过 observation snapshot 获取有界首屏投影，再用 snapshot 的 `latest_event_id` 建立 SSE 增量连接。
+- observation snapshot 负责首屏投影，SSE 负责增量观察；二者都消费同一条 run event stream，不能各自定义不同的事件语义。snapshot 必须在 service/repository 只读边界使用一致 cutoff：返回的 `latest_event_id` 是本次首屏投影的上界，所有 snapshot 事件和 key takeaway projection 都不得大于该 id，SSE 从该 id 后继续增量读取。
+- key takeaway projection 是 run observation 的冻结投影：稳定事件写入后可以读取 artifacts 生成 projection，并记录真实 `source_event_id`；snapshot 只读取 `source_event_id <= latest_event_id` 的最新 projection。`/key-takeaways` 可以继续现算最新 artifacts，用作当前状态接口，不替代 snapshot cutoff 语义。
+- snapshot 失败、SSE `stream_error` 与浏览器连接错误不得清空既有 timeline / console / progress 投影。客户端必须把这类问题收敛到观察状态：`degraded` 表示首屏 snapshot 不可用，`stream-error` 表示增量连接失败，`stream-stale` 表示活动 run 多次重连仍失败。
+- SSE `stream_error` 面向浏览器，只能携带稳定错误码、owner id、`after_id` 与 `retryable`，不能携带 raw exception 文本、路径、数据库错误或堆栈。原始异常必须进入 application log 的 `error` 对象，便于运维排查但不进入用户浏览器事件流。
+- 观察状态不是 run 生命周期事实源。终态 run 到达后观察状态可以收敛为 `finished`，但不能把 `ready / degraded / stream-stale` 映射成 run succeeded / failed / stopped。
 - 面向用户的 run 详情页应优先消费 run artifacts 中已经冻结的 handoff、iteration summary 与 coverage projection 来生成“关键结论”，默认只展示简洁状态与主要原因；完整 target、ledger 和 artifact 链路通过白盒追溯入口查看。
 - 当新的 `step_handoff_written`、`control_completed`、`control_failed`、`iteration_summary_written` 或 `run_finished` 事件到达时，run 详情页里的“关键结论”必须在当前会话内自动拉取最新 artifacts 并刷新；不能要求用户手动刷新整页后才能看到最新轮次结论。
 - 提供给角色 prompt 的 artifact refs 必须能从 workspace 直接定位到 `.loopora/runs/...` 下的真实文件，不能只暴露对 run 目录内部才有意义的短相对路径。
@@ -60,6 +69,7 @@
 - 若环境缺少 CLI、浏览器或宿主权限，这类用例应明确 skip，而不是伪造成功结果。
 - 除基础设施矩阵外，仓库还允许保留 scenario-driven 的真实 workflow 用例；这类用例应围绕教程里的真实样例场景组织，并把复制后的 workspace、`.loopora` 运行目录、proof 结果和 review 摘要落到 `artifacts/real_search_loop_e2e/<run-id>/...`，避免真实 run 结束后被清理。
 - 这类 scenario fixture 可以是小型但真实的多模块 workspace，而不是单文件谜题；proof 应同时要求代码结果、设计说明和方向/复盘产物成立，避免模型只靠补报告或单点 hack 通过。
+- GitHub Actions 中的真实 provider 验证只能通过 `workflow_dispatch` 手动触发，不进入默认 CI；workflow 必须接受可配置 `targets`、`setup_command` 与 `pytest_args`。若目标 provider 缺少 CLI、必要 secret 或本地配置，workflow summary 必须明确 skip 原因，而不是伪绿通过。
 
 最小高风险矩阵如下：
 
@@ -154,6 +164,14 @@
 - 任何异常日志都必须带 `event`，并在可能时附带 `error` 对象。
 - 同一次动作只记录一个主里程碑日志，避免 repository、service、web 在同一层级重复记录相同语义。
 - request 级日志只记录方法、路径、状态码和耗时，不回显敏感 query 参数。
+- 非关键 cleanup 失败必须写 application log，事件名使用 `service.cleanup.failed`，并携带 `operation`、`resource_type`、`resource_id`、`owner_id`、`error_type`、`error_message`。这类日志用于暴露补偿清理风险，不改变原本 best-effort cleanup 的用户可见成功 / 失败语义。
+- service 层不得用裸 `ignore_errors=True` 隐藏补偿清理风险；本地目录删除、bundle failed-import rollback、alignment session 目录删除、alignment artifact migration 与 cancel signal 等路径必须经过统一诊断边界。
+- failed bundle import 的 rollback / restore 失败只能追加结构化诊断，不能掩盖原始 import failure。
+- cleanup 诊断自身也必须是 best-effort：诊断 callback、alignment event 写入、本地 artifact event 写入或 application log 写入失败时，只能再尝试记录结构化失败，不能反向改变原主操作的成功 / 失败语义，也不能遮蔽原始业务异常。
+- registry cleanup 状态标记失败也属于 cleanup 诊断自身失败：主操作不得因此失败，后续诊断日志使用 `operation=<original_operation>_registry_mark`，并继续携带统一的 `operation`、`resource_type`、`resource_id`、`owner_id`、`error_type`、`error_message` 字段。
+- alignment 相关 cleanup 或 cancel signal 失败除 application log 外，还必须写 alignment event 或对应 session 的本地 alignment event artifact，方便对话编排入口在同一个诊断面里追溯。
+- 本地资产诊断 API 只读暴露 orphan alignment dirs、orphan bundle dirs、orphan run dirs 和 record-without-dir 计数/路径，服务 cleanup 追踪和人工维护；它不得自动删除文件，也不得改变主工作流成功/失败语义。
+- 本地资产 registry 是 cleanup diagnostics 的辅助事实源：run dir、bundle managed dir 与 alignment session dir 创建时注册，cleanup 成功标记 `cleaned`，失败标记 `orphaned`。诊断命令和 API 可以读取 registry 来发现 durable record 已消失后的 orphan 文件。
 
 ## 7. 模块分工
 

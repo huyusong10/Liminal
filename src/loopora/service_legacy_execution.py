@@ -11,6 +11,7 @@ from loopora.recovery import RetryConfig
 from loopora.run_artifacts import INITIAL_STAGNATION_STATE
 from loopora.service_types import (
     LooporaError,
+    LooporaNotFoundError,
     RoleExecutionError,
     StopRequested,
     WorkspaceSafetyError,
@@ -26,7 +27,7 @@ class ServiceLegacyExecutionMixin:
     def execute_run(self, run_id: str) -> dict:
         run = self.repository.get_run(run_id)
         if not run:
-            raise LooporaError(f"unknown run: {run_id}")
+            raise LooporaNotFoundError(f"unknown run: {run_id}")
 
         log_event(
             logger,
@@ -50,7 +51,7 @@ class ServiceLegacyExecutionMixin:
             self._wait_for_slot(run_id)
             run = self.repository.get_run(run_id)
             if not run:
-                raise LooporaError(f"unknown run after queue wait: {run_id}")
+                raise LooporaNotFoundError(f"unknown run after queue wait: {run_id}")
             if run["status"] == "stopped":
                 return run
 
@@ -66,7 +67,7 @@ class ServiceLegacyExecutionMixin:
             last_verifier_result: dict | None = None
             last_challenger_result: dict | None = None
 
-            self.repository.append_event(run_id, "run_started", {"status": "running"})
+            self.append_run_event(run_id, "run_started", {"status": "running"})
             self._write_summary(run_id, "running", "Resolving checks for this run.")
             compiled_spec = self._resolve_run_checks(run, executor, compiled_spec, run_dir, retry_config)
             self._write_summary(run_id, "running", "Waiting for the first iteration to complete.")
@@ -183,7 +184,7 @@ class ServiceLegacyExecutionMixin:
                     )
                     stagnation.setdefault("challenger_triggered_at_iters", []).append(iter_id)
                     self._write_json(run_dir / "challenger_seed.json", challenger_result)
-                    self.repository.append_event(
+                    self.append_run_event(
                         run_id,
                         "challenger_done",
                         {"iter": iter_id, "mode": challenger_result["mode"]},
@@ -254,7 +255,7 @@ class ServiceLegacyExecutionMixin:
                         last_verdict=verifier_result,
                         final_reason="gatekeeper_passed",
                     )
-                    self.repository.append_event(run_id, "run_finished", {"status": "succeeded", "iter": iter_id})
+                    self.append_run_event(run_id, "run_finished", {"status": "succeeded", "iter": iter_id})
                     log_event(
                         logger,
                         logging.INFO,
@@ -296,7 +297,7 @@ class ServiceLegacyExecutionMixin:
                     summary=summary,
                     final_reason="rounds_completed" if completion_mode == "rounds" else "max_iters_exhausted",
                 )
-                self.repository.append_event(
+                self.append_run_event(
                     run_id,
                     "run_finished",
                     {
@@ -331,7 +332,7 @@ class ServiceLegacyExecutionMixin:
                 summary=summary,
                 final_reason="stopped",
             )
-            self.repository.append_event(run_id, "run_finished", {"status": "stopped"})
+            self.append_run_event(run_id, "run_finished", {"status": "stopped"})
             log_event(
                 logger,
                 logging.INFO,

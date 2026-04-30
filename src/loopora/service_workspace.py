@@ -86,7 +86,7 @@ class ServiceWorkspaceMixin:
             payload,
             mirror_paths=[layout.legacy_workspace_guard_path],
         )
-        self.repository.append_event(
+        self.append_run_event(
             run["id"],
             "workspace_guard_triggered",
             payload,

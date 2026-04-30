@@ -441,7 +441,7 @@ document.addEventListener("DOMContentLoaded", () => {
     activeRoleId = String(step.role_id || "");
     syncSelectionHighlights();
     if (options.scroll || options.focus) {
-      const card = workflowStepsList?.querySelector(`.workflow-step-row[data-step-index="${stepIndex}"]`);
+      const card = workflowStepsList?.querySelector(`[data-testid="workflow-step-row"][data-step-index="${stepIndex}"]`);
       if (options.scroll) {
         card?.scrollIntoView({block: "nearest", behavior: "smooth"});
       }
@@ -651,6 +651,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const role = roleById(roleId);
       const row = document.createElement("article");
       row.className = "workflow-step-row workflow-control-row";
+      row.dataset.testid = "workflow-control-row";
       row.dataset.controlIndex = String(index);
       row.innerHTML = `
         <div class="workflow-step-card-top">
@@ -708,8 +709,11 @@ document.addEventListener("DOMContentLoaded", () => {
       const role = roleById(step.role_id);
       const row = document.createElement("article");
       row.className = "workflow-step-row";
+      row.dataset.testid = "workflow-step-row";
       row.dataset.stepIndex = String(index);
       row.dataset.roleId = step.role_id;
+      row.dataset.active = "false";
+      row.dataset.roleActive = "false";
       row.tabIndex = 0;
       const modelChip = stepModelChipLabel(step);
       const cliArgsChip = stepCliArgsChipLabel(step);
@@ -763,11 +767,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function syncSelectionHighlights() {
     workflowLoopPreview?.querySelectorAll("[data-role-id]").forEach((element) => {
-      element.classList.toggle("is-active", element.dataset.roleId === activeRoleId);
+      const active = element.dataset.roleId === activeRoleId;
+      element.classList.toggle("is-active", active);
+      element.dataset.active = active ? "true" : "false";
     });
-    workflowStepsList?.querySelectorAll(".workflow-step-row").forEach((element) => {
-      element.classList.toggle("is-active", Number(element.dataset.stepIndex) === activeStepIndex);
-      element.classList.toggle("is-role-active", element.dataset.roleId === activeRoleId);
+    workflowStepsList?.querySelectorAll('[data-testid="workflow-step-row"]').forEach((element) => {
+      const active = Number(element.dataset.stepIndex) === activeStepIndex;
+      const roleActive = element.dataset.roleId === activeRoleId;
+      element.classList.toggle("is-active", active);
+      element.classList.toggle("is-role-active", roleActive);
+      element.dataset.active = active ? "true" : "false";
+      element.dataset.roleActive = roleActive ? "true" : "false";
     });
   }
 
@@ -1133,7 +1143,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const card = event.target.closest(".workflow-step-row");
+    const card = event.target.closest('[data-testid="workflow-step-row"]');
     if (!card) {
       return;
     }
@@ -1141,7 +1151,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   workflowStepsList.addEventListener("keydown", (event) => {
-    const card = event.target.closest(".workflow-step-row");
+    const card = event.target.closest('[data-testid="workflow-step-row"]');
     if (!card) {
       return;
     }

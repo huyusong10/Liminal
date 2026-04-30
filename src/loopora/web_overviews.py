@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from loopora.branding import strip_run_summary_title
 from loopora.evidence_coverage import load_or_build_evidence_coverage_projection, summarize_evidence_coverage_projection
 from loopora.providers import executor_profile
+from loopora.run_observation_events import PROGRESS_EVENT_TYPES, TIMELINE_EVENT_TYPES
 from loopora.run_artifacts import RunArtifactLayout, list_run_artifacts, read_jsonl
 from loopora.workflows import ARCHETYPES, display_name_for_archetype, normalize_role_display_name
 
@@ -20,7 +21,6 @@ LEGACY_RUNTIME_ROLE_TO_ARCHETYPE = {
     "verifier": "gatekeeper",
     "challenger": "guide",
 }
-
 
 def _format_timeline_event(event: dict) -> dict:
     payload = event.get("payload", {})

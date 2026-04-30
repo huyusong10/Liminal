@@ -12,13 +12,14 @@
   <link rel="shortcut icon" href="/logo/logo.svg" type="image/svg+xml" />
   {% include "_display_preferences_bootstrap.html" %}
   <link rel="stylesheet" href="{{ static_asset_url('app.css') }}" />
+  {% block styles %}{% endblock %}
   <script src="{{ static_asset_url('app.js') }}" defer></script>
 </head>
 <body>
   <div class="page-shell">
     <nav class="top-nav" data-testid="top-nav">
       <a class="top-nav-brand" href="/" aria-label="{{ 'Loopora 首页' if page_locale == 'zh' else 'Loopora home' }}" data-testid="nav-home-brand">
-        <img class="top-nav-brand-lockup" src="/logo/logo-with-text-horizontal.svg" alt="" aria-hidden="true" />
+        <img class="top-nav-brand-lockup" src="/logo/logo-with-text-horizontal.svg" alt="" aria-hidden="true" data-testid="top-nav-brand-lockup" />
       </a>
       <div class="top-nav-links">
         <a class="top-nav-link {% if request.url.path == '/' %}active{% endif %}" href="/" data-testid="nav-workbench-link">

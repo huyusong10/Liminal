@@ -16,7 +16,8 @@ from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.evidence_coverage import load_or_build_evidence_coverage_projection, summarize_evidence_coverage_projection
 from loopora.executor import ExecutionStopped, ExecutorError, RoleRequest, validate_command_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
-from loopora.service_types import LooporaError
+from loopora.service_cleanup_diagnostics import best_effort_rmtree, cleanup_diagnostic_payload, log_cleanup_diagnostic
+from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError
 from loopora.skills.task_alignment_installer import load_task_alignment_skill_bundle
 from loopora.utils import make_id, utc_now
 
@@ -179,7 +180,7 @@ class ServiceAlignmentMixin:
     def get_alignment_session(self, session_id: str) -> dict:
         session = self.repository.get_alignment_session(session_id)
         if not session:
-            raise LooporaError(f"unknown alignment session: {session_id}")
+            raise LooporaNotFoundError(f"unknown alignment session: {session_id}")
         session = self._ensure_alignment_session_layout(session)
         return self._decorate_alignment_session(session)
 
@@ -189,12 +190,79 @@ class ServiceAlignmentMixin:
     def delete_alignment_session(self, session_id: str) -> bool:
         session = self.get_alignment_session(session_id)
         if session["status"] in ALIGNMENT_ACTIVE_STATUSES:
-            raise LooporaError("cannot delete an active alignment session")
+            raise LooporaConflictError("cannot delete an active alignment session")
         session_dir = self._alignment_session_root(session)
         deleted = self.repository.delete_alignment_session(session_id)
         if deleted and session_dir.name == session_id and session_dir.parent.name == "alignment_sessions":
-            shutil.rmtree(session_dir, ignore_errors=True)
+            best_effort_rmtree(
+                session_dir,
+                logger,
+                operation="alignment_session_delete",
+                owner_id=session_id,
+                on_failure=lambda payload: self._append_alignment_local_diagnostic_event(
+                    session,
+                    "alignment_session_cleanup_failed",
+                    payload,
+                ),
+            )
+            self._mark_local_asset_cleanup_by_path(
+                session_dir,
+                operation="alignment_session_delete",
+                owner_id=session_id,
+            )
         return deleted
+
+    def _append_alignment_diagnostic_event(self, session_id: str, event_type: str, payload: dict) -> dict:
+        try:
+            return self.repository.append_alignment_event(session_id, event_type, payload)
+        except Exception as exc:
+            self._log_alignment_diagnostic_event_failure(
+                session_id=session_id,
+                event_type=event_type,
+                payload=payload,
+                error=exc,
+            )
+            return {}
+
+    def _append_alignment_local_diagnostic_event(self, session: dict, event_type: str, payload: dict) -> None:
+        try:
+            paths = self._alignment_artifact_paths(session)
+            self._ensure_alignment_artifact_dirs(paths["root"])
+            event = {
+                "id": None,
+                "session_id": session["id"],
+                "created_at": utc_now(),
+                "event_type": event_type,
+                "payload": payload,
+            }
+            with paths["events"].open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+        except Exception as exc:
+            self._log_alignment_diagnostic_event_failure(
+                session_id=session.get("id", ""),
+                event_type=event_type,
+                payload=payload,
+                error=exc,
+            )
+
+    @staticmethod
+    def _log_alignment_diagnostic_event_failure(
+        *,
+        session_id: str,
+        event_type: str,
+        payload: dict,
+        error: BaseException,
+    ) -> None:
+        original_operation = str(payload.get("operation") or "alignment_diagnostic")
+        diagnostic = cleanup_diagnostic_payload(
+            operation=f"{original_operation}_event_write",
+            resource_type="alignment_event",
+            resource_id=event_type,
+            owner_id=session_id,
+            error=error,
+            original_operation=original_operation,
+        )
+        log_cleanup_diagnostic(logger, **diagnostic)
 
     def append_alignment_message(self, session_id: str, message: str) -> dict:
         normalized = str(message or "").strip()
@@ -202,7 +270,7 @@ class ServiceAlignmentMixin:
             raise LooporaError("message is required")
         session = self.get_alignment_session(session_id)
         if session["status"] in ALIGNMENT_ACTIVE_STATUSES:
-            raise LooporaError("alignment session is already running")
+            raise LooporaConflictError("alignment session is already running")
         transcript = list(session.get("transcript") or [])
         transcript.append({"role": "user", "content": normalized, "created_at": utc_now()})
         stage_updates = self._alignment_stage_updates_for_user_message(session, normalized)
@@ -239,11 +307,11 @@ class ServiceAlignmentMixin:
     def start_alignment_session_async(self, session_id: str) -> None:
         session = self.get_alignment_session(session_id)
         if session["status"] in ALIGNMENT_ACTIVE_STATUSES:
-            raise LooporaError("alignment session is already running")
+            raise LooporaConflictError("alignment session is already running")
         key = self._alignment_thread_key(session_id)
         thread = self._threads.get(key)
         if thread and thread.is_alive():
-            raise LooporaError("alignment session is already running")
+            raise LooporaConflictError("alignment session is already running")
         self.repository.update_alignment_session(
             session_id,
             status="running",
@@ -269,7 +337,7 @@ class ServiceAlignmentMixin:
     def cancel_alignment_session(self, session_id: str) -> dict:
         session = self.get_alignment_session(session_id)
         if session["status"] not in ALIGNMENT_ACTIVE_STATUSES:
-            raise LooporaError(f"cannot cancel alignment session in status {session['status']}")
+            raise LooporaConflictError(f"cannot cancel alignment session in status {session['status']}")
         updated = self.repository.request_alignment_stop(session_id)
         self.repository.append_alignment_event(
             session_id,
@@ -280,8 +348,21 @@ class ServiceAlignmentMixin:
         if pid not in {None, ""}:
             try:
                 os.kill(int(pid), signal.SIGTERM)
-            except (OSError, ValueError):
-                pass
+            except (OSError, ValueError) as exc:
+                diagnostic = cleanup_diagnostic_payload(
+                    operation="alignment_cancel_signal",
+                    resource_type="process",
+                    resource_id=pid,
+                    owner_id=session_id,
+                    error=exc,
+                    status=updated.get("status") if updated else session["status"],
+                )
+                log_cleanup_diagnostic(logger, **diagnostic)
+                self._append_alignment_diagnostic_event(
+                    session_id,
+                    "alignment_cancel_signal_failed",
+                    diagnostic,
+                )
         return self.get_alignment_session(session_id)
 
     def list_alignment_events(self, session_id: str, *, after_id: int = 0, limit: int = 200) -> list[dict]:
@@ -323,9 +404,9 @@ class ServiceAlignmentMixin:
     def sync_alignment_bundle_from_file(self, session_id: str) -> dict:
         session = self.get_alignment_session(session_id)
         if session["status"] in ALIGNMENT_ACTIVE_STATUSES:
-            raise LooporaError("cannot sync bundle while alignment session is active")
+            raise LooporaConflictError("cannot sync bundle while alignment session is active")
         if session["status"] not in {"ready", "failed"}:
-            raise LooporaError(f"cannot sync bundle in status {session['status']}")
+            raise LooporaConflictError(f"cannot sync bundle in status {session['status']}")
         bundle_path = Path(session["bundle_path"])
         if not bundle_path.exists():
             error = f"alignment bundle does not exist: {bundle_path}"
@@ -397,10 +478,10 @@ class ServiceAlignmentMixin:
     def import_alignment_bundle(self, session_id: str, *, start_immediately: bool = True) -> dict:
         session = self.get_alignment_session(session_id)
         if session["status"] != "ready":
-            raise LooporaError(f"alignment session is not READY: {session['status']}")
+            raise LooporaConflictError(f"alignment session is not READY: {session['status']}")
         bundle_path = Path(session["bundle_path"])
         if not bundle_path.exists():
-            raise LooporaError(f"alignment bundle does not exist: {bundle_path}")
+            raise LooporaNotFoundError(f"alignment bundle does not exist: {bundle_path}")
         raw_yaml = bundle_path.read_text(encoding="utf-8")
         try:
             bundle = self.import_bundle_text(raw_yaml, imported_from_path=str(bundle_path))
@@ -1683,8 +1764,21 @@ This is a lightweight Loopora-provided snapshot. Treat it as observed context, n
                 continue
             try:
                 shutil.move(str(source), str(target))
-            except OSError:
-                pass
+            except OSError as exc:
+                diagnostic = cleanup_diagnostic_payload(
+                    operation="alignment_legacy_artifact_migration",
+                    resource_type="path",
+                    resource_id=source,
+                    owner_id=session["id"],
+                    error=exc,
+                    target_path=target,
+                )
+                log_cleanup_diagnostic(logger, **diagnostic)
+                self._append_alignment_diagnostic_event(
+                    session["id"],
+                    "alignment_legacy_artifact_migration_failed",
+                    diagnostic,
+                )
         updated = self.repository.update_alignment_session(session["id"], bundle_path=str(paths["bundle"]))
         self._write_alignment_manifest(updated)
         return updated

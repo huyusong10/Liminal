@@ -5,45 +5,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from loopora.markdown_tools import render_safe_markdown_html
 from loopora.web_overviews import (
-    _build_run_key_takeaways,
     _build_run_summary_snapshot,
     _decorate_loop_overview,
     _decorate_run_overview,
-    _format_timeline_event,
     _progress_stage_seed,
     _workflow_role_executor_summary,
 )
 from loopora.web_route_context import WebRouteContext
 from loopora.web_inputs import _preferred_request_locale
 from loopora.web_url_utils import attachment_content_disposition, with_query_params
-
-TIMELINE_EVENT_TYPES = {
-    "run_started",
-    "checks_resolved",
-    "step_context_prepared",
-    "role_execution_summary",
-    "step_handoff_written",
-    "iteration_summary_written",
-    "role_degraded",
-    "challenger_done",
-    "iteration_wait_started",
-    "iteration_wait_finished",
-    "workspace_guard_triggered",
-    "stop_requested",
-    "run_aborted",
-    "run_finished",
-}
-
-PROGRESS_EVENT_TYPES = {
-    "checks_resolved",
-    "role_started",
-    "role_request_prepared",
-    "step_context_prepared",
-    "role_execution_summary",
-    "step_handoff_written",
-    "run_aborted",
-    "run_finished",
-}
 
 
 def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
@@ -162,9 +132,6 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     async def run_detail(request: Request, run_id: str) -> HTMLResponse:
         locale = _preferred_request_locale(request)
         run = ctx.svc().get_run(run_id)
-        seed_events = ctx.svc().stream_events(run_id, limit=5000)
-        latest_event_id = seed_events[-1]["id"] if seed_events else 0
-        events = [_format_timeline_event(event) for event in seed_events if event["event_type"] in TIMELINE_EVENT_TYPES]
         return ctx.templates.TemplateResponse(
             request,
             "run_detail.html",
@@ -173,11 +140,6 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
                 "run": run,
                 "page_locale": locale,
                 "progress_stages": _progress_stage_seed(run),
-                "timeline_events": events[-40:],
-                "console_events": seed_events[-160:],
-                "progress_events": [event for event in seed_events if event["event_type"] in PROGRESS_EVENT_TYPES][-2000:],
-                "latest_event_id": latest_event_id,
-                "key_takeaways": _build_run_key_takeaways(run),
                 "access_state": ctx.access_state,
             },
         )

@@ -39,6 +39,7 @@
         <article
           class="loop-card loop-card--{{ loop_item.latest_status or 'draft' }} is-clickable"
           data-open-card="{{ loop_item.card_href }}"
+          data-testid="loop-card"
           tabindex="0"
         >
           <a class="loop-card-link" href="{{ loop_item.card_href }}" tabindex="-1" aria-hidden="true"></a>
@@ -83,7 +84,7 @@
             </p>
             {% endif %}
           </div>
-          <div class="card-actions card-actions--loop{% if not loop_item.latest_run_id %} card-actions--loop-compact{% endif %}">
+          <div class="card-actions card-actions--loop{% if not loop_item.latest_run_id %} card-actions--loop-compact{% endif %}" data-testid="loop-card-actions">
             <a class="secondary-button" href="/loops/{{ loop_item.id }}">
               <span data-lang="zh">查看循环</span>
               <span data-lang="en">View loop</span>
@@ -119,7 +120,7 @@
         </article>
         {% endfor %}
       </div>
-      <p class="panel-note loop-grid-note">
+      <p class="panel-note loop-grid-note" data-testid="loop-grid-note">
         <span data-lang="zh">点击卡片主体可直接打开最近运行；如果这条 loop 还没有运行记录，就会进入循环详情。</span>
         <span data-lang="en">Click the body of a card to jump to the latest run. If the loop has no run yet, it opens the loop details instead.</span>
       </p>
@@ -136,7 +137,7 @@
       </div>
     {% else %}
       <div class="loop-grid loop-grid--created" id="loop-grid" hidden></div>
-      <p class="panel-note loop-grid-note" hidden>
+      <p class="panel-note loop-grid-note" data-testid="loop-grid-note" hidden>
         <span data-lang="zh">点击卡片主体可直接打开最近运行；如果这条 loop 还没有运行记录，就会进入循环详情。</span>
         <span data-lang="en">Click the body of a card to jump to the latest run. If the loop has no run yet, it opens the loop details instead.</span>
       </p>

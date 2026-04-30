@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ page_copy.submit_zh if page_locale == 'zh' else page_copy.submit_en }}{% endblock %}
+{% block styles %}
+<link rel="stylesheet" href="{{ static_asset_url('pages/workflow_editor.css') }}" />
+<link rel="stylesheet" href="{{ static_asset_url('pages/orchestration.css') }}" />
+{% endblock %}
 {% block content %}
 <div class="page-stack" data-testid="orchestration-editor-page">
 <section class="hero hero-tight hero-form orchestration-hero">

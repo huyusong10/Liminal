@@ -1,0 +1,113 @@
+name: Real Provider E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Comma-separated provider targets, for example codex,claude,opencode"
+        required: false
+        default: ""
+      setup_command:
+        description: "Optional shell command to install or configure provider CLIs before availability checks"
+        required: false
+        default: ""
+      pytest_args:
+        description: "Additional pytest arguments for the opt-in real-provider suite"
+        required: false
+        default: "tests/test_real_cli_integration.py tests/test_real_search_loop_examples.py -q -rs"
+
+jobs:
+  real-provider-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      LOOPORA_ENABLE_REAL_CLI_E2E: "1"
+      LOOPORA_REAL_CLI_TARGETS: ${{ inputs.targets }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Optional provider setup
+        if: inputs.setup_command != ''
+        shell: bash
+        run: ${{ inputs.setup_command }}
+
+      - name: Check provider CLI availability
+        id: provider-check
+        shell: bash
+        run: |
+          targets="${LOOPORA_REAL_CLI_TARGETS:-codex,claude,opencode}"
+          available=""
+          skipped=""
+          IFS=',' read -ra names <<< "$targets"
+          for name in "${names[@]}"; do
+            trimmed="$(echo "$name" | xargs)"
+            if [[ -z "$trimmed" ]]; then
+              continue
+            fi
+            case "$trimmed" in
+              codex)
+                if ! command -v codex >/dev/null 2>&1; then
+                  skipped="${skipped}${skipped:+; }codex: missing codex CLI"
+                elif [[ -z "${OPENAI_API_KEY:-}" ]]; then
+                  skipped="${skipped}${skipped:+; }codex: missing OPENAI_API_KEY secret"
+                else
+                  available="${available}${available:+,}codex"
+                fi
+                ;;
+              claude)
+                if ! command -v claude >/dev/null 2>&1; then
+                  skipped="${skipped}${skipped:+; }claude: missing claude CLI"
+                elif [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+                  skipped="${skipped}${skipped:+; }claude: missing ANTHROPIC_API_KEY secret"
+                else
+                  available="${available}${available:+,}claude"
+                fi
+                ;;
+              opencode)
+                if ! command -v opencode >/dev/null 2>&1; then
+                  skipped="${skipped}${skipped:+; }opencode: missing opencode CLI"
+                elif [[ -z "${OPENAI_API_KEY:-}" && -z "${ANTHROPIC_API_KEY:-}" && ! -d "$HOME/.config/opencode" ]]; then
+                  skipped="${skipped}${skipped:+; }opencode: missing provider secret or local config"
+                else
+                  available="${available}${available:+,}opencode"
+                fi
+                ;;
+              *)
+                skipped="${skipped}${skipped:+; }${trimmed}: unknown target"
+                ;;
+            esac
+          done
+          {
+            echo "### Real provider E2E readiness"
+            echo
+            echo "- Requested targets: ${targets}"
+            echo "- Ready targets: ${available:-none}"
+            echo "- Skipped: ${skipped:-none}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ -z "$available" ]]; then
+            echo "No configured provider target is ready; skipping opt-in real-provider E2E."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "targets=$available" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run real provider E2E
+        if: steps.provider-check.outputs.run == 'true'
+        env:
+          LOOPORA_REAL_CLI_TARGETS: ${{ steps.provider-check.outputs.targets }}
+        run: uv run pytest ${{ inputs.pytest_args }}

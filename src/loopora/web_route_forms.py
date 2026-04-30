@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 
 from loopora.service import LooporaError
+from loopora.service_types import LooporaConflictError
 from loopora.specs import SpecError
 from loopora.web_inputs import (
     _coerce_bool,
@@ -51,7 +52,7 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     async def rerun_from_run_detail(run_id: str):
         run = ctx.svc().get_run(run_id)
         if run.get("status") not in {"succeeded", "failed", "stopped"}:
-            raise LooporaError(f"cannot rerun from active run in status {run.get('status')}")
+            raise LooporaConflictError(f"cannot rerun from active run in status {run.get('status')}")
         new_run = ctx.svc().rerun(run["loop_id"], background=True)
         return RedirectResponse(url=f"/runs/{new_run['id']}", status_code=303)
 

@@ -51,6 +51,37 @@
   </div>
 </section>
 
+<section class="panel" data-testid="local-assets-diagnostics-panel">
+  <header class="panel-header">
+    <div>
+      <h2><span data-lang="zh">本地资产健康</span><span data-lang="en">Local asset health</span></h2>
+      <p class="tools-copy">
+        <span data-lang="zh">这里只读扫描补偿清理后可能留下的本地目录或缺失目录，不会自动删除任何文件。</span>
+        <span data-lang="en">This read-only scan reports local directories left behind by best-effort cleanup or missing expected directories.</span>
+      </p>
+    </div>
+  </header>
+  <div class="local-assets-summary" data-testid="local-assets-summary">
+    <span class="wake-lock-pill wake-lock-pill-neutral" data-local-assets-count="orphan_alignment_dirs">
+      <span data-lang="zh">Alignment 残留目录：0</span>
+      <span data-lang="en">Alignment orphan dirs: 0</span>
+    </span>
+    <span class="wake-lock-pill wake-lock-pill-neutral" data-local-assets-count="orphan_bundle_dirs">
+      <span data-lang="zh">Bundle 残留目录：0</span>
+      <span data-lang="en">Bundle orphan dirs: 0</span>
+    </span>
+    <span class="wake-lock-pill wake-lock-pill-neutral" data-local-assets-count="orphan_run_dirs">
+      <span data-lang="zh">Run 残留目录：0</span>
+      <span data-lang="en">Run orphan dirs: 0</span>
+    </span>
+    <span class="wake-lock-pill wake-lock-pill-neutral" data-local-assets-count="record_without_dir">
+      <span data-lang="zh">记录缺失目录：0</span>
+      <span data-lang="en">Records missing dirs: 0</span>
+    </span>
+  </div>
+  <div class="field-status" id="local-assets-status" data-testid="local-assets-status" hidden></div>
+</section>
+
 <section class="panel">
   <header class="panel-header">
     <div>

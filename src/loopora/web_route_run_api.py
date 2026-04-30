@@ -10,8 +10,13 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from loopora.branding import FILE_ROOT_QUERY_PATTERN
 from loopora.diagnostics import log_exception
 from loopora.run_artifacts import list_run_artifacts as _list_run_artifacts
-from loopora.web_overviews import _artifact_record_or_404, _build_run_key_takeaways
+from loopora.run_takeaways import build_run_key_takeaways
+from loopora.web_overviews import (
+    _artifact_record_or_404,
+    _format_timeline_event,
+)
 from loopora.web_route_context import WebRouteContext
+from loopora.web_streaming import stream_error_payload
 
 
 def register_run_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
@@ -52,14 +57,23 @@ def register_run_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     async def api_get_run(run_id: str) -> JSONResponse:
         return JSONResponse(ctx.svc().get_run(run_id))
 
+    @app.get("/api/runs/{run_id}/observation-snapshot")
+    async def api_run_observation_snapshot(run_id: str) -> JSONResponse:
+        snapshot = ctx.svc().run_observation_snapshot(run_id)
+        return JSONResponse(
+            {
+                **snapshot,
+                "timeline_events": [_format_timeline_event(event) for event in snapshot["timeline_events"]],
+            }
+        )
+
     @app.post("/api/runs/{run_id}/stop")
     async def api_stop_run(run_id: str) -> JSONResponse:
         return JSONResponse(ctx.svc().stop_run(run_id))
 
     @app.get("/api/runs/{run_id}/events")
     async def api_run_events(run_id: str, after_id: int = 0, limit: int = 200) -> JSONResponse:
-        ctx.svc().get_run(run_id)
-        return JSONResponse(ctx.svc().repository.list_events(run_id, after_id=after_id, limit=limit))
+        return JSONResponse(ctx.svc().stream_events(run_id, after_id=after_id, limit=limit))
 
     @app.get("/api/runs/{run_id}/artifacts")
     async def api_run_artifacts(run_id: str) -> JSONResponse:
@@ -69,7 +83,7 @@ def register_run_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/runs/{run_id}/key-takeaways")
     async def api_run_key_takeaways(run_id: str) -> JSONResponse:
         run = ctx.svc().get_run(run_id)
-        return JSONResponse(_build_run_key_takeaways(run))
+        return JSONResponse(build_run_key_takeaways(run))
 
     @app.get("/api/runs/{run_id}/artifacts/{artifact_id}")
     async def api_run_artifact_preview(run_id: str, artifact_id: str) -> JSONResponse:
@@ -129,7 +143,7 @@ def register_run_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
                         run_id=run_id,
                         after_id=last_id,
                     )
-                    payload = {"run_id": run_id, "after_id": last_id, "error": str(exc)}
+                    payload = stream_error_payload(owner_key="run_id", owner_id=run_id, after_id=last_id)
                     yield "event: stream_error\n"
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
                     break

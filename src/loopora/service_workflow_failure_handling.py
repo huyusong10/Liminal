@@ -31,7 +31,7 @@ class ServiceWorkflowFailureHandlingMixin:
             final_reason=final_reason,
             hydrate=True,
         )
-        self.repository.append_event(
+        self.append_run_event(
             run_id,
             "run_finished",
             {"status": final_status, "reason": final_reason, "iter": last_iter_id},
@@ -60,7 +60,7 @@ class ServiceWorkflowFailureHandlingMixin:
             final_reason="stopped",
             hydrate=True,
         )
-        self.repository.append_event(run_id, "run_finished", {"status": "stopped"})
+        self.append_run_event(run_id, "run_finished", {"status": "stopped"})
         log_event(
             logger,
             logging.INFO,

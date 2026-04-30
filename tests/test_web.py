@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import shutil
 import time
 import zipfile
 from pathlib import Path
@@ -10,6 +11,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from loopora.bundles import bundle_to_yaml
+from loopora.branding import state_dir_for_workdir
 from loopora.settings import app_home, configure_logging
 from loopora.web_url_utils import safe_attachment_filename, safe_local_return_path, with_query_params
 import loopora.web as web_module
@@ -83,7 +85,8 @@ def test_api_loop_creation_run_preview_and_stream(
     assert loopora_dir.json()["kind"] == "directory"
 
     invalid_root = client.get(f"/api/files?run_id={run_id}&root=archive")
-    assert invalid_root.status_code == 422
+    assert invalid_root.status_code == 400
+    assert "error" in invalid_root.json()
 
     artifacts = client.get(f"/api/runs/{run_id}/artifacts")
     assert artifacts.status_code == 200
@@ -92,6 +95,9 @@ def test_api_loop_creation_run_preview_and_stream(
     assert any(item["id"] == "summary" and item["available"] for item in artifact_payload)
     assert any(item["id"] == "evidence-ledger" and item["available"] for item in artifact_payload)
     assert any(item["id"] == "evidence-coverage" and item["available"] for item in artifact_payload)
+    missing_artifact = client.get(f"/api/runs/{run_id}/artifacts/missing-artifact/download")
+    assert missing_artifact.status_code == 404
+    assert missing_artifact.json()["error"] == "unknown artifact"
 
     original_spec_artifact = client.get(f"/api/runs/{run_id}/artifacts/original-spec")
     assert original_spec_artifact.status_code == 200
@@ -228,6 +234,221 @@ def test_api_run_key_takeaways_returns_iteration_role_conclusions(
     assert coverage["evidence_kind_counts"]["verdict"] >= 1
 
 
+def test_api_run_observation_snapshot_is_bounded_and_redacted(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Snapshot Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+
+    for index in range(45):
+        service.repository.append_event(
+            run["id"],
+            "run_finished",
+            {"status": "succeeded", "reason": f"snapshot timeline {index}", "iter": index},
+        )
+    for index in range(2050):
+        service.repository.append_event(
+            run["id"],
+            "role_started",
+            {"role": "generator", "step_id": "builder_step", "iter": index},
+            role="generator",
+        )
+    marker = "UNIQUE-SNAPSHOT-SECRET-MARKER"
+    redacted_event = service.repository.append_event(
+        run["id"],
+        "codex_event",
+        {
+            "type": "command",
+            "message": "uv run pytest -q",
+            "prompt": marker,
+            "json_schema": {"marker": marker},
+        },
+        role="generator",
+    )
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/api/runs/{run['id']}/observation-snapshot")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["run"]["id"] == run["id"]
+    assert payload["latest_event_id"] == redacted_event["id"]
+    assert len(payload["timeline_events"]) == 40
+    assert len(payload["console_events"]) == 160
+    assert len(payload["progress_events"]) == 2000
+    assert payload["key_takeaways"]["run_status"] == "succeeded"
+    assert 0 < payload["key_takeaways"]["source_event_id"] <= payload["latest_event_id"]
+    assert marker not in json.dumps(payload, ensure_ascii=False)
+
+    html_response = client.get(f"/runs/{run['id']}")
+    assert html_response.status_code == 200
+    assert marker not in html_response.text
+    timeline_text = (Path(run["runs_dir"]) / "timeline" / "events.jsonl").read_text(encoding="utf-8")
+    assert marker not in timeline_text
+    assert "uv run pytest -q" in json.dumps(payload["console_events"], ensure_ascii=False)
+
+
+def test_api_run_observation_snapshot_uses_persisted_takeaway_projection(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Snapshot Projection Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    marker = "LIVE-ARTIFACT-UPDATE-AFTER-PROJECTION"
+    handoff_path = next(Path(run["runs_dir"]).glob("iterations/iter_*/steps/*/handoff.json"))
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    handoff["summary"] = marker
+    handoff_path.write_text(json.dumps(handoff, ensure_ascii=False), encoding="utf-8")
+    late_event = service.repository.append_event(
+        run["id"],
+        "codex_event",
+        {"type": "stdout", "message": "late non-projection event"},
+        role="generator",
+    )
+
+    client = TestClient(build_app(service=service))
+    snapshot_response = client.get(f"/api/runs/{run['id']}/observation-snapshot")
+    live_response = client.get(f"/api/runs/{run['id']}/key-takeaways")
+
+    assert snapshot_response.status_code == 200
+    snapshot_payload = snapshot_response.json()
+    assert snapshot_payload["latest_event_id"] == late_event["id"]
+    assert snapshot_payload["key_takeaways"]["source_event_id"] < snapshot_payload["latest_event_id"]
+    assert marker not in json.dumps(snapshot_payload["key_takeaways"], ensure_ascii=False)
+    assert live_response.status_code == 200
+    assert marker in json.dumps(live_response.json(), ensure_ascii=False)
+
+
+def test_run_takeaway_projection_backfills_existing_terminal_runs(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Snapshot Backfill Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    with service.repository.transaction() as connection:
+        connection.execute("DELETE FROM run_takeaway_projections WHERE run_id = ?", (run["id"],))
+
+    restarted = service.__class__(
+        repository=service.repository,
+        settings=service.settings,
+        executor_factory=service.executor_factory,
+    )
+    snapshot = restarted.run_observation_snapshot(run["id"])
+
+    assert 0 < snapshot["key_takeaways"]["source_event_id"] <= snapshot["latest_event_id"]
+    assert snapshot["key_takeaways"]["iteration_count"] >= 1
+
+
+def test_api_run_observation_snapshot_uses_consistent_event_cutoff(
+    monkeypatch,
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Snapshot Cutoff Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    service.repository.append_event(run["id"], "run_started", {"status": "running"})
+    service.repository.append_event(
+        run["id"],
+        "role_started",
+        {"role": "generator", "step_id": "initial_step", "iter": 0},
+        role="generator",
+    )
+    service.repository.append_event(
+        run["id"],
+        "codex_event",
+        {"type": "stdout", "message": "visible before cutoff"},
+        role="generator",
+    )
+
+    original_recent_rows = service.repository._recent_event_rows_for_connection
+    captured: dict[str, int] = {}
+
+    def recent_rows_with_concurrent_append(connection, run_id: str, **kwargs):
+        captured.setdefault("cutoff", int(kwargs.get("max_event_id") or 0))
+        if "late_id" not in captured:
+            late_event = service.repository.append_event(
+                run_id,
+                "role_started",
+                {"role": "generator", "step_id": "late_step", "iter": 1},
+                role="generator",
+            )
+            captured["late_id"] = late_event["id"]
+        return original_recent_rows(connection, run_id, **kwargs)
+
+    monkeypatch.setattr(service.repository, "_recent_event_rows_for_connection", recent_rows_with_concurrent_append)
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/api/runs/{run['id']}/observation-snapshot")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["latest_event_id"] == captured["cutoff"]
+    assert payload["key_takeaways"]["source_event_id"] == captured["cutoff"]
+    for event in payload["timeline_events"] + payload["console_events"] + payload["progress_events"]:
+        assert event["id"] <= payload["latest_event_id"]
+        assert event["id"] != captured["late_id"]
+
+    events_response = client.get(f"/api/runs/{run['id']}/events?after_id={payload['latest_event_id']}")
+    assert events_response.status_code == 200
+    assert any(event["id"] == captured["late_id"] for event in events_response.json())
+
+
 def test_api_reveal_path_uses_native_host_shortcut(monkeypatch, service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     client = TestClient(build_app(service=service))
@@ -337,12 +558,48 @@ def test_api_run_events_and_stream_require_a_real_run(service_factory) -> None:
     client = TestClient(build_app(service=service))
 
     events_response = client.get("/api/runs/missing-run/events")
-    assert events_response.status_code == 400
+    assert events_response.status_code == 404
     assert "unknown run" in events_response.json()["error"]
 
+    snapshot_response = client.get("/api/runs/missing-run/observation-snapshot")
+    assert snapshot_response.status_code == 404
+    assert "unknown run" in snapshot_response.json()["error"]
+
     stream_response = client.get("/api/runs/missing-run/stream")
-    assert stream_response.status_code == 400
+    assert stream_response.status_code == 404
     assert "unknown run" in stream_response.json()["error"]
+
+
+def test_api_run_lifecycle_reports_not_found_and_conflict_status_codes(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    missing_loop_response = client.post("/api/loops/missing-loop/runs")
+    assert missing_loop_response.status_code == 404
+    assert "unknown loop" in missing_loop_response.json()["error"]
+
+    loop = service.create_loop(
+        name="Conflict Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    service.start_run(loop["id"])
+
+    conflict_response = client.post(f"/api/loops/{loop['id']}/runs")
+    assert conflict_response.status_code == 409
+    assert "active run" in conflict_response.json()["error"]
 
 
 def test_api_runtime_activity_reports_running_runs(
@@ -386,7 +643,77 @@ def test_api_runtime_activity_reports_running_runs(
     service.stop_run(run["id"])
 
 
-def test_api_run_stream_emits_stream_error_on_backend_failure() -> None:
+def test_api_local_asset_diagnostics_reports_orphans_and_missing_dirs(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Diagnostics Workdir Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    assert loop["id"]
+    run = service.start_run(loop["id"])
+    run_dir = Path(run["runs_dir"])
+    if run_dir.exists():
+        shutil.rmtree(run_dir)
+    orphan_run_dir = state_dir_for_workdir(sample_workdir) / "runs" / "run_orphan"
+    orphan_run_dir.mkdir(parents=True)
+    orphan_alignment_dir = state_dir_for_workdir(sample_workdir) / "alignment_sessions" / "align_orphan"
+    orphan_alignment_dir.mkdir(parents=True)
+    orphan_bundle_dir = app_home() / "bundles" / "bundle_orphan"
+    orphan_bundle_dir.mkdir(parents=True)
+    service.repository.create_bundle(
+        {
+            "id": "bundle_missing_dir",
+            "name": "Missing Dir Bundle",
+            "description": "",
+            "collaboration_summary": "",
+            "workdir": str(sample_workdir),
+            "loop_id": "",
+            "orchestration_id": "",
+            "role_definition_ids": [],
+            "source_bundle_id": "",
+            "revision": 1,
+            "imported_from_path": "",
+        }
+    )
+    missing_bundle_dir = service._bundle_dir("bundle_missing_dir")
+    if missing_bundle_dir.exists():
+        shutil.rmtree(missing_bundle_dir)
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/api/diagnostics/local-assets")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert set(payload) == {"orphan_alignment_dirs", "orphan_bundle_dirs", "orphan_run_dirs", "record_without_dir"}
+    assert any(item["session_id"] == "align_orphan" for item in payload["orphan_alignment_dirs"])
+    assert any(item["bundle_id"] == "bundle_orphan" for item in payload["orphan_bundle_dirs"])
+    assert any(item["run_id"] == "run_orphan" and item["source"] == "recent_workdir" for item in payload["orphan_run_dirs"])
+    assert any(
+        item["resource_type"] == "bundle" and item["resource_id"] == "bundle_missing_dir"
+        for item in payload["record_without_dir"]
+    )
+    assert any(
+        item["resource_type"] == "run" and item["resource_id"] == run["id"]
+        for item in payload["record_without_dir"]
+    )
+
+
+def test_api_run_stream_emits_redacted_stream_error_on_backend_failure() -> None:
+    configure_logging()
+
     class FlakyService:
         def get_run(self, run_id: str) -> dict:
             return {"id": run_id, "status": "running", "loop_id": "loop_test"}
@@ -396,12 +723,24 @@ def test_api_run_stream_emits_stream_error_on_backend_failure() -> None:
 
     client = TestClient(build_app(service=FlakyService()))
 
-    with client.stream("GET", "/api/runs/run_test/stream") as response:
+    with client.stream("GET", "/api/runs/run_test/stream?after_id=42") as response:
         assert response.status_code == 200
         body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text())
 
     assert "event: stream_error" in body
-    assert "database unavailable" in body
+    assert "database unavailable" not in body
+    payload = json.loads(next(line.removeprefix("data: ") for line in body.splitlines() if line.startswith("data: ")))
+    assert payload == {
+        "run_id": "run_test",
+        "after_id": 42,
+        "error": "stream_unavailable",
+        "retryable": True,
+    }
+    assert any(
+        record.get("event") == "web.run_stream.failed"
+        and (record.get("error") or {}).get("message") == "database unavailable"
+        for record in _read_service_log_records()
+    )
 
 
 def test_api_run_stream_logs_invalid_resume_cursor_and_keeps_request_cursor() -> None:
@@ -480,7 +819,7 @@ def test_api_stop_run_rejects_finished_runs(
 
     response = client.post(f"/api/runs/{run['id']}/stop")
 
-    assert response.status_code == 400
+    assert response.status_code == 409
     assert "cannot stop run in status" in response.json()["error"]
 
 
@@ -860,7 +1199,7 @@ def test_api_orchestration_rejects_unknown_role_definition_ids(service_factory) 
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 404
     assert "unknown role definition: role_missing" in response.json()["error"]
 
 
@@ -1692,7 +2031,7 @@ def test_api_bundles_import_export_and_delete(
     assert delete_response.json()["deleted"] is True
 
     missing_response = client.get(f"/api/bundles/{bundle['id']}")
-    assert missing_response.status_code == 400
+    assert missing_response.status_code == 404
     assert "unknown bundle" in missing_response.json()["error"]
 
 

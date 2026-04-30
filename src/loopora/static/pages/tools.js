@@ -10,6 +10,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const wakeLockRuns = document.getElementById("wake-lock-runs");
   const skillInstallStatusBox = document.getElementById("skill-install-status");
   const skillInstallButtons = Array.from(document.querySelectorAll("[data-install-skill]"));
+  const localAssetsStatusBox = document.getElementById("local-assets-status");
+  const localAssetsCountNodes = Array.from(document.querySelectorAll("[data-local-assets-count]"));
   const WAKE_LOCK_PREF_KEY = "loopora:tools:wake-lock-enabled";
   let wakeLockSentinel = null;
   let runtimeActivity = {
@@ -128,6 +130,35 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     renderSkillTargets(payload.targets);
+  }
+
+  function renderLocalAssetDiagnostics(payload) {
+    for (const node of localAssetsCountNodes) {
+      const key = String(node.dataset.localAssetsCount || "");
+      const count = Array.isArray(payload?.[key]) ? payload[key].length : 0;
+      const label = key === "orphan_alignment_dirs"
+        ? localeText("Alignment 残留目录", "Alignment orphan dirs")
+        : key === "orphan_bundle_dirs"
+          ? localeText("Bundle 残留目录", "Bundle orphan dirs")
+          : key === "orphan_run_dirs"
+            ? localeText("Run 残留目录", "Run orphan dirs")
+            : localeText("记录缺失目录", "Records missing dirs");
+      node.textContent = `${label}: ${count}`;
+      node.className = `wake-lock-pill ${count > 0 ? "wake-lock-pill-warning" : "wake-lock-pill-neutral"}`;
+    }
+  }
+
+  async function refreshLocalAssetDiagnostics(options = {}) {
+    const quiet = options.quiet ?? false;
+    const {response, payload} = await fetchJson("/api/diagnostics/local-assets");
+    if (!response.ok) {
+      if (!quiet) {
+        showStatus(localAssetsStatusBox, payload.error || localeText("无法读取本地资产诊断。", "Unable to load local asset diagnostics."), "error");
+      }
+      return;
+    }
+    renderLocalAssetDiagnostics(payload);
+    showStatus(localAssetsStatusBox, "");
   }
 
   async function installSkillTarget(target) {
@@ -434,6 +465,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   refreshRuntimeActivity({quiet: true});
+  refreshLocalAssetDiagnostics({quiet: true}).catch(() => {});
   window.setInterval(() => {
     refreshRuntimeActivity({quiet: true}).catch(() => {});
   }, 15000);
@@ -443,6 +475,7 @@ document.addEventListener("DOMContentLoaded", () => {
     updateWakeLockHoldPill();
     renderRuntimeRuns();
     refreshSkillTargets({quiet: true}).catch(() => {});
+    refreshLocalAssetDiagnostics({quiet: true}).catch(() => {});
     syncWakeLock().catch(() => {});
   });
 });

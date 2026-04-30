@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 
@@ -8,6 +9,8 @@ from fastapi.testclient import TestClient
 
 from loopora.bundles import bundle_to_yaml
 from loopora.web import build_app
+import loopora.service_alignment as alignment_module
+import loopora.service_cleanup_diagnostics as cleanup_diagnostics
 
 
 def _wait_for_status(service, session_id: str, *statuses: str, timeout: float = 5.0) -> dict:
@@ -338,8 +341,40 @@ def test_alignment_api_covers_session_events_bundle_and_import(
     delete_response = client.delete(f"/api/alignments/sessions/{session_id}")
     assert delete_response.status_code == 200
     assert delete_response.json()["deleted"] is True
-    assert client.get(f"/api/alignments/sessions/{session_id}").status_code == 400
+    assert client.get(f"/api/alignments/sessions/{session_id}").status_code == 404
     assert client.get("/api/alignments/sessions").json()["sessions"] == []
+
+
+def test_alignment_stream_emits_redacted_stream_error_on_backend_failure(caplog) -> None:
+    class FlakyService:
+        def get_alignment_session(self, session_id: str) -> dict:
+            return {"id": session_id, "status": "running"}
+
+        def list_alignment_events(self, session_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
+            raise RuntimeError("alignment database unavailable")
+
+    client = TestClient(build_app(service=FlakyService()))
+
+    with caplog.at_level(logging.ERROR, logger="loopora.web"):
+        with client.stream("GET", "/api/alignments/sessions/session_test/stream?after_id=9") as response:
+            assert response.status_code == 200
+            body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text())
+
+    assert "event: stream_error" in body
+    assert "alignment database unavailable" not in body
+    payload = json.loads(next(line.removeprefix("data: ") for line in body.splitlines() if line.startswith("data: ")))
+    assert payload == {
+        "session_id": "session_test",
+        "after_id": 9,
+        "error": "stream_unavailable",
+        "retryable": True,
+    }
+    assert any(
+        getattr(record, "event", "") == "web.alignment_stream.failed"
+        and record.exc_info
+        and "alignment database unavailable" in str(record.exc_info[1])
+        for record in caplog.records
+    )
 
 
 def test_alignment_improvement_session_can_start_from_existing_bundle(
@@ -533,6 +568,255 @@ def test_alignment_service_lazily_migrates_legacy_flat_artifacts(service_factory
     assert (root / "legacy" / "bundle.yml").exists()
 
 
+def test_alignment_cancel_signal_failure_writes_structured_diagnostics(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    service = service_factory(scenario="success")
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Cancel a running alignment.",
+        start_immediately=False,
+    )
+    service.repository.update_alignment_session(
+        session["id"],
+        status="running",
+        active_child_pid=987654,
+    )
+
+    def fail_signal(_pid: int, _signal: int) -> None:
+        raise OSError("signal denied")
+
+    monkeypatch.setattr(alignment_module.os, "kill", fail_signal)
+    with caplog.at_level(logging.WARNING, logger="loopora.service_alignment"):
+        cancelled = service.cancel_alignment_session(session["id"])
+
+    assert cancelled["stop_requested"] is True
+    events = service.list_alignment_events(session["id"])
+    diagnostic_event = next(event for event in events if event["event_type"] == "alignment_cancel_signal_failed")
+    assert diagnostic_event["payload"]["operation"] == "alignment_cancel_signal"
+    assert diagnostic_event["payload"]["resource_type"] == "process"
+    assert diagnostic_event["payload"]["resource_id"] == "987654"
+    assert diagnostic_event["payload"]["owner_id"] == session["id"]
+    assert diagnostic_event["payload"]["error_type"] == "OSError"
+    assert any(
+        getattr(record, "event", "") == "service.cleanup.failed"
+        and (getattr(record, "context", {}) or {}).get("operation") == "alignment_cancel_signal"
+        for record in caplog.records
+    )
+
+
+def test_alignment_cancel_signal_diagnostic_event_failure_is_logged_without_masking_cancel(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    service = service_factory(scenario="success")
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Cancel a running alignment with a broken event sink.",
+        start_immediately=False,
+    )
+    service.repository.update_alignment_session(
+        session["id"],
+        status="running",
+        active_child_pid=987654,
+    )
+    original_append_alignment_event = service.repository.append_alignment_event
+
+    def fail_diagnostic_event(session_id: str, event_type: str, payload: dict) -> dict:
+        if event_type == "alignment_cancel_signal_failed":
+            raise OSError("alignment event sink locked")
+        return original_append_alignment_event(session_id, event_type, payload)
+
+    def fail_signal(_pid: int, _signal: int) -> None:
+        raise OSError("signal denied")
+
+    monkeypatch.setattr(service.repository, "append_alignment_event", fail_diagnostic_event)
+    monkeypatch.setattr(alignment_module.os, "kill", fail_signal)
+    with caplog.at_level(logging.WARNING, logger="loopora.service_alignment"):
+        cancelled = service.cancel_alignment_session(session["id"])
+
+    assert cancelled["stop_requested"] is True
+    assert any(
+        getattr(record, "event", "") == "service.cleanup.failed"
+        and (getattr(record, "context", {}) or {}).get("operation") == "alignment_cancel_signal_event_write"
+        and (getattr(record, "context", {}) or {}).get("resource_type") == "alignment_event"
+        for record in caplog.records
+    )
+
+
+def test_alignment_legacy_migration_failure_writes_structured_diagnostics(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    service = service_factory(scenario="success")
+    session_id = "align_legacy_diag"
+    legacy_root = sample_workdir / ".loopora" / "alignment_sessions" / session_id
+    legacy_root.mkdir(parents=True)
+    legacy_bundle = legacy_root / "bundle.yml"
+    legacy_bundle.write_text("version: 1\nmetadata:\n  name: Legacy\n  revision: 1\n", encoding="utf-8")
+    stale_file = legacy_root / "stale.tmp"
+    stale_file.write_text("left behind\n", encoding="utf-8")
+    service.repository.create_alignment_session(
+        {
+            "id": session_id,
+            "status": "ready",
+            "workdir": str(sample_workdir),
+            "bundle_path": str(legacy_bundle),
+            "transcript": [],
+            "validation": {"ok": True},
+            "alignment_stage": "ready",
+            "working_agreement": {},
+            "executor_session_ref": {},
+        }
+    )
+    original_move = alignment_module.shutil.move
+
+    def fail_stale_move(source: str, target: str):
+        if Path(source).name == "stale.tmp":
+            raise OSError("locked legacy file")
+        return original_move(source, target)
+
+    monkeypatch.setattr(alignment_module.shutil, "move", fail_stale_move)
+    with caplog.at_level(logging.WARNING, logger="loopora.service_alignment"):
+        migrated = service.get_alignment_session(session_id)
+
+    assert Path(migrated["bundle_path"]).name == "bundle.yml"
+    diagnostic_event = next(
+        event
+        for event in service.list_alignment_events(session_id)
+        if event["event_type"] == "alignment_legacy_artifact_migration_failed"
+    )
+    assert diagnostic_event["payload"]["operation"] == "alignment_legacy_artifact_migration"
+    assert diagnostic_event["payload"]["resource_type"] == "path"
+    assert diagnostic_event["payload"]["resource_id"].endswith("stale.tmp")
+    assert diagnostic_event["payload"]["owner_id"] == session_id
+    assert any(
+        getattr(record, "event", "") == "service.cleanup.failed"
+        and (getattr(record, "context", {}) or {}).get("operation") == "alignment_legacy_artifact_migration"
+        for record in caplog.records
+    )
+
+
+def test_alignment_delete_logs_session_dir_cleanup_failure(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    service = service_factory(scenario="success")
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Create a deletable alignment session.",
+        start_immediately=False,
+    )
+
+    def fail_rmtree(path: Path) -> None:
+        if Path(path) == Path(session["artifact_dir"]):
+            raise OSError("alignment dir locked")
+        raise AssertionError(f"unexpected cleanup target: {path}")
+
+    monkeypatch.setattr(cleanup_diagnostics.shutil, "rmtree", fail_rmtree)
+    with caplog.at_level(logging.WARNING, logger="loopora.service_alignment"):
+        deleted = service.delete_alignment_session(session["id"])
+
+    assert deleted is True
+    artifact_events = [
+        json.loads(line)
+        for line in (Path(session["artifact_dir"]) / "events" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    diagnostic_event = next(event for event in artifact_events if event["event_type"] == "alignment_session_cleanup_failed")
+    assert diagnostic_event["payload"]["operation"] == "alignment_session_delete"
+    assert diagnostic_event["payload"]["resource_type"] == "path"
+    assert diagnostic_event["payload"]["owner_id"] == session["id"]
+    diagnostics = service.local_asset_diagnostics()
+    assert any(item["session_id"] == session["id"] for item in diagnostics["orphan_alignment_dirs"])
+    assert any(
+        getattr(record, "event", "") == "service.cleanup.failed"
+        and (getattr(record, "context", {}) or {}).get("operation") == "alignment_session_delete"
+        for record in caplog.records
+    )
+
+
+def test_alignment_delete_logs_cleanup_diagnostic_callback_failure(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    service = service_factory(scenario="success")
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Delete with a broken diagnostic callback.",
+        start_immediately=False,
+    )
+
+    def fail_rmtree(path: Path) -> None:
+        if Path(path) == Path(session["artifact_dir"]):
+            raise OSError("alignment dir locked")
+        raise AssertionError(f"unexpected cleanup target: {path}")
+
+    def fail_diagnostic_callback(_session: dict, _event_type: str, _payload: dict) -> None:
+        raise RuntimeError("diagnostic callback down")
+
+    monkeypatch.setattr(cleanup_diagnostics.shutil, "rmtree", fail_rmtree)
+    monkeypatch.setattr(service, "_append_alignment_local_diagnostic_event", fail_diagnostic_callback)
+    with caplog.at_level(logging.WARNING, logger="loopora.service_alignment"):
+        deleted = service.delete_alignment_session(session["id"])
+
+    assert deleted is True
+    operations = [
+        (getattr(record, "context", {}) or {}).get("operation")
+        for record in caplog.records
+        if getattr(record, "event", "") == "service.cleanup.failed"
+    ]
+    assert "alignment_session_delete" in operations
+    assert "alignment_session_delete_diagnostic_callback" in operations
+
+
+def test_alignment_delete_logs_local_diagnostic_event_write_failure(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    service = service_factory(scenario="success")
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Delete with a broken local event sink.",
+        start_immediately=False,
+    )
+    hydrated_session = service.get_alignment_session(session["id"])
+
+    def fail_rmtree(path: Path) -> None:
+        if Path(path) == Path(session["artifact_dir"]):
+            raise OSError("alignment dir locked")
+        raise AssertionError(f"unexpected cleanup target: {path}")
+
+    def fail_ensure_alignment_artifact_dirs(_root: Path) -> None:
+        raise OSError("alignment artifact events locked")
+
+    monkeypatch.setattr(cleanup_diagnostics.shutil, "rmtree", fail_rmtree)
+    monkeypatch.setattr(service, "get_alignment_session", lambda _session_id: hydrated_session)
+    monkeypatch.setattr(service, "_ensure_alignment_artifact_dirs", fail_ensure_alignment_artifact_dirs)
+    with caplog.at_level(logging.WARNING, logger="loopora.service_alignment"):
+        deleted = service.delete_alignment_session(session["id"])
+
+    assert deleted is True
+    assert any(
+        getattr(record, "event", "") == "service.cleanup.failed"
+        and (getattr(record, "context", {}) or {}).get("operation") == "alignment_session_delete_event_write"
+        and (getattr(record, "context", {}) or {}).get("resource_type") == "alignment_event"
+        for record in caplog.records
+    )
+
+
 def test_alignment_api_rejects_busy_messages_and_allows_continue_after_cancel(
     service_factory,
     sample_workdir: Path,
@@ -548,7 +832,7 @@ def test_alignment_api_rejects_busy_messages_and_allows_continue_after_cancel(
     session_id = response.json()["session"]["id"]
 
     busy = client.post(f"/api/alignments/sessions/{session_id}/messages", json={"message": "Too soon."})
-    assert busy.status_code == 400
+    assert busy.status_code == 409
     assert "already running" in busy.json()["error"]
 
     cancelled = client.post(f"/api/alignments/sessions/{session_id}/cancel")

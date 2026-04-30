@@ -7,7 +7,13 @@ from typer.testing import CliRunner
 
 from loopora import cli
 from loopora.bundles import bundle_to_yaml
+from loopora.db import LooporaRepository
+from loopora.executor import FakeCodexExecutor
+from loopora.run_artifacts import RunArtifactLayout
+from loopora.service import LooporaService
+from loopora.settings import AppSettings
 from loopora.settings import app_home
+from loopora.utils import utc_now
 
 
 def test_cli_run_allows_zero_max_iters(monkeypatch, tmp_path: Path) -> None:
@@ -908,3 +914,134 @@ def test_cli_bundles_import_export_derive_and_delete(monkeypatch, tmp_path: Path
     delete_result = runner.invoke(cli.app, ["bundles", "delete", "bundle_cli"])
     assert delete_result.exit_code == 0, delete_result.stdout
     assert calls["delete"] == "bundle_cli"
+
+
+def test_cli_diagnose_event_redaction_dry_run_and_fix(monkeypatch, tmp_path: Path) -> None:
+    marker = "UNIQUE-CLI-REDACTION-MARKER"
+    repository = LooporaRepository(tmp_path / "app.db")
+    service = LooporaService(
+        repository=repository,
+        settings=AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2),
+        executor_factory=lambda: FakeCodexExecutor(scenario="success"),
+    )
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text("# Task\n\nKeep sensitive data out of historical events.\n", encoding="utf-8")
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    loop = service.create_loop(
+        name="Redaction Audit Loop",
+        spec_path=spec_path,
+        workdir=workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    unsafe_event = {
+        "id": 999,
+        "run_id": run["id"],
+        "created_at": utc_now(),
+        "event_type": "codex_event",
+        "role": "generator",
+        "payload": {
+            "type": "command",
+            "message": "uv run pytest -q",
+            "prompt": marker,
+            "json_schema": {"marker": marker},
+        },
+    }
+    with repository.transaction() as connection:
+        connection.execute(
+            """
+            INSERT INTO run_events (run_id, created_at, event_type, role, payload_json)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                run["id"],
+                unsafe_event["created_at"],
+                unsafe_event["event_type"],
+                unsafe_event["role"],
+                json.dumps(unsafe_event["payload"], ensure_ascii=False),
+            ),
+        )
+    layout = RunArtifactLayout(Path(run["runs_dir"]))
+    layout.timeline_events_path.write_text(json.dumps(unsafe_event, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    class FakeService:
+        def __init__(self, repository):
+            self.repository = repository
+
+    monkeypatch.setattr(cli, "create_service", lambda: FakeService(repository))
+    runner = CliRunner()
+
+    dry_run = runner.invoke(cli.app, ["diagnose", "event-redaction"])
+    assert dry_run.exit_code == 0, dry_run.stdout
+    dry_report = json.loads(dry_run.stdout)
+    assert dry_report["mode"] == "dry-run"
+    assert dry_report["suspect"] >= 2
+    assert marker in layout.timeline_events_path.read_text(encoding="utf-8")
+
+    fix_run = runner.invoke(cli.app, ["diagnose", "event-redaction", "--fix"])
+    assert fix_run.exit_code == 0, fix_run.stdout
+    fix_report = json.loads(fix_run.stdout)
+    assert fix_report["mode"] == "fix"
+    assert fix_report["fixed"] >= 2
+    assert marker not in layout.timeline_events_path.read_text(encoding="utf-8")
+    assert "uv run pytest -q" in layout.timeline_events_path.read_text(encoding="utf-8")
+    fixed_payload = repository.list_events(run["id"], after_id=0, limit=20)[-1]["payload"]
+    assert marker not in json.dumps(fixed_payload, ensure_ascii=False)
+    assert fixed_payload["message"] == "uv run pytest -q"
+
+
+def test_cli_diagnose_event_redaction_scans_registered_orphan_run_dirs(monkeypatch, tmp_path: Path) -> None:
+    marker = "UNSAFE-ORPHAN-TIMELINE-MARKER"
+    repository = LooporaRepository(tmp_path / "app.db")
+    run_dir = tmp_path / ".loopora" / "runs" / "run_orphan"
+    layout = RunArtifactLayout(run_dir)
+    layout.timeline_dir.mkdir(parents=True)
+    unsafe_event = {
+        "id": 1,
+        "run_id": "run_orphan",
+        "created_at": utc_now(),
+        "event_type": "codex_event",
+        "role": "generator",
+        "payload": {
+            "type": "command",
+            "message": "uv run pytest -q",
+            "prompt": marker,
+            "json_schema": {"marker": marker},
+        },
+    }
+    layout.timeline_events_path.write_text(json.dumps(unsafe_event, ensure_ascii=False) + "\n", encoding="utf-8")
+    repository.upsert_local_asset_root(
+        resource_type="run",
+        resource_id="run_orphan",
+        path=run_dir,
+        workdir=str(tmp_path),
+        owner_id="loop_missing",
+        state="orphaned",
+    )
+
+    class FakeService:
+        def __init__(self, repository):
+            self.repository = repository
+
+    monkeypatch.setattr(cli, "create_service", lambda: FakeService(repository))
+    runner = CliRunner()
+
+    dry_run = runner.invoke(cli.app, ["diagnose", "event-redaction"])
+    assert dry_run.exit_code == 0, dry_run.stdout
+    assert json.loads(dry_run.stdout)["suspect"] == 1
+    assert marker in layout.timeline_events_path.read_text(encoding="utf-8")
+
+    fix_run = runner.invoke(cli.app, ["diagnose", "event-redaction", "--fix"])
+    assert fix_run.exit_code == 0, fix_run.stdout
+    assert json.loads(fix_run.stdout)["fixed"] == 1
+    timeline_text = layout.timeline_events_path.read_text(encoding="utf-8")
+    assert marker not in timeline_text
+    assert "uv run pytest -q" in timeline_text

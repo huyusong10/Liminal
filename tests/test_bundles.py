@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import logging
 from pathlib import Path
 from textwrap import dedent
 
@@ -7,6 +9,9 @@ import pytest
 
 from loopora.bundles import bundle_to_yaml
 from loopora.service import LooporaError
+from loopora.service_types import LooporaConflictError
+from loopora.settings import app_home, configure_logging
+import loopora.service_cleanup_diagnostics as cleanup_diagnostics
 
 
 def _bundle_yaml(workdir: Path, *, collaboration_summary: str = "Prefer evidence before rushing forward.") -> str:
@@ -214,6 +219,30 @@ def test_bundle_round_trip_preserves_parallel_groups_and_step_inputs(service_fac
         '      on_pass: "finish_run"\n'
         '      inputs:\n'
         '        handoffs_from: ["inspector_step", "semantic_step"]',
+    )
+
+
+def _has_cleanup_record(caplog, *, operation: str, resource_type: str, owner_id: str | None = None) -> bool:
+    records = [
+        {
+            "event": getattr(record, "event", ""),
+            "context": getattr(record, "context", {}) or {},
+        }
+        for record in caplog.records
+    ]
+    log_path = app_home() / "logs" / "service.log"
+    if log_path.exists():
+        records.extend(
+            json.loads(line)
+            for line in log_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        )
+    return any(
+        record.get("event") == "service.cleanup.failed"
+        and (record.get("context") or {}).get("operation") == operation
+        and (record.get("context") or {}).get("resource_type") == resource_type
+        and (owner_id is None or (record.get("context") or {}).get("owner_id") == owner_id)
+        for record in records
     )
 
     imported = service.import_bundle_text(yaml_text)
@@ -425,6 +454,140 @@ def test_bundle_delete_cleans_imported_group_but_keeps_unrelated_assets(
         service.get_bundle(imported["id"])
 
 
+def test_bundle_delete_logs_noncritical_managed_dir_cleanup_failure(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    service = service_factory(scenario="success")
+    configure_logging()
+    imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
+    original_rmtree = cleanup_diagnostics.shutil.rmtree
+
+    def fail_bundle_dir_rmtree(path: Path) -> None:
+        if Path(path).name == imported["id"]:
+            raise OSError("forced managed dir cleanup failure")
+        original_rmtree(path)
+
+    monkeypatch.setattr(cleanup_diagnostics.shutil, "rmtree", fail_bundle_dir_rmtree)
+    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"):
+        deleted = service.delete_bundle(imported["id"])
+
+    assert deleted == {"id": imported["id"], "deleted": True}
+    assert _has_cleanup_record(
+        caplog,
+        operation="bundle_managed_dir_delete",
+        resource_type="path",
+        owner_id=imported["id"],
+    )
+
+
+def test_bundle_failed_import_cleanup_logs_and_preserves_original_error(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    service = service_factory(scenario="success")
+    configure_logging()
+    original_create_role_definition = service.create_role_definition
+
+    def fail_create_role_definition(*args, **kwargs):
+        raise LooporaError("forced role import failure")
+
+    def fail_rmtree(path: Path) -> None:
+        raise OSError(f"cannot remove {Path(path).name}")
+
+    service.create_role_definition = fail_create_role_definition
+    monkeypatch.setattr(cleanup_diagnostics.shutil, "rmtree", fail_rmtree)
+
+    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"):
+        with pytest.raises(LooporaError, match="forced role import failure"):
+            service.import_bundle_text(_bundle_yaml(sample_workdir))
+
+    service.create_role_definition = original_create_role_definition
+    assert _has_cleanup_record(caplog, operation="bundle_failed_import_cleanup", resource_type="path")
+
+
+def test_bundle_failed_import_cleanup_diagnostic_failure_preserves_original_error(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+) -> None:
+    service = service_factory(scenario="success")
+    original_create_role_definition = service.create_role_definition
+
+    def fail_create_role_definition(*args, **kwargs):
+        raise LooporaError("forced role import failure")
+
+    def fail_rmtree(path: Path) -> None:
+        raise OSError(f"cannot remove {Path(path).name}")
+
+    def fail_log_event(*args, **kwargs) -> None:
+        raise RuntimeError("cleanup log sink down")
+
+    service.create_role_definition = fail_create_role_definition
+    monkeypatch.setattr(cleanup_diagnostics.shutil, "rmtree", fail_rmtree)
+    monkeypatch.setattr(cleanup_diagnostics, "log_event", fail_log_event)
+    try:
+        with pytest.raises(LooporaError, match="forced role import failure"):
+            service.import_bundle_text(_bundle_yaml(sample_workdir))
+    finally:
+        service.create_role_definition = original_create_role_definition
+
+
+def test_bundle_delete_keeps_managed_dir_and_records_when_graph_delete_fails(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+) -> None:
+    service = service_factory(scenario="success")
+    imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
+    bundle_dir = service._bundle_dir(imported["id"])
+    assert bundle_dir.exists()
+    loop_id = imported["loop_id"]
+    orchestration_id = imported["orchestration_id"]
+    role_definition_ids = list(imported["role_definition_ids"])
+
+    def fail_delete_bundle_graph(bundle_id: str) -> bool:
+        if bundle_id == imported["id"]:
+            raise LooporaError("bundle graph delete failed")
+        return True
+
+    monkeypatch.setattr(service.repository, "delete_bundle_graph", fail_delete_bundle_graph)
+    with pytest.raises(LooporaError, match="bundle graph delete failed"):
+        service.delete_bundle(imported["id"])
+
+    assert bundle_dir.exists()
+    assert service.repository.get_bundle(imported["id"]) is not None
+    assert service.repository.get_loop(loop_id) is not None
+    assert service.repository.get_orchestration(orchestration_id) is not None
+    assert all(service.repository.get_role_definition(role_id) is not None for role_id in role_definition_ids)
+
+
+def test_bundle_delete_refuses_unowned_linked_assets(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
+    bundle_dir = service._bundle_dir(imported["id"])
+
+    with service.repository.transaction() as connection:
+        connection.execute(
+            "DELETE FROM bundle_asset_ownership WHERE bundle_id = ? AND asset_type = 'loop'",
+            (imported["id"],),
+        )
+
+    with pytest.raises(LooporaConflictError, match="asset is unowned"):
+        service.delete_bundle(imported["id"])
+
+    assert bundle_dir.exists()
+    assert service.repository.get_bundle(imported["id"]) is not None
+    assert service.repository.get_loop(imported["loop_id"]) is not None
+
+
 def test_bundle_replace_updates_plan_without_advancing_revision(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
@@ -543,7 +706,7 @@ def test_failed_bundle_replace_preserves_existing_bundle(service_factory, sample
     assert len(service.list_loops()) == original_loop_count
 
 
-def test_bundle_replace_rolls_back_when_old_cleanup_fails(service_factory, sample_workdir: Path) -> None:
+def test_bundle_replace_rolls_back_when_graph_transaction_fails(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
     original_loop_id = imported["loop_id"]
@@ -552,19 +715,14 @@ def test_bundle_replace_rolls_back_when_old_cleanup_fails(service_factory, sampl
     original_custom_role_count = len(
         [role for role in service.list_role_definitions() if role["source"] == "custom"]
     )
-    original_delete_bundle_links = service._delete_bundle_links
 
-    def fail_old_cleanup(bundle: dict, *, delete_record: bool, delete_managed_dir: bool = True) -> None:
-        if bundle.get("id") == imported["id"] and not delete_record and not delete_managed_dir:
-            raise LooporaError("forced old cleanup failure")
-        original_delete_bundle_links(
-            bundle,
-            delete_record=delete_record,
-            delete_managed_dir=delete_managed_dir,
-        )
+    def fail_replace_bundle_graph(bundle_id: str, payload: dict) -> bool:
+        if bundle_id == imported["id"]:
+            raise LooporaError("forced graph transaction failure")
+        return True
 
-    service._delete_bundle_links = fail_old_cleanup
-    with pytest.raises(LooporaError, match="forced old cleanup failure"):
+    service.repository.replace_bundle_graph = fail_replace_bundle_graph
+    with pytest.raises(LooporaError, match="forced graph transaction failure"):
         service.import_bundle_text(
             _bundle_yaml(
                 sample_workdir,

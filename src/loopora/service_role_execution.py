@@ -30,7 +30,7 @@ class ServiceRoleExecutionMixin:
             iter=iter_id,
             duration_seconds=duration_seconds,
         )
-        self.repository.append_event(
+        self.append_run_event(
             run_id,
             "iteration_wait_started",
             {"iter": iter_id, "duration_seconds": duration_seconds},
@@ -42,7 +42,7 @@ class ServiceRoleExecutionMixin:
             if remaining <= 0:
                 break
             time.sleep(min(max(self.settings.polling_interval_seconds, 0.05), remaining))
-        self.repository.append_event(
+        self.append_run_event(
             run_id,
             "iteration_wait_finished",
             {"iter": iter_id, "duration_seconds": duration_seconds},
@@ -99,7 +99,7 @@ class ServiceRoleExecutionMixin:
         layout = self._run_artifact_layout(run_dir)
         checks = compiled_spec.get("checks", [])
         if checks:
-            self.repository.append_event(
+            self.append_run_event(
                 run["id"],
                 "checks_resolved",
                 {"source": "specified", "count": len(checks)},
@@ -150,7 +150,7 @@ class ServiceRoleExecutionMixin:
             write_json_with_mirrors(layout.run_contract_path, run_contract)
         write_evidence_coverage_projection(layout)
         self.repository.update_run(run["id"], compiled_spec=resolved_spec)
-        self.repository.append_event(
+        self.append_run_event(
             run["id"],
             "checks_resolved",
             {
@@ -202,7 +202,7 @@ class ServiceRoleExecutionMixin:
             start_payload = {"role": role, **context_payload}
             if iter_id is not None:
                 start_payload["iter"] = iter_id
-            self.repository.append_event(run_id, "role_started", start_payload, role=role)
+            self.append_run_event(run_id, "role_started", start_payload, role=role)
             return fn()
 
         value, result = execute_with_recovery(wrapped, retry_config, degrade_once=degrade_once)
@@ -218,7 +218,7 @@ class ServiceRoleExecutionMixin:
         }
         if iter_id is not None:
             summary_payload["iter"] = iter_id
-        self.repository.append_event(
+        self.append_run_event(
             run_id,
             "role_execution_summary",
             summary_payload,
@@ -253,7 +253,7 @@ class ServiceRoleExecutionMixin:
         self._record_role_request(run["id"], request)
         return executor.execute(
             request,
-            lambda event_type, payload: self.repository.append_event(run["id"], event_type, payload, role=request.role),
+            lambda event_type, payload: self.append_run_event(run["id"], event_type, payload, role=request.role),
             lambda: self.repository.should_stop(run["id"]),
             lambda pid: self.repository.update_run(run["id"], child_pid=pid)
             if pid is not None
@@ -412,7 +412,7 @@ class ServiceRoleExecutionMixin:
 
     def _set_mode(self, run_id: str, iter_id: int, role: str, holder: dict[str, str], mode: str) -> None:
         holder["value"] = mode
-        self.repository.append_event(run_id, "role_degraded", {"iter": iter_id, "role": role, "mode": mode}, role=role)
+        self.append_run_event(run_id, "role_degraded", {"iter": iter_id, "role": role, "mode": mode}, role=role)
         log_event(
             logger,
             logging.WARNING,

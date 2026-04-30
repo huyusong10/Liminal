@@ -38,7 +38,7 @@ class ServiceRoleRequestMixin:
             "context_summary": self._summarize_role_request_context(request.extra_context),
         }
         append_jsonl(layout.role_requests_path, payload)
-        self.repository.append_event(run_id, "role_request_prepared", payload, role=request.role)
+        self.append_run_event(run_id, "role_request_prepared", payload, role=request.role)
 
     def _role_request_basename(self, request: RoleRequest) -> str:
         iter_id = request.extra_context.get("iter_id")

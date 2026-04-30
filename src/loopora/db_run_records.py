@@ -70,6 +70,25 @@ class RepositoryRunRecordsMixin:
                 "UPDATE loop_definitions SET latest_run_id = ?, updated_at = ? WHERE id = ?",
                 (payload["id"], now, payload["loop_id"]),
             )
+            connection.execute(
+                """
+                INSERT INTO local_asset_roots
+                    (resource_type, resource_id, path, workdir, owner_id, state, updated_at)
+                VALUES ('run', ?, ?, ?, ?, 'active', ?)
+                ON CONFLICT(resource_type, resource_id, path) DO UPDATE SET
+                    workdir = excluded.workdir,
+                    owner_id = excluded.owner_id,
+                    state = 'active',
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    payload["id"],
+                    payload["runs_dir"],
+                    payload["workdir"],
+                    payload["loop_id"],
+                    now,
+                ),
+            )
         run = self.get_run(payload["id"])
         log_event(
             logger,
@@ -101,5 +120,27 @@ class RepositoryRunRecordsMixin:
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT * FROM loop_runs WHERE status IN ('queued', 'running') ORDER BY created_at DESC"
+            ).fetchall()
+        return [self._decode_row(row) for row in rows]
+
+    def list_terminal_runs_without_takeaway_projection(self, *, limit: int = 5000) -> list[dict]:
+        normalized_limit = max(0, min(int(limit), 5000))
+        if normalized_limit <= 0:
+            return []
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT r.*
+                FROM loop_runs r
+                WHERE r.status IN ('succeeded', 'failed', 'stopped')
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM run_takeaway_projections p
+                    WHERE p.run_id = r.id
+                  )
+                ORDER BY r.created_at DESC
+                LIMIT ?
+                """,
+                (normalized_limit,),
             ).fetchall()
         return [self._decode_row(row) for row in rows]

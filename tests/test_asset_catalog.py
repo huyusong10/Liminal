@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from loopora.asset_catalog import WorkflowAssetCatalog
+from loopora.asset_catalog import AssetCatalogNotFoundError, WorkflowAssetCatalog
 from loopora.db import LooporaRepository
 from loopora.workflows import WorkflowError, default_role_execution_settings
 
@@ -296,7 +296,7 @@ def test_asset_catalog_rejects_unknown_role_definition_ids_in_workflow(tmp_path:
     repository = LooporaRepository(tmp_path / "app.db")
     catalog = WorkflowAssetCatalog(repository)
 
-    with pytest.raises(ValueError, match="unknown role definition: role_missing"):
+    with pytest.raises(AssetCatalogNotFoundError, match="unknown role definition: role_missing"):
         catalog.resolve_orchestration_input(
             orchestration_id=None,
             workflow={

@@ -160,7 +160,7 @@ class ServiceWorkflowRuntimeMixin:
         )
         context_path = layout.step_context_path(iter_id, step_order, step["id"])
         write_json(context_path, context_packet)
-        self.repository.append_event(
+        self.append_run_event(
             run["id"],
             "step_context_prepared",
             {
@@ -251,7 +251,7 @@ class ServiceWorkflowRuntimeMixin:
         def execute_request() -> dict:
             return executor.execute(
                 request,
-                lambda event_type, payload: self.repository.append_event(
+                lambda event_type, payload: self.append_run_event(
                     run["id"],
                     event_type,
                     {

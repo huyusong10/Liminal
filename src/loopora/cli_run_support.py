@@ -77,7 +77,7 @@ def spawn_background_worker(service, run: dict) -> dict:
             error_message=error_text,
             summary_md=summary,
         )
-        service.repository.append_event(
+        service.append_run_event(
             run["id"],
             "run_aborted",
             {
@@ -102,7 +102,7 @@ def spawn_background_worker(service, run: dict) -> dict:
         log_handle.close()
 
     service.repository.update_run(run["id"], runner_pid=process.pid)
-    service.repository.append_event(
+    service.append_run_event(
         run["id"],
         "background_worker_spawned",
         {

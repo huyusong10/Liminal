@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from loopora.bundles import bundle_to_yaml
@@ -31,6 +34,351 @@ def _assert_testids_in_order(html: str, *testids: str) -> None:
 def _assert_initial_locale(html: str, locale: str) -> None:
     lang = "zh-CN" if locale == "zh" else locale
     assert re.search(rf'<html\s+lang="{lang}"\s+data-locale="{locale}"\s+data-theme="light"\s*>', html)
+
+
+def test_run_detail_page_css_owns_progress_surface_rules() -> None:
+    root = Path(__file__).resolve().parents[1]
+    app_css = (root / "src" / "loopora" / "static" / "app.css").read_text(encoding="utf-8")
+    run_detail_css = (root / "src" / "loopora" / "static" / "pages" / "run_detail.css").read_text(encoding="utf-8")
+
+    for selector in [".progress-live-card", ".stage-loop-shell", ".stage-chip", ".highlight-grid"]:
+        assert selector not in app_css
+        assert selector in run_detail_css
+
+
+def test_run_detail_console_projector_maps_core_events_without_dom() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for static JS module checks")
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const source = fs.readFileSync("src/loopora/static/pages/run_detail_console.js", "utf8");
+const context = {
+  window: {LooporaUI: {translateStatus: (status) => `status:${status}`}},
+};
+vm.createContext(context);
+vm.runInContext(source, context);
+const projector = context.window.LooporaRunDetailConsole.createConsoleEventProjector({
+  buildConsoleEntry: (event, options) => ({eventType: event.event_type, ...options}),
+  localeText: (_zh, en) => en,
+  prettyConsoleJson: (value) => JSON.stringify(value, null, 2),
+  resolvedPayloadRoleName: () => "Builder",
+  buildContextDetail: (payload) => `step=${payload.step_id || "-"}`,
+  displayIter: (value) => Number(value) + 1,
+  formatDurationMs: (value) => `${value}ms`,
+  translateStatus: (status) => `status:${status}`,
+});
+const commandLines = projector.buildConsoleLines({
+  event_type: "codex_event",
+  created_at: "2026-04-30T00:00:00Z",
+  role: "builder",
+  payload: {type: "command", message: "uv run pytest -q"},
+});
+if (commandLines.length !== 1 || commandLines[0].channel !== "command" || !commandLines[0].text.includes("uv run pytest")) {
+  throw new Error(`command projection failed: ${JSON.stringify(commandLines)}`);
+}
+const fileLines = projector.buildConsoleLines({
+  event_type: "codex_event",
+  created_at: "2026-04-30T00:00:00Z",
+  role: "builder",
+  payload: {type: "item.completed", item: {type: "file_change", changes: [{path: "src/app.py"}]}},
+});
+if (fileLines.length !== 1 || fileLines[0].channel !== "file" || !fileLines[0].summary.includes("app.py")) {
+  throw new Error(`file projection failed: ${JSON.stringify(fileLines)}`);
+}
+"""
+    subprocess.run([node, "-e", script], cwd=root, check=True)
+
+
+def test_run_detail_projectors_map_progress_timeline_and_takeaways_without_dom() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for static JS module checks")
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const context = {
+  window: {},
+  Date,
+  Number,
+  String,
+  Map,
+  Array,
+  Math,
+};
+vm.createContext(context);
+for (const file of [
+  "src/loopora/static/pages/run_detail_progress_time.js",
+  "src/loopora/static/pages/run_detail_progress_activity.js",
+  "src/loopora/static/pages/run_detail_progress.js",
+  "src/loopora/static/pages/run_detail_timeline.js",
+  "src/loopora/static/pages/run_detail_takeaways.js",
+  "src/loopora/static/pages/run_detail_render.js",
+]) {
+  vm.runInContext(fs.readFileSync(file, "utf8"), context);
+}
+const progressEvents = [
+  {id: 1, event_type: "checks_resolved", created_at: "2026-04-30T00:00:01Z", payload: {source: "specified"}},
+  {id: 2, event_type: "role_started", created_at: "2026-04-30T00:00:02Z", role: "generator", payload: {role: "generator", step_id: "builder_step", iter: 0}},
+];
+const run = {
+  status: "running",
+  active_role: "generator",
+  current_iter: 0,
+  started_at: "2026-04-30T00:00:00Z",
+  workflow_json: {
+    roles: [{id: "builder", archetype: "builder", name: "Builder"}],
+    steps: [{id: "builder_step", role_id: "builder"}],
+  },
+};
+const progress = context.window.LooporaRunDetailProgress.createProgressProjector({
+  localeText: (_zh, en) => en,
+  parseTimestamp: (value) => Date.parse(value || ""),
+  formatDuration: () => "1s",
+  formatRelativeAge: () => "now",
+  formatAbsoluteDate: (value) => value || "",
+  stripMarkdown: (value) => String(value || ""),
+  truncateText: (value) => String(value || ""),
+  displayIter: (value) => Number(value) + 1,
+  translateStatus: (status) => `status:${status}`,
+  translateRole: (role) => `role:${role}`,
+  normalizeRoleName: (name) => name,
+  getCurrentRun: () => run,
+  getProgressEvents: () => progressEvents,
+  getConsoleEvents: () => [],
+});
+if (progress.getCurrentStage(run) !== "step:builder_step") {
+  throw new Error(`progress stage mismatch: ${progress.getCurrentStage(run)}`);
+}
+if (progress.getProgressStages(run).filter((stage) => stage.kind === "workflow_step").length !== 1) {
+  throw new Error("workflow step projection missing");
+}
+const installHint = context.window.LooporaRunDetailProgressActivity.createProgressActivityProjector({
+  localeText: (_zh, en) => en,
+  truncateText: (value) => String(value || ""),
+  stripMarkdown: (value) => String(value || ""),
+  activityHintKey: () => "builder",
+}).commandProgressHint("uv sync", "step:builder_step", run);
+if (!installHint.title.includes("Installing dependencies")) {
+  throw new Error(`command hint projection failed: ${JSON.stringify(installHint)}`);
+}
+const timeline = context.window.LooporaRunDetailTimeline.createTimelineProjector({
+  localeText: (_zh, en) => en,
+  escapeHtml: (value) => String(value || ""),
+  formatClock: () => "00:00:00",
+  formatAbsoluteDate: () => "date",
+  formatDurationMs: (value) => `${value}ms`,
+  displayIter: (value) => Number(value) + 1,
+  resolvedPayloadRoleName: () => "Builder",
+  translateRole: (role) => `role:${role}`,
+  translateStatus: (status) => `status:${status}`,
+});
+const formatted = timeline.formatTimelineEvent({event_type: "role_execution_summary", role: "generator", payload: {ok: true, duration_ms: 12}});
+if (!formatted.title.includes("role:generator") || !formatted.detail.includes("12ms")) {
+  throw new Error(`timeline projection failed: ${JSON.stringify(formatted)}`);
+}
+const takeaways = context.window.LooporaRunDetailTakeaways.createTakeawayProjector({
+  localeText: (_zh, en) => en,
+  escapeHtml: (value) => String(value || ""),
+  formatAbsoluteDate: () => "date",
+});
+const snapshot = {
+  task_verdict: {status: "passed", summary: "ok", buckets: {proven: [{text: "done"}]}},
+  evidence_coverage: {coverage_path: "evidence/coverage.json", evidence_count: 1, summary: {reason: "covered"}},
+  iterations: [{iter: 0, display_iter: 1, status: "passed", role_count: 1, roles: []}],
+};
+if (!takeaways.evidenceOutcome(snapshot, run).title.includes("Passed")) {
+  throw new Error("takeaway outcome projection failed");
+}
+if (!takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("View trace")) {
+  throw new Error("takeaway coverage html projection failed");
+}
+const render = context.window.LooporaRunDetailRender.createRenderProjector({
+  localeText: (_zh, en) => en,
+  takeawayProjector: takeaways,
+  timelineProjector: timeline,
+  formatAbsoluteDate: () => "date",
+});
+const verdictSummary = render.summarizeTaskVerdict({status: "passed", source: "gatekeeper", buckets: {proven: [{}]}});
+if (!verdictSummary.title.includes("Passed") || !verdictSummary.meta.includes("proven 1")) {
+  throw new Error(`render verdict projection failed: ${JSON.stringify(verdictSummary)}`);
+}
+const latestSummary = render.summarizeLatestEvent([{event_type: "run_finished", created_at: "2026-04-30T00:00:00Z", payload: {status: "succeeded"}}]);
+if (!latestSummary.title.includes("Run finished") || latestSummary.meta !== "date") {
+  throw new Error(`render latest event projection failed: ${JSON.stringify(latestSummary)}`);
+}
+"""
+    subprocess.run([node, "-e", script], cwd=root, check=True)
+
+
+def test_run_detail_observation_projector_handles_snapshot_dedupe_and_stream_state() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for static JS module checks")
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const context = {window: {}};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync("src/loopora/static/pages/run_detail_observation.js", "utf8"), context);
+const observation = context.window.LooporaRunDetailObservation;
+const merged = observation.mergeSnapshotState(
+  {currentRun: {id: "run_1", status: "running"}, lastEventId: 7},
+  {
+    run: {id: "run_1", status: "running"},
+    latest_event_id: 12,
+    timeline_events: Array.from({length: 45}, (_, index) => ({id: index + 1})),
+    console_events: Array.from({length: 170}, (_, index) => ({id: index + 1})),
+    progress_events: Array.from({length: 2010}, (_, index) => ({id: index + 1})),
+    key_takeaways: {run_status: "running"},
+  }
+);
+if (merged.lastEventId !== 12 || merged.timelineRecords.length !== 40 || merged.consoleEventRecords.length !== 160 || merged.progressEventRecords.length !== 2000) {
+  throw new Error(`snapshot normalization failed: ${JSON.stringify(merged)}`);
+}
+const deduped = observation.appendUniqueEvent([{id: 1}, {id: 2}], {id: 2}, 10);
+if (deduped.length !== 2) {
+  throw new Error(`duplicate event was appended: ${JSON.stringify(deduped)}`);
+}
+const updatedRun = observation.applyRunEvent({status: "running", active_role: "generator"}, {
+  event_type: "run_finished",
+  created_at: "2026-04-30T00:00:00Z",
+  payload: {status: "succeeded", iter: 2},
+});
+if (updatedRun.status !== "succeeded" || updatedRun.active_role !== null || updatedRun.current_iter !== 2) {
+  throw new Error(`run event state failed: ${JSON.stringify(updatedRun)}`);
+}
+if (observation.streamFailureState({run: {status: "running"}, failureCount: 4}) !== "stream-stale") {
+  throw new Error("stream stale threshold failed");
+}
+if (observation.shouldReconnect({status: "stopped"})) {
+  throw new Error("terminal run should not reconnect");
+}
+"""
+    subprocess.run([node, "-e", script], cwd=root, check=True)
+
+
+def test_run_detail_state_and_stream_controller_handle_reliability_edges() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for static JS module checks")
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const context = {
+  window: {},
+  Number,
+  Array,
+  Math,
+};
+vm.createContext(context);
+for (const file of [
+  "src/loopora/static/pages/run_detail_observation.js",
+  "src/loopora/static/pages/run_detail_state.js",
+  "src/loopora/static/pages/run_detail_stream.js",
+  "src/loopora/static/pages/run_detail_scheduler.js",
+]) {
+  vm.runInContext(fs.readFileSync(file, "utf8"), context);
+}
+const observation = context.window.LooporaRunDetailObservation;
+const store = context.window.LooporaRunDetailState.createRunDetailState({
+  currentRun: {id: "run_1", status: "running"},
+  lastEventId: 5,
+  observationState: "loading",
+}, {observation});
+const merged = store.mergeSnapshot({
+  run: {id: "run_1", status: "running"},
+  latest_event_id: 7,
+  timeline_events: [{id: 7, event_type: "run_started"}],
+  console_events: [{id: 7, event_type: "run_started"}],
+  progress_events: [{id: 7, event_type: "run_started"}],
+});
+if (merged.lastEventId !== 7 || merged.observationState !== "ready") {
+  throw new Error(`snapshot state failed: ${JSON.stringify(merged)}`);
+}
+const duplicate = store.applyStreamEvent({id: 7, event_type: "role_started", payload: {role: "generator"}});
+if (!duplicate.duplicate || duplicate.state.lastEventId !== 7) {
+  throw new Error(`duplicate stream event was not suppressed: ${JSON.stringify(duplicate)}`);
+}
+const applied = store.applyStreamEvent({id: 8, event_type: "run_finished", created_at: "2026-04-30T00:00:00Z", payload: {status: "succeeded"}});
+if (applied.duplicate || applied.state.currentRun.status !== "succeeded" || applied.state.lastEventId !== 8) {
+  throw new Error(`stream event state failed: ${JSON.stringify(applied)}`);
+}
+const states = [];
+const delays = [];
+const controller = context.window.LooporaRunDetailStream.createStreamController({
+  observation,
+  retryDelays: [1000, 2000, 5000, 10000],
+  getRun: () => ({status: "running"}),
+  setObservationState: (state) => states.push(state),
+  scheduleReconnect: (delay) => delays.push(delay),
+});
+let result = controller.markFailure("stream_error");
+if (!result.counted || result.failureCount !== 1 || states[states.length - 1] !== "stream-error" || delays[delays.length - 1] !== 1000) {
+  throw new Error(`stream_error failure state failed: ${JSON.stringify(result)}`);
+}
+result = controller.markFailure("connection");
+if (result.counted || controller.getFailureCount() !== 1) {
+  throw new Error(`stream_error/onerror double count was not suppressed: ${JSON.stringify(result)}`);
+}
+controller.markFailure("connection");
+controller.markFailure("connection");
+controller.markFailure("connection");
+if (controller.getFailureCount() !== 4 || states[states.length - 1] !== "stream-stale") {
+  throw new Error(`stream stale state failed: ${JSON.stringify({states, count: controller.getFailureCount()})}`);
+}
+const terminalStates = [];
+const terminalController = context.window.LooporaRunDetailStream.createStreamController({
+  observation,
+  getRun: () => ({status: "succeeded"}),
+  setObservationState: (state) => terminalStates.push(state),
+  scheduleReconnect: () => { throw new Error("terminal run should not reconnect"); },
+});
+const terminalResult = terminalController.markFailure("connection");
+if (terminalResult.reconnect || terminalStates[terminalStates.length - 1] !== "finished") {
+  throw new Error(`terminal stream failure state failed: ${JSON.stringify(terminalResult)}`);
+}
+const timers = [];
+const cleared = [];
+let intervalId = 100;
+const scheduler = context.window.LooporaRunDetailScheduler.createScheduler({
+  windowRef: {
+    setTimeout: (callback, delay) => {
+      timers.push({type: "timeout", callback, delay});
+      return timers.length;
+    },
+    clearTimeout: (id) => cleared.push(["timeout", id]),
+    setInterval: (callback, delay) => {
+      timers.push({type: "interval", callback, delay});
+      intervalId += 1;
+      return intervalId;
+    },
+    clearInterval: (id) => cleared.push(["interval", id]),
+  },
+  documentRef: {visibilityState: "visible"},
+  fetchRun: () => Promise.resolve(),
+  isActive: () => true,
+  onHeartbeat: () => {},
+});
+scheduler.scheduleRunRefresh({refreshTakeaways: true});
+if (!scheduler.snapshot().hasRefreshTimer || !scheduler.snapshot().takeawayRefreshQueued) {
+  throw new Error(`scheduler refresh queue failed: ${JSON.stringify(scheduler.snapshot())}`);
+}
+scheduler.syncLiveRefreshers();
+if (!scheduler.snapshot().hasPollTimer || !scheduler.snapshot().hasHeartbeatTimer) {
+  throw new Error(`scheduler live timers failed: ${JSON.stringify(scheduler.snapshot())}`);
+}
+scheduler.clear();
+if (scheduler.snapshot().hasRefreshTimer || scheduler.snapshot().hasPollTimer || scheduler.snapshot().hasHeartbeatTimer) {
+  throw new Error(`scheduler clear failed: ${JSON.stringify(scheduler.snapshot())}`);
+}
+"""
+    subprocess.run([node, "-e", script], cwd=root, check=True)
 
 
 def _assert_display_bootstrap_precedes_css(html: str) -> None:
@@ -70,6 +418,10 @@ def test_index_page_renders_with_saved_loops(
     _assert_display_bootstrap_precedes_css(response.text)
     assert "/static/app.css?v=" in response.text
     assert "/static/app.js?v=" in response.text
+    assert "/static/pages/run_detail.css?v=" not in response.text
+    assert "/static/pages/orchestration.css?v=" not in response.text
+    assert "/static/pages/workflow_editor.css?v=" not in response.text
+    assert "/static/pages/alignment.css?v=" not in response.text
     _assert_has_testids(
         response.text,
         "top-nav",
@@ -149,7 +501,47 @@ def test_run_detail_places_takeaways_and_console_before_timeline(
     assert response.status_code == 200
     assert "Run Detail Loop" in response.text
     assert run["id"] in response.text
+    assert "/static/pages/run_detail_progress.js?v=" in response.text
+    assert "/static/pages/run_detail_progress_time.js?v=" in response.text
+    assert "/static/pages/run_detail_progress_activity.js?v=" in response.text
+    assert "/static/pages/run_detail_observation.js?v=" in response.text
+    assert "/static/pages/run_detail_state.js?v=" in response.text
+    assert "/static/pages/run_detail_stream.js?v=" in response.text
+    assert "/static/pages/run_detail_api.js?v=" in response.text
+    assert "/static/pages/run_detail_scheduler.js?v=" in response.text
+    assert "/static/pages/run_detail_timeline.js?v=" in response.text
+    assert "/static/pages/run_detail_takeaways.js?v=" in response.text
+    assert "/static/pages/run_detail_render.js?v=" in response.text
+    assert "/static/pages/run_detail_console.js?v=" in response.text
+    assert "/static/pages/run_detail.js?v=" in response.text
+    assert "/static/pages/run_detail.css?v=" in response.text
+    script_order = [
+        "/static/pages/run_detail_console.js?v=",
+        "/static/pages/run_detail_observation.js?v=",
+        "/static/pages/run_detail_state.js?v=",
+        "/static/pages/run_detail_stream.js?v=",
+        "/static/pages/run_detail_api.js?v=",
+        "/static/pages/run_detail_scheduler.js?v=",
+        "/static/pages/run_detail_progress_time.js?v=",
+        "/static/pages/run_detail_progress_activity.js?v=",
+        "/static/pages/run_detail_progress.js?v=",
+        "/static/pages/run_detail_timeline.js?v=",
+        "/static/pages/run_detail_takeaways.js?v=",
+        "/static/pages/run_detail_render.js?v=",
+        "/static/pages/run_detail.js?v=",
+    ]
+    assert [response.text.index(script) for script in script_order] == sorted(
+        response.text.index(script) for script in script_order
+    )
+    assert "window.LOOPORA_RUN_DETAIL" in response.text
+    assert "timelineEvents" not in response.text
+    assert "consoleEvents" not in response.text
+    assert "progressEvents" not in response.text
+    assert "keyTakeaways" not in response.text
+    assert "latestEventId" not in response.text
     _assert_has_testid(response.text, "run-evidence-outcome")
+    _assert_has_testid(response.text, "run-observation-status")
+    assert 'data-observation-state="loading"' in response.text
     _assert_has_testid(response.text, "run-improve-chat-button")
     _assert_has_testid(response.text, "run-evidence-improve-button")
     assert f'/runs/{run["id"]}/revise' in response.text
@@ -166,6 +558,7 @@ def test_run_detail_places_takeaways_and_console_before_timeline(
         response.text,
         "run-stage-loop-shell",
         "run-progress-live-card",
+        "run-console-output",
         "run-timeline-panel",
     )
 
@@ -290,7 +683,7 @@ def test_run_detail_progress_stages_follow_workflow_snapshot(
     assert 'data-stage="step:builder_repair_step"' in response.text
     assert 'data-stage="step:gatekeeper_step"' in response.text
     assert 'data-stage="finished"' in response.text
-    assert 'class="stage-loop-shell"' in response.text
+    _assert_has_testid(response.text, "run-stage-loop-shell")
     assert 'data-stage="generator"' not in response.text
     assert 'data-stage="tester"' not in response.text
     assert 'data-stage="verifier"' not in response.text
@@ -419,8 +812,13 @@ def test_run_detail_surfaces_workspace_guard_failures(
     response = client.get(f"/runs/{run['id']}")
 
     assert response.status_code == 200
-    assert "工作区安全守卫触发" in response.text
-    assert "workspace_guard_triggered" in response.text
+    assert "window.LOOPORA_RUN_DETAIL" in response.text
+    assert "workspace_guard_triggered" not in response.text
+    snapshot = client.get(f"/api/runs/{run['id']}/observation-snapshot")
+    assert snapshot.status_code == 200
+    snapshot_payload = snapshot.json()
+    assert any(event["event_type"] == "workspace_guard_triggered" for event in snapshot_payload["timeline_events"])
+    assert "deleted_original_count" in json.dumps(snapshot_payload, ensure_ascii=False)
 
 
 def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
@@ -434,6 +832,9 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     assert "/static/pages/tools.js?v=" in response.text
     assert "顺手的小外挂" in response.text
     assert "wake-lock-toggle" in response.text
+    assert 'data-testid="local-assets-diagnostics-panel"' in response.text
+    assert 'data-local-assets-count="orphan_alignment_dirs"' in response.text
+    assert 'data-local-assets-count="orphan_run_dirs"' in response.text
     assert "Prevent sleep while running" in response.text
     assert "help-dot--tips" in response.text
     assert 'aria-label="Show tip: The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock."' in response.text
@@ -467,6 +868,8 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(response.text, "loop-create-manual-link")
     assert "/static/pages/new_loop.js?v=" not in response.text
     assert "/static/pages/alignment.js?v=" not in response.text
+    assert "/static/pages/workflow_editor.css?v=" in response.text
+    assert "/static/pages/alignment.css?v=" in response.text
     assert 'href="/loops/new/bundle"' in response.text
     assert 'href="/loops/new/manual"' in response.text
     assert '<title>Create Loop</title>' in response.text
@@ -475,6 +878,8 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert bundle_response.status_code == 200
     assert "/static/pages/alignment.js?v=" in bundle_response.text
     assert "/static/pages/workflow_diagram.js?v=" in bundle_response.text
+    assert "/static/pages/workflow_editor.css?v=" in bundle_response.text
+    assert "/static/pages/alignment.css?v=" in bundle_response.text
     assert "/static/pages/new_loop.js?v=" not in bundle_response.text
     _assert_has_testid(bundle_response.text, "loop-create-page")
     _assert_has_testid(bundle_response.text, "alignment-history-panel")
@@ -787,6 +1192,8 @@ def test_orchestrations_pages_render_as_resource_library_feature(service_factory
     assert new_response.status_code == 200
     assert "/static/pages/new_orchestration.js?v=" in new_response.text
     assert "/static/pages/workflow_diagram.js?v=" in new_response.text
+    assert "/static/pages/workflow_editor.css?v=" in new_response.text
+    assert "/static/pages/orchestration.css?v=" in new_response.text
     _assert_has_testid(new_response.text, "orchestration-editor-page")
     _assert_has_testid(new_response.text, "orchestration-editor-form")
     _assert_has_testid(new_response.text, "workflow-starter-select")
@@ -1195,11 +1602,25 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".markdown-workbench {" in css
     assert ".timeline-event {" in css
     assert ".console-focus-shell--immersive {" in css
-    assert ".workflow-loop-map {" in css
     assert "@keyframes runningSweep" not in css
     assert "@keyframes pulseGlow" not in css
-    assert re.search(r"\.stage-loop-shell\.is-empty \.stage-loop-connector,\s*\.stage-loop-shell\.is-empty \.stage-loop-arcs\s*{[\s\S]*?display:\s*none;", css)
-    assert re.search(r"\.stage-loop-shell\.is-empty \.stage-loop-track::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::after\s*{[\s\S]*?display:\s*none;", css)
+    for page_selector in (".alignment-", ".bundle-chat-", ".workflow-editor-", ".workflow-loop-"):
+        assert page_selector not in css
+    alignment_css_response = client.get("/static/pages/alignment.css")
+    assert alignment_css_response.status_code == 200
+    alignment_css = alignment_css_response.text
+    assert ".alignment-chat {" in alignment_css
+    assert ".bundle-chat-shell {" in alignment_css
+    workflow_css_response = client.get("/static/pages/workflow_editor.css")
+    assert workflow_css_response.status_code == 200
+    workflow_css = workflow_css_response.text
+    assert ".workflow-loop-map {" in workflow_css
+    assert ".workflow-editor-panel {" in workflow_css
+    run_detail_css_response = client.get("/static/pages/run_detail.css")
+    assert run_detail_css_response.status_code == 200
+    run_detail_css = run_detail_css_response.text
+    assert re.search(r"\.stage-loop-shell\.is-empty \.stage-loop-connector,\s*\.stage-loop-shell\.is-empty \.stage-loop-arcs\s*{[\s\S]*?display:\s*none;", run_detail_css)
+    assert re.search(r"\.stage-loop-shell\.is-empty \.stage-loop-track::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::after\s*{[\s\S]*?display:\s*none;", run_detail_css)
     assert "body:not(.ui-mounted)" not in css
     assert "body.ui-mounted .hero" not in css
 
@@ -1227,8 +1648,8 @@ def test_static_app_js_bootstraps_theme_and_locale_without_mount_flash(service_f
     assert "setLocale(currentLocale(), {persist: false});" in script
     assert "function bindNavPreferences()" in script
     assert "data-toggle-nav-preferences" in script
-    assert 'grid.querySelectorAll(".loop-card").length' in script
-    assert 'document.querySelectorAll(".loop-card").length' not in script
+    assert "[data-testid='loop-grid-note']" in script
+    assert "[data-testid='bundle-grid-note']" in script
     assert "Unable to delete this bundle." in script
     assert 'setAttribute("title", title)' not in script
     assert 'removeAttribute("title")' in script

@@ -42,7 +42,7 @@ class ServiceRunFinalizationMixin:
         degraded: bool,
         error_text: str,
     ) -> None:
-        self.repository.append_event(
+        self.append_run_event(
             run_id,
             "run_aborted",
             {

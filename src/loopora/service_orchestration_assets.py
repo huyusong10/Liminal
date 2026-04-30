@@ -4,7 +4,7 @@ import logging
 
 from loopora.diagnostics import log_event
 from loopora.service_asset_common import logger
-from loopora.service_types import LooporaError
+from loopora.service_types import LooporaConflictError, LooporaError
 
 
 class ServiceOrchestrationAssetMixin:
@@ -105,7 +105,9 @@ class ServiceOrchestrationAssetMixin:
         if not allow_bundle_owned and hasattr(self, "_bundle_record_for_orchestration_id"):
             bundle = self._bundle_record_for_orchestration_id(orchestration_id)
             if bundle:
-                raise LooporaError(f"orchestration {orchestration_id} is managed by bundle {bundle['id']}; delete the bundle instead")
+                raise LooporaConflictError(
+                    f"orchestration {orchestration_id} is managed by bundle {bundle['id']}; delete the bundle instead"
+                )
         result = self._asset_call(self.asset_catalog.delete_orchestration, orchestration_id)
         log_event(
             logger,
