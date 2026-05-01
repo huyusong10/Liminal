@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from loopora.markdown_tools import render_safe_markdown_html
-from loopora.service import LooporaError
 from loopora.specs import SpecError, compile_markdown_spec
 from loopora.workflows import load_workflow_file, normalize_role_display_name, normalize_workflow
 

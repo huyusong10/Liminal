@@ -9,6 +9,8 @@ from loopora.db_shared import logger
 from loopora.diagnostics import log_event
 from loopora.utils import utc_now
 
+CURRENT_SCHEMA_VERSION = 1
+
 
 class RepositorySchemaMixin:
     def _init_db(self) -> None:
@@ -217,52 +219,83 @@ class RepositorySchemaMixin:
                     ON local_asset_roots(resource_type, resource_id, state);
                 """
             )
-            self._ensure_column(connection, "loop_definitions", "orchestration_id", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "loop_definitions", "orchestration_name", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "loop_runs", "orchestration_id", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "loop_runs", "orchestration_name", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "loop_definitions", "executor_kind", "TEXT NOT NULL DEFAULT 'codex'")
-            self._ensure_column(connection, "loop_definitions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
-            self._ensure_column(connection, "loop_definitions", "command_cli", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "loop_definitions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "loop_runs", "executor_kind", "TEXT NOT NULL DEFAULT 'codex'")
-            self._ensure_column(connection, "loop_runs", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
-            self._ensure_column(connection, "loop_runs", "command_cli", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "loop_runs", "command_args_text", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "loop_definitions", "workflow_json", "TEXT NOT NULL DEFAULT '{}'")
-            self._ensure_column(connection, "loop_runs", "workflow_json", "TEXT NOT NULL DEFAULT '{}'")
-            self._ensure_column(connection, "loop_runs", "task_verdict_json", "TEXT")
-            self._ensure_column(connection, "loop_definitions", "completion_mode", "TEXT NOT NULL DEFAULT 'gatekeeper'")
-            self._ensure_column(connection, "loop_runs", "completion_mode", "TEXT NOT NULL DEFAULT 'gatekeeper'")
-            self._ensure_column(connection, "loop_definitions", "iteration_interval_seconds", "REAL NOT NULL DEFAULT 0")
-            self._ensure_column(connection, "loop_runs", "iteration_interval_seconds", "REAL NOT NULL DEFAULT 0")
-            self._ensure_column(connection, "role_definitions", "executor_kind", "TEXT NOT NULL DEFAULT 'codex'")
-            self._ensure_column(connection, "role_definitions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
-            self._ensure_column(connection, "role_definitions", "command_cli", "TEXT NOT NULL DEFAULT 'codex'")
-            self._ensure_column(connection, "role_definitions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "role_definitions", "posture_notes", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "role_definitions", "reasoning_effort", "TEXT NOT NULL DEFAULT 'medium'")
-            self._ensure_column(connection, "alignment_sessions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
-            self._ensure_column(connection, "alignment_sessions", "command_cli", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "alignment_sessions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "alignment_sessions", "alignment_stage", "TEXT NOT NULL DEFAULT 'clarifying'")
-            self._ensure_column(connection, "alignment_sessions", "working_agreement_json", "TEXT NOT NULL DEFAULT '{}'")
-            self._ensure_column(connection, "alignment_sessions", "executor_session_ref_json", "TEXT NOT NULL DEFAULT '{}'")
-            self._ensure_column(connection, "alignment_sessions", "linked_bundle_id", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "alignment_sessions", "linked_loop_id", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "alignment_sessions", "linked_run_id", "TEXT NOT NULL DEFAULT ''")
-            self._ensure_column(connection, "alignment_sessions", "active_child_pid", "INTEGER")
-            self._ensure_column(connection, "alignment_sessions", "stop_requested", "INTEGER NOT NULL DEFAULT 0")
-            self._ensure_column(connection, "alignment_sessions", "repair_attempts", "INTEGER NOT NULL DEFAULT 0")
-            self._backfill_bundle_asset_ownership(connection)
-            self._backfill_local_asset_roots(connection)
+            self._run_schema_migrations(connection)
         log_event(
             logger,
             logging.INFO,
             "db.schema.ready",
             "Database schema is ready",
             path=self.path,
+            schema_version=CURRENT_SCHEMA_VERSION,
         )
+
+    @classmethod
+    def _run_schema_migrations(cls, connection: sqlite3.Connection) -> None:
+        version = cls._schema_user_version(connection)
+        if version > CURRENT_SCHEMA_VERSION:
+            log_event(
+                logger,
+                logging.WARNING,
+                "db.schema.future_version",
+                "Database schema was created by a newer Loopora version",
+                database_version=version,
+                supported_version=CURRENT_SCHEMA_VERSION,
+            )
+            return
+        if version < 1:
+            cls._migrate_to_v1(connection)
+            cls._set_schema_user_version(connection, 1)
+
+    @staticmethod
+    def _schema_user_version(connection: sqlite3.Connection) -> int:
+        row = connection.execute("PRAGMA user_version").fetchone()
+        return int(row[0] or 0)
+
+    @staticmethod
+    def _set_schema_user_version(connection: sqlite3.Connection, version: int) -> None:
+        connection.execute(f"PRAGMA user_version = {int(version)}")
+
+    @classmethod
+    def _migrate_to_v1(cls, connection: sqlite3.Connection) -> None:
+        cls._ensure_column(connection, "loop_definitions", "orchestration_id", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "loop_definitions", "orchestration_name", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "loop_runs", "orchestration_id", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "loop_runs", "orchestration_name", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "loop_definitions", "executor_kind", "TEXT NOT NULL DEFAULT 'codex'")
+        cls._ensure_column(connection, "loop_definitions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
+        cls._ensure_column(connection, "loop_definitions", "command_cli", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "loop_definitions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "loop_runs", "executor_kind", "TEXT NOT NULL DEFAULT 'codex'")
+        cls._ensure_column(connection, "loop_runs", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
+        cls._ensure_column(connection, "loop_runs", "command_cli", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "loop_runs", "command_args_text", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "loop_definitions", "workflow_json", "TEXT NOT NULL DEFAULT '{}'")
+        cls._ensure_column(connection, "loop_runs", "workflow_json", "TEXT NOT NULL DEFAULT '{}'")
+        cls._ensure_column(connection, "loop_runs", "task_verdict_json", "TEXT")
+        cls._ensure_column(connection, "loop_definitions", "completion_mode", "TEXT NOT NULL DEFAULT 'gatekeeper'")
+        cls._ensure_column(connection, "loop_runs", "completion_mode", "TEXT NOT NULL DEFAULT 'gatekeeper'")
+        cls._ensure_column(connection, "loop_definitions", "iteration_interval_seconds", "REAL NOT NULL DEFAULT 0")
+        cls._ensure_column(connection, "loop_runs", "iteration_interval_seconds", "REAL NOT NULL DEFAULT 0")
+        cls._ensure_column(connection, "role_definitions", "executor_kind", "TEXT NOT NULL DEFAULT 'codex'")
+        cls._ensure_column(connection, "role_definitions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
+        cls._ensure_column(connection, "role_definitions", "command_cli", "TEXT NOT NULL DEFAULT 'codex'")
+        cls._ensure_column(connection, "role_definitions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "role_definitions", "posture_notes", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "role_definitions", "reasoning_effort", "TEXT NOT NULL DEFAULT 'medium'")
+        cls._ensure_column(connection, "alignment_sessions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
+        cls._ensure_column(connection, "alignment_sessions", "command_cli", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "alignment_sessions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "alignment_sessions", "alignment_stage", "TEXT NOT NULL DEFAULT 'clarifying'")
+        cls._ensure_column(connection, "alignment_sessions", "working_agreement_json", "TEXT NOT NULL DEFAULT '{}'")
+        cls._ensure_column(connection, "alignment_sessions", "executor_session_ref_json", "TEXT NOT NULL DEFAULT '{}'")
+        cls._ensure_column(connection, "alignment_sessions", "linked_bundle_id", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "alignment_sessions", "linked_loop_id", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "alignment_sessions", "linked_run_id", "TEXT NOT NULL DEFAULT ''")
+        cls._ensure_column(connection, "alignment_sessions", "active_child_pid", "INTEGER")
+        cls._ensure_column(connection, "alignment_sessions", "stop_requested", "INTEGER NOT NULL DEFAULT 0")
+        cls._ensure_column(connection, "alignment_sessions", "repair_attempts", "INTEGER NOT NULL DEFAULT 0")
+        cls._backfill_bundle_asset_ownership(connection)
+        cls._backfill_local_asset_roots(connection)
 
     @staticmethod
     def _ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:

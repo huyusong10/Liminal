@@ -76,6 +76,12 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 | `inputs` | 可选，声明当前 step 读取哪些 handoff、evidence 与上轮记忆 |
 | `action_policy` | 可选，声明当前 step 的行动权限，例如写入工作区、只读取证、可产生阻断或可收束 |
 
+稳定标识规则：
+
+- workflow `role.id`、`step.id`、`controls[].id` 与 `parallel_group` 必须使用安全稳定标识：字母、数字、点、下划线或短横线，长度 1-80。
+- 缺失的 role / step id 仍可由系统生成 `role_001` / `step_001` 这类安全标识。
+- 非法标识必须在 workflow 或 bundle 保存 / 预览前失败，不能进入 run artifact 路径或持久化事实源。
+
 每个 control 至少表达：
 
 | 字段 | 含义 |

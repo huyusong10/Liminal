@@ -39,3 +39,5 @@ register_bundle_commands(bundles_app)
 register_spec_commands(spec_app)
 register_prompt_commands(prompts_app)
 register_diagnose_commands(diagnose_app)
+
+__all__ = ["_spawn_background_worker", "app", "create_service"]

@@ -4,8 +4,7 @@ import logging
 from pathlib import Path
 
 from loopora.diagnostics import get_logger, log_event, log_exception
-from loopora.executor import ExecutionStopped
-from loopora.service_types import RoleExecutionError, StopRequested, WorkspaceSafetyError
+from loopora.service_types import RoleExecutionError, WorkspaceSafetyError
 
 logger = get_logger(__name__)
 

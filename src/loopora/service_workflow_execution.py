@@ -13,7 +13,6 @@ from loopora.executor import ExecutionStopped
 from loopora.recovery import RetryConfig
 from loopora.run_artifacts import INITIAL_STAGNATION_STATE
 from loopora.service_types import (
-    LooporaError,
     LooporaNotFoundError,
     RoleExecutionError,
     StopRequested,

@@ -1303,8 +1303,9 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       const endpoint = button.dataset.pickEndpoint || "/api/system/pick-directory";
       try {
-        const payload = await fetchJson(`${endpoint}?start_path=${encodeURIComponent(target.value.trim())}`, {
-          headers: {},
+        const payload = await fetchJson(endpoint, {
+          method: "POST",
+          body: JSON.stringify({start_path: target.value.trim()}),
         });
         if (payload.path) {
           target.value = payload.path;

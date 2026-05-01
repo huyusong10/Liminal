@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 from .catalog import SEARCH_DOCS
-from .symptoms import RELEASE_BLOCKER_ORDER, symptom_snapshot
+from .symptoms import symptom_snapshot
 
 
 def _normalize_tokens(text: str) -> list[str]:

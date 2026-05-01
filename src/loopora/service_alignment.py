@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import shutil
 import signal
@@ -12,7 +11,7 @@ from typing import Any
 
 from loopora.branding import state_dir_for_workdir
 from loopora.bundles import BundleError, bundle_to_yaml, lint_alignment_bundle_semantics, load_bundle_text
-from loopora.diagnostics import get_logger, log_event, log_exception
+from loopora.diagnostics import get_logger, log_exception
 from loopora.evidence_coverage import load_or_build_evidence_coverage_projection, summarize_evidence_coverage_projection
 from loopora.executor import ExecutionStopped, ExecutorError, RoleRequest, validate_command_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting

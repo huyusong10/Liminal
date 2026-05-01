@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .catalog import BENCHMARK_CASES, HOLDOUT_CASES
 from .query_rewrite import rewrite_query
 from .ranking import score_document
 from .retrieval import lexical_candidates

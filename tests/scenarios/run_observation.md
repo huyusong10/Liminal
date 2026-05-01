@@ -11,10 +11,10 @@
 
 **步骤**：
 
-1. 打开普通 run 详情页，确认入口检查、workflow steps、GateKeeper / finished 终态按 run contract 的顺序出现。
+1. 打开普通 run 详情页，确认入口检查、Loop middle steps、GateKeeper / finished 终态按 run contract 的顺序出现。
 2. 查看 Key takeaways 与 evidence coverage，确认角色结论能追溯到 evidence refs 或 artifact。
 3. 打开全屏终端视图，确认它仍指向同一 run，并只承担观察输出的职责。
-4. 打开没有中间 steps 的 run，确认页面诚实退化成入口、空 workflow lane 和最终状态。
+4. 打开没有中间 steps 的 run，确认页面诚实退化成入口、空中间步骤区和最终状态。
 5. 检查空态不会残留像真实步骤一样的连接线、轨道或假节点。
 
 **预期**：

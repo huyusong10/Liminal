@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from loopora.bundles import bundle_to_yaml
 from loopora.branding import state_dir_for_workdir
+from loopora.run_takeaways import build_minimal_run_takeaway_projection
 from loopora.settings import app_home, configure_logging
 from loopora.web_url_utils import safe_attachment_filename, safe_local_return_path, with_query_params
 import loopora.web as web_module
@@ -232,6 +233,46 @@ def test_api_run_key_takeaways_returns_iteration_role_conclusions(
     assert coverage["latest_gatekeeper"]["evidence_refs"]
     assert coverage["evidence_kind_counts"]["inspection"] >= 1
     assert coverage["evidence_kind_counts"]["verdict"] >= 1
+
+
+def test_minimal_run_takeaway_projection_keeps_status_verdict_and_empty_evidence_shape(tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    runs_dir = workdir / ".loopora" / "runs" / "run_minimal"
+    task_verdict = {
+        "status": "insufficient_evidence",
+        "source": "rounds_completion",
+        "summary": "Evidence did not cross the bar.",
+        "buckets": {
+            "proven": [],
+            "weak": [],
+            "unproven": [{"label": "manual review"}],
+            "blocking": [],
+            "residual_risk": [],
+        },
+    }
+
+    projection = build_minimal_run_takeaway_projection(
+        {
+            "id": "run_minimal",
+            "status": "succeeded",
+            "run_status": "succeeded",
+            "task_verdict": task_verdict,
+            "workdir": str(workdir),
+            "runs_dir": str(runs_dir),
+            "summary_md": "# Loopora Run Summary\n\nEvidence did not cross the bar.",
+        },
+        source_event_id=42,
+    )
+
+    assert projection["run_status"] == "succeeded"
+    assert projection["task_verdict"]["status"] == "insufficient_evidence"
+    assert projection["evidence_buckets"]["unproven"] == [{"label": "manual review"}]
+    assert projection["build_dir"] == str(workdir.resolve())
+    assert projection["log_dir"] == str(runs_dir.resolve())
+    assert projection["evidence_coverage"]["status"] == "pending"
+    assert projection["evidence_count"] == 0
+    assert projection["iteration_count"] == 0
+    assert projection["source_event_id"] == 42
 
 
 def test_api_run_observation_snapshot_is_bounded_and_redacted(
@@ -464,6 +505,61 @@ def test_api_reveal_path_uses_native_host_shortcut(monkeypatch, service_factory,
     assert response.status_code == 200
     assert response.json()["ok"] is True
     assert called == [str(sample_workdir)]
+
+
+def test_system_picker_requires_post_and_same_origin(monkeypatch, service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+    called: list[str] = []
+
+    def fake_pick_directory(start_path: str | None = None) -> str:
+        called.append(start_path or "")
+        return str(sample_workdir)
+
+    monkeypatch.setattr(web_module, "pick_directory", fake_pick_directory)
+
+    old_get = client.get(f"/api/system/pick-directory?start_path={sample_workdir}")
+    assert old_get.status_code == 405
+    assert called == []
+
+    cross_origin = client.post(
+        "/api/system/pick-directory",
+        json={"start_path": str(sample_workdir)},
+        headers={"Origin": "http://evil.example"},
+    )
+    assert cross_origin.status_code == 403
+    assert "same origin" in cross_origin.json()["error"]
+    assert called == []
+
+    same_origin = client.post(
+        "/api/system/pick-directory",
+        json={"start_path": str(sample_workdir)},
+        headers={"Origin": "http://testserver"},
+    )
+    assert same_origin.status_code == 200
+    assert same_origin.json()["path"] == str(sample_workdir)
+    assert called == [str(sample_workdir)]
+
+
+def test_system_reveal_rejects_cross_origin_before_callback(monkeypatch, service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+    called: list[str] = []
+
+    def fake_reveal(path: str) -> str:
+        called.append(path)
+        return path
+
+    monkeypatch.setattr(web_module, "reveal_path", fake_reveal)
+    response = client.post(
+        "/api/system/reveal-path",
+        json={"path": str(sample_workdir)},
+        headers={"Referer": "http://evil.example/page"},
+    )
+
+    assert response.status_code == 403
+    assert "same origin" in response.json()["error"]
+    assert called == []
 
 
 def test_api_json_endpoints_reject_invalid_json_body(service_factory) -> None:
@@ -849,6 +945,9 @@ def test_run_detail_separates_status_verdict_and_reruns_terminal_run(
     assert page_response.status_code == 200
     assert "Run status" in page_response.text
     assert "Task verdict" in page_response.text
+    assert 'data-testid="run-status-card"' in page_response.text
+    assert 'data-testid="run-task-verdict-card"' in page_response.text
+    assert 'data-testid="run-latest-event-card"' in page_response.text
     assert 'data-testid="run-rerun-button"' in page_response.text
     assert 'id="stop-run"' not in page_response.text
 
@@ -2911,8 +3010,14 @@ def test_network_mode_disables_native_dialog_endpoints(service_factory) -> None:
     client = TestClient(build_app(service=service, bind_host="0.0.0.0", auth_token="secret-token"))
 
     response = client.get("/api/system/pick-directory?token=secret-token")
-    assert response.status_code == 400
-    assert "native dialogs are disabled in network mode" in response.json()["error"]
+    assert response.status_code == 405
+
+    post_response = client.post(
+        "/api/system/pick-directory?token=secret-token",
+        json={"start_path": "/tmp"},
+    )
+    assert post_response.status_code == 400
+    assert "native dialogs are disabled in network mode" in post_response.json()["error"]
 
     reveal = client.post("/api/system/reveal-path?token=secret-token", json={"path": "/tmp"})
     assert reveal.status_code == 400

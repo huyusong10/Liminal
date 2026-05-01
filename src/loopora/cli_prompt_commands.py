@@ -5,7 +5,6 @@ from pathlib import Path
 import typer
 
 from loopora.cli_shared import ArchetypeOption, LocaleOption, echo_json, handle_error
-from loopora.service import LooporaError
 from loopora.workflows import WorkflowError, available_prompt_templates, builtin_prompt_markdown, validate_prompt_markdown
 
 

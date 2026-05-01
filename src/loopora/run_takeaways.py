@@ -5,6 +5,7 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any, NotRequired, TypedDict
 
 from loopora.branding import strip_run_summary_title
 from loopora.evidence_coverage import load_or_build_evidence_coverage_projection, summarize_evidence_coverage_projection
@@ -17,6 +18,23 @@ LEGACY_RUNTIME_ROLE_TO_ARCHETYPE = {
     "verifier": "gatekeeper",
     "challenger": "guide",
 }
+
+
+class RunTakeawayProjection(TypedDict):
+    run_status: str
+    task_verdict: dict[str, Any]
+    evidence_buckets: dict[str, Any]
+    build_dir: str
+    log_dir: str
+    evidence_count: int
+    evidence_coverage: dict[str, Any]
+    iteration_count: int
+    role_conclusion_count: int
+    latest_display_iter: int | None
+    latest_status: str
+    latest_summary: str
+    iterations: list[dict[str, Any]]
+    source_event_id: NotRequired[int]
 
 
 def display_iter(iter_value: object | None) -> int | None:
@@ -307,32 +325,62 @@ def build_legacy_iteration_takeaway(run: dict) -> dict | None:
     }
 
 
-def build_evidence_coverage(run: dict) -> dict:
+def empty_evidence_coverage() -> dict[str, Any]:
+    return {
+        "ledger_path": "",
+        "coverage_path": "",
+        "status": "pending",
+        "summary": {},
+        "evidence_count": 0,
+        "check_count": 0,
+        "covered_check_count": 0,
+        "missing_check_count": 0,
+        "covered_check_ids": [],
+        "missing_check_ids": [],
+        "target_count": 0,
+        "covered_target_count": 0,
+        "weak_target_count": 0,
+        "missing_target_count": 0,
+        "blocked_target_count": 0,
+        "top_gaps": [],
+        "evidence_kind_counts": {},
+        "artifact_ref_count": 0,
+        "residual_risk_count": 0,
+        "risk_signals": [],
+        "latest_gatekeeper": {},
+    }
+
+
+def build_minimal_run_takeaway_projection(
+    run: Mapping[str, Any],
+    *,
+    source_event_id: int | None = None,
+) -> RunTakeawayProjection:
+    task_verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), Mapping) else {}
+    projection: RunTakeawayProjection = {
+        "run_status": str(run.get("run_status") or run.get("status") or "").strip(),
+        "task_verdict": dict(task_verdict),
+        "evidence_buckets": dict(task_verdict.get("buckets") or {}) if isinstance(task_verdict, Mapping) else {},
+        "build_dir": str(Path(str(run.get("workdir") or "")).expanduser().resolve()) if run.get("workdir") else "",
+        "log_dir": str(Path(str(run.get("runs_dir") or "")).expanduser().resolve()) if run.get("runs_dir") else "",
+        "evidence_count": 0,
+        "evidence_coverage": empty_evidence_coverage(),
+        "iteration_count": 0,
+        "role_conclusion_count": 0,
+        "latest_display_iter": None,
+        "latest_status": str(run.get("status") or "").strip(),
+        "latest_summary": str(run.get("summary_md") or "").strip()[:240],
+        "iterations": [],
+    }
+    if source_event_id is not None:
+        projection["source_event_id"] = int(source_event_id or 0)
+    return projection
+
+
+def build_evidence_coverage(run: dict) -> dict[str, Any]:
     runs_dir_value = str(run.get("runs_dir") or "").strip()
     if not runs_dir_value:
-        return {
-            "ledger_path": "",
-            "coverage_path": "",
-            "status": "pending",
-            "summary": {},
-            "evidence_count": 0,
-            "check_count": 0,
-            "covered_check_count": 0,
-            "missing_check_count": 0,
-            "covered_check_ids": [],
-            "missing_check_ids": [],
-            "target_count": 0,
-            "covered_target_count": 0,
-            "weak_target_count": 0,
-            "missing_target_count": 0,
-            "blocked_target_count": 0,
-            "top_gaps": [],
-            "evidence_kind_counts": {},
-            "artifact_ref_count": 0,
-            "residual_risk_count": 0,
-            "risk_signals": [],
-            "latest_gatekeeper": {},
-        }
+        return empty_evidence_coverage()
 
     layout = RunArtifactLayout(Path(runs_dir_value))
     projection = load_or_build_evidence_coverage_projection(layout)
@@ -342,7 +390,7 @@ def build_evidence_coverage(run: dict) -> dict:
     )
 
 
-def build_run_key_takeaways(run: dict) -> dict:
+def build_run_key_takeaways(run: dict) -> RunTakeawayProjection:
     iterations = build_structured_iteration_takeaways(run)
     if not iterations:
         legacy_iteration = build_legacy_iteration_takeaway(run)
@@ -355,22 +403,20 @@ def build_run_key_takeaways(run: dict) -> dict:
     if runs_dir_value:
         evidence_count = len(read_jsonl(RunArtifactLayout(Path(runs_dir_value)).evidence_ledger_path))
     evidence_coverage = build_evidence_coverage(run)
-    task_verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), Mapping) else {}
-    return {
-        "run_status": str(run.get("run_status") or run.get("status") or "").strip(),
-        "task_verdict": task_verdict,
-        "evidence_buckets": dict(task_verdict.get("buckets") or {}) if isinstance(task_verdict, Mapping) else {},
-        "build_dir": str(Path(str(run.get("workdir") or "")).expanduser().resolve()) if run.get("workdir") else "",
-        "log_dir": str(Path(str(run.get("runs_dir") or "")).expanduser().resolve()) if run.get("runs_dir") else "",
-        "evidence_count": evidence_count,
-        "evidence_coverage": evidence_coverage,
-        "iteration_count": len(iterations),
-        "role_conclusion_count": sum(len(list(iteration.get("roles") or [])) for iteration in iterations),
-        "latest_display_iter": latest.get("display_iter") if latest else None,
-        "latest_status": latest.get("status") if latest else normalize_takeaway_status(run.get("status")),
-        "latest_summary": latest.get("summary") if latest else summary_excerpt(run.get("summary_md")),
-        "iterations": iterations,
-    }
+    projection = build_minimal_run_takeaway_projection(run)
+    projection.update(
+        {
+            "evidence_count": evidence_count,
+            "evidence_coverage": evidence_coverage,
+            "iteration_count": len(iterations),
+            "role_conclusion_count": sum(len(list(iteration.get("roles") or [])) for iteration in iterations),
+            "latest_display_iter": latest.get("display_iter") if latest else None,
+            "latest_status": latest.get("status") if latest else normalize_takeaway_status(run.get("status")),
+            "latest_summary": latest.get("summary") if latest else summary_excerpt(run.get("summary_md")),
+            "iterations": iterations,
+        }
+    )
+    return projection
 
 
 _build_run_key_takeaways = build_run_key_takeaways

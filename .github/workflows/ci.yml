@@ -30,6 +30,9 @@ jobs:
         run: |
           find src/loopora/static -name '*.js' -print0 | xargs -0 -n1 node --check
 
+      - name: Run Python static checks
+        run: uv run ruff check src/loopora tests
+
       - name: Check whitespace-safe diff
         run: git diff --check
 

@@ -1367,4 +1367,20 @@ html[data-locale="zh"] .takeaway-iteration-label {
   .takeaway-role-grid {
     grid-template-columns: 1fr;
   }
+
+  .console-toolbar,
+  .console-toolbar-actions,
+  .console-filter-group {
+    width: 100%;
+  }
+
+  .console-toolbar-actions .ghost-button,
+  .console-toolbar-actions .secondary-button {
+    flex: 1 1 min(100%, 156px);
+  }
+
+  .console-filter-chip {
+    flex: 1 1 min(100%, 104px);
+    justify-content: center;
+  }
 }

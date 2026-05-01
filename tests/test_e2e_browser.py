@@ -1045,6 +1045,27 @@ def test_run_detail_renders_sanitized_command_event_summary(tmp_path: Path) -> N
                 assert "<prompt omitted>" in console_text
                 assert "<secret omitted>" in console_text
                 assert "PROMPT_SECRET_MARKER" not in console_text
+                page.set_viewport_size({"width": 390, "height": 844})
+                toolbar_metrics = page.evaluate(
+                    """() => {
+                      const panel = document.querySelector('[data-testid="run-console-panel"]');
+                      const panelBox = panel.getBoundingClientRect();
+                      const controls = [
+                        document.querySelector('[data-testid="console-popout-link"]'),
+                        document.querySelector('[data-testid="console-expand-all"]'),
+                        document.querySelector('[data-testid="console-collapse-all"]'),
+                      ].filter(Boolean);
+                      return {
+                        pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+                        controlsWithinPanel: controls.every((node) => {
+                          const box = node.getBoundingClientRect();
+                          return box.left >= panelBox.left - 1 && box.right <= panelBox.right + 1;
+                        }),
+                      };
+                    }"""
+                )
+                assert toolbar_metrics["pageOverflow"] is False
+                assert toolbar_metrics["controlsWithinPanel"] is True
             finally:
                 page.close()
 

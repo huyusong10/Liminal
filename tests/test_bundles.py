@@ -221,6 +221,16 @@ def test_bundle_round_trip_preserves_parallel_groups_and_step_inputs(service_fac
         '        handoffs_from: ["inspector_step", "semantic_step"]',
     )
 
+    imported = service.import_bundle_text(yaml_text)
+    exported = service.export_bundle(imported["id"])
+    steps = exported["workflow"]["steps"]
+
+    assert steps[1]["parallel_group"] == "inspection_pack"
+    assert steps[1]["inputs"]["handoffs_from"] == ["builder_step"]
+    assert steps[1]["inputs"]["evidence_query"] == {"archetypes": ["builder"], "limit": 8}
+    assert steps[2]["parallel_group"] == "inspection_pack"
+    assert steps[3]["inputs"] == {"handoffs_from": ["inspector_step", "semantic_step"]}
+
 
 def _has_cleanup_record(caplog, *, operation: str, resource_type: str, owner_id: str | None = None) -> bool:
     records = [
@@ -244,16 +254,6 @@ def _has_cleanup_record(caplog, *, operation: str, resource_type: str, owner_id:
         and (owner_id is None or (record.get("context") or {}).get("owner_id") == owner_id)
         for record in records
     )
-
-    imported = service.import_bundle_text(yaml_text)
-    exported = service.export_bundle(imported["id"])
-    steps = exported["workflow"]["steps"]
-
-    assert steps[1]["parallel_group"] == "inspection_pack"
-    assert steps[1]["inputs"]["handoffs_from"] == ["builder_step"]
-    assert steps[1]["inputs"]["evidence_query"] == {"archetypes": ["builder"], "limit": 8}
-    assert steps[2]["parallel_group"] == "inspection_pack"
-    assert steps[3]["inputs"] == {"handoffs_from": ["inspector_step", "semantic_step"]}
 
 
 def test_bundle_round_trip_preserves_explicit_step_action_policy(service_factory, sample_workdir: Path) -> None:
@@ -387,6 +387,47 @@ def test_bundle_preview_rejects_task_contract_list_sections_without_bullets(
     )
 
     with pytest.raises(LooporaError, match="Success Surface"):
+        service.preview_bundle_text(invalid_yaml)
+
+
+@pytest.mark.parametrize(
+    ("yaml_edit", "message"),
+    [
+        (lambda text: text.replace('id: "inspector"', 'id: "inspect/or"', 1), "bundle workflow role id"),
+        (lambda text: text.replace('id: "builder_step"', 'id: "../builder_step"', 1), "bundle workflow step id"),
+        (
+            lambda text: text.replace(
+                'role_id: "inspector"\n    - id: "builder_step"',
+                'role_id: "inspector"\n      parallel_group: "review/pack"\n    - id: "builder_step"',
+                1,
+            ),
+            "workflow step parallel_group",
+        ),
+        (
+            lambda text: text.replace(
+                '      on_pass: "finish_run"\n',
+                '      on_pass: "finish_run"\n'
+                "  controls:\n"
+                '    - id: "control/escape"\n'
+                "      when:\n"
+                '        signal: "gatekeeper_rejected"\n'
+                "      call:\n"
+                '        role_id: "inspector"\n',
+            ),
+            "workflow control id",
+        ),
+    ],
+)
+def test_bundle_preview_rejects_unsafe_workflow_identifiers(
+    service_factory,
+    sample_workdir: Path,
+    yaml_edit,
+    message: str,
+) -> None:
+    service = service_factory(scenario="success")
+    invalid_yaml = yaml_edit(_bundle_yaml(sample_workdir))
+
+    with pytest.raises(LooporaError, match=message):
         service.preview_bundle_text(invalid_yaml)
 
 

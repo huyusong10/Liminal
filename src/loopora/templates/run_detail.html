@@ -184,13 +184,13 @@
       >
         <div class="stage-loop-banner">
           <span class="stage-loop-eyebrow" id="stage-loop-eyebrow">
-            <span data-lang="zh">Workflow Loop</span>
-            <span data-lang="en">Workflow Loop</span>
+            <span data-lang="zh">Loop steps</span>
+            <span data-lang="en">Loop steps</span>
           </span>
-          <strong class="stage-loop-title" id="stage-loop-title">{{ workflow_stages | map(attribute='label') | join(' → ') if workflow_stages else ("还没有 workflow steps" if page_locale == "zh" else "No workflow steps yet") }}</strong>
+          <strong class="stage-loop-title" id="stage-loop-title">{{ workflow_stages | map(attribute='label') | join(' → ') if workflow_stages else ("还没有中间步骤" if page_locale == "zh" else "No middle steps yet") }}</strong>
           <p class="stage-loop-copy" id="stage-loop-copy">
-            <span data-lang="zh">中间步骤按编排顺序重复推进；如果 workflow 里有 GateKeeper finish step，它会作为收敛出口。</span>
-            <span data-lang="en">The arranged middle steps repeat in order. If the workflow includes a GateKeeper finish step, it acts as the exit gate.</span>
+            <span data-lang="zh">中间步骤会按 Loop 计划重复推进；GateKeeper 负责判断证据是否足以收束。</span>
+            <span data-lang="en">Middle steps repeat according to the Loop plan. GateKeeper decides whether the evidence is strong enough to close.</span>
           </p>
         </div>
         <div class="stage-loop-track">
@@ -211,12 +211,12 @@
             {% else %}
             <div class="stage-loop-empty" data-testid="run-stage-loop-empty">
               <strong>
-                <span data-lang="zh">还没有 workflow steps</span>
-                <span data-lang="en">No workflow steps yet</span>
+                <span data-lang="zh">还没有中间步骤</span>
+                <span data-lang="en">No middle steps yet</span>
               </strong>
               <p>
-                <span data-lang="zh">这次 run 没有冻结下中间编排步骤，所以这里只显示入口和最终状态。</span>
-                <span data-lang="en">This run has no frozen middle workflow steps, so only the entry and final state remain.</span>
+                <span data-lang="zh">这次运行没有冻结中间步骤，所以这里只显示入口和最终状态。</span>
+                <span data-lang="en">This run has no frozen middle steps, so only the entry and final state remain.</span>
               </p>
             </div>
             {% endif %}
@@ -260,19 +260,19 @@
       </div>
     </article>
     <div class="highlight-grid">
-      <article class="highlight-card" id="focus-card">
+      <article class="highlight-card" id="focus-card" data-testid="run-status-card">
         <span class="highlight-label"><span data-lang="zh">运行状态</span><span data-lang="en">Run status</span></span>
         <strong id="focus-title">-</strong>
         <p id="focus-detail">-</p>
         <span class="highlight-meta" id="focus-meta">-</span>
       </article>
-      <article class="highlight-card" id="output-card">
+      <article class="highlight-card" id="output-card" data-testid="run-task-verdict-card">
         <span class="highlight-label"><span data-lang="zh">任务裁决</span><span data-lang="en">Task verdict</span></span>
         <strong id="output-title">-</strong>
         <p id="output-detail">-</p>
         <span class="highlight-meta" id="output-meta">-</span>
       </article>
-      <article class="highlight-card" id="event-card">
+      <article class="highlight-card" id="event-card" data-testid="run-latest-event-card">
         <span class="highlight-label"><span data-lang="zh">最近事件</span><span data-lang="en">Latest event</span></span>
         <strong id="event-title">-</strong>
         <p id="event-detail">-</p>

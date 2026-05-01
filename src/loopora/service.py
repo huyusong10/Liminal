@@ -14,9 +14,9 @@ from loopora.service_prompts import (
     CHALLENGER_SCHEMA,
     CHECK_PLANNER_SCHEMA,
     GENERATOR_SCHEMA,
+    ServiceRunPromptMixin,
     TESTER_SCHEMA,
     VERIFIER_SCHEMA,
-    ServiceRunPromptMixin,
 )
 from loopora.service_role_execution import ServiceRoleExecutionMixin
 from loopora.service_run_lifecycle import ServiceRunLifecycleMixin
@@ -35,6 +35,18 @@ from loopora.workflows import (
 )
 
 LOOP_ROLE_NAMES = ARCHETYPES
+
+__all__ = [
+    "CHALLENGER_SCHEMA",
+    "CHECK_PLANNER_SCHEMA",
+    "GENERATOR_SCHEMA",
+    "LOOP_ROLE_NAMES",
+    "LooporaService",
+    "TESTER_SCHEMA",
+    "VERIFIER_SCHEMA",
+    "create_service",
+    "normalize_role_models",
+]
 
 
 def normalize_role_models(role_models: dict | None) -> dict[str, str]:

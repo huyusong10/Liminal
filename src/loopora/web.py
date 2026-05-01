@@ -27,6 +27,12 @@ logger = get_logger(__name__)
 
 AUTH_COOKIE_NAME = APP_AUTH_COOKIE
 
+__all__ = [
+    "_is_loopback_host",
+    "_preferred_locale_from_accept_language",
+    "build_app",
+]
+
 
 def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 8742, auth_token: str | None = None) -> FastAPI:
     app = FastAPI(title=APP_NAME)

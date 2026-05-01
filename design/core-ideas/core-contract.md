@@ -77,6 +77,7 @@ Stable test anchors:
 
 - Use structure, roles, IDs, artifact presence, and status semantics over specific UI copy.
 - Assert evidence and verdict references through canonical artifacts, not through raw logs.
+- Assert default UI with semantic anchors such as run status, task verdict, evidence outcome, and latest event; do not require expert terms like workflow or YAML on the default path.
 - Keep provider-specific tests focused on capability and degradation visibility; provider
   differences must not change the Loop's success contract.
 - Keep legacy compatibility tests separate from new-path quality assertions.

@@ -31,7 +31,6 @@ class ServiceWorkflowIterationStateMixin:
         previous_outputs_by_step = dict(current_outputs_by_step)
         previous_outputs_by_role = dict(current_outputs_by_role)
         previous_outputs_by_archetype = dict(current_outputs_by_archetype)
-        previous_session_refs_by_step = dict(current_session_refs_by_step)
         previous_handoffs_by_step = {item["step"]["id"]: item["handoff"] for item in step_results}
         previous_handoffs_by_role = {item["role"]["id"]: item["handoff"] for item in step_results}
         previous_handoffs_by_archetype = {item["role"]["archetype"]: item["handoff"] for item in step_results}

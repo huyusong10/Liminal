@@ -471,7 +471,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function browseWorkdir() {
-    const {response, payload, error} = await fetchJson(`/api/system/pick-directory?start_path=${encodeURIComponent(workdirInput.value.trim())}`);
+    const {response, payload, error} = await fetchJson("/api/system/pick-directory", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({start_path: workdirInput.value.trim()}),
+    });
     if (error || !response?.ok) {
       throw new Error(payload.error || errorMessage(error, localeText("无法打开目录选择器。", "Unable to open the directory picker.")));
     }
@@ -483,7 +487,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function browseSpec() {
     const startPath = specPathInput.value.trim() || workdirInput.value.trim();
-    const {response, payload, error} = await fetchJson(`/api/system/pick-spec-file?start_path=${encodeURIComponent(startPath)}`);
+    const {response, payload, error} = await fetchJson("/api/system/pick-spec-file", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({start_path: startPath}),
+    });
     if (error || !response?.ok) {
       throw new Error(payload.error || errorMessage(error, localeText("无法打开 spec 选择器。", "Unable to open the spec picker.")));
     }
@@ -501,7 +509,11 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       const startPath = workdirInput.value.trim();
-      const selection = await fetchJson(`/api/system/pick-spec-save-path?start_path=${encodeURIComponent(startPath)}`);
+      const selection = await fetchJson("/api/system/pick-spec-save-path", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({start_path: startPath}),
+      });
       if (selection.error || !selection.response?.ok) {
         throw new Error(selection.payload.error || errorMessage(selection.error, localeText("无法选择 spec 保存路径。", "Unable to choose a spec save path.")));
       }

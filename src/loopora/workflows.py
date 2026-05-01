@@ -80,7 +80,7 @@ STEP_ITERATION_MEMORY_POLICIES = {"default", "none", "same_step", "same_role", "
 WORKFLOW_CONTROL_SIGNALS = {"no_evidence_progress", "role_timeout", "step_failed", "gatekeeper_rejected"}
 WORKFLOW_CONTROL_MODES = {"advisory", "blocking", "repair_guidance"}
 WORKFLOW_CONTROL_ARCHETYPES = {"inspector", "guide", "gatekeeper"}
-WORKFLOW_CONTROL_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
+WORKFLOW_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 WORKFLOW_CONTROL_AFTER_RE = re.compile(r"^\d+(?:\.\d+)?(?:ms|s|m|h)?$")
 
 
@@ -97,6 +97,15 @@ def normalize_prompt_ref(value: str | None) -> str:
     if normalized.startswith("/") or any(not part or part in {".", ".."} for part in parts):
         raise WorkflowError("prompt_ref must be a safe relative path")
     return PurePosixPath(*parts).as_posix()
+
+
+def normalize_workflow_identifier(value: object, *, field_name: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise WorkflowError(f"{field_name} is required")
+    if not WORKFLOW_SAFE_IDENTIFIER_RE.fullmatch(normalized):
+        raise WorkflowError(f"{field_name} must use letters, numbers, dot, underscore, or dash")
+    return normalized
 
 
 def prompt_asset_path(root: Path, prompt_ref: str) -> Path:
@@ -250,9 +259,7 @@ def normalize_step_parallel_group(value: Any) -> str:
     normalized = str(value or "").strip()
     if not normalized:
         return ""
-    if not re.match(r"^[A-Za-z0-9_.-]{1,80}$", normalized):
-        raise WorkflowError("workflow step parallel_group must use letters, numbers, dot, underscore, or dash")
-    return normalized
+    return normalize_workflow_identifier(normalized, field_name="workflow step parallel_group")
 
 
 def normalize_step_inputs(value: Any) -> dict[str, Any]:
@@ -406,9 +413,10 @@ def normalize_workflow_controls(value: Any, *, role_by_id: Mapping[str, Mapping[
         )
         if unknown_keys:
             raise WorkflowError(f"workflow control contains unknown keys: {', '.join(unknown_keys)}")
-        control_id = str(raw_control.get("id") or f"control_{index:03d}").strip()
-        if not WORKFLOW_CONTROL_SAFE_ID_RE.match(control_id):
-            raise WorkflowError("workflow control id must use letters, numbers, dot, underscore, or dash")
+        control_id = normalize_workflow_identifier(
+            raw_control.get("id") or f"control_{index:03d}",
+            field_name="workflow control id",
+        )
         if control_id in seen_ids:
             raise WorkflowError(f"duplicate workflow control id: {control_id}")
         seen_ids.add(control_id)
@@ -1339,7 +1347,10 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
     for index, raw_role in enumerate(raw_roles, start=1):
         if not isinstance(raw_role, dict):
             raise WorkflowError("workflow roles must be objects")
-        role_id = str(raw_role.get("id", "")).strip() or f"role_{index:03d}"
+        role_id = normalize_workflow_identifier(
+            raw_role.get("id") or f"role_{index:03d}",
+            field_name="workflow role id",
+        )
         if role_id in role_ids:
             raise WorkflowError(f"duplicate workflow role id: {role_id}")
         archetype = normalize_archetype(str(raw_role.get("archetype", "")))
@@ -1373,10 +1384,13 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
     for index, raw_step in enumerate(raw_steps, start=1):
         if not isinstance(raw_step, dict):
             raise WorkflowError("workflow steps must be objects")
-        role_id = str(raw_step.get("role_id", "")).strip()
+        role_id = normalize_workflow_identifier(raw_step.get("role_id"), field_name="workflow step role_id")
         if role_id not in role_ids:
             raise WorkflowError(f"workflow step references unknown role_id: {role_id}")
-        step_id = str(raw_step.get("id", "")).strip() or f"step_{index:03d}"
+        step_id = normalize_workflow_identifier(
+            raw_step.get("id") or f"step_{index:03d}",
+            field_name="workflow step id",
+        )
         if step_id in step_ids:
             raise WorkflowError(f"duplicate workflow step id: {step_id}")
         role = next(item for item in roles if item["id"] == role_id)

@@ -19,6 +19,7 @@ from loopora.workflows import (
     normalize_step_inputs,
     normalize_step_on_pass,
     normalize_step_parallel_group,
+    normalize_workflow_identifier,
     normalize_workflow_controls,
     validate_workflow_parallel_groups,
 )
@@ -240,7 +241,10 @@ def _normalize_bundle_workflow(raw_workflow: object, *, role_definitions: list[d
         if not isinstance(raw_role, Mapping):
             raise BundleError("bundle workflow.roles entries must be objects")
         entry = dict(raw_role)
-        role_id = str(entry.get("id", "") or "").strip() or f"role_{index:03d}"
+        role_id = _bundle_workflow_identifier(
+            entry.get("id") or f"role_{index:03d}",
+            field_name="bundle workflow role id",
+        )
         if role_id in seen_role_ids:
             raise BundleError(f"duplicate bundle workflow role id: {role_id}")
         seen_role_ids.add(role_id)
@@ -256,11 +260,14 @@ def _normalize_bundle_workflow(raw_workflow: object, *, role_definitions: list[d
         if not isinstance(raw_step, Mapping):
             raise BundleError("bundle workflow.steps entries must be objects")
         entry = dict(raw_step)
-        step_id = str(entry.get("id", "") or "").strip() or f"step_{index:03d}"
+        step_id = _bundle_workflow_identifier(
+            entry.get("id") or f"step_{index:03d}",
+            field_name="bundle workflow step id",
+        )
         if step_id in seen_step_ids:
             raise BundleError(f"duplicate bundle workflow step id: {step_id}")
         seen_step_ids.add(step_id)
-        role_id = str(entry.get("role_id", "") or "").strip()
+        role_id = _bundle_workflow_identifier(entry.get("role_id"), field_name="bundle workflow step role_id")
         if role_id not in archetype_lookup:
             raise BundleError(f"bundle workflow step references unknown role_id: {role_id}")
         archetype = archetype_lookup[role_id]
@@ -317,6 +324,13 @@ def _normalize_bundle_workflow(raw_workflow: object, *, role_definitions: list[d
     if controls:
         workflow["controls"] = controls
     return workflow
+
+
+def _bundle_workflow_identifier(value: object, *, field_name: str) -> str:
+    try:
+        return normalize_workflow_identifier(value, field_name=field_name)
+    except WorkflowError as exc:
+        raise BundleError(str(exc)) from exc
 
 
 def _validate_bundle_runtime_contract(

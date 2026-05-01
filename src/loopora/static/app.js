@@ -575,8 +575,11 @@
         }
         button.disabled = true;
         try {
-          const startPath = target.value ? `?start_path=${encodeURIComponent(target.value)}` : "";
-          const response = await fetch(`${endpoint}${startPath}`);
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({start_path: target.value || ""}),
+          });
           const payload = await response.json().catch(() => ({}));
           if (!response.ok) {
             throw new Error(payload.error || "failed");

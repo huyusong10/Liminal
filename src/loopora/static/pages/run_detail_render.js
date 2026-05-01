@@ -186,10 +186,10 @@
       } else {
         workflowContainer.innerHTML = `
           <div class="stage-loop-empty" data-testid="run-stage-loop-empty">
-            <strong>${escapeHtml(localeText("还没有 workflow steps", "No workflow steps yet"))}</strong>
+            <strong>${escapeHtml(localeText("还没有中间步骤", "No middle steps yet"))}</strong>
             <p>${escapeHtml(localeText(
-              "这次 run 没有冻结下中间编排步骤，所以这里只显示入口和最终状态。",
-              "This run has no frozen middle workflow steps, so only the entry and final state remain."
+              "这次运行没有冻结中间步骤，所以这里只显示入口和最终状态。",
+              "This run has no frozen middle steps, so only the entry and final state remain."
             ))}</p>
           </div>
         `;

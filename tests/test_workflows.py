@@ -32,6 +32,57 @@ def test_normalize_workflow_rejects_duplicate_step_ids() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("field_update", "message"),
+    [
+        ({"roles": [{"id": "builder/escape", "archetype": "builder", "prompt_ref": "builder.md"}]}, "workflow role id"),
+        ({"steps": [{"id": "../escape", "role_id": "builder"}]}, "workflow step id"),
+        ({"steps": [{"id": "builder_step", "role_id": "builder", "parallel_group": "pack/escape"}]}, "workflow step parallel_group"),
+        (
+            {
+                "controls": [
+                    {
+                        "id": "control/escape",
+                        "when": {"signal": "no_evidence_progress"},
+                        "call": {"role_id": "inspector"},
+                    }
+                ]
+            },
+            "workflow control id",
+        ),
+    ],
+)
+def test_normalize_workflow_rejects_unsafe_stable_identifiers(field_update, message) -> None:
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            {"id": "inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "inspector_step", "role_id": "inspector"},
+        ],
+    }
+    workflow.update(field_update)
+
+    with pytest.raises(WorkflowError, match=message):
+        normalize_workflow(workflow)
+
+
+def test_normalize_workflow_keeps_generated_identifiers_for_missing_ids() -> None:
+    workflow = normalize_workflow(
+        {
+            "version": 1,
+            "roles": [{"archetype": "builder", "prompt_ref": "builder.md"}],
+            "steps": [{"role_id": "role_001"}],
+        }
+    )
+
+    assert workflow["roles"][0]["id"] == "role_001"
+    assert workflow["steps"][0]["id"] == "step_001"
+
+
 def test_normalize_workflow_parses_boolean_like_step_session_flags() -> None:
     workflow = normalize_workflow(
         {

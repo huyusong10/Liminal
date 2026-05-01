@@ -687,7 +687,7 @@ class RealCodexExecutor(CodexExecutor):
         if record.get("type") == "system":
             model = record.get("model") or ""
             cli_version = record.get("claude_code_version") or ""
-            summary = f"Claude Code ready"
+            summary = "Claude Code ready"
             if model:
                 summary += f" · model={model}"
             if cli_version:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 
 from loopora.diagnostics import get_logger
 from loopora.service_types import LooporaError

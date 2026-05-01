@@ -12,7 +12,7 @@ from loopora.branding import state_dir_for_workdir
 from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.file_previews import preview_existing_path
 from loopora.run_observation_events import PROGRESS_EVENT_TYPES, TAKEAWAY_PROJECTION_EVENT_TYPES, TIMELINE_EVENT_TYPES
-from loopora.run_takeaways import build_run_key_takeaways
+from loopora.run_takeaways import build_minimal_run_takeaway_projection, build_run_key_takeaways
 from loopora.service_cleanup_diagnostics import best_effort_rmtree, record_cleanup_failure
 from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError, TERMINAL_RUN_STATUSES
 from loopora.utils import utc_now
@@ -178,33 +178,13 @@ class ServiceRunLifecycleMixin:
         run = self._hydrate_run_files(snapshot["run"])
         key_takeaways = snapshot.get("key_takeaway_projection")
         if not isinstance(key_takeaways, dict) or not key_takeaways:
-            key_takeaways = self._minimal_run_takeaway_projection(run, source_event_id=snapshot["latest_event_id"])
+            key_takeaways = build_minimal_run_takeaway_projection(run, source_event_id=snapshot["latest_event_id"])
         key_takeaways["source_event_id"] = min(
             int(key_takeaways.get("source_event_id") or 0),
             int(snapshot["latest_event_id"] or 0),
         )
         snapshot.pop("key_takeaway_projection", None)
         return {**snapshot, "run": run, "key_takeaways": key_takeaways}
-
-    @staticmethod
-    def _minimal_run_takeaway_projection(run: dict, *, source_event_id: int) -> dict:
-        task_verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), dict) else {}
-        return {
-            "run_status": str(run.get("run_status") or run.get("status") or "").strip(),
-            "task_verdict": task_verdict,
-            "evidence_buckets": dict(task_verdict.get("buckets") or {}) if isinstance(task_verdict, dict) else {},
-            "build_dir": str(Path(str(run.get("workdir") or "")).expanduser().resolve()) if run.get("workdir") else "",
-            "log_dir": str(Path(str(run.get("runs_dir") or "")).expanduser().resolve()) if run.get("runs_dir") else "",
-            "evidence_count": 0,
-            "evidence_coverage": {},
-            "iteration_count": 0,
-            "role_conclusion_count": 0,
-            "latest_display_iter": None,
-            "latest_status": str(run.get("status") or "").strip(),
-            "latest_summary": str(run.get("summary_md") or "").strip()[:240],
-            "iterations": [],
-            "source_event_id": int(source_event_id or 0),
-        }
 
     def get_runtime_activity(self) -> dict:
         self._reconcile_local_orphaned_runs()

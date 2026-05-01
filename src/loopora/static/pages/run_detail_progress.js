@@ -208,11 +208,11 @@
       const workflowStages = getProgressStages(run).filter((stage) => stage.kind === "workflow_step");
       if (!workflowStages.length) {
         return {
-          eyebrow: localeText("Workflow Loop", "Workflow Loop"),
-          title: localeText("还没有 workflow steps", "No workflow steps yet"),
+          eyebrow: localeText("Loop steps", "Loop steps"),
+          title: localeText("还没有中间步骤", "No middle steps yet"),
           detail: localeText(
-            "这次 run 没有冻结下中间编排步骤，所以这里只显示入口和最终状态。",
-            "This run has no frozen middle workflow steps, so only the entry and final state remain."
+            "这次运行没有冻结中间步骤，所以这里只显示入口和最终状态。",
+            "This run has no frozen middle steps, so only the entry and final state remain."
           ),
         };
       }
@@ -220,16 +220,16 @@
         stage.archetype === "gatekeeper" && String(stage.step?.on_pass || "").trim() === "finish_run"
       ));
       return {
-        eyebrow: localeText("Workflow Loop", "Workflow Loop"),
+        eyebrow: localeText("Loop steps", "Loop steps"),
         title: workflowStages.map((stage) => stage.title).join(" → "),
         detail: hasFinishGate
           ? localeText(
-            "中间步骤按编排顺序循环推进，直到 GateKeeper 放行或运行预算耗尽。",
-            "The arranged middle steps repeat in order until GateKeeper passes or the run budget ends."
+            "中间步骤按 Loop 计划循环推进，直到 GateKeeper 放行或运行预算耗尽。",
+            "These middle steps repeat according to the Loop plan until GateKeeper passes or the run budget ends."
           )
           : localeText(
-            "中间步骤按编排顺序循环推进，直到当前 completion mode 结束本次运行。",
-            "The arranged middle steps repeat in order until the configured completion mode ends the run."
+            "中间步骤按 Loop 计划循环推进，直到当前完成模式结束本次运行。",
+            "These middle steps repeat according to the Loop plan until the configured completion mode ends the run."
           ),
       };
     }

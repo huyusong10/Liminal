@@ -8,7 +8,6 @@ from pathlib import Path
 from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.executor import ExecutionStopped
 from loopora.recovery import RetryConfig
-from loopora.run_artifacts import INITIAL_STAGNATION_STATE
 from loopora.service_types import (
     LooporaError,
     LooporaNotFoundError,

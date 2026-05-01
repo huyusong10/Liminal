@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from loopora.db import LooporaRepository
+from loopora.db_schema import CURRENT_SCHEMA_VERSION
 from loopora.settings import app_home, configure_logging
 
 
@@ -64,6 +65,39 @@ def _create_run(repository: LooporaRepository, tmp_path: Path, *, run_id: str = 
             "summary_md": "# Loopora Run Summary\n\nQueued.\n",
         }
     )
+
+
+def _schema_user_version(path: Path) -> int:
+    with sqlite3.connect(path) as connection:
+        return int(connection.execute("PRAGMA user_version").fetchone()[0])
+
+
+def test_repository_initializes_schema_user_version(tmp_path: Path) -> None:
+    target = tmp_path / "app.db"
+
+    LooporaRepository(target)
+    LooporaRepository(target)
+
+    assert _schema_user_version(target) == CURRENT_SCHEMA_VERSION
+
+
+def test_repository_migrates_version_zero_schema_and_preserves_rows(tmp_path: Path) -> None:
+    target = tmp_path / "app.db"
+    with sqlite3.connect(target) as connection:
+        connection.execute("CREATE TABLE loop_definitions (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
+        connection.execute("INSERT INTO loop_definitions (id, name) VALUES ('loop_legacy', 'Legacy Loop')")
+        connection.execute("PRAGMA user_version = 0")
+
+    LooporaRepository(target)
+
+    with sqlite3.connect(target) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(loop_definitions)").fetchall()}
+        row = connection.execute("SELECT id, name FROM loop_definitions WHERE id = 'loop_legacy'").fetchone()
+        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+
+    assert "orchestration_id" in columns
+    assert row == ("loop_legacy", "Legacy Loop")
+    assert version == CURRENT_SCHEMA_VERSION
 
 
 def test_repository_retries_transient_open_errors(tmp_path: Path, monkeypatch, caplog) -> None:

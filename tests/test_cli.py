@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 from loopora import cli
 from loopora.bundles import bundle_to_yaml
+from loopora.cli_run_support import print_run_result
 from loopora.db import LooporaRepository
 from loopora.executor import FakeCodexExecutor
 from loopora.run_artifacts import RunArtifactLayout
@@ -14,6 +15,28 @@ from loopora.service import LooporaService
 from loopora.settings import AppSettings
 from loopora.settings import app_home
 from loopora.utils import utc_now
+
+
+def test_cli_run_result_separates_run_status_and_task_verdict(capsys, tmp_path: Path) -> None:
+    print_run_result(
+        {
+            "id": "run_contract",
+            "status": "succeeded",
+            "run_status": "succeeded",
+            "runs_dir": str(tmp_path / "runs" / "run_contract"),
+            "task_verdict": {
+                "status": "insufficient_evidence",
+                "source": "rounds_completion",
+                "summary": "The run ended, but evidence is still too thin.",
+            },
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert "run_status: succeeded" in output
+    assert "task_verdict: insufficient_evidence" in output
+    assert "task_verdict_source: rounds_completion" in output
+    assert "task_verdict_summary: The run ended, but evidence is still too thin." in output
 
 
 def test_cli_run_allows_zero_max_iters(monkeypatch, tmp_path: Path) -> None:
