@@ -66,6 +66,17 @@ Web 顶层信息架构按用户任务组织：
 - 页面测试优先断言用户动作、可达区域和 `data-testid`，不要把具体中英文文案锁成契约。
 - 运行状态与任务裁决必须分开展示；`succeeded`、`failed`、`stopped` 等 run status 不能替代 GateKeeper / evidence 得出的 task verdict。
 
+## 3.2 CLI 分发与命令入口
+
+CLI 的稳定入口是 Python package metadata 暴露的 `loopora` console script。用户路径必须表达“一次安装，之后直接运行 `loopora`”，而不是要求每次通过项目环境前缀执行。
+
+稳定规则：
+
+- 发布包后推荐以 CLI tool 形态安装，例如 `uv tool install loopora` 或 `pipx install loopora`；`python -m pip install loopora` 只作为已激活虚拟环境中的 pip 路径。
+- 从源码试用或贡献时，若目标是得到同一个稳定命令，使用 editable tool install，例如 `uv tool install --editable .`。
+- `uv run loopora ...` 只属于开发 fallback，不作为 Quick Start、自动化或用户 CLI 示例的默认表达。
+- packaging 契约测试必须保护 console script 名称和入口对象，避免发布包或源码安装丢失 `loopora` 命令。
+
 ## 4. 跨入口一致性
 
 以下能力必须跨入口保持同一语义：

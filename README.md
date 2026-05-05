@@ -125,16 +125,18 @@ Importing YAML or asking an Agent to improve an existing bundle are also Loop co
 
 ## Quick Start
 
-Install from the repository root:
+Until Loopora is published as a Python package, install the CLI from the repository root:
 
 ```bash
-uv sync
+uv tool install --editable .
 ```
+
+If uv says the tool bin directory is not on `PATH`, run `uv tool update-shell` once and restart the shell.
 
 Start the local Web console:
 
 ```bash
-uv run loopora serve --host 127.0.0.1 --port 8742
+loopora serve --host 127.0.0.1 --port 8742
 ```
 
 Open [http://127.0.0.1:8742](http://127.0.0.1:8742), choose **New Task**, select a workdir, and describe the task.
@@ -178,13 +180,15 @@ That Skill now includes a Product Primer so the alignment Agent does not need pr
 The CLI remains available for automation and expert usage:
 
 ```bash
-uv run loopora run \
+loopora run \
   --spec ./demo-spec.md \
   --workdir /absolute/path/to/project \
   --executor codex \
   --model <model> \
   --max-iters 8
 ```
+
+When Loopora is published as a Python package, install it as a CLI tool with `uv tool install loopora` or `pipx install loopora`. Plain `python -m pip install loopora` is also valid inside an activated virtual environment, but tool installs give the cleanest always-available `loopora` command.
 
 ## Project Status
 
@@ -203,5 +207,6 @@ Stable commitments:
 Run the tests:
 
 ```bash
+uv sync
 uv run pytest -q
 ```

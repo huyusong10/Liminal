@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from importlib.metadata import distribution
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -15,6 +16,16 @@ from loopora.service import LooporaService
 from loopora.settings import AppSettings
 from loopora.settings import app_home
 from loopora.utils import utc_now
+
+
+def test_cli_package_exposes_loopora_console_script() -> None:
+    console_scripts = {
+        entry_point.name: entry_point.value
+        for entry_point in distribution("loopora").entry_points
+        if entry_point.group == "console_scripts"
+    }
+
+    assert console_scripts["loopora"] == "loopora.cli:app"
 
 
 def test_cli_run_result_separates_run_status_and_task_verdict(capsys, tmp_path: Path) -> None:
