@@ -10,7 +10,7 @@ Loopora 的稳定主工作流是：
 
 本文解决两个层级问题：
 
-- 核心概念必须集中在主工作流上：Loop、运行、自动迭代、证据、运行状态、Loop 裁决、结果。中文 Web 页面不再把“任务”作为顶层用户概念。
+- 核心概念必须集中在 human-shaped Loop 与主工作流上：Loop、运行、自动迭代、证据、运行状态、Loop 裁决、结果。中文 Web 页面不再把“任务”作为顶层用户概念。
 - Web 问答创建、手动编排、导入 YAML、对话改进既重要，也必须保留，但它们是取得或调整 Loop 的场景，不是主工作流本身。
 
 ## 2. 默认用户概念
@@ -18,7 +18,7 @@ Loopora 的稳定主工作流是：
 | 用户概念 | 稳定含义 | 系统映射 |
 | --- | --- | --- |
 | 长期任务 | 用户想交给 AI Agent 持续推进、需要多轮判断的工作。 | 用户输入、workdir、后续 `spec` 输入 |
-| Loop | 一套可运行的长期任务编排，定义如何执行、检查、裁决、迭代和停止。 | `loop definition` 加上 `spec / roles / workflow` |
+| Loop | 一套被当前任务的人类判断塑形的长期任务编排，定义如何执行、检查、裁决、迭代和停止。 | `loop definition` 加上 `spec / roles / workflow` |
 | 运行 | 按某个 Loop 执行一次长期任务。 | `run` record、run contract、events、artifacts |
 | 自动迭代 | 系统按 Loop 中的 roles 和 workflow 多轮推进，直到收束或失败。 | iteration、workflow steps、controls、completion mode |
 | 证据 | run 中留下的可追溯事实，说明做了什么、检查了什么、证明了什么、什么仍未证明。 | evidence ledger、artifact refs、coverage |
@@ -30,7 +30,7 @@ Loopora 的稳定主工作流是：
 
 - `Loop` 是默认用户主对象；“循环方案”可以作为中文解释，但文档应避免让 bundle/YAML 看起来比 Loop 更核心。
 - `bundle`、YAML、READY、Bundle ID 是交换、状态或调试对象，不是默认用户概念。
-- `spec / roles / workflow` 是专家可见的 Loop 运行面；默认用户不需要先理解它们才能开始。
+- `spec / roles / workflow` 是专家可见的 Loop 运行面；默认用户不需要先理解它们才能开始，但所有默认结论都必须能追溯到这些运行面如何承载人类判断。
 - “对话改进方案”是用户主动调整 Loop 的一种场景，不是 run 完成后的默认阶段。
 - 运行状态与 Loop 裁决必须分开表达；`run succeeded` 不能被界面暗示为“Loop 已证明完成”。
 
@@ -80,6 +80,7 @@ Loopora 的稳定主工作流是：
 
 ```text
 编排 Loop
+-> 冻结本次任务的人类判断结构
 -> 运行 Loop
 -> 系统按 roles / workflow 自动迭代
 -> 每个 step 和 iteration 留下 evidence

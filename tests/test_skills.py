@@ -41,7 +41,8 @@ def test_loopora_task_alignment_skill_validates() -> None:
     assert "parallel_group" in skill_text
     assert "feedback-improvement.md" in skill_text
     primer_text = (skill_dir / "references" / "product-primer.md").read_text(encoding="utf-8")
-    assert "local-first platform for composing, running, and observing long-running AI Agent tasks" in primer_text
+    assert "local-first platform for composing human-shaped governance loops" in primer_text
+    assert "human-in-the-loop -> human-shaped loop" in primer_text
     assert "Execution roles can be narrow" in primer_text
     assert "optional user-directed capability" in (
         skill_dir / "references" / "feedback-improvement.md"

@@ -218,7 +218,8 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
     assert "User language hint: `Chinese" in prompt_text
     assert "Assume you know nothing about Loopora except what is embedded below." in prompt_text
     assert "Loopora Product Primer" in prompt_text
-    assert "local-first platform for composing, running, and observing long-running AI Agent tasks" in prompt_text
+    assert "local-first platform for composing human-shaped governance loops" in prompt_text
+    assert "human-in-the-loop -> human-shaped loop" in prompt_text
     assert "Preserve Loopora domain terms exactly" in prompt_text
     assert "Alignment Playbook" in prompt_text
     assert "Alignment Quality Rubric" in prompt_text

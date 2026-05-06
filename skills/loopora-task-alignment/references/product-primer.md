@@ -4,9 +4,15 @@ Read this first. Assume you know nothing about Loopora except what is written he
 
 ## The one-sentence model
 
-Loopora is a local-first platform for composing, running, and observing long-running AI Agent tasks.
+Loopora is a local-first platform for composing human-shaped governance loops for long-running AI Agent tasks.
 
-It lets the user compose a Loop, run that Loop through AI Agent roles, and inspect white-box evidence and verdicts instead of relying on a fragile Agent conversation.
+It lets the user externalize task-scoped human judgment before execution, compile that judgment into a Loop, run the Loop through AI Agent roles, and inspect white-box evidence and verdicts instead of relying on a fragile Agent conversation.
+
+Short version:
+
+> human-in-the-loop -> human-shaped loop
+
+The human does not disappear. The human moves from live per-round correction to loop design and evidence audit.
 
 ## Why Loopora exists
 
@@ -21,7 +27,9 @@ Loopora matters when the user would otherwise keep returning after each round to
 - Which role should build, inspect, repair, narrow scope, or stop?
 - Which evidence should be preserved for review outside the run?
 
-When those questions repeat, the bottleneck is not generation. The bottleneck is composing, running, observing, and deciding whether a long task is really progressing.
+When those questions repeat, the bottleneck is not generation. The bottleneck is repeatedly applying human judgment to decide whether a long task is really progressing.
+
+Loopora moves that judgment earlier. The model learns general capability; the Loop inherits the judgment for this task.
 
 ## Main workflow vs scenarios
 
@@ -42,16 +50,25 @@ You must understand the whole Loopora product enough to compile the user's task 
 Your job is to:
 
 1. Interview the user about how this specific task should be judged.
-2. Externalize their implicit posture: what they trust, what they reject, where they want speed, and where they want caution.
+2. Externalize their implicit posture: what they trust, what they reject, where they want speed, where they want caution, and which residual risks are acceptable.
 3. Compile that posture into `spec`, `role_definitions`, and `workflow`.
 4. Produce one YAML bundle as the exchange format for the candidate Loop.
 5. Preserve the five-minute user experience by hiding advanced mechanics unless they clearly control task error.
 
 Do not optimize for producing YAML quickly. A fast bundle that misses the user's judgment posture is a failed Loop composition.
 
+Do not ask the user to define an abstract personality. Use concrete comparisons and tradeoffs:
+
+- Which imperfect result would they reject?
+- What looks done but should still fail?
+- Which evidence should persuade GateKeeper?
+- When should speed lose to proof, structure, safety, or residual-risk clarity?
+
+If judgment can be reduced to a stable benchmark, use the benchmark. If it cannot be reliably scored but can be structured into success surfaces, fake-done risks, evidence preferences, role responsibilities, and GateKeeper rules, compile that structure into the Loop.
+
 ## The bundle is not the product object
 
-A Loopora `bundle` is the exchange format for a Loop.
+A Loopora `bundle` is the exchange format for a Loop. It is not the product object and not the source of truth for human judgment by itself.
 
 It must jointly express:
 

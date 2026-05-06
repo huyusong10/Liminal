@@ -15,15 +15,17 @@
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-D66A36">
 </p>
 
-Loopora is a local-first platform for long-running AI Agent tasks.
+New to Loopora? Start with the philosophy: [Human-Shaped Loop](./docs/human-shaped-loop.md).
 
-It is for the moment when "just ask the Agent again" stops being enough.
+Loopora is a local-first platform for composing **human-shaped governance loops** for long-running AI Agent tasks.
+
+It is for the moment when "just ask the Agent again" stops being enough, because the missing piece is no longer effort. It is judgment.
 
 ## Why Should This Exist?
 
 If one AI Agent pass plus one human review is enough, you do not need Loopora.
 
-But long tasks create a different bottleneck. You need to compose a Loop, let the system run it across Agent roles, and keep enough evidence to verify:
+But long tasks create a different bottleneck. Humans keep coming back to ask:
 
 - Did the last round prove the right thing?
 - Is the result truly done, or only locally plausible?
@@ -31,15 +33,21 @@ But long tasks create a different bottleneck. You need to compose a Loop, let th
 - Which role should build, inspect, repair, narrow scope, or stop?
 - What evidence should be kept for review outside the run?
 
-When those questions repeat, generation is not the bottleneck anymore. The bottleneck is composing, running, observing, and deciding whether a long task is really progressing.
+When those questions repeat, generation is not the bottleneck anymore. The bottleneck is repeatedly applying human judgment to decide whether the task is really progressing.
 
-**Loopora lets you compose a Loop for a long-running Agent task, run it through automatic iterations, and inspect the white-box evidence and verdicts it leaves behind.**
+**Loopora moves that judgment earlier. It helps you externalize how this task should be judged, compiles that judgment into a runnable Loop, lets Agents iterate inside it, and leaves behind white-box evidence and verdicts for review.**
+
+In short:
+
+> human-in-the-loop -> human-shaped loop
+
+Humans do not disappear. They move from live per-round correction to loop design and evidence audit.
 
 ## How Is This Different From an Agent Plugin?
 
 Most Agent plugins improve behavior inside one Agent context: skills, commands, checklists, roles, or collaboration patterns. That can be very useful.
 
-Loopora works at the layer around the Agent.
+Loopora works at the layer around the Agent. The model learns general capability; the Loop inherits task-scoped judgment.
 
 | In a plugin-style Agent context | In Loopora |
 | --- | --- |
@@ -48,14 +56,15 @@ Loopora works at the layer around the Agent.
 | A checklist depends on model discipline | `workflow` decides when judgment happens, what evidence flows, and what can end the run |
 | Logs explain what happened | `evidence` becomes the source for review |
 | Feedback becomes another prompt | Bundle import/export keeps user-owned changes explicit |
+| A retry loop extends time | A Loop constrains how errors propagate across rounds |
 
-Loopora does not try to replace your AI Agent. It gives the Agent a durable Loop to run inside, and gives you evidence to inspect from outside.
+Loopora does not try to replace your AI Agent. It gives the Agent a durable, human-shaped Loop to run inside, and gives you evidence to inspect from outside.
 
 ## The Core Idea
 
 Loopora's user-facing object is a **Loop**.
 
-A Loop is a long-running task orchestration with three runtime input surfaces and one observable output surface:
+A Loop is not a longer prompt. It is the runnable shape of how this task should be judged: three runtime input surfaces and one observable output surface.
 
 | Surface | Job |
 | --- | --- |
@@ -66,6 +75,8 @@ A Loop is a long-running task orchestration with three runtime input surfaces an
 
 Internally, Loopora can store or exchange a Loop as a YAML **bundle**. Users do not need to start there. The Web UI helps you describe the task, compose the Loop through conversation, preview the governance surfaces, and create a run only after the candidate Loop validates.
 
+This matters most when the judgment is complex. If it can be reduced to a stable benchmark, use the benchmark. If it cannot be reliably scored but can be structured into success surfaces, fake-done risks, evidence preferences, role responsibilities, and GateKeeper rules, Loopora is the layer that makes that judgment runnable.
+
 ## A Concrete Example
 
 Suppose you say:
@@ -74,7 +85,7 @@ Suppose you say:
 
 A normal AI Agent may start producing screens: a landing page, vocabulary cards, exercises, buttons, and polished visuals. It can look finished before proving that a learner can complete one real learning cycle.
 
-Loopora asks the governance questions first:
+Loopora asks the judgment questions first:
 
 - Is the first version a real learning path or a product sketch?
 - What is fake done: good-looking pages without a usable study loop?
@@ -99,6 +110,8 @@ Loopora can become powerful, but first use must stay simple:
 > describe the task, choose a workdir, confirm the Loop, run it, inspect evidence.
 
 Advanced features such as parallel Inspectors, evidence routing, workflow controls, trigger rules, and provider-specific execution are compiled into the plan when they help control long-task error. They are not concepts a new user must configure up front.
+
+The chat-first composition path is not a YAML generator. It is a short alignment process that helps users surface tacit judgment through concrete tradeoffs: what should count as real progress, what fake completion should be blocked, what evidence should persuade GateKeeper, and which residual risk is acceptable.
 
 ## Web Flow
 
@@ -153,6 +166,10 @@ Then ask:
 
 > Would a human otherwise return after each meaningful round to judge what the result means?
 
+And the sharper version:
+
+> Can the human judgment that would happen later be shaped before the loop starts?
+
 Loopora fits tasks that are:
 
 - long enough that one pass will not settle them
@@ -161,7 +178,7 @@ Loopora fits tasks that are:
 - risky enough that fake done must be blocked
 - reusable enough that the way of judging the task should survive one chat
 
-Do not use a loop when another round will not create new evidence. A loop without evidence becomes drift.
+Do not use a loop when another round will not create new evidence. A simple retry loop extends time; a Loopora Loop only helps when evidence and judgment can make the next round less wrong. A loop without evidence becomes drift.
 
 <p align="center">
   <img src="./.github/assets/readme-decision-tree.en.png" alt="Loopora decision board" width="1120" />
@@ -196,6 +213,7 @@ Loopora is experimental and local-first.
 
 Stable commitments:
 
+- Loopora compiles task-scoped human judgment into explicit, inspectable Loop surfaces
 - long-running task orchestration should live outside a single AI Agent conversation
 - Loops remain inspectable and file-backed
 - bundle import/export stays explicit and local

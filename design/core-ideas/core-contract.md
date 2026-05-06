@@ -8,7 +8,12 @@ runtime behavior, Web surfaces, and tests aligned around the same long-task work
 
 Stable definition:
 
-> Loopora is a local-first platform for composing, running, and observing long-running AI Agent tasks.
+> Loopora is a local-first platform for composing human-shaped governance loops for long-running AI Agent tasks.
+
+The contract-level reason for that definition is that Loopora externalizes
+task-scoped human judgment before execution, then tests that judgment through
+runtime evidence. A Loop is not just a longer prompt or a retry harness; it is
+the runnable shape of how this task should be judged.
 
 Every user-facing path and implementation boundary should serve this workflow:
 

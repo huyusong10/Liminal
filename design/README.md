@@ -6,9 +6,9 @@
 
 最高产品原则见 `core-ideas/product-principle.md`：
 
-> Loopora 是面向长期 AI Agent 任务的本地任务平台。所有设计都必须服务于 `编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出证据裁决与结果` 的主工作流，而不是退化成 role zoo、prompt pack、loop script、通用聊天界面或内部资产 CRUD console。
+> Loopora 是面向长期 AI Agent 任务的本地任务平台。它把未来多轮任务中原本需要人类反复做的判断、纠偏、取证和阻断，提前编译成一个可运行的 human-shaped Loop。所有设计都必须服务于 `编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出证据裁决与结果` 的主工作流，而不是退化成 role zoo、prompt pack、loop script、通用聊天界面或内部资产 CRUD console。
 
-同一原则还包含“主次关系”和“5 分钟上手”硬约束：核心概念必须围绕 Loop 的编排、运行、自动迭代、证据和裁决；Web 问答、手动编排、导入 YAML 和对话改进只是取得或调整 Loop 的场景。
+同一原则还包含 human-shaped Loop、“主次关系”和“5 分钟上手”硬约束：核心概念必须围绕 Loop 的判断外化、编排、运行、自动迭代、证据和裁决；Web 问答、手动编排、导入 YAML 和对话改进只是取得或调整 Loop 的场景。
 
 文档分成两个子模块：
 

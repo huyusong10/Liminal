@@ -2,23 +2,51 @@
 
 ## 1. 最高产品原则
 
-Loopora 是面向长期 AI Agent 任务的本地任务平台。
+Loopora 是面向长期 AI Agent 任务的本地任务平台。它的最高产品本质是：
+
+> 把人类在未来多轮任务中原本需要反复做的纠偏、质疑、取证、验收和阻断，提前编译成一个可运行的 human-shaped Loop。
 
 它的核心不是“生成 bundle”，也不是“包装一次 Agent 对话”，而是：
 
-> 让用户编排一个可长期运行的 Loop，把长期任务交给系统按 Loop 自动迭代，并提供白盒、可观测、可追溯的证据和裁决。
+> 让用户把 task-scoped judgment 外化为 `spec / roles / workflow / evidence` 结构，把长期任务交给系统按这个 Loop 自动迭代，并提供白盒、可观测、可追溯的证据和裁决。
 
 英文压缩定义：
 
-> Loopora is a local-first platform for composing, running, and observing long-running AI Agent tasks.
+> Loopora is a local-first platform for composing human-shaped governance loops for long-running AI Agent tasks.
+
+这不是把人类从 loop 中删除，而是把人类从“每轮实时纠偏者”提升为“循环设计者”和“证据审计者”。模型学习通用能力；Loop 学当前任务的判断方式。复杂判断不应该被静默写进模型权重或全局人格记忆，而应在 Agent / Loop 层以局部、显式、可检查、可丢弃的形式继承。
 
 所有产品、接口、运行时和文档设计都必须服务于这条主工作流：
 
 `编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出运行状态、Loop 裁决与结果`
 
+若下层文档、界面话术或实现取舍与本节冲突，以本节为准。
+
+更完整的愿景叙事见 `../../docs/human-shaped-loop.zh-CN.md`。该文保存 human-shaped Loop 的背景、推理链和长期协作愿景；本文件只保留可作为设计约束的压缩原则。
+
+## 1.0 Human-Shaped Loop 原则
+
+传统 human-in-the-loop 假设人类在执行过程中反复回来纠偏：
+
+`Agent 行动 -> 人类判断 -> Agent 修正 -> 人类再判断`
+
+Loopora 的范式是 human-shaped loop：
+
+`人类先外化判断方式 -> Loopora 编译判断结构 -> Agent 在结构内自动迭代 -> 人类审计证据、裁决和残余风险`
+
+稳定原则：
+
+- Loopora 自动化的不是单纯产出，而是长期任务中可被结构化的一部分人类判断。
+- 简单循环延长任务时间；Loopora 的 Loop 约束误差传播路径。
+- 没有治理结构的 loop 是开盲盒；有治理结构的 Loop 是误差减速器。
+- Loopora 不承诺消灭长期任务误差；它的目标是让误差更早暴露、更难伪装成完成、更容易被下一轮纠正。
+- 可量化判断应优先沉淀为 benchmark、contract test、schema、lint 或 proof harness；Loopora 主要处理尚不能可靠标量化、但可以结构化、取证化、角色化和裁决化的复杂判断。
+- 复杂判断通常不是单一分数，而是偏序：真实闭环优先于漂亮假完成，强证据优先于乐观叙事，可接受残余风险必须显式暴露，不可接受风险必须阻断。
+- Alignment 的价值是帮助用户通过案例、对比和 tradeoff 自省 task-scoped judgment；runtime 的价值是让这份 judgment 真正约束 Agent，而不是停留在 prompt 文案。
+
 ## 1.1 主次关系
 
-核心概念必须围绕主工作流，而不是围绕某个取得 Loop 的场景。
+核心概念必须围绕主工作流和 human-shaped Loop，而不是围绕某个取得 Loop 的场景。
 
 | 层级 | 说明 | 示例 |
 |------|------|------|

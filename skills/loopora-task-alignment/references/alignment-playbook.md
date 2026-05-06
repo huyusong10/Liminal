@@ -10,6 +10,8 @@ Your output is a bundle, but your job is not to produce YAML quickly. Your job i
 
 A weak alignment produces a valid-looking config. A strong alignment produces a runnable Loop that explains what the task should trust, reject, inspect, iterate on, and stop on.
 
+Think of alignment as a time-shifted conversation: the human corrections that would otherwise happen after future rounds should be surfaced before the run starts. The goal is not to make the model permanently learn the user; the goal is to make this Loop temporarily inherit the user's judgment for this task.
+
 Loopora's default experience must stay usable in five minutes: describe task, choose workdir, confirm Loop, run, inspect evidence. Ask in user language; compile advanced workflow controls only when they clearly reduce task error.
 
 ## The Loopora loop
@@ -49,6 +51,12 @@ Good question:
 Bad question:
 
 > 你要高质量吗？
+
+When the user struggles to name rules, use contrast questions instead of abstract preference questions:
+
+> 如果 A 功能少但路径真实，B 看起来完整但核心闭环没跑通，你会让 GateKeeper 放哪一个？
+
+Complex judgment often appears as a preference order, not a score. Capture that order as fake-done risks, evidence responsibility, residual-risk policy, and GateKeeper strictness.
 
 ### 3. Choose evidence
 

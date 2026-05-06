@@ -1885,8 +1885,8 @@ def _assert_tutorial_page(html: str) -> None:
     )
     for expected in (
         'class="page-stack tutorial-page-stack"',
-        "runnable loop plan",
-        "expert exchange format",
+        "human-shaped loop",
+        "task-scoped judgment",
         "Build + Parallel Review",
         "Evidence First",
         "Benchmark Gate",
