@@ -18,6 +18,15 @@ from loopora.workflows import DEFAULT_WORKFLOW_PRESET, WorkflowError
 
 
 def register_orchestration_commands(orchestrations_app: typer.Typer) -> None:
+    _register_orchestration_list_command(orchestrations_app)
+    _register_orchestration_get_command(orchestrations_app)
+    _register_orchestration_create_command(orchestrations_app)
+    _register_orchestration_update_command(orchestrations_app)
+    _register_orchestration_derive_command(orchestrations_app)
+    _register_orchestration_delete_command(orchestrations_app)
+
+
+def _register_orchestration_list_command(orchestrations_app: typer.Typer) -> None:
     @orchestrations_app.command("list")
     def list_orchestrations() -> None:
         """List saved orchestrations."""
@@ -34,6 +43,8 @@ def register_orchestration_commands(orchestrations_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_orchestration_get_command(orchestrations_app: typer.Typer) -> None:
     @orchestrations_app.command("get")
     def get_orchestration(orchestration_id: str = typer.Argument(..., help="Saved orchestration id.")) -> None:
         """Show one orchestration as JSON."""
@@ -42,6 +53,8 @@ def register_orchestration_commands(orchestrations_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_orchestration_create_command(orchestrations_app: typer.Typer) -> None:
     @orchestrations_app.command("create")
     def create_orchestration(
         name: str = typer.Option(..., help="Orchestration name."),
@@ -68,6 +81,8 @@ def register_orchestration_commands(orchestrations_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_orchestration_update_command(orchestrations_app: typer.Typer) -> None:
     @orchestrations_app.command("update")
     def update_orchestration(
         orchestration_id: str = typer.Argument(..., help="Custom orchestration id."),
@@ -100,6 +115,8 @@ def register_orchestration_commands(orchestrations_app: typer.Typer) -> None:
         except (LooporaError, WorkflowError) as exc:
             handle_error(exc)
 
+
+def _register_orchestration_derive_command(orchestrations_app: typer.Typer) -> None:
     @orchestrations_app.command("derive")
     def derive_orchestration(
         source_id: str = typer.Argument(..., help="Built-in or custom orchestration id to derive from."),
@@ -131,6 +148,8 @@ def register_orchestration_commands(orchestrations_app: typer.Typer) -> None:
         except (LooporaError, WorkflowError) as exc:
             handle_error(exc)
 
+
+def _register_orchestration_delete_command(orchestrations_app: typer.Typer) -> None:
     @orchestrations_app.command("delete")
     def delete_orchestration(orchestration_id: str = typer.Argument(..., help="Custom orchestration id.")) -> None:
         """Delete a saved custom orchestration."""

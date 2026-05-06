@@ -4,13 +4,14 @@ import logging
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import typer
 
 from loopora.branding import RUN_SUMMARY_TITLE
 from loopora.cli_common import call_spawn_background_worker, get_service, logger
-from loopora.cli_workflow_support import build_loop_kwargs
+from loopora.cli_workflow_support import LoopBuildRequest, build_loop_kwargs
 from loopora.diagnostics import log_event, log_exception
 from loopora.service import LooporaError
 from loopora.utils import utc_now
@@ -132,71 +133,30 @@ def start_run(service, loop_id: str, *, background: bool) -> dict:
     return service.rerun(loop_id, background=False)
 
 
-def create_and_maybe_start_loop(
-    *,
-    spec: Path,
-    workdir: Path,
-    executor_kind: str,
-    executor_mode: str,
-    model: str,
-    reasoning_effort: str,
-    completion_mode: str,
-    iteration_interval_seconds: float,
-    command_cli: str,
-    command_arg: list[str] | None,
-    max_iters: int,
-    max_role_retries: int,
-    delta_threshold: float,
-    trigger_window: int,
-    regression_window: int,
-    name: str | None,
-    role_model: list[str] | None,
-    orchestration_id: str,
-    workflow_preset: str,
-    workflow_file: Path | None,
-    start: bool,
-    background: bool,
-) -> tuple[dict, dict | None]:
-    if background and not start:
+@dataclass(frozen=True)
+class LoopCreateRequest(LoopBuildRequest):
+    start: bool
+    background: bool
+
+
+def create_and_maybe_start_loop(request: LoopCreateRequest) -> tuple[dict, dict | None]:
+    if request.background and not request.start:
         raise LooporaError("--background requires --start")
     log_event(
         logger,
         logging.INFO,
         "cli.loop.create.requested",
         "CLI requested loop creation",
-        workdir=workdir,
-        spec_path=spec,
-        orchestration_id=orchestration_id,
-        start=start,
-        background=background,
-        completion_mode=completion_mode,
+        workdir=request.workdir,
+        spec_path=request.spec,
+        orchestration_id=request.orchestration_id,
+        start=request.start,
+        background=request.background,
+        completion_mode=request.completion_mode,
     )
     service = get_service()
-    loop = service.create_loop(
-        **build_loop_kwargs(
-            spec=spec,
-            workdir=workdir,
-            executor_kind=executor_kind,
-            executor_mode=executor_mode,
-            model=model,
-            reasoning_effort=reasoning_effort,
-            completion_mode=completion_mode,
-            iteration_interval_seconds=iteration_interval_seconds,
-            command_cli=command_cli,
-            command_arg=command_arg,
-            max_iters=max_iters,
-            max_role_retries=max_role_retries,
-            delta_threshold=delta_threshold,
-            trigger_window=trigger_window,
-            regression_window=regression_window,
-            name=name,
-            role_model=role_model,
-            orchestration_id=orchestration_id,
-            workflow_preset=workflow_preset,
-            workflow_file=workflow_file,
-        )
-    )
-    run = start_run(service, loop["id"], background=background) if start else None
+    loop = service.create_loop(**build_loop_kwargs(request))
+    run = start_run(service, loop["id"], background=request.background) if request.start else None
     log_event(
         logger,
         logging.INFO,
@@ -205,7 +165,7 @@ def create_and_maybe_start_loop(
         loop_id=loop["id"],
         workdir=loop.get("workdir"),
         run_id=run.get("id") if run else None,
-        start=start,
-        background=background,
+        start=request.start,
+        background=request.background,
     )
     return loop, run

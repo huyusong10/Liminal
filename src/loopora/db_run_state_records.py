@@ -2,59 +2,47 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
 
 from loopora.db_shared import logger
 from loopora.diagnostics import log_event
 from loopora.utils import utc_now
 
 
+@dataclass(frozen=True, kw_only=True)
+class RunUpdate:
+    status: str | None = None
+    current_iter: int | None = None
+    active_role: str | None = None
+    runner_pid: int | None = None
+    child_pid: int | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    error_message: str | None = None
+    last_verdict: dict | None = None
+    task_verdict: dict | None = None
+    compiled_spec: dict | None = None
+    summary_md: str | None = None
+    clear_child_pid: bool = False
+
+
 class RepositoryRunStateRecordsMixin:
     def update_run(
         self,
         run_id: str,
-        *,
-        status: str | None = None,
-        current_iter: int | None = None,
-        active_role: str | None = None,
-        runner_pid: int | None = None,
-        child_pid: int | None = None,
-        started_at: str | None = None,
-        finished_at: str | None = None,
-        error_message: str | None = None,
-        last_verdict: dict | None = None,
-        task_verdict: dict | None = None,
-        compiled_spec: dict | None = None,
-        summary_md: str | None = None,
-        clear_child_pid: bool = False,
+        update: RunUpdate | None = None,
+        **raw_update: Any,
     ) -> dict:
-        updates: dict[str, object] = {"updated_at": utc_now()}
-        if status is not None:
-            updates["status"] = status
-        if current_iter is not None:
-            updates["current_iter"] = current_iter
-        if active_role is not None:
-            updates["active_role"] = active_role
-        if runner_pid is not None:
-            updates["runner_pid"] = runner_pid
-        if child_pid is not None:
-            updates["child_pid"] = child_pid
-        if clear_child_pid:
-            updates["child_pid"] = None
-        if started_at is not None:
-            updates["started_at"] = started_at
-        if finished_at is not None:
-            updates["finished_at"] = finished_at
-        if error_message is not None:
-            updates["error_message"] = error_message
-        if last_verdict is not None:
-            updates["last_verdict_json"] = json.dumps(last_verdict, ensure_ascii=False)
-        if task_verdict is not None:
-            updates["task_verdict_json"] = json.dumps(task_verdict, ensure_ascii=False)
-        if compiled_spec is not None:
-            updates["compiled_spec_json"] = json.dumps(compiled_spec, ensure_ascii=False)
-        if summary_md is not None:
-            updates["summary_md"] = summary_md
+        run_update = _coerce_run_update(update, raw_update)
+        updates = _run_update_columns(run_update)
+        row = self._persist_run_update(run_id, updates)
+        decoded = self._decode_row(row) if row else {}
+        self._log_run_update(run_id, decoded=decoded, updates=updates)
+        return decoded
 
+    def _persist_run_update(self, run_id: str, updates: dict[str, object]) -> object:
         assignments = ", ".join(f"{column} = ?" for column in updates)
         values = list(updates.values()) + [run_id]
         with self.transaction() as connection:
@@ -65,33 +53,22 @@ class RepositoryRunStateRecordsMixin:
                     "UPDATE loop_definitions SET updated_at = ? WHERE id = ?",
                     (utc_now(), row["loop_id"]),
                 )
-        decoded = self._decode_row(row) if row else {}
-        interesting_fields = {
-            key: updates[key]
-            for key in (
-                "status",
-                "current_iter",
-                "active_role",
-                "runner_pid",
-                "child_pid",
-                "started_at",
-                "finished_at",
-                "error_message",
-            )
-            if key in updates
-        }
-        if decoded and interesting_fields:
-            log_event(
-                logger,
-                logging.INFO,
-                "db.run.updated",
-                "Persisted run state update",
-                run_id=run_id,
-                loop_id=decoded.get("loop_id"),
-                workdir=decoded.get("workdir"),
-                **interesting_fields,
-            )
-        return decoded
+        return row
+
+    def _log_run_update(self, run_id: str, *, decoded: dict, updates: dict[str, object]) -> None:
+        interesting_fields = _interesting_run_update_fields(updates)
+        if not decoded or not interesting_fields:
+            return
+        log_event(
+            logger,
+            logging.INFO,
+            "db.run.updated",
+            "Persisted run state update",
+            run_id=run_id,
+            loop_id=decoded.get("loop_id"),
+            workdir=decoded.get("workdir"),
+            **interesting_fields,
+        )
 
     def request_stop(self, run_id: str) -> dict | None:
         with self.transaction() as connection:
@@ -122,3 +99,57 @@ class RepositoryRunStateRecordsMixin:
         with self._connect() as connection:
             row = connection.execute("SELECT COUNT(*) AS count FROM loop_runs WHERE status = 'running'").fetchone()
         return int(row["count"]) if row else 0
+
+
+def _coerce_run_update(update: RunUpdate | None, raw_update: dict[str, Any]) -> RunUpdate:
+    if update is not None and raw_update:
+        raise TypeError("run update cannot mix object and keyword fields")
+    return update or RunUpdate(**raw_update)
+
+
+def _run_update_columns(update: RunUpdate) -> dict[str, object]:
+    updates: dict[str, object] = {"updated_at": utc_now()}
+    for field in (
+        "status",
+        "current_iter",
+        "active_role",
+        "runner_pid",
+        "child_pid",
+        "started_at",
+        "finished_at",
+        "error_message",
+    ):
+        value = getattr(update, field)
+        if value is not None:
+            updates[field] = value
+    if update.clear_child_pid:
+        updates["child_pid"] = None
+    serialized_fields = {
+        "last_verdict": "last_verdict_json",
+        "task_verdict": "task_verdict_json",
+        "compiled_spec": "compiled_spec_json",
+    }
+    for field, column in serialized_fields.items():
+        value = getattr(update, field)
+        if value is not None:
+            updates[column] = json.dumps(value, ensure_ascii=False)
+    if update.summary_md is not None:
+        updates["summary_md"] = update.summary_md
+    return updates
+
+
+def _interesting_run_update_fields(updates: Mapping[str, object]) -> dict[str, object]:
+    return {
+        key: updates[key]
+        for key in (
+            "status",
+            "current_iter",
+            "active_role",
+            "runner_pid",
+            "child_pid",
+            "started_at",
+            "finished_at",
+            "error_message",
+        )
+        if key in updates
+    }

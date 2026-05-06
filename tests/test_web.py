@@ -17,6 +17,7 @@ from loopora.settings import app_home, configure_logging
 from loopora.web_url_utils import safe_attachment_filename, safe_local_return_path, with_query_params
 import loopora.web as web_module
 from loopora.web import build_app
+from loopora.web_overviews import _format_timeline_event
 
 
 def _read_service_log_records() -> list[dict]:
@@ -25,6 +26,41 @@ def _read_service_log_records() -> list[dict]:
         for line in (app_home() / "logs" / "service.log").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
+    role_summary = _format_timeline_event(
+        {
+            "id": 1,
+            "event_type": "role_execution_summary",
+            "created_at": "2026-05-05T00:00:00Z",
+            "role": "Builder",
+            "payload": {"ok": True, "attempts": 2, "degraded": True, "duration_ms": 12},
+        }
+    )
+    control_event = _format_timeline_event(
+        {
+            "id": 2,
+            "event_type": "control_triggered",
+            "created_at": "2026-05-05T00:00:01Z",
+            "payload": {"signal": "no_evidence_progress", "role_id": "inspector"},
+        }
+    )
+    run_finished = _format_timeline_event(
+        {
+            "id": 3,
+            "event_type": "run_finished",
+            "created_at": "2026-05-05T00:00:02Z",
+            "payload": {"status": "succeeded", "reason": "rounds_completed"},
+        }
+    )
+
+    assert role_summary["title"] == "Builder completed"
+    assert role_summary["detail"] == "attempts=2, degraded, 12ms"
+    assert control_event["title"] == "Control triggered"
+    assert control_event["detail"] == "no_evidence_progress -> inspector"
+    assert run_finished["title"] == "Run succeeded"
+    assert run_finished["detail"] == "planned rounds completed"
 
 
 def test_web_url_helpers_keep_redirects_and_filenames_local() -> None:
@@ -3048,6 +3084,8 @@ def test_preferred_locale_from_accept_language_respects_q_values_and_supported_l
     assert web_module._preferred_locale_from_accept_language("fr-FR,zh-CN;q=0.8,en-US;q=0.6") == "zh"
     assert web_module._preferred_locale_from_accept_language("fr-FR,de-DE;q=0.8") == "en"
     assert web_module._preferred_locale_from_accept_language("en-US;q=0,zh-CN;q=0.6") == "zh"
+    assert web_module._preferred_locale_from_accept_language("zh_CN;q=0.7,en-US;q=0.4") == "zh"
+    assert web_module._preferred_locale_from_accept_language("zh-CN;q=bad,en-US;q=0.4") == "en"
 
 
 def test_network_mode_disables_native_dialog_endpoints(service_factory) -> None:

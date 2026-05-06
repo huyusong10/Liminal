@@ -1,25 +1,33 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 from loopora.utils import utc_now
 
 
+@dataclass(frozen=True)
+class LocalAssetRootUpsertRequest:
+    resource_type: str
+    resource_id: str
+    path: str | Path
+    workdir: str = ""
+    owner_id: str = ""
+    state: str = "active"
+
+
 class RepositoryLocalAssetRecordsMixin:
     def upsert_local_asset_root(
         self,
-        *,
-        resource_type: str,
-        resource_id: str,
-        path: str | Path,
-        workdir: str = "",
-        owner_id: str = "",
-        state: str = "active",
+        request: LocalAssetRootUpsertRequest | None = None,
+        **raw_request,
     ) -> dict:
-        normalized_state = self._normalize_local_asset_state(state)
+        if request is None:
+            request = LocalAssetRootUpsertRequest(**raw_request)
+        normalized_state = self._normalize_local_asset_state(request.state)
         now = utc_now()
-        normalized_path = str(Path(path).expanduser())
+        normalized_path = str(Path(request.path).expanduser())
         with self.transaction() as connection:
             connection.execute(
                 """
@@ -33,11 +41,11 @@ class RepositoryLocalAssetRecordsMixin:
                     updated_at = excluded.updated_at
                 """,
                 (
-                    str(resource_type or "").strip(),
-                    str(resource_id or "").strip(),
+                    str(request.resource_type or "").strip(),
+                    str(request.resource_id or "").strip(),
                     normalized_path,
-                    str(workdir or "").strip(),
-                    str(owner_id or "").strip(),
+                    str(request.workdir or "").strip(),
+                    str(request.owner_id or "").strip(),
                     normalized_state,
                     now,
                 ),
@@ -47,7 +55,7 @@ class RepositoryLocalAssetRecordsMixin:
                 SELECT * FROM local_asset_roots
                 WHERE resource_type = ? AND resource_id = ? AND path = ?
                 """,
-                (str(resource_type or "").strip(), str(resource_id or "").strip(), normalized_path),
+                (str(request.resource_type or "").strip(), str(request.resource_id or "").strip(), normalized_path),
             ).fetchone()
         return self._decode_row(row)
 

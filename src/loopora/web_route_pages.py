@@ -17,6 +17,14 @@ from loopora.web_url_utils import attachment_content_disposition, with_query_par
 
 
 def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+    _register_home_and_create_pages(app, ctx)
+    _register_library_pages(app, ctx)
+    _register_support_pages(app, ctx)
+    _register_loop_run_pages(app, ctx)
+    _register_bundle_export_page(app, ctx)
+
+
+def _register_home_and_create_pages(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
         loops = [_decorate_loop_overview(loop) for loop in ctx.svc().list_loops()]
@@ -66,6 +74,8 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             import_values=request.query_params if request.query_params else None,
         )
 
+
+def _register_library_pages(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/orchestrations", response_class=HTMLResponse)
     async def orchestrations_page(request: Request) -> HTMLResponse:
         return ctx.render_orchestrations(request)
@@ -106,6 +116,8 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     async def edit_role_definition(request: Request, role_definition_id: str) -> HTMLResponse:
         return ctx.render_new_role_definition(request, role_definition=ctx.svc().get_role_definition(role_definition_id))
 
+
+def _register_support_pages(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/tools", response_class=HTMLResponse)
     async def tools_page(request: Request) -> HTMLResponse:
         return ctx.render_tools(request)
@@ -118,6 +130,8 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     async def runs_page(request: Request) -> RedirectResponse:
         return RedirectResponse(url="/#activity", status_code=303)
 
+
+def _register_loop_run_pages(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/loops/{loop_id}", response_class=HTMLResponse)
     async def loop_detail(request: Request, loop_id: str) -> HTMLResponse:
         loop = ctx.svc().get_loop(loop_id)
@@ -176,6 +190,8 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             },
         )
 
+
+def _register_bundle_export_page(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/bundles/derive/export")
     async def derive_bundle_export(
         loop_id: str,

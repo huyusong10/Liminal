@@ -28,6 +28,7 @@ from loopora.cli_shared import (
     WorkdirOption,
     WorkflowFileOption,
     WorkflowPresetOption,
+    LoopCreateRequest,
     create_and_maybe_start_loop,
     handle_error,
     get_service,
@@ -43,10 +44,19 @@ from loopora.web import _is_loopback_host, build_app
 
 
 def register_root_commands(app: typer.Typer) -> None:
+    _register_main_callback(app)
+    _register_run_command(app)
+    _register_serve_command(app)
+    _register_execute_run_worker_command(app)
+
+
+def _register_main_callback(app: typer.Typer) -> None:
     @app.callback()
     def main() -> None:
         configure_logging()
 
+
+def _register_run_command(app: typer.Typer) -> None:
     @app.command()
     def run(
         spec: SpecOption,
@@ -74,28 +84,30 @@ def register_root_commands(app: typer.Typer) -> None:
         """Create a loop definition and execute it immediately."""
         try:
             loop, result = create_and_maybe_start_loop(
-                spec=spec,
-                workdir=workdir,
-                executor_kind=executor_kind,
-                executor_mode=executor_mode,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                completion_mode=completion_mode,
-                iteration_interval_seconds=iteration_interval_seconds,
-                command_cli=command_cli,
-                command_arg=command_arg,
-                max_iters=max_iters,
-                max_role_retries=max_role_retries,
-                delta_threshold=delta_threshold,
-                trigger_window=trigger_window,
-                regression_window=regression_window,
-                name=name,
-                role_model=role_model,
-                orchestration_id=orchestration_id,
-                workflow_preset=workflow_preset,
-                workflow_file=workflow_file,
-                start=True,
-                background=background,
+                LoopCreateRequest(
+                    spec=spec,
+                    workdir=workdir,
+                    executor_kind=executor_kind,
+                    executor_mode=executor_mode,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    completion_mode=completion_mode,
+                    iteration_interval_seconds=iteration_interval_seconds,
+                    command_cli=command_cli,
+                    command_arg=command_arg,
+                    max_iters=max_iters,
+                    max_role_retries=max_role_retries,
+                    delta_threshold=delta_threshold,
+                    trigger_window=trigger_window,
+                    regression_window=regression_window,
+                    name=name,
+                    role_model=role_model,
+                    orchestration_id=orchestration_id,
+                    workflow_preset=workflow_preset,
+                    workflow_file=workflow_file,
+                    start=True,
+                    background=background,
+                )
             )
             print_loop_created(loop)
             if result is not None:
@@ -103,6 +115,8 @@ def register_root_commands(app: typer.Typer) -> None:
         except (LooporaError, SpecError, FileExistsError) as exc:
             handle_error(exc)
 
+
+def _register_serve_command(app: typer.Typer) -> None:
     @app.command()
     def serve(
         host: str = typer.Option("127.0.0.1", help="Bind host."),
@@ -150,6 +164,8 @@ def register_root_commands(app: typer.Typer) -> None:
             access_log=False,
         )
 
+
+def _register_execute_run_worker_command(app: typer.Typer) -> None:
     @app.command("_execute-run", hidden=True)
     def execute_run_worker(run_id: str = typer.Argument(..., help="Run ID.")) -> None:
         """Internal helper that executes a queued run in a dedicated background process."""

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -74,14 +75,59 @@ STEP_EXECUTION_FIELDS = (
 )
 PARALLEL_GROUP_ARCHETYPES = {"inspector", "custom"}
 STEP_INPUT_KEYS = {"handoffs_from", "evidence_query", "iteration_memory"}
+STEP_EVIDENCE_QUERY_KEYS = {"archetypes", "verifies", "limit"}
 STEP_ACTION_POLICY_KEYS = {"workspace", "can_block", "can_finish_run"}
 STEP_ACTION_POLICY_WORKSPACES = {"read_only", "workspace_write"}
 STEP_ITERATION_MEMORY_POLICIES = {"default", "none", "same_step", "same_role", "summary_only"}
+WORKFLOW_CONTROL_KEYS = {"id", "when", "call", "mode", "max_fires_per_run"}
+WORKFLOW_CONTROL_WHEN_KEYS = {"signal", "after"}
+WORKFLOW_CONTROL_CALL_KEYS = {"role_id"}
 WORKFLOW_CONTROL_SIGNALS = {"no_evidence_progress", "role_timeout", "step_failed", "gatekeeper_rejected"}
 WORKFLOW_CONTROL_MODES = {"advisory", "blocking", "repair_guidance"}
 WORKFLOW_CONTROL_ARCHETYPES = {"inspector", "guide", "gatekeeper"}
 WORKFLOW_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 WORKFLOW_CONTROL_AFTER_RE = re.compile(r"^\d+(?:\.\d+)?(?:ms|s|m|h)?$")
+
+
+@dataclass(frozen=True, kw_only=True)
+class PresetRoleSpec:
+    role_id: str
+    archetype: str
+    prompt_ref: str
+    role_definition_id: str
+    name: str = ""
+    posture_notes: str = ""
+
+
+@dataclass(frozen=True, kw_only=True)
+class WorkflowPresetDefinitionSpec:
+    label_zh: str
+    label_en: str
+    description_zh: str
+    description_en: str
+    scenario_zh: str
+    scenario_en: str
+    roles: list[dict[str, str]]
+    steps: list[dict[str, Any]]
+    choice_zh: str = ""
+    choice_en: str = ""
+    decision_zh: str = ""
+    decision_en: str = ""
+    visible: bool = True
+
+
+@dataclass(frozen=True, kw_only=True)
+class PresetStepSpec:
+    step_id: str
+    role_id: str
+    archetype: str
+    on_pass: str | None = None
+    model: str = ""
+    inherit_session: bool | None = None
+    extra_cli_args: str = ""
+    parallel_group: str = ""
+    inputs: dict[str, Any] | None = None
+    action_policy: dict[str, Any] | None = None
 
 
 def normalize_prompt_locale(value: str | None) -> str:
@@ -255,6 +301,10 @@ def _normalize_string_list(value: Any, *, field_name: str) -> list[str]:
     return result
 
 
+def _unknown_keys(value: Mapping[str, Any], allowed_keys: set[str]) -> list[str]:
+    return sorted(str(key) for key in value if str(key) not in allowed_keys)
+
+
 def normalize_step_parallel_group(value: Any) -> str:
     normalized = str(value or "").strip()
     if not normalized:
@@ -267,71 +317,92 @@ def normalize_step_inputs(value: Any) -> dict[str, Any]:
         return {}
     if not isinstance(value, Mapping):
         raise WorkflowError("workflow step inputs must be an object")
-    unknown_keys = sorted(str(key) for key in value.keys() if str(key) not in STEP_INPUT_KEYS)
+    unknown_keys = _unknown_keys(value, STEP_INPUT_KEYS)
     if unknown_keys:
         raise WorkflowError(f"workflow step inputs contains unknown keys: {', '.join(unknown_keys)}")
 
     result: dict[str, Any] = {}
-    handoffs_from = _normalize_string_list(value.get("handoffs_from"), field_name="workflow step inputs.handoffs_from")
+    handoffs_from = normalize_step_handoffs_from(value.get("handoffs_from"))
     if handoffs_from:
         result["handoffs_from"] = handoffs_from
 
-    evidence_query = value.get("evidence_query")
-    if evidence_query is not None:
-        if not isinstance(evidence_query, Mapping):
-            raise WorkflowError("workflow step inputs.evidence_query must be an object")
-        query_unknown = sorted(
-            str(key)
-            for key in evidence_query.keys()
-            if str(key) not in {"archetypes", "verifies", "limit"}
-        )
-        if query_unknown:
-            raise WorkflowError(
-                f"workflow step inputs.evidence_query contains unknown keys: {', '.join(query_unknown)}"
-            )
-        query: dict[str, Any] = {}
-        archetypes = _normalize_string_list(
-            evidence_query.get("archetypes"),
-            field_name="workflow step inputs.evidence_query.archetypes",
-        )
-        invalid_archetypes = [item for item in archetypes if item not in ARCHETYPES]
-        if invalid_archetypes:
-            raise WorkflowError(
-                "workflow step inputs.evidence_query.archetypes contains unknown archetypes: "
-                + ", ".join(invalid_archetypes)
-            )
-        if archetypes:
-            query["archetypes"] = archetypes
-        verifies = _normalize_string_list(
-            evidence_query.get("verifies"),
-            field_name="workflow step inputs.evidence_query.verifies",
-        )
-        if verifies:
-            query["verifies"] = verifies
-        raw_limit = evidence_query.get("limit")
-        if raw_limit is not None:
-            try:
-                limit = int(raw_limit)
-            except (TypeError, ValueError) as exc:
-                raise WorkflowError("workflow step inputs.evidence_query.limit must be an integer") from exc
-            if limit < 1 or limit > 100:
-                raise WorkflowError("workflow step inputs.evidence_query.limit must be between 1 and 100")
-            query["limit"] = limit
-        if query:
-            result["evidence_query"] = query
+    evidence_query = normalize_step_evidence_query(value.get("evidence_query"))
+    if evidence_query:
+        result["evidence_query"] = evidence_query
 
-    iteration_memory = str(value.get("iteration_memory") or "").strip().lower()
-    if iteration_memory == "all":
-        iteration_memory = "default"
+    iteration_memory = normalize_step_iteration_memory(value.get("iteration_memory"))
     if iteration_memory:
-        if iteration_memory not in STEP_ITERATION_MEMORY_POLICIES:
-            raise WorkflowError(
-                "workflow step inputs.iteration_memory must be default, none, same_step, same_role, or summary_only"
-            )
-        if iteration_memory != "default":
-            result["iteration_memory"] = iteration_memory
+        result["iteration_memory"] = iteration_memory
 
     return result
+
+
+def normalize_step_handoffs_from(value: Any) -> list[str]:
+    return _normalize_string_list(value, field_name="workflow step inputs.handoffs_from")
+
+
+def normalize_step_evidence_query(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise WorkflowError("workflow step inputs.evidence_query must be an object")
+    query_unknown = _unknown_keys(value, STEP_EVIDENCE_QUERY_KEYS)
+    if query_unknown:
+        raise WorkflowError(f"workflow step inputs.evidence_query contains unknown keys: {', '.join(query_unknown)}")
+
+    query: dict[str, Any] = {}
+    archetypes = normalize_step_evidence_archetypes(value.get("archetypes"))
+    if archetypes:
+        query["archetypes"] = archetypes
+    verifies = _normalize_string_list(
+        value.get("verifies"),
+        field_name="workflow step inputs.evidence_query.verifies",
+    )
+    if verifies:
+        query["verifies"] = verifies
+    limit = normalize_step_evidence_limit(value.get("limit"))
+    if limit is not None:
+        query["limit"] = limit
+    return query
+
+
+def normalize_step_evidence_archetypes(value: Any) -> list[str]:
+    archetypes = _normalize_string_list(
+        value,
+        field_name="workflow step inputs.evidence_query.archetypes",
+    )
+    invalid_archetypes = [item for item in archetypes if item not in ARCHETYPES]
+    if invalid_archetypes:
+        raise WorkflowError(
+            "workflow step inputs.evidence_query.archetypes contains unknown archetypes: "
+            + ", ".join(invalid_archetypes)
+        )
+    return archetypes
+
+
+def normalize_step_evidence_limit(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        limit = int(value)
+    except (TypeError, ValueError) as exc:
+        raise WorkflowError("workflow step inputs.evidence_query.limit must be an integer") from exc
+    if limit < 1 or limit > 100:
+        raise WorkflowError("workflow step inputs.evidence_query.limit must be between 1 and 100")
+    return limit
+
+
+def normalize_step_iteration_memory(value: Any) -> str:
+    iteration_memory = str(value or "").strip().lower()
+    if iteration_memory == "all":
+        iteration_memory = "default"
+    if not iteration_memory:
+        return ""
+    if iteration_memory not in STEP_ITERATION_MEMORY_POLICIES:
+        raise WorkflowError(
+            "workflow step inputs.iteration_memory must be default, none, same_step, same_role, or summary_only"
+        )
+    return "" if iteration_memory == "default" else iteration_memory
 
 
 def default_step_action_policy(*, archetype: str | None = None, on_pass: str = "continue") -> dict[str, Any]:
@@ -362,7 +433,7 @@ def normalize_step_action_policy(
     else:
         if not isinstance(value, Mapping):
             raise WorkflowError("workflow step action_policy must be an object")
-        unknown_keys = sorted(str(key) for key in value.keys() if str(key) not in STEP_ACTION_POLICY_KEYS)
+        unknown_keys = sorted(str(key) for key in value if str(key) not in STEP_ACTION_POLICY_KEYS)
         if unknown_keys:
             raise WorkflowError(f"workflow step action_policy contains unknown keys: {', '.join(unknown_keys)}")
         raw_workspace = str(value.get("workspace", defaults["workspace"]) or defaults["workspace"]).strip().lower()
@@ -404,72 +475,98 @@ def normalize_workflow_controls(value: Any, *, role_by_id: Mapping[str, Mapping[
     result: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     for index, raw_control in enumerate(value, start=1):
-        if not isinstance(raw_control, Mapping):
-            raise WorkflowError("workflow.controls entries must be objects")
-        unknown_keys = sorted(
-            str(key)
-            for key in raw_control.keys()
-            if str(key) not in {"id", "when", "call", "mode", "max_fires_per_run"}
-        )
-        if unknown_keys:
-            raise WorkflowError(f"workflow control contains unknown keys: {', '.join(unknown_keys)}")
-        control_id = normalize_workflow_identifier(
-            raw_control.get("id") or f"control_{index:03d}",
-            field_name="workflow control id",
-        )
-        if control_id in seen_ids:
-            raise WorkflowError(f"duplicate workflow control id: {control_id}")
-        seen_ids.add(control_id)
-
-        when = raw_control.get("when")
-        if not isinstance(when, Mapping):
-            raise WorkflowError(f"workflow control {control_id} requires when")
-        when_unknown = sorted(str(key) for key in when.keys() if str(key) not in {"signal", "after"})
-        if when_unknown:
-            raise WorkflowError(f"workflow control {control_id}.when contains unknown keys: {', '.join(when_unknown)}")
-        signal = str(when.get("signal") or "").strip()
-        if signal not in WORKFLOW_CONTROL_SIGNALS:
-            raise WorkflowError(
-                "workflow control when.signal must be one of: " + ", ".join(sorted(WORKFLOW_CONTROL_SIGNALS))
-            )
-        after = str(when.get("after") or "0s").strip() or "0s"
-        if not WORKFLOW_CONTROL_AFTER_RE.match(after):
-            raise WorkflowError("workflow control when.after must be an elapsed duration such as 30s, 20m, or 1h")
-
-        call = raw_control.get("call")
-        if not isinstance(call, Mapping):
-            raise WorkflowError(f"workflow control {control_id} requires call")
-        call_unknown = sorted(str(key) for key in call.keys() if str(key) not in {"role_id"})
-        if call_unknown:
-            raise WorkflowError(f"workflow control {control_id}.call contains unknown keys: {', '.join(call_unknown)}")
-        role_id = str(call.get("role_id") or "").strip()
-        role = role_by_id.get(role_id)
-        if role is None:
-            raise WorkflowError(f"workflow control {control_id} references unknown role_id: {role_id}")
-        archetype = str(role.get("archetype") or "").strip()
-        if archetype not in WORKFLOW_CONTROL_ARCHETYPES:
-            raise WorkflowError("workflow controls may only call Inspector, Guide, or GateKeeper roles")
-
-        mode = str(raw_control.get("mode") or "advisory").strip()
-        if mode not in WORKFLOW_CONTROL_MODES:
-            raise WorkflowError("workflow control mode must be advisory, blocking, or repair_guidance")
-        try:
-            max_fires = int(raw_control.get("max_fires_per_run", 1) or 1)
-        except (TypeError, ValueError) as exc:
-            raise WorkflowError("workflow control max_fires_per_run must be an integer") from exc
-        if max_fires < 1 or max_fires > 20:
-            raise WorkflowError("workflow control max_fires_per_run must be between 1 and 20")
-
-        result.append(
-            {
-                "id": control_id,
-                "when": {"signal": signal, "after": after},
-                "call": {"role_id": role_id},
-                "mode": mode,
-                "max_fires_per_run": max_fires,
-            }
-        )
+        result.append(normalize_workflow_control(raw_control, index=index, role_by_id=role_by_id, seen_ids=seen_ids))
     return result
+
+
+def normalize_workflow_control(
+    raw_control: Any,
+    *,
+    index: int,
+    role_by_id: Mapping[str, Mapping[str, Any]],
+    seen_ids: set[str],
+) -> dict[str, Any]:
+    if not isinstance(raw_control, Mapping):
+        raise WorkflowError("workflow.controls entries must be objects")
+    unknown_keys = _unknown_keys(raw_control, WORKFLOW_CONTROL_KEYS)
+    if unknown_keys:
+        raise WorkflowError(f"workflow control contains unknown keys: {', '.join(unknown_keys)}")
+    control_id = normalize_workflow_control_id(raw_control.get("id"), index=index, seen_ids=seen_ids)
+    signal, after = normalize_workflow_control_when(raw_control.get("when"), control_id=control_id)
+    role_id = normalize_workflow_control_call(raw_control.get("call"), control_id=control_id, role_by_id=role_by_id)
+    return {
+        "id": control_id,
+        "when": {"signal": signal, "after": after},
+        "call": {"role_id": role_id},
+        "mode": normalize_workflow_control_mode(raw_control.get("mode")),
+        "max_fires_per_run": normalize_workflow_control_max_fires(raw_control.get("max_fires_per_run")),
+    }
+
+
+def normalize_workflow_control_id(value: Any, *, index: int, seen_ids: set[str]) -> str:
+    control_id = normalize_workflow_identifier(
+        value or f"control_{index:03d}",
+        field_name="workflow control id",
+    )
+    if control_id in seen_ids:
+        raise WorkflowError(f"duplicate workflow control id: {control_id}")
+    seen_ids.add(control_id)
+    return control_id
+
+
+def normalize_workflow_control_when(value: Any, *, control_id: str) -> tuple[str, str]:
+    if not isinstance(value, Mapping):
+        raise WorkflowError(f"workflow control {control_id} requires when")
+    when_unknown = _unknown_keys(value, WORKFLOW_CONTROL_WHEN_KEYS)
+    if when_unknown:
+        raise WorkflowError(f"workflow control {control_id}.when contains unknown keys: {', '.join(when_unknown)}")
+    signal = str(value.get("signal") or "").strip()
+    if signal not in WORKFLOW_CONTROL_SIGNALS:
+        raise WorkflowError(
+            "workflow control when.signal must be one of: " + ", ".join(sorted(WORKFLOW_CONTROL_SIGNALS))
+        )
+    after = str(value.get("after") or "0s").strip() or "0s"
+    if not WORKFLOW_CONTROL_AFTER_RE.match(after):
+        raise WorkflowError("workflow control when.after must be an elapsed duration such as 30s, 20m, or 1h")
+    return signal, after
+
+
+def normalize_workflow_control_call(
+    value: Any,
+    *,
+    control_id: str,
+    role_by_id: Mapping[str, Mapping[str, Any]],
+) -> str:
+    if not isinstance(value, Mapping):
+        raise WorkflowError(f"workflow control {control_id} requires call")
+    call_unknown = _unknown_keys(value, WORKFLOW_CONTROL_CALL_KEYS)
+    if call_unknown:
+        raise WorkflowError(f"workflow control {control_id}.call contains unknown keys: {', '.join(call_unknown)}")
+    role_id = str(value.get("role_id") or "").strip()
+    role = role_by_id.get(role_id)
+    if role is None:
+        raise WorkflowError(f"workflow control {control_id} references unknown role_id: {role_id}")
+    archetype = str(role.get("archetype") or "").strip()
+    if archetype not in WORKFLOW_CONTROL_ARCHETYPES:
+        raise WorkflowError("workflow controls may only call Inspector, Guide, or GateKeeper roles")
+    return role_id
+
+
+def normalize_workflow_control_mode(value: Any) -> str:
+    mode = str(value or "advisory").strip()
+    if mode not in WORKFLOW_CONTROL_MODES:
+        raise WorkflowError("workflow control mode must be advisory, blocking, or repair_guidance")
+    return mode
+
+
+def normalize_workflow_control_max_fires(value: Any) -> int:
+    try:
+        max_fires = int(value or 1)
+    except (TypeError, ValueError) as exc:
+        raise WorkflowError("workflow control max_fires_per_run must be an integer") from exc
+    if max_fires < 1 or max_fires > 20:
+        raise WorkflowError("workflow control max_fires_per_run must be between 1 and 20")
+    return max_fires
 
 
 def default_step_execution_settings(*, archetype: str | None = None) -> dict[str, Any]:
@@ -482,104 +579,96 @@ def default_step_execution_settings(*, archetype: str | None = None) -> dict[str
     }
 
 
-def _preset_role(
-    *,
-    role_id: str,
-    archetype: str,
-    prompt_ref: str,
-    role_definition_id: str,
-    name: str = "",
-    posture_notes: str = "",
-) -> dict[str, str]:
+def _preset_role(spec: PresetRoleSpec | None = None, **raw_spec: Any) -> dict[str, str]:
+    role_spec = _coerce_preset_role_spec(spec, raw_spec)
     return {
-        "id": role_id,
-        "name": name or ARCHETYPE_DISPLAY[archetype]["en"],
-        "archetype": archetype,
-        "prompt_ref": prompt_ref,
-        "role_definition_id": role_definition_id,
-        "posture_notes": posture_notes,
+        "id": role_spec.role_id,
+        "name": role_spec.name or ARCHETYPE_DISPLAY[role_spec.archetype]["en"],
+        "archetype": role_spec.archetype,
+        "prompt_ref": role_spec.prompt_ref,
+        "role_definition_id": role_spec.role_definition_id,
+        "posture_notes": role_spec.posture_notes,
         **default_role_execution_settings(),
     }
 
 
+def _coerce_preset_role_spec(spec: PresetRoleSpec | None, raw_spec: Mapping[str, Any]) -> PresetRoleSpec:
+    if spec is not None and raw_spec:
+        raise TypeError("preset role spec cannot mix object and keyword fields")
+    return spec or PresetRoleSpec(**raw_spec)
+
+
 def _workflow_preset_definition(
-    *,
-    label_zh: str,
-    label_en: str,
-    description_zh: str,
-    description_en: str,
-    scenario_zh: str,
-    scenario_en: str,
-    choice_zh: str = "",
-    choice_en: str = "",
-    decision_zh: str = "",
-    decision_en: str = "",
-    visible: bool = True,
-    roles: list[dict[str, str]],
-    steps: list[dict[str, Any]],
+    spec: WorkflowPresetDefinitionSpec | None = None,
+    **raw_spec: Any,
 ) -> dict[str, Any]:
+    preset_spec = _coerce_workflow_preset_definition_spec(spec, raw_spec)
     return {
-        "label_zh": label_zh,
-        "label_en": label_en,
-        "description_zh": description_zh,
-        "description_en": description_en,
-        "scenario_zh": scenario_zh,
-        "scenario_en": scenario_en,
-        "choice_zh": choice_zh,
-        "choice_en": choice_en,
-        "decision_zh": decision_zh,
-        "decision_en": decision_en,
-        "visible": visible,
+        "label_zh": preset_spec.label_zh,
+        "label_en": preset_spec.label_en,
+        "description_zh": preset_spec.description_zh,
+        "description_en": preset_spec.description_en,
+        "scenario_zh": preset_spec.scenario_zh,
+        "scenario_en": preset_spec.scenario_en,
+        "choice_zh": preset_spec.choice_zh,
+        "choice_en": preset_spec.choice_en,
+        "decision_zh": preset_spec.decision_zh,
+        "decision_en": preset_spec.decision_en,
+        "visible": preset_spec.visible,
         "workflow": {
-            "collaboration_intent": decision_en,
-            "roles": roles,
-            "steps": steps,
+            "collaboration_intent": preset_spec.decision_en,
+            "roles": preset_spec.roles,
+            "steps": preset_spec.steps,
         },
     }
 
 
-def _preset_step(
-    *,
-    step_id: str,
-    role_id: str,
-    archetype: str,
-    on_pass: str | None = None,
-    model: str = "",
-    inherit_session: bool | None = None,
-    extra_cli_args: str = "",
-    parallel_group: str = "",
-    inputs: dict[str, Any] | None = None,
-    action_policy: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    defaults = default_step_execution_settings(archetype=archetype)
+def _coerce_workflow_preset_definition_spec(
+    spec: WorkflowPresetDefinitionSpec | None,
+    raw_spec: Mapping[str, Any],
+) -> WorkflowPresetDefinitionSpec:
+    if spec is not None and raw_spec:
+        raise TypeError("workflow preset spec cannot mix object and keyword fields")
+    return spec or WorkflowPresetDefinitionSpec(**raw_spec)
+
+
+def _preset_step(spec: PresetStepSpec | None = None, **raw_spec: Any) -> dict[str, Any]:
+    step_spec = _coerce_preset_step_spec(spec, raw_spec)
+    defaults = default_step_execution_settings(archetype=step_spec.archetype)
     normalized_on_pass = normalize_step_on_pass(
-        on_pass,
-        archetype=archetype,
+        step_spec.on_pass,
+        archetype=step_spec.archetype,
         default=defaults["on_pass"],
     )
     step = {
-        "id": step_id,
-        "role_id": role_id,
+        "id": step_spec.step_id,
+        "role_id": step_spec.role_id,
         "on_pass": normalized_on_pass,
-        "model": model,
+        "model": step_spec.model,
         "inherit_session": normalize_step_inherit_session(
-            inherit_session,
-            archetype=archetype,
+            step_spec.inherit_session,
+            archetype=step_spec.archetype,
         ),
-        "extra_cli_args": str(extra_cli_args or ""),
+        "extra_cli_args": str(step_spec.extra_cli_args or ""),
         "action_policy": normalize_step_action_policy(
-            action_policy,
-            archetype=archetype,
+            step_spec.action_policy,
+            archetype=step_spec.archetype,
             on_pass=normalized_on_pass,
         ),
     }
-    normalized_parallel_group = normalize_step_parallel_group(parallel_group)
+    normalized_parallel_group = normalize_step_parallel_group(step_spec.parallel_group)
     if normalized_parallel_group:
         step["parallel_group"] = normalized_parallel_group
-    normalized_inputs = normalize_step_inputs(inputs)
+    normalized_inputs = normalize_step_inputs(step_spec.inputs)
     if normalized_inputs:
         step["inputs"] = normalized_inputs
     return step
+
+
+def _coerce_preset_step_spec(spec: PresetStepSpec | None, raw_spec: Mapping[str, Any]) -> PresetStepSpec:
+    if spec is not None and raw_spec:
+        raise TypeError("preset step spec cannot mix object and keyword fields")
+    return spec or PresetStepSpec(**raw_spec)
 
 
 DEFAULT_WORKFLOW_PRESET = "build_then_parallel_review"
@@ -1289,32 +1378,56 @@ def validate_workflow_parallel_groups(steps: list[dict[str, Any]], role_by_id: d
     seen_closed_groups: set[str] = set()
     active_group = ""
     for step in steps:
-        group = str(step.get("parallel_group") or "").strip()
-        role = role_by_id.get(str(step.get("role_id") or ""))
-        archetype = str((role or {}).get("archetype") or "")
-        if not group:
-            if active_group:
-                seen_closed_groups.add(active_group)
-                active_group = ""
-            continue
-        if group in seen_closed_groups and group != active_group:
-            raise WorkflowError("workflow parallel_group steps must be contiguous")
-        if active_group and group != active_group:
-            seen_closed_groups.add(active_group)
-        active_group = group
-        action_policy = step.get("action_policy") if isinstance(step.get("action_policy"), Mapping) else {}
-        if str(action_policy.get("workspace") or "").strip() == "workspace_write":
-            raise WorkflowError("workflow parallel_group steps must be read-only")
-        if bool(action_policy.get("can_finish_run")):
-            raise WorkflowError("workflow parallel_group steps may not finish runs")
-        if archetype not in PARALLEL_GROUP_ARCHETYPES:
-            raise WorkflowError("workflow parallel_group currently supports inspector and custom steps only")
+        group = workflow_step_parallel_group(step)
+        active_group = validate_parallel_group_contiguity(
+            group,
+            active_group=active_group,
+            seen_closed_groups=seen_closed_groups,
+        )
+        if group:
+            validate_parallel_group_step(step, role_by_id=role_by_id)
     if active_group:
         seen_closed_groups.add(active_group)
+    validate_parallel_group_size(steps)
 
+
+def workflow_step_parallel_group(step: Mapping[str, Any]) -> str:
+    return str(step.get("parallel_group") or "").strip()
+
+
+def validate_parallel_group_contiguity(
+    group: str,
+    *,
+    active_group: str,
+    seen_closed_groups: set[str],
+) -> str:
+    if not group:
+        if active_group:
+            seen_closed_groups.add(active_group)
+        return ""
+    if group in seen_closed_groups and group != active_group:
+        raise WorkflowError("workflow parallel_group steps must be contiguous")
+    if active_group and group != active_group:
+        seen_closed_groups.add(active_group)
+    return group
+
+
+def validate_parallel_group_step(step: Mapping[str, Any], *, role_by_id: Mapping[str, Mapping[str, Any]]) -> None:
+    role = role_by_id.get(str(step.get("role_id") or ""))
+    archetype = str((role or {}).get("archetype") or "")
+    action_policy = step.get("action_policy") if isinstance(step.get("action_policy"), Mapping) else {}
+    if str(action_policy.get("workspace") or "").strip() == "workspace_write":
+        raise WorkflowError("workflow parallel_group steps must be read-only")
+    if bool(action_policy.get("can_finish_run")):
+        raise WorkflowError("workflow parallel_group steps may not finish runs")
+    if archetype not in PARALLEL_GROUP_ARCHETYPES:
+        raise WorkflowError("workflow parallel_group currently supports inspector and custom steps only")
+
+
+def validate_parallel_group_size(steps: list[dict[str, Any]]) -> None:
     counts: dict[str, int] = {}
     for step in steps:
-        group = str(step.get("parallel_group") or "").strip()
+        group = workflow_step_parallel_group(step)
         if group:
             counts[group] = counts.get(group, 0) + 1
     singletons = [group for group, count in counts.items() if count < 2]
@@ -1324,111 +1437,16 @@ def validate_workflow_parallel_groups(steps: list[dict[str, Any]], role_by_id: d
 
 def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str, str] | None = None) -> dict:
     if workflow is None:
-        normalized = build_preset_workflow(DEFAULT_WORKFLOW_PRESET, role_models=role_models)
-        normalized["warnings"] = workflow_warnings(normalized)
-        return normalized
+        return normalize_preset_workflow(DEFAULT_WORKFLOW_PRESET, role_models=role_models)
 
     raw = dict(workflow)
-    if raw.get("preset") and not raw.get("roles") and not raw.get("steps"):
-        normalized = build_preset_workflow(str(raw.get("preset")), role_models=role_models)
-        normalized["warnings"] = workflow_warnings(normalized)
-        return normalized
+    if workflow_requests_preset(raw):
+        return normalize_preset_workflow(str(raw.get("preset")), role_models=role_models)
 
-    normalized_role_models = normalize_role_models(role_models)
-    raw_roles = raw.get("roles")
-    raw_steps = raw.get("steps")
-    if not isinstance(raw_roles, list) or not raw_roles:
-        raise WorkflowError("workflow requires at least one role")
-    if not isinstance(raw_steps, list) or not raw_steps:
-        raise WorkflowError("workflow requires at least one step")
-
-    roles: list[dict[str, Any]] = []
-    role_ids: set[str] = set()
-    for index, raw_role in enumerate(raw_roles, start=1):
-        if not isinstance(raw_role, dict):
-            raise WorkflowError("workflow roles must be objects")
-        role_id = normalize_workflow_identifier(
-            raw_role.get("id") or f"role_{index:03d}",
-            field_name="workflow role id",
-        )
-        if role_id in role_ids:
-            raise WorkflowError(f"duplicate workflow role id: {role_id}")
-        archetype = normalize_archetype(str(raw_role.get("archetype", "")))
-        prompt_ref = normalize_prompt_ref(raw_role.get("prompt_ref") or PROMPT_FILES[archetype])
-        raw_name = str(raw_role.get("name", "")).strip()
-        name = normalize_role_display_name(raw_name, archetype) or display_name_for_archetype(archetype, locale="en")
-        model = str(raw_role.get("model", "")).strip()
-        role_definition_id = str(raw_role.get("role_definition_id", "")).strip()
-        override_model = normalized_role_models.get(role_id, normalized_role_models.get(archetype, ""))
-        if override_model:
-            model = override_model
-        role_ids.add(role_id)
-        role_entry = {
-            "id": role_id,
-            "name": name,
-            "archetype": archetype,
-            "prompt_ref": prompt_ref,
-            "model": model,
-            "role_definition_id": role_definition_id,
-            "posture_notes": str(raw_role.get("posture_notes", "") or "").strip(),
-        }
-        if role_uses_execution_snapshot(raw_role):
-            execution_settings = normalize_role_execution_settings(raw_role)
-            role_entry.update(execution_settings)
-            if model:
-                role_entry["model"] = model
-        roles.append(role_entry)
-
-    steps: list[dict[str, Any]] = []
-    step_ids: set[str] = set()
-    for index, raw_step in enumerate(raw_steps, start=1):
-        if not isinstance(raw_step, dict):
-            raise WorkflowError("workflow steps must be objects")
-        role_id = normalize_workflow_identifier(raw_step.get("role_id"), field_name="workflow step role_id")
-        if role_id not in role_ids:
-            raise WorkflowError(f"workflow step references unknown role_id: {role_id}")
-        step_id = normalize_workflow_identifier(
-            raw_step.get("id") or f"step_{index:03d}",
-            field_name="workflow step id",
-        )
-        if step_id in step_ids:
-            raise WorkflowError(f"duplicate workflow step id: {step_id}")
-        role = next(item for item in roles if item["id"] == role_id)
-        on_pass = normalize_step_on_pass(
-            raw_step.get("on_pass"),
-            archetype=role["archetype"],
-            default="continue",
-        )
-        model = str(raw_step.get("model", "")).strip()
-        inherit_session = normalize_step_inherit_session(
-            raw_step.get("inherit_session"),
-            archetype=role["archetype"],
-        )
-        extra_cli_args = str(raw_step.get("extra_cli_args", "") or "").strip()
-        validate_extra_cli_args_text(extra_cli_args)
-        step_entry = {
-            "id": step_id,
-            "role_id": role_id,
-            "on_pass": on_pass,
-            "model": model,
-            "inherit_session": inherit_session,
-            "extra_cli_args": extra_cli_args,
-            "action_policy": normalize_step_action_policy(
-                raw_step.get("action_policy"),
-                archetype=role["archetype"],
-                on_pass=on_pass,
-            ),
-        }
-        parallel_group = normalize_step_parallel_group(raw_step.get("parallel_group"))
-        if parallel_group:
-            step_entry["parallel_group"] = parallel_group
-        inputs = normalize_step_inputs(raw_step.get("inputs"))
-        if inputs:
-            step_entry["inputs"] = inputs
-        steps.append(step_entry)
-        step_ids.add(step_id)
+    raw_roles, raw_steps = require_workflow_entries(raw)
+    roles = normalize_workflow_roles(raw_roles, role_models=normalize_role_models(role_models))
     role_by_id = {role["id"]: role for role in roles}
-    validate_workflow_parallel_groups(steps, role_by_id)
+    steps = normalize_workflow_steps(raw_steps, role_by_id=role_by_id)
     controls = normalize_workflow_controls(raw.get("controls"), role_by_id=role_by_id)
 
     normalized = {
@@ -1442,6 +1460,145 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
         normalized["controls"] = controls
     normalized["warnings"] = workflow_warnings(normalized)
     return normalized
+
+
+def normalize_preset_workflow(preset: str, *, role_models: dict[str, str] | None = None) -> dict:
+    normalized = build_preset_workflow(preset, role_models=role_models)
+    normalized["warnings"] = workflow_warnings(normalized)
+    return normalized
+
+
+def workflow_requests_preset(raw: Mapping[str, Any]) -> bool:
+    return bool(raw.get("preset") and not raw.get("roles") and not raw.get("steps"))
+
+
+def require_workflow_entries(raw: Mapping[str, Any]) -> tuple[list[Any], list[Any]]:
+    raw_roles = raw.get("roles")
+    raw_steps = raw.get("steps")
+    if not isinstance(raw_roles, list) or not raw_roles:
+        raise WorkflowError("workflow requires at least one role")
+    if not isinstance(raw_steps, list) or not raw_steps:
+        raise WorkflowError("workflow requires at least one step")
+    return raw_roles, raw_steps
+
+
+def normalize_workflow_roles(
+    raw_roles: list[Any],
+    *,
+    role_models: Mapping[str, str],
+) -> list[dict[str, Any]]:
+    roles: list[dict[str, Any]] = []
+    role_ids: set[str] = set()
+    for index, raw_role in enumerate(raw_roles, start=1):
+        roles.append(normalize_workflow_role(raw_role, index=index, role_ids=role_ids, role_models=role_models))
+    return roles
+
+
+def normalize_workflow_role(
+    raw_role: Any,
+    *,
+    index: int,
+    role_ids: set[str],
+    role_models: Mapping[str, str],
+) -> dict[str, Any]:
+    if not isinstance(raw_role, dict):
+        raise WorkflowError("workflow roles must be objects")
+    role_id = normalize_workflow_identifier(
+        raw_role.get("id") or f"role_{index:03d}",
+        field_name="workflow role id",
+    )
+    if role_id in role_ids:
+        raise WorkflowError(f"duplicate workflow role id: {role_id}")
+    archetype = normalize_archetype(str(raw_role.get("archetype", "")))
+    prompt_ref = normalize_prompt_ref(raw_role.get("prompt_ref") or PROMPT_FILES[archetype])
+    raw_name = str(raw_role.get("name", "")).strip()
+    name = normalize_role_display_name(raw_name, archetype) or display_name_for_archetype(archetype, locale="en")
+    model = str(raw_role.get("model", "")).strip()
+    role_definition_id = str(raw_role.get("role_definition_id", "")).strip()
+    override_model = role_models.get(role_id, role_models.get(archetype, ""))
+    if override_model:
+        model = override_model
+    role_ids.add(role_id)
+    role_entry = {
+        "id": role_id,
+        "name": name,
+        "archetype": archetype,
+        "prompt_ref": prompt_ref,
+        "model": model,
+        "role_definition_id": role_definition_id,
+        "posture_notes": str(raw_role.get("posture_notes", "") or "").strip(),
+    }
+    if role_uses_execution_snapshot(raw_role):
+        execution_settings = normalize_role_execution_settings(raw_role)
+        role_entry.update(execution_settings)
+        if model:
+            role_entry["model"] = model
+    return role_entry
+
+
+def normalize_workflow_steps(
+    raw_steps: list[Any],
+    *,
+    role_by_id: Mapping[str, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    steps: list[dict[str, Any]] = []
+    step_ids: set[str] = set()
+    for index, raw_step in enumerate(raw_steps, start=1):
+        steps.append(normalize_workflow_step(raw_step, index=index, role_by_id=role_by_id, step_ids=step_ids))
+    validate_workflow_parallel_groups(steps, role_by_id)
+    return steps
+
+
+def normalize_workflow_step(
+    raw_step: Any,
+    *,
+    index: int,
+    role_by_id: Mapping[str, Mapping[str, Any]],
+    step_ids: set[str],
+) -> dict[str, Any]:
+    if not isinstance(raw_step, dict):
+        raise WorkflowError("workflow steps must be objects")
+    role_id = normalize_workflow_identifier(raw_step.get("role_id"), field_name="workflow step role_id")
+    role = role_by_id.get(role_id)
+    if role is None:
+        raise WorkflowError(f"workflow step references unknown role_id: {role_id}")
+    step_id = normalize_workflow_identifier(
+        raw_step.get("id") or f"step_{index:03d}",
+        field_name="workflow step id",
+    )
+    if step_id in step_ids:
+        raise WorkflowError(f"duplicate workflow step id: {step_id}")
+    on_pass = normalize_step_on_pass(
+        raw_step.get("on_pass"),
+        archetype=role["archetype"],
+        default="continue",
+    )
+    extra_cli_args = str(raw_step.get("extra_cli_args", "") or "").strip()
+    validate_extra_cli_args_text(extra_cli_args)
+    step_entry = {
+        "id": step_id,
+        "role_id": role_id,
+        "on_pass": on_pass,
+        "model": str(raw_step.get("model", "")).strip(),
+        "inherit_session": normalize_step_inherit_session(
+            raw_step.get("inherit_session"),
+            archetype=role["archetype"],
+        ),
+        "extra_cli_args": extra_cli_args,
+        "action_policy": normalize_step_action_policy(
+            raw_step.get("action_policy"),
+            archetype=role["archetype"],
+            on_pass=on_pass,
+        ),
+    }
+    parallel_group = normalize_step_parallel_group(raw_step.get("parallel_group"))
+    if parallel_group:
+        step_entry["parallel_group"] = parallel_group
+    inputs = normalize_step_inputs(raw_step.get("inputs"))
+    if inputs:
+        step_entry["inputs"] = inputs
+    step_ids.add(step_id)
+    return step_entry
 
 
 def resolve_prompt_files(

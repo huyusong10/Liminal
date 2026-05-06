@@ -9,6 +9,15 @@ from loopora.service import LooporaError
 
 
 def register_bundle_commands(bundles_app: typer.Typer) -> None:
+    _register_bundle_list_command(bundles_app)
+    _register_bundle_get_command(bundles_app)
+    _register_bundle_import_command(bundles_app)
+    _register_bundle_export_command(bundles_app)
+    _register_bundle_derive_command(bundles_app)
+    _register_bundle_delete_command(bundles_app)
+
+
+def _register_bundle_list_command(bundles_app: typer.Typer) -> None:
     @bundles_app.command("list")
     def list_bundles() -> None:
         """List imported YAML bundles."""
@@ -22,6 +31,8 @@ def register_bundle_commands(bundles_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_bundle_get_command(bundles_app: typer.Typer) -> None:
     @bundles_app.command("get")
     def get_bundle(bundle_id: str = typer.Argument(..., help="Imported bundle id.")) -> None:
         """Show one imported bundle as JSON."""
@@ -30,6 +41,8 @@ def register_bundle_commands(bundles_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_bundle_import_command(bundles_app: typer.Typer) -> None:
     @bundles_app.command("import")
     def import_bundle(
         bundle_file: BundleFileOption,
@@ -46,6 +59,8 @@ def register_bundle_commands(bundles_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_bundle_export_command(bundles_app: typer.Typer) -> None:
     @bundles_app.command("export")
     def export_bundle(
         bundle_id: str = typer.Argument(..., help="Imported bundle id."),
@@ -62,6 +77,8 @@ def register_bundle_commands(bundles_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_bundle_derive_command(bundles_app: typer.Typer) -> None:
     @bundles_app.command("derive")
     def derive_bundle(
         loop_id: str = typer.Argument(..., help="Loop definition id to export as a YAML bundle."),
@@ -93,6 +110,8 @@ def register_bundle_commands(bundles_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_bundle_delete_command(bundles_app: typer.Typer) -> None:
     @bundles_app.command("delete")
     def delete_bundle(bundle_id: str = typer.Argument(..., help="Imported bundle id.")) -> None:
         """Delete one imported bundle and its imported asset group."""

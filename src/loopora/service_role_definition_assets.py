@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 
+from loopora.asset_catalog import RoleDefinitionPayloadInput
 from loopora.diagnostics import log_event
-from loopora.service_asset_common import logger
+from loopora.service_asset_common import logger, record_bundle_asset_update_rollback_failure
 from loopora.service_types import LooporaConflictError, LooporaError
 
 
@@ -16,34 +17,13 @@ class ServiceRoleDefinitionAssetMixin:
 
     def create_role_definition(
         self,
-        *,
-        name: str,
-        description: str = "",
-        archetype: str,
-        prompt_markdown: str,
-        posture_notes: str = "",
-        prompt_ref: str = "",
-        executor_kind: str = "codex",
-        executor_mode: str = "preset",
-        command_cli: str = "",
-        command_args_text: str = "",
-        model: str = "",
-        reasoning_effort: str = "",
+        request: RoleDefinitionPayloadInput | None = None,
+        **raw_payload: object,
     ) -> dict:
         role_definition = self._asset_call(
             self.asset_catalog.create_role_definition,
-            name=name,
-            description=description,
-            archetype=archetype,
-            prompt_ref=prompt_ref,
-            prompt_markdown=prompt_markdown,
-            posture_notes=posture_notes,
-            executor_kind=executor_kind,
-            executor_mode=executor_mode,
-            command_cli=command_cli,
-            command_args_text=command_args_text,
-            model=model,
-            reasoning_effort=reasoning_effort,
+            request,
+            **raw_payload,
         )
         log_event(
             logger,
@@ -60,19 +40,8 @@ class ServiceRoleDefinitionAssetMixin:
     def update_role_definition(
         self,
         role_definition_id: str,
-        *,
-        name: str,
-        description: str = "",
-        archetype: str,
-        prompt_markdown: str,
-        posture_notes: str = "",
-        prompt_ref: str = "",
-        executor_kind: str = "codex",
-        executor_mode: str = "preset",
-        command_cli: str = "",
-        command_args_text: str = "",
-        model: str = "",
-        reasoning_effort: str = "",
+        request: RoleDefinitionPayloadInput | None = None,
+        **raw_payload: object,
     ) -> dict:
         bundle = None
         previous_role_definition = None
@@ -83,18 +52,8 @@ class ServiceRoleDefinitionAssetMixin:
         role_definition = self._asset_call(
             self.asset_catalog.update_role_definition,
             role_definition_id,
-            name=name,
-            description=description,
-            archetype=archetype,
-            prompt_ref=prompt_ref,
-            prompt_markdown=prompt_markdown,
-            posture_notes=posture_notes,
-            executor_kind=executor_kind,
-            executor_mode=executor_mode,
-            command_cli=command_cli,
-            command_args_text=command_args_text,
-            model=model,
-            reasoning_effort=reasoning_effort,
+            request,
+            **raw_payload,
         )
         if bundle and hasattr(self, "_touch_bundle_for_role_definition"):
             try:
@@ -121,8 +80,8 @@ class ServiceRoleDefinitionAssetMixin:
                     if hasattr(self, "_sync_bundle_loop_snapshot"):
                         try:
                             self._sync_bundle_loop_snapshot(bundle["id"])
-                        except LooporaError:
-                            pass
+                        except Exception as rollback_exc:
+                            record_bundle_asset_update_rollback_failure(self, bundle, rollback_exc)
                 raise
         log_event(
             logger,

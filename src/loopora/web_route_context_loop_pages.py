@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from urllib.parse import urlencode
 
 from fastapi import Request
@@ -29,33 +30,62 @@ from loopora.workflows import (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class NewLoopPageState:
+    page_mode: str = "choice"
+    values: Mapping[str, object] | None = None
+    form_error: str | None = None
+    import_values: Mapping[str, object] | None = None
+    import_error: str | None = None
+
+
+def _new_loop_page_state_from_args(
+    state: NewLoopPageState | None,
+    raw_state: dict[str, object],
+) -> NewLoopPageState:
+    if state is not None:
+        if raw_state:
+            raise TypeError("new loop page state object cannot be combined with keyword fields")
+        return state
+
+    fields = dict(raw_state)
+    page_state = NewLoopPageState(
+        page_mode=fields.pop("page_mode", "choice"),
+        values=fields.pop("values", None),
+        form_error=fields.pop("form_error", None),
+        import_values=fields.pop("import_values", None),
+        import_error=fields.pop("import_error", None),
+    )
+    if fields:
+        unexpected_fields = ", ".join(sorted(fields))
+        raise TypeError(f"unexpected new loop page state fields: {unexpected_fields}")
+    return page_state
+
+
 class WebRouteLoopPagesMixin:
     def render_new_loop(
         self,
         request: Request,
-        *,
-        page_mode: str = "choice",
-        values: Mapping[str, object] | None = None,
-        form_error: str | None = None,
-        import_values: Mapping[str, object] | None = None,
-        import_error: str | None = None,
+        state: NewLoopPageState | None = None,
+        **raw_state: object,
     ) -> HTMLResponse:
-        form_values = _normalize_loop_form(values)
+        state = _new_loop_page_state_from_args(state, raw_state)
+        form_values = _normalize_loop_form(state.values)
         return self.templates.TemplateResponse(
             request,
             "new_loop.html",
             {
                 "request": request,
-                "create_page_mode": page_mode,
+                "create_page_mode": state.page_mode,
                 "form_values": form_values,
                 "pristine_loop_form": _normalize_loop_form(None),
-                "form_error": form_error,
-                "import_values": _normalize_bundle_import_form(import_values),
-                "import_error": import_error,
+                "form_error": state.form_error,
+                "import_values": _normalize_bundle_import_form(state.import_values),
+                "import_error": state.import_error,
                 "executor_profiles": list_executor_profiles(),
                 "orchestrations": self.svc().list_orchestrations(),
                 "recent_workdirs": load_recent_workdirs(),
-                "allow_draft_restore": form_error is None and _loop_form_is_pristine(form_values),
+                "allow_draft_restore": state.form_error is None and _loop_form_is_pristine(form_values),
                 "access_state": self.access_state,
             },
         )

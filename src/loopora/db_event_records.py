@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
 
@@ -10,6 +11,16 @@ from loopora.diagnostics import log_exception
 from loopora.event_redaction import redact_run_event_payload
 from loopora.run_artifacts import RunArtifactLayout
 from loopora.utils import utc_now
+
+
+@dataclass(frozen=True)
+class RunObservationSnapshotRowsRequest:
+    run_id: str
+    timeline_event_types: Iterable[str]
+    progress_event_types: Iterable[str]
+    timeline_limit: int = 40
+    console_limit: int = 160
+    progress_limit: int = 2000
 
 
 class RepositoryEventRecordsMixin:
@@ -234,18 +245,12 @@ class RepositoryEventRecordsMixin:
 
     def run_observation_snapshot_rows(
         self,
-        run_id: str,
-        *,
-        timeline_event_types: Iterable[str],
-        progress_event_types: Iterable[str],
-        timeline_limit: int = 40,
-        console_limit: int = 160,
-        progress_limit: int = 2000,
+        request: RunObservationSnapshotRowsRequest,
     ) -> dict | None:
         with self._connect() as connection:
             connection.execute("BEGIN")
             try:
-                run_row = connection.execute("SELECT * FROM loop_runs WHERE id = ?", (run_id,)).fetchone()
+                run_row = connection.execute("SELECT * FROM loop_runs WHERE id = ?", (request.run_id,)).fetchone()
                 if run_row is None:
                     connection.rollback()
                     return None
@@ -256,32 +261,32 @@ class RepositoryEventRecordsMixin:
                     ORDER BY id DESC
                     LIMIT 1
                     """,
-                    (run_id,),
+                    (request.run_id,),
                 ).fetchone()
                 latest_event_id = int(latest_row["id"]) if latest_row else 0
                 timeline_rows = self._recent_event_rows_for_connection(
                     connection,
-                    run_id,
-                    event_types=timeline_event_types,
+                    request.run_id,
+                    event_types=request.timeline_event_types,
                     max_event_id=latest_event_id,
-                    limit=timeline_limit,
+                    limit=request.timeline_limit,
                 )
                 console_rows = self._recent_event_rows_for_connection(
                     connection,
-                    run_id,
+                    request.run_id,
                     max_event_id=latest_event_id,
-                    limit=console_limit,
+                    limit=request.console_limit,
                 )
                 progress_rows = self._recent_event_rows_for_connection(
                     connection,
-                    run_id,
-                    event_types=progress_event_types,
+                    request.run_id,
+                    event_types=request.progress_event_types,
                     max_event_id=latest_event_id,
-                    limit=progress_limit,
+                    limit=request.progress_limit,
                 )
                 key_takeaway_projection = self._latest_takeaway_projection_for_connection(
                     connection,
-                    run_id,
+                    request.run_id,
                     max_source_event_id=latest_event_id,
                 )
                 loop_row = connection.execute(

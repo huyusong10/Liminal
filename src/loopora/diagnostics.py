@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -110,18 +110,20 @@ def _build_log_extra(*, event: str, context: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_value(value: Any) -> Any:
     if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, PathLike):
-        return str(Path(value))
-    if isinstance(value, dict):
-        return {str(key): _normalize_value(item) for key, item in value.items() if item is not None}
-    if isinstance(value, (list, tuple, set)):
-        return [_normalize_value(item) for item in value]
-    if isinstance(value, str):
-        return value if len(value) <= _MAX_STRING_LENGTH else value[: _MAX_STRING_LENGTH - 1] + "…"
-    if isinstance(value, (int, float, bool)) or value is None:
-        return value
-    return str(value)
+        normalized = str(value)
+    elif isinstance(value, PathLike):
+        normalized = str(Path(value))
+    elif isinstance(value, dict):
+        normalized = {str(key): _normalize_value(item) for key, item in value.items() if item is not None}
+    elif isinstance(value, (list, tuple, set)):
+        normalized = [_normalize_value(item) for item in value]
+    elif isinstance(value, str):
+        normalized = value if len(value) <= _MAX_STRING_LENGTH else value[: _MAX_STRING_LENGTH - 1] + "…"
+    elif isinstance(value, (int, float, bool)) or value is None:
+        normalized = value
+    else:
+        normalized = str(value)
+    return normalized
 
 
 def _component_name(logger_name: str) -> str:
@@ -133,7 +135,7 @@ def _component_name(logger_name: str) -> str:
 
 def _iso_timestamp(timestamp: float) -> str:
     return (
-        datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        datetime.fromtimestamp(timestamp, tz=UTC)
         .isoformat(timespec="milliseconds")
         .replace("+00:00", "Z")
     )

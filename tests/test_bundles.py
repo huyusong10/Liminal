@@ -578,6 +578,31 @@ def test_bundle_failed_import_cleanup_diagnostic_failure_preserves_original_erro
         service.create_role_definition = original_create_role_definition
 
 
+def test_bundle_import_rollback_diagnostics_preserve_original_error_for_unexpected_cleanup_failure(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    service = service_factory(scenario="success")
+    configure_logging()
+
+    def fail_after_graph_creation(*args, **kwargs):
+        raise LooporaError("forced import failure after graph creation")
+
+    def fail_delete_loop(*args, **kwargs):
+        raise RuntimeError("rollback loop deletion failed")
+
+    monkeypatch.setattr(service, "derive_bundle_from_loop", fail_after_graph_creation)
+    monkeypatch.setattr(service, "delete_loop", fail_delete_loop)
+
+    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"):
+        with pytest.raises(LooporaError, match="forced import failure after graph creation"):
+            service.import_bundle_text(_bundle_yaml(sample_workdir))
+
+    assert _has_cleanup_record(caplog, operation="bundle_import_rollback", resource_type="loop")
+
+
 def test_bundle_delete_keeps_managed_dir_and_records_when_graph_delete_fails(
     service_factory,
     sample_workdir: Path,
@@ -627,6 +652,76 @@ def test_bundle_delete_refuses_unowned_linked_assets(
     assert bundle_dir.exists()
     assert service.repository.get_bundle(imported["id"]) is not None
     assert service.repository.get_loop(imported["loop_id"]) is not None
+
+
+def test_bundle_delete_refuses_active_linked_runs(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
+    bundle_dir = service._bundle_dir(imported["id"])
+    run = service.start_run(imported["loop_id"])
+
+    with pytest.raises(LooporaConflictError, match="active loop runs"):
+        service.delete_bundle(imported["id"])
+
+    assert bundle_dir.exists()
+    assert service.repository.get_bundle(imported["id"]) is not None
+    assert service.repository.get_run(run["id"])["status"] == "queued"
+
+
+def test_bundle_delete_refuses_orchestration_referenced_by_external_loop(
+    service_factory,
+    sample_workdir: Path,
+    sample_spec_file: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
+    external_workdir = sample_workdir.parent / "external-loop-workdir"
+    external_workdir.mkdir()
+    external_loop = service.create_loop(
+        name="External Loop",
+        spec_path=sample_spec_file,
+        workdir=external_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        orchestration_id=imported["orchestration_id"],
+    )
+
+    with pytest.raises(LooporaConflictError, match="referenced by loops"):
+        service.delete_bundle(imported["id"])
+
+    assert service.repository.get_bundle(imported["id"]) is not None
+    assert service.repository.get_loop(external_loop["id"]) is not None
+
+
+def test_bundle_delete_refuses_role_definitions_referenced_by_external_orchestration(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
+    role_definition_id = imported["role_definition_ids"][0]
+    external_orchestration = service.create_orchestration(
+        name="External Role Consumer",
+        workflow={
+            "preset": "custom",
+            "roles": [{"id": "external_builder", "role_definition_id": role_definition_id}],
+            "steps": [{"id": "external_step", "role_id": "external_builder"}],
+        },
+    )
+
+    with pytest.raises(LooporaConflictError, match="shared role definitions"):
+        service.delete_bundle(imported["id"])
+
+    assert service.repository.get_bundle(imported["id"]) is not None
+    assert service.repository.get_orchestration(external_orchestration["id"]) is not None
 
 
 def test_bundle_replace_updates_plan_without_advancing_revision(service_factory, sample_workdir: Path) -> None:
@@ -965,6 +1060,102 @@ def test_invalid_bundle_orchestration_edit_rolls_back_asset_and_bundle(
     assert preserved_bundle["revision"] == imported["revision"]
     assert preserved_orchestration["workflow_json"]["steps"][-1]["on_pass"] == "finish_run"
     assert preserved_loop["workflow_json"]["steps"][-1]["on_pass"] == "finish_run"
+
+
+def test_bundle_orchestration_update_rollback_snapshot_failure_logs_and_preserves_original_error(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    service = service_factory(scenario="success")
+    configure_logging()
+    imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
+    orchestration = imported["orchestration"]
+    workflow = dict(orchestration["workflow_json"])
+    workflow["collaboration_intent"] = "This edit should roll back after bundle touch fails."
+
+    def fail_touch_bundle(orchestration_id: str):
+        assert orchestration_id == orchestration["id"]
+        raise LooporaError("forced orchestration bundle touch failure")
+
+    def fail_snapshot_sync(bundle_id: str):
+        assert bundle_id == imported["id"]
+        raise RuntimeError("rollback snapshot sync failed")
+
+    monkeypatch.setattr(service, "_touch_bundle_for_orchestration", fail_touch_bundle)
+    monkeypatch.setattr(service, "_sync_bundle_loop_snapshot", fail_snapshot_sync)
+
+    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"):
+        with pytest.raises(LooporaError, match="forced orchestration bundle touch failure"):
+            service.update_orchestration(
+                orchestration["id"],
+                name=orchestration["name"],
+                description=orchestration["description"],
+                workflow=workflow,
+                prompt_files=orchestration["prompt_files_json"],
+                role_models=orchestration.get("role_models_json"),
+            )
+
+    preserved_orchestration = service.get_orchestration(orchestration["id"])
+    assert preserved_orchestration["workflow_json"]["collaboration_intent"] == orchestration["workflow_json"]["collaboration_intent"]
+    assert _has_cleanup_record(
+        caplog,
+        operation="bundle_asset_update_rollback",
+        resource_type="loop",
+        owner_id=imported["id"],
+    )
+
+
+def test_bundle_role_update_rollback_snapshot_failure_logs_and_preserves_original_error(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    service = service_factory(scenario="success")
+    configure_logging()
+    imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
+    role_definition = next(role for role in imported["role_definitions"] if role["archetype"] == "builder")
+
+    def fail_touch_bundle(role_definition_id: str):
+        assert role_definition_id == role_definition["id"]
+        raise LooporaError("forced role bundle touch failure")
+
+    def fail_snapshot_sync(bundle_id: str):
+        assert bundle_id == imported["id"]
+        raise RuntimeError("rollback snapshot sync failed")
+
+    monkeypatch.setattr(service, "_touch_bundle_for_role_definition", fail_touch_bundle)
+    monkeypatch.setattr(service, "_sync_bundle_loop_snapshot", fail_snapshot_sync)
+
+    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"):
+        with pytest.raises(LooporaError, match="forced role bundle touch failure"):
+            service.update_role_definition(
+                role_definition["id"],
+                name=role_definition["name"],
+                description=role_definition["description"],
+                archetype=role_definition["archetype"],
+                prompt_ref=role_definition["prompt_ref"],
+                prompt_markdown=role_definition["prompt_markdown"] + "\nThis edit should roll back.\n",
+                posture_notes="This posture should roll back.",
+                executor_kind=role_definition["executor_kind"],
+                executor_mode=role_definition["executor_mode"],
+                command_cli=role_definition["command_cli"],
+                command_args_text=role_definition["command_args_text"],
+                model=role_definition["model"],
+                reasoning_effort=role_definition["reasoning_effort"],
+            )
+
+    preserved_role = service.get_role_definition(role_definition["id"])
+    assert preserved_role["prompt_markdown"] == role_definition["prompt_markdown"]
+    assert preserved_role["posture_notes"] == role_definition["posture_notes"]
+    assert _has_cleanup_record(
+        caplog,
+        operation="bundle_asset_update_rollback",
+        resource_type="loop",
+        owner_id=imported["id"],
+    )
 
 
 def test_derive_bundle_uses_saved_loop_spec_snapshot(

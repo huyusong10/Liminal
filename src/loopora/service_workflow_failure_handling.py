@@ -1,39 +1,47 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 from pathlib import Path
 
 from loopora.diagnostics import get_logger, log_event, log_exception
+from loopora.service_run_finalization import TerminalRunFinalizationRequest
 from loopora.service_types import RoleExecutionError, WorkspaceSafetyError
 
 logger = get_logger(__name__)
 
 
+@dataclass(frozen=True)
+class WorkflowExhaustionRequest:
+    run_id: str
+    run: dict
+    run_dir: Path
+    completion_mode: str
+    last_iter_id: int
+    summary: str
+
+
 class ServiceWorkflowFailureHandlingMixin:
     def _handle_workflow_exhaustion(
         self,
-        run_id: str,
-        run: dict,
-        run_dir: Path,
-        *,
-        completion_mode: str,
-        last_iter_id: int,
-        summary: str,
+        request: WorkflowExhaustionRequest,
     ) -> dict:
-        final_status = "succeeded" if completion_mode == "rounds" else "failed"
-        final_reason = "rounds_completed" if completion_mode == "rounds" else "max_iters_exhausted"
+        final_status = "succeeded" if request.completion_mode == "rounds" else "failed"
+        final_reason = "rounds_completed" if request.completion_mode == "rounds" else "max_iters_exhausted"
         finished = self._finalize_terminal_run(
-            run_id,
-            run_dir,
-            status=final_status,
-            summary=summary,
-            final_reason=final_reason,
-            hydrate=True,
+            TerminalRunFinalizationRequest(
+                run_id=request.run_id,
+                run_dir=request.run_dir,
+                status=final_status,
+                summary=request.summary,
+                final_reason=final_reason,
+                hydrate=True,
+            )
         )
         self.append_run_event(
-            run_id,
+            request.run_id,
             "run_finished",
-            {"status": final_status, "reason": final_reason, "iter": last_iter_id},
+            {"status": final_status, "reason": final_reason, "iter": request.last_iter_id},
         )
         log_event(
             logger,
@@ -41,9 +49,9 @@ class ServiceWorkflowFailureHandlingMixin:
             "service.run.execution.finished",
             "Workflow run reached its final state",
             **self._run_log_context(
-                run,
+                request.run,
                 status=final_status,
-                iter=last_iter_id,
+                iter=request.last_iter_id,
                 reason=final_reason,
             ),
         )
@@ -52,12 +60,14 @@ class ServiceWorkflowFailureHandlingMixin:
     def _handle_workflow_stop(self, run_id: str, run: dict, run_dir: Path) -> dict:
         summary = "# Loopora Run Summary\n\nStopped by user.\n"
         stopped = self._finalize_terminal_run(
-            run_id,
-            run_dir,
-            status="stopped",
-            summary=summary,
-            final_reason="stopped",
-            hydrate=True,
+            TerminalRunFinalizationRequest(
+                run_id=run_id,
+                run_dir=run_dir,
+                status="stopped",
+                summary=summary,
+                final_reason="stopped",
+                hydrate=True,
+            )
         )
         self.append_run_event(run_id, "run_finished", {"status": "stopped"})
         log_event(
@@ -104,14 +114,16 @@ class ServiceWorkflowFailureHandlingMixin:
             f"Reason: `{error_text}`.\n"
         )
         failed = self._finalize_terminal_run(
-            run_id,
-            run_dir,
-            status="failed",
-            summary=summary,
-            error_message=error_text,
-            last_verdict=verdict,
-            final_reason="role_execution_abort",
-            hydrate=True,
+            TerminalRunFinalizationRequest(
+                run_id=run_id,
+                run_dir=run_dir,
+                status="failed",
+                summary=summary,
+                error_message=error_text,
+                last_verdict=verdict,
+                final_reason="role_execution_abort",
+                hydrate=True,
+            )
         )
         self._append_run_aborted_event(
             run_id,
@@ -173,14 +185,16 @@ class ServiceWorkflowFailureHandlingMixin:
             f"- Sample deleted paths: `{deleted_preview}`\n"
         )
         failed = self._finalize_terminal_run(
-            run_id,
-            run_dir,
-            status="failed",
-            summary=summary,
-            error_message=error_text,
-            last_verdict=verdict,
-            final_reason="workspace_safety_guard",
-            hydrate=True,
+            TerminalRunFinalizationRequest(
+                run_id=run_id,
+                run_dir=run_dir,
+                status="failed",
+                summary=summary,
+                error_message=error_text,
+                last_verdict=verdict,
+                final_reason="workspace_safety_guard",
+                hydrate=True,
+            )
         )
         self._append_run_aborted_event(
             run_id,

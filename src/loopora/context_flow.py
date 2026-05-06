@@ -1,11 +1,70 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from loopora.specs import resolve_role_note
 
 from loopora.run_artifacts import RunArtifactLayout, artifact_ref
 from loopora.utils import utc_now
+
+
+@dataclass(frozen=True)
+class RunContractSnapshotRequest:
+    run: dict
+    compiled_spec: dict
+    workflow: dict
+    prompt_files: dict[str, str]
+    workspace_baseline: dict
+    layout: RunArtifactLayout
+
+
+@dataclass(frozen=True)
+class StepContextPacketRequest:
+    run_contract: dict
+    layout: RunArtifactLayout
+    iter_id: int
+    step: dict
+    step_order: int
+    role: dict
+    execution_settings: dict[str, str]
+    immediate_previous_step: dict | None
+    completed_steps_this_iteration: list[dict]
+    previous_iteration_same_step: dict | None
+    previous_iteration_same_role: dict | None
+    previous_iteration_summary: dict | None
+    previous_composite: float | None
+    stagnation_mode: str
+    evidence_items: list[dict] | None = None
+    evidence_known_ids: list[str] | None = None
+
+
+@dataclass(frozen=True)
+class StepResultContext:
+    layout: RunArtifactLayout
+    iter_id: int
+    step: dict
+    step_order: int
+    role: dict
+    runtime_role: str
+    output: dict
+
+
+@dataclass(frozen=True)
+class StepEvidenceEntryRequest:
+    result: StepResultContext
+    handoff: dict
+
+
+@dataclass(frozen=True)
+class IterationSummaryContext:
+    layout: RunArtifactLayout
+    iter_id: int
+    step_results: list[dict]
+    stagnation: dict
+    previous_composite: float | None
+    timestamp: str
+
 
 ARTIFACT_REF_SCHEMA = {
     "type": "object",
@@ -325,15 +384,9 @@ LATEST_STATE_SCHEMA = {
 }
 
 
-def build_run_contract_snapshot(
-    run: dict,
-    *,
-    compiled_spec: dict,
-    workflow: dict,
-    prompt_files: dict[str, str],
-    workspace_baseline: dict,
-    layout: RunArtifactLayout,
-) -> dict:
+def build_run_contract_snapshot(request: RunContractSnapshotRequest) -> dict:
+    run = request.run
+    layout = request.layout
     return {
         "run_id": run["id"],
         "loop_id": run.get("loop_id"),
@@ -351,10 +404,10 @@ def build_run_contract_snapshot(
             "model": str(run.get("model") or ""),
             "reasoning_effort": str(run.get("reasoning_effort") or ""),
         },
-        "compiled_spec": compiled_spec,
+        "compiled_spec": request.compiled_spec,
         "workflow": {
-            "preset": str(workflow.get("preset") or "custom"),
-            "collaboration_intent": str(workflow.get("collaboration_intent") or "").strip(),
+            "preset": str(request.workflow.get("preset") or "custom"),
+            "collaboration_intent": str(request.workflow.get("collaboration_intent") or "").strip(),
             "roles": [
                 {
                     "id": str(role.get("id") or ""),
@@ -363,7 +416,7 @@ def build_run_contract_snapshot(
                     "prompt_ref": str(role.get("prompt_ref") or ""),
                     "posture_notes": str(role.get("posture_notes") or "").strip(),
                 }
-                for role in workflow.get("roles", [])
+                for role in request.workflow.get("roles", [])
             ],
             "steps": [
                 {
@@ -377,13 +430,13 @@ def build_run_contract_snapshot(
                     "inputs": dict(step.get("inputs") or {}),
                     "action_policy": dict(step.get("action_policy") or {}),
                 }
-                for step in workflow.get("steps", [])
+                for step in request.workflow.get("steps", [])
             ],
-            "controls": list(workflow.get("controls") or []),
+            "controls": list(request.workflow.get("controls") or []),
         },
-        "prompt_refs": sorted(prompt_files.keys()),
+        "prompt_refs": sorted(request.prompt_files.keys()),
         "workspace_baseline": {
-            "file_count": int(workspace_baseline.get("file_count") or 0),
+            "file_count": int(request.workspace_baseline.get("file_count") or 0),
             "artifact": artifact_ref(layout, layout.workspace_baseline_path, kind="workspace", label="workspace-baseline"),
         },
         "artifacts": {
@@ -411,25 +464,11 @@ def build_run_contract_snapshot(
     }
 
 
-def build_step_context_packet(
-    *,
-    run_contract: dict,
-    layout: RunArtifactLayout,
-    iter_id: int,
-    step: dict,
-    step_order: int,
-    role: dict,
-    execution_settings: dict[str, str],
-    immediate_previous_step: dict | None,
-    completed_steps_this_iteration: list[dict],
-    previous_iteration_same_step: dict | None,
-    previous_iteration_same_role: dict | None,
-    previous_iteration_summary: dict | None,
-    previous_composite: float | None,
-    stagnation_mode: str,
-    evidence_items: list[dict] | None = None,
-    evidence_known_ids: list[str] | None = None,
-) -> dict:
+def build_step_context_packet(request: StepContextPacketRequest) -> dict:
+    run_contract = request.run_contract
+    layout = request.layout
+    step = request.step
+    role = request.role
     compiled_spec = run_contract.get("compiled_spec") or {}
     workflow_snapshot = run_contract.get("workflow") or {}
     return {
@@ -449,37 +488,37 @@ def build_step_context_packet(
             "residual_risk": str(compiled_spec.get("residual_risk") or "").strip(),
         },
         "iteration": {
-            "iter_index": int(iter_id),
-            "is_first_iteration": iter_id == 0,
-            "previous_iteration_exists": iter_id > 0,
-            "previous_composite": previous_composite,
-            "stagnation_mode": str(stagnation_mode or "none"),
+            "iter_index": int(request.iter_id),
+            "is_first_iteration": request.iter_id == 0,
+            "previous_iteration_exists": request.iter_id > 0,
+            "previous_composite": request.previous_composite,
+            "stagnation_mode": str(request.stagnation_mode or "none"),
         },
         "current_step": {
             "step_id": str(step["id"]),
-            "step_order": int(step_order),
+            "step_order": int(request.step_order),
             "role_id": str(role["id"]),
             "role_name": str(role["name"]),
             "archetype": str(role["archetype"]),
-            "model": str(execution_settings.get("model") or ""),
-            "executor_kind": str(execution_settings.get("executor_kind") or ""),
-            "executor_mode": str(execution_settings.get("executor_mode") or ""),
+            "model": str(request.execution_settings.get("model") or ""),
+            "executor_kind": str(request.execution_settings.get("executor_kind") or ""),
+            "executor_mode": str(request.execution_settings.get("executor_mode") or ""),
             "parallel_group": str(step.get("parallel_group") or ""),
             "inputs": dict(step.get("inputs") or {}),
             "action_policy": dict(step.get("action_policy") or {}),
             "control": dict(step.get("control") or {}) if isinstance(step.get("control"), dict) else {},
         },
         "upstream": {
-            "immediate_previous_step": immediate_previous_step,
-            "completed_steps_this_iteration": list(completed_steps_this_iteration),
-            "previous_iteration_same_step": previous_iteration_same_step,
-            "previous_iteration_same_role": previous_iteration_same_role,
-            "previous_iteration_summary": previous_iteration_summary,
+            "immediate_previous_step": request.immediate_previous_step,
+            "completed_steps_this_iteration": list(request.completed_steps_this_iteration),
+            "previous_iteration_same_step": request.previous_iteration_same_step,
+            "previous_iteration_same_role": request.previous_iteration_same_role,
+            "previous_iteration_summary": request.previous_iteration_summary,
         },
         "evidence": {
             "ledger_path": layout.relative(layout.evidence_ledger_path),
-            "items": list(evidence_items or []),
-            "known_ids": list(evidence_known_ids or []),
+            "items": list(request.evidence_items or []),
+            "known_ids": list(request.evidence_known_ids or []),
         },
         "artifacts": [
             artifact_ref(layout, layout.run_contract_path, kind="contract", label="run-contract"),
@@ -493,16 +532,11 @@ def build_step_context_packet(
     }
 
 
-def build_step_handoff(
-    *,
-    layout: RunArtifactLayout,
-    iter_id: int,
-    step: dict,
-    step_order: int,
-    role: dict,
-    runtime_role: str,
-    output: dict,
-) -> dict:
+def build_step_handoff(result: StepResultContext) -> dict:
+    layout = result.layout
+    step = result.step
+    role = result.role
+    output = result.output
     summary = ""
     blocking_items: list[str] = []
     recommended_next_action = ""
@@ -554,12 +588,12 @@ def build_step_handoff(
 
     return {
         "source": {
-            "iter": int(iter_id),
+            "iter": int(result.iter_id),
             "step_id": str(step["id"]),
-            "step_order": int(step_order),
+            "step_order": int(result.step_order),
             "role_id": str(role["id"]),
             "role_name": str(role["name"]),
-            "runtime_role": str(runtime_role),
+            "runtime_role": str(result.runtime_role),
             "archetype": archetype,
         },
         "status": status,
@@ -568,14 +602,24 @@ def build_step_handoff(
         "recommended_next_action": recommended_next_action,
         "evidence_refs": [],
         "artifact_refs": [
-            artifact_ref(layout, layout.step_output_raw_path(iter_id, step_order, step["id"]), kind="step", label="output-raw"),
             artifact_ref(
                 layout,
-                layout.step_output_normalized_path(iter_id, step_order, step["id"]),
+                layout.step_output_raw_path(result.iter_id, result.step_order, step["id"]),
+                kind="step",
+                label="output-raw",
+            ),
+            artifact_ref(
+                layout,
+                layout.step_output_normalized_path(result.iter_id, result.step_order, step["id"]),
                 kind="step",
                 label="output-normalized",
             ),
-            artifact_ref(layout, layout.step_metadata_path(iter_id, step_order, step["id"]), kind="step", label="metadata"),
+            artifact_ref(
+                layout,
+                layout.step_metadata_path(result.iter_id, result.step_order, step["id"]),
+                kind="step",
+                label="metadata",
+            ),
         ],
     }
 
@@ -585,26 +629,22 @@ def evidence_entry_id(iter_id: int, step_order: int, step_id: str) -> str:
     return f"ev_{int(iter_id):03d}_{int(step_order):02d}_{cleaned_step}"
 
 
-def build_step_evidence_entry(
-    *,
-    layout: RunArtifactLayout,
-    iter_id: int,
-    step: dict,
-    step_order: int,
-    role: dict,
-    runtime_role: str,
-    output: dict,
-    handoff: dict,
-) -> dict:
+def build_step_evidence_entry(request: StepEvidenceEntryRequest) -> dict:
+    result = request.result
+    step = result.step
+    step_order = result.step_order
+    role = result.role
+    output = result.output
+    handoff = request.handoff
     archetype = str(role["archetype"])
     verifies = _evidence_verifies(archetype, output)
     related_evidence_ids = _string_list(output.get("evidence_refs"))
     for coverage_result in list(output.get("coverage_results") or []):
         if isinstance(coverage_result, dict):
             related_evidence_ids.extend(_string_list(coverage_result.get("evidence_refs")))
-    if evidence_entry_id(iter_id, step_order, step["id"]) in related_evidence_ids:
+    if evidence_entry_id(result.iter_id, step_order, step["id"]) in related_evidence_ids:
         related_evidence_ids = [
-            item for item in related_evidence_ids if item != evidence_entry_id(iter_id, step_order, step["id"])
+            item for item in related_evidence_ids if item != evidence_entry_id(result.iter_id, step_order, step["id"])
         ]
     evidence_claims = _string_list(output.get("evidence_claims"))
     claim = _clean_text(output.get("decision_summary") if archetype == "gatekeeper" else handoff.get("summary"))
@@ -621,14 +661,14 @@ def build_step_evidence_entry(
         claim = f"{reason} {claim}".strip()
         verifies = list(dict.fromkeys([f"control:{signal}", *verifies]))[:20]
     return {
-        "id": evidence_entry_id(iter_id, step_order, step["id"]),
+        "id": evidence_entry_id(result.iter_id, step_order, step["id"]),
         "timestamp": utc_now(),
-        "iter": int(iter_id),
+        "iter": int(result.iter_id),
         "step_id": str(step["id"]),
         "step_order": int(step_order),
         "role_id": str(role["id"]),
         "role_name": str(role["name"]),
-        "runtime_role": str(runtime_role),
+        "runtime_role": str(result.runtime_role),
         "archetype": archetype,
         "evidence_kind": "control" if is_control else _evidence_kind(archetype),
         "source": "workflow_control" if is_control else _evidence_source(archetype),
@@ -720,15 +760,11 @@ def _evidence_residual_risk(archetype: str, output: dict, handoff: dict) -> str:
     return "; ".join(risks[:6])
 
 
-def build_iteration_summary(
-    *,
-    layout: RunArtifactLayout,
-    iter_id: int,
-    step_results: list[dict],
-    stagnation: dict,
-    previous_composite: float | None,
-    timestamp: str,
-) -> dict:
+def build_iteration_summary(context: IterationSummaryContext) -> dict:
+    layout = context.layout
+    iter_id = context.iter_id
+    step_results = context.step_results
+    stagnation = context.stagnation
     gatekeeper_handoff = next(
         (item["handoff"] for item in reversed(step_results) if item["role"]["archetype"] == "gatekeeper"),
         None,
@@ -757,14 +793,14 @@ def build_iteration_summary(
     }
     composite = gatekeeper_output.get("composite_score")
     delta = (
-        round(float(composite) - float(previous_composite), 6)
-        if composite is not None and previous_composite is not None
+        round(float(composite) - float(context.previous_composite), 6)
+        if composite is not None and context.previous_composite is not None
         else None
     )
     return {
         "phase": "complete",
         "iter": int(iter_id),
-        "timestamp": timestamp,
+        "timestamp": context.timestamp,
         "workflow": [
             {
                 "step_id": str(item["step"]["id"]),

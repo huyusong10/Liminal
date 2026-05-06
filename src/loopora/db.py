@@ -6,7 +6,7 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from collections.abc import Iterator
 
 from loopora.db_schema import RepositorySchemaMixin
 from loopora.diagnostics import get_logger, log_event, log_exception

@@ -1,55 +1,131 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 from pathlib import Path
 
-from loopora.context_flow import build_step_evidence_entry, build_step_handoff
+from loopora.context_flow import StepEvidenceEntryRequest, StepResultContext, build_step_evidence_entry, build_step_handoff
 from loopora.diagnostics import get_logger, log_event
 from loopora.evidence_coverage import write_evidence_coverage_projection
 from loopora.run_artifacts import append_jsonl_with_mirrors, write_json_with_mirrors
-from loopora.stagnation import update_stagnation
+from loopora.service_run_finalization import TerminalRunFinalizationRequest
+from loopora.service_workflow_support import IterationContextPersistRequest, StepOutputsWriteRequest, WorkflowSummaryRequest
+from loopora.stagnation import StagnationUpdateRequest, update_stagnation
 from loopora.utils import append_jsonl, utc_now
 
 logger = get_logger(__name__)
 
 
+@dataclass(frozen=True)
+class WorkflowIterationCheckpointRequest:
+    layout: object
+    iter_id: int
+    step_results: list[dict]
+    current_outputs_by_step: dict[str, dict]
+    current_outputs_by_role: dict[str, dict]
+    current_outputs_by_archetype: dict[str, dict]
+    current_session_refs_by_step: dict[str, dict]
+    stagnation: dict
+    previous_composite: float | None
+    run_id: str
+
+
+@dataclass(frozen=True)
+class GatekeeperIterationRecordRequest:
+    layout: object
+    stagnation: dict
+    normalized_output: dict
+    iter_id: int
+    previous_composite: float | None
+    run: dict
+    run_id: str
+
+
+@dataclass(frozen=True)
+class WorkflowStepWriteRequest:
+    run_id: str
+    layout: object
+    iter_id: int
+    step: dict
+    step_order: int
+    role: dict
+    runtime_role: str
+    normalized_output: dict
+
+
+@dataclass(frozen=True)
+class WorkflowStepResultEntryRequest:
+    step: dict
+    step_order: int
+    role: dict
+    runtime_role: str
+    execution_settings: dict
+    normalized_output: dict
+    handoff: dict
+    context_packet: dict
+
+
+@dataclass(frozen=True)
+class WorkflowStepCompletionLogRequest:
+    run: dict
+    iter_id: int
+    step: dict
+    runtime_role: str
+    role: dict
+    duration_ms: int
+    normalized_output: dict
+
+
+@dataclass(frozen=True)
+class WorkflowGatekeeperSuccessRequest:
+    run_id: str
+    run: dict
+    run_dir: Path
+    workflow: dict
+    compiled_spec: dict
+    iter_id: int
+    step: dict
+    runtime_role: str
+    normalized_output: dict
+    stagnation: dict
+    previous_composite: float | None
+    layout: object
+    step_results: list[dict]
+    current_outputs_by_step: dict[str, dict]
+    current_outputs_by_role: dict[str, dict]
+    current_outputs_by_archetype: dict[str, dict]
+    current_session_refs_by_step: dict[str, dict]
+
+
 class ServiceWorkflowIterationStateMixin:
     def _checkpoint_workflow_iteration_state(
         self,
-        *,
-        layout,
-        iter_id: int,
-        step_results: list[dict],
-        current_outputs_by_step: dict[str, dict],
-        current_outputs_by_role: dict[str, dict],
-        current_outputs_by_archetype: dict[str, dict],
-        current_session_refs_by_step: dict[str, dict],
-        stagnation: dict,
-        previous_composite: float | None,
-        run_id: str,
+        request: WorkflowIterationCheckpointRequest,
     ) -> tuple[dict[str, dict], dict[str, dict], dict[str, dict], dict[str, dict], dict[str, dict], dict[str, dict], dict | None]:
-        previous_outputs_by_step = dict(current_outputs_by_step)
-        previous_outputs_by_role = dict(current_outputs_by_role)
-        previous_outputs_by_archetype = dict(current_outputs_by_archetype)
-        previous_handoffs_by_step = {item["step"]["id"]: item["handoff"] for item in step_results}
-        previous_handoffs_by_role = {item["role"]["id"]: item["handoff"] for item in step_results}
-        previous_handoffs_by_archetype = {item["role"]["archetype"]: item["handoff"] for item in step_results}
+        previous_outputs_by_step = dict(request.current_outputs_by_step)
+        previous_outputs_by_role = dict(request.current_outputs_by_role)
+        previous_outputs_by_archetype = dict(request.current_outputs_by_archetype)
+        previous_handoffs_by_step = {item["step"]["id"]: item["handoff"] for item in request.step_results}
+        previous_handoffs_by_role = {item["role"]["id"]: item["handoff"] for item in request.step_results}
+        previous_handoffs_by_archetype = {item["role"]["archetype"]: item["handoff"] for item in request.step_results}
         append_jsonl(
-            layout.legacy_iterations_path,
+            request.layout.legacy_iterations_path,
             self._build_workflow_iteration_entry(
-                iter_id,
-                step_results,
-                stagnation,
-                previous_composite=previous_composite,
+                request.iter_id,
+                request.step_results,
+                request.stagnation,
+                previous_composite=request.previous_composite,
             ),
         )
         previous_iteration_summary = self._persist_iteration_context(
-            layout=layout,
-            run_id=run_id,
-            iter_id=iter_id,
-            step_results=step_results,
-            stagnation=stagnation,
-            previous_composite=previous_composite,
+            IterationContextPersistRequest(
+                layout=request.layout,
+                run_id=request.run_id,
+                iter_id=request.iter_id,
+                step_results=request.step_results,
+                stagnation=request.stagnation,
+                previous_composite=request.previous_composite,
+            )
         )
         return (
             previous_outputs_by_step,
@@ -63,149 +139,120 @@ class ServiceWorkflowIterationStateMixin:
 
     def _record_gatekeeper_iteration_result(
         self,
-        *,
-        layout,
-        stagnation: dict,
-        normalized_output: dict,
-        iter_id: int,
-        previous_composite: float | None,
-        run: dict,
-        run_id: str,
+        request: GatekeeperIterationRecordRequest,
     ) -> dict:
         stagnation = update_stagnation(
-            stagnation,
-            normalized_output["composite_score"],
-            iter_id,
-            delta_threshold=run["delta_threshold"],
-            trigger_window=run["trigger_window"],
-            regression_window=run["regression_window"],
+            StagnationUpdateRequest(
+                stagnation=request.stagnation,
+                composite=request.normalized_output["composite_score"],
+                current_iter=request.iter_id,
+                delta_threshold=request.run["delta_threshold"],
+                trigger_window=request.run["trigger_window"],
+                regression_window=request.run["regression_window"],
+            )
         )
         write_json_with_mirrors(
-            layout.timeline_stagnation_path,
+            request.layout.timeline_stagnation_path,
             stagnation,
-            mirror_paths=[layout.run_dir / "stagnation.json"],
+            mirror_paths=[request.layout.run_dir / "stagnation.json"],
         )
         append_jsonl_with_mirrors(
-            layout.timeline_metrics_path,
+            request.layout.timeline_metrics_path,
             {
-                "iter": iter_id,
+                "iter": request.iter_id,
                 "timestamp": utc_now(),
-                "composite": normalized_output["composite_score"],
-                "score_delta": round(normalized_output["composite_score"] - previous_composite, 6)
-                if previous_composite is not None
+                "composite": request.normalized_output["composite_score"],
+                "score_delta": round(
+                    request.normalized_output["composite_score"] - request.previous_composite,
+                    6,
+                )
+                if request.previous_composite is not None
                 else None,
-                "passed": normalized_output["passed"],
-                "metric_scores": normalized_output.get("metric_scores", {}),
-                "failed_check_ids": normalized_output.get("failed_check_ids", []),
-                "failed_check_titles": normalized_output.get("failed_check_titles", []),
-                "evidence_refs": normalized_output.get("evidence_refs", []),
-                "evidence_gate_status": normalized_output.get("evidence_gate_status", ""),
+                "passed": request.normalized_output["passed"],
+                "metric_scores": request.normalized_output.get("metric_scores", {}),
+                "failed_check_ids": request.normalized_output.get("failed_check_ids", []),
+                "failed_check_titles": request.normalized_output.get("failed_check_titles", []),
+                "evidence_refs": request.normalized_output.get("evidence_refs", []),
+                "evidence_gate_status": request.normalized_output.get("evidence_gate_status", ""),
                 "stagnation_mode": stagnation["stagnation_mode"],
             },
-            mirror_paths=[layout.legacy_metrics_path],
+            mirror_paths=[request.layout.legacy_metrics_path],
         )
-        self.repository.update_run(run_id, last_verdict=normalized_output)
+        self.repository.update_run(request.run_id, last_verdict=request.normalized_output)
         return stagnation
 
     def _write_workflow_step_result(
         self,
-        *,
-        run_id: str,
-        layout,
-        iter_id: int,
-        step: dict,
-        step_order: int,
-        role: dict,
-        runtime_role: str,
-        normalized_output: dict,
+        request: WorkflowStepWriteRequest,
     ) -> dict:
-        handoff = build_step_handoff(
-            layout=layout,
-            iter_id=iter_id,
-            step=step,
-            step_order=step_order,
-            role=role,
-            runtime_role=runtime_role,
-            output=normalized_output,
+        step_result = StepResultContext(
+            layout=request.layout,
+            iter_id=request.iter_id,
+            step=request.step,
+            step_order=request.step_order,
+            role=request.role,
+            runtime_role=request.runtime_role,
+            output=request.normalized_output,
         )
-        evidence_entry = build_step_evidence_entry(
-            layout=layout,
-            iter_id=iter_id,
-            step=step,
-            step_order=step_order,
-            role=role,
-            runtime_role=runtime_role,
-            output=normalized_output,
-            handoff=handoff,
-        )
+        handoff = build_step_handoff(step_result)
+        evidence_entry = build_step_evidence_entry(StepEvidenceEntryRequest(result=step_result, handoff=handoff))
         handoff["evidence_refs"] = [evidence_entry["id"]]
-        append_jsonl_with_mirrors(layout.evidence_ledger_path, evidence_entry)
-        coverage_projection = write_evidence_coverage_projection(layout)
+        append_jsonl_with_mirrors(request.layout.evidence_ledger_path, evidence_entry)
+        coverage_projection = write_evidence_coverage_projection(request.layout)
         self._write_step_outputs(
-            layout,
-            iter_id,
-            step,
-            step_order,
-            role,
-            runtime_role,
-            normalized_output,
-            handoff,
+            StepOutputsWriteRequest(
+                layout=request.layout,
+                iter_id=request.iter_id,
+                step=request.step,
+                step_order=request.step_order,
+                role=request.role,
+                runtime_role=request.runtime_role,
+                output=request.normalized_output,
+                handoff=handoff,
+            )
         )
         self.append_run_event(
-            run_id,
+            request.run_id,
             "step_handoff_written",
             {
-                "iter": iter_id,
-                "step_id": step["id"],
-                "step_order": step_order,
-                "role_name": role["name"],
-                "archetype": role["archetype"],
-                "handoff_path": layout.relative(layout.step_handoff_path(iter_id, step_order, step["id"])),
-                "evidence_ledger_path": layout.relative(layout.evidence_ledger_path),
+                "iter": request.iter_id,
+                "step_id": request.step["id"],
+                "step_order": request.step_order,
+                "role_name": request.role["name"],
+                "archetype": request.role["archetype"],
+                "handoff_path": request.layout.relative(
+                    request.layout.step_handoff_path(request.iter_id, request.step_order, request.step["id"])
+                ),
+                "evidence_ledger_path": request.layout.relative(request.layout.evidence_ledger_path),
                 "evidence_coverage_path": coverage_projection.get("coverage_path", ""),
                 "evidence_refs": handoff["evidence_refs"],
                 "status": handoff["status"],
                 "summary": handoff["summary"],
                 "blocking_count": len(handoff["blocking_items"]),
             },
-            role=runtime_role,
+            role=request.runtime_role,
         )
         return handoff
 
     def _build_workflow_step_result_entry(
         self,
-        *,
-        step: dict,
-        step_order: int,
-        role: dict,
-        runtime_role: str,
-        execution_settings: dict,
-        normalized_output: dict,
-        handoff: dict,
-        context_packet: dict,
+        request: WorkflowStepResultEntryRequest,
     ) -> dict:
         return {
-            "step": step,
-            "step_order": step_order,
-            "role": role,
-            "runtime_role": runtime_role,
-            "resolved_model": execution_settings["model"],
-            "resolved_executor_kind": execution_settings["executor_kind"],
-            "output": normalized_output,
-            "handoff": handoff,
-            "context_packet": context_packet,
+            "step": request.step,
+            "step_order": request.step_order,
+            "role": request.role,
+            "runtime_role": request.runtime_role,
+            "resolved_model": request.execution_settings["model"],
+            "resolved_executor_kind": request.execution_settings["executor_kind"],
+            "output": request.normalized_output,
+            "handoff": request.handoff,
+            "context_packet": request.context_packet,
         }
 
     def _log_workflow_step_completion(
         self,
-        *,
-        run: dict,
-        iter_id: int,
-        step: dict,
-        runtime_role: str,
-        role: dict,
-        duration_ms: int,
-        normalized_output: dict,
+        request: WorkflowStepCompletionLogRequest,
     ) -> None:
         log_event(
             logger,
@@ -213,82 +260,71 @@ class ServiceWorkflowIterationStateMixin:
             "service.workflow.step.completed",
             "Completed workflow step",
             **self._run_log_context(
-                run,
-                iter=iter_id,
-                step_id=step["id"],
-                role=runtime_role,
-                archetype=role["archetype"],
-                duration_ms=duration_ms,
-                passed=normalized_output.get("passed"),
-                composite_score=normalized_output.get("composite_score"),
+                request.run,
+                iter=request.iter_id,
+                step_id=request.step["id"],
+                role=request.runtime_role,
+                archetype=request.role["archetype"],
+                duration_ms=request.duration_ms,
+                passed=request.normalized_output.get("passed"),
+                composite_score=request.normalized_output.get("composite_score"),
             ),
         )
 
     def _finish_workflow_gatekeeper_success(
         self,
-        *,
-        run_id: str,
-        run: dict,
-        run_dir: Path,
-        workflow: dict,
-        compiled_spec: dict,
-        iter_id: int,
-        step: dict,
-        runtime_role: str,
-        normalized_output: dict,
-        stagnation: dict,
-        previous_composite: float | None,
-        layout,
-        step_results: list[dict],
-        current_outputs_by_step: dict[str, dict],
-        current_outputs_by_role: dict[str, dict],
-        current_outputs_by_archetype: dict[str, dict],
-        current_session_refs_by_step: dict[str, dict],
+        request: WorkflowGatekeeperSuccessRequest,
     ) -> dict:
         self._checkpoint_workflow_iteration_state(
-            layout=layout,
-            iter_id=iter_id,
-            step_results=step_results,
-            current_outputs_by_step=current_outputs_by_step,
-            current_outputs_by_role=current_outputs_by_role,
-            current_outputs_by_archetype=current_outputs_by_archetype,
-            current_session_refs_by_step=current_session_refs_by_step,
-            stagnation=stagnation,
-            previous_composite=previous_composite,
-            run_id=run_id,
+            WorkflowIterationCheckpointRequest(
+                layout=request.layout,
+                iter_id=request.iter_id,
+                step_results=request.step_results,
+                current_outputs_by_step=request.current_outputs_by_step,
+                current_outputs_by_role=request.current_outputs_by_role,
+                current_outputs_by_archetype=request.current_outputs_by_archetype,
+                current_session_refs_by_step=request.current_session_refs_by_step,
+                stagnation=request.stagnation,
+                previous_composite=request.previous_composite,
+                run_id=request.run_id,
+            )
         )
         summary = self._build_workflow_summary(
-            run,
-            workflow,
-            compiled_spec,
-            iter_id,
-            step_results,
-            stagnation,
-            exhausted=False,
-            previous_composite=previous_composite,
+            WorkflowSummaryRequest(
+                run=request.run,
+                workflow=request.workflow,
+                compiled_spec=request.compiled_spec,
+                iter_id=request.iter_id,
+                step_results=request.step_results,
+                stagnation=request.stagnation,
+                exhausted=False,
+                previous_composite=request.previous_composite,
+            )
         )
         finished = self._finalize_terminal_run(
-            run_id,
-            run_dir,
-            status="succeeded",
-            summary=summary,
-            last_verdict=normalized_output,
-            final_reason="gatekeeper_passed",
-            hydrate=True,
+            TerminalRunFinalizationRequest(
+                run_id=request.run_id,
+                run_dir=request.run_dir,
+                status="succeeded",
+                summary=summary,
+                last_verdict=request.normalized_output,
+                final_reason="gatekeeper_passed",
+                hydrate=True,
+            )
         )
-        self.append_run_event(run_id, "run_finished", {"status": "succeeded", "iter": iter_id})
+        self.append_run_event(request.run_id, "run_finished", {"status": "succeeded", "iter": request.iter_id})
         log_event(
             logger,
             logging.INFO,
             "service.run.execution.finished",
             "Workflow run finished successfully",
             **self._run_log_context(
-                run,
+                request.run,
                 status="succeeded",
-                iter=iter_id,
+                iter=request.iter_id,
                 reason="gatekeeper_passed",
-                step_id=step["id"],
-                role=runtime_role,
+                step_id=request.step["id"],
+                role=request.runtime_role,
             ),
         )
         return finished

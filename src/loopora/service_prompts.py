@@ -1,9 +1,23 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from pathlib import Path
+from typing import Any
 
 from loopora.specs import resolve_role_note
+
+
+@dataclass(frozen=True)
+class GeneratorPromptRequest:
+    compiled_spec: dict
+    workdir: Path
+    iter_id: int
+    mode: str
+    previous_generator_result: dict | None = None
+    previous_tester_result: dict | None = None
+    previous_verifier_result: dict | None = None
+    previous_challenger_result: dict | None = None
 
 
 class ServiceRunPromptMixin:
@@ -29,16 +43,14 @@ class ServiceRunPromptMixin:
 
     def _generator_prompt(
         self,
-        compiled_spec: dict,
-        workdir: Path,
-        iter_id: int,
-        mode: str,
-        *,
-        previous_generator_result: dict | None = None,
-        previous_tester_result: dict | None = None,
-        previous_verifier_result: dict | None = None,
-        previous_challenger_result: dict | None = None,
+        request: GeneratorPromptRequest | dict,
+        workdir: Path | None = None,
+        iter_id: int | None = None,
+        mode: str | None = None,
+        **feedback: Any,
     ) -> str:
+        prompt_request = _generator_prompt_request_from_args(request, workdir, iter_id, mode, feedback)
+        compiled_spec = prompt_request.compiled_spec
         constraints = compiled_spec.get("constraints") or "No explicit constraints were provided."
         role_note = self._role_note_block(compiled_spec, role_name="Builder", archetype="builder")
         bootstrap_guidance = ""
@@ -51,7 +63,7 @@ class ServiceRunPromptMixin:
             "For benchmark-driven goals, prefer one real end-to-end run plus targeted harness fixes over many ad hoc spot checks.\n"
             "Do not spend the whole turn only reading files unless you are blocked by missing information that truly cannot be resolved any other way.\n\n"
         )
-        if iter_id == 0 and self._is_bootstrap_workspace(workdir):
+        if prompt_request.iter_id == 0 and self._is_bootstrap_workspace(prompt_request.workdir):
             bootstrap_guidance = (
                 "Workspace state:\n"
                 "Only the spec is present right now, so this iteration should bootstrap the first implementation.\n"
@@ -60,17 +72,17 @@ class ServiceRunPromptMixin:
                 "Prefer a minimal static entry point plus tiny supporting files when needed.\n\n"
             )
         prior_iteration_feedback = self._generator_prior_iteration_feedback(
-            iter_id,
-            previous_generator_result=previous_generator_result,
-            previous_tester_result=previous_tester_result,
-            previous_verifier_result=previous_verifier_result,
-            previous_challenger_result=previous_challenger_result,
+            prompt_request.iter_id,
+            previous_generator_result=prompt_request.previous_generator_result,
+            previous_tester_result=prompt_request.previous_tester_result,
+            previous_verifier_result=prompt_request.previous_verifier_result,
+            previous_challenger_result=prompt_request.previous_challenger_result,
         )
         return (
             "You are the Generator role inside Loopora.\n"
             "Goal: improve the workspace to satisfy the spec with one coherent change direction.\n"
-            f"Iteration: {iter_id}\n"
-            f"Mode: {mode}\n"
+            f"Iteration: {prompt_request.iter_id}\n"
+            f"Mode: {prompt_request.mode}\n"
             f"Check mode: {compiled_spec.get('check_mode', 'specified')}\n"
             "You may edit files inside the workdir. Do not write into .loopora except for explicitly requested outputs.\n"
             "Treat existing non-.loopora files as user-owned. Never wipe the whole workdir, bulk-delete existing files, or reset the project from scratch.\n"
@@ -223,6 +235,36 @@ class ServiceRunPromptMixin:
 
     def _render_checks(self, checks: list[dict]) -> str:
         return json.dumps(checks, ensure_ascii=False, indent=2)
+
+
+def _generator_prompt_request_from_args(
+    request: GeneratorPromptRequest | dict,
+    workdir: Path | None,
+    iter_id: int | None,
+    mode: str | None,
+    feedback: dict[str, Any],
+) -> GeneratorPromptRequest:
+    if isinstance(request, GeneratorPromptRequest):
+        if workdir is not None or iter_id is not None or mode is not None or feedback:
+            raise TypeError("generator prompt request object cannot be combined with legacy prompt fields")
+        return request
+    if workdir is None or iter_id is None or mode is None:
+        raise TypeError("legacy generator prompt calls require workdir, iter_id, and mode")
+    fields = dict(feedback)
+    request = GeneratorPromptRequest(
+        compiled_spec=request,
+        workdir=Path(workdir),
+        iter_id=iter_id,
+        mode=mode,
+        previous_generator_result=fields.pop("previous_generator_result", None),
+        previous_tester_result=fields.pop("previous_tester_result", None),
+        previous_verifier_result=fields.pop("previous_verifier_result", None),
+        previous_challenger_result=fields.pop("previous_challenger_result", None),
+    )
+    if fields:
+        unexpected_fields = ", ".join(sorted(fields))
+        raise TypeError(f"unexpected generator prompt fields: {unexpected_fields}")
+    return request
 
 
 GENERATOR_SCHEMA = {

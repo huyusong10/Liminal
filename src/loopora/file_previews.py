@@ -26,15 +26,14 @@ def _parse_jsonl_preview(text: str) -> tuple[list[object], list[dict[str, object
 
 def preview_existing_path(*, base: Path, relative_path: str, resolved: Path) -> dict:
     if resolved.is_dir():
-        entries = []
-        for child in sorted(resolved.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower())):
-            entries.append(
-                {
-                    "name": child.name,
-                    "path": str(child.relative_to(base)),
-                    "is_dir": child.is_dir(),
-                }
-            )
+        entries = [
+            {
+                "name": child.name,
+                "path": str(child.relative_to(base)),
+                "is_dir": child.is_dir(),
+            }
+            for child in sorted(resolved.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower()))
+        ]
         return {"kind": "directory", "base": str(base), "path": relative_path, "entries": entries}
 
     suffix = resolved.suffix.lower()

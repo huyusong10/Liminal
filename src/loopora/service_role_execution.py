@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 from loopora.diagnostics import get_logger, log_event
@@ -10,11 +11,45 @@ from loopora.evidence_coverage import with_coverage_targets, write_evidence_cove
 from loopora.executor import CodexExecutor, ExecutionStopped, RoleRequest
 from loopora.recovery import RetryConfig, execute_with_recovery
 from loopora.run_artifacts import write_json_with_mirrors
-from loopora.service_prompts import CHECK_PLANNER_SCHEMA, CHALLENGER_SCHEMA, GENERATOR_SCHEMA, TESTER_SCHEMA, VERIFIER_SCHEMA
+from loopora.service_prompts import (
+    CHECK_PLANNER_SCHEMA,
+    CHALLENGER_SCHEMA,
+    GENERATOR_SCHEMA,
+    TESTER_SCHEMA,
+    VERIFIER_SCHEMA,
+    GeneratorPromptRequest,
+)
 from loopora.service_types import LooporaError, RoleExecutionError
 from loopora.utils import read_json, utc_now
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class RoleExecutionRequest:
+    run_id: str
+    iter_id: int | None
+    role: str
+    fn: Callable[[], dict]
+    retry_config: RetryConfig
+    degrade_once: Callable[[], None] | None = None
+    event_context: Mapping[str, object] | None = None
+
+
+@dataclass(frozen=True)
+class IterationRoleRunRequest:
+    executor: CodexExecutor
+    run: dict
+    compiled_spec: dict
+    run_dir: Path
+    iter_id: int
+    mode: str = "default"
+    previous_generator_result: dict | None = None
+    previous_tester_result: dict | None = None
+    previous_verifier_result: dict | None = None
+    previous_challenger_result: dict | None = None
+    tester_output: dict | None = None
+    stagnation: dict | None = None
 
 
 class ServiceRoleExecutionMixin:
@@ -114,11 +149,13 @@ class ServiceRoleExecutionMixin:
             return compiled_spec
 
         planner_result = self._execute_role(
-            run["id"],
-            None,
-            "check_planner",
-            lambda: self._run_check_planner(executor, run, compiled_spec, run_dir),
-            retry_config,
+            RoleExecutionRequest(
+                run_id=run["id"],
+                iter_id=None,
+                role="check_planner",
+                fn=lambda: self._run_check_planner(executor, run, compiled_spec, run_dir),
+                retry_config=retry_config,
+            )
         )
         resolved_checks = self._normalize_generated_checks(planner_result.get("checks", []))
         if not resolved_checks:
@@ -175,19 +212,13 @@ class ServiceRoleExecutionMixin:
 
     def _execute_role(
         self,
-        run_id: str,
-        iter_id: int | None,
-        role: str,
-        fn: Callable[[], dict],
-        retry_config: RetryConfig,
-        degrade_once: Callable[[], None] | None = None,
-        event_context: Mapping[str, object] | None = None,
+        request: RoleExecutionRequest,
     ) -> dict:
         started_at = time.perf_counter()
-        log_context = {"run_id": run_id, "role": role}
-        if iter_id is not None:
-            log_context["iter"] = iter_id
-        context_payload = dict(event_context or {})
+        log_context = {"run_id": request.run_id, "role": request.role}
+        if request.iter_id is not None:
+            log_context["iter"] = request.iter_id
+        context_payload = dict(request.event_context or {})
         log_event(
             logger,
             logging.INFO,
@@ -197,18 +228,18 @@ class ServiceRoleExecutionMixin:
         )
 
         def wrapped() -> dict:
-            self._ensure_not_stopped(run_id)
-            self.repository.update_run(run_id, active_role=role)
-            start_payload = {"role": role, **context_payload}
-            if iter_id is not None:
-                start_payload["iter"] = iter_id
-            self.append_run_event(run_id, "role_started", start_payload, role=role)
-            return fn()
+            self._ensure_not_stopped(request.run_id)
+            self.repository.update_run(request.run_id, active_role=request.role)
+            start_payload = {"role": request.role, **context_payload}
+            if request.iter_id is not None:
+                start_payload["iter"] = request.iter_id
+            self.append_run_event(request.run_id, "role_started", start_payload, role=request.role)
+            return request.fn()
 
-        value, result = execute_with_recovery(wrapped, retry_config, degrade_once=degrade_once)
+        value, result = execute_with_recovery(wrapped, request.retry_config, degrade_once=request.degrade_once)
         duration_ms = int((time.perf_counter() - started_at) * 1000)
         summary_payload = {
-            "role": role,
+            "role": request.role,
             **context_payload,
             "ok": result.ok,
             "attempts": result.attempts,
@@ -216,24 +247,24 @@ class ServiceRoleExecutionMixin:
             "error": str(result.error) if result.error else None,
             "duration_ms": duration_ms,
         }
-        if iter_id is not None:
-            summary_payload["iter"] = iter_id
+        if request.iter_id is not None:
+            summary_payload["iter"] = request.iter_id
         self.append_run_event(
-            run_id,
+            request.run_id,
             "role_execution_summary",
             summary_payload,
-            role=role,
+            role=request.role,
         )
         log_event(
             logger,
             logging.INFO if result.ok else logging.ERROR,
             "service.role.execution.completed",
             "Role execution finished",
-            run_id=run_id,
+            run_id=request.run_id,
             **summary_payload,
         )
         if not result.ok:
-            raise RoleExecutionError(role, result)
+            raise RoleExecutionError(request.role, result)
         return value or {}
 
     def _role_request_defaults(self, run: dict, run_dir: Path, *, model: str) -> dict:
@@ -260,51 +291,40 @@ class ServiceRoleExecutionMixin:
             else self.repository.update_run(run["id"], clear_child_pid=True),
         )
 
-    def _run_generator(
-        self,
-        executor: CodexExecutor,
-        run: dict,
-        compiled_spec: dict,
-        run_dir: Path,
-        iter_id: int,
-        mode: str,
-        *,
-        previous_generator_result: dict | None = None,
-        previous_tester_result: dict | None = None,
-        previous_verifier_result: dict | None = None,
-        previous_challenger_result: dict | None = None,
-    ) -> dict:
-        request = RoleRequest(
-            run_id=run["id"],
+    def _run_generator(self, request: IterationRoleRunRequest) -> dict:
+        role_request = RoleRequest(
+            run_id=request.run["id"],
             role="generator",
             prompt=self._generator_prompt(
-                compiled_spec,
-                Path(run["workdir"]),
-                iter_id,
-                mode,
-                previous_generator_result=previous_generator_result,
-                previous_tester_result=previous_tester_result,
-                previous_verifier_result=previous_verifier_result,
-                previous_challenger_result=previous_challenger_result,
+                GeneratorPromptRequest(
+                    compiled_spec=request.compiled_spec,
+                    workdir=Path(request.run["workdir"]),
+                    iter_id=request.iter_id,
+                    mode=request.mode,
+                    previous_generator_result=request.previous_generator_result,
+                    previous_tester_result=request.previous_tester_result,
+                    previous_verifier_result=request.previous_verifier_result,
+                    previous_challenger_result=request.previous_challenger_result,
+                )
             ),
             output_schema=GENERATOR_SCHEMA,
-            output_path=run_dir / "generator_output.json",
+            output_path=request.run_dir / "generator_output.json",
             sandbox="workspace-write",
             extra_context={
-                "iter_id": iter_id,
-                "compiled_spec": compiled_spec,
-                "previous_generator_result": previous_generator_result,
-                "previous_tester_result": previous_tester_result,
-                "previous_verifier_result": previous_verifier_result,
-                "previous_challenger_result": previous_challenger_result,
+                "iter_id": request.iter_id,
+                "compiled_spec": request.compiled_spec,
+                "previous_generator_result": request.previous_generator_result,
+                "previous_tester_result": request.previous_tester_result,
+                "previous_verifier_result": request.previous_verifier_result,
+                "previous_challenger_result": request.previous_challenger_result,
             },
             **self._role_request_defaults(
-                run,
-                run_dir,
-                model=run["role_models_json"].get("generator", run["model"]),
+                request.run,
+                request.run_dir,
+                model=request.run["role_models_json"].get("generator", request.run["model"]),
             ),
         )
-        return self._execute_request(executor, run, request)
+        return self._execute_request(request.executor, request.run, role_request)
 
     def _run_check_planner(
         self,
@@ -326,85 +346,62 @@ class ServiceRoleExecutionMixin:
         )
         return self._execute_request(executor, run, request)
 
-    def _run_tester(
-        self,
-        executor: CodexExecutor,
-        run: dict,
-        compiled_spec: dict,
-        run_dir: Path,
-        iter_id: int,
-        mode: str,
-    ) -> dict:
-        request = RoleRequest(
-            run_id=run["id"],
+    def _run_tester(self, request: IterationRoleRunRequest) -> dict:
+        role_request = RoleRequest(
+            run_id=request.run["id"],
             role="tester",
-            prompt=self._tester_prompt(compiled_spec, iter_id, mode),
+            prompt=self._tester_prompt(request.compiled_spec, request.iter_id, request.mode),
             output_schema=TESTER_SCHEMA,
-            output_path=run_dir / "tester_output.raw.json",
+            output_path=request.run_dir / "tester_output.raw.json",
             sandbox="workspace-write",
-            extra_context={"iter_id": iter_id, "compiled_spec": compiled_spec},
+            extra_context={"iter_id": request.iter_id, "compiled_spec": request.compiled_spec},
             **self._role_request_defaults(
-                run,
-                run_dir,
-                model=run["role_models_json"].get("tester", run["model"]),
+                request.run,
+                request.run_dir,
+                model=request.run["role_models_json"].get("tester", request.run["model"]),
             ),
         )
-        return self._execute_request(executor, run, request)
+        return self._execute_request(request.executor, request.run, role_request)
 
-    def _run_verifier(
-        self,
-        executor: CodexExecutor,
-        run: dict,
-        compiled_spec: dict,
-        run_dir: Path,
-        iter_id: int,
-        tester_output: dict,
-        mode: str,
-    ) -> dict:
-        request = RoleRequest(
-            run_id=run["id"],
+    def _run_verifier(self, request: IterationRoleRunRequest) -> dict:
+        tester_output = request.tester_output or {}
+        role_request = RoleRequest(
+            run_id=request.run["id"],
             role="verifier",
-            prompt=self._verifier_prompt(compiled_spec, tester_output, iter_id, mode),
+            prompt=self._verifier_prompt(request.compiled_spec, tester_output, request.iter_id, request.mode),
             output_schema=VERIFIER_SCHEMA,
-            output_path=run_dir / "verifier_output.raw.json",
+            output_path=request.run_dir / "verifier_output.raw.json",
             sandbox="read-only",
-            extra_context={"iter_id": iter_id, "compiled_spec": compiled_spec, "tester_output": tester_output},
+            extra_context={"iter_id": request.iter_id, "compiled_spec": request.compiled_spec, "tester_output": tester_output},
             **self._role_request_defaults(
-                run,
-                run_dir,
-                model=run["role_models_json"].get("verifier", run["model"]),
+                request.run,
+                request.run_dir,
+                model=request.run["role_models_json"].get("verifier", request.run["model"]),
             ),
         )
-        return self._execute_request(executor, run, request)
+        return self._execute_request(request.executor, request.run, role_request)
 
-    def _run_challenger(
-        self,
-        executor: CodexExecutor,
-        run: dict,
-        compiled_spec: dict,
-        run_dir: Path,
-        iter_id: int,
-        stagnation: dict,
-    ) -> dict:
-        request = RoleRequest(
-            run_id=run["id"],
+    def _run_challenger(self, request: IterationRoleRunRequest) -> dict:
+        stagnation = request.stagnation or {}
+        role_request = RoleRequest(
+            run_id=request.run["id"],
             role="challenger",
-            prompt=self._challenger_prompt(compiled_spec, stagnation, iter_id),
+            prompt=self._challenger_prompt(request.compiled_spec, stagnation, request.iter_id),
             output_schema=CHALLENGER_SCHEMA,
-            output_path=run_dir / "challenger_output.raw.json",
+            output_path=request.run_dir / "challenger_output.raw.json",
             sandbox="read-only",
             extra_context={
-                "iter_id": iter_id,
-                "compiled_spec": compiled_spec,
+                "iter_id": request.iter_id,
+                "compiled_spec": request.compiled_spec,
                 "stagnation_mode": stagnation["stagnation_mode"],
             },
             **self._role_request_defaults(
-                run,
-                run_dir,
-                model=run["role_models_json"].get("challenger", run["model"]),
+                request.run,
+                request.run_dir,
+                model=request.run["role_models_json"].get("challenger", request.run["model"]),
             ),
         )
-        return self._execute_request(executor, run, request)
+        return self._execute_request(request.executor, request.run, role_request)
 
     def _ensure_not_stopped(self, run_id: str) -> None:
         if self.repository.should_stop(run_id):

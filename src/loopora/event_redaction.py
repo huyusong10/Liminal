@@ -9,6 +9,22 @@ SECRET_OMITTED = "<secret omitted>"
 PAYLOAD_OMITTED = "<payload omitted>"
 MAX_CODEX_MESSAGE_LENGTH = 4000
 MAX_CODEX_ITEM_TEXT_LENGTH = 4000
+_CODEX_PASSTHROUGH_KEYS = {
+    "type",
+    "step_id",
+    "step_order",
+    "role",
+    "role_name",
+    "archetype",
+    "iter",
+    "prompt_omitted",
+    "json_schema_omitted",
+    "token_omitted",
+    "command_truncated",
+    "arg_count",
+}
+_CODEX_PREVIEW_KEYS = ("message", "summary")
+_CODEX_STRUCTURED_KEYS = {"error", "item"}
 
 _PROMPT_KEYS = {
     "compiled_prompt",
@@ -58,26 +74,11 @@ def redact_run_event_payload(event_type: str, payload: Mapping[str, object] | No
 
 def _redact_codex_event_payload(payload: Mapping[str, object]) -> dict:
     sanitized: dict[str, object] = {}
-    omitted_keys: set[str] = set()
-    passthrough_keys = {
-        "type",
-        "step_id",
-        "step_order",
-        "role",
-        "role_name",
-        "archetype",
-        "iter",
-        "prompt_omitted",
-        "json_schema_omitted",
-        "token_omitted",
-        "command_truncated",
-        "arg_count",
-    }
-    for key in passthrough_keys:
+    for key in _CODEX_PASSTHROUGH_KEYS:
         if key in payload:
             sanitized[key] = _redact_container(payload[key])
 
-    for key in ("message", "summary"):
+    for key in _CODEX_PREVIEW_KEYS:
         if key in payload:
             sanitized[key], was_truncated = _redact_preview_string(
                 payload[key],
@@ -91,14 +92,16 @@ def _redact_codex_event_payload(payload: Mapping[str, object]) -> dict:
     if "item" in payload:
         sanitized["item"] = _redact_codex_item(payload["item"])
 
-    for raw_key in payload:
-        key = str(raw_key)
-        if key not in passthrough_keys and key not in {"message", "summary", "error", "item"}:
-            omitted_keys.add(key)
+    omitted_keys = _codex_omitted_payload_keys(payload)
     if omitted_keys:
         sanitized["payload_omitted"] = True
-        sanitized["omitted_keys"] = sorted(omitted_keys)
+        sanitized["omitted_keys"] = omitted_keys
     return sanitized
+
+
+def _codex_omitted_payload_keys(payload: Mapping[str, object]) -> list[str]:
+    allowed_keys = _CODEX_PASSTHROUGH_KEYS | set(_CODEX_PREVIEW_KEYS) | _CODEX_STRUCTURED_KEYS
+    return sorted(str(key) for key in payload if str(key) not in allowed_keys)
 
 
 def _redact_error(value: object) -> object:
@@ -120,46 +123,59 @@ def _redact_codex_item(value: object) -> dict:
     item_type = str(value.get("type", "") or "").strip()
     sanitized: dict[str, object] = {"type": _redact_string(item_type)} if item_type else {}
     if item_type == "command_execution":
-        if "command" in value:
-            sanitized["command"], command_truncated = _redact_preview_string(
-                value["command"],
-                max_length=MAX_CODEX_MESSAGE_LENGTH,
-            )
-            if command_truncated:
-                sanitized["command_truncated"] = True
-        if "aggregated_output" in value:
-            sanitized["aggregated_output"], output_truncated = _redact_preview_string(
-                value["aggregated_output"],
-                max_length=MAX_CODEX_ITEM_TEXT_LENGTH,
-            )
-            if output_truncated:
-                sanitized["aggregated_output_truncated"] = True
-        for key in ("exit_code", "status"):
-            if key in value:
-                sanitized[key] = _redact_container(value[key])
-        return sanitized
-    if item_type == "file_change":
-        changes = value.get("changes")
-        if isinstance(changes, list):
-            sanitized["changes"] = [_redact_file_change(change) for change in changes if isinstance(change, Mapping)]
-        return sanitized
-    if item_type == "todo_list":
-        items = value.get("items")
-        if isinstance(items, list):
-            sanitized["items"] = [_redact_todo_item(item) for item in items if isinstance(item, Mapping)]
-        return sanitized
-    if item_type == "agent_message":
-        if "text" in value:
-            sanitized["text"], text_truncated = _redact_preview_string(
-                value["text"],
-                max_length=MAX_CODEX_ITEM_TEXT_LENGTH,
-            )
-            if text_truncated:
-                sanitized["text_truncated"] = True
-        return sanitized
-    if item_type:
+        _redact_command_execution_item(value, sanitized)
+    elif item_type == "file_change":
+        _redact_file_change_item(value, sanitized)
+    elif item_type == "todo_list":
+        _redact_todo_list_item(value, sanitized)
+    elif item_type == "agent_message":
+        _redact_agent_message_item(value, sanitized)
+    elif item_type:
         sanitized["payload_omitted"] = True
     return sanitized
+
+
+def _redact_command_execution_item(value: Mapping[str, object], sanitized: dict[str, object]) -> None:
+    if "command" in value:
+        sanitized["command"], command_truncated = _redact_preview_string(
+            value["command"],
+            max_length=MAX_CODEX_MESSAGE_LENGTH,
+        )
+        if command_truncated:
+            sanitized["command_truncated"] = True
+    if "aggregated_output" in value:
+        sanitized["aggregated_output"], output_truncated = _redact_preview_string(
+            value["aggregated_output"],
+            max_length=MAX_CODEX_ITEM_TEXT_LENGTH,
+        )
+        if output_truncated:
+            sanitized["aggregated_output_truncated"] = True
+    for key in ("exit_code", "status"):
+        if key in value:
+            sanitized[key] = _redact_container(value[key])
+
+
+def _redact_file_change_item(value: Mapping[str, object], sanitized: dict[str, object]) -> None:
+    changes = value.get("changes")
+    if isinstance(changes, list):
+        sanitized["changes"] = [_redact_file_change(change) for change in changes if isinstance(change, Mapping)]
+
+
+def _redact_todo_list_item(value: Mapping[str, object], sanitized: dict[str, object]) -> None:
+    items = value.get("items")
+    if isinstance(items, list):
+        sanitized["items"] = [_redact_todo_item(item) for item in items if isinstance(item, Mapping)]
+
+
+def _redact_agent_message_item(value: Mapping[str, object], sanitized: dict[str, object]) -> None:
+    if "text" not in value:
+        return
+    sanitized["text"], text_truncated = _redact_preview_string(
+        value["text"],
+        max_length=MAX_CODEX_ITEM_TEXT_LENGTH,
+    )
+    if text_truncated:
+        sanitized["text_truncated"] = True
 
 
 def _redact_file_change(value: Mapping[str, object]) -> dict:

@@ -377,6 +377,22 @@ def test_claude_stream_parser_logs_tool_use_and_tool_result(tmp_path: Path) -> N
     assert ("codex_event", {"type": "stdout", "message": "Tool result · /tmp/workdir"}) in emitted
 
 
+def test_claude_stream_parser_summarizes_system_metadata() -> None:
+    executor = RealCodexExecutor()
+    state = {"blocks": {}, "structured_output": None}
+    emitted: list[tuple[str, dict]] = []
+
+    executor._handle_claude_line(
+        json.dumps({"type": "system", "model": "claude-sonnet", "claude_code_version": "1.2.3"}),
+        state,
+        lambda event_type, payload: emitted.append((event_type, payload)),
+    )
+
+    assert emitted == [
+        ("codex_event", {"type": "stdout", "message": "Claude Code ready · model=claude-sonnet · cli=1.2.3"})
+    ]
+
+
 def test_claude_stream_parser_truncates_large_tool_results(tmp_path: Path) -> None:
     executor = RealCodexExecutor()
     state = {"blocks": {}, "structured_output": None}

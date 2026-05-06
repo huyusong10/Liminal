@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -24,9 +25,17 @@ from loopora.workflows import WorkflowError
 
 
 def register_spec_commands(spec_app: typer.Typer) -> None:
+    _register_spec_init_command(spec_app)
+    _register_spec_validate_command(spec_app)
+    _register_spec_template_command(spec_app)
+    _register_spec_read_command(spec_app)
+    _register_spec_write_command(spec_app)
+
+
+def _register_spec_init_command(spec_app: typer.Typer) -> None:
     @spec_app.command("init")
     def spec_init(
-        path: Path = typer.Argument(..., help="Where to create the Markdown template."),
+        path: Annotated[Path, typer.Argument(..., help="Where to create the Markdown template.")],
         locale: LocaleOption = "zh",
         workflow_preset: WorkflowPresetOption = "",
     ) -> None:
@@ -38,8 +47,12 @@ def register_spec_commands(spec_app: typer.Typer) -> None:
         except (FileExistsError, OSError) as exc:
             handle_error(exc)
 
+
+def _register_spec_validate_command(spec_app: typer.Typer) -> None:
     @spec_app.command("validate")
-    def spec_validate(path: Path = typer.Argument(..., exists=True, help="Path to the Markdown spec to validate.")) -> None:
+    def spec_validate(
+        path: Annotated[Path, typer.Argument(..., exists=True, help="Path to the Markdown spec to validate.")],
+    ) -> None:
         """Validate a Markdown spec and print the resolved check mode."""
         try:
             _, compiled = read_and_compile(path)
@@ -54,6 +67,8 @@ def register_spec_commands(spec_app: typer.Typer) -> None:
         except (SpecError, FileNotFoundError, OSError) as exc:
             handle_error(exc)
 
+
+def _register_spec_template_command(spec_app: typer.Typer) -> None:
     @spec_app.command("template")
     def spec_template(
         locale: LocaleOption = "zh",
@@ -84,8 +99,12 @@ def register_spec_commands(spec_app: typer.Typer) -> None:
         except (LooporaError, WorkflowError, OSError) as exc:
             handle_error(exc)
 
+
+def _register_spec_read_command(spec_app: typer.Typer) -> None:
     @spec_app.command("read")
-    def spec_read(path: Path = typer.Argument(..., exists=True, help="Path to the Markdown spec to read.")) -> None:
+    def spec_read(
+        path: Annotated[Path, typer.Argument(..., exists=True, help="Path to the Markdown spec to read.")],
+    ) -> None:
         """Read a spec document together with rendered HTML and validation status."""
         try:
             markdown_text = path.read_text(encoding="utf-8")
@@ -93,9 +112,11 @@ def register_spec_commands(spec_app: typer.Typer) -> None:
         except (FileNotFoundError, OSError) as exc:
             handle_error(exc)
 
+
+def _register_spec_write_command(spec_app: typer.Typer) -> None:
     @spec_app.command("write")
     def spec_write(
-        path: Path = typer.Argument(..., help="Spec path to overwrite."),
+        path: Annotated[Path, typer.Argument(..., help="Spec path to overwrite.")],
         from_file: FromFileOption = None,
     ) -> None:
         """Overwrite a spec document from another Markdown file."""

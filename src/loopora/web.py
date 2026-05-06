@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -21,6 +22,7 @@ from loopora.web_inputs import (
     _preferred_locale_from_accept_language,
     _preferred_request_locale,
 )
+from loopora.web_route_context_base import WebRouteDependencies
 from loopora.web_routes import register_web_routes
 
 logger = get_logger(__name__)
@@ -40,22 +42,32 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
     access_state = _build_access_state(bind_host=bind_host, bind_port=bind_port, auth_token=auth_token)
     app.state.access_state = access_state
     package_root = Path(__file__).parent
+    templates = _build_templates(package_root)
+    _mount_static_assets(app, package_root)
+    log_event(
+        logger,
+        logging.INFO,
+        "web.app.built",
+        "Built web application instance",
+        bind_host=bind_host,
+        bind_port=bind_port,
+        auth_enabled=bool(auth_token),
+    )
+    auth_required_response = register_web_routes(
+        app,
+        dependencies=_web_route_dependencies(templates, access_state),
+    )
+    _install_auth_middleware(app, access_state, auth_required_response)
+    return app
+
+
+def _build_templates(package_root: Path) -> Jinja2Templates:
     static_root = package_root / "static"
-
-    def template_context(request: Request) -> dict[str, str]:
-        locale = _preferred_request_locale(request)
-        return {
-            "page_locale": locale,
-            "page_lang": "zh-CN" if locale == "zh" else "en",
-        }
-
     templates = Jinja2Templates(
         directory=str(package_root / "templates"),
-        context_processors=[template_context],
+        context_processors=[_template_context],
     )
     templates.env.auto_reload = True
-    app.mount("/static", StaticFiles(directory=str(package_root / "static")), name="static")
-    app.mount("/logo", StaticFiles(directory=str(package_root / "assets" / "logo")), name="logo")
 
     def static_asset_url(path: str) -> str:
         normalized = path.lstrip("/")
@@ -67,25 +79,54 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
         return f"/static/{normalized}?v={version}"
 
     templates.env.globals["static_asset_url"] = static_asset_url
-    log_event(
-        logger,
-        logging.INFO,
-        "web.app.built",
-        "Built web application instance",
-        bind_host=bind_host,
-        bind_port=bind_port,
-        auth_enabled=bool(auth_token),
+    return templates
+
+
+def _mount_static_assets(app: FastAPI, package_root: Path) -> None:
+    app.mount("/static", StaticFiles(directory=str(package_root / "static")), name="static")
+    app.mount("/logo", StaticFiles(directory=str(package_root / "assets" / "logo")), name="logo")
+
+
+def _template_context(request: Request) -> dict[str, str]:
+    locale = _preferred_request_locale(request)
+    return {
+        "page_locale": locale,
+        "page_lang": "zh-CN" if locale == "zh" else "en",
+    }
+
+
+async def _read_json_mapping(request: Request) -> Mapping[str, object]:
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError as exc:
+        raise LooporaError(f"invalid JSON body: {exc.msg}") from exc
+    if not isinstance(payload, Mapping):
+        raise LooporaError("request body must be a JSON object")
+    return payload
+
+
+def _web_route_dependencies(
+    templates: Jinja2Templates,
+    access_state: Mapping[str, object],
+) -> WebRouteDependencies:
+    return WebRouteDependencies(
+        templates=templates,
+        access_state=access_state,
+        logger=logger,
+        read_json_mapping=_read_json_mapping,
+        resolve_stream_after_id=_resolve_stream_after_id,
+        pick_directory_dialog=lambda start_path=None: pick_directory(start_path),
+        pick_file_dialog=lambda start_path=None: pick_file(start_path),
+        pick_save_file_dialog=lambda start_path=None, **kwargs: pick_save_file(start_path, **kwargs),
+        reveal_path_callback=lambda target: reveal_path(target),
     )
 
-    async def read_json_mapping(request: Request) -> Mapping[str, object]:
-        try:
-            payload = await request.json()
-        except json.JSONDecodeError as exc:
-            raise LooporaError(f"invalid JSON body: {exc.msg}") from exc
-        if not isinstance(payload, Mapping):
-            raise LooporaError("request body must be a JSON object")
-        return payload
 
+def _install_auth_middleware(
+    app: FastAPI,
+    access_state: Mapping[str, object],
+    auth_required_response: Callable[[Request], Response],
+) -> None:
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
         start_time = time.perf_counter()
@@ -140,24 +181,11 @@ def build_app(service=None, *, bind_host: str = "127.0.0.1", bind_port: int = 87
             response.set_cookie(AUTH_COOKIE_NAME, expected_token, httponly=True, samesite="lax")
         _log_web_response(request, response.status_code, start_time)
         return response
-    auth_required_response = register_web_routes(
-        app,
-        templates=templates,
-        access_state=access_state,
-        logger=logger,
-        read_json_mapping=read_json_mapping,
-        resolve_stream_after_id=_resolve_stream_after_id,
-        pick_directory_dialog=lambda start_path=None: pick_directory(start_path),
-        pick_file_dialog=lambda start_path=None: pick_file(start_path),
-        pick_save_file_dialog=lambda start_path=None, **kwargs: pick_save_file(start_path, **kwargs),
-        reveal_path_callback=lambda target: reveal_path(target),
-    )
-    return app
 
 
 def _log_web_response(request: Request, status_code: int, started_at: float) -> None:
     path = request.url.path
-    if path.startswith("/static/") or path.startswith("/logo/"):
+    if path.startswith(("/static/", "/logo/")):
         return
     level = logging.ERROR if status_code >= 500 else (logging.WARNING if status_code >= 400 else logging.INFO)
     event = "web.request.failed" if status_code >= 500 else ("web.request.rejected" if status_code >= 400 else "web.request.completed")

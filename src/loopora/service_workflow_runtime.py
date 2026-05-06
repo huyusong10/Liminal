@@ -1,15 +1,63 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
-from loopora.context_flow import build_step_context_packet, output_contract_prompt, render_step_prompt, system_prompt_prefix
+from loopora.context_flow import (
+    StepContextPacketRequest,
+    build_step_context_packet,
+    output_contract_prompt,
+    render_step_prompt,
+    system_prompt_prefix,
+)
 from loopora.executor import CodexExecutor, RoleRequest, coerce_reasoning_effort, normalize_reasoning_effort, validate_command_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode
 from loopora.recovery import RetryConfig
 from loopora.run_artifacts import RunArtifactLayout, read_jsonl
+from loopora.service_role_execution import RoleExecutionRequest
 from loopora.service_types import LooporaError
 from loopora.utils import write_json
 from loopora.workflows import WorkflowError, default_step_action_policy, role_uses_execution_snapshot
+
+
+@dataclass(frozen=True)
+class WorkflowStepRuntimeRequest:
+    executor: CodexExecutor
+    run: dict
+    compiled_spec: dict
+    layout: RunArtifactLayout
+    iter_id: int
+    step: dict
+    step_order: int
+    role: dict
+    prompt_files: dict[str, str]
+    execution_settings: dict[str, object]
+    run_contract: dict
+    current_outputs_by_step: dict[str, dict]
+    current_outputs_by_role: dict[str, dict]
+    current_outputs_by_archetype: dict[str, dict]
+    current_handoffs: list[dict]
+    previous_outputs_by_step: dict[str, dict]
+    previous_outputs_by_role: dict[str, dict]
+    previous_outputs_by_archetype: dict[str, dict]
+    previous_handoffs_by_step: dict[str, dict]
+    previous_handoffs_by_role: dict[str, dict]
+    previous_iteration_summary: dict | None
+    previous_session_refs_by_step: dict[str, dict]
+    previous_composite: float | None
+    stagnation_mode: str
+    retry_config: RetryConfig
+
+
+@dataclass(frozen=True)
+class StepPromptBuildRequest:
+    role: dict
+    compiled_spec: dict
+    prompt_markdown: str
+    iter_id: int
+    current_outputs_by_role: dict[str, dict]
+    current_outputs_by_archetype: dict[str, dict]
+    previous_outputs_by_archetype: dict[str, dict]
 
 
 class ServiceWorkflowRuntimeMixin:
@@ -86,38 +134,21 @@ class ServiceWorkflowRuntimeMixin:
 
     def _run_workflow_step(
         self,
-        executor: CodexExecutor,
-        run: dict,
-        compiled_spec: dict,
-        layout: RunArtifactLayout,
-        iter_id: int,
-        step: dict,
-        step_order: int,
-        role: dict,
-        prompt_files: dict[str, str],
-        execution_settings: dict[str, object],
-        *,
-        run_contract: dict,
-        current_outputs_by_step: dict[str, dict],
-        current_outputs_by_role: dict[str, dict],
-        current_outputs_by_archetype: dict[str, dict],
-        current_handoffs: list[dict],
-        previous_outputs_by_step: dict[str, dict],
-        previous_outputs_by_role: dict[str, dict],
-        previous_outputs_by_archetype: dict[str, dict],
-        previous_handoffs_by_step: dict[str, dict],
-        previous_handoffs_by_role: dict[str, dict],
-        previous_iteration_summary: dict | None,
-        previous_session_refs_by_step: dict[str, dict],
-        previous_composite: float | None,
-        stagnation_mode: str,
-        retry_config: RetryConfig,
+        request: WorkflowStepRuntimeRequest,
     ) -> tuple[dict, dict, dict]:
+        runtime_request = request
+        run = runtime_request.run
+        layout = runtime_request.layout
+        iter_id = runtime_request.iter_id
+        step = runtime_request.step
+        step_order = runtime_request.step_order
+        role = runtime_request.role
+        execution_settings = runtime_request.execution_settings
         step_dir = layout.step_dir(iter_id, step_order, step["id"])
         step_dir.mkdir(parents=True, exist_ok=True)
         output_path = layout.step_output_raw_path(iter_id, step_order, step["id"])
         prompt_metadata, prompt_body = self._parse_runtime_prompt(
-            prompt_files[role["prompt_ref"]],
+            runtime_request.prompt_files[role["prompt_ref"]],
             expected_archetype=role["archetype"],
         )
         runtime_role = self._runtime_role_key(role)
@@ -128,35 +159,37 @@ class ServiceWorkflowRuntimeMixin:
             for item in all_evidence_items
             if isinstance(item, dict) and str(item.get("id") or "").strip()
         ]
-        current_handoffs_for_step = self._filter_handoffs_for_step(step, current_handoffs)
+        current_handoffs_for_step = self._filter_handoffs_for_step(step, runtime_request.current_handoffs)
         (
             previous_iteration_same_step_for_step,
             previous_iteration_same_role_for_step,
             previous_iteration_summary_for_step,
         ) = self._iteration_memory_for_step(
             step,
-            previous_iteration_same_step=previous_handoffs_by_step.get(step["id"]),
-            previous_iteration_same_role=previous_handoffs_by_role.get(role["id"]),
-            previous_iteration_summary=previous_iteration_summary,
+            previous_iteration_same_step=runtime_request.previous_handoffs_by_step.get(step["id"]),
+            previous_iteration_same_role=runtime_request.previous_handoffs_by_role.get(role["id"]),
+            previous_iteration_summary=runtime_request.previous_iteration_summary,
         )
         evidence_items = self._filter_evidence_for_step(step, evidence_items)
         context_packet = build_step_context_packet(
-            run_contract=run_contract,
-            layout=layout,
-            iter_id=iter_id,
-            step=step,
-            step_order=step_order,
-            role=role,
-            execution_settings=execution_settings,
-            immediate_previous_step=current_handoffs_for_step[-1] if current_handoffs_for_step else None,
-            completed_steps_this_iteration=current_handoffs_for_step,
-            previous_iteration_same_step=previous_iteration_same_step_for_step,
-            previous_iteration_same_role=previous_iteration_same_role_for_step,
-            previous_iteration_summary=previous_iteration_summary_for_step,
-            previous_composite=previous_composite,
-            stagnation_mode=stagnation_mode,
-            evidence_items=evidence_items,
-            evidence_known_ids=evidence_known_ids,
+            StepContextPacketRequest(
+                run_contract=runtime_request.run_contract,
+                layout=layout,
+                iter_id=iter_id,
+                step=step,
+                step_order=step_order,
+                role=role,
+                execution_settings=execution_settings,
+                immediate_previous_step=current_handoffs_for_step[-1] if current_handoffs_for_step else None,
+                completed_steps_this_iteration=current_handoffs_for_step,
+                previous_iteration_same_step=previous_iteration_same_step_for_step,
+                previous_iteration_same_role=previous_iteration_same_role_for_step,
+                previous_iteration_summary=previous_iteration_summary_for_step,
+                previous_composite=runtime_request.previous_composite,
+                stagnation_mode=runtime_request.stagnation_mode,
+                evidence_items=evidence_items,
+                evidence_known_ids=evidence_known_ids,
+            )
         )
         context_path = layout.step_context_path(iter_id, step_order, step["id"])
         write_json(context_path, context_packet)
@@ -185,10 +218,14 @@ class ServiceWorkflowRuntimeMixin:
             prompt_label=str(prompt_metadata.get("label", role["name"])),
             prompt_body=prompt_body,
             packet=context_packet,
-            compiled_spec=compiled_spec,
+            compiled_spec=runtime_request.compiled_spec,
         )
-        resume_session_ref = previous_session_refs_by_step.get(step["id"]) if execution_settings["inherit_session"] else None
-        request = RoleRequest(
+        resume_session_ref = (
+            runtime_request.previous_session_refs_by_step.get(step["id"])
+            if execution_settings["inherit_session"]
+            else None
+        )
+        role_request = RoleRequest(
             run_id=run["id"],
             role=runtime_role,
             role_archetype=role["archetype"],
@@ -212,7 +249,7 @@ class ServiceWorkflowRuntimeMixin:
             idle_timeout_seconds=self.settings.role_idle_timeout_seconds,
             extra_context={
                 "iter_id": iter_id,
-                "compiled_spec": compiled_spec,
+                "compiled_spec": runtime_request.compiled_spec,
                 "archetype": role["archetype"],
                 "step_id": step["id"],
                 "role_name": role["name"],
@@ -227,30 +264,30 @@ class ServiceWorkflowRuntimeMixin:
                 "context_packet": context_packet,
                 "immediate_previous_step": context_packet["upstream"]["immediate_previous_step"],
                 "previous_iteration_summary": previous_iteration_summary_for_step,
-                "current_outputs_by_step": current_outputs_by_step,
-                "current_outputs_by_role": current_outputs_by_role,
-                "current_outputs_by_archetype": current_outputs_by_archetype,
-                "previous_outputs_by_step": previous_outputs_by_step,
-                "previous_outputs_by_role": previous_outputs_by_role,
-                "previous_outputs_by_archetype": previous_outputs_by_archetype,
-                "inspector_output": current_outputs_by_archetype.get("inspector"),
-                "tester_output": current_outputs_by_archetype.get("inspector"),
-                "previous_builder_result": previous_outputs_by_archetype.get("builder"),
-                "previous_generator_result": previous_outputs_by_archetype.get("builder"),
-                "previous_inspector_result": previous_outputs_by_archetype.get("inspector"),
-                "previous_tester_result": previous_outputs_by_archetype.get("inspector"),
-                "previous_gatekeeper_result": previous_outputs_by_archetype.get("gatekeeper"),
-                "previous_verifier_result": previous_outputs_by_archetype.get("gatekeeper"),
-                "previous_guide_result": previous_outputs_by_archetype.get("guide"),
-                "previous_challenger_result": previous_outputs_by_archetype.get("guide"),
-                "stagnation_mode": stagnation_mode,
+                "current_outputs_by_step": runtime_request.current_outputs_by_step,
+                "current_outputs_by_role": runtime_request.current_outputs_by_role,
+                "current_outputs_by_archetype": runtime_request.current_outputs_by_archetype,
+                "previous_outputs_by_step": runtime_request.previous_outputs_by_step,
+                "previous_outputs_by_role": runtime_request.previous_outputs_by_role,
+                "previous_outputs_by_archetype": runtime_request.previous_outputs_by_archetype,
+                "inspector_output": runtime_request.current_outputs_by_archetype.get("inspector"),
+                "tester_output": runtime_request.current_outputs_by_archetype.get("inspector"),
+                "previous_builder_result": runtime_request.previous_outputs_by_archetype.get("builder"),
+                "previous_generator_result": runtime_request.previous_outputs_by_archetype.get("builder"),
+                "previous_inspector_result": runtime_request.previous_outputs_by_archetype.get("inspector"),
+                "previous_tester_result": runtime_request.previous_outputs_by_archetype.get("inspector"),
+                "previous_gatekeeper_result": runtime_request.previous_outputs_by_archetype.get("gatekeeper"),
+                "previous_verifier_result": runtime_request.previous_outputs_by_archetype.get("gatekeeper"),
+                "previous_guide_result": runtime_request.previous_outputs_by_archetype.get("guide"),
+                "previous_challenger_result": runtime_request.previous_outputs_by_archetype.get("guide"),
+                "stagnation_mode": runtime_request.stagnation_mode,
             },
         )
-        self._record_role_request(run["id"], request)
+        self._record_role_request(run["id"], role_request)
 
         def execute_request() -> dict:
-            return executor.execute(
-                request,
+            return runtime_request.executor.execute(
+                role_request,
                 lambda event_type, payload: self.append_run_event(
                     run["id"],
                     event_type,
@@ -270,25 +307,27 @@ class ServiceWorkflowRuntimeMixin:
             )
 
         output = self._execute_role(
-            run["id"],
-            iter_id,
-            runtime_role,
-            execute_request,
-            retry_config,
-            event_context={
-                "step_id": step["id"],
-                "step_order": step_order,
-                "role_name": role["name"],
-                "archetype": role["archetype"],
-            },
+            RoleExecutionRequest(
+                run_id=run["id"],
+                iter_id=iter_id,
+                role=runtime_role,
+                fn=execute_request,
+                retry_config=runtime_request.retry_config,
+                event_context={
+                    "step_id": step["id"],
+                    "step_order": step_order,
+                    "role_name": role["name"],
+                    "archetype": role["archetype"],
+                },
+            )
         )
-        session_ref = request.extra_context.get("session_ref")
+        session_ref = role_request.extra_context.get("session_ref")
         if not isinstance(session_ref, dict):
             session_ref = {}
-        elif not session_ref.get("session_id") and request.resume_session_id.strip():
+        elif not session_ref.get("session_id") and role_request.resume_session_id.strip():
             session_ref = {
                 **session_ref,
-                "session_id": request.resume_session_id.strip(),
+                "session_id": role_request.resume_session_id.strip(),
             }
         return output, context_packet, session_ref
 
@@ -365,55 +404,56 @@ class ServiceWorkflowRuntimeMixin:
 
     def _build_step_prompt(
         self,
-        role: dict,
-        compiled_spec: dict,
-        prompt_markdown: str,
-        iter_id: int,
-        *,
-        current_outputs_by_role: dict[str, dict],
-        current_outputs_by_archetype: dict[str, dict],
-        previous_outputs_by_archetype: dict[str, dict],
+        request: StepPromptBuildRequest,
     ) -> str:
-        prompt_metadata, prompt_body = self._parse_runtime_prompt(prompt_markdown, expected_archetype=role["archetype"])
+        prompt_metadata, prompt_body = self._parse_runtime_prompt(
+            request.prompt_markdown,
+            expected_archetype=request.role["archetype"],
+        )
         return render_step_prompt(
-            role=role,
-            prompt_label=str(prompt_metadata.get("label", role["name"])),
+            role=request.role,
+            prompt_label=str(prompt_metadata.get("label", request.role["name"])),
             prompt_body=prompt_body,
             packet={
                 "contract": {
                     "path": "contract/run_contract.json",
-                    "goal": str(compiled_spec.get("goal") or "").strip(),
-                    "constraints": str(compiled_spec.get("constraints") or "No explicit constraints were provided.").strip(),
-                    "check_mode": str(compiled_spec.get("check_mode") or "specified"),
-                    "check_count": len(compiled_spec.get("checks") or []),
+                    "goal": str(request.compiled_spec.get("goal") or "").strip(),
+                    "constraints": str(
+                        request.compiled_spec.get("constraints") or "No explicit constraints were provided."
+                    ).strip(),
+                    "check_mode": str(request.compiled_spec.get("check_mode") or "specified"),
+                    "check_count": len(request.compiled_spec.get("checks") or []),
                     "completion_mode": "gatekeeper",
                     "workflow_preset": "custom",
                     "workflow_collaboration_intent": "",
-                    "coverage_targets": list(compiled_spec.get("coverage_targets") or []),
-                    "success_surface": list(compiled_spec.get("success_surface") or []),
-                    "fake_done_states": list(compiled_spec.get("fake_done_states") or []),
-                    "evidence_preferences": list(compiled_spec.get("evidence_preferences") or []),
-                    "residual_risk": str(compiled_spec.get("residual_risk") or "").strip(),
+                    "coverage_targets": list(request.compiled_spec.get("coverage_targets") or []),
+                    "success_surface": list(request.compiled_spec.get("success_surface") or []),
+                    "fake_done_states": list(request.compiled_spec.get("fake_done_states") or []),
+                    "evidence_preferences": list(request.compiled_spec.get("evidence_preferences") or []),
+                    "residual_risk": str(request.compiled_spec.get("residual_risk") or "").strip(),
                 },
                 "iteration": {
-                    "iter_index": iter_id,
-                    "is_first_iteration": iter_id == 0,
-                    "previous_iteration_exists": bool(previous_outputs_by_archetype),
+                    "iter_index": request.iter_id,
+                    "is_first_iteration": request.iter_id == 0,
+                    "previous_iteration_exists": bool(request.previous_outputs_by_archetype),
                     "previous_composite": None,
                     "stagnation_mode": "none",
                 },
                 "current_step": {
-                    "step_id": role.get("id") or role["name"],
+                    "step_id": request.role.get("id") or request.role["name"],
                     "step_order": 0,
-                    "role_id": role.get("id") or role["name"],
-                    "role_name": role["name"],
-                    "archetype": role["archetype"],
+                    "role_id": request.role.get("id") or request.role["name"],
+                    "role_name": request.role["name"],
+                    "archetype": request.role["archetype"],
                     "model": "",
                     "executor_kind": "",
                     "executor_mode": "",
                     "parallel_group": "",
                     "inputs": {},
-                    "action_policy": default_step_action_policy(archetype=role["archetype"], on_pass="continue"),
+                    "action_policy": default_step_action_policy(
+                        archetype=request.role["archetype"],
+                        on_pass="continue",
+                    ),
                     "control": {},
                 },
                 "upstream": {
@@ -425,7 +465,7 @@ class ServiceWorkflowRuntimeMixin:
                 },
                 "artifacts": [],
             },
-            compiled_spec=compiled_spec,
+            compiled_spec=request.compiled_spec,
         )
 
     def _system_prompt_prefix(self, archetype: str) -> str:

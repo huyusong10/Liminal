@@ -16,6 +16,12 @@ TASK_VERDICT_STATUSES = {
 }
 TASK_VERDICT_SOURCES = {"gatekeeper", "rounds_completion", "run_status", "legacy"}
 TERMINAL_RUN_STATUSES = {"succeeded", "failed", "stopped"}
+BUCKET_KEYS = ("proven", "weak", "unproven", "blocking", "residual_risk")
+TARGET_STATUS_BUCKETS = {
+    "covered": "proven",
+    "weak": "weak",
+    "blocked": "blocking",
+}
 
 
 def hydrate_run_status_and_task_verdict(run: dict) -> dict:
@@ -111,46 +117,59 @@ def _load_coverage(run: Mapping[str, Any], run_dir: Path | None) -> dict:
 
 
 def _build_buckets(coverage: Mapping[str, Any], verdict: Mapping[str, Any]) -> dict[str, list[dict]]:
-    buckets: dict[str, list[dict]] = {
-        "proven": [],
-        "weak": [],
-        "unproven": [],
-        "blocking": [],
-        "residual_risk": [],
-    }
-    for target in list(coverage.get("targets") or []):
+    buckets = _empty_buckets()
+    _append_coverage_target_buckets(buckets, coverage.get("targets"))
+    _append_verdict_blockers(buckets, verdict)
+    _append_residual_risk_buckets(buckets, coverage.get("risk_signals"))
+    if not any(buckets.values()):
+        _append_legacy_evidence_buckets(buckets, verdict)
+    return {key: _dedupe_bucket_items(items)[:12] for key, items in buckets.items()}
+
+
+def _empty_buckets() -> dict[str, list[dict]]:
+    return {key: [] for key in BUCKET_KEYS}
+
+
+def _append_coverage_target_buckets(buckets: dict[str, list[dict]], targets: object) -> None:
+    for target in list(targets or []):
         if not isinstance(target, Mapping):
             continue
-        item = {
-            "id": str(target.get("id") or ""),
-            "label": str(target.get("label") or target.get("id") or ""),
-            "text": _clean_text(target.get("text"), max_length=240),
-            "reason": _clean_text(target.get("reason"), max_length=240),
-            "evidence_refs": [str(ref) for ref in list(target.get("evidence_refs") or []) if str(ref).strip()],
-            "required": bool(target.get("required")),
-        }
-        status = str(target.get("status") or "").strip().lower()
-        if status == "covered":
-            buckets["proven"].append(item)
-        elif status == "weak":
-            buckets["weak"].append(item)
-        elif status == "blocked":
-            buckets["blocking"].append(item)
-        else:
-            buckets["unproven"].append(item)
+        buckets[_bucket_for_target(target)].append(_target_bucket_item(target))
 
+
+def _target_bucket_item(target: Mapping[str, Any]) -> dict:
+    return {
+        "id": str(target.get("id") or ""),
+        "label": str(target.get("label") or target.get("id") or ""),
+        "text": _clean_text(target.get("text"), max_length=240),
+        "reason": _clean_text(target.get("reason"), max_length=240),
+        "evidence_refs": [str(ref) for ref in list(target.get("evidence_refs") or []) if str(ref).strip()],
+        "required": bool(target.get("required")),
+    }
+
+
+def _bucket_for_target(target: Mapping[str, Any]) -> str:
+    status = str(target.get("status") or "").strip().lower()
+    return TARGET_STATUS_BUCKETS.get(status, "unproven")
+
+
+def _append_verdict_blockers(buckets: dict[str, list[dict]], verdict: Mapping[str, Any]) -> None:
     for blocker in _verdict_blockers(verdict):
         buckets["blocking"].append({"label": blocker, "reason": "Reported by the latest raw verdict."})
-    for risk in list(coverage.get("risk_signals") or []):
+
+
+def _append_residual_risk_buckets(buckets: dict[str, list[dict]], risk_signals: object) -> None:
+    for risk in list(risk_signals or []):
         text = _clean_text(risk, max_length=240)
         if text:
             buckets["residual_risk"].append({"label": text})
-    if not any(buckets.values()):
-        for claim in _string_list(verdict.get("evidence_claims")):
-            buckets["proven"].append({"label": _clean_text(claim, max_length=240)})
-        for ref in _string_list(verdict.get("evidence_refs")):
-            buckets["proven"].append({"label": ref, "reason": "Referenced by the latest raw verdict."})
-    return {key: _dedupe_bucket_items(items)[:12] for key, items in buckets.items()}
+
+
+def _append_legacy_evidence_buckets(buckets: dict[str, list[dict]], verdict: Mapping[str, Any]) -> None:
+    for claim in _string_list(verdict.get("evidence_claims")):
+        buckets["proven"].append({"label": _clean_text(claim, max_length=240)})
+    for ref in _string_list(verdict.get("evidence_refs")):
+        buckets["proven"].append({"label": ref, "reason": "Referenced by the latest raw verdict."})
 
 
 def _status_from_gatekeeper(verdict: Mapping[str, Any], buckets: Mapping[str, list[dict]]) -> str:
@@ -170,24 +189,29 @@ def _summary_for(
     verdict: Mapping[str, Any],
     coverage: Mapping[str, Any],
 ) -> str:
+    summary = ""
     decision_summary = _clean_text(verdict.get("decision_summary"), max_length=600)
     if decision_summary:
-        return decision_summary
-    coverage_summary = coverage.get("summary") if isinstance(coverage.get("summary"), Mapping) else {}
-    coverage_reason = _clean_text(coverage_summary.get("reason"), max_length=600)
-    if coverage_reason:
-        return coverage_reason
-    if status == "passed":
-        return "GateKeeper found sufficient evidence for the task."
-    if status == "passed_with_residual_risk":
-        return "GateKeeper passed the task with residual risk still visible."
-    if status == "failed":
-        return "The latest judgment reported blocking evidence against the task."
-    if status == "insufficient_evidence":
-        return "The run reached its lifecycle boundary, but the evidence is not strong enough for a task pass."
+        summary = decision_summary
+    else:
+        coverage_summary = coverage.get("summary") if isinstance(coverage.get("summary"), Mapping) else {}
+        coverage_reason = _clean_text(coverage_summary.get("reason"), max_length=600)
+        summary = coverage_reason or _fallback_summary_for(status, source, run_status)
+    return summary
+
+
+def _fallback_summary_for(status: str, source: str, run_status: str) -> str:
+    status_summaries = {
+        "passed": "GateKeeper found sufficient evidence for the task.",
+        "passed_with_residual_risk": "GateKeeper passed the task with residual risk still visible.",
+        "failed": "The latest judgment reported blocking evidence against the task.",
+        "insufficient_evidence": (
+            "The run reached its lifecycle boundary, but the evidence is not strong enough for a task pass."
+        ),
+    }
     if source == "legacy":
         return "This legacy run has no persisted task verdict; Loopora derived a compatibility verdict on read."
-    return f"The run is {run_status}, and no evidence-based task verdict is available."
+    return status_summaries.get(status, f"The run is {run_status}, and no evidence-based task verdict is available.")
 
 
 def _verdict_blockers(verdict: Mapping[str, Any]) -> list[str]:

@@ -15,6 +15,7 @@ from loopora.cli_shared import (
     PromptFileOption,
     PromptTemplateOption,
     ReasoningOption,
+    RoleDefinitionBuildRequest,
     build_role_definition_kwargs,
     echo_json,
     handle_error,
@@ -24,6 +25,15 @@ from loopora.workflows import WorkflowError
 
 
 def register_role_commands(roles_app: typer.Typer) -> None:
+    _register_role_list_command(roles_app)
+    _register_role_get_command(roles_app)
+    _register_role_create_command(roles_app)
+    _register_role_derive_command(roles_app)
+    _register_role_update_command(roles_app)
+    _register_role_delete_command(roles_app)
+
+
+def _register_role_list_command(roles_app: typer.Typer) -> None:
     @roles_app.command("list")
     def list_roles() -> None:
         """List built-in and custom role definitions."""
@@ -37,6 +47,8 @@ def register_role_commands(roles_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_role_get_command(roles_app: typer.Typer) -> None:
     @roles_app.command("get")
     def get_role(role_definition_id: str = typer.Argument(..., help="Built-in or custom role definition id.")) -> None:
         """Show one role definition as JSON."""
@@ -45,6 +57,8 @@ def register_role_commands(roles_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_role_create_command(roles_app: typer.Typer) -> None:
     @roles_app.command("create")
     def create_role(
         name: str = typer.Option(..., help="Role definition name."),
@@ -64,17 +78,19 @@ def register_role_commands(roles_app: typer.Typer) -> None:
         """Create a saved role definition."""
         try:
             payload = build_role_definition_kwargs(
-                archetype=archetype,
-                prompt_file=prompt_file,
-                prompt_template=prompt_template,
-                locale=locale,
-                posture_notes=posture_notes,
-                executor_kind=executor_kind,
-                executor_mode=executor_mode,
-                command_cli=command_cli,
-                command_arg=command_arg,
-                model=model,
-                reasoning_effort=reasoning_effort,
+                RoleDefinitionBuildRequest(
+                    archetype=archetype,
+                    prompt_file=prompt_file,
+                    prompt_template=prompt_template,
+                    locale=locale,
+                    posture_notes=posture_notes,
+                    executor_kind=executor_kind,
+                    executor_mode=executor_mode,
+                    command_cli=command_cli,
+                    command_arg=command_arg,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                )
             )
             role_definition = get_service().create_role_definition(
                 name=name,
@@ -85,6 +101,8 @@ def register_role_commands(roles_app: typer.Typer) -> None:
         except (LooporaError, WorkflowError, OSError, ValueError) as exc:
             handle_error(exc)
 
+
+def _register_role_derive_command(roles_app: typer.Typer) -> None:
     @roles_app.command("derive")
     def derive_role(
         source_id: str = typer.Argument(..., help="Built-in or custom role definition id to derive from."),
@@ -106,18 +124,20 @@ def register_role_commands(roles_app: typer.Typer) -> None:
             service = get_service()
             source = service.get_role_definition(source_id)
             payload = build_role_definition_kwargs(
-                archetype=str(source.get("archetype", "builder") or "builder"),
-                prompt_file=prompt_file,
-                prompt_template=prompt_template,
-                locale=locale,
-                posture_notes=posture_notes,
-                executor_kind=executor_kind,
-                executor_mode=executor_mode,
-                command_cli=command_cli,
-                command_arg=command_arg,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                fallback=source,
+                RoleDefinitionBuildRequest(
+                    archetype=str(source.get("archetype", "builder") or "builder"),
+                    prompt_file=prompt_file,
+                    prompt_template=prompt_template,
+                    locale=locale,
+                    posture_notes=posture_notes,
+                    executor_kind=executor_kind,
+                    executor_mode=executor_mode,
+                    command_cli=command_cli,
+                    command_arg=command_arg,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    fallback=source,
+                )
             )
             role_definition = service.create_role_definition(
                 name=name or f"{source['name']} Copy",
@@ -128,6 +148,8 @@ def register_role_commands(roles_app: typer.Typer) -> None:
         except (LooporaError, WorkflowError, OSError, ValueError) as exc:
             handle_error(exc)
 
+
+def _register_role_update_command(roles_app: typer.Typer) -> None:
     @roles_app.command("update")
     def update_role(
         role_definition_id: str = typer.Argument(..., help="Custom role definition id."),
@@ -149,18 +171,20 @@ def register_role_commands(roles_app: typer.Typer) -> None:
             service = get_service()
             current = service.get_role_definition(role_definition_id)
             payload = build_role_definition_kwargs(
-                archetype=str(current.get("archetype", "builder") or "builder"),
-                prompt_file=prompt_file,
-                prompt_template=prompt_template,
-                locale=locale,
-                posture_notes=posture_notes,
-                executor_kind=executor_kind,
-                executor_mode=executor_mode,
-                command_cli=command_cli,
-                command_arg=command_arg,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                fallback=current,
+                RoleDefinitionBuildRequest(
+                    archetype=str(current.get("archetype", "builder") or "builder"),
+                    prompt_file=prompt_file,
+                    prompt_template=prompt_template,
+                    locale=locale,
+                    posture_notes=posture_notes,
+                    executor_kind=executor_kind,
+                    executor_mode=executor_mode,
+                    command_cli=command_cli,
+                    command_arg=command_arg,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    fallback=current,
+                )
             )
             role_definition = service.update_role_definition(
                 role_definition_id,
@@ -173,6 +197,8 @@ def register_role_commands(roles_app: typer.Typer) -> None:
         except (LooporaError, WorkflowError, OSError, ValueError) as exc:
             handle_error(exc)
 
+
+def _register_role_delete_command(roles_app: typer.Typer) -> None:
     @roles_app.command("delete")
     def delete_role(role_definition_id: str = typer.Argument(..., help="Custom role definition id.")) -> None:
         """Delete a saved custom role definition."""

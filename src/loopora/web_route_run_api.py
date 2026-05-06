@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -15,11 +16,20 @@ from loopora.web_overviews import (
     _artifact_record_or_404,
     _format_timeline_event,
 )
+from loopora.web_inputs import _loop_payload_from_mapping
 from loopora.web_route_context import WebRouteContext
 from loopora.web_streaming import stream_error_payload
 
 
 def register_run_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+    _register_loop_api_routes(app, ctx)
+    _register_run_observation_api_routes(app, ctx)
+    _register_run_artifact_api_routes(app, ctx)
+    _register_run_stream_api_route(app, ctx)
+    _register_file_api_routes(app, ctx)
+
+
+def _register_loop_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/api/loops")
     async def api_create_loop(request: Request) -> JSONResponse:
         payload = await ctx.read_json_mapping(request)
@@ -53,6 +63,8 @@ def register_run_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         ctx.svc().start_run_async(run["id"])
         return JSONResponse(run, status_code=201)
 
+
+def _register_run_observation_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/runs/{run_id}")
     async def api_get_run(run_id: str) -> JSONResponse:
         return JSONResponse(ctx.svc().get_run(run_id))
@@ -75,6 +87,8 @@ def register_run_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     async def api_run_events(run_id: str, after_id: int = 0, limit: int = 200) -> JSONResponse:
         return JSONResponse(ctx.svc().stream_events(run_id, after_id=after_id, limit=limit))
 
+
+def _register_run_artifact_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/runs/{run_id}/artifacts")
     async def api_run_artifacts(run_id: str) -> JSONResponse:
         run = ctx.svc().get_run(run_id)
@@ -118,42 +132,16 @@ def register_run_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             raise HTTPException(status_code=404, detail="artifact not found")
         return FileResponse(artifact_path.resolve())
 
+
+def _register_run_stream_api_route(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/runs/{run_id}/stream")
     async def api_run_stream(request: Request, run_id: str, after_id: int = 0) -> StreamingResponse:
         ctx.svc().get_run(run_id)
         after_id = ctx.resolve_stream_after_id(request, run_id=run_id, after_id=after_id)
+        return StreamingResponse(_run_event_stream(ctx, run_id=run_id, after_id=after_id), media_type="text/event-stream")
 
-        def event_stream():
-            last_id = after_id
-            while True:
-                try:
-                    events = ctx.svc().stream_events(run_id, after_id=last_id)
-                    for event in events:
-                        last_id = event["id"]
-                        yield f"id: {event['id']}\n"
-                        yield f"event: {event['event_type']}\n"
-                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                    run = ctx.svc().get_run(run_id)
-                except Exception as exc:
-                    log_exception(
-                        ctx.logger,
-                        "web.run_stream.failed",
-                        "Run event stream failed",
-                        error=exc,
-                        run_id=run_id,
-                        after_id=last_id,
-                    )
-                    payload = stream_error_payload(owner_key="run_id", owner_id=run_id, after_id=last_id)
-                    yield "event: stream_error\n"
-                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-                    break
-                if run["status"] in {"succeeded", "failed", "stopped"} and not events:
-                    break
-                yield ": keep-alive\n\n"
-                time.sleep(1)
 
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
-
+def _register_file_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/files")
     async def api_preview_file(
         run_id: str,
@@ -176,4 +164,31 @@ def register_run_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         return FileResponse(resolved)
 
 
-from loopora.web_inputs import _loop_payload_from_mapping
+def _run_event_stream(ctx: WebRouteContext, *, run_id: str, after_id: int) -> Iterator[str]:
+    last_id = after_id
+    while True:
+        try:
+            events = ctx.svc().stream_events(run_id, after_id=last_id)
+            for event in events:
+                last_id = event["id"]
+                yield f"id: {event['id']}\n"
+                yield f"event: {event['event_type']}\n"
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            run = ctx.svc().get_run(run_id)
+        except Exception as exc:
+            log_exception(
+                ctx.logger,
+                "web.run_stream.failed",
+                "Run event stream failed",
+                error=exc,
+                run_id=run_id,
+                after_id=last_id,
+            )
+            payload = stream_error_payload(owner_key="run_id", owner_id=run_id, after_id=last_id)
+            yield "event: stream_error\n"
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            break
+        if run["status"] in {"succeeded", "failed", "stopped"} and not events:
+            break
+        yield ": keep-alive\n\n"
+        time.sleep(1)

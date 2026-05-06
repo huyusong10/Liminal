@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from loopora.service import LooporaError, normalize_role_models
@@ -35,6 +36,46 @@ def workflow_bundle_from_entity(entity: dict[str, object]) -> tuple[dict | None,
     if isinstance(prompt_files, dict):
         return workflow, dict(prompt_files)
     return workflow, {}
+
+
+@dataclass(frozen=True)
+class RoleDefinitionBuildRequest:
+    archetype: str
+    prompt_file: Path | None
+    prompt_template: str
+    locale: str
+    posture_notes: str
+    executor_kind: str
+    executor_mode: str
+    command_cli: str
+    command_arg: list[str] | None
+    model: str
+    reasoning_effort: str
+    fallback: dict[str, object] | None = None
+
+
+@dataclass(frozen=True)
+class LoopBuildRequest:
+    spec: Path
+    workdir: Path
+    executor_kind: str
+    executor_mode: str
+    model: str
+    reasoning_effort: str
+    completion_mode: str
+    iteration_interval_seconds: float
+    command_cli: str
+    command_arg: list[str] | None
+    max_iters: int
+    max_role_retries: int
+    delta_threshold: float
+    trigger_window: int
+    regression_window: int
+    name: str | None
+    role_model: list[str] | None
+    orchestration_id: str
+    workflow_preset: str
+    workflow_file: Path | None
 
 
 def resolve_workflow_bundle(
@@ -73,92 +114,60 @@ def read_prompt_markdown(
 
 
 def build_role_definition_kwargs(
-    *,
-    archetype: str,
-    prompt_file: Path | None,
-    prompt_template: str,
-    locale: str,
-    posture_notes: str,
-    executor_kind: str,
-    executor_mode: str,
-    command_cli: str,
-    command_arg: list[str] | None,
-    model: str,
-    reasoning_effort: str,
-    fallback: dict[str, object] | None = None,
+    request: RoleDefinitionBuildRequest,
 ) -> dict[str, str]:
-    current = fallback or {}
-    normalized_archetype = normalize_archetype(archetype or str(current.get("archetype", "builder") or "builder"))
+    current = request.fallback or {}
+    normalized_archetype = normalize_archetype(request.archetype or str(current.get("archetype", "builder") or "builder"))
     prompt_markdown = read_prompt_markdown(
-        prompt_file=prompt_file,
-        prompt_template=prompt_template,
-        locale=locale,
+        prompt_file=request.prompt_file,
+        prompt_template=request.prompt_template,
+        locale=request.locale,
         archetype=normalized_archetype,
         fallback=str(current.get("prompt_markdown", "")),
     )
     return {
         "archetype": normalized_archetype,
         "prompt_markdown": prompt_markdown,
-        "posture_notes": posture_notes if posture_notes else str(current.get("posture_notes", "")),
-        "executor_kind": executor_kind or str(current.get("executor_kind", "codex") or "codex"),
-        "executor_mode": executor_mode or str(current.get("executor_mode", "preset") or "preset"),
-        "command_cli": command_cli or str(current.get("command_cli", "")),
-        "command_args_text": command_args_text_from_values(command_arg)
-        if command_arg is not None
+        "posture_notes": request.posture_notes if request.posture_notes else str(current.get("posture_notes", "")),
+        "executor_kind": request.executor_kind or str(current.get("executor_kind", "codex") or "codex"),
+        "executor_mode": request.executor_mode or str(current.get("executor_mode", "preset") or "preset"),
+        "command_cli": request.command_cli or str(current.get("command_cli", "")),
+        "command_args_text": command_args_text_from_values(request.command_arg)
+        if request.command_arg is not None
         else str(current.get("command_args_text", "")),
-        "model": model or str(current.get("model", "")),
-        "reasoning_effort": reasoning_effort or str(current.get("reasoning_effort", "")),
+        "model": request.model or str(current.get("model", "")),
+        "reasoning_effort": request.reasoning_effort or str(current.get("reasoning_effort", "")),
     }
 
 
 def build_loop_kwargs(
-    *,
-    spec: Path,
-    workdir: Path,
-    executor_kind: str,
-    executor_mode: str,
-    model: str,
-    reasoning_effort: str,
-    completion_mode: str,
-    iteration_interval_seconds: float,
-    command_cli: str,
-    command_arg: list[str] | None,
-    max_iters: int,
-    max_role_retries: int,
-    delta_threshold: float,
-    trigger_window: int,
-    regression_window: int,
-    name: str | None,
-    role_model: list[str] | None,
-    orchestration_id: str,
-    workflow_preset: str,
-    workflow_file: Path | None,
+    request: LoopBuildRequest,
 ) -> dict[str, object]:
     workflow: dict | None = None
     prompt_files: dict[str, str] | None = None
-    if workflow_file is not None:
-        workflow, prompt_files = load_workflow_file(workflow_file)
-    elif workflow_preset and not orchestration_id.strip():
-        workflow = {"preset": workflow_preset}
+    if request.workflow_file is not None:
+        workflow, prompt_files = load_workflow_file(request.workflow_file)
+    elif request.workflow_preset and not request.orchestration_id.strip():
+        workflow = {"preset": request.workflow_preset}
     return {
-        "name": name or workdir.resolve().name,
-        "spec_path": spec,
-        "workdir": workdir,
-        "orchestration_id": orchestration_id.strip() or None,
-        "executor_kind": executor_kind,
-        "executor_mode": executor_mode,
-        "command_cli": command_cli,
-        "command_args_text": command_args_text_from_values(command_arg),
-        "model": model,
-        "reasoning_effort": reasoning_effort,
-        "completion_mode": completion_mode,
-        "iteration_interval_seconds": iteration_interval_seconds,
-        "max_iters": max_iters,
-        "max_role_retries": max_role_retries,
-        "delta_threshold": delta_threshold,
-        "trigger_window": trigger_window,
-        "regression_window": regression_window,
+        "name": request.name or request.workdir.resolve().name,
+        "spec_path": request.spec,
+        "workdir": request.workdir,
+        "orchestration_id": request.orchestration_id.strip() or None,
+        "executor_kind": request.executor_kind,
+        "executor_mode": request.executor_mode,
+        "command_cli": request.command_cli,
+        "command_args_text": command_args_text_from_values(request.command_arg),
+        "model": request.model,
+        "reasoning_effort": request.reasoning_effort,
+        "completion_mode": request.completion_mode,
+        "iteration_interval_seconds": request.iteration_interval_seconds,
+        "max_iters": request.max_iters,
+        "max_role_retries": request.max_role_retries,
+        "delta_threshold": request.delta_threshold,
+        "trigger_window": request.trigger_window,
+        "regression_window": request.regression_window,
         "workflow": workflow,
         "prompt_files": prompt_files,
-        "role_models": parse_role_models(role_model),
+        "role_models": parse_role_models(request.role_model),
     }

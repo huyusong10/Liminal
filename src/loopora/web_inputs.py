@@ -4,6 +4,7 @@ import ipaddress
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 from fastapi import Request
@@ -40,6 +41,13 @@ DEFAULT_LOOP_FORM = {
     "regression_window": 2,
     "start_immediately": True,
 }
+
+
+@dataclass(frozen=True)
+class SpecTemplateWorkflowCandidate:
+    present: bool
+    workflow: dict | None
+
 
 DEFAULT_ORCHESTRATION_FORM = {
     "name": "",
@@ -210,27 +218,42 @@ def _workflow_from_mapping(payload: Mapping[str, object], *, default_to_preset: 
 
 
 def _workflow_for_spec_template(payload: Mapping[str, object]) -> dict | None:
-    workflow = payload.get("workflow")
-    if isinstance(workflow, Mapping):
-        workflow_mapping = dict(workflow)
-        if not workflow_mapping.get("roles") and not workflow_mapping.get("steps"):
-            return None
-        return normalize_workflow(workflow_mapping)
-    raw_workflow_json = payload.get("workflow_json")
-    if isinstance(raw_workflow_json, Mapping):
-        workflow_mapping = dict(raw_workflow_json)
-        if not workflow_mapping.get("roles") and not workflow_mapping.get("steps"):
-            return None
-        return normalize_workflow(workflow_mapping)
-    workflow_json = _mapping_from_json_field(payload.get("workflow_json"), field_name="workflow_json")
-    if workflow_json:
-        if not workflow_json.get("roles") and not workflow_json.get("steps"):
-            return None
-        return normalize_workflow(workflow_json)
+    result: dict | None = None
+    workflow_candidate = _spec_template_mapping_candidate(payload.get("workflow"))
+    if workflow_candidate.present:
+        result = _normalize_spec_template_workflow(workflow_candidate.workflow)
+    else:
+        result = _workflow_for_spec_template_without_workflow_field(payload)
+    return result
+
+
+def _workflow_for_spec_template_without_workflow_field(payload: Mapping[str, object]) -> dict | None:
+    result: dict | None = None
+    workflow_json_candidate = _spec_template_mapping_candidate(payload.get("workflow_json"))
+    if workflow_json_candidate.present:
+        result = _normalize_spec_template_workflow(workflow_json_candidate.workflow)
+    else:
+        workflow_json = _mapping_from_json_field(payload.get("workflow_json"), field_name="workflow_json")
+        result = _normalize_spec_template_workflow(workflow_json) if workflow_json else _preset_workflow_for_spec_template(payload)
+    return result
+
+
+def _spec_template_mapping_candidate(value: object) -> SpecTemplateWorkflowCandidate:
+    if not isinstance(value, Mapping):
+        return SpecTemplateWorkflowCandidate(present=False, workflow=None)
+    workflow = dict(value)
+    if not workflow.get("roles") and not workflow.get("steps"):
+        workflow = None
+    return SpecTemplateWorkflowCandidate(present=True, workflow=workflow)
+
+
+def _normalize_spec_template_workflow(workflow: dict | None) -> dict | None:
+    return normalize_workflow(workflow) if workflow else None
+
+
+def _preset_workflow_for_spec_template(payload: Mapping[str, object]) -> dict | None:
     preset = str(payload.get("workflow_preset", "")).strip()
-    if preset:
-        return build_preset_workflow(preset)
-    return None
+    return build_preset_workflow(preset) if preset else None
 
 
 def _prompt_files_from_mapping(payload: Mapping[str, object]) -> dict[str, str]:
@@ -495,40 +518,60 @@ def _preferred_locale_from_accept_language(accept_language: str | None) -> str:
     if not header:
         return "en"
 
-    candidates: list[tuple[float, int, str]] = []
-    for position, raw_item in enumerate(header.split(",")):
-        item = raw_item.strip()
-        if not item:
-            continue
-        language_tag, *params = [segment.strip() for segment in item.split(";")]
-        normalized_tag = str(language_tag or "").strip().lower().replace("_", "-")
-        if not normalized_tag:
-            continue
-        if normalized_tag.startswith("zh"):
-            locale = "zh"
-        elif normalized_tag.startswith("en"):
-            locale = "en"
-        else:
-            continue
-
-        q_value = 1.0
-        for param in params:
-            key, sep, value = param.partition("=")
-            if sep and key.strip().lower() == "q":
-                try:
-                    q_value = float(value.strip())
-                except ValueError:
-                    q_value = 0.0
-                break
-        if q_value <= 0:
-            continue
-        candidates.append((-q_value, position, locale))
-
+    candidates = _accept_language_locale_candidates(header)
     if not candidates:
         return "en"
 
     candidates.sort()
     return candidates[0][2]
+
+
+def _accept_language_locale_candidates(header: str) -> list[tuple[float, int, str]]:
+    candidates: list[tuple[float, int, str]] = []
+    for position, raw_item in enumerate(header.split(",")):
+        candidate = _accept_language_locale_candidate(raw_item, position=position)
+        if candidate is not None:
+            candidates.append(candidate)
+    return candidates
+
+
+def _accept_language_locale_candidate(raw_item: str, *, position: int) -> tuple[float, int, str] | None:
+    item = raw_item.strip()
+    if not item:
+        return None
+    language_tag, *params = [segment.strip() for segment in item.split(";")]
+    locale = _locale_for_language_tag(language_tag)
+    if not locale:
+        return None
+
+    q_value = _accept_language_q_value(params)
+    if q_value <= 0:
+        return None
+    return -q_value, position, locale
+
+
+def _locale_for_language_tag(language_tag: str) -> str:
+    normalized_tag = str(language_tag or "").strip().lower().replace("_", "-")
+    if normalized_tag.startswith("zh"):
+        return "zh"
+    if normalized_tag.startswith("en"):
+        return "en"
+    return ""
+
+
+def _accept_language_q_value(params: list[str]) -> float:
+    for param in params:
+        key, sep, value = param.partition("=")
+        if sep and key.strip().lower() == "q":
+            return _float_or_zero(value)
+    return 1.0
+
+
+def _float_or_zero(value: str) -> float:
+    try:
+        return float(value.strip())
+    except ValueError:
+        return 0.0
 
 
 def _spec_validation_from_markdown(markdown_text: str) -> dict[str, object]:

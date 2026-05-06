@@ -26,6 +26,14 @@ from loopora.workflows import WorkflowError
 
 
 def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+    _register_improvement_form_routes(app, ctx)
+    _register_loop_form_routes(app, ctx)
+    _register_orchestration_form_routes(app, ctx)
+    _register_role_form_routes(app, ctx)
+    _register_bundle_form_routes(app, ctx)
+
+
+def _register_improvement_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/bundles/{bundle_id}/revise")
     async def create_bundle_improvement_from_form(request: Request, bundle_id: str):
         form = await request.form()
@@ -56,6 +64,8 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         new_run = ctx.svc().rerun(run["loop_id"], background=True)
         return RedirectResponse(url=f"/runs/{new_run['id']}", status_code=303)
 
+
+def _register_loop_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/loops/new/manual")
     @app.post("/loops/new")
     async def create_loop_from_form(request: Request):
@@ -79,15 +89,7 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         form = await request.form()
         import_values = _normalize_bundle_import_form(form)
         try:
-            bundle_path = str(form.get("bundle_path", "")).strip()
-            bundle_yaml = str(form.get("bundle_yaml", ""))
-            replace_bundle_id = str(form.get("replace_bundle_id", "")).strip() or None
-            if bundle_yaml.strip():
-                bundle = ctx.svc().import_bundle_text(bundle_yaml, replace_bundle_id=replace_bundle_id)
-            elif bundle_path:
-                bundle = ctx.svc().import_bundle_file(Path(bundle_path), replace_bundle_id=replace_bundle_id)
-            else:
-                raise LooporaError("bundle path or bundle YAML is required")
+            bundle = _import_bundle_from_form_fields(ctx, form)
             loop_id = str(bundle.get("loop_id", "") or "").strip()
             if not loop_id:
                 return RedirectResponse(url=f"/bundles/{bundle['id']}", status_code=303)
@@ -99,6 +101,8 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         except (LooporaError, SpecError, FileExistsError, OSError, ValueError) as exc:
             return ctx.render_new_loop(request, page_mode="manual", import_values=import_values, import_error=str(exc))
 
+
+def _register_orchestration_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/orchestrations/new")
     async def create_orchestration_from_form(request: Request):
         form = await request.form()
@@ -135,6 +139,8 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
                 orchestration=orchestration,
             )
 
+
+def _register_role_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/roles/new")
     async def create_role_definition_from_form(request: Request):
         form = await request.form()
@@ -170,20 +176,14 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
                 role_definition=role_definition,
             )
 
+
+def _register_bundle_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/bundles/import")
     async def import_bundle_from_form(request: Request):
         form = await request.form()
         import_values = _normalize_bundle_import_form(form)
         try:
-            bundle_path = str(form.get("bundle_path", "")).strip()
-            bundle_yaml = str(form.get("bundle_yaml", ""))
-            replace_bundle_id = str(form.get("replace_bundle_id", "")).strip() or None
-            if bundle_yaml.strip():
-                bundle = ctx.svc().import_bundle_text(bundle_yaml, replace_bundle_id=replace_bundle_id)
-            elif bundle_path:
-                bundle = ctx.svc().import_bundle_file(Path(bundle_path), replace_bundle_id=replace_bundle_id)
-            else:
-                raise LooporaError("bundle path or bundle YAML is required")
+            bundle = _import_bundle_from_form_fields(ctx, form)
             return RedirectResponse(url=f"/bundles/{bundle['id']}", status_code=303)
         except (LooporaError, SpecError, FileExistsError, OSError, ValueError) as exc:
             return ctx.render_new_loop(request, page_mode="manual", import_values=import_values, import_error=str(exc))
@@ -220,3 +220,14 @@ def register_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             if value:
                 query_params[key] = value
         return RedirectResponse(url=f"/bundles/derive/export?{urlencode(query_params)}", status_code=303)
+
+
+def _import_bundle_from_form_fields(ctx: WebRouteContext, form) -> dict:
+    bundle_path = str(form.get("bundle_path", "")).strip()
+    bundle_yaml = str(form.get("bundle_yaml", ""))
+    replace_bundle_id = str(form.get("replace_bundle_id", "")).strip() or None
+    if bundle_yaml.strip():
+        return ctx.svc().import_bundle_text(bundle_yaml, replace_bundle_id=replace_bundle_id)
+    if bundle_path:
+        return ctx.svc().import_bundle_file(Path(bundle_path), replace_bundle_id=replace_bundle_id)
+    raise LooporaError("bundle path or bundle YAML is required")

@@ -9,11 +9,13 @@ from datetime import datetime
 from pathlib import Path
 
 from loopora.branding import state_dir_for_workdir
+from loopora.db_event_records import RunObservationSnapshotRowsRequest
 from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.file_previews import preview_existing_path
 from loopora.run_observation_events import PROGRESS_EVENT_TYPES, TAKEAWAY_PROJECTION_EVENT_TYPES, TIMELINE_EVENT_TYPES
 from loopora.run_takeaways import build_minimal_run_takeaway_projection, build_run_key_takeaways
 from loopora.service_cleanup_diagnostics import best_effort_rmtree, record_cleanup_failure
+from loopora.service_run_finalization import TerminalRunFinalizationRequest
 from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError, TERMINAL_RUN_STATUSES
 from loopora.utils import utc_now
 
@@ -166,12 +168,14 @@ class ServiceRunLifecycleMixin:
     def run_observation_snapshot(self, run_id: str) -> dict:
         self._reconcile_local_orphaned_runs()
         snapshot = self.repository.run_observation_snapshot_rows(
-            run_id,
-            timeline_event_types=TIMELINE_EVENT_TYPES,
-            progress_event_types=PROGRESS_EVENT_TYPES,
-            timeline_limit=40,
-            console_limit=160,
-            progress_limit=2000,
+            RunObservationSnapshotRowsRequest(
+                run_id=run_id,
+                timeline_event_types=TIMELINE_EVENT_TYPES,
+                progress_event_types=PROGRESS_EVENT_TYPES,
+                timeline_limit=40,
+                console_limit=160,
+                progress_limit=2000,
+            )
         )
         if snapshot is None:
             raise LooporaNotFoundError(f"unknown run: {run_id}")
@@ -378,12 +382,14 @@ class ServiceRunLifecycleMixin:
                     child_pid=child_pid,
                 )
         updated = self._finalize_terminal_run(
-            run["id"],
-            Path(run["runs_dir"]),
-            status="failed",
-            summary=summary,
-            error_message=reason,
-            final_reason="orphaned_worker",
+            TerminalRunFinalizationRequest(
+                run_id=run["id"],
+                run_dir=Path(run["runs_dir"]),
+                status="failed",
+                summary=summary,
+                error_message=reason,
+                final_reason="orphaned_worker",
+            )
         )
         self.repository.release_run_slot(run["id"])
         self._append_run_aborted_event(

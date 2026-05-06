@@ -156,152 +156,236 @@ def build_structured_iteration_takeaways(run: dict) -> list[dict]:
     if not runs_dir.exists():
         return []
 
+    summaries_by_iter = _iteration_summaries_by_iter(runs_dir)
+    handoffs_by_iter = _iteration_handoffs_by_iter(runs_dir)
+    iter_ids = sorted(set(summaries_by_iter) | set(handoffs_by_iter))
+    current_iter_id = _current_iter_id(run)
+
+    iterations: list[dict] = []
+    for iter_id in iter_ids:
+        iterations.append(
+            _build_structured_iteration_takeaway(
+                run,
+                iter_id=iter_id,
+                summary_payload=summaries_by_iter.get(iter_id) or {},
+                handoffs=sorted(
+                    handoffs_by_iter.get(iter_id, []),
+                    key=_handoff_step_order,
+                ),
+                current_iter_id=current_iter_id,
+            )
+        )
+    return iterations
+
+
+def _iteration_summaries_by_iter(runs_dir: Path) -> dict[int, dict]:
     summaries_by_iter: dict[int, dict] = {}
     for summary_path in sorted(runs_dir.glob("iterations/iter_*/summary.json")):
         summary_payload = safe_read_json_file(summary_path)
         if not summary_payload:
             continue
-        try:
-            iter_id = int(summary_payload.get("iter", -1))
-        except (TypeError, ValueError):
-            continue
-        summaries_by_iter[iter_id] = summary_payload
+        iter_id = _int_value(summary_payload.get("iter"), default=-1)
+        if iter_id >= 0:
+            summaries_by_iter[iter_id] = summary_payload
+    return summaries_by_iter
 
+
+def _iteration_handoffs_by_iter(runs_dir: Path) -> dict[int, list[dict]]:
     handoffs_by_iter: dict[int, list[dict]] = defaultdict(list)
     for handoff_path in sorted(runs_dir.glob("iterations/iter_*/steps/*/handoff.json")):
         handoff_payload = safe_read_json_file(handoff_path)
         if not handoff_payload:
             continue
         source = handoff_payload.get("source") if isinstance(handoff_payload.get("source"), Mapping) else {}
-        try:
-            iter_id = int(source.get("iter", -1))
-        except (TypeError, ValueError):
-            continue
-        if iter_id < 0:
-            continue
-        handoffs_by_iter[iter_id].append(handoff_payload)
+        iter_id = _int_value(source.get("iter"), default=-1)
+        if iter_id >= 0:
+            handoffs_by_iter[iter_id].append(handoff_payload)
+    return handoffs_by_iter
 
-    iter_ids = sorted(set(summaries_by_iter) | set(handoffs_by_iter))
+
+def _current_iter_id(run: Mapping[str, Any]) -> int | None:
     current_iter = run.get("current_iter")
-    try:
-        current_iter_id = int(current_iter) if current_iter is not None else None
-    except (TypeError, ValueError):
-        current_iter_id = None
+    return _int_value(current_iter, default=None) if current_iter is not None else None
 
-    iterations: list[dict] = []
-    for iter_id in iter_ids:
-        summary_payload = summaries_by_iter.get(iter_id) or {}
-        score_payload = summary_payload.get("score") if isinstance(summary_payload.get("score"), Mapping) else {}
-        composite_score = score_payload.get("composite")
-        handoffs = sorted(
-            handoffs_by_iter.get(iter_id, []),
-            key=lambda item: int(((item.get("source") if isinstance(item.get("source"), Mapping) else {}) or {}).get("step_order") or 0),
-        )
-        roles = [build_role_takeaway_from_handoff(handoff, composite_score=composite_score) for handoff in handoffs]
-        primary_role = next((item for item in roles if item.get("archetype") == "gatekeeper"), roles[-1] if roles else None)
-        summary_text = (
-            primary_role.get("summary")
-            if isinstance(primary_role, Mapping)
-            else ""
-        ) or clean_takeaway_text(run.get("summary_md"), max_length=220)
-        passed = score_payload.get("passed")
-        if passed is True:
-            iteration_status = "passed"
-        elif passed is False:
-            iteration_status = "blocked"
-        elif current_iter_id == iter_id and str(run.get("status") or "").strip() == "running":
-            iteration_status = "running"
-        elif roles:
-            iteration_status = normalize_takeaway_status(roles[-1].get("status"))
-        else:
-            iteration_status = "pending"
-        iterations.append(
-            {
-                "iter": iter_id,
-                "display_iter": display_iter(iter_id),
-                "status": iteration_status,
-                "phase": str(summary_payload.get("phase") or "").strip(),
-                "summary": summary_text,
-                "timestamp": str(summary_payload.get("timestamp") or "").strip(),
-                "composite_score": composite_score,
-                "role_count": len(roles),
-                "roles": roles,
-            }
-        )
-    return iterations
+
+def _int_value(value: object, *, default: int | None) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _handoff_step_order(handoff: Mapping[str, object]) -> int:
+    source = handoff.get("source") if isinstance(handoff.get("source"), Mapping) else {}
+    return int(source.get("step_order") or 0)
+
+
+def _build_structured_iteration_takeaway(
+    run: Mapping[str, Any],
+    *,
+    iter_id: int,
+    summary_payload: Mapping[str, Any],
+    handoffs: list[dict],
+    current_iter_id: int | None,
+) -> dict:
+    score_payload = summary_payload.get("score") if isinstance(summary_payload.get("score"), Mapping) else {}
+    composite_score = score_payload.get("composite")
+    roles = [build_role_takeaway_from_handoff(handoff, composite_score=composite_score) for handoff in handoffs]
+    primary_role = _primary_role_takeaway(roles)
+    summary_text = (
+        primary_role.get("summary")
+        if isinstance(primary_role, Mapping)
+        else ""
+    ) or clean_takeaway_text(run.get("summary_md"), max_length=220)
+    return {
+        "iter": iter_id,
+        "display_iter": display_iter(iter_id),
+        "status": _structured_iteration_status(
+            run,
+            roles=roles,
+            score_payload=score_payload,
+            iter_id=iter_id,
+            current_iter_id=current_iter_id,
+        ),
+        "phase": str(summary_payload.get("phase") or "").strip(),
+        "summary": summary_text,
+        "timestamp": str(summary_payload.get("timestamp") or "").strip(),
+        "composite_score": composite_score,
+        "role_count": len(roles),
+        "roles": roles,
+    }
+
+
+def _primary_role_takeaway(roles: list[dict]) -> dict | None:
+    return next((item for item in roles if item.get("archetype") == "gatekeeper"), roles[-1] if roles else None)
+
+
+def _structured_iteration_status(
+    run: Mapping[str, Any],
+    *,
+    roles: list[dict],
+    score_payload: Mapping[str, Any],
+    iter_id: int,
+    current_iter_id: int | None,
+) -> str:
+    passed = score_payload.get("passed")
+    status = "pending"
+    if passed is True:
+        status = "passed"
+    elif passed is False:
+        status = "blocked"
+    elif current_iter_id == iter_id and str(run.get("status") or "").strip() == "running":
+        status = "running"
+    elif roles:
+        status = normalize_takeaway_status(roles[-1].get("status"))
+    return status
 
 
 def build_legacy_iteration_takeaway(run: dict) -> dict | None:
     runs_dir_value = str(run.get("runs_dir") or "").strip()
     runs_dir = Path(runs_dir_value) if runs_dir_value else None
-    verdict = run.get("last_verdict_json") or {}
-    if not verdict and runs_dir is not None:
-        verdict = safe_read_json_file(runs_dir / "verifier_verdict.json") or safe_read_json_file(runs_dir / "gatekeeper_verdict.json") or {}
-
+    verdict = _legacy_verdict(run, runs_dir)
     excerpt = summary_excerpt(run.get("summary_md"))
-    roles: list[dict] = []
-    priority_failures = verdict.get("priority_failures") if isinstance(verdict, Mapping) else []
-    if isinstance(priority_failures, list):
-        for index, failure in enumerate(priority_failures, start=1):
-            if not isinstance(failure, Mapping):
-                continue
-            runtime_role = str(failure.get("role") or "").strip().lower()
-            role_name = display_role_name("", runtime_role=runtime_role)
-            error_code = clean_takeaway_text(failure.get("error_code"), max_length=80)
-            attempts = failure.get("attempts")
-            degraded = bool(failure.get("degraded"))
-            support_bits = []
-            if error_code:
-                support_bits.append(error_code)
-            if attempts not in {None, ""}:
-                support_bits.append(f"attempts={attempts}")
-            if degraded:
-                support_bits.append("degraded")
-            roles.append(
-                {
-                    "id": f"legacy-failure-{index}",
-                    "step_id": "",
-                    "step_order": index - 1,
-                    "role_name": role_name,
-                    "archetype": LEGACY_RUNTIME_ROLE_TO_ARCHETYPE.get(runtime_role, ""),
-                    "status": "failed",
-                    "summary": "Execution aborted before this role could produce a stable handoff.",
-                    "blocking_item": " · ".join(support_bits),
-                    "next_action": clean_takeaway_text(
-                        verdict.get("feedback_to_builder") or verdict.get("feedback_to_generator"),
-                        max_length=520,
-                    ),
-                    "composite_score": None,
-                }
-            )
-
+    roles = _legacy_failure_roles(verdict)
     if verdict:
-        blocking_note = (
-            clean_takeaway_text((verdict.get("blocking_issues") or [""])[0], max_length=140)
-            or clean_takeaway_text((verdict.get("hard_constraint_violations") or [""])[0], max_length=140)
-        )
-        roles.append(
-            {
-                "id": "legacy-gatekeeper",
-                "step_id": "",
-                "step_order": len(roles),
-                "role_name": "GateKeeper",
-                "archetype": "gatekeeper",
-                "status": "passed" if verdict.get("passed") is True else "blocked",
-                "summary": clean_takeaway_text(verdict.get("decision_summary"), max_length=220) or excerpt,
-                "blocking_item": blocking_note,
-                "next_action": clean_takeaway_text(
-                    verdict.get("feedback_to_builder") or verdict.get("feedback_to_generator"),
-                    max_length=520,
-                ),
-                "composite_score": verdict.get("composite_score"),
-            }
-        )
+        roles.append(_legacy_gatekeeper_role(verdict, step_order=len(roles), excerpt=excerpt))
 
     if not roles and not excerpt:
         return None
 
     run_status = str(run.get("status") or "").strip().lower()
+    return {
+        "iter": int(run.get("current_iter") or 0),
+        "display_iter": display_iter(run.get("current_iter")) or 1,
+        "status": _legacy_iteration_status(run_status, verdict, roles),
+        "phase": run_status,
+        "summary": excerpt or clean_takeaway_text(verdict.get("decision_summary"), max_length=220),
+        "timestamp": "",
+        "composite_score": verdict.get("composite_score"),
+        "role_count": len(roles),
+        "roles": roles,
+    }
+
+
+def _legacy_verdict(run: Mapping[str, Any], runs_dir: Path | None) -> Mapping[str, Any]:
+    verdict = run.get("last_verdict_json") if isinstance(run.get("last_verdict_json"), Mapping) else {}
+    if verdict or runs_dir is None:
+        return verdict
+    return safe_read_json_file(runs_dir / "verifier_verdict.json") or safe_read_json_file(
+        runs_dir / "gatekeeper_verdict.json"
+    ) or {}
+
+
+def _legacy_failure_roles(verdict: Mapping[str, Any]) -> list[dict]:
+    priority_failures = verdict.get("priority_failures") if isinstance(verdict.get("priority_failures"), list) else []
+    return [
+        _legacy_failure_role(failure, index=index, verdict=verdict)
+        for index, failure in enumerate(priority_failures, start=1)
+        if isinstance(failure, Mapping)
+    ]
+
+
+def _legacy_failure_role(failure: Mapping[str, Any], *, index: int, verdict: Mapping[str, Any]) -> dict:
+    runtime_role = str(failure.get("role") or "").strip().lower()
+    return {
+        "id": f"legacy-failure-{index}",
+        "step_id": "",
+        "step_order": index - 1,
+        "role_name": display_role_name("", runtime_role=runtime_role),
+        "archetype": LEGACY_RUNTIME_ROLE_TO_ARCHETYPE.get(runtime_role, ""),
+        "status": "failed",
+        "summary": "Execution aborted before this role could produce a stable handoff.",
+        "blocking_item": " · ".join(_legacy_failure_support_bits(failure)),
+        "next_action": _legacy_feedback(verdict),
+        "composite_score": None,
+    }
+
+
+def _legacy_failure_support_bits(failure: Mapping[str, Any]) -> list[str]:
+    support_bits = []
+    error_code = clean_takeaway_text(failure.get("error_code"), max_length=80)
+    attempts = failure.get("attempts")
+    degraded = bool(failure.get("degraded"))
+    if error_code:
+        support_bits.append(error_code)
+    if attempts not in {None, ""}:
+        support_bits.append(f"attempts={attempts}")
+    if degraded:
+        support_bits.append("degraded")
+    return support_bits
+
+
+def _legacy_gatekeeper_role(verdict: Mapping[str, Any], *, step_order: int, excerpt: str) -> dict:
+    return {
+        "id": "legacy-gatekeeper",
+        "step_id": "",
+        "step_order": step_order,
+        "role_name": "GateKeeper",
+        "archetype": "gatekeeper",
+        "status": "passed" if verdict.get("passed") is True else "blocked",
+        "summary": clean_takeaway_text(verdict.get("decision_summary"), max_length=220) or excerpt,
+        "blocking_item": _legacy_blocking_note(verdict),
+        "next_action": _legacy_feedback(verdict),
+        "composite_score": verdict.get("composite_score"),
+    }
+
+
+def _legacy_blocking_note(verdict: Mapping[str, Any]) -> str:
+    return (
+        clean_takeaway_text((verdict.get("blocking_issues") or [""])[0], max_length=140)
+        or clean_takeaway_text((verdict.get("hard_constraint_violations") or [""])[0], max_length=140)
+    )
+
+
+def _legacy_feedback(verdict: Mapping[str, Any]) -> str:
+    return clean_takeaway_text(
+        verdict.get("feedback_to_builder") or verdict.get("feedback_to_generator"),
+        max_length=520,
+    )
+
+
+def _legacy_iteration_status(run_status: str, verdict: Mapping[str, Any], roles: list[dict]) -> str:
+    status = normalize_takeaway_status(run_status)
     if verdict.get("passed") is True:
         status = "passed"
     elif run_status == "running":
@@ -310,19 +394,7 @@ def build_legacy_iteration_takeaway(run: dict) -> dict | None:
         status = "failed"
     elif verdict:
         status = "blocked"
-    else:
-        status = normalize_takeaway_status(run_status)
-    return {
-        "iter": int(run.get("current_iter") or 0),
-        "display_iter": display_iter(run.get("current_iter")) or 1,
-        "status": status,
-        "phase": run_status,
-        "summary": excerpt or clean_takeaway_text(verdict.get("decision_summary"), max_length=220),
-        "timestamp": "",
-        "composite_score": verdict.get("composite_score"),
-        "role_count": len(roles),
-        "roles": roles,
-    }
+    return status
 
 
 def empty_evidence_coverage() -> dict[str, Any]:

@@ -32,6 +32,22 @@ from loopora.workflows import (
 
 
 def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+    _register_bundle_record_api_routes(app, ctx)
+    _register_bundle_import_api_routes(app, ctx)
+    _register_bundle_export_api_routes(app, ctx)
+    _register_skill_api_routes(app, ctx)
+    _register_orchestration_api_routes(app, ctx)
+    _register_role_definition_api_routes(app, ctx)
+    _register_spec_validation_api_routes(app, ctx)
+    _register_spec_document_api_routes(app, ctx)
+    _register_spec_save_api_route(app, ctx)
+    _register_markdown_prompt_api_routes(app, ctx)
+    _register_spec_template_api_routes(app, ctx)
+    _register_system_picker_api_routes(app, ctx)
+    _register_system_reveal_api_route(app, ctx)
+
+
+def _register_bundle_record_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/bundles")
     async def api_list_bundles() -> JSONResponse:
         return JSONResponse(ctx.svc().list_bundle_governance_cards())
@@ -52,6 +68,8 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         )
         return JSONResponse({"bundle": bundle, "redirect_url": f"/bundles/{bundle['id']}"})
 
+
+def _register_bundle_import_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/api/bundles/import")
     async def api_import_bundle(request: Request) -> JSONResponse:
         payload = await ctx.read_json_mapping(request)
@@ -96,6 +114,8 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         )
         return JSONResponse({"bundle": bundle})
 
+
+def _register_bundle_export_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/bundles/{bundle_id}/export")
     async def api_export_bundle(bundle_id: str) -> Response:
         bundle = ctx.svc().export_bundle(bundle_id)
@@ -116,6 +136,8 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     async def api_delete_bundle(bundle_id: str) -> JSONResponse:
         return JSONResponse(ctx.svc().delete_bundle(bundle_id))
 
+
+def _register_skill_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/skills/loopora-task-alignment")
     async def api_task_alignment_skill_targets() -> JSONResponse:
         return JSONResponse(
@@ -147,6 +169,8 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             headers={"Content-Disposition": attachment_content_disposition(filename, default="loopora-task-alignment.zip")},
         )
 
+
+def _register_orchestration_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/orchestrations")
     async def api_list_orchestrations() -> JSONResponse:
         return JSONResponse(ctx.svc().list_orchestrations())
@@ -154,14 +178,6 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/orchestrations/{orchestration_id}")
     async def api_get_orchestration(orchestration_id: str) -> JSONResponse:
         return JSONResponse(ctx.svc().get_orchestration(orchestration_id))
-
-    @app.get("/api/role-definitions")
-    async def api_list_role_definitions() -> JSONResponse:
-        return JSONResponse(ctx.svc().list_role_definitions())
-
-    @app.get("/api/role-definitions/{role_definition_id}")
-    async def api_get_role_definition(role_definition_id: str) -> JSONResponse:
-        return JSONResponse(ctx.svc().get_role_definition(role_definition_id))
 
     @app.post("/api/orchestrations")
     async def api_create_orchestration(request: Request) -> JSONResponse:
@@ -182,6 +198,16 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     async def api_delete_orchestration(orchestration_id: str) -> JSONResponse:
         return JSONResponse(ctx.svc().delete_orchestration(orchestration_id))
 
+
+def _register_role_definition_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+    @app.get("/api/role-definitions")
+    async def api_list_role_definitions() -> JSONResponse:
+        return JSONResponse(ctx.svc().list_role_definitions())
+
+    @app.get("/api/role-definitions/{role_definition_id}")
+    async def api_get_role_definition(role_definition_id: str) -> JSONResponse:
+        return JSONResponse(ctx.svc().get_role_definition(role_definition_id))
+
     @app.post("/api/role-definitions")
     async def api_create_role_definition(request: Request) -> JSONResponse:
         payload = await ctx.read_json_mapping(request)
@@ -201,6 +227,8 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     async def api_delete_role_definition(role_definition_id: str) -> JSONResponse:
         return JSONResponse(ctx.svc().delete_role_definition(role_definition_id))
 
+
+def _register_spec_validation_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/specs/validate")
     async def api_validate_spec(path: str = "") -> JSONResponse:
         path_text = path.strip()
@@ -220,6 +248,8 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             }
         )
 
+
+def _register_spec_document_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/specs/preview")
     async def api_preview_spec(path: str = "") -> JSONResponse:
         path_text = path.strip()
@@ -248,6 +278,8 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             return JSONResponse({"ok": False, "error": "spec editor only supports text markdown files"})
         return JSONResponse(_spec_document_payload(spec_path, decode_text_bytes(raw_bytes)))
 
+
+def _register_spec_save_api_route(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.put("/api/specs/document")
     async def api_save_spec_document(request: Request) -> JSONResponse:
         payload = await ctx.read_json_mapping(request)
@@ -264,6 +296,8 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             return JSONResponse({"ok": False, "error": str(exc)})
         return JSONResponse(_spec_document_payload(spec_path, markdown_text))
 
+
+def _register_markdown_prompt_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/api/markdown/render")
     async def api_render_markdown(request: Request) -> JSONResponse:
         payload = await ctx.read_json_mapping(request)
@@ -299,6 +333,8 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             headers={"Content-Disposition": attachment_content_disposition(prompt_ref, default="prompt.md")},
         )
 
+
+def _register_spec_template_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/api/specs/init")
     async def api_init_spec(request: Request) -> JSONResponse:
         payload = await ctx.read_json_mapping(request)
@@ -325,33 +361,42 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
             return ctx.json_error(str(exc))
         locale = str(payload.get("locale", "zh"))
         markdown_text = render_spec_template(locale=locale, workflow=workflow)
-        role_note_sections = []
-        if workflow:
-            seen: set[str] = set()
-            for role in workflow.get("roles", []):
-                if not isinstance(role, dict):
-                    continue
-                label = normalize_role_display_name(role.get("name"), archetype=role.get("archetype")) or str(role.get("name", "")).strip()
-                normalized = label.lower()
-                if not label or normalized in seen:
-                    continue
-                seen.add(normalized)
-                role_note_sections.append(
-                    {
-                        "heading": f"{label} Notes",
-                        "role_name": label,
-                        "archetype": str(role.get("archetype", "")).strip(),
-                    }
-                )
         return JSONResponse(
             {
                 "ok": True,
                 "content": markdown_text,
                 "rendered_html": render_safe_markdown_html(markdown_text),
-                "role_note_sections": role_note_sections,
+                "role_note_sections": _role_note_sections_from_workflow(workflow),
             }
         )
 
+
+def _role_note_sections_from_workflow(workflow: dict | None) -> list[dict[str, str]]:
+    if not workflow:
+        return []
+    sections: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for role in workflow.get("roles", []):
+        if not isinstance(role, dict):
+            continue
+        label = normalize_role_display_name(role.get("name"), archetype=role.get("archetype")) or str(
+            role.get("name", "")
+        ).strip()
+        normalized = label.lower()
+        if not label or normalized in seen:
+            continue
+        seen.add(normalized)
+        sections.append(
+            {
+                "heading": f"{label} Notes",
+                "role_name": label,
+                "archetype": str(role.get("archetype", "")).strip(),
+            }
+        )
+    return sections
+
+
+def _register_system_picker_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/api/system/pick-directory")
     async def api_pick_directory(request: Request) -> JSONResponse:
         guard = _guard_system_api_request(request, ctx)
@@ -392,6 +437,8 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         selected = ctx.pick_save_file_dialog(start_path or None, default_name="spec.md")
         return JSONResponse({"path": selected or "", "cancelled": not selected})
 
+
+def _register_system_reveal_api_route(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/api/system/reveal-path")
     async def api_reveal_path(request: Request) -> JSONResponse:
         guard = _guard_system_api_request(request, ctx)

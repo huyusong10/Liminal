@@ -1,6 +1,30 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from loopora.utils import utc_now
+
+
+@dataclass(frozen=True)
+class IterationReportContext:
+    iter_id: int
+    generator_result: dict
+    tester_result: dict
+    verifier_result: dict
+    stagnation: dict
+    generator_mode: str
+    tester_mode: str
+    verifier_mode: str
+    previous_composite: float | None
+    challenger_result: dict | None = None
+
+
+@dataclass(frozen=True)
+class IterationSummaryRequest:
+    run: dict
+    compiled_spec: dict
+    report: IterationReportContext
+    exhausted: bool = False
 
 
 class ServiceIterationReportingMixin:
@@ -179,99 +203,78 @@ class ServiceIterationReportingMixin:
             "changed_files": list(generator_result.get("changed_files", [])),
         }
 
-    def _build_iteration_log_entry(
-        self,
-        iter_id: int,
-        generator_result: dict,
-        tester_result: dict,
-        verifier_result: dict,
-        stagnation: dict,
-        generator_mode: str,
-        tester_mode: str,
-        verifier_mode: str,
-        *,
-        previous_composite: float | None,
-        challenger_result: dict | None = None,
-    ) -> dict:
+    def _build_iteration_log_entry(self, report: IterationReportContext) -> dict:
         entry = {
             "phase": "complete",
-            "iter": iter_id,
+            "iter": report.iter_id,
             "timestamp": utc_now(),
             "modes": {
-                "generator": generator_mode,
-                "tester": tester_mode,
-                "verifier": verifier_mode,
+                "generator": report.generator_mode,
+                "tester": report.tester_mode,
+                "verifier": report.verifier_mode,
             },
             "score": {
-                "composite": verifier_result.get("composite_score"),
-                "delta": round(verifier_result["composite_score"] - previous_composite, 6)
-                if previous_composite is not None
+                "composite": report.verifier_result.get("composite_score"),
+                "delta": round(report.verifier_result["composite_score"] - report.previous_composite, 6)
+                if report.previous_composite is not None
                 else None,
-                "passed": verifier_result.get("passed"),
+                "passed": report.verifier_result.get("passed"),
             },
             "generator": {
-                "attempted": generator_result.get("attempted", ""),
-                "summary": generator_result.get("summary", ""),
-                "assumption": generator_result.get("assumption", ""),
-                "abandoned": generator_result.get("abandoned", ""),
-                "changed_files": list(generator_result.get("changed_files", [])),
+                "attempted": report.generator_result.get("attempted", ""),
+                "summary": report.generator_result.get("summary", ""),
+                "assumption": report.generator_result.get("assumption", ""),
+                "abandoned": report.generator_result.get("abandoned", ""),
+                "changed_files": list(report.generator_result.get("changed_files", [])),
             },
             "tester": {
-                "execution_summary": dict(tester_result.get("execution_summary", {})),
-                "status_counts": dict(tester_result.get("status_counts", {})),
-                "failed_items": list(tester_result.get("failed_items", [])),
-                "tester_observations": tester_result.get("tester_observations", ""),
+                "execution_summary": dict(report.tester_result.get("execution_summary", {})),
+                "status_counts": dict(report.tester_result.get("status_counts", {})),
+                "failed_items": list(report.tester_result.get("failed_items", [])),
+                "tester_observations": report.tester_result.get("tester_observations", ""),
             },
             "verifier": {
-                "passed": verifier_result.get("passed"),
-                "decision_summary": verifier_result.get("decision_summary", ""),
-                "failed_check_ids": list(verifier_result.get("failed_check_ids", [])),
-                "failed_check_titles": list(verifier_result.get("failed_check_titles", [])),
-                "failing_metrics": list(verifier_result.get("failing_metrics", [])),
-                "hard_constraint_violations": list(verifier_result.get("hard_constraint_violations", [])),
-                "priority_failures": list(verifier_result.get("priority_failures", [])),
-                "feedback_to_generator": verifier_result.get("feedback_to_generator", ""),
-                "next_actions": list(verifier_result.get("next_actions", [])),
-                "evidence_refs": list(verifier_result.get("evidence_refs", [])),
-                "evidence_gate_status": verifier_result.get("evidence_gate_status", ""),
+                "passed": report.verifier_result.get("passed"),
+                "decision_summary": report.verifier_result.get("decision_summary", ""),
+                "failed_check_ids": list(report.verifier_result.get("failed_check_ids", [])),
+                "failed_check_titles": list(report.verifier_result.get("failed_check_titles", [])),
+                "failing_metrics": list(report.verifier_result.get("failing_metrics", [])),
+                "hard_constraint_violations": list(report.verifier_result.get("hard_constraint_violations", [])),
+                "priority_failures": list(report.verifier_result.get("priority_failures", [])),
+                "feedback_to_generator": report.verifier_result.get("feedback_to_generator", ""),
+                "next_actions": list(report.verifier_result.get("next_actions", [])),
+                "evidence_refs": list(report.verifier_result.get("evidence_refs", [])),
+                "evidence_gate_status": report.verifier_result.get("evidence_gate_status", ""),
             },
             "stagnation": {
-                "mode": stagnation.get("stagnation_mode", "none"),
-                "recent_composites": list(stagnation.get("recent_composites", [])),
-                "recent_deltas": list(stagnation.get("recent_deltas", [])),
-                "consecutive_low_delta": stagnation.get("consecutive_low_delta", 0),
+                "mode": report.stagnation.get("stagnation_mode", "none"),
+                "recent_composites": list(report.stagnation.get("recent_composites", [])),
+                "recent_deltas": list(report.stagnation.get("recent_deltas", [])),
+                "consecutive_low_delta": report.stagnation.get("consecutive_low_delta", 0),
             },
         }
-        if challenger_result is not None:
+        if report.challenger_result is not None:
             entry["challenger"] = {
-                "mode": challenger_result.get("mode"),
-                "analysis": dict(challenger_result.get("analysis", {})),
-                "seed_question": challenger_result.get("seed_question", ""),
-                "meta_note": challenger_result.get("meta_note", ""),
+                "mode": report.challenger_result.get("mode"),
+                "analysis": dict(report.challenger_result.get("analysis", {})),
+                "seed_question": report.challenger_result.get("seed_question", ""),
+                "meta_note": report.challenger_result.get("meta_note", ""),
             }
         return entry
 
-    def _build_summary(
-        self,
-        run: dict,
-        compiled_spec: dict,
-        iter_id: int,
-        generator_result: dict,
-        tester_result: dict,
-        verifier_result: dict,
-        stagnation: dict,
-        generator_mode: str,
-        tester_mode: str,
-        verifier_mode: str,
-        exhausted: bool = False,
-        previous_composite: float | None = None,
-        challenger_result: dict | None = None,
-    ) -> str:
+    def _build_summary(self, request: IterationSummaryRequest) -> str:
+        run = request.run
+        compiled_spec = request.compiled_spec
+        report = request.report
+        generator_result = report.generator_result
+        tester_result = report.tester_result
+        verifier_result = report.verifier_result
+        stagnation = report.stagnation
         failed = verifier_result.get("failed_check_titles", verifier_result.get("failed_check_ids", []))
         completion_mode = str(run.get("completion_mode", "gatekeeper")).strip().lower() or "gatekeeper"
-        if exhausted and completion_mode == "rounds":
+        if request.exhausted and completion_mode == "rounds":
             status_line = "Planned rounds completed."
-        elif exhausted:
+        elif request.exhausted:
             status_line = "Max iterations exhausted."
         elif verifier_result["passed"] and completion_mode == "gatekeeper":
             status_line = "All checks passed in this iteration."
@@ -283,15 +286,15 @@ class ServiceIterationReportingMixin:
         overall_counts = tester_result.get("status_counts", {}).get("overall", self._empty_status_counts())
         dynamic_counts = tester_result.get("status_counts", {}).get("dynamic_checks", self._empty_status_counts())
         delta_text = (
-            f"`{round(verifier_result['composite_score'] - previous_composite, 6):+}`"
-            if previous_composite is not None
+            f"`{round(verifier_result['composite_score'] - report.previous_composite, 6):+}`"
+            if report.previous_composite is not None
             else "`n/a`"
         )
         lines = [
             "# Loopora Run Summary",
             "",
             f"- Workdir: `{run['workdir']}`",
-            f"- Iteration: `{iter_id + 1}`",
+            f"- Iteration: `{report.iter_id + 1}`",
             f"- Check mode: `{check_mode}`",
             f"- Check count: `{len(compiled_spec.get('checks', []))}`",
             f"- Completion mode: `{completion_mode}`",
@@ -303,7 +306,7 @@ class ServiceIterationReportingMixin:
             f"- Failed checks: {self._format_inline_code_list(failed, empty='none', limit=4)}",
             (
                 "- Role modes: "
-                f"generator=`{generator_mode}`, tester=`{tester_mode}`, verifier=`{verifier_mode}`"
+                f"generator=`{report.generator_mode}`, tester=`{report.tester_mode}`, verifier=`{report.verifier_mode}`"
             ),
             "",
             status_line,
@@ -344,14 +347,14 @@ class ServiceIterationReportingMixin:
                 f"{self._format_inline_code_list(list(verifier_result.get('next_actions', [])), empty='none', limit=3)}"
             ),
         ]
-        if challenger_result is not None:
+        if report.challenger_result is not None:
             lines.extend(
                 [
                     "",
                     "## Challenger",
-                    f"- Mode: `{challenger_result.get('mode', 'unknown')}`",
-                    f"- Recommended shift: {self._truncate_text(challenger_result.get('analysis', {}).get('recommended_shift'), 220) or 'none'}",
-                    f"- Seed question: {self._truncate_text(challenger_result.get('seed_question'), 220) or 'none'}",
+                    f"- Mode: `{report.challenger_result.get('mode', 'unknown')}`",
+                    f"- Recommended shift: {self._truncate_text(report.challenger_result.get('analysis', {}).get('recommended_shift'), 220) or 'none'}",
+                    f"- Seed question: {self._truncate_text(report.challenger_result.get('seed_question'), 220) or 'none'}",
                 ]
             )
         lines.extend(

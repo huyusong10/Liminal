@@ -5,6 +5,7 @@ import os
 import shutil
 import signal
 import threading
+from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,11 @@ from loopora.diagnostics import get_logger, log_exception
 from loopora.evidence_coverage import load_or_build_evidence_coverage_projection, summarize_evidence_coverage_projection
 from loopora.executor import ExecutionStopped, ExecutorError, RoleRequest, validate_command_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
+from loopora.service_alignment_diagnostics import (
+    append_alignment_diagnostic_event,
+    append_alignment_local_diagnostic_event,
+    log_alignment_diagnostic_event_failure,
+)
 from loopora.service_cleanup_diagnostics import best_effort_rmtree, cleanup_diagnostic_payload, log_cleanup_diagnostic
 from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError
 from loopora.skills.task_alignment_installer import load_task_alignment_skill_bundle
@@ -114,37 +120,123 @@ ALIGNMENT_RESPONSE_SCHEMA: dict[str, Any] = {
 }
 
 
+@dataclass(frozen=True)
+class AlignmentExecutorSettingsRequest:
+    executor_kind: str
+    executor_mode: str
+    command_cli: str
+    command_args_text: str
+    model: str
+    reasoning_effort: str
+
+
+def _default_alignment_executor_settings() -> AlignmentExecutorSettingsRequest:
+    return AlignmentExecutorSettingsRequest(
+        executor_kind="codex",
+        executor_mode="preset",
+        command_cli="",
+        command_args_text="",
+        model="",
+        reasoning_effort="",
+    )
+
+
+@dataclass(frozen=True)
+class AlignmentSessionCreateRequest:
+    workdir: Path
+    message: str = ""
+    start_immediately: bool = True
+    executor_settings: AlignmentExecutorSettingsRequest = field(default_factory=_default_alignment_executor_settings)
+
+
+@dataclass(frozen=True)
+class RevisionSessionOptions:
+    message: str = ""
+    start_immediately: bool = True
+    executor_settings: AlignmentExecutorSettingsRequest = field(default_factory=_default_alignment_executor_settings)
+
+
+@dataclass(frozen=True)
+class RevisionAlignmentSessionRequest:
+    seed_bundle: dict
+    message: str
+    start_immediately: bool
+    source_context: dict
+    linked_bundle_id: str
+    linked_run_id: str
+    executor_settings: AlignmentExecutorSettingsRequest
+
+
+@dataclass(frozen=True)
+class AlignmentExecutionState:
+    mode: str = "normal"
+    validation_error: str = ""
+    invalid_yaml: str = ""
+
+
+def _coerce_alignment_session_create_request(
+    request: AlignmentSessionCreateRequest | None,
+    raw_request: dict[str, object],
+) -> AlignmentSessionCreateRequest:
+    if request is not None:
+        if raw_request:
+            raise TypeError("create_alignment_session accepts either request or keyword fields, not both")
+        return request
+    workdir = raw_request.get("workdir")
+    if workdir is None:
+        raise TypeError("create_alignment_session requires workdir")
+    return AlignmentSessionCreateRequest(
+        workdir=workdir if isinstance(workdir, Path) else Path(str(workdir)),
+        message=str(raw_request.get("message", "") or ""),
+        start_immediately=bool(raw_request.get("start_immediately", True)),
+        executor_settings=_alignment_executor_settings_from_raw(raw_request),
+    )
+
+
+def _coerce_revision_session_options(
+    request: RevisionSessionOptions | None,
+    raw_request: dict[str, object],
+) -> RevisionSessionOptions:
+    if request is not None:
+        if raw_request:
+            raise TypeError("revision session creation accepts either request or keyword fields, not both")
+        return request
+    return RevisionSessionOptions(
+        message=str(raw_request.get("message", "") or ""),
+        start_immediately=bool(raw_request.get("start_immediately", True)),
+        executor_settings=_alignment_executor_settings_from_raw(raw_request),
+    )
+
+
+def _alignment_executor_settings_from_raw(raw_request: dict[str, object]) -> AlignmentExecutorSettingsRequest:
+    defaults = _default_alignment_executor_settings()
+    return AlignmentExecutorSettingsRequest(
+        executor_kind=str(raw_request.get("executor_kind", defaults.executor_kind)),
+        executor_mode=str(raw_request.get("executor_mode", defaults.executor_mode)),
+        command_cli=str(raw_request.get("command_cli", defaults.command_cli)),
+        command_args_text=str(raw_request.get("command_args_text", defaults.command_args_text)),
+        model=str(raw_request.get("model", defaults.model)),
+        reasoning_effort=str(raw_request.get("reasoning_effort", defaults.reasoning_effort)),
+    )
+
+
 class ServiceAlignmentMixin:
     def create_alignment_session(
         self,
-        *,
-        workdir: Path,
-        message: str = "",
-        executor_kind: str = "codex",
-        executor_mode: str = "preset",
-        command_cli: str = "",
-        command_args_text: str = "",
-        model: str = "",
-        reasoning_effort: str = "",
-        start_immediately: bool = True,
+        request: AlignmentSessionCreateRequest | None = None,
+        **raw_request: object,
     ) -> dict:
-        workdir = workdir.expanduser().resolve()
+        request = _coerce_alignment_session_create_request(request, raw_request)
+        workdir = request.workdir.expanduser().resolve()
         if not workdir.exists() or not workdir.is_dir():
             raise LooporaError(f"workdir does not exist: {workdir}")
-        settings = self._normalize_alignment_executor_settings(
-            executor_kind=executor_kind,
-            executor_mode=executor_mode,
-            command_cli=command_cli,
-            command_args_text=command_args_text,
-            model=model,
-            reasoning_effort=reasoning_effort,
-        )
+        settings = self._normalize_alignment_executor_settings(request.executor_settings)
         session_id = make_id("align")
         session_dir = self._alignment_session_dir(workdir, session_id)
         paths = self._alignment_artifact_paths_from_root(session_dir)
         self._ensure_alignment_artifact_dirs(session_dir)
         transcript = []
-        normalized_message = str(message or "").strip()
+        normalized_message = str(request.message or "").strip()
         if normalized_message:
             transcript.append({"role": "user", "content": normalized_message, "created_at": utc_now()})
         session = self.repository.create_alignment_session(
@@ -171,7 +263,7 @@ class ServiceAlignmentMixin:
             },
         )
         self._write_alignment_transcript_log(self.get_alignment_session(session_id))
-        if normalized_message and start_immediately:
+        if normalized_message and request.start_immediately:
             self.start_alignment_session_async(session_id)
             return self.get_alignment_session(session_id)
         return self.get_alignment_session(session_id)
@@ -212,37 +304,10 @@ class ServiceAlignmentMixin:
         return deleted
 
     def _append_alignment_diagnostic_event(self, session_id: str, event_type: str, payload: dict) -> dict:
-        try:
-            return self.repository.append_alignment_event(session_id, event_type, payload)
-        except Exception as exc:
-            self._log_alignment_diagnostic_event_failure(
-                session_id=session_id,
-                event_type=event_type,
-                payload=payload,
-                error=exc,
-            )
-            return {}
+        return append_alignment_diagnostic_event(self, logger, session_id, event_type, payload)
 
     def _append_alignment_local_diagnostic_event(self, session: dict, event_type: str, payload: dict) -> None:
-        try:
-            paths = self._alignment_artifact_paths(session)
-            self._ensure_alignment_artifact_dirs(paths["root"])
-            event = {
-                "id": None,
-                "session_id": session["id"],
-                "created_at": utc_now(),
-                "event_type": event_type,
-                "payload": payload,
-            }
-            with paths["events"].open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(event, ensure_ascii=False) + "\n")
-        except Exception as exc:
-            self._log_alignment_diagnostic_event_failure(
-                session_id=session.get("id", ""),
-                event_type=event_type,
-                payload=payload,
-                error=exc,
-            )
+        append_alignment_local_diagnostic_event(self, logger, session, event_type, payload)
 
     @staticmethod
     def _log_alignment_diagnostic_event_failure(
@@ -252,16 +317,13 @@ class ServiceAlignmentMixin:
         payload: dict,
         error: BaseException,
     ) -> None:
-        original_operation = str(payload.get("operation") or "alignment_diagnostic")
-        diagnostic = cleanup_diagnostic_payload(
-            operation=f"{original_operation}_event_write",
-            resource_type="alignment_event",
-            resource_id=event_type,
-            owner_id=session_id,
+        log_alignment_diagnostic_event_failure(
+            logger,
+            session_id=session_id,
+            event_type=event_type,
+            payload=payload,
             error=error,
-            original_operation=original_operation,
         )
-        log_cleanup_diagnostic(logger, **diagnostic)
 
     def append_alignment_message(self, session_id: str, message: str) -> dict:
         normalized = str(message or "").strip()
@@ -543,55 +605,40 @@ class ServiceAlignmentMixin:
     def create_bundle_revision_session(
         self,
         bundle_id: str,
-        *,
-        message: str = "",
-        start_immediately: bool = True,
-        executor_kind: str = "codex",
-        executor_mode: str = "preset",
-        command_cli: str = "",
-        command_args_text: str = "",
-        model: str = "",
-        reasoning_effort: str = "",
+        request: RevisionSessionOptions | None = None,
+        **raw_request: object,
     ) -> dict:
+        request = _coerce_revision_session_options(request, raw_request)
         source_bundle = self.export_bundle(bundle_id)
         seed_bundle = self._revision_seed_bundle(source_bundle)
         return self._create_revision_alignment_session(
-            seed_bundle,
-            message=message
-            or "请先阅读这份已有 Loop 方案，和我对话改进它。先指出你需要确认的最小问题，不要直接生成。",
-            start_immediately=start_immediately,
-            source_context={
-                "mode": "improvement",
-                "source_type": "bundle",
-                "source_bundle_id": bundle_id,
-                "source_run_id": "",
-                "reason": "improve_imported_bundle",
-                "evidence_summary": [],
-                "gatekeeper_verdict": {},
-            },
-            linked_bundle_id=bundle_id,
-            linked_run_id="",
-            executor_kind=executor_kind,
-            executor_mode=executor_mode,
-            command_cli=command_cli,
-            command_args_text=command_args_text,
-            model=model,
-            reasoning_effort=reasoning_effort,
+            RevisionAlignmentSessionRequest(
+                seed_bundle=seed_bundle,
+                message=request.message
+                or "请先阅读这份已有 Loop 方案，和我对话改进它。先指出你需要确认的最小问题，不要直接生成。",
+                start_immediately=request.start_immediately,
+                source_context={
+                    "mode": "improvement",
+                    "source_type": "bundle",
+                    "source_bundle_id": bundle_id,
+                    "source_run_id": "",
+                    "reason": "improve_imported_bundle",
+                    "evidence_summary": [],
+                    "gatekeeper_verdict": {},
+                },
+                linked_bundle_id=bundle_id,
+                linked_run_id="",
+                executor_settings=request.executor_settings,
+            )
         )
 
     def create_run_revision_session(
         self,
         run_id: str,
-        *,
-        message: str = "",
-        start_immediately: bool = True,
-        executor_kind: str = "codex",
-        executor_mode: str = "preset",
-        command_cli: str = "",
-        command_args_text: str = "",
-        model: str = "",
-        reasoning_effort: str = "",
+        request: RevisionSessionOptions | None = None,
+        **raw_request: object,
     ) -> dict:
+        request = _coerce_revision_session_options(request, raw_request)
         run = self.get_run(run_id)
         loop = self.get_loop(run["loop_id"])
         source_bundle_id = str((loop.get("bundle") or {}).get("id") or "").strip()
@@ -606,56 +653,43 @@ class ServiceAlignmentMixin:
             )
         seed_bundle = self._revision_seed_bundle(source_bundle)
         return self._create_revision_alignment_session(
-            seed_bundle,
-            message=message
-            or "请基于这次运行的证据和守门裁决，和我对话改进 Loop 方案。先说明最可能要改的治理点，再问我最小必要问题。",
-            start_immediately=start_immediately,
-            source_context={
-                "mode": "improvement",
-                "source_type": "run",
-                "source_bundle_id": source_bundle_id,
-                "source_run_id": run_id,
-                "reason": "improve_from_run_evidence",
-                "coverage_summary": self._alignment_run_coverage_summary(run),
-                "evidence_summary": self._alignment_run_evidence_summary(run),
-                "gatekeeper_verdict": run.get("last_verdict") or {},
-            },
-            linked_bundle_id=source_bundle_id,
-            linked_run_id=run_id,
-            executor_kind=executor_kind,
-            executor_mode=executor_mode,
-            command_cli=command_cli,
-            command_args_text=command_args_text,
-            model=model,
-            reasoning_effort=reasoning_effort,
+            RevisionAlignmentSessionRequest(
+                seed_bundle=seed_bundle,
+                message=request.message
+                or "请基于这次运行的证据和守门裁决，和我对话改进 Loop 方案。先说明最可能要改的治理点，再问我最小必要问题。",
+                start_immediately=request.start_immediately,
+                source_context={
+                    "mode": "improvement",
+                    "source_type": "run",
+                    "source_bundle_id": source_bundle_id,
+                    "source_run_id": run_id,
+                    "reason": "improve_from_run_evidence",
+                    "coverage_summary": self._alignment_run_coverage_summary(run),
+                    "evidence_summary": self._alignment_run_evidence_summary(run),
+                    "gatekeeper_verdict": run.get("last_verdict") or {},
+                },
+                linked_bundle_id=source_bundle_id,
+                linked_run_id=run_id,
+                executor_settings=request.executor_settings,
+            )
         )
 
     def _create_revision_alignment_session(
         self,
-        seed_bundle: dict,
-        *,
-        message: str,
-        start_immediately: bool,
-        source_context: dict,
-        linked_bundle_id: str,
-        linked_run_id: str,
-        executor_kind: str,
-        executor_mode: str,
-        command_cli: str,
-        command_args_text: str,
-        model: str,
-        reasoning_effort: str,
+        request: RevisionAlignmentSessionRequest,
     ) -> dict:
+        seed_bundle = request.seed_bundle
+        executor_settings = request.executor_settings
         workdir = Path(seed_bundle["loop"]["workdir"])
         session = self.create_alignment_session(
             workdir=workdir,
-            message=message,
-            executor_kind=executor_kind,
-            executor_mode=executor_mode,
-            command_cli=command_cli,
-            command_args_text=command_args_text,
-            model=model,
-            reasoning_effort=reasoning_effort,
+            message=request.message,
+            executor_kind=executor_settings.executor_kind,
+            executor_mode=executor_settings.executor_mode,
+            command_cli=executor_settings.command_cli,
+            command_args_text=executor_settings.command_args_text,
+            model=executor_settings.model,
+            reasoning_effort=executor_settings.reasoning_effort,
             start_immediately=False,
         )
         bundle_path = Path(session["bundle_path"])
@@ -663,27 +697,27 @@ class ServiceAlignmentMixin:
         bundle_path.write_text(bundle_to_yaml(seed_bundle), encoding="utf-8")
         working_agreement = {
             "mode": "improvement",
-            "source": source_context,
+            "source": request.source_context,
             "seed_bundle_metadata": seed_bundle.get("metadata", {}),
         }
         self.repository.update_alignment_session(
             session["id"],
             working_agreement=working_agreement,
-            linked_bundle_id=linked_bundle_id,
-            linked_run_id=linked_run_id,
+            linked_bundle_id=request.linked_bundle_id,
+            linked_run_id=request.linked_run_id,
         )
         self.repository.append_alignment_event(
             session["id"],
             "alignment_bundle_improvement_seeded",
             {
-                "source_type": source_context.get("source_type", ""),
-                "source_bundle_id": linked_bundle_id,
-                "source_run_id": linked_run_id,
+                "source_type": request.source_context.get("source_type", ""),
+                "source_bundle_id": request.linked_bundle_id,
+                "source_run_id": request.linked_run_id,
                 "bundle_path": str(bundle_path),
             },
         )
         self._write_alignment_transcript_log(self.get_alignment_session(session["id"]))
-        if start_immediately:
+        if request.start_immediately:
             self.start_alignment_session_async(session["id"])
         return self.get_alignment_session(session["id"])
 
@@ -740,78 +774,31 @@ class ServiceAlignmentMixin:
 
     def _execute_alignment_session(self, session_id: str) -> None:
         key = self._alignment_thread_key(session_id)
-        mode = "normal"
-        validation_error = ""
-        invalid_yaml = ""
+        state = AlignmentExecutionState()
         try:
             while True:
                 output = self._run_alignment_executor(
                     session_id,
-                    mode=mode,
-                    validation_error=validation_error,
-                    invalid_yaml=invalid_yaml,
+                    mode=state.mode,
+                    validation_error=state.validation_error,
+                    invalid_yaml=state.invalid_yaml,
                 )
                 session = self.get_alignment_session(session_id)
                 session = self._apply_alignment_output_stage(session_id, session, output)
-                assistant_message = str(output.get("assistant_message", "") or "").strip()
-                bundle_yaml = str(output.get("bundle_yaml", "") or "").strip()
-                stage_error = self._alignment_bundle_stage_error(session, output) if bundle_yaml else ""
-                if stage_error:
-                    assistant_message = stage_error
-                    bundle_yaml = ""
-                    output["needs_user_input"] = True
-                    self.repository.append_alignment_event(
-                        session_id,
-                        "alignment_stage_blocked",
-                        {"status": "waiting_user", "error": stage_error},
-                    )
+                assistant_message, bundle_yaml = self._alignment_output_message_and_bundle(
+                    session_id,
+                    session,
+                    output,
+                )
                 if assistant_message:
-                    transcript = list(session.get("transcript") or [])
-                    transcript.append({"role": "assistant", "content": assistant_message, "created_at": utc_now()})
-                    self.repository.update_alignment_session(session_id, transcript=transcript)
-                    self._write_alignment_transcript_log(self.get_alignment_session(session_id))
-                    self.repository.append_alignment_event(
-                        session_id,
-                        "alignment_message",
-                        {"role": "assistant", "content": assistant_message},
-                    )
+                    self._record_alignment_assistant_message(session_id, session, assistant_message)
 
                 if bundle_yaml:
-                    ok, error = self._write_and_validate_alignment_bundle(session_id, bundle_yaml)
-                    if ok:
-                        self.repository.update_alignment_session(
-                            session_id,
-                            status="ready",
-                            alignment_stage="ready",
-                            finished_at=utc_now(),
-                            clear_active_child_pid=True,
-                            error_message="",
-                        )
-                        self.repository.append_alignment_event(
-                            session_id,
-                            "alignment_ready",
-                            {"status": "ready", "bundle_path": self.get_alignment_session(session_id)["bundle_path"]},
-                        )
+                    next_state = self._handle_alignment_bundle_candidate(session_id, bundle_yaml)
+                    if next_state is None:
                         return
-                    session = self.get_alignment_session(session_id)
-                    if int(session.get("repair_attempts", 0) or 0) < 1:
-                        self.repository.update_alignment_session(
-                            session_id,
-                            status="repairing",
-                            repair_attempts=int(session.get("repair_attempts", 0) or 0) + 1,
-                            error_message=error,
-                        )
-                        self.repository.append_alignment_event(
-                            session_id,
-                            "alignment_repair_started",
-                            {"status": "repairing", "error": error},
-                        )
-                        mode = "repair"
-                        validation_error = error
-                        invalid_yaml = bundle_yaml
-                        continue
-                    self._fail_alignment_session(session_id, error)
-                    return
+                    state = next_state
+                    continue
 
                 if bool(output.get("needs_user_input")):
                     self.repository.update_alignment_session(
@@ -844,10 +831,75 @@ class ServiceAlignmentMixin:
         finally:
             self.repository.update_alignment_session(session_id, clear_active_child_pid=True)
             thread = self._threads.get(key)
-            if thread is threading.current_thread():
+            if thread is threading.current_thread() or thread and not thread.is_alive():
                 self._threads.pop(key, None)
-            elif thread and not thread.is_alive():
-                self._threads.pop(key, None)
+
+    def _alignment_output_message_and_bundle(self, session_id: str, session: dict, output: dict) -> tuple[str, str]:
+        assistant_message = str(output.get("assistant_message", "") or "").strip()
+        bundle_yaml = str(output.get("bundle_yaml", "") or "").strip()
+        stage_error = self._alignment_bundle_stage_error(session, output) if bundle_yaml else ""
+        if not stage_error:
+            return assistant_message, bundle_yaml
+        output["needs_user_input"] = True
+        self.repository.append_alignment_event(
+            session_id,
+            "alignment_stage_blocked",
+            {"status": "waiting_user", "error": stage_error},
+        )
+        return stage_error, ""
+
+    def _record_alignment_assistant_message(self, session_id: str, session: dict, assistant_message: str) -> None:
+        transcript = list(session.get("transcript") or [])
+        transcript.append({"role": "assistant", "content": assistant_message, "created_at": utc_now()})
+        self.repository.update_alignment_session(session_id, transcript=transcript)
+        self._write_alignment_transcript_log(self.get_alignment_session(session_id))
+        self.repository.append_alignment_event(
+            session_id,
+            "alignment_message",
+            {"role": "assistant", "content": assistant_message},
+        )
+
+    def _handle_alignment_bundle_candidate(
+        self,
+        session_id: str,
+        bundle_yaml: str,
+    ) -> AlignmentExecutionState | None:
+        ok, error = self._write_and_validate_alignment_bundle(session_id, bundle_yaml)
+        if ok:
+            self.repository.update_alignment_session(
+                session_id,
+                status="ready",
+                alignment_stage="ready",
+                finished_at=utc_now(),
+                clear_active_child_pid=True,
+                error_message="",
+            )
+            self.repository.append_alignment_event(
+                session_id,
+                "alignment_ready",
+                {"status": "ready", "bundle_path": self.get_alignment_session(session_id)["bundle_path"]},
+            )
+            return None
+        session = self.get_alignment_session(session_id)
+        if int(session.get("repair_attempts", 0) or 0) >= 1:
+            self._fail_alignment_session(session_id, error)
+            return None
+        self.repository.update_alignment_session(
+            session_id,
+            status="repairing",
+            repair_attempts=int(session.get("repair_attempts", 0) or 0) + 1,
+            error_message=error,
+        )
+        self.repository.append_alignment_event(
+            session_id,
+            "alignment_repair_started",
+            {"status": "repairing", "error": error},
+        )
+        return AlignmentExecutionState(
+            mode="repair",
+            validation_error=error,
+            invalid_yaml=bundle_yaml,
+        )
 
     def _run_alignment_executor(
         self,
@@ -1041,26 +1093,27 @@ class ServiceAlignmentMixin:
     @staticmethod
     def _alignment_bundle_stage_error(session: dict, output: dict) -> str:
         stage = str(session.get("alignment_stage", "") or "clarifying").strip()
-        if stage not in ALIGNMENT_CONFIRMED_STAGES:
-            return "我还需要先完成需求对齐并得到你的明确确认，再生成 Loop 方案。"
         phase = str(output.get("alignment_phase", "") or "").strip()
         agreement_summary = str(output.get("agreement_summary", "") or "").strip()
         checklist = output.get("readiness_checklist")
-        if phase != "bundle":
-            return "我还需要先完成需求对齐，再生成 Loop 方案。请先确认边界、成功标准和协作方式。"
-        if not agreement_summary:
-            return "我还需要先整理一份工作协议摘要并得到确认，然后再生成 Loop 方案。"
-        if not isinstance(checklist, dict):
-            return "我还需要先补齐对齐检查清单，再生成 Loop 方案。"
-        missing = [key for key in ALIGNMENT_READINESS_KEYS if checklist.get(key) is not True]
-        if missing:
-            labels = ", ".join(missing)
-            return f"我还不能直接生成 Loop 方案；对齐检查还缺：{labels}。请先补齐这些信息。"
+        missing = [key for key in ALIGNMENT_READINESS_KEYS if isinstance(checklist, dict) and checklist.get(key) is not True]
         evidence_issues = ServiceAlignmentMixin._readiness_evidence_issues(output)
-        if evidence_issues:
+        error = ""
+        if stage not in ALIGNMENT_CONFIRMED_STAGES:
+            error = "我还需要先完成需求对齐并得到你的明确确认，再生成 Loop 方案。"
+        elif phase != "bundle":
+            error = "我还需要先完成需求对齐，再生成 Loop 方案。请先确认边界、成功标准和协作方式。"
+        elif not agreement_summary:
+            error = "我还需要先整理一份工作协议摘要并得到确认，然后再生成 Loop 方案。"
+        elif not isinstance(checklist, dict):
+            error = "我还需要先补齐对齐检查清单，再生成 Loop 方案。"
+        elif missing:
+            labels = ", ".join(missing)
+            error = f"我还不能直接生成 Loop 方案；对齐检查还缺：{labels}。请先补齐这些信息。"
+        elif evidence_issues:
             labels = ", ".join(evidence_issues)
-            return f"我还不能直接生成 Loop 方案；这些对齐证据还不够具体：{labels}。请先补齐这些信息。"
-        return ""
+            error = f"我还不能直接生成 Loop 方案；这些对齐证据还不够具体：{labels}。请先补齐这些信息。"
+        return error
 
     @staticmethod
     def _readiness_evidence_issues(output: dict) -> list[str]:
@@ -1620,36 +1673,30 @@ This is a lightweight Loopora-provided snapshot. Treat it as observed context, n
 
     def _normalize_alignment_executor_settings(
         self,
-        *,
-        executor_kind: str,
-        executor_mode: str,
-        command_cli: str,
-        command_args_text: str,
-        model: str,
-        reasoning_effort: str,
+        request: AlignmentExecutorSettingsRequest,
     ) -> dict:
         try:
-            kind = normalize_executor_kind(executor_kind)
+            kind = normalize_executor_kind(request.executor_kind)
             profile = executor_profile(kind)
-            mode = "command" if profile.command_only else normalize_executor_mode(executor_mode)
+            mode = "command" if profile.command_only else normalize_executor_mode(request.executor_mode)
             if mode == "preset":
                 return {
                     "executor_kind": kind,
                     "executor_mode": mode,
                     "command_cli": "",
                     "command_args_text": "",
-                    "model": str(model or profile.default_model or "").strip(),
-                    "reasoning_effort": normalize_reasoning_setting(reasoning_effort, executor_kind=kind),
+                    "model": str(request.model or profile.default_model or "").strip(),
+                    "reasoning_effort": normalize_reasoning_setting(request.reasoning_effort, executor_kind=kind),
                 }
-            normalized_cli = str(command_cli or profile.cli_name or "").strip()
-            validate_command_args_text(command_args_text, executor_kind=kind)
+            normalized_cli = str(request.command_cli or profile.cli_name or "").strip()
+            validate_command_args_text(request.command_args_text, executor_kind=kind)
             return {
                 "executor_kind": kind,
                 "executor_mode": mode,
                 "command_cli": normalized_cli,
-                "command_args_text": str(command_args_text or ""),
-                "model": str(model or "").strip(),
-                "reasoning_effort": str(reasoning_effort or "").strip(),
+                "command_args_text": str(request.command_args_text or ""),
+                "model": str(request.model or "").strip(),
+                "reasoning_effort": str(request.reasoning_effort or "").strip(),
             }
         except ValueError as exc:
             raise LooporaError(str(exc)) from exc
@@ -1706,6 +1753,23 @@ This is a lightweight Loopora-provided snapshot. Treat it as observed context, n
 
         legacy_dir = paths["legacy_dir"]
         legacy_dir.mkdir(parents=True, exist_ok=True)
+        self._copy_alignment_legacy_file_aliases(root, paths)
+        self._copy_alignment_legacy_prompts(root)
+        self._copy_alignment_legacy_outputs(root, paths["bundle"])
+        self._copy_alignment_legacy_schema(root)
+        self._copy_alignment_legacy_validations(root)
+        self._move_alignment_legacy_remainders(session, root, legacy_dir)
+        updated = self.repository.update_alignment_session(session["id"], bundle_path=str(paths["bundle"]))
+        self._write_alignment_manifest(updated)
+        return updated
+
+    @staticmethod
+    def _copy_alignment_legacy_file(source: Path, target: Path) -> None:
+        if source.exists() and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+
+    def _copy_alignment_legacy_file_aliases(self, root: Path, paths: dict[str, Path]) -> None:
         moves: list[tuple[Path, Path]] = [
             (root / "bundle.yml", paths["bundle"]),
             (root / "transcript.jsonl", paths["transcript"]),
@@ -1713,46 +1777,51 @@ This is a lightweight Loopora-provided snapshot. Treat it as observed context, n
             (root / "validation.json", paths["validation"]),
         ]
         for source, target in moves:
-            if source.exists() and not target.exists():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, target)
+            self._copy_alignment_legacy_file(source, target)
+
+    def _copy_alignment_legacy_prompts(self, root: Path) -> None:
         for prompt_path in sorted(root.glob("alignment_prompt_*.md")):
             attempt = self._alignment_attempt_from_legacy_path(prompt_path)
             invocation_dir = self._alignment_invocation_dir(root, attempt, repair=False)
             invocation_dir.mkdir(parents=True, exist_ok=True)
-            target = invocation_dir / "prompt.md"
-            if not target.exists():
-                shutil.copy2(prompt_path, target)
+            self._copy_alignment_legacy_file(prompt_path, invocation_dir / "prompt.md")
+
+    def _copy_alignment_legacy_outputs(self, root: Path, bundle_path: Path) -> None:
         for output_path in sorted(root.glob("alignment_output_*.json")):
             attempt = self._alignment_attempt_from_legacy_path(output_path)
             invocation_dir = self._alignment_invocation_dir(root, attempt, repair=False)
             invocation_dir.mkdir(parents=True, exist_ok=True)
             target = invocation_dir / "output.json"
-            if not target.exists():
-                try:
-                    payload = json.loads(output_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    shutil.copy2(output_path, target)
-                else:
-                    target.write_text(
-                        json.dumps(self._alignment_output_debug_payload(payload, paths["bundle"]), ensure_ascii=False, indent=2)
-                        + "\n",
-                        encoding="utf-8",
-                    )
+            self._copy_alignment_legacy_output(output_path, target, bundle_path)
+
+    def _copy_alignment_legacy_output(self, output_path: Path, target: Path, bundle_path: Path) -> None:
+        if target.exists():
+            return
+        try:
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            shutil.copy2(output_path, target)
+            return
+        target.write_text(
+            json.dumps(self._alignment_output_debug_payload(payload, bundle_path), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+    def _copy_alignment_legacy_schema(self, root: Path) -> None:
         legacy_schema = root / "alignment_schema.json"
         if legacy_schema.exists():
             invocation_dir = self._alignment_invocation_dir(root, 0, repair=False)
             invocation_dir.mkdir(parents=True, exist_ok=True)
-            target = invocation_dir / "schema.json"
-            if not target.exists():
-                shutil.copy2(legacy_schema, target)
+            self._copy_alignment_legacy_file(legacy_schema, invocation_dir / "schema.json")
+
+    def _copy_alignment_legacy_validations(self, root: Path) -> None:
         for validation_path in sorted(root.glob("validation_*.json")):
             attempt = self._alignment_attempt_from_legacy_path(validation_path)
             invocation_dir = self._alignment_invocation_dir(root, attempt, repair=False)
             invocation_dir.mkdir(parents=True, exist_ok=True)
-            target = invocation_dir / "validation.json"
-            if not target.exists():
-                shutil.copy2(validation_path, target)
+            self._copy_alignment_legacy_file(validation_path, invocation_dir / "validation.json")
+
+    def _move_alignment_legacy_remainders(self, session: dict, root: Path, legacy_dir: Path) -> None:
         for source in root.iterdir():
             if source.name in {"conversation", "agreement", "artifacts", "events", "invocations", "legacy"}:
                 continue
@@ -1778,9 +1847,6 @@ This is a lightweight Loopora-provided snapshot. Treat it as observed context, n
                     "alignment_legacy_artifact_migration_failed",
                     diagnostic,
                 )
-        updated = self.repository.update_alignment_session(session["id"], bundle_path=str(paths["bundle"]))
-        self._write_alignment_manifest(updated)
-        return updated
 
     @staticmethod
     def _alignment_attempt_from_legacy_path(path: Path) -> int:

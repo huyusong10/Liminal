@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -18,7 +19,10 @@ def register_prompt_commands(prompts_app: typer.Typer) -> None:
             handle_error(exc)
 
     @prompts_app.command("template")
-    def prompt_template(prompt_ref: str = typer.Argument(..., help="Built-in prompt template ref."), locale: LocaleOption = "zh") -> None:
+    def prompt_template(
+        prompt_ref: Annotated[str, typer.Argument(..., help="Built-in prompt template ref.")],
+        locale: LocaleOption = "zh",
+    ) -> None:
         """Print one built-in prompt template."""
         try:
             typer.echo(builtin_prompt_markdown(prompt_ref, locale=locale))
@@ -27,7 +31,7 @@ def register_prompt_commands(prompts_app: typer.Typer) -> None:
 
     @prompts_app.command("validate")
     def prompt_validate(
-        path: Path = typer.Argument(..., exists=True, help="Path to the prompt Markdown file to validate."),
+        path: Annotated[Path, typer.Argument(..., exists=True, help="Path to the prompt Markdown file to validate.")],
         archetype: ArchetypeOption = "",
     ) -> None:
         """Validate prompt Markdown and print parsed metadata."""

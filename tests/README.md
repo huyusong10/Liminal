@@ -15,6 +15,7 @@ The test suite protects behavior contracts, not implementation shape.
 
 ## Guardrails
 
+- The default Ruff gate covers syntax/name errors and Bugbear runtime hazards; broader style-modernization scans remain opt-in cleanup work.
 - Do not assert static UI copy as the main contract.
 - Do not assert CSS classes, DOM nesting, or script source internals unless the behavior has no better public anchor.
 - Keep language-specific checks narrow and focused on locale selection or presence of translated resources, not exact phrasing.

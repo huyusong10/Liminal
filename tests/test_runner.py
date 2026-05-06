@@ -38,6 +38,24 @@ def _step_outputs_by_archetype(run_dir: Path) -> dict[str, list[dict]]:
     return outputs
 
 
+def _wait_for_terminal_run(service: LooporaService, run_id: str, *, timeout: float = 5.0) -> dict:
+    deadline = time.time() + timeout
+    current = service.get_run(run_id)
+    while time.time() < deadline:
+        current = service.get_run(run_id)
+        if current["status"] in {"succeeded", "failed", "stopped"}:
+            return current
+        time.sleep(0.05)
+    return current
+
+
+def _join_async_run(service: LooporaService, run_id: str, *, timeout: float = 5.0) -> None:
+    thread = service._threads.get(run_id)
+    if thread is not None:
+        thread.join(timeout=timeout)
+    service.get_run(run_id)
+
+
 def test_asset_call_does_not_classify_plain_unknown_validation_errors_as_not_found(service_factory) -> None:
     service = service_factory(scenario="success")
 
@@ -1403,15 +1421,21 @@ def test_same_workdir_concurrent_run_is_rejected(service_factory, sample_spec_fi
     first_run = service.start_run(first_loop["id"])
     service.start_run_async(first_run["id"])
 
-    deadline = time.time() + 5
-    while time.time() < deadline:
-        status = service.get_run(first_run["id"])["status"]
-        if status == "running":
-            break
-        time.sleep(0.05)
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            status = service.get_run(first_run["id"])["status"]
+            if status == "running":
+                break
+            time.sleep(0.05)
 
-    with pytest.raises(LooporaError):
-        service.start_run(second_loop["id"])
+        with pytest.raises(LooporaError):
+            service.start_run(second_loop["id"])
+    finally:
+        if service.get_run(first_run["id"])["status"] in {"queued", "running"}:
+            service.stop_run(first_run["id"])
+            _wait_for_terminal_run(service, first_run["id"])
+        _join_async_run(service, first_run["id"])
 
 
 def test_stop_run_marks_run_stopped(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
@@ -1530,14 +1554,8 @@ def test_zero_max_iters_runs_until_stopped(service_factory, sample_spec_file: Pa
 
     service.stop_run(run["id"])
 
-    deadline = time.time() + 5
-    while time.time() < deadline:
-        current = service.get_run(run["id"])
-        if current["status"] == "stopped":
-            break
-        time.sleep(0.05)
-
-    stopped = service.get_run(run["id"])
+    stopped = _wait_for_terminal_run(service, run["id"])
+    _join_async_run(service, run["id"])
     assert stopped["status"] == "stopped"
 
 

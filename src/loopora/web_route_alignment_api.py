@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -14,20 +15,17 @@ from loopora.web_streaming import stream_error_payload
 
 
 def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+    _register_alignment_improvement_routes(app, ctx)
+    _register_alignment_session_routes(app, ctx)
+    _register_alignment_stream_route(app, ctx)
+    _register_alignment_bundle_routes(app, ctx)
+
+
+def _register_alignment_improvement_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/api/bundles/{bundle_id}/revise")
     async def api_create_bundle_improvement_session(bundle_id: str, request: Request) -> JSONResponse:
         payload = await ctx.read_json_mapping(request)
-        session = ctx.svc().create_bundle_revision_session(
-            bundle_id,
-            message=str(payload.get("message", "") or ""),
-            executor_kind=str(payload.get("executor_kind", "codex")).strip() or "codex",
-            executor_mode=str(payload.get("executor_mode", "preset")).strip() or "preset",
-            command_cli=str(payload.get("command_cli", "")).strip(),
-            command_args_text=str(payload.get("command_args_text", "")),
-            model=str(payload.get("model", "")).strip(),
-            reasoning_effort=str(payload.get("reasoning_effort", "")).strip(),
-            start_immediately=_coerce_bool(payload.get("start_immediately", True)),
-        )
+        session = ctx.svc().create_bundle_revision_session(bundle_id, **_alignment_executor_payload(payload))
         return JSONResponse(
             {"session": session, "redirect_url": f"/loops/new/bundle?alignment_session_id={session['id']}"},
             status_code=201,
@@ -36,22 +34,14 @@ def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/api/runs/{run_id}/revise")
     async def api_create_run_improvement_session(run_id: str, request: Request) -> JSONResponse:
         payload = await ctx.read_json_mapping(request)
-        session = ctx.svc().create_run_revision_session(
-            run_id,
-            message=str(payload.get("message", "") or ""),
-            executor_kind=str(payload.get("executor_kind", "codex")).strip() or "codex",
-            executor_mode=str(payload.get("executor_mode", "preset")).strip() or "preset",
-            command_cli=str(payload.get("command_cli", "")).strip(),
-            command_args_text=str(payload.get("command_args_text", "")),
-            model=str(payload.get("model", "")).strip(),
-            reasoning_effort=str(payload.get("reasoning_effort", "")).strip(),
-            start_immediately=_coerce_bool(payload.get("start_immediately", True)),
-        )
+        session = ctx.svc().create_run_revision_session(run_id, **_alignment_executor_payload(payload))
         return JSONResponse(
             {"session": session, "redirect_url": f"/loops/new/bundle?alignment_session_id={session['id']}"},
             status_code=201,
         )
 
+
+def _register_alignment_session_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/api/alignments/sessions")
     async def api_create_alignment_session(request: Request) -> JSONResponse:
         payload = await ctx.read_json_mapping(request)
@@ -98,42 +88,19 @@ def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     async def api_alignment_events(session_id: str, after_id: int = 0, limit: int = 200) -> JSONResponse:
         return JSONResponse(ctx.svc().list_alignment_events(session_id, after_id=after_id, limit=limit))
 
+
+def _register_alignment_stream_route(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/alignments/sessions/{session_id}/stream")
     async def api_alignment_stream(request: Request, session_id: str, after_id: int = 0) -> StreamingResponse:
         ctx.svc().get_alignment_session(session_id)
         after_id = _resolve_alignment_stream_after_id(request, after_id=after_id)
+        return StreamingResponse(
+            _alignment_event_stream(ctx, session_id=session_id, after_id=after_id),
+            media_type="text/event-stream",
+        )
 
-        def event_stream():
-            last_id = after_id
-            while True:
-                try:
-                    events = ctx.svc().list_alignment_events(session_id, after_id=last_id)
-                    for event in events:
-                        last_id = event["id"]
-                        yield f"id: {event['id']}\n"
-                        yield f"event: {event['event_type']}\n"
-                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                    session = ctx.svc().get_alignment_session(session_id)
-                except Exception as exc:
-                    log_exception(
-                        ctx.logger,
-                        "web.alignment_stream.failed",
-                        "Alignment event stream failed",
-                        error=exc,
-                        session_id=session_id,
-                        after_id=last_id,
-                    )
-                    payload = stream_error_payload(owner_key="session_id", owner_id=session_id, after_id=last_id)
-                    yield "event: stream_error\n"
-                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-                    break
-                if session["status"] not in ALIGNMENT_ACTIVE_STATUSES and not events:
-                    break
-                yield ": keep-alive\n\n"
-                time.sleep(1)
 
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
-
+def _register_alignment_bundle_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/alignments/sessions/{session_id}/bundle")
     async def api_alignment_bundle(session_id: str) -> JSONResponse:
         return JSONResponse(ctx.svc().get_alignment_bundle(session_id))
@@ -148,6 +115,49 @@ def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         start_immediately = _coerce_bool(payload.get("start_immediately", True))
         result = ctx.svc().import_alignment_bundle(session_id, start_immediately=start_immediately)
         return JSONResponse(result, status_code=201)
+
+
+def _alignment_executor_payload(payload: Mapping[str, object]) -> dict[str, object]:
+    return {
+        "message": str(payload.get("message", "") or ""),
+        "executor_kind": str(payload.get("executor_kind", "codex")).strip() or "codex",
+        "executor_mode": str(payload.get("executor_mode", "preset")).strip() or "preset",
+        "command_cli": str(payload.get("command_cli", "")).strip(),
+        "command_args_text": str(payload.get("command_args_text", "")),
+        "model": str(payload.get("model", "")).strip(),
+        "reasoning_effort": str(payload.get("reasoning_effort", "")).strip(),
+        "start_immediately": _coerce_bool(payload.get("start_immediately", True)),
+    }
+
+
+def _alignment_event_stream(ctx: WebRouteContext, *, session_id: str, after_id: int) -> Iterator[str]:
+    last_id = after_id
+    while True:
+        try:
+            events = ctx.svc().list_alignment_events(session_id, after_id=last_id)
+            for event in events:
+                last_id = event["id"]
+                yield f"id: {event['id']}\n"
+                yield f"event: {event['event_type']}\n"
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            session = ctx.svc().get_alignment_session(session_id)
+        except Exception as exc:
+            log_exception(
+                ctx.logger,
+                "web.alignment_stream.failed",
+                "Alignment event stream failed",
+                error=exc,
+                session_id=session_id,
+                after_id=last_id,
+            )
+            payload = stream_error_payload(owner_key="session_id", owner_id=session_id, after_id=last_id)
+            yield "event: stream_error\n"
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            break
+        if session["status"] not in ALIGNMENT_ACTIVE_STATUSES and not events:
+            break
+        yield ": keep-alive\n\n"
+        time.sleep(1)
 
 
 def _resolve_alignment_stream_after_id(request: Request, *, after_id: int) -> int:

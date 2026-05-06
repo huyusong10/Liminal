@@ -27,6 +27,7 @@ from loopora.cli_shared import (
     TriggerWindowOption,
     WorkflowFileOption,
     WorkflowPresetOption,
+    LoopCreateRequest,
     create_and_maybe_start_loop,
     echo_json,
     handle_error,
@@ -42,6 +43,15 @@ from loopora.specs import SpecError
 
 
 def register_loop_commands(loops_app: typer.Typer) -> None:
+    _register_loop_create_command(loops_app)
+    _register_loop_list_command(loops_app)
+    _register_loop_status_command(loops_app)
+    _register_loop_stop_command(loops_app)
+    _register_loop_rerun_command(loops_app)
+    _register_loop_delete_command(loops_app)
+
+
+def _register_loop_create_command(loops_app: typer.Typer) -> None:
     @loops_app.command("create")
     def create_loop(
         spec: SpecOption,
@@ -70,28 +80,30 @@ def register_loop_commands(loops_app: typer.Typer) -> None:
         """Create a saved loop definition, optionally starting a run immediately."""
         try:
             loop, result = create_and_maybe_start_loop(
-                spec=spec,
-                workdir=workdir,
-                executor_kind=executor_kind,
-                executor_mode=executor_mode,
-                model=model,
-                reasoning_effort=reasoning_effort,
-                completion_mode=completion_mode,
-                iteration_interval_seconds=iteration_interval_seconds,
-                command_cli=command_cli,
-                command_arg=command_arg,
-                max_iters=max_iters,
-                max_role_retries=max_role_retries,
-                delta_threshold=delta_threshold,
-                trigger_window=trigger_window,
-                regression_window=regression_window,
-                name=name,
-                role_model=role_model,
-                orchestration_id=orchestration_id,
-                workflow_preset=workflow_preset,
-                workflow_file=workflow_file,
-                start=start,
-                background=background,
+                LoopCreateRequest(
+                    spec=spec,
+                    workdir=workdir,
+                    executor_kind=executor_kind,
+                    executor_mode=executor_mode,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    completion_mode=completion_mode,
+                    iteration_interval_seconds=iteration_interval_seconds,
+                    command_cli=command_cli,
+                    command_arg=command_arg,
+                    max_iters=max_iters,
+                    max_role_retries=max_role_retries,
+                    delta_threshold=delta_threshold,
+                    trigger_window=trigger_window,
+                    regression_window=regression_window,
+                    name=name,
+                    role_model=role_model,
+                    orchestration_id=orchestration_id,
+                    workflow_preset=workflow_preset,
+                    workflow_file=workflow_file,
+                    start=start,
+                    background=background,
+                )
             )
             print_loop_created(loop)
             if result is not None:
@@ -99,6 +111,8 @@ def register_loop_commands(loops_app: typer.Typer) -> None:
         except (LooporaError, SpecError, FileExistsError) as exc:
             handle_error(exc)
 
+
+def _register_loop_list_command(loops_app: typer.Typer) -> None:
     @loops_app.command("list")
     def list_loops() -> None:
         """List known loop definitions."""
@@ -117,6 +131,8 @@ def register_loop_commands(loops_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_loop_status_command(loops_app: typer.Typer) -> None:
     @loops_app.command("status")
     def loop_status(identifier: str = typer.Argument(..., help="Loop ID or run ID.")) -> None:
         """Show status for a loop or a specific run."""
@@ -127,6 +143,8 @@ def register_loop_commands(loops_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_loop_stop_command(loops_app: typer.Typer) -> None:
     @loops_app.command("stop")
     def stop_run(run_id: str = typer.Argument(..., help="Run ID.")) -> None:
         """Request a running loop to stop."""
@@ -146,6 +164,8 @@ def register_loop_commands(loops_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_loop_rerun_command(loops_app: typer.Typer) -> None:
     @loops_app.command("rerun")
     def rerun_loop(
         loop_id: str = typer.Argument(..., help="Loop definition ID."),
@@ -169,6 +189,8 @@ def register_loop_commands(loops_app: typer.Typer) -> None:
         except LooporaError as exc:
             handle_error(exc)
 
+
+def _register_loop_delete_command(loops_app: typer.Typer) -> None:
     @loops_app.command("delete")
     def delete_loop(loop_id: str = typer.Argument(..., help="Loop definition ID.")) -> None:
         """Delete a saved loop definition and its run artifacts."""
