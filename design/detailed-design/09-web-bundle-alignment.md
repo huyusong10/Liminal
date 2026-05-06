@@ -245,17 +245,17 @@ session 进入 READY 后，页面自动展示 Loop artifact。
 
 | 预览区 | 数据来源 | 用户语义 |
 |--------|----------|----------|
-| 摘要 | metadata、control projection、workdir | 任务目标、主要风险、证据路径、裁决方式、运行目录 |
-| 控制摘要 | bundle preview projection | 这个 Loop 主要控制哪些误差、靠什么证据、由谁收束 |
+| 流程图 | workflow projection | 谁执行、谁取证、谁裁决，以及 Loop 如何收束 |
+| 关键信息条 | metadata、control projection、workdir、session bundle path | 最高风险、证据是否挂载、裁决方式和运行目录 |
 | 专家 `spec` | `spec.markdown` | 这次要做什么、什么算完成、哪些假完成不可接受 |
 | 专家 `roles` | `role_definitions` | 每个 role 在本任务里的完整工作姿态 |
-| 专家 `workflow` | `workflow.roles / workflow.steps / collaboration_intent` | 谁先做、谁取证、谁裁决、何时收束 |
 | 源文件操作 | session bundle path | 可在资源管理器中打开，并在用户手动修改后重新同步 |
 
 补充规则：
 
-- Artifact 默认只展示用户语义摘要和主操作；主体只保留 `spec / roles / workflow` 三个专家视图。
-- 控制摘要必须由后端 bundle projection 生成，不能由前端临时猜测；它不是新的事实源，只是把 `spec / roles / workflow` 的误差控制结构投影给用户。
+- Artifact 默认首屏应直接展示 workflow 流程图和主操作；流程图下方只保留轻量关键信息条，不重复展示图中已表达的执行顺序，也不铺开完整目标、完整风险、完整证据路径或完整源文件路径。
+- 控制摘要必须由后端 bundle projection 生成，不能由前端临时猜测；它不是新的事实源，只能被压缩成关键信息条中的少量状态，不再作为一组重复卡片展示。
+- 专家 `spec / roles` 入口平铺在 READY artifact 的检查区；默认选中 `spec`，但检查区位于流程图和关键信息条之后，不能抢占首屏决策面。
 - 中文界面默认把 `spec / roles / workflow` 展示为“Loop 契约 / 角色 / 流程”；底层字段名只留在专家源文件、API 或调试材料中。
 - YAML 不作为页面主要预览视图展示；需要时通过“打开源文件”进入资源管理器。
 - 若用户手动修改 READY `artifacts/bundle.yml`，页面应提供“重新同步源文件”能力：重新读取、硬校验、刷新 Artifact，并把同步成功或失败写入当前对话 transcript。

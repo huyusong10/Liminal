@@ -381,14 +381,15 @@ def test_browser_tests_do_not_use_nested_sync_api_entrypoint() -> None:
 
 def _assert_preview_has_expert_tabs_and_stable_hover(page) -> None:
     page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
+    diagram = page.get_by_test_id("alignment-workflow-diagram")
+    diagram.locator("svg").wait_for(state="visible", timeout=5_000)
+    assert diagram.get_by_test_id("workflow-loop-node").count() >= 3
+    page.get_by_test_id("alignment-preview-tab-spec").click()
     assert page.get_by_test_id("alignment-spec-preview").inner_html().strip()
     page.get_by_test_id("alignment-preview-tab-roles").click()
     assert page.locator('[data-testid="alignment-role-list"] [data-testid="alignment-role-card"]').count() >= 3
 
-    page.get_by_test_id("alignment-preview-tab-workflow").click()
-    diagram = page.get_by_test_id("alignment-workflow-diagram")
-    diagram.locator("svg").wait_for(state="visible", timeout=5_000)
-    assert diagram.get_by_test_id("workflow-loop-node").count() >= 3
+    assert page.get_by_test_id("alignment-preview-tab-workflow").count() == 0
     assert page.get_by_test_id("alignment-preview-tab-yaml").count() == 0
     page.get_by_test_id("alignment-preview-tab-roles").click()
     first_role = page.locator('[data-testid="alignment-role-card"]').first
@@ -408,7 +409,6 @@ def _assert_preview_has_expert_tabs_and_stable_hover(page) -> None:
         assert metrics["overflowY"] != "auto"
         assert metrics["scrollHeight"] <= metrics["clientHeight"] + 1
 
-    page.get_by_test_id("alignment-preview-tab-workflow").click()
     node = diagram.get_by_test_id("workflow-loop-node").nth(1)
     node.scroll_into_view_if_needed()
     layout_before = page.evaluate(
@@ -493,12 +493,15 @@ def _assert_preview_has_expert_tabs_and_stable_hover(page) -> None:
 
 def _assert_plan_preview_has_default_summary_and_expert_tabs(page) -> None:
     page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
+    page.get_by_test_id("alignment-workflow-diagram").locator("svg").wait_for(state="visible", timeout=5_000)
     page.get_by_test_id("alignment-artifact-summary").wait_for(state="visible", timeout=5_000)
     summary_text = page.get_by_test_id("alignment-artifact-summary").text_content() or ""
-    assert "Task" in summary_text or "任务目标" in summary_text
-    assert "Evidence" in summary_text or "证据路径" in summary_text
-    assert "Verdict" in summary_text or "裁决方式" in summary_text
-    assert "Workdir" in summary_text or "运行目录" in summary_text
+    assert "Risk" in summary_text or "风险" in summary_text
+    assert "Evidence" in summary_text or "证据" in summary_text
+    assert "Verdict" in summary_text or "裁决" in summary_text
+    assert "Workdir" in summary_text or "目录" in summary_text
+    assert page.get_by_test_id("alignment-preview-tab-spec").get_attribute("aria-selected") == "true"
+    assert page.get_by_test_id("alignment-spec-preview").is_visible()
     _assert_preview_has_expert_tabs_and_stable_hover(page)
 
 

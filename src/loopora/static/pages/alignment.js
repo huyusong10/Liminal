@@ -53,7 +53,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const previewTitle = document.getElementById("bundle-preview-title");
   const artifactName = document.getElementById("alignment-artifact-name");
   const readyNote = document.getElementById("alignment-ready-note");
-  const artifactTask = document.getElementById("alignment-artifact-task");
   const artifactRisk = document.getElementById("alignment-artifact-risk");
   const artifactEvidence = document.getElementById("alignment-artifact-evidence");
   const artifactVerdict = document.getElementById("alignment-artifact-verdict");
@@ -944,17 +943,14 @@ document.addEventListener("DOMContentLoaded", () => {
     artifactName.textContent = localeText("无法加载 Loop 方案", "Unable to load loop plan");
     previewTitle.textContent = localeText("方案需要重新加载", "Plan needs reload");
     readyNote.textContent = message || "";
-    if (artifactTask) {
-      artifactTask.textContent = localeText("Loop 目标：方案文件暂时不可用。", "Task: plan file is temporarily unavailable.");
-    }
     if (artifactRisk) {
-      artifactRisk.textContent = localeText("主要风险：-", "Main risk: -");
+      artifactRisk.textContent = localeText("风险：-", "Risk: -");
     }
     if (artifactEvidence) {
-      artifactEvidence.textContent = localeText("证据路径：-", "Evidence path: -");
+      artifactEvidence.textContent = localeText("证据：-", "Evidence: -");
     }
     if (artifactVerdict) {
-      artifactVerdict.textContent = localeText("裁决方式：-", "Verdict: -");
+      artifactVerdict.textContent = localeText("裁决：-", "Verdict: -");
     }
     artifactWorkdir.textContent = localeText(
       `运行目录：${basename(currentSession?.workdir || "") || "-"}`,
@@ -1021,8 +1017,22 @@ document.addEventListener("DOMContentLoaded", () => {
     return listSnippet(summary?.risks) || localeText("按方案中的假完成风险收束。", "Controlled from the plan's fake-done risks.");
   }
 
+  function primaryRiskSummary(summary) {
+    return (summary?.risks || [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)[0] || localeText("按方案中的假完成风险收束。", "Controlled from the plan's fake-done risks.");
+  }
+
   function evidencePathSummary(summary) {
     return listSnippet(summary?.evidence) || localeText("运行时写入证据账本。", "Recorded into the run evidence ledger.");
+  }
+
+  function evidenceStatus(summary) {
+    const count = (summary?.evidence || []).filter((value) => String(value || "").trim()).length;
+    if (count) {
+      return localeText(`${count} 项`, `${count} checks`);
+    }
+    return localeText("已配置", "configured");
   }
 
   function verdictSummary(summary) {
@@ -1165,27 +1175,26 @@ document.addEventListener("DOMContentLoaded", () => {
     const metadata = payload.metadata || payload.bundle?.metadata || {};
     artifactName.textContent = metadata.name || localeText("Loop 方案", "Loop plan");
     previewTitle.textContent = localeText("Loop 已准备好，可以创建并运行", "Plan is ready to create and run");
-    readyNote.textContent = localeText(
-      "先确认它控制的风险、证据路径和裁决方式；需要细看时再打开专家视图。",
-      "Confirm the risk controls, evidence path, and verdict path first; open expert views only when needed."
-    );
+    readyNote.textContent = "";
     importRunButton.hidden = false;
     const summary = payload.control_summary || {};
-    if (artifactTask) {
-      artifactTask.textContent = labeledSummary("Loop 目标", "Task", taskSummary(payload.bundle));
-    }
     if (artifactRisk) {
-      artifactRisk.textContent = labeledSummary("主要风险", "Main risk", mainRiskSummary(summary));
+      const risk = primaryRiskSummary(summary);
+      artifactRisk.textContent = labeledSummary("最大风险", "Risk", risk);
+      artifactRisk.title = risk;
     }
     if (artifactEvidence) {
-      artifactEvidence.textContent = labeledSummary("证据路径", "Evidence path", evidencePathSummary(summary));
+      const evidenceText = evidencePathSummary(summary);
+      artifactEvidence.textContent = labeledSummary("证据", "Evidence", evidenceStatus(summary));
+      artifactEvidence.title = evidenceText;
     }
     if (artifactVerdict) {
-      artifactVerdict.textContent = labeledSummary("裁决方式", "Verdict", verdictSummary(summary));
+      artifactVerdict.textContent = labeledSummary("裁决", "Verdict", summary?.gatekeeper?.enabled ? "GateKeeper" : verdictSummary(summary));
+      artifactVerdict.title = verdictSummary(summary);
     }
-    artifactWorkdir.textContent = labeledSummary("运行目录", "Workdir", basename(payload.bundle?.loop?.workdir || ""));
+    artifactWorkdir.textContent = labeledSummary("目录", "Workdir", basename(payload.bundle?.loop?.workdir || ""));
     artifactWorkdir.title = payload.bundle?.loop?.workdir || "";
-    renderControlSummary(summary || null);
+    renderControlSummary(null);
     specPreview.innerHTML = payload.spec_rendered_html || "";
     if (sourceOpenButton) {
       sourceOpenButton.hidden = !payload.source_path;
@@ -1199,7 +1208,7 @@ document.addEventListener("DOMContentLoaded", () => {
       artifactSource.hidden = !payload.source_path;
     }
     if (sourcePathLabel) {
-      sourcePathLabel.textContent = payload.source_path ? `${localeText("源文件", "Source")}: ${payload.source_path}` : "";
+      sourcePathLabel.textContent = "";
       sourcePathLabel.title = payload.source_path || "";
     }
     roleList.innerHTML = "";
@@ -1207,7 +1216,7 @@ document.addEventListener("DOMContentLoaded", () => {
       roleList.append(renderRoleCard(role));
     });
     if (window.LooporaWorkflowDiagram) {
-      window.LooporaWorkflowDiagram.renderInto(workflowDiagram, payload.workflow_preview || {}, {variant: "card"});
+      window.LooporaWorkflowDiagram.renderInto(workflowDiagram, payload.workflow_preview || {}, {variant: "editor"});
     }
     selectPreviewTab("spec");
     if (options.reveal !== false) {

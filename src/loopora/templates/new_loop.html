@@ -201,40 +201,34 @@
           </button>
         </div>
       </header>
-      <div class="alignment-artifact-summary" id="alignment-artifact-summary" data-testid="alignment-artifact-summary">
-        <span id="alignment-artifact-task">-</span>
-        <span id="alignment-artifact-risk">-</span>
-        <span id="alignment-artifact-evidence">-</span>
-        <span id="alignment-artifact-verdict">-</span>
-        <span id="alignment-artifact-workdir">-</span>
+      <div class="alignment-artifact-stage" data-testid="alignment-artifact-stage">
+        <div class="workflow-loop-card alignment-workflow-card alignment-workflow-card--hero" id="alignment-workflow-diagram" data-testid="alignment-workflow-diagram"></div>
       </div>
-      <div class="alignment-control-summary" id="alignment-control-summary" data-testid="alignment-control-summary"></div>
-      <div class="alignment-artifact-source" id="alignment-artifact-source" data-testid="alignment-artifact-source" hidden>
-        <span class="alignment-artifact-source-path" id="alignment-source-path"></span>
-        <div class="alignment-artifact-source-actions">
-          <button class="ghost-button" type="button" id="alignment-source-open-button" data-testid="alignment-source-open-button" hidden>
-            <span data-lang="zh">打开源文件</span>
-            <span data-lang="en">Open source file</span>
-          </button>
-          <button class="ghost-button" type="button" id="alignment-source-sync-button" data-testid="alignment-source-sync-button" hidden>
-            <span data-lang="zh">重新同步</span>
-            <span data-lang="en">Reload source</span>
-          </button>
+      <div class="alignment-decision-strip" data-testid="alignment-artifact-summary">
+        <p class="alignment-decision-risk" id="alignment-artifact-risk">-</p>
+        <div class="alignment-decision-facts">
+          <span id="alignment-artifact-evidence">-</span>
+          <span id="alignment-artifact-verdict">-</span>
+          <span id="alignment-artifact-workdir">-</span>
+          <div class="alignment-artifact-source" id="alignment-artifact-source" data-testid="alignment-artifact-source" hidden>
+            <span class="alignment-artifact-source-path" id="alignment-source-path" hidden></span>
+            <button class="ghost-button" type="button" id="alignment-source-open-button" data-testid="alignment-source-open-button" hidden>
+              <span data-lang="zh">打开源文件</span>
+              <span data-lang="en">Open source file</span>
+            </button>
+            <button class="ghost-button" type="button" id="alignment-source-sync-button" data-testid="alignment-source-sync-button" hidden>
+              <span data-lang="zh">重新同步</span>
+              <span data-lang="en">Reload source</span>
+            </button>
+          </div>
         </div>
       </div>
-      <p class="alignment-preview-note">
-        <span data-lang="zh">专家视图：用于检查这份 Loop 如何落到稳定运行面。</span>
-        <span data-lang="en">Expert views: inspect how this plan maps onto Loopora's stable runtime surfaces.</span>
-      </p>
       <div class="alignment-preview-tabs" data-testid="alignment-preview-tabs" role="tablist" aria-label="{{ 'Loop 预览' if page_locale == 'zh' else 'Loop plan preview' }}">
         <button type="button" class="alignment-preview-tab is-active" data-preview-tab="spec" data-testid="alignment-preview-tab-spec" role="tab" aria-selected="true">
           <span data-lang="zh">Loop 契约</span><span data-lang="en">spec</span>
         </button>
         <button type="button" class="alignment-preview-tab" data-preview-tab="roles" data-testid="alignment-preview-tab-roles" role="tab" aria-selected="false">
           <span data-lang="zh">角色</span><span data-lang="en">roles</span>
-        </button>
-        <button type="button" class="alignment-preview-tab" data-preview-tab="workflow" data-testid="alignment-preview-tab-workflow" role="tab" aria-selected="false">
-          <span data-lang="zh">流程</span><span data-lang="en">workflow</span>
         </button>
       </div>
       <div class="alignment-preview-panels">
@@ -243,9 +237,6 @@
         </section>
         <section class="alignment-preview-section" data-preview-panel="roles" hidden>
           <div class="alignment-role-list" id="alignment-role-list" data-testid="alignment-role-list"></div>
-        </section>
-        <section class="alignment-preview-section" data-preview-panel="workflow" hidden>
-          <div class="workflow-loop-card alignment-workflow-card" id="alignment-workflow-diagram" data-testid="alignment-workflow-diagram"></div>
         </section>
       </div>
     </section>
@@ -495,19 +486,21 @@
         </button>
       </div>
     </header>
-    <div class="alignment-artifact-summary" id="alignment-artifact-summary" data-testid="alignment-artifact-summary">
-      <span id="alignment-artifact-roles">-</span>
-      <span id="alignment-artifact-flow">-</span>
-      <span id="alignment-artifact-workdir">-</span>
+    <div class="alignment-artifact-stage" data-testid="alignment-artifact-stage">
+      <div class="workflow-loop-card alignment-workflow-card alignment-workflow-card--hero" id="alignment-workflow-diagram" data-testid="alignment-workflow-diagram"></div>
     </div>
-    <div class="alignment-control-summary" id="alignment-control-summary" data-testid="alignment-control-summary"></div>
-    <div class="alignment-artifact-source" id="alignment-artifact-source" data-testid="alignment-artifact-source" hidden>
-      <span class="alignment-artifact-source-path" id="alignment-source-path"></span>
-      <div class="alignment-artifact-source-actions">
-        <button class="ghost-button" type="button" id="alignment-source-open-button" data-testid="alignment-source-open-button" hidden>
-          <span data-lang="zh">打开源文件</span>
-          <span data-lang="en">Open source file</span>
-        </button>
+    <div class="alignment-decision-strip" data-testid="alignment-artifact-summary">
+      <p class="alignment-decision-risk" id="alignment-artifact-roles">-</p>
+      <div class="alignment-decision-facts">
+        <span id="alignment-artifact-verdict">-</span>
+        <span id="alignment-artifact-workdir">-</span>
+        <div class="alignment-artifact-source" id="alignment-artifact-source" data-testid="alignment-artifact-source" hidden>
+          <span class="alignment-artifact-source-path" id="alignment-source-path" hidden></span>
+          <button class="ghost-button" type="button" id="alignment-source-open-button" data-testid="alignment-source-open-button" hidden>
+            <span data-lang="zh">打开源文件</span>
+            <span data-lang="en">Open source file</span>
+          </button>
+        </div>
       </div>
     </div>
     <div class="alignment-preview-tabs" data-testid="alignment-preview-tabs" role="tablist" aria-label="{{ 'Loop 预览' if page_locale == 'zh' else 'Loop plan preview' }}">
@@ -517,9 +510,6 @@
       <button type="button" class="alignment-preview-tab" data-preview-tab="roles" data-testid="alignment-preview-tab-roles" role="tab" aria-selected="false">
         <span data-lang="zh">角色</span><span data-lang="en">roles</span>
       </button>
-      <button type="button" class="alignment-preview-tab" data-preview-tab="workflow" data-testid="alignment-preview-tab-workflow" role="tab" aria-selected="false">
-        <span data-lang="zh">流程</span><span data-lang="en">workflow</span>
-      </button>
     </div>
     <div class="alignment-preview-panels">
       <section class="alignment-preview-section" data-preview-panel="spec">
@@ -527,9 +517,6 @@
       </section>
       <section class="alignment-preview-section" data-preview-panel="roles" hidden>
         <div class="alignment-role-list" id="alignment-role-list" data-testid="alignment-role-list"></div>
-      </section>
-      <section class="alignment-preview-section" data-preview-panel="workflow" hidden>
-        <div class="workflow-loop-card alignment-workflow-card" id="alignment-workflow-diagram" data-testid="alignment-workflow-diagram"></div>
       </section>
     </div>
   </section>

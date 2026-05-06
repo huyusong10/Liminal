@@ -1041,22 +1041,21 @@ def _assert_bundle_compose_page(html: str) -> None:
         "alignment-live-details",
         "alignment-live-summary-meta",
         "alignment-ready-preview",
+        "alignment-artifact-stage",
         "alignment-artifact-summary",
-        "alignment-control-summary",
         "alignment-preview-tabs",
         "alignment-preview-tab-spec",
         "alignment-preview-tab-roles",
-        "alignment-preview-tab-workflow",
         "alignment-workflow-diagram",
         "alignment-import-run-button",
         "alignment-source-open-button",
         "alignment-source-sync-button",
     )
     for artifact_anchor in (
-        'id="alignment-artifact-task"',
         'id="alignment-artifact-risk"',
         'id="alignment-artifact-evidence"',
         'id="alignment-artifact-verdict"',
+        'id="alignment-artifact-workdir"',
     ):
         assert artifact_anchor in html
     for removed_surface in (

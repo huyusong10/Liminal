@@ -13,9 +13,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const previewTitle = document.getElementById("bundle-preview-title");
   const artifactName = document.getElementById("alignment-artifact-name");
   const readyNote = document.getElementById("alignment-ready-note");
-  const artifactGoal = document.getElementById("alignment-artifact-goal");
   const artifactRoles = document.getElementById("alignment-artifact-roles");
-  const artifactFlow = document.getElementById("alignment-artifact-flow");
+  const artifactVerdict = document.getElementById("alignment-artifact-verdict");
   const artifactWorkdir = document.getElementById("alignment-artifact-workdir");
   const controlSummary = document.getElementById("alignment-control-summary");
   const artifactSource = document.getElementById("alignment-artifact-source");
@@ -105,6 +104,17 @@ document.addEventListener("DOMContentLoaded", () => {
       .filter(Boolean)
       .slice(0, 2)
       .join(" / ");
+  }
+
+  function labeledSummary(labelZh, labelEn, value) {
+    return localeText(`${labelZh}：${value || "-"}`, `${labelEn}: ${value || "-"}`);
+  }
+
+  function verdictSummary(summary) {
+    if (summary?.gatekeeper?.enabled) {
+      return "GateKeeper";
+    }
+    return localeText("轮次预算", "round budget");
   }
 
   function renderControlSummary(summary) {
@@ -244,16 +254,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const metadata = payload.metadata || payload.bundle?.metadata || {};
     artifactName.textContent = metadata.name || localeText("Loop 方案", "Loop plan");
     previewTitle.textContent = localeText("方案预览已准备好", "Plan preview is ready");
-    readyNote.textContent = taskSummary(payload.bundle);
+    readyNote.textContent = "";
     previewImportButton.hidden = false;
-    if (artifactGoal) {
-      artifactGoal.textContent = taskSummary(payload.bundle);
+    const summary = payload.control_summary || {};
+    artifactRoles.textContent = labeledSummary("角色", "Roles", localeText(`${(payload.roles || []).length} 个`, `${(payload.roles || []).length}`));
+    if (artifactVerdict) {
+      artifactVerdict.textContent = labeledSummary("裁决", "Verdict", verdictSummary(summary));
     }
-    artifactRoles.textContent = localeText(`${(payload.roles || []).length} 个角色`, `${(payload.roles || []).length} roles`);
-    artifactFlow.textContent = workflowSummary(payload.workflow_preview) || localeText("流程已生成", "workflow generated");
-    artifactWorkdir.textContent = basename(payload.bundle?.loop?.workdir || "");
+    artifactWorkdir.textContent = labeledSummary("目录", "Workdir", basename(payload.bundle?.loop?.workdir || ""));
     artifactWorkdir.title = payload.bundle?.loop?.workdir || "";
-    renderControlSummary(payload.control_summary || null);
+    renderControlSummary(null);
     specPreview.innerHTML = payload.spec_rendered_html || "";
     if (sourceOpenButton) {
       sourceOpenButton.hidden = !payload.source_path;
@@ -264,7 +274,7 @@ document.addEventListener("DOMContentLoaded", () => {
       artifactSource.hidden = !payload.source_path;
     }
     if (sourcePathLabel) {
-      sourcePathLabel.textContent = payload.source_path ? `${localeText("源文件", "Source")}: ${payload.source_path}` : "";
+      sourcePathLabel.textContent = "";
       sourcePathLabel.title = payload.source_path || "";
     }
     roleList.innerHTML = "";
@@ -272,7 +282,7 @@ document.addEventListener("DOMContentLoaded", () => {
       roleList.append(renderRoleCard(role));
     });
     if (window.LooporaWorkflowDiagram) {
-      window.LooporaWorkflowDiagram.renderInto(workflowDiagram, payload.workflow_preview || {}, {variant: "card"});
+      window.LooporaWorkflowDiagram.renderInto(workflowDiagram, payload.workflow_preview || {}, {variant: "editor"});
     }
     selectPreviewTab("spec");
     readyPreview.scrollIntoView({block: "start", behavior: "smooth"});
