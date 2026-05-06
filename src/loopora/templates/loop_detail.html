@@ -1,11 +1,12 @@
 {% extends "base.html" %}
 {% block title %}{{ loop.name }}{% endblock %}
 {% block content %}
+<div class="page-stack" data-testid="loop-detail-page">
 <section class="hero hero-tight">
   <div class="hero-copy-stack">
     <h1>{{ loop.name }}</h1>
     <p>
-      <span data-lang="zh">Task contract、运行历史和关键配置都住在这里，算是这条 loop 的小基地。</span>
+      <span data-lang="zh">Loop 契约、运行历史和关键配置都住在这里。</span>
       <span data-lang="en">The task contract, run history, and key configuration all live here. Think of it as this loop's tiny base camp.</span>
     </p>
     <p class="hero-path">{{ loop.workdir }}</p>
@@ -28,7 +29,7 @@
 
 <section class="panel" data-testid="loop-detail-config-panel">
   <header class="panel-header">
-    <h2><span data-lang="zh">配置</span><span data-lang="en">Configuration</span></h2>
+    <h2><span data-lang="zh">运行配置</span><span data-lang="en">Configuration</span></h2>
   </header>
   <dl class="meta-grid">
     <div><dt><span data-lang="zh">Loop ID</span><span data-lang="en">Loop ID</span></dt><dd>{{ loop.id }}</dd></div>
@@ -38,16 +39,16 @@
     <div><dt><span data-lang="zh">轮次间隔</span><span data-lang="en">Interval</span></dt><dd>{{ loop.iteration_interval_seconds }}s</dd></div>
     <div><dt><span data-lang="zh">最大迭代</span><span data-lang="en">Max iters</span></dt><dd>{% if loop.max_iters %}{{ loop.max_iters }}{% else %}<span data-lang="zh">无限</span><span data-lang="en">infinite</span>{% endif %}</dd></div>
     <div><dt><span data-lang="zh">重试次数</span><span data-lang="en">Retries</span></dt><dd>{% if loop.max_role_retries %}{{ loop.max_role_retries }}{% else %}<span data-lang="zh">无限</span><span data-lang="en">infinite</span>{% endif %}</dd></div>
-    <div><dt><span data-lang="zh">Spec 路径</span><span data-lang="en">Spec path</span></dt><dd>{{ loop.spec_path }}</dd></div>
+    <div><dt><span data-lang="zh">契约路径</span><span data-lang="en">Spec path</span></dt><dd>{{ loop.spec_path }}</dd></div>
   </dl>
 </section>
 
 <section class="panel" data-testid="loop-detail-spec-panel">
   <header class="panel-header">
     <div>
-      <h2><span data-lang="zh">原始 Spec</span><span data-lang="en">Original spec</span></h2>
+      <h2><span data-lang="zh">Loop 契约</span><span data-lang="en">Original spec</span></h2>
       <p class="loop-detail-copy">
-        <span data-lang="zh">这里展示 loop 最初保存下来的 spec 定义，方便随时回看 Task、Done When、Guardrails 和 Role Notes。</span>
+        <span data-lang="zh">这里展示 Loop 最初保存下来的契约定义，方便随时回看目标、完成条件、边界和角色备注。</span>
         <span data-lang="en">This shows the original spec saved with the loop so you can revisit Task, Done When, Guardrails, and Role Notes at any time.</span>
       </p>
     </div>
@@ -68,14 +69,14 @@
         <section class="markdown-workbench-panel">
           <div class="markdown-workbench-panel-head">
             <span class="markdown-workbench-panel-label"><span data-lang="zh">原文</span><span data-lang="en">Source</span></span>
-            <span class="markdown-workbench-panel-note"><span data-lang="zh">保持 loop 保存时的原始 Markdown</span><span data-lang="en">The raw Markdown saved with the loop</span></span>
+            <span class="markdown-workbench-panel-note"><span data-lang="zh">保持 Loop 保存时的原始正文</span><span data-lang="en">The raw Markdown saved with the loop</span></span>
           </div>
           <pre class="preview-box markdown-workbench-source loop-detail-spec-source">{{ loop.spec_markdown }}</pre>
         </section>
         <section class="markdown-workbench-panel">
           <div class="markdown-workbench-panel-head">
             <span class="markdown-workbench-panel-label"><span data-lang="zh">渲染预览</span><span data-lang="en">Rendered preview</span></span>
-            <span class="markdown-workbench-panel-note"><span data-lang="zh">方便直接回看 Task、Done When、Guardrails 和 Role Notes</span><span data-lang="en">Quickly revisit Task, Done When, Guardrails, and Role Notes</span></span>
+            <span class="markdown-workbench-panel-note"><span data-lang="zh">方便直接回看目标、完成条件、边界和角色备注</span><span data-lang="en">Quickly revisit Task, Done When, Guardrails, and Role Notes</span></span>
           </div>
           <article class="preview-box markdown-preview markdown-workbench-preview loop-detail-spec-preview">{{ loop.spec_rendered_html|safe }}</article>
         </section>
@@ -137,14 +138,14 @@
         <span data-lang="zh">综合分 {{ summary_snapshot.composite_score }}</span>
         <span data-lang="en">Composite {{ summary_snapshot.composite_score }}</span>
         {% else %}
-        <span data-lang="zh">等待 GateKeeper 输出</span>
+        <span data-lang="zh">等待守门裁决输出</span>
         <span data-lang="en">Waiting for GateKeeper output</span>
         {% endif %}
       </span>
     </article>
     <article class="summary-card summary-card-note">
       <span class="highlight-label"><span data-lang="zh">一句话摘要</span><span data-lang="en">At a glance</span></span>
-      <strong><span data-lang="zh">最近这次 run 的核心信息</span><span data-lang="en">What matters most from the latest run</span></strong>
+      <strong><span data-lang="zh">最近这次运行的核心信息</span><span data-lang="en">What matters most from the latest run</span></strong>
       <p>
         {% if summary_snapshot.summary_excerpt %}
         {{ summary_snapshot.summary_excerpt }}
@@ -158,4 +159,5 @@
   </div>
 </section>
 {% endif %}
+</div>
 {% endblock %}

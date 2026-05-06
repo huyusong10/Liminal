@@ -655,8 +655,8 @@
       const focusName = progressProjector.stageDisplayName(stage, run);
       const focusTitle = window.LooporaUI.translateStatus(status);
       const focusDetail = status === "running"
-        ? localeText(`${focusName} 正在处理中；任务裁决会在终态后单独收束。`, `${focusName} is in progress; the task verdict settles separately at terminal state.`)
-        : localeText(`生命周期状态是 ${window.LooporaUI.translateStatus(status)}，这不等于任务是否通过。`, `Lifecycle status is ${window.LooporaUI.translateStatus(status)}; it is separate from task pass/fail.`);
+        ? localeText(`${focusName} 正在处理中；Loop 裁决会在终态后单独收束。`, `${focusName} is in progress; the task verdict settles separately at terminal state.`)
+        : localeText(`生命周期状态是 ${window.LooporaUI.translateStatus(status)}，这不等于 Loop 是否通过。`, `Lifecycle status is ${window.LooporaUI.translateStatus(status)}; it is separate from task pass/fail.`);
       const focusMeta = `${localeText("迭代", "Iter")} ${displayIter(run?.current_iter)} · ${localeText("耗时", "Duration")} ${formatDuration(run?.started_at, run?.finished_at)}`;
       document.getElementById("focus-title").textContent = focusTitle;
       document.getElementById("focus-detail").textContent = focusDetail;

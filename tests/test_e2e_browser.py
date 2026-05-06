@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import socket
 import textwrap
 import threading
@@ -13,10 +14,11 @@ from pathlib import Path
 import pytest
 import uvicorn
 
+from loopora.branding import state_dir_for_workdir
 from loopora.db import LooporaRepository
 from loopora.executor import FakeCodexExecutor, RoleRequest
 from loopora.service import LooporaService
-from loopora.settings import AppSettings
+from loopora.settings import AppSettings, app_home
 from loopora.web import build_app
 
 playwright = pytest.importorskip("playwright.sync_api")
@@ -243,8 +245,15 @@ def launch_chromium(**kwargs):
 
 
 def open_nav_preferences(page) -> None:
-    page.get_by_test_id("nav-preferences-toggle").click()
-    page.get_by_test_id("nav-preferences-panel").wait_for(state="visible")
+    if page.get_by_test_id("nav-preferences-toggle").count():
+        page.get_by_test_id("nav-preferences-toggle").click()
+        page.get_by_test_id("nav-preferences-panel").wait_for(state="visible")
+        return
+    if page.get_by_test_id("nav-display-toggle").count():
+        page.get_by_test_id("nav-display-toggle").click()
+        page.get_by_test_id("nav-display-panel").wait_for(state="visible")
+        return
+    page.get_by_test_id("nav-display-controls").wait_for(state="visible")
 
 
 def _bundle_yaml_for_workdir(workdir: Path) -> str:
@@ -273,6 +282,89 @@ def _wait_for_run_status(service: LooporaService, run_id: str, *statuses: str, t
         time.sleep(0.05)
     run = service.get_run(run_id)
     raise AssertionError(f"run stayed in {run['status']}, expected {sorted(expected)}")
+
+
+def _layout_guard_metrics(page, selectors: str | None = None) -> dict:
+    audited_selectors = selectors or ",".join(
+        [
+            "h1",
+            "h2",
+            "h3",
+            "p",
+            "a",
+            "button",
+            "label",
+            "span",
+            "strong",
+            "code",
+            "pre",
+            "input",
+            "textarea",
+            "select",
+            ".form-grid",
+            ".input-with-action",
+            ".timeline-item",
+            ".run-history-item",
+            ".status-pill",
+        ]
+    )
+    return page.evaluate(
+        """({selectors}) => {
+          const viewportWidth = window.innerWidth;
+          const isVisible = (node) => {
+            const rect = node.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+          };
+          const isStableSurfaceNode = (node) => (
+            !node.closest("[data-testid='top-nav']")
+            && node.getAttribute("aria-hidden") !== "true"
+            && !node.closest("[aria-hidden='true']")
+          );
+          const escapedNodes = Array.from(document.querySelectorAll(selectors))
+            .filter((node) => isVisible(node) && isStableSurfaceNode(node))
+            .filter((node) => {
+              const rect = node.getBoundingClientRect();
+              return rect.left < -1 || rect.right > viewportWidth + 1;
+            });
+          const tallTextNodes = Array.from(document.querySelectorAll("h1,h2,h3,p,a,button,label,span,strong"))
+            .filter((node) => isVisible(node) && isStableSurfaceNode(node))
+            .filter((node) => {
+              const text = (node.innerText || node.textContent || "").trim();
+              const rect = node.getBoundingClientRect();
+              return text.length >= 2 && rect.width < 88 && rect.height > Math.max(54, rect.width * 2.25);
+            });
+          return {
+            docW: document.documentElement.scrollWidth,
+            clientW: document.documentElement.clientWidth,
+            bodyW: document.body.scrollWidth,
+            nonNavEscapes: escapedNodes.length,
+            escapedSamples: escapedNodes.slice(0, 5).map((node) => {
+              const rect = node.getBoundingClientRect();
+              return {
+                tag: node.tagName,
+                testid: node.getAttribute("data-testid") || "",
+                text: (node.innerText || node.textContent || "").trim().slice(0, 40),
+                left: Math.round(rect.left),
+                right: Math.round(rect.right),
+                width: Math.round(rect.width),
+              };
+            }),
+            tallTextCount: tallTextNodes.length,
+            tallTextSamples: tallTextNodes.slice(0, 5).map((node) => {
+              const rect = node.getBoundingClientRect();
+              return {
+                tag: node.tagName,
+                testid: node.getAttribute("data-testid") || "",
+                text: (node.innerText || node.textContent || "").trim().slice(0, 40),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+              };
+            }),
+          };
+        }""",
+        {"selectors": audited_selectors},
+    )
 
 
 def test_browser_tests_do_not_use_nested_sync_api_entrypoint() -> None:
@@ -513,6 +605,11 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
 
                 page.get_by_test_id("alignment-chat").wait_for(state="visible", timeout=5_000)
                 page.get_by_test_id("alignment-thinking-status").wait_for(state="visible", timeout=2_000)
+                page.get_by_test_id("alignment-working-card").wait_for(state="visible", timeout=2_000)
+                assert page.get_by_test_id("alignment-status-pill").get_attribute("data-status") in {"running", "validating", "repairing"}
+                assert page.get_by_test_id("alignment-send-button").get_attribute("data-action") == "cancel"
+                assert page.get_by_test_id("alignment-live-toggle").get_attribute("data-status") in {"running", "validating", "repairing"}
+                page.locator('[data-testid="alignment-history-item"].is-running').wait_for(state="visible", timeout=5_000)
                 assert page.get_by_test_id("alignment-live-details").is_visible()
                 assert page.get_by_test_id("alignment-live-body").is_hidden()
                 before_toggle = page.get_by_test_id("alignment-start-form").bounding_box()
@@ -585,6 +682,19 @@ def test_bundle_chat_shell_initial_layout_is_minimal_and_responsive(tmp_path: Pa
     repository = LooporaRepository(tmp_path / "app.db")
     settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
     service = LooporaService(repository=repository, settings=settings)
+    missing_bundle_workdir = tmp_path / "missing-ready-bundle"
+    missing_bundle_workdir.mkdir()
+    missing_bundle_session = service.create_alignment_session(
+        workdir=missing_bundle_workdir,
+        message="生成一个会缺失源文件的方案。",
+        start_immediately=False,
+    )
+    service.repository.update_alignment_session(
+        missing_bundle_session["id"],
+        status="ready",
+        alignment_stage="ready",
+        validation={"ok": False, "error": "bundle file does not exist"},
+    )
 
     with serve_app(build_app(service=service)) as base_url:
         with launch_chromium(headless=True) as browser:
@@ -607,14 +717,125 @@ def test_bundle_chat_shell_initial_layout_is_minimal_and_responsive(tmp_path: Pa
                       docScrollHeight: document.documentElement.scrollHeight,
                       viewportHeight: window.innerHeight,
                       viewportWidth: window.innerWidth,
-                      composer: document.querySelector('[data-testid="alignment-start-form"]').getBoundingClientRect()
+                      composer: document.querySelector('[data-testid="alignment-start-form"]').getBoundingClientRect(),
+                      chipHeights: Array.from(document.querySelectorAll(".alignment-chip")).map((chip) => Math.round(chip.getBoundingClientRect().height))
                     })"""
                 )
                 assert metrics["bodyWidth"] <= metrics["viewportWidth"] + 1
                 assert metrics["docScrollHeight"] <= metrics["viewportHeight"] + 1
                 assert metrics["composer"]["left"] >= -1
                 assert metrics["composer"]["right"] <= metrics["viewportWidth"] + 1
+                assert min(metrics["chipHeights"]) >= 34
+                page.get_by_test_id("alignment-message-input").focus()
+                focus_metrics = page.evaluate(
+                    """() => {
+                      const composer = document.querySelector(".alignment-composer-box");
+                      const shadow = getComputedStyle(composer).boxShadow;
+                      return {hasFocusRing: shadow !== "none" && shadow.includes("0px 0px 0px 3px")};
+                    }"""
+                )
+                assert focus_metrics["hasFocusRing"] is True
+                page.goto(f"{base_url}/loops/new/manual#bundle-import-form", wait_until="networkidle")
+                page.get_by_test_id("manual-bundle-import-panel").wait_for(state="visible", timeout=5_000)
+                assert page.get_by_test_id("loop-create-form").is_hidden()
+                manual_metrics = page.evaluate(
+                    """() => {
+                      const box = (selector) => {
+                        const element = document.querySelector(selector);
+                        if (!element) return null;
+                        const rect = element.getBoundingClientRect();
+                        return {left: rect.left, right: rect.right, width: rect.width, height: rect.height};
+                      };
+                      return {
+                        bodyWidth: document.body.scrollWidth,
+                        docScrollHeight: document.documentElement.scrollHeight,
+                        viewportHeight: window.innerHeight,
+                        viewportWidth: window.innerWidth,
+                        activeModes: Array.from(document.querySelectorAll('[data-compose-mode-link].is-active')).map((link) => link.dataset.composeModeLink),
+                        sidebar: box('[data-testid="alignment-history-panel"]'),
+                        main: box('[data-testid="loop-manual-compose-panel"]'),
+                        importPanel: box('[data-testid="manual-bundle-import-panel"]'),
+                        contentGap: box('[data-testid="manual-bundle-import-panel"]').left - box('[data-testid="loop-manual-compose-panel"]').left,
+                        tallTextCount: Array.from(document.querySelectorAll('h1,h2,p,a,button,label')).filter((element) => {
+                          const rect = element.getBoundingClientRect();
+                          return rect.width > 0 && rect.height > rect.width * 2.2;
+                        }).length,
+                      };
+                    }"""
+                )
+                assert manual_metrics["bodyWidth"] <= manual_metrics["viewportWidth"] + 1
+                assert manual_metrics["docScrollHeight"] <= manual_metrics["viewportHeight"] + 1
+                assert manual_metrics["activeModes"] == ["import"]
+                assert manual_metrics["importPanel"]["width"] >= min(300, manual_metrics["viewportWidth"] - 80)
+                assert manual_metrics["contentGap"] <= 80
+                assert manual_metrics["tallTextCount"] == 0
+                if manual_metrics["viewportWidth"] >= 900:
+                    assert manual_metrics["main"]["left"] >= manual_metrics["sidebar"]["right"] - 1
+                page.goto(f"{base_url}/loops/new/manual#manual-loop-form", wait_until="networkidle")
+                page.get_by_test_id("loop-create-form").wait_for(state="visible", timeout=5_000)
+                assert page.get_by_test_id("manual-bundle-import-panel").is_hidden()
+                assert page.evaluate(
+                    """() => Array.from(document.querySelectorAll('[data-compose-mode-link].is-active')).map((link) => link.dataset.composeModeLink)"""
+                ) == ["manual"]
+                assert (
+                    page.evaluate(
+                        """() => Math.round(document.querySelector(".inline-hint-link").getBoundingClientRect().height)"""
+                    )
+                    >= 32
+                )
+                manual_surface_metrics = _layout_guard_metrics(page)
+                form_metrics = page.evaluate(
+                    """() => {
+                      const form = document.getElementById("new-loop-form");
+                      return {formScrollWidth: form.scrollWidth, formClientWidth: form.clientWidth};
+                    }"""
+                )
+                assert form_metrics["formScrollWidth"] <= form_metrics["formClientWidth"] + 1
+                assert manual_surface_metrics["docW"] == manual_surface_metrics["clientW"]
+                assert manual_surface_metrics["bodyW"] <= manual_surface_metrics["clientW"] + 1
+                assert manual_surface_metrics["nonNavEscapes"] == 0, manual_surface_metrics["escapedSamples"]
+                assert manual_surface_metrics["tallTextCount"] == 0, manual_surface_metrics["tallTextSamples"]
                 page.close()
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            page.goto(
+                f"{base_url}/loops/new/bundle?alignment_session_id={missing_bundle_session['id']}",
+                wait_until="networkidle",
+            )
+            page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=5_000)
+            page.get_by_test_id("alignment-workdir-chip").click()
+            page.get_by_test_id("alignment-tools-menu").wait_for(state="visible", timeout=5_000)
+            assert page.get_by_test_id("alignment-workdir").input_value() == str(missing_bundle_workdir)
+            page.keyboard.press("Escape")
+            page.get_by_test_id("alignment-tools-menu").wait_for(state="hidden", timeout=5_000)
+            error_metrics = page.evaluate(
+                """() => {
+                  const preview = document.querySelector('[data-testid="alignment-ready-preview"]');
+                  const title = document.getElementById('alignment-artifact-name');
+                  const kicker = document.getElementById('bundle-preview-title');
+                  const button = document.getElementById('alignment-import-run-button');
+                  const titleBox = title.getBoundingClientRect();
+                  const kickerBox = kicker.getBoundingClientRect();
+                  const previewBox = preview.getBoundingClientRect();
+                  return {
+                    state: preview.dataset.previewState,
+                    buttonHidden: button.hidden,
+                    previewWidth: previewBox.width,
+                    titleWidth: titleBox.width,
+                    kickerWidth: kickerBox.width,
+                    tallTextCount: [title, kicker].filter((element) => {
+                      const rect = element.getBoundingClientRect();
+                      return rect.width > 0 && rect.height > rect.width * 2.2;
+                    }).length,
+                  };
+                }"""
+            )
+            assert error_metrics["state"] == "error"
+            assert error_metrics["buttonHidden"] is True
+            assert error_metrics["previewWidth"] >= 560
+            assert error_metrics["titleWidth"] >= 240
+            assert error_metrics["kickerWidth"] >= 100
+            assert error_metrics["tallTextCount"] == 0
+            page.close()
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             page.goto(f"{base_url}/loops/new/bundle#bundle-import-form", wait_until="networkidle")
             page.wait_for_url("**/loops/new/manual#bundle-import-form", timeout=5_000)
@@ -645,6 +866,66 @@ def test_bundle_chat_history_items_can_be_deleted_from_browser(tmp_path: Path) -
                 page.get_by_test_id("alignment-history-item").wait_for(state="detached", timeout=5_000)
                 assert service.list_alignment_sessions(limit=10) == []
                 assert not Path(session["artifact_dir"]).exists()
+            finally:
+                page.close()
+
+
+def test_tools_local_asset_diagnostics_reveals_problem_paths_from_browser(tmp_path: Path) -> None:
+    workdir = tmp_path / "tools-diagnostics-workdir"
+    workdir.mkdir()
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text(
+        """# Task
+
+Keep diagnostics reachable.
+
+# Done When
+
+- Local asset problems can be inspected.
+""",
+        encoding="utf-8",
+    )
+    repository = LooporaRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LooporaService(repository=repository, settings=settings)
+    service.create_loop(
+        name="Diagnostics Browser Loop",
+        spec_path=spec_path,
+        workdir=workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    orphan_alignment_dir = state_dir_for_workdir(workdir) / "alignment_sessions" / "align_browser_orphan"
+    orphan_alignment_dir.mkdir(parents=True)
+    orphan_bundle_dir = app_home() / "bundles" / "bundle_browser_orphan"
+    orphan_bundle_dir.mkdir(parents=True)
+    captured_reveal_paths: list[str] = []
+
+    with serve_app(build_app(service=service)) as base_url:
+        with launch_chromium(headless=True) as browser:
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            try:
+                page.route(
+                    "**/api/system/reveal-path",
+                    lambda route: (
+                        captured_reveal_paths.append(str(json.loads(route.request.post_data or "{}").get("path", ""))),
+                        route.fulfill(status=200, content_type="application/json", body='{"ok": true, "path": ""}'),
+                    ),
+                )
+                page.goto(f"{base_url}/tools", wait_until="networkidle")
+                page.get_by_test_id("local-assets-issue").first.wait_for(state="visible", timeout=5_000)
+                assert page.get_by_test_id("local-assets-details").is_visible()
+                assert page.get_by_test_id("local-assets-reveal-button").count() >= 2
+                assert "do not delete files" in (page.get_by_test_id("local-assets-details").text_content() or "")
+                page.locator('[data-local-assets-kind="orphan_alignment_dirs"] [data-testid="local-assets-reveal-button"]').first.click()
+                page.get_by_test_id("local-assets-status").wait_for(state="visible", timeout=5_000)
+                assert captured_reveal_paths[-1] == str(orphan_alignment_dir)
             finally:
                 page.close()
 
@@ -745,35 +1026,177 @@ def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(
                 page.goto(f"{base_url}/", wait_until="networkidle")
                 index_desktop = page.evaluate(
                     """() => ({
+                      clientW: document.documentElement.clientWidth,
                       pageStackWidth: document.querySelector(".page-stack").getBoundingClientRect().width,
                       actionWidths: Array.from(document.querySelector("[data-testid='loop-card'] [data-testid='loop-card-actions']").children).map((node) => Math.round(node.getBoundingClientRect().width))
                     })"""
                 )
                 assert len(set(index_desktop["actionWidths"])) == 1
+                assert index_desktop["pageStackWidth"] < index_desktop["clientW"]
 
-                page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
+                page.goto(f"{base_url}/tutorial", wait_until="networkidle")
+                nav_desktop = page.evaluate(
+                    """() => {
+                      const ids = [
+                        "nav-loops-link",
+                        "nav-compose-link",
+                        "nav-resource-toggle",
+                        "nav-tools-link",
+                        "nav-tutorial-link",
+                      ];
+                      const items = ids.map((testid) => {
+                        const element = document.querySelector(`[data-testid='${testid}']`);
+                        const rect = element.getBoundingClientRect();
+                        const style = getComputedStyle(element);
+                        return {
+                          testid,
+                          width: Math.round(rect.width),
+                          height: Math.round(rect.height),
+                          background: style.backgroundColor,
+                          boxShadow: style.boxShadow,
+                        };
+                      });
+                      const resource = document.querySelector("[data-testid='nav-resource-toggle']");
+                      const resourceBox = resource.getBoundingClientRect();
+                      const caretBox = resource.querySelector(".nav-menu-caret").getBoundingClientRect();
+                      const display = document.querySelector("[data-testid='nav-display-toggle']");
+                      const displayControls = document.querySelector("[data-testid='nav-display-controls']");
+                      const displayBox = display.getBoundingClientRect();
+                      resource.click();
+                      const openBox = resource.getBoundingClientRect();
+                      display.click();
+                      const displayPanel = document.querySelector("[data-testid='nav-display-panel']");
+                      const themeSwitch = document.querySelector("[data-testid='theme-switch']").getBoundingClientRect();
+                      const localeSwitch = document.querySelector("[data-testid='locale-switch']").getBoundingClientRect();
+                      return {
+                        widths: items.map((item) => item.width),
+                        heights: items.map((item) => item.height),
+                        resourceBackground: items.find((item) => item.testid === "nav-resource-toggle").background,
+                        toolsBackground: items.find((item) => item.testid === "nav-tools-link").background,
+                        resourceShadow: items.find((item) => item.testid === "nav-resource-toggle").boxShadow,
+                        caretWidth: Math.round(caretBox.width),
+                        widthAfterOpen: Math.round(openBox.width),
+                        widthBeforeOpen: Math.round(resourceBox.width),
+                        expanded: resource.getAttribute("aria-expanded"),
+                        panelHidden: document.querySelector("[data-testid='nav-resource-panel']").hidden,
+                        displayWidth: Math.round(displayBox.width),
+                        displayControlsWidth: Math.round(displayControls.getBoundingClientRect().width),
+                        displayExpanded: display.getAttribute("aria-expanded"),
+                        displayPanelHidden: displayPanel.hidden,
+                        themeSwitchWidth: Math.round(themeSwitch.width),
+                        localeSwitchWidth: Math.round(localeSwitch.width),
+                      };
+                    }"""
+                )
+                assert len(set(nav_desktop["widths"])) == 1
+                assert len(set(nav_desktop["heights"])) == 1
+                assert nav_desktop["resourceBackground"] == nav_desktop["toolsBackground"]
+                assert nav_desktop["resourceShadow"] == "none"
+                assert nav_desktop["caretWidth"] >= 5
+                assert abs(nav_desktop["widthAfterOpen"] - nav_desktop["widthBeforeOpen"]) <= 1
+                assert nav_desktop["expanded"] == "false"
+                assert nav_desktop["panelHidden"] is True
+                assert nav_desktop["displayWidth"] <= 40
+                assert nav_desktop["displayControlsWidth"] <= 44
+                assert nav_desktop["displayExpanded"] == "true"
+                assert nav_desktop["displayPanelHidden"] is False
+                assert 160 <= nav_desktop["themeSwitchWidth"] <= 240
+                assert 120 <= nav_desktop["localeSwitchWidth"] <= 220
+
+                for width, height, theme in ((390, 844, "light"), (1440, 1200, "dark")):
+                    page.set_viewport_size({"width": width, "height": height})
+                    page.goto(f"{base_url}/tutorial", wait_until="networkidle")
+                    page.evaluate(
+                        """(themeName) => {
+                          window.localStorage.setItem("loopora:theme", themeName);
+                          document.documentElement.setAttribute("data-theme", themeName);
+                        }""",
+                        theme,
+                    )
+                    nav_state = page.evaluate(
+                        """() => {
+                          const ids = [
+                            "nav-loops-link",
+                            "nav-compose-link",
+                            "nav-resource-toggle",
+                            "nav-tools-link",
+                            "nav-tutorial-link",
+                          ];
+                          const items = ids.map((testid) => {
+                            const element = document.querySelector(`[data-testid='${testid}']`);
+                            const rect = element.getBoundingClientRect();
+                            const style = getComputedStyle(element);
+                            return {
+                              testid,
+                              width: Math.round(rect.width),
+                              height: Math.round(rect.height),
+                              background: style.backgroundColor,
+                              boxShadow: style.boxShadow,
+                            };
+                          });
+                          return {
+                            widths: items.map((item) => item.width),
+                            heights: items.map((item) => item.height),
+                            resourceBackground: items.find((item) => item.testid === "nav-resource-toggle").background,
+                            toolsBackground: items.find((item) => item.testid === "nav-tools-link").background,
+                            resourceShadow: items.find((item) => item.testid === "nav-resource-toggle").boxShadow,
+                          };
+                        }"""
+                    )
+                    assert len(set(nav_state["widths"])) == 1
+                    assert len(set(nav_state["heights"])) == 1
+                    assert nav_state["resourceBackground"] == nav_state["toolsBackground"]
+                    assert nav_state["resourceShadow"] == "none"
+                page.evaluate(
+                    """() => {
+                      window.localStorage.setItem("loopora:theme", "light");
+                      document.documentElement.setAttribute("data-theme", "light");
+                    }"""
+                )
+
+                nav_heights_by_viewport: dict[int, list[int]] = {}
+                for width, height in ((1440, 1200), (900, 700), (390, 844)):
+                    page.set_viewport_size({"width": width, "height": height})
+                    heights = []
+                    for path in ("/", "/loops/new/bundle", "/loops/new/manual#manual-loop-form", "/tutorial"):
+                        page.goto(f"{base_url}{path}", wait_until="networkidle")
+                        if path.startswith("/loops/new/manual"):
+                            page.get_by_test_id("loop-create-form").wait_for(state="visible", timeout=5_000)
+                        heights.append(round(page.get_by_test_id("top-nav").bounding_box()["height"]))
+                    nav_heights_by_viewport[width] = heights
+                for heights in nav_heights_by_viewport.values():
+                    assert max(heights) - min(heights) <= 1
+
+                page.set_viewport_size({"width": 1440, "height": 1200})
+                page.goto(f"{base_url}/loops/new/manual#manual-loop-form", wait_until="networkidle")
+                page.get_by_test_id("loop-create-form").wait_for(state="visible", timeout=5_000)
                 desktop_form = page.evaluate(
                     """() => {
                       const form = document.getElementById("new-loop-form").getBoundingClientRect();
-                      const hero = document.querySelector(".hero-form").getBoundingClientRect();
+                      const main = document.querySelector("[data-testid='loop-manual-compose-panel']").getBoundingClientRect();
+                      const sidebar = document.querySelector("[data-testid='alignment-history-panel']").getBoundingClientRect();
                       const stack = document.querySelector(".page-stack").getBoundingClientRect();
                       return {
                         docW: document.documentElement.scrollWidth,
                         clientW: document.documentElement.clientWidth,
                         formWidth: form.width,
-                        heroWidth: hero.width,
                         formLeft: form.left,
                         formRight: form.right,
+                        mainWidth: main.width,
+                        mainLeft: main.left,
+                        mainRight: main.right,
+                        sidebarRight: sidebar.right,
                         pageStackWidth: stack.width
                       };
                     }"""
                 )
                 assert desktop_form["docW"] == desktop_form["clientW"]
-                assert desktop_form["formWidth"] >= 1180
-                assert desktop_form["heroWidth"] >= 1180
-                assert abs(desktop_form["pageStackWidth"] - index_desktop["pageStackWidth"]) <= 2
-                left_gutter = desktop_form["formLeft"]
-                right_gutter = desktop_form["clientW"] - desktop_form["formRight"]
+                assert desktop_form["formWidth"] >= 980
+                assert desktop_form["mainWidth"] >= 1080
+                assert desktop_form["mainLeft"] >= desktop_form["sidebarRight"] - 1
+                assert desktop_form["pageStackWidth"] == desktop_form["clientW"]
+                left_gutter = desktop_form["formLeft"] - desktop_form["mainLeft"]
+                right_gutter = desktop_form["mainRight"] - desktop_form["formRight"]
                 assert abs(left_gutter - right_gutter) <= 24
 
                 page.goto(f"{base_url}/tools", wait_until="networkidle")
@@ -782,23 +1205,79 @@ def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(
                       pageStackWidth: document.querySelector(".page-stack").getBoundingClientRect().width,
                       hasTipsButton: Boolean(document.querySelector(".help-dot--tips")),
                       tipsButtonText: document.querySelector(".help-dot--tips")?.textContent?.trim() || "",
-                      nativeTitle: document.querySelector(".help-dot--tips")?.getAttribute("title")
+                      nativeTitle: document.querySelector(".help-dot--tips")?.getAttribute("title"),
+                      tipsButtonWidth: Math.round(document.querySelector(".help-dot--tips")?.getBoundingClientRect().width || 0),
+                      tipsButtonHeight: Math.round(document.querySelector(".help-dot--tips")?.getBoundingClientRect().height || 0)
                     })"""
                 )
                 assert abs(tools_desktop["pageStackWidth"] - index_desktop["pageStackWidth"]) <= 2
                 assert tools_desktop["hasTipsButton"] is True
                 assert tools_desktop["tipsButtonText"] == "i"
                 assert tools_desktop["nativeTitle"] is None
+                assert tools_desktop["tipsButtonWidth"] >= 24
+                assert tools_desktop["tipsButtonHeight"] >= 24
 
-                page.set_viewport_size({"width": 390, "height": 844})
-                page.goto(f"{base_url}/loops/new/manual", wait_until="networkidle")
-                mobile_form = page.evaluate(
+                layout_run = service.start_run(created_loop_ids[0])
+                service.repository.append_event(layout_run["id"], "run_started", {"status": "queued"})
+                service.repository.update_run(layout_run["id"], status="succeeded")
+                for path, testid in (
+                    ("/bundles", "bundles-page"),
+                    ("/roles", "role-definitions-page"),
+                    ("/orchestrations", "orchestrations-page"),
+                    ("/tutorial", "tutorial-page"),
+                    (f"/loops/{created_loop_ids[0]}", "loop-detail-page"),
+                    (f"/runs/{layout_run['id']}", "run-detail-page"),
+                ):
+                    page.goto(f"{base_url}{path}", wait_until="networkidle")
+                    page.get_by_test_id(testid).wait_for(state="visible", timeout=5_000)
+                    page_width = page.get_by_test_id(testid).bounding_box()["width"]
+                    assert abs(page_width - index_desktop["pageStackWidth"]) <= 2
+
+                page.set_viewport_size({"width": 1920, "height": 1200})
+                page.goto(f"{base_url}/loops/new/manual#manual-loop-form", wait_until="networkidle")
+                page.get_by_test_id("loop-create-form").wait_for(state="visible", timeout=5_000)
+                wide_form = page.evaluate(
                     """() => {
                       const form = document.getElementById("new-loop-form").getBoundingClientRect();
+                      const main = document.querySelector("[data-testid='loop-manual-compose-panel']").getBoundingClientRect();
+                      const stack = document.querySelector(".page-stack").getBoundingClientRect();
+                      return {
+                        clientW: document.documentElement.clientWidth,
+                        formWidth: form.width,
+                        formLeft: form.left,
+                        formRight: form.right,
+                        mainLeft: main.left,
+                        mainRight: main.right,
+                        pageStackWidth: stack.width
+                      };
+                    }"""
+                )
+                assert wide_form["pageStackWidth"] == wide_form["clientW"]
+                assert wide_form["formWidth"] <= index_desktop["pageStackWidth"] + 1
+                wide_left_gutter = wide_form["formLeft"] - wide_form["mainLeft"]
+                wide_right_gutter = wide_form["mainRight"] - wide_form["formRight"]
+                assert abs(wide_left_gutter - wide_right_gutter) <= 24
+
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.goto(f"{base_url}/loops/new/manual#manual-loop-form", wait_until="networkidle")
+                page.get_by_test_id("loop-create-form").wait_for(state="visible", timeout=5_000)
+                page.evaluate(
+                    """() => {
+                      window.localStorage.setItem("loopora:locale", "en");
+                      document.documentElement.setAttribute("data-locale", "en");
+                      document.documentElement.setAttribute("lang", "en");
+                    }"""
+                )
+                mobile_form = page.evaluate(
+                    """() => {
+                      const formElement = document.getElementById("new-loop-form");
+                      const form = formElement.getBoundingClientRect();
                       const stack = document.querySelector(".page-stack").getBoundingClientRect();
                       return {
                         docW: document.documentElement.scrollWidth,
                         clientW: document.documentElement.clientWidth,
+                        formScrollWidth: formElement.scrollWidth,
+                        formClientWidth: formElement.clientWidth,
                         formWidth: form.width,
                         formLeft: form.left,
                         formRight: form.right,
@@ -807,10 +1286,43 @@ def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(
                     }"""
                 )
                 assert mobile_form["docW"] == mobile_form["clientW"]
-                assert 320 <= mobile_form["formWidth"] <= mobile_form["clientW"]
+                assert 300 <= mobile_form["formWidth"] <= mobile_form["clientW"]
                 assert mobile_form["formLeft"] >= 0
                 assert mobile_form["formRight"] <= mobile_form["clientW"] + 1
                 assert mobile_form["pageStackWidth"] <= mobile_form["clientW"]
+                assert mobile_form["formScrollWidth"] <= mobile_form["formClientWidth"] + 1
+                mobile_form_surface = _layout_guard_metrics(page)
+                assert mobile_form_surface["nonNavEscapes"] == 0, mobile_form_surface["escapedSamples"]
+                assert mobile_form_surface["tallTextCount"] == 0, mobile_form_surface["tallTextSamples"]
+
+                page.goto(f"{base_url}/orchestrations/new", wait_until="networkidle")
+                page.get_by_test_id("orchestration-editor-form").wait_for(state="visible", timeout=5_000)
+                page.evaluate(
+                    """() => {
+                      window.localStorage.setItem("loopora:locale", "en");
+                      document.documentElement.setAttribute("data-locale", "en");
+                      document.documentElement.setAttribute("lang", "en");
+                    }"""
+                )
+                orchestration_mobile = _layout_guard_metrics(
+                    page,
+                    ".orchestration-header-grid,.orchestration-meta-field,.workflow-toolbar-inline,label,input,textarea,select,button,a",
+                )
+                assert orchestration_mobile["docW"] == orchestration_mobile["clientW"]
+                assert orchestration_mobile["bodyW"] <= orchestration_mobile["clientW"] + 1
+                assert orchestration_mobile["nonNavEscapes"] == 0, orchestration_mobile["escapedSamples"]
+                assert orchestration_mobile["tallTextCount"] == 0, orchestration_mobile["tallTextSamples"]
+
+                page.goto(f"{base_url}/loops/{created_loop_ids[0]}", wait_until="networkidle")
+                page.get_by_test_id("loop-detail-history-panel").wait_for(state="visible", timeout=5_000)
+                loop_detail_mobile = _layout_guard_metrics(
+                    page,
+                    ".timeline-item,.run-history-item,.loop-detail-history-time,.status-pill,code,pre,a,button,label,span,strong",
+                )
+                assert loop_detail_mobile["docW"] == loop_detail_mobile["clientW"]
+                assert loop_detail_mobile["bodyW"] <= loop_detail_mobile["clientW"] + 1
+                assert loop_detail_mobile["nonNavEscapes"] == 0, loop_detail_mobile["escapedSamples"]
+                assert loop_detail_mobile["tallTextCount"] == 0, loop_detail_mobile["tallTextSamples"]
     finally:
         for loop_id in list(created_loop_ids):
             try:
@@ -1173,7 +1685,7 @@ def test_new_loop_page_adapts_runtime_controls_to_selected_orchestration(tmp_pat
             assert policy["regressionHidden"] is True
             assert policy["gatekeeperDisabled"] is True
             assert policy["gatekeeperHidden"] is True
-            assert "GateKeeper" in policy["note"] or "守门人" in policy["note"]
+            assert "GateKeeper" in policy["note"] or "守门者" in policy["note"]
 
 
 def test_role_definition_page_localizes_archetype_options_without_mixed_labels(tmp_path: Path) -> None:
@@ -1200,9 +1712,9 @@ def test_role_definition_page_localizes_archetype_options_without_mixed_labels(t
             open_nav_preferences(page)
             page.locator('button[data-set-locale="zh"]').click()
             page.wait_for_function(
-                "() => document.querySelector('#role-definition-archetype-input option[value=\"inspector\"]')?.textContent === 'Inspector'"
+                "() => document.querySelector('#role-definition-archetype-input option[value=\"inspector\"]')?.textContent === '巡检者'"
             )
-            assert page.locator('#role-definition-archetype-input option[value="inspector"]').text_content() == "Inspector"
+            assert page.locator('#role-definition-archetype-input option[value="inspector"]').text_content() == "巡检者"
 
 
 def test_role_definition_page_updates_template_guidance_and_builtin_prompt_with_selection(tmp_path: Path) -> None:
@@ -1287,6 +1799,33 @@ Focus on scoped release work.
             expect_legend = first_diagram.get_by_test_id("workflow-loop-pill")
             assert expect_svg.count() == 1
             assert expect_legend.count() >= 2
+            diagram_styles = first_diagram.evaluate(
+                """(diagram) => {
+                  const segment = diagram.querySelector(".workflow-loop-segment");
+                  const node = diagram.querySelector(".workflow-loop-node circle:not(.workflow-loop-node-hit)");
+                  const label = diagram.querySelector(".workflow-loop-node-label");
+                  const badge = diagram.querySelector(".workflow-loop-center-badge rect");
+                  const svg = diagram.querySelector("svg").getBoundingClientRect();
+                  return {
+                    segmentStrokeWidth: getComputedStyle(segment).strokeWidth,
+                    segmentFill: getComputedStyle(segment).fill,
+                    segmentStroke: getComputedStyle(segment).stroke,
+                    nodeStrokeWidth: getComputedStyle(node).strokeWidth,
+                    labelFill: getComputedStyle(label).fill,
+                    badgeFill: getComputedStyle(badge).fill,
+                    svgWidth: Math.round(svg.width),
+                    svgHeight: Math.round(svg.height)
+                  };
+                }"""
+            )
+            assert diagram_styles["segmentStrokeWidth"] == "2.6px"
+            assert diagram_styles["segmentFill"] == "none"
+            assert diagram_styles["segmentStroke"] != "rgb(0, 0, 0)"
+            assert diagram_styles["nodeStrokeWidth"] == "3px"
+            assert diagram_styles["labelFill"] != "rgb(0, 0, 0)"
+            assert diagram_styles["badgeFill"] != "rgb(0, 0, 0)"
+            assert diagram_styles["svgWidth"] >= 240
+            assert 120 <= diagram_styles["svgHeight"] <= 260
 
             page.goto(f"{base_url}/orchestrations/new", wait_until="networkidle")
             assert page.get_by_test_id("workflow-step-row").count() == 0

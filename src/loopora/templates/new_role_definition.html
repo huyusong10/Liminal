@@ -84,14 +84,14 @@
     </label>
 
     <label class="wide">
-      <span><span data-lang="zh">协作姿态提示</span><span data-lang="en">Posture Notes</span></span>
+      <span><span data-lang="zh">协作姿态备注</span><span data-lang="en">Posture Notes</span></span>
       <textarea
         name="posture_notes"
         rows="4"
         data-testid="role-definition-posture-notes-input"
       >{{- form_values.posture_notes -}}</textarea>
       <small class="field-note">
-        <span data-lang="zh">这里写本次任务里这个角色应采取的协作姿态，例如更重视证据、重构质量、风险控制或推进速度。这不是角色身份本身，而是任务级的 posture 注入点。</span>
+        <span data-lang="zh">这里写这个角色在当前 Loop 里应采取的协作姿态，例如更重视证据、重构质量、风险控制或推进速度。这不是角色身份本身，而是当前 Loop 的姿态注入点。</span>
         <span data-lang="en">Use this field for task-scoped collaboration posture, such as weighing evidence, refactor quality, risk control, or speed more heavily for this role. It shapes the role’s stance for the task, not its core identity.</span>
       </small>
     </label>
@@ -269,9 +269,9 @@
     <section class="wide markdown-workbench markdown-workbench--inline" data-testid="role-definition-prompt-workbench">
       <div class="markdown-workbench-toolbar">
         <div class="markdown-workbench-toolbar-row">
-          <span class="markdown-workbench-panel-label"><span data-lang="zh">Prompt Markdown</span><span data-lang="en">Prompt Markdown</span></span>
+          <span class="markdown-workbench-panel-label"><span data-lang="zh">提示词正文</span><span data-lang="en">Prompt Markdown</span></span>
           <span class="markdown-workbench-panel-note">
-            <span data-lang="zh">左侧编辑源码，右侧只预览正文；YAML front matter 仍会按原样提交。</span>
+            <span data-lang="zh">左侧编辑源码，右侧只预览正文；文件头元数据仍会按原样提交。</span>
             <span data-lang="en">Edit the source on the left and preview only the body on the right. YAML front matter is still submitted unchanged.</span>
           </span>
         </div>
@@ -280,7 +280,7 @@
         <label class="markdown-workbench-panel">
           <span class="markdown-workbench-panel-head">
             <span class="markdown-workbench-panel-label"><span data-lang="zh">源码</span><span data-lang="en">Source</span></span>
-            <span class="markdown-workbench-panel-note"><span data-lang="zh">需要包含 YAML front matter</span><span data-lang="en">YAML front matter is required</span></span>
+            <span class="markdown-workbench-panel-note"><span data-lang="zh">需要包含文件头元数据</span><span data-lang="en">YAML front matter is required</span></span>
           </span>
           <textarea
             name="prompt_markdown"
@@ -291,7 +291,7 @@
             data-testid="role-definition-prompt-markdown-input"
           >{{- form_values.prompt_markdown -}}</textarea>
           <small class="field-note">
-            <span data-lang="zh">Prompt 必须带 YAML front matter，并且 `archetype` 要和上面的角色模板一致。</span>
+            <span data-lang="zh">提示词必须带文件头元数据，并且 `archetype` 要和上面的角色模板一致。</span>
             <span data-lang="en">The prompt must include YAML front matter, and its `archetype` must match the selected role template above.</span>
           </small>
         </label>
@@ -299,7 +299,7 @@
           <div class="markdown-workbench-panel-head">
             <span class="markdown-workbench-panel-label"><span data-lang="zh">正文预览</span><span data-lang="en">Body preview</span></span>
             <span class="markdown-workbench-panel-note" id="role-definition-prompt-preview-note">
-              <span data-lang="zh">会自动忽略 front matter，只展示 Markdown 正文。</span>
+              <span data-lang="zh">会自动忽略文件头元数据，只展示正文。</span>
               <span data-lang="en">Front matter is ignored here so only the Markdown body is shown.</span>
             </span>
           </div>

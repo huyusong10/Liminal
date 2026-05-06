@@ -117,6 +117,44 @@ def test_primary_browser_chinese_defaults_to_chinese() -> None:
     assert result["stored"] is None
 
 
+def test_role_translation_accepts_current_chinese_archetype_labels() -> None:
+    script = f"""
+const fs = require("fs");
+const vm = require("vm");
+const code = fs.readFileSync({json.dumps(str(APP_JS))}, "utf8");
+const document = {{
+  documentElement: {{ dataset: {{}}, lang: "zh-CN" }},
+  addEventListener() {{}},
+  querySelectorAll() {{ return []; }},
+  dispatchEvent() {{}},
+}};
+const window = {{ localStorage: {{ getItem() {{ return "zh"; }}, setItem() {{}} }}, LooporaUI: null }};
+const navigator = {{ languages: ["zh-CN"], language: "zh-CN" }};
+const context = {{ window, document, navigator, Intl, CustomEvent: function () {{}}, console }};
+vm.createContext(context);
+vm.runInContext(code, context);
+console.log(JSON.stringify({{
+  builder: context.window.LooporaUI.translateRole("构建者"),
+  gatekeeper: context.window.LooporaUI.translateRole("守门者"),
+  guide: context.window.LooporaUI.translateRole("引导者"),
+  custom: context.window.LooporaUI.translateRole("Custom Role"),
+}}));
+"""
+    completed = subprocess.run(
+        [NODE, "-e", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == {
+        "builder": "构建者",
+        "gatekeeper": "守门者",
+        "guide": "引导者",
+        "custom": "自定义角色",
+    }
+
+
 def test_secondary_browser_chinese_does_not_override_english_default() -> None:
     result = _run_locale_case(
         languages=["en-US", "zh-CN"],

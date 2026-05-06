@@ -1,35 +1,78 @@
 {% extends "base.html" %}
-{% block title %}{{ '工作台' if page_locale == 'zh' else 'Workbench' }}{% endblock %}
+{% block title %}{{ 'Loop 工作台' if page_locale == 'zh' else 'Loop Workspace' }}{% endblock %}
 {% block content %}
-<div class="page-stack">
-  <section class="hero hero-tight">
+<div class="page-stack" data-testid="home-workbench">
+  <section class="hero hero-tight workbench-hero" data-testid="home-hero">
     <div class="hero-copy-stack">
       <h1>
-        <span data-lang="zh">工作台</span>
-        <span data-lang="en">Workbench</span>
+        <span data-lang="zh">Loop 工作台</span>
+        <span data-lang="en">Loop Workspace</span>
       </h1>
       <p>
-        <span data-lang="zh">这里集中查看已经创建的任务、最近运行状态和需要继续处理的循环。要开始新的协作，直接进入新建任务。</span>
-        <span data-lang="en">Review created tasks, recent run state, and loops that need attention here. Start a new collaboration from New Task.</span>
+        <span data-lang="zh">这里承接日常回访：查看活动中的 Loop、打开已保存的 Loop 和最近运行。需要创建新的 Loop 时，从顶栏“编排”进入专业工作台。</span>
+        <span data-lang="en">This is the daily workspace: watch active Loops and reopen saved Loops or their latest runs. Use Compose in the top navigation when you need to create a new Loop.</span>
       </p>
-    </div>
-    <div class="card-actions">
-      <a class="primary-button" href="/loops/new/bundle" data-testid="index-new-task-link">
-        <span data-lang="zh">新建任务</span>
-        <span data-lang="en">New Task</span>
-      </a>
-      <a class="ghost-button" href="/bundles" data-testid="index-plans-link">
-        <span data-lang="zh">打开方案库</span>
-        <span data-lang="en">Open Plans</span>
-      </a>
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel workbench-activity-panel" id="activity" data-testid="home-activity-section">
+    <header class="panel-header">
+      <div>
+        <h2>
+          <span data-lang="zh">活动 Loop</span>
+          <span data-lang="en">Active Loops</span>
+        </h2>
+        <p class="panel-note">
+          <span data-lang="zh">运行不是独立工作区；它是 Loop 的一次活动事实，优先在这里和 Loop 详情里查看。</span>
+          <span data-lang="en">Runs are not a separate workspace; they are Loop activity, shown here and inside each Loop.</span>
+        </p>
+      </div>
+      <span><span data-lang="zh">运行中</span><span data-lang="en">Active</span> {{ active_loops|length }}</span>
+    </header>
+    {% if active_loops or recent_loops %}
+      <div class="activity-list" data-testid="home-activity-list">
+        {% for loop_item in active_loops %}
+        <a class="activity-row activity-row--active" href="{{ loop_item.card_href }}" data-testid="home-active-loop">
+          <span class="activity-row-main">
+            <strong>{{ loop_item.name }}</strong>
+            <span>{{ loop_item.workdir }}</span>
+          </span>
+          <span class="status-pill status-{{ loop_item.latest_status or 'draft' }}" data-status-label="{{ loop_item.latest_status or 'draft' }}"></span>
+        </a>
+        {% endfor %}
+        {% for loop_item in recent_loops %}
+        <a class="activity-row" href="{{ loop_item.card_href }}" data-testid="home-recent-loop">
+          <span class="activity-row-main">
+            <strong>{{ loop_item.name }}</strong>
+            <span>
+              <span data-lang="zh">最近运行</span>
+              <span data-lang="en">Latest run</span>
+              {{ loop_item.latest_run_id }}
+            </span>
+          </span>
+          <span class="status-pill status-{{ loop_item.latest_status or 'draft' }}" data-status-label="{{ loop_item.latest_status or 'draft' }}"></span>
+        </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty-state empty-state--compact" data-testid="home-activity-empty">
+        <h3>
+          <span data-lang="zh">当前没有活动运行</span>
+          <span data-lang="en">No active runs</span>
+        </h3>
+        <p>
+          <span data-lang="zh">开始或打开一个 Loop 后，最近运行会出现在这里。</span>
+          <span data-lang="en">Start or open a Loop and its latest run appears here.</span>
+        </p>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel" id="saved-loops" data-testid="home-saved-loops-section">
     <header class="panel-header">
       <h2>
-        <span data-lang="zh">当前工作</span>
-        <span data-lang="en">Current Work</span>
+        <span data-lang="zh">已保存 Loop</span>
+        <span data-lang="en">Saved Loops</span>
       </h2>
       <span><span id="loop-count">{{ loops|length }}</span> <span data-lang="zh">个</span><span data-lang="en">total</span></span>
     </header>
@@ -79,14 +122,14 @@
             <p>{{ loop_item.card_excerpt or "-" }}</p>
             {% if loop_item.managed_by_bundle %}
             <p class="field-note">
-              <span data-lang="zh">这条 loop 由方案 “{{ loop_item.bundle_name or loop_item.bundle_id }}” 管理，删除时会走整包清理。</span>
+              <span data-lang="zh">这条 Loop 由方案包 “{{ loop_item.bundle_name or loop_item.bundle_id }}” 管理，删除时会走整包清理。</span>
               <span data-lang="en">This loop is managed by plan “{{ loop_item.bundle_name or loop_item.bundle_id }}”, so deletion follows the whole-plan lifecycle.</span>
             </p>
             {% endif %}
           </div>
           <div class="card-actions card-actions--loop{% if not loop_item.latest_run_id %} card-actions--loop-compact{% endif %}" data-testid="loop-card-actions">
             <a class="secondary-button" href="/loops/{{ loop_item.id }}">
-              <span data-lang="zh">查看循环</span>
+              <span data-lang="zh">查看 Loop</span>
               <span data-lang="en">View loop</span>
             </a>
             {% if loop_item.latest_run_id %}
@@ -102,7 +145,7 @@
               data-delete-bundle="{{ loop_item.bundle_id }}"
               data-bundle-name="{{ loop_item.bundle_name or loop_item.name }}"
             >
-              <span data-lang="zh">删除方案</span>
+              <span data-lang="zh">删除方案包</span>
               <span data-lang="en">Delete Plan</span>
             </button>
             {% else %}
@@ -121,35 +164,35 @@
         {% endfor %}
       </div>
       <p class="panel-note loop-grid-note" data-testid="loop-grid-note">
-        <span data-lang="zh">点击卡片主体可直接打开最近运行；如果这条 loop 还没有运行记录，就会进入循环详情。</span>
+        <span data-lang="zh">点击卡片主体可直接打开最近运行；如果这条 Loop 还没有运行记录，就会进入 Loop 详情。</span>
         <span data-lang="en">Click the body of a card to jump to the latest run. If the loop has no run yet, it opens the loop details instead.</span>
       </p>
       <div class="empty-state" id="loops-empty-state" hidden>
         <img class="empty-state-logo" src="/logo/logo.svg" alt="" aria-hidden="true" />
         <h3>
-          <span data-lang="zh">还没有任务</span>
-          <span data-lang="en">No tasks yet</span>
+          <span data-lang="zh">还没有 Loop</span>
+          <span data-lang="en">No Loops yet</span>
         </h3>
         <p>
-          <span data-lang="zh">从新建任务开始，用对话生成一份循环方案并运行。</span>
-          <span data-lang="en">Start with New Task to generate and run a loop plan through conversation.</span>
+          <span data-lang="zh">进入“编排”工作台开始对话编排，也可以导入方案文件或手动编排。</span>
+          <span data-lang="en">Open the Compose workspace to start a conversation, or import a plan file / use manual composition.</span>
         </p>
       </div>
     {% else %}
       <div class="loop-grid loop-grid--created" id="loop-grid" hidden></div>
       <p class="panel-note loop-grid-note" data-testid="loop-grid-note" hidden>
-        <span data-lang="zh">点击卡片主体可直接打开最近运行；如果这条 loop 还没有运行记录，就会进入循环详情。</span>
+        <span data-lang="zh">点击卡片主体可直接打开最近运行；如果这条 Loop 还没有运行记录，就会进入 Loop 详情。</span>
         <span data-lang="en">Click the body of a card to jump to the latest run. If the loop has no run yet, it opens the loop details instead.</span>
       </p>
       <div class="empty-state" id="loops-empty-state">
         <img class="empty-state-logo" src="/logo/logo.svg" alt="" aria-hidden="true" />
         <h3>
-          <span data-lang="zh">还没有任务</span>
-          <span data-lang="en">No tasks yet</span>
+          <span data-lang="zh">还没有 Loop</span>
+          <span data-lang="en">No Loops yet</span>
         </h3>
         <p>
-          <span data-lang="zh">从新建任务开始，用对话生成一份循环方案并运行。</span>
-          <span data-lang="en">Start with New Task to generate and run a loop plan through conversation.</span>
+          <span data-lang="zh">进入“编排”工作台开始对话编排，也可以导入方案文件或手动编排。</span>
+          <span data-lang="en">Open the Compose workspace to start a conversation, or import a plan file / use manual composition.</span>
         </p>
       </div>
     {% endif %}

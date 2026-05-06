@@ -367,7 +367,7 @@ def _normalize_bundle_derive_form(values: Mapping[str, object] | None) -> dict[s
 def _archetype_ui_copy() -> dict[str, dict[str, str]]:
     return {
         "builder": {
-            "summary_zh": "直接推进实现，适合把 spec 和 handoff 落成真实代码与文件改动。",
+            "summary_zh": "直接推进实现，适合把 Loop 契约和交接记录落成真实代码与文件改动。",
             "summary_en": "Pushes the implementation forward and turns specs plus handoffs into real code changes.",
             "recommendation_zh": "建议把它放在需要实际修改工作区的位置，并给它明确的主线目标。",
             "recommendation_en": "Use it where the workflow needs actual workspace edits, with a crisp main-path goal.",
@@ -379,7 +379,7 @@ def _archetype_ui_copy() -> dict[str, dict[str, str]]:
         "inspector": {
             "summary_zh": "收集证据、跑检查、整理事实，适合验证当前产出到底到了什么程度。",
             "summary_en": "Collects evidence, runs checks, and summarizes facts so the workflow knows what is truly working.",
-            "recommendation_zh": "建议接在 Builder 之后，优先覆盖最关键、最可复现的用户路径。",
+            "recommendation_zh": "建议接在构建者之后，优先覆盖最关键、最可复现的用户路径。",
             "recommendation_en": "Usually works best after the Builder, starting with the most critical reproducible user paths.",
             "warning_zh": "",
             "warning_en": "",
@@ -387,13 +387,13 @@ def _archetype_ui_copy() -> dict[str, dict[str, str]]:
             "card_tip_en": "",
         },
         "gatekeeper": {
-            "summary_zh": "负责做放行判断，只根据 checks、证据和风险决定是否通过。",
+            "summary_zh": "负责做放行判断，只根据检查项、证据和风险决定是否通过。",
             "summary_en": "Owns the pass/fail decision and judges readiness strictly from checks, evidence, and risk.",
             "recommendation_zh": "建议只放一个在流程收束位，避免多个最终裁决角色相互打架。",
             "recommendation_en": "Keep one of these near the end of the workflow so there is a single clear final verdict.",
             "warning_zh": "不建议把它当成实现角色使用，它的职责是裁决，不是补做工作。",
             "warning_en": "Do not use it as an implementation role. Its job is to decide, not to compensate for missing work.",
-            "card_tip_zh": "Inspector 负责收集证据和跑检查，只回答“现在发生了什么”；GateKeeper 负责基于这些证据做最终放行判断，回答“现在能不能过”。没有 GateKeeper 时，流程里就少了一个专门做通过/不通过裁决的角色。",
+            "card_tip_zh": "巡检者负责收集证据和跑检查，只回答“现在发生了什么”；守门者负责基于这些证据做最终放行判断，回答“现在能不能过”。没有守门者时，流程里就少了一个专门做通过/不通过裁决的角色。",
             "card_tip_en": "The Inspector gathers evidence and runs checks, answering “what is happening now.” The GateKeeper uses that evidence to make the final pass/fail call, answering “is this ready to pass.” Without a GateKeeper, the workflow loses its dedicated final judge.",
         },
         "guide": {
@@ -411,7 +411,7 @@ def _archetype_ui_copy() -> dict[str, dict[str, str]]:
             "summary_en": "A restricted support role for read-only analysis, specialized observations, and narrow recommendations.",
             "recommendation_zh": "适合安全审计、文案评审、风险盘点这类辅助任务；通常不要让它承担最终放行。",
             "recommendation_en": "Great for sidecar tasks like security review, copy critique, or risk scans; usually not for the final verdict.",
-            "warning_zh": "它不能充当最终放行角色；如果选择 custom 执行工具，也只能使用直接命令模式。",
+            "warning_zh": "它不能充当最终放行角色；如果选择自定义执行工具，也只能使用直接命令模式。",
             "warning_en": "It cannot be the final pass/fail role. If you pair it with the custom executor, direct-command mode is required.",
             "card_tip_zh": "",
             "card_tip_en": "",
@@ -425,20 +425,11 @@ def _archetype_options() -> list[dict[str, str]]:
     for archetype in ARCHETYPES:
         item = copy[archetype]
         english_label = "Custom (Restricted)" if archetype == "custom" else display_name_for_archetype(archetype, locale="en")
-        if archetype == "custom":
-            labels.append(
-                {
-                    "id": archetype,
-                    "label_zh": english_label,
-                    "label_en": english_label,
-                    **item,
-                }
-            )
-            continue
+        chinese_label = display_name_for_archetype(archetype, locale="zh")
         labels.append(
             {
                 "id": archetype,
-                "label_zh": english_label,
+                "label_zh": chinese_label,
                 "label_en": english_label,
                 **item,
             }

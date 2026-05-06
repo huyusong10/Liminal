@@ -454,3 +454,16 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
+
+@media (max-width: 1120px) {
+  .orchestration-header-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .orchestration-meta-field,
+  .orchestration-meta-field-wide,
+  .workflow-toolbar-inline {
+    min-width: 0;
+    max-width: 100%;
+  }
+}

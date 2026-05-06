@@ -9,17 +9,63 @@
   {% if testid %}data-testid="{{ testid }}"{% endif %}
 >i</button>
 {%- endmacro %}
+{% macro compose_sidebar(mode) -%}
+<aside class="bundle-chat-sidebar" data-testid="alignment-history-panel">
+  {% if mode == "bundle" %}
+  <button class="bundle-sidebar-action" type="button" id="alignment-new-session-button" data-testid="alignment-new-session-button">
+    <span data-lang="zh">新对话</span>
+    <span data-lang="en">New chat</span>
+  </button>
+  {% else %}
+  <a class="bundle-sidebar-action" href="/loops/new/bundle" data-testid="alignment-new-session-button">
+    <span data-lang="zh">新对话</span>
+    <span data-lang="en">New chat</span>
+  </a>
+  {% endif %}
+  <nav class="bundle-sidebar-nav" aria-label="{{ '编排入口' if page_locale == 'zh' else 'Composition paths' }}" data-testid="alignment-secondary-paths">
+    <a
+      class="{% if mode == 'bundle' %}is-active{% endif %}"
+      href="/loops/new/bundle"
+      data-compose-mode-link="chat"
+      data-testid="alignment-path-chat"
+    >
+      <span data-lang="zh">对话编排 Loop</span>
+      <span data-lang="en">Chat composer</span>
+    </a>
+    <a
+      href="/loops/new/manual#bundle-import-form"
+      data-compose-mode-link="import"
+      data-testid="alignment-path-import"
+    >
+      <span data-lang="zh">导入方案文件</span>
+      <span data-lang="en">Import plan file</span>
+    </a>
+    <a
+      class="{% if mode == 'manual' %}is-active{% endif %}"
+      href="/loops/new/manual#manual-loop-form"
+      data-compose-mode-link="manual"
+      data-testid="alignment-path-manual"
+    >
+      <span data-lang="zh">手动编排</span>
+      <span data-lang="en">Manual composition</span>
+    </a>
+  </nav>
+  <div class="bundle-sidebar-history">
+    <div class="alignment-history-list" id="alignment-history-list" data-testid="alignment-history-list"></div>
+  </div>
+</aside>
+{%- endmacro %}
 {% set create_page_mode = create_page_mode|default("choice") %}
 {% block title %}
   {%- if create_page_mode == "bundle" -%}
-    {{ "新建任务" if page_locale == "zh" else "New Task" }}
+    {{ "对话编排 Loop" if page_locale == "zh" else "Loop Composer" }}
   {%- elif create_page_mode == "manual" -%}
-    {{ "手动创建循环" if page_locale == "zh" else "Create Loop Manually" }}
+    {{ "手动编排 Loop" if page_locale == "zh" else "Create Loop Manually" }}
   {%- else -%}
-    {{ "创建循环" if page_locale == "zh" else "Create Loop" }}
+    {{ "创建 Loop" if page_locale == "zh" else "Create Loop" }}
   {%- endif -%}
 {% endblock %}
-{% block main_class %}{% if create_page_mode == "bundle" %}site-main--bundle{% endif %}{% endblock %}
+{% block main_class %}{% if create_page_mode != "choice" %}site-main--bundle{% endif %}{% endblock %}
 {% block styles %}
 <link rel="stylesheet" href="{{ static_asset_url('pages/workflow_editor.css') }}" />
 <link rel="stylesheet" href="{{ static_asset_url('pages/alignment.css') }}" />
@@ -30,11 +76,11 @@
 <section class="hero hero-tight create-choice-hero" data-testid="loop-create-choice-page">
   <div class="hero-copy-stack">
     <h1>
-      <span data-lang="zh">选择这次循环的创建方式。</span>
+      <span data-lang="zh">选择 Loop 的创建方式。</span>
       <span data-lang="en">Choose how this loop starts.</span>
     </h1>
     <p>
-      <span data-lang="zh">如果你还在描述目标和判断方式，从循环方案对话开始。只有当底层运行资产都已经想清楚时，再进入手动专家模式。</span>
+      <span data-lang="zh">如果你还在描述目标和判断方式，从对话编排开始。只有当底层运行资产都已经想清楚时，再进入手动编排。</span>
       <span data-lang="en">Start with the loop-plan conversation when you are still shaping task judgment. Use manual expert mode only when the underlying runtime assets are already clear.</span>
     </p>
   </div>
@@ -44,9 +90,9 @@
   <article class="panel create-choice-card create-choice-card--primary" id="bundle-import-form" data-testid="loop-create-bundle-choice">
     <div>
       <span class="eyebrow"><span data-lang="zh">推荐</span><span data-lang="en">Recommended</span></span>
-      <h2><span data-lang="zh">对话生成循环方案</span><span data-lang="en">Generate a Loop Plan</span></h2>
+      <h2><span data-lang="zh">对话编排 Loop</span><span data-lang="en">Generate a Loop Plan</span></h2>
       <p>
-        <span data-lang="zh">像和 LLM 聊天一样描述需求，Loopora 会让本机 Agent 对齐任务判断，并展示目标、风险、证据路径和裁决方式。</span>
+        <span data-lang="zh">像聊天一样描述需求，Loopora 会让本机智能体对齐判断方式，并展示目标、风险、证据路径和裁决方式。</span>
         <span data-lang="en">Describe the request like a normal LLM chat. Loopora asks a local Agent to align task judgment, then previews the goal, risks, evidence path, and verdict path.</span>
       </p>
     </div>
@@ -57,14 +103,14 @@
   </article>
   <article class="panel create-choice-card" id="manual-loop-form" data-testid="loop-create-manual-choice">
     <div>
-      <span class="eyebrow"><span data-lang="zh">专家模式</span><span data-lang="en">Expert mode</span></span>
-      <h2><span data-lang="zh">手动创建循环</span><span data-lang="en">Create Loop Manually</span></h2>
+      <span class="eyebrow"><span data-lang="zh">专家路径</span><span data-lang="en">Expert mode</span></span>
+      <h2><span data-lang="zh">手动编排 Loop</span><span data-lang="en">Create Loop Manually</span></h2>
       <p>
-        <span data-lang="zh">直接选择 spec、workdir、流程编排和运行参数。适合你已经维护好角色定义和编排规则，只想立刻创建一个 loop。</span>
+        <span data-lang="zh">直接选择Loop 契约、工作目录、流程编排和运行参数。适合你已经维护好角色定义和编排规则，只想立刻创建一个 Loop。</span>
         <span data-lang="en">Choose the spec, workdir, orchestration, and runtime settings directly. Use this when roles and workflow rules already exist and you only need a loop.</span>
       </p>
     </div>
-    <a class="secondary-button" href="/loops/new/manual" data-testid="loop-create-manual-link">
+    <a class="secondary-button" href="/loops/new/manual#manual-loop-form" data-testid="loop-create-manual-link">
       <span data-lang="zh">进入手动创建</span>
       <span data-lang="en">Open Manual Form</span>
     </a>
@@ -78,58 +124,24 @@
   }
 </script>
 {% else %}
-{% if create_page_mode == "manual" %}
-<section class="hero hero-tight hero-form">
-  <div class="hero-copy-stack">
-    <h1>
-      <span data-lang="zh">手动创建循环。</span>
-      <span data-lang="en">Create a loop manually.</span>
-    </h1>
-    <p>
-      <span data-lang="zh">这里保留完整专家路径：选择 spec、workdir、流程编排和运行参数后直接创建 loop。</span>
-      <span data-lang="en">This keeps the full expert path: choose the spec, workdir, orchestration, and runtime settings, then create the loop directly.</span>
-    </p>
-  </div>
-  <div class="card-actions">
-    <a class="primary-button" href="/loops/new/bundle">
-      <span data-lang="zh">对话生成方案</span>
-      <span data-lang="en">Generate Plan</span>
-    </a>
-    <a class="ghost-button" href="/loops/new/manual">
-      <span data-lang="zh">手动专家模式</span>
-      <span data-lang="en">Manual Expert Mode</span>
-    </a>
-  </div>
-</section>
-{% endif %}
-
-{% if access_state.remote_access_enabled %}
-<div class="callout" data-testid="remote-path-callout">
-  <strong><span data-lang="zh">当前是网络访问模式</span><span data-lang="en">Network access mode is on</span></strong>
-  <p>
-    <span data-lang="zh">现在填的路径都指向服务端那台机器，不是你手里这台浏览器。为了避免误会，原生“浏览”按钮已经收起来了，请直接粘贴服务端的绝对路径。</span>
-    <span data-lang="en">Every path here points to the server machine, not the browser in your hand. To avoid confusion, the native browse buttons are disabled, so paste absolute paths from the server instead.</span>
-  </p>
-</div>
-{% endif %}
+<section class="compose-shell bundle-chat-shell" data-testid="loop-compose-shell" data-compose-mode="{{ create_page_mode }}">
+  {{ compose_sidebar(create_page_mode) }}
 
 {% if create_page_mode == "bundle" %}
-<section class="bundle-chat-shell" data-testid="loop-bundle-create-panel">
-  <aside class="bundle-chat-sidebar" data-testid="alignment-history-panel">
-    <button class="bundle-sidebar-action" type="button" id="alignment-new-session-button" data-testid="alignment-new-session-button">
-      <span data-lang="zh">新对话</span>
-      <span data-lang="en">New chat</span>
-    </button>
-    <div class="bundle-sidebar-history">
-      <div class="alignment-history-list" id="alignment-history-list" data-testid="alignment-history-list"></div>
-    </div>
-  </aside>
-
   <section class="bundle-chat-main" data-testid="loop-alignment-panel">
     <div class="bundle-chat-scroll" id="alignment-scroll-region" data-testid="alignment-scroll-region">
+    {% if access_state.remote_access_enabled %}
+    <div class="callout" data-testid="remote-path-callout">
+      <strong><span data-lang="zh">当前是网络访问模式</span><span data-lang="en">Network access mode is on</span></strong>
+      <p>
+        <span data-lang="zh">现在填的路径都指向服务端那台机器，不是你手里这台浏览器。为了避免误会，原生“浏览”按钮已经收起来了，请直接粘贴服务端的绝对路径。</span>
+        <span data-lang="en">Every path here points to the server machine, not the browser in your hand. To avoid confusion, the native browse buttons are disabled, so paste absolute paths from the server instead.</span>
+      </p>
+    </div>
+    {% endif %}
     <div class="bundle-chat-empty" id="alignment-empty-state" data-testid="alignment-empty-state">
       <h1>
-        <span data-lang="zh">想让 Loopora 处理什么任务？</span>
+        <span data-lang="zh">想编排一个什么 Loop？</span>
         <span data-lang="en">What task should Loopora handle?</span>
       </h1>
     </div>
@@ -148,8 +160,12 @@
       <div class="alignment-transcript" id="alignment-transcript" data-testid="alignment-transcript"></div>
       <section class="alignment-live-console" id="alignment-live-details" data-testid="alignment-live-details" hidden>
         <button class="alignment-live-summary" type="button" id="alignment-live-toggle" data-testid="alignment-live-toggle" aria-expanded="false" aria-controls="alignment-live-body">
-          <span data-lang="zh">执行详情</span>
-          <span data-lang="en">Execution details</span>
+          <span class="alignment-live-summary-indicator" aria-hidden="true"></span>
+          <span class="alignment-live-summary-label" id="alignment-live-summary-label">
+            <span data-lang="zh">执行详情</span>
+            <span data-lang="en">Execution details</span>
+          </span>
+          <span class="alignment-live-summary-meta" id="alignment-live-summary-meta" data-testid="alignment-live-summary-meta"></span>
         </button>
         <div class="alignment-live-body" id="alignment-live-body" data-testid="alignment-live-body" hidden>
           <div class="console-toolbar">
@@ -172,7 +188,7 @@
       <header class="alignment-artifact-head">
         <div>
           <span class="alignment-artifact-kicker" id="bundle-preview-title">
-            <span data-lang="zh">循环方案已准备好</span>
+            <span data-lang="zh">Loop 已准备好</span>
             <span data-lang="en">Loop plan is ready</span>
           </span>
           <h2 id="alignment-artifact-name">-</h2>
@@ -207,18 +223,18 @@
         </div>
       </div>
       <p class="alignment-preview-note">
-        <span data-lang="zh">专家视图：用于检查这份方案如何落到 Loopora 的稳定运行面。</span>
+        <span data-lang="zh">专家视图：用于检查这份 Loop 如何落到稳定运行面。</span>
         <span data-lang="en">Expert views: inspect how this plan maps onto Loopora's stable runtime surfaces.</span>
       </p>
-      <div class="alignment-preview-tabs" data-testid="alignment-preview-tabs" role="tablist" aria-label="{{ '循环方案预览' if page_locale == 'zh' else 'Loop plan preview' }}">
+      <div class="alignment-preview-tabs" data-testid="alignment-preview-tabs" role="tablist" aria-label="{{ 'Loop 预览' if page_locale == 'zh' else 'Loop plan preview' }}">
         <button type="button" class="alignment-preview-tab is-active" data-preview-tab="spec" data-testid="alignment-preview-tab-spec" role="tab" aria-selected="true">
-          <span>spec</span>
+          <span data-lang="zh">Loop 契约</span><span data-lang="en">spec</span>
         </button>
         <button type="button" class="alignment-preview-tab" data-preview-tab="roles" data-testid="alignment-preview-tab-roles" role="tab" aria-selected="false">
-          <span>roles</span>
+          <span data-lang="zh">角色</span><span data-lang="en">roles</span>
         </button>
         <button type="button" class="alignment-preview-tab" data-preview-tab="workflow" data-testid="alignment-preview-tab-workflow" role="tab" aria-selected="false">
-          <span>workflow</span>
+          <span data-lang="zh">流程</span><span data-lang="en">workflow</span>
         </button>
       </div>
       <div class="alignment-preview-panels">
@@ -244,19 +260,19 @@
           rows="1"
           data-testid="alignment-message-input"
           placeholder="{{ '你想让 Loopora 做什么？' if page_locale == 'zh' else 'What should Loopora do?' }}"
-        ></textarea>
+        >{{ request.query_params.get('alignment_message', '') }}</textarea>
         <button class="alignment-send-button" type="submit" id="alignment-send-button" data-testid="alignment-send-button" aria-label="{{ '发送' if page_locale == 'zh' else 'Send' }}">↑</button>
       </div>
       <div class="alignment-composer-chips">
         <button class="alignment-chip" type="button" id="alignment-workdir-chip" data-open-panel="workdir" data-testid="alignment-workdir-chip" aria-expanded="false" aria-controls="alignment-tools-menu">
-          <span data-lang="zh">选择 workdir</span>
+          <span data-lang="zh">选择工作目录</span>
           <span data-lang="en">Choose workdir</span>
         </button>
         <button class="alignment-chip" type="button" id="alignment-agent-chip" data-open-panel="advanced" data-testid="alignment-agent-chip" aria-expanded="false" aria-controls="alignment-tools-menu">
           <span data-lang="zh">Codex</span>
           <span data-lang="en">Codex</span>
         </button>
-        <button class="alignment-status-pill" type="button" id="alignment-status-pill" data-testid="alignment-status-pill">
+        <button class="alignment-status-pill" type="button" id="alignment-status-pill" data-testid="alignment-status-pill" aria-live="polite">
           <span data-lang="zh">未开始</span>
           <span data-lang="en">Idle</span>
         </button>
@@ -267,11 +283,11 @@
       <div class="alignment-tool-popover-head">
         <div class="alignment-tool-tabs">
         <button type="button" data-open-panel="workdir">
-          <span data-lang="zh">Workdir</span>
+          <span data-lang="zh">工作目录</span>
           <span data-lang="en">Workdir</span>
         </button>
         <button type="button" data-open-panel="advanced">
-          <span data-lang="zh">Agent</span>
+          <span data-lang="zh">智能体</span>
           <span data-lang="en">Agent</span>
         </button>
         </div>
@@ -285,6 +301,7 @@
             name="alignment_workdir"
             list="recent-workdir-options"
             data-testid="alignment-workdir"
+            value="{{ request.query_params.get('alignment_workdir', '') }}"
             placeholder="/absolute/path/to/project"
           />
           {% if access_state.native_dialogs_enabled %}
@@ -303,9 +320,9 @@
       </section>
 
       <section class="alignment-tool-panel" data-tool-panel="advanced" data-testid="alignment-advanced-panel">
-        <h3><span data-lang="zh">Agent 设置</span><span data-lang="en">Agent settings</span></h3>
+        <h3><span data-lang="zh">智能体设置</span><span data-lang="en">Agent settings</span></h3>
         <label>
-          <span><span data-lang="zh">Agent CLI</span><span data-lang="en">Agent CLI</span></span>
+          <span><span data-lang="zh">智能体命令行</span><span data-lang="en">Agent CLI</span></span>
           <select id="alignment-executor-kind" name="alignment_executor_kind" data-testid="alignment-executor-kind">
             {% for profile in executor_profiles %}
             <option value="{{ profile.key }}" {% if profile.key == "codex" %}selected{% endif %}>
@@ -344,7 +361,7 @@
           <div class="executor-config-body" id="alignment-preset-body">
             <label id="alignment-model-field">
               <span><span data-lang="zh">模型</span><span data-lang="en">Model</span></span>
-              <input id="alignment-model" name="alignment_model" placeholder="gpt-5.4" />
+              <input id="alignment-model" name="alignment_model" placeholder="{{ '留空使用 Codex CLI 默认模型' if page_locale == 'zh' else 'Leave blank for Codex CLI default' }}" />
             </label>
             <label id="alignment-reasoning-field">
               <span><span data-lang="zh">推理强度</span><span data-lang="en">Reasoning effort</span></span>
@@ -380,23 +397,39 @@
       </section>
     </div>
   </section>
-</section>
 {% endif %}
 
 {% if create_page_mode == "manual" %}
-<section class="panel manual-bundle-import-panel" id="bundle-import-form" data-testid="manual-bundle-import-panel">
+  <section class="compose-mode-main" data-testid="loop-manual-compose-panel">
+    <div class="compose-mode-scroll" data-testid="compose-mode-scroll">
+    {% if access_state.remote_access_enabled %}
+    <div class="callout" data-testid="remote-path-callout">
+      <strong><span data-lang="zh">当前是网络访问模式</span><span data-lang="en">Network access mode is on</span></strong>
+      <p>
+        <span data-lang="zh">现在填的路径都指向服务端那台机器，不是你手里这台浏览器。为了避免误会，原生“浏览”按钮已经收起来了，请直接粘贴服务端的绝对路径。</span>
+        <span data-lang="en">Every path here points to the server machine, not the browser in your hand. To avoid confusion, the native browse buttons are disabled, so paste absolute paths from the server instead.</span>
+      </p>
+    </div>
+    {% endif %}
+<section
+  class="panel manual-bundle-import-panel compose-mode-section"
+  id="bundle-import-form"
+  data-compose-mode-section="import"
+  data-testid="manual-bundle-import-panel"
+  hidden
+>
   <header class="panel-header">
     <div>
-      <h2><span data-lang="zh">导入已有 Bundle / YAML</span><span data-lang="en">Import Existing Bundle / YAML</span></h2>
+      <h2><span data-lang="zh">导入方案文件</span><span data-lang="en">Import Existing Bundle / YAML</span></h2>
       <p class="panel-note">
-        <span data-lang="zh">如果你已经有一份 bundle 文件或 YAML，可以先预览 spec、roles 和 workflow，再创建 loop 或直接运行。</span>
+        <span data-lang="zh">如果你已经有一份方案文件，可以先预览Loop 契约、角色和流程，再创建 Loop 或直接运行。</span>
         <span data-lang="en">If you already have a bundle file or YAML, preview the contract, roles, and workflow before creating or running the loop.</span>
       </p>
     </div>
   </header>
   {% if import_values.replace_bundle_id %}
   <div class="field-status is-success" data-testid="bundle-replace-target-note">
-    <span data-lang="zh">当前导入会显式替换已有方案 <code>{{ import_values.replace_bundle_id }}</code>。</span>
+    <span data-lang="zh">当前导入会显式替换已有方案包 <code>{{ import_values.replace_bundle_id }}</code>。</span>
     <span data-lang="en">The next import will explicitly replace plan <code>{{ import_values.replace_bundle_id }}</code>.</span>
   </div>
   {% endif %}
@@ -404,7 +437,7 @@
     <div class="field-status is-error" id="bundle-import-error" aria-live="polite" {% if not import_error %}hidden{% endif %}>{{ import_error or "" }}</div>
     <div class="form-grid">
       <label>
-        <span><span data-lang="zh">Bundle 路径</span><span data-lang="en">Bundle path</span></span>
+        <span><span data-lang="zh">方案文件路径</span><span data-lang="en">Bundle path</span></span>
         <div class="field-inline-row">
           <input id="bundle-import-path" name="bundle_path" value="{{ import_values.bundle_path }}" placeholder="/absolute/path/to/bundle.yml" />
           {% if access_state.native_dialogs_enabled %}
@@ -422,11 +455,11 @@
         </div>
       </label>
       <label>
-        <span><span data-lang="zh">替换已有 Bundle ID</span><span data-lang="en">Replace bundle id</span></span>
+        <span><span data-lang="zh">替换已有方案包 ID</span><span data-lang="en">Replace bundle id</span></span>
         <input id="bundle-import-replace-id" name="replace_bundle_id" value="{{ import_values.replace_bundle_id }}" />
       </label>
       <label class="wide">
-        <span><span data-lang="zh">Bundle YAML</span><span data-lang="en">Bundle YAML</span></span>
+        <span><span data-lang="zh">方案文件内容</span><span data-lang="en">Bundle YAML</span></span>
         <textarea id="bundle-import-yaml" name="bundle_yaml" rows="8">{{- import_values.bundle_yaml -}}</textarea>
       </label>
       <label class="checkbox-row wide">
@@ -440,7 +473,7 @@
         <span data-lang="en">Preview plan</span>
       </button>
       <button class="primary-button" type="submit" id="bundle-import-submit-button" data-testid="bundle-import-submit-button">
-        <span data-lang="zh">导入并创建循环</span>
+        <span data-lang="zh">导入并创建 Loop</span>
         <span data-lang="en">Import and create loop</span>
       </button>
     </div>
@@ -477,15 +510,15 @@
         </button>
       </div>
     </div>
-    <div class="alignment-preview-tabs" data-testid="alignment-preview-tabs" role="tablist" aria-label="{{ '循环方案预览' if page_locale == 'zh' else 'Loop plan preview' }}">
+    <div class="alignment-preview-tabs" data-testid="alignment-preview-tabs" role="tablist" aria-label="{{ 'Loop 预览' if page_locale == 'zh' else 'Loop plan preview' }}">
       <button type="button" class="alignment-preview-tab is-active" data-preview-tab="spec" data-testid="alignment-preview-tab-spec" role="tab" aria-selected="true">
-        <span>spec</span>
+        <span data-lang="zh">Loop 契约</span><span data-lang="en">spec</span>
       </button>
       <button type="button" class="alignment-preview-tab" data-preview-tab="roles" data-testid="alignment-preview-tab-roles" role="tab" aria-selected="false">
-        <span>roles</span>
+        <span data-lang="zh">角色</span><span data-lang="en">roles</span>
       </button>
       <button type="button" class="alignment-preview-tab" data-preview-tab="workflow" data-testid="alignment-preview-tab-workflow" role="tab" aria-selected="false">
-        <span>workflow</span>
+        <span data-lang="zh">流程</span><span data-lang="en">workflow</span>
       </button>
     </div>
     <div class="alignment-preview-panels">
@@ -502,7 +535,12 @@
   </section>
 </section>
 
-<div id="manual-loop-form" class="section-anchor"></div>
+<section
+  class="compose-mode-section manual-compose-section"
+  id="manual-loop-form"
+  data-compose-mode-section="manual"
+  data-testid="manual-compose-section"
+>
 <form
   class="panel form-panel form-panel-wide"
   method="post"
@@ -513,9 +551,9 @@
 >
   <header class="panel-header">
     <div>
-      <h2><span data-lang="zh">手动专家模式</span><span data-lang="en">Manual Expert Mode</span></h2>
+      <h2><span data-lang="zh">手动编排</span><span data-lang="en">Manual Expert Mode</span></h2>
       <p class="panel-note">
-        <span data-lang="zh">如果你已经准备好了 spec、角色定义和流程编排，可以直接用这张表单创建 loop。它仍然是完整能力，不是降级路径。</span>
+        <span data-lang="zh">如果你已经准备好了Loop 契约、角色定义和流程编排，可以直接用这张表单创建 Loop。它仍然是完整能力，不是降级路径。</span>
         <span data-lang="en">If the spec, role definitions, and orchestration are already prepared, create the loop directly here. This remains the full expert path, not a reduced mode.</span>
       </p>
     </div>
@@ -560,9 +598,9 @@
     <label>
       <span class="label-row">
         <span class="label-with-help">
-          <span><span data-lang="zh">Workdir</span><span data-lang="en">Workdir</span></span>
+          <span><span data-lang="zh">工作目录</span><span data-lang="en">Workdir</span></span>
           {{ tip_button(
-            "指向这次循环要持续推进的项目目录。网络访问模式下，这里必须填写服务端机器上的绝对路径。",
+            "指向这个 Loop 要持续推进的项目目录。网络访问模式下，这里必须填写服务端机器上的绝对路径。",
             "Point this to the project directory that the loop should keep advancing. In network access mode, this must be an absolute path on the server machine.",
             "loop-workdir-tip"
           ) }}
@@ -607,9 +645,9 @@
     <label class="wide">
       <span class="label-row">
         <span class="label-with-help">
-          <span><span data-lang="zh">Spec 路径</span><span data-lang="en">Spec path</span></span>
+          <span><span data-lang="zh">契约路径</span><span data-lang="en">Spec path</span></span>
           {{ tip_button(
-            "如果不知道 spec 该怎么写，先去流程编排里找最接近的例子，再按你的需求改。要是暂时还不想把成功条件写死，也可以先省略 Done When，让系统在 run 开始时自动冻结 checks。",
+            "如果不知道Loop 契约该怎么写，先去流程编排里找最接近的例子，再按你的需求改。要是暂时还不想把成功条件写死，也可以先省略完成条件，让系统在运行开始时自动冻结检查项。",
             "If you're not sure how to write the spec, start from the closest example in Orchestrations and adapt it to your case. If you're not ready to lock the success conditions yet, you can omit Done When and let the system freeze checks at run start.",
             "loop-spec-tip"
           ) }}
@@ -651,13 +689,13 @@
           <h2 class="panel-title-with-help">
             <span><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></span>
             {{ tip_button(
-              "这里决定角色顺序和流程结构。角色默认用什么执行器、模型和 prompt，都来自“角色定义”；如果要改这些默认配置，请回到“角色定义”页面。",
+              "这里决定角色顺序和流程结构。角色默认用什么执行器、模型和提示词，都来自“角色定义”；如果要改这些默认配置，请回到“角色定义”页面。",
               "This decides the role order and workflow structure. Default executors, models, and prompts still come from Role Definitions. To change those defaults, go back to the Roles page.",
               "loop-orchestration-panel-tip"
             ) }}
           </h2>
           <p class="field-note">
-            <span data-lang="zh">先在“角色定义”和“流程编排”里把角色协作关系整理好，再回到这里挑一套方案投入运行。</span>
+            <span data-lang="zh">先在“角色定义”和“流程编排”里把角色协作关系整理好，再回到这里挑一套配置投入运行。</span>
             <span data-lang="en">Shape role definitions and orchestration first, then come back here to run one of those plans.</span>
           </p>
         </div>
@@ -682,7 +720,7 @@
             <span class="label-with-help">
               <span><span data-lang="zh">选择编排方案</span><span data-lang="en">Choose orchestration</span></span>
               {{ tip_button(
-                "编排决定有哪些角色、每轮按什么顺序执行，以及 GateKeeper 通过后是否结束。这个页面会根据所选编排，自动收起不适用的运行策略字段。",
+              "编排决定有哪些角色、每轮按什么顺序执行，以及守门裁决通过后是否结束。这个页面会根据所选编排，自动收起不适用的运行策略字段。",
                 "The orchestration decides which roles exist, their order in each round, and whether a GateKeeper can end the run. This page will automatically hide runtime fields that do not apply to the selected orchestration.",
                 "loop-orchestration-tip"
               ) }}
@@ -705,7 +743,7 @@
         <span class="label-with-help">
           <span><span data-lang="zh">完成方式</span><span data-lang="en">Completion mode</span></span>
           {{ tip_button(
-            "GateKeeper 模式会等待一个“通过即结束”的 GateKeeper 步骤来收束；轮次推进模式则只按最大迭代次数推进。如果当前编排没有可结束流程的 GateKeeper，这里会自动锁到轮次推进。",
+            "守门裁决模式会等待一个“通过即结束”的守门步骤来收束；轮次推进模式则只按最大迭代次数推进。如果当前编排没有可结束流程的守门步骤，这里会自动锁到轮次推进。",
             "GateKeeper mode waits for a finish-on-pass GateKeeper step to close the run. Rounds mode advances only by the iteration cap. If the selected orchestration cannot finish through a GateKeeper, this page locks the loop to rounds automatically.",
             "loop-completion-mode-tip"
           ) }}
@@ -827,7 +865,7 @@
 
   <div class="card-actions">
     <button class="primary-button" type="submit" id="save-loop-button">
-      <span data-lang="zh">保存循环</span>
+      <span data-lang="zh">保存 Loop</span>
       <span data-lang="en">Save loop</span>
     </button>
     <a class="ghost-button" href="/">
@@ -836,6 +874,8 @@
     </a>
   </div>
 </form>
+    </section>
+    </div>
 <div class="confirm-modal spec-preview-modal" id="spec-preview-modal" data-testid="spec-editor-modal" hidden aria-hidden="true">
   <div class="confirm-modal-backdrop" data-close-spec-preview="1"></div>
   <div class="confirm-modal-dialog spec-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="spec-preview-title" aria-describedby="spec-preview-status">
@@ -843,7 +883,7 @@
       <div class="spec-preview-header">
         <div class="spec-preview-copy">
           <span class="spec-preview-kicker"><span data-lang="zh">快速编辑</span><span data-lang="en">Quick edit</span></span>
-          <h2 id="spec-preview-title"><span data-lang="zh">Spec 编辑器</span><span data-lang="en">Spec editor</span></h2>
+          <h2 id="spec-preview-title"><span data-lang="zh">Loop 契约编辑器</span><span data-lang="en">Spec editor</span></h2>
           <p class="spec-preview-status" id="spec-preview-status"><span data-lang="zh">先专心修改源码，准备好后再手动打开预览。</span><span data-lang="en">Focus on editing first, then open the preview manually when you are ready.</span></p>
         </div>
         <div class="card-actions card-actions-compact spec-preview-actions">
@@ -899,7 +939,7 @@
               <span class="markdown-workbench-panel-note"><span data-lang="zh">这里只在你手动点击“预览”后刷新</span><span data-lang="en">This only refreshes after you manually click Preview</span></span>
             </div>
             <article class="preview-box markdown-preview markdown-workbench-preview spec-preview-markdown" id="spec-preview-content" data-testid="spec-editor-preview">
-              <p><span data-lang="zh">填好 spec 路径后，点右侧“编辑”即可直接修改文件并预览结果。</span><span data-lang="en">Fill in the spec path and use Edit on the right to update the file and preview the result.</span></p>
+              <p><span data-lang="zh">填好契约路径后，点右侧“编辑”即可直接修改文件并预览结果。</span><span data-lang="en">Fill in the spec path and use Edit on the right to update the file and preview the result.</span></p>
             </article>
           </section>
         </div>
@@ -907,11 +947,92 @@
     </div>
   </div>
 </div>
+  </section>
 {% endif %}
+</section>
 <script id="executor-profiles-json" type="application/json">{{ executor_profiles|tojson }}</script>
 {% if create_page_mode == "manual" %}
 <script id="orchestrations-json" type="application/json">{{ orchestrations|tojson }}</script>
 <script id="pristine-loop-form-json" type="application/json">{{ pristine_loop_form|tojson }}</script>
+<script>
+  (() => {
+    const hadInitialHash = Boolean(window.location.hash);
+    if (!hadInitialHash) {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#manual-loop-form`);
+    }
+    const modeLinks = Array.from(document.querySelectorAll("[data-compose-mode-link]"));
+    const modeSections = Array.from(document.querySelectorAll("[data-compose-mode-section]"));
+    const syncActiveMode = () => {
+      const activeMode = window.location.hash === "#bundle-import-form" ? "import" : "manual";
+      modeLinks.forEach((link) => {
+        link.classList.toggle("is-active", link.dataset.composeModeLink === activeMode);
+      });
+      modeSections.forEach((section) => {
+        section.hidden = section.dataset.composeModeSection !== activeMode;
+      });
+    };
+    window.addEventListener("hashchange", syncActiveMode);
+    syncActiveMode();
+
+    const historyList = document.getElementById("alignment-history-list");
+    if (!historyList) {
+      return;
+    }
+    const localeText = (zh, en) => window.LooporaUI?.pickText ? window.LooporaUI.pickText({zh, en}) : zh;
+    const statusLabel = (status) => {
+      const labels = {
+        idle: localeText("未开始", "Idle"),
+        running: localeText("对齐中", "Running"),
+        waiting_user: localeText("等待回复", "Waiting"),
+        validating: localeText("校验中", "Validating"),
+        repairing: localeText("自动修复", "Repairing"),
+        ready: localeText("方案已准备好", "Plan ready"),
+        failed: localeText("失败", "Failed"),
+        imported: localeText("已导入", "Imported"),
+        running_loop: localeText("运行中", "Running loop"),
+      };
+      return labels[status] || status || "-";
+    };
+    const escapeHtml = (value) => String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+    const renderHistory = (sessions) => {
+      historyList.innerHTML = "";
+      if (!sessions.length) {
+        const empty = document.createElement("p");
+        empty.className = "field-note";
+        empty.textContent = localeText("还没有历史对话。", "No recent chats yet.");
+        historyList.append(empty);
+        return;
+      }
+      sessions.forEach((session) => {
+        const item = document.createElement("article");
+        const activeStatuses = new Set(["running", "validating", "repairing"]);
+        const status = String(session.status || "");
+        item.className = `alignment-history-item${activeStatuses.has(status) ? " is-running" : ""}`;
+        item.dataset.testid = "alignment-history-item";
+        item.dataset.sessionStatus = status;
+        item.innerHTML = `
+          <a class="alignment-history-open" href="/loops/new/bundle?alignment_session_id=${encodeURIComponent(session.id)}" data-testid="alignment-history-open">
+            <strong>${escapeHtml(session.title || session.id)}</strong>
+            <span class="alignment-history-status">
+              <span class="alignment-history-status-dot" aria-hidden="true"></span>
+              <span>${escapeHtml(statusLabel(session.status))} · ${escapeHtml(session.executor_kind || "")}</span>
+            </span>
+          </a>
+        `;
+        historyList.append(item);
+      });
+    };
+    fetch("/api/alignments/sessions?limit=30", {headers: {Accept: "application/json"}})
+      .then((response) => response.ok ? response.json() : {sessions: []})
+      .then((payload) => renderHistory(payload.sessions || []))
+      .catch(() => {});
+  })();
+</script>
 <script src="{{ static_asset_url('markdown_workbench.js') }}" defer></script>
 <script src="{{ static_asset_url('pages/workflow_diagram.js') }}" defer></script>
 <script src="{{ static_asset_url('pages/bundle_import.js') }}" defer></script>

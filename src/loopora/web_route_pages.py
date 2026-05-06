@@ -20,10 +20,21 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
         loops = [_decorate_loop_overview(loop) for loop in ctx.svc().list_loops()]
+        active_loops = [loop for loop in loops if loop.get("latest_status") in {"queued", "running"}]
+        active_loop_ids = {loop.get("id") for loop in active_loops}
+        recent_loops = [
+            loop for loop in loops if loop.get("latest_run_id") and loop.get("id") not in active_loop_ids
+        ][:6]
         return ctx.templates.TemplateResponse(
             request,
             "index.html",
-            {"request": request, "loops": loops, "access_state": ctx.access_state},
+            {
+                "request": request,
+                "loops": loops,
+                "active_loops": active_loops,
+                "recent_loops": recent_loops,
+                "access_state": ctx.access_state,
+            },
         )
 
     @app.get("/loops/new", response_class=HTMLResponse)
@@ -102,6 +113,10 @@ def register_page_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/tutorial", response_class=HTMLResponse)
     async def tutorial_page(request: Request) -> HTMLResponse:
         return ctx.render_tutorial(request)
+
+    @app.get("/runs", response_class=HTMLResponse)
+    async def runs_page(request: Request) -> RedirectResponse:
+        return RedirectResponse(url="/#activity", status_code=303)
 
     @app.get("/loops/{loop_id}", response_class=HTMLResponse)
     async def loop_detail(request: Request, loop_id: str) -> HTMLResponse:

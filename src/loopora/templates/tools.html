@@ -9,7 +9,7 @@
       <span data-lang="en">Keep the handy side tools together so the main flow stays out of its own way.</span>
     </h1>
     <p>
-      <span data-lang="zh">这里放一些顺手的小外挂，让主流程少绕弯、少憋气。</span>
+      <span data-lang="zh">这里放运行辅助、本机维护和外部工具集成，让 Loop 主流程保持清爽。</span>
       <span data-lang="en">This is where the handy sidekicks live, so the main workflow can stay out of its own way.</span>
     </p>
   </div>
@@ -22,9 +22,9 @@
       <button
         class="help-dot help-dot--tips"
         type="button"
-        data-title-zh="只会在检测到有 run 正在执行时请求浏览器保持屏幕唤醒，没有运行中的任务会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收 wake lock，页面也会在重新可见后自动重试。"
+        data-title-zh="只会在检测到有运行正在执行时请求浏览器保持屏幕唤醒，没有运行中的 Loop 会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收防休眠锁，页面也会在重新可见后自动重试。"
         data-title-en="The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock."
-        aria-label="{{ '查看提示：只会在检测到有 run 正在执行时请求浏览器保持屏幕唤醒，没有运行中的任务会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收 wake lock，页面也会在重新可见后自动重试。' if page_locale == 'zh' else 'Show tip: The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock.' }}"
+        aria-label="{{ '查看提示：只会在检测到有运行正在执行时请求浏览器保持屏幕唤醒，没有运行中的 Loop 会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收防休眠锁，页面也会在重新可见后自动重试。' if page_locale == 'zh' else 'Show tip: The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock.' }}"
       >i</button>
     </div>
   </header>
@@ -42,7 +42,7 @@
         <span data-lang="en">Loading run activity…</span>
       </span>
       <span class="wake-lock-pill wake-lock-pill-neutral" id="wake-lock-hold-pill">
-        <span data-lang="zh">尚未持有 wake lock</span>
+        <span data-lang="zh">尚未持有防休眠锁</span>
         <span data-lang="en">Wake lock not held</span>
       </span>
     </div>
@@ -63,15 +63,15 @@
   </header>
   <div class="local-assets-summary" data-testid="local-assets-summary">
     <span class="wake-lock-pill wake-lock-pill-neutral" data-local-assets-count="orphan_alignment_dirs">
-      <span data-lang="zh">Alignment 残留目录：0</span>
+      <span data-lang="zh">对话编排残留目录：0</span>
       <span data-lang="en">Alignment orphan dirs: 0</span>
     </span>
     <span class="wake-lock-pill wake-lock-pill-neutral" data-local-assets-count="orphan_bundle_dirs">
-      <span data-lang="zh">Bundle 残留目录：0</span>
+      <span data-lang="zh">方案包残留目录：0</span>
       <span data-lang="en">Bundle orphan dirs: 0</span>
     </span>
     <span class="wake-lock-pill wake-lock-pill-neutral" data-local-assets-count="orphan_run_dirs">
-      <span data-lang="zh">Run 残留目录：0</span>
+      <span data-lang="zh">运行残留目录：0</span>
       <span data-lang="en">Run orphan dirs: 0</span>
     </span>
     <span class="wake-lock-pill wake-lock-pill-neutral" data-local-assets-count="record_without_dir">
@@ -80,14 +80,15 @@
     </span>
   </div>
   <div class="field-status" id="local-assets-status" data-testid="local-assets-status" hidden></div>
+  <div class="local-assets-details" id="local-assets-details" data-testid="local-assets-details" hidden></div>
 </section>
 
 <section class="panel">
   <header class="panel-header">
     <div>
-      <h2><span data-lang="zh">Alignment Skill 安装</span><span data-lang="en">Alignment skill install</span></h2>
+      <h2><span data-lang="zh">对齐技能安装</span><span data-lang="en">Alignment skill install</span></h2>
       <p class="tools-copy">
-        <span data-lang="zh"><code>{{ skill_bundle.name }}</code> 会通过多轮对话帮助你把任务协作姿态编译成可导入的 Loopora bundle。</span>
+        <span data-lang="zh"><code>{{ skill_bundle.name }}</code> 会通过多轮对话帮助你把 Loop 协作姿态编译成可导入的方案包。</span>
         <span data-lang="en"><code>{{ skill_bundle.name }}</code> uses dialogue to compile task-scoped collaboration posture into an importable Loopora bundle.</span>
       </p>
     </div>
@@ -132,17 +133,17 @@
   <article class="skill-download-card">
     <div class="skill-download-copy">
       <strong>
-        <span data-lang="zh">其他工具？直接下载 Skill 包</span>
+        <span data-lang="zh">其他工具？直接下载技能包</span>
         <span data-lang="en">Using another tool? Download the skill bundle</span>
       </strong>
       <p class="tools-copy">
-        <span data-lang="zh">如果你用的不是 Codex、Claude Code 或 OpenCode，也可以直接下载 <code>{{ skill_bundle.name }}</code> 整包，再按目标工具的 skill 目录规则手动放进去。</span>
+        <span data-lang="zh">如果你用的不是 Codex、Claude Code 或 OpenCode，也可以直接下载 <code>{{ skill_bundle.name }}</code> 整包，再按目标工具的技能目录规则手动放进去。</span>
         <span data-lang="en">If you use something other than Codex, Claude Code, or OpenCode, download the full <code>{{ skill_bundle.name }}</code> bundle and place it manually using that tool's skill-directory rules.</span>
       </p>
     </div>
     <div class="card-actions">
       <a class="secondary-button" href="/api/skills/loopora-task-alignment/download">
-        <span data-lang="zh">下载 Skill 包</span>
+        <span data-lang="zh">下载技能包</span>
         <span data-lang="en">Download bundle</span>
       </a>
     </div>

@@ -4,6 +4,7 @@
 <link rel="stylesheet" href="{{ static_asset_url('pages/run_detail.css') }}" />
 {% endblock %}
 {% block content %}
+<div class="page-stack" data-testid="run-detail-page">
 <section class="hero hero-tight hero-run-detail">
   <div class="hero-copy-stack">
     <h1>{{ run.loop_name or run.id }}</h1>
@@ -40,12 +41,12 @@
   </div>
   <div class="card-actions hero-actions">
     <a class="secondary-button" href="/loops/{{ run.loop_id }}">
-      <span data-lang="zh">返回循环</span>
+      <span data-lang="zh">返回 Loop</span>
       <span data-lang="en">Back to loop</span>
     </a>
     <form method="post" action="/runs/{{ run.id }}/revise" class="inline-form">
       <button class="primary-button" type="submit" data-testid="run-improve-chat-button">
-        <span data-lang="zh">用证据改进方案</span>
+        <span data-lang="zh">用证据改进 Loop</span>
         <span data-lang="en">Improve plan with evidence</span>
       </button>
     </form>
@@ -72,7 +73,7 @@
       <div>
         <h2><span data-lang="zh">关键结论</span><span data-lang="en">Key takeaways</span></h2>
         <p class="takeaway-copy">
-          <span data-lang="zh">先看证据覆盖和 GateKeeper 裁决；原始 prompt、context、output 继续沉到追查材料里。</span>
+          <span data-lang="zh">先看证据覆盖和守门裁决；原始提示词、上下文和输出继续沉到追查材料里。</span>
           <span data-lang="en">Start with evidence coverage and the GateKeeper verdict; raw prompts, context, and outputs stay in trace material.</span>
         </p>
       </div>
@@ -86,7 +87,7 @@
       </div>
       <form method="post" action="/runs/{{ run.id }}/revise" class="inline-form">
         <button class="secondary-button" type="submit" id="takeaway-improve-button" data-testid="run-evidence-improve-button">
-          <span data-lang="zh">对话改进方案</span>
+          <span data-lang="zh">对话改进 Loop</span>
           <span data-lang="en">Improve in chat</span>
         </button>
       </form>
@@ -141,7 +142,7 @@
         <span data-lang="en">No stable takeaways yet</span>
       </strong>
       <p>
-        <span data-lang="zh">角色 handoff 或 iteration summary 写出后，这里会自动收敛成简洁结论。</span>
+        <span data-lang="zh">角色交接或轮次摘要写出后，这里会自动收敛成简洁结论。</span>
         <span data-lang="en">As soon as a role handoff or iteration summary lands, this area condenses it into concise takeaways.</span>
       </p>
     </div>
@@ -184,12 +185,12 @@
       >
         <div class="stage-loop-banner">
           <span class="stage-loop-eyebrow" id="stage-loop-eyebrow">
-            <span data-lang="zh">Loop steps</span>
+            <span data-lang="zh">Loop 步骤</span>
             <span data-lang="en">Loop steps</span>
           </span>
           <strong class="stage-loop-title" id="stage-loop-title">{{ workflow_stages | map(attribute='label') | join(' → ') if workflow_stages else ("还没有中间步骤" if page_locale == "zh" else "No middle steps yet") }}</strong>
           <p class="stage-loop-copy" id="stage-loop-copy">
-            <span data-lang="zh">中间步骤会按 Loop 计划重复推进；GateKeeper 负责判断证据是否足以收束。</span>
+            <span data-lang="zh">中间步骤会按 Loop 计划重复推进；守门裁决负责判断证据是否足以收束。</span>
             <span data-lang="en">Middle steps repeat according to the Loop plan. GateKeeper decides whether the evidence is strong enough to close.</span>
           </p>
         </div>
@@ -267,7 +268,7 @@
         <span class="highlight-meta" id="focus-meta">-</span>
       </article>
       <article class="highlight-card" id="output-card" data-testid="run-task-verdict-card">
-        <span class="highlight-label"><span data-lang="zh">任务裁决</span><span data-lang="en">Task verdict</span></span>
+        <span class="highlight-label"><span data-lang="zh">Loop 裁决</span><span data-lang="en">Task verdict</span></span>
         <strong id="output-title">-</strong>
         <p id="output-detail">-</p>
         <span class="highlight-meta" id="output-meta">-</span>
@@ -342,6 +343,7 @@
     </div>
   </article>
 </section>
+</div>
 
 <script>
   window.LOOPORA_RUN_DETAIL = {

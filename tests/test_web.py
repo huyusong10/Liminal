@@ -96,6 +96,29 @@ def test_api_loop_creation_run_preview_and_stream(
     assert any(item["id"] == "summary" and item["available"] for item in artifact_payload)
     assert any(item["id"] == "evidence-ledger" and item["available"] for item in artifact_payload)
     assert any(item["id"] == "evidence-coverage" and item["available"] for item in artifact_payload)
+    artifacts_by_id = {item["id"]: item for item in artifact_payload}
+    assert artifacts_by_id["original-spec"]["label_zh"] == "原始 Loop 契约"
+    assert artifacts_by_id["compiled-spec"]["label_zh"] == "编译后契约"
+    assert artifacts_by_id["workflow-manifest"]["label_zh"] == "流程清单"
+    assert "规范证据账本" in artifacts_by_id["evidence-ledger"]["description_zh"]
+    for artifact_id in (
+        "summary",
+        "original-spec",
+        "compiled-spec",
+        "workflow-manifest",
+        "run-contract",
+        "latest-state",
+        "timeline-events",
+        "timeline-iterations",
+        "timeline-metrics",
+        "evidence-ledger",
+        "evidence-coverage",
+    ):
+        zh_metadata = f"{artifacts_by_id[artifact_id]['label_zh']} {artifacts_by_id[artifact_id]['description_zh']}"
+        assert "Spec" not in zh_metadata
+        assert "workflow" not in zh_metadata
+        assert "canonical" not in zh_metadata
+        assert " run " not in f" {zh_metadata} "
     missing_artifact = client.get(f"/api/runs/{run_id}/artifacts/missing-artifact/download")
     assert missing_artifact.status_code == 404
     assert missing_artifact.json()["error"] == "unknown artifact"
@@ -996,6 +1019,28 @@ def test_api_loop_creation_supports_provider_specific_defaults(
     assert claude_loop["executor_kind"] == "claude"
     assert claude_loop["model"] == ""
     assert claude_loop["reasoning_effort"] == "max"
+
+    codex_response = client.post(
+        "/api/loops",
+        json={
+            "name": "Codex Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "executor_kind": "codex",
+            "reasoning_effort": "",
+            "max_iters": 3,
+            "max_role_retries": 1,
+            "delta_threshold": 0.005,
+            "trigger_window": 2,
+            "regression_window": 2,
+            "start_immediately": False,
+        },
+    )
+    assert codex_response.status_code == 201
+    codex_loop = codex_response.json()["loop"]
+    assert codex_loop["executor_kind"] == "codex"
+    assert codex_loop["model"] == ""
+    assert codex_loop["reasoning_effort"] == "medium"
 
     opencode_response = client.post(
         "/api/loops",

@@ -1269,7 +1269,7 @@ class FakeCodexExecutor(CodexExecutor):
     def _alignment_agreement_response() -> dict:
         return {
             "status": "question",
-            "assistant_message": "我会按这个工作协议生成：先做聚焦实现，再收集可复现证据，最后由 GateKeeper 保守裁决。请回复“确认”后我再生成循环方案。",
+            "assistant_message": "我会按这个工作协议生成：先做聚焦实现，再收集可复现证据，最后由守门者保守裁决。请回复“确认”后我再生成 Loop 方案。",
             "needs_user_input": True,
             "bundle_yaml": "",
             "session_ref": {
@@ -1325,7 +1325,7 @@ loop:
   executor_mode: "preset"
   command_cli: ""
   command_args_text: ""
-  model: "gpt-5.4"
+  model: ""
   reasoning_effort: "medium"
   iteration_interval_seconds: 0
   max_iters: 4

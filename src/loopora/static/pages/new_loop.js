@@ -75,7 +75,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function specValidationFeedback(validation) {
     if (!validation || typeof validation !== "object") {
       return {
-        message: localeText("Spec 状态未知。", "Spec status is unknown."),
+        message: localeText("Loop 契约状态未知。", "Spec status is unknown."),
         kind: "warning",
         pill: localeText("待检查", "Pending"),
       };
@@ -89,7 +89,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (validation.state === "detached") {
       return {
-        message: validation.error || localeText("当前编辑器还没有绑定新的 spec 文件。", "The editor is not bound to the new spec file yet."),
+        message: validation.error || localeText("当前编辑器还没有绑定新的契约文件。", "The editor is not bound to the new spec file yet."),
         kind: "warning",
         pill: localeText("需重载", "Reload"),
       };
@@ -97,15 +97,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if (validation.ok) {
       const detail = validation.check_mode === "auto_generated"
         ? localeText(
-          "当前内容还没有固定 Done When，run 开始时会自动生成并冻结 checks。",
+          "当前内容还没有固定完成条件，运行开始时会自动生成并冻结检查项。",
           "This spec does not lock Done When yet. Loopora will generate and freeze checks at run start.",
         )
         : localeText(
-          `当前内容识别到 ${validation.check_count} 条 Done When 结果。`,
+          `当前内容识别到 ${validation.check_count} 条完成条件。`,
           `This spec contains ${validation.check_count} Done When outcome(s).`,
         );
       return {
-        message: `${localeText("Spec 校验通过。", "Spec is valid.")} ${detail}`,
+        message: `${localeText("Loop 契约校验通过。", "Spec is valid.")} ${detail}`,
         kind: "success",
         pill: validation.check_mode === "auto_generated"
           ? localeText("自动生成", "Auto-generated")
@@ -113,7 +113,7 @@ document.addEventListener("DOMContentLoaded", () => {
       };
     }
     return {
-      message: validation.error || localeText("Spec 还没有满足最小结构。", "The spec does not satisfy the minimum structure yet."),
+      message: validation.error || localeText("Loop 契约还没有满足最小结构。", "The spec does not satisfy the minimum structure yet."),
       kind: "error",
       pill: localeText("需修正", "Needs fixes"),
     };
@@ -408,13 +408,13 @@ document.addEventListener("DOMContentLoaded", () => {
       notes.push(localeText("仅支持轮次推进", "Rounds only"));
     }
     if (!policy.hasGuide) {
-      notes.push(localeText("无 Guide，已隐藏触发/回退窗口", "No Guide, trigger/regression windows hidden"));
+      notes.push(localeText("无引导者，已隐藏触发/回退窗口", "No Guide, trigger/regression windows hidden"));
     }
     if (!policy.supportsGatekeeperCompletion) {
       showStatus(
         orchestrationSummary,
         localeText(
-          `当前方案是 ${selected.name} · ${source} · 角色 ${roles} · 步骤 ${steps} · 执行 ${runtimeSummary}${notes.length ? ` · ${notes.join(" · ")}` : ""}。如果你想用守门裁决收束，请先去编排页补一个“通过即结束”的 GateKeeper 步骤。`,
+          `当前方案是 ${selected.name} · ${source} · 角色 ${roles} · 步骤 ${steps} · 执行 ${runtimeSummary}${notes.length ? ` · ${notes.join(" · ")}` : ""}。如果你想用守门裁决收束，请先去编排页补一个“通过即结束”的守门者步骤。`,
           `The selected orchestration is ${selected.name} · ${source} · Roles ${roles} · Steps ${steps} · Runtime ${runtimeSummary}${notes.length ? ` · ${notes.join(" · ")}` : ""}. Add a finish-on-pass GateKeeper step in Orchestrations if you want gate-based completion.`,
         ),
         "warning",
@@ -436,12 +436,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (quiet) {
         showStatus(specValidation, "");
       } else {
-        showStatus(specValidation, localeText("请先提供 spec 路径。", "Please provide a spec path first."), "error");
+        showStatus(specValidation, localeText("请先提供契约路径。", "Please provide a spec path first."), "error");
       }
       return false;
     }
     if (!quiet) {
-      showStatus(specValidation, localeText("正在校验 Spec…", "Validating spec..."));
+      showStatus(specValidation, localeText("正在校验 Loop 契约…", "Validating spec..."));
     }
     const {response, payload, error} = await fetchJson(`/api/specs/validate?path=${encodeURIComponent(path)}`);
     if (requestId !== latestSpecValidationRequest) {
@@ -449,7 +449,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (error || !response) {
       if (!quiet) {
-        showStatus(specValidation, errorMessage(error, localeText("Spec 校验暂时不可用。", "Spec validation is temporarily unavailable.")), "error");
+        showStatus(specValidation, errorMessage(error, localeText("Loop 契约校验暂时不可用。", "Spec validation is temporarily unavailable.")), "error");
       }
       return false;
     }
@@ -465,7 +465,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return true;
     }
     if (!quiet) {
-      showStatus(specValidation, payload.error || localeText("Spec 校验失败。", "Spec validation failed."), "error");
+      showStatus(specValidation, payload.error || localeText("Loop 契约校验失败。", "Spec validation failed."), "error");
     }
     return false;
   }
@@ -493,7 +493,7 @@ document.addEventListener("DOMContentLoaded", () => {
       body: JSON.stringify({start_path: startPath}),
     });
     if (error || !response?.ok) {
-      throw new Error(payload.error || errorMessage(error, localeText("无法打开 spec 选择器。", "Unable to open the spec picker.")));
+      throw new Error(payload.error || errorMessage(error, localeText("无法打开契约选择器。", "Unable to open the spec picker.")));
     }
     if (payload.path) {
       specPathInput.value = payload.path;
@@ -505,7 +505,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let targetPath = specPathInput.value.trim();
     if (!targetPath) {
       if (createSpecTemplateButton.dataset.nativeDialogsEnabled === "false") {
-        showStatus(specValidation, localeText("网络模式下请先手动填好服务端上的 spec 路径，再创建模板。", "In network mode, enter a server-side spec path first and then create the template."), "error");
+        showStatus(specValidation, localeText("网络模式下请先手动填好服务端上的契约路径，再创建模板。", "In network mode, enter a server-side spec path first and then create the template."), "error");
         return;
       }
       const startPath = workdirInput.value.trim();
@@ -515,7 +515,7 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify({start_path: startPath}),
       });
       if (selection.error || !selection.response?.ok) {
-        throw new Error(selection.payload.error || errorMessage(selection.error, localeText("无法选择 spec 保存路径。", "Unable to choose a spec save path.")));
+        throw new Error(selection.payload.error || errorMessage(selection.error, localeText("无法选择契约保存路径。", "Unable to choose a spec save path.")));
       }
       if (!selection.payload.path) {
         return;
@@ -533,10 +533,10 @@ document.addEventListener("DOMContentLoaded", () => {
       }),
     });
     if (error || !response) {
-      throw new Error(errorMessage(error, localeText("无法创建 spec 模板。", "Unable to create the spec template.")));
+      throw new Error(errorMessage(error, localeText("无法创建契约模板。", "Unable to create the spec template.")));
     }
     if (!response.ok) {
-      showStatus(specValidation, payload.error || localeText("无法创建 spec 模板。", "Unable to create the spec template."), "error");
+      showStatus(specValidation, payload.error || localeText("无法创建契约模板。", "Unable to create the spec template."), "error");
       return;
     }
     specPathInput.value = payload.path;
@@ -665,7 +665,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setSpecEditorSaveState(
       payload.validation?.ok
         ? localeText("磁盘内容已载入，可以继续修改。", "Disk content loaded. You can keep editing.")
-        : localeText("磁盘内容已载入，但当前 spec 还需要修正。", "Disk content loaded, but the current spec still needs fixes."),
+        : localeText("磁盘内容已载入，但当前契约还需要修正。", "Disk content loaded, but the current spec still needs fixes."),
       payload.validation?.ok ? "success" : "warning",
     );
     syncSpecPreviewStatusForCurrentMode();
@@ -675,7 +675,7 @@ document.addEventListener("DOMContentLoaded", () => {
   async function loadSpecDocument(options = {}) {
     const path = specPathInput.value.trim();
     if (!path) {
-      showStatus(specValidation, localeText("请先提供 spec 路径，再打开编辑器。", "Provide a spec path before opening the editor."), "error");
+      showStatus(specValidation, localeText("请先提供契约路径，再打开编辑器。", "Provide a spec path before opening the editor."), "error");
       return;
     }
     if (!options.force && specEditorLoadedPath === path && specEditorInput?.value) {
@@ -688,19 +688,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     specPreviewPath.textContent = path;
-    setSpecPreviewStatus(localeText("正在读取 spec…", "Loading spec..."));
+    setSpecPreviewStatus(localeText("正在读取 Loop 契约…", "Loading spec..."));
     setSpecEditorSaveState(localeText("正在把磁盘内容载入编辑器。", "Loading the file from disk into the editor."));
 
     const {response, payload, error} = await fetchJson(`/api/specs/document?path=${encodeURIComponent(path)}`);
     if (error || !response) {
       specPreviewPath.textContent = path;
-      setSpecPreviewStatus(errorMessage(error, localeText("Spec 编辑器暂时不可用。", "The spec editor is temporarily unavailable.")), "error");
-      setSpecEditorSaveState(errorMessage(error, localeText("暂时无法读取这份 spec。", "This spec cannot be read right now.")), "error");
+      setSpecPreviewStatus(errorMessage(error, localeText("Loop 契约编辑器暂时不可用。", "The spec editor is temporarily unavailable.")), "error");
+      setSpecEditorSaveState(errorMessage(error, localeText("暂时无法读取这份契约。", "This spec cannot be read right now.")), "error");
       return;
     }
     if (!payload.ok) {
       specPreviewPath.textContent = path;
-      setSpecPreviewStatus(payload.error || localeText("Spec 编辑器加载失败。", "The spec editor could not be loaded."), "error");
+      setSpecPreviewStatus(payload.error || localeText("Loop 契约编辑器加载失败。", "The spec editor could not be loaded."), "error");
       setSpecEditorSaveState(payload.error || localeText("请检查路径和文件内容。", "Check the path and file contents."), "error");
       return;
     }
@@ -710,7 +710,7 @@ document.addEventListener("DOMContentLoaded", () => {
   async function saveSpecDocument(options = {}) {
     const path = specPathInput.value.trim();
     if (!path) {
-      showStatus(specValidation, localeText("请先提供 spec 路径，再保存编辑器内容。", "Provide a spec path before saving the editor contents."), "error");
+      showStatus(specValidation, localeText("请先提供契约路径，再保存编辑器内容。", "Provide a spec path before saving the editor contents."), "error");
       return false;
     }
     if (!specEditorInput) {
@@ -723,7 +723,7 @@ document.addEventListener("DOMContentLoaded", () => {
       body: JSON.stringify({path, content: specEditorInput.value}),
     });
     if (error || !response) {
-      const message = errorMessage(error, localeText("保存 spec 失败。", "Unable to save the spec."));
+      const message = errorMessage(error, localeText("保存契约失败。", "Unable to save the spec."));
       setSpecEditorSaveState(message, "error");
       if (!options.silent) {
         showStatus(specValidation, message, "error");
@@ -731,7 +731,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return false;
     }
     if (!payload.ok) {
-      const message = payload.error || localeText("保存 spec 失败。", "Unable to save the spec.");
+      const message = payload.error || localeText("保存契约失败。", "Unable to save the spec.");
       setSpecEditorSaveState(message, "error");
       if (!options.silent) {
         showStatus(specValidation, message, "error");
@@ -740,9 +740,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     applyLoadedSpecDocument(payload);
     if (payload.validation?.ok) {
-      setSpecEditorSaveState(localeText("已保存到磁盘，当前 spec 已通过校验。", "Saved to disk. The current spec is valid."), "success");
+      setSpecEditorSaveState(localeText("已保存到磁盘，当前契约已通过校验。", "Saved to disk. The current spec is valid."), "success");
     } else {
-      setSpecEditorSaveState(localeText("已保存到磁盘，但当前 spec 还需要修正。", "Saved to disk, but the current spec still needs fixes."), "warning");
+      setSpecEditorSaveState(localeText("已保存到磁盘，但当前契约还需要修正。", "Saved to disk, but the current spec still needs fixes."), "warning");
     }
     if (!options.silent) {
       showStatus(
@@ -775,7 +775,7 @@ document.addEventListener("DOMContentLoaded", () => {
           syncSpecPreviewStatusForCurrentMode();
         },
         emptyMessage: {
-          zh: "这份 spec 目前还是空的。",
+          zh: "这份契约目前还是空的。",
           en: "This spec is currently empty.",
         },
         loadingMessage: {
@@ -832,20 +832,20 @@ document.addEventListener("DOMContentLoaded", () => {
       if (specPathInput.value.trim() !== specEditorLoadedPath) {
         showStatus(
           formError,
-          localeText("Spec 路径已经变了，请重新打开编辑器确认要保存哪份文件。", "The spec path changed. Reopen the editor to confirm which file should be saved."),
+          localeText("契约路径已经变了，请重新打开编辑器确认要保存哪份文件。", "The spec path changed. Reopen the editor to confirm which file should be saved."),
           "error",
         );
         return;
       }
       const saved = await saveSpecDocument({silent: false});
       if (!saved) {
-        showStatus(formError, localeText("Spec 编辑器里的改动还没有成功保存，请先修复后再提交。", "The editor changes were not saved successfully. Fix that first before submitting."), "error");
+        showStatus(formError, localeText("Loop 契约编辑器里的改动还没有成功保存，请先修复后再提交。", "The editor changes were not saved successfully. Fix that first before submitting."), "error");
         return;
       }
     }
     const specValid = await validateSpec();
     if (!specValid) {
-      showStatus(formError, localeText("Spec 不满足要求，请先修复后再提交。", "The spec does not satisfy the required structure yet."), "error");
+      showStatus(formError, localeText("Loop 契约不满足要求，请先修复后再提交。", "The spec does not satisfy the required structure yet."), "error");
       return;
     }
 
@@ -903,7 +903,7 @@ document.addEventListener("DOMContentLoaded", () => {
       browseSpec,
       {
         errorTarget: specValidation,
-        fallbackMessage: localeText("无法打开 spec 选择器。", "Unable to open the spec picker."),
+        fallbackMessage: localeText("无法打开契约选择器。", "Unable to open the spec picker."),
       },
     ));
   }
@@ -913,7 +913,7 @@ document.addEventListener("DOMContentLoaded", () => {
       editSpec,
       {
         errorTarget: specValidation,
-        fallbackMessage: localeText("无法打开 spec 编辑器。", "Unable to open the spec editor."),
+        fallbackMessage: localeText("无法打开契约编辑器。", "Unable to open the spec editor."),
       },
     ));
   }
@@ -923,7 +923,7 @@ document.addEventListener("DOMContentLoaded", () => {
       () => saveSpecDocument({silent: false}),
       {
         errorTarget: specValidation,
-        fallbackMessage: localeText("无法保存 spec。", "Unable to save the spec."),
+        fallbackMessage: localeText("无法保存契约。", "Unable to save the spec."),
       },
     ));
   }
@@ -933,7 +933,7 @@ document.addEventListener("DOMContentLoaded", () => {
       toggleSpecPreview,
       {
         errorTarget: specValidation,
-        fallbackMessage: localeText("无法切换 spec 预览。", "Unable to toggle the spec preview."),
+        fallbackMessage: localeText("无法切换契约预览。", "Unable to toggle the spec preview."),
       },
     ));
   }
@@ -943,7 +943,7 @@ document.addEventListener("DOMContentLoaded", () => {
       createSpecTemplate,
       {
         errorTarget: specValidation,
-        fallbackMessage: localeText("无法创建 spec 模板。", "Unable to create the spec template."),
+        fallbackMessage: localeText("无法创建契约模板。", "Unable to create the spec template."),
       },
     ));
   }
@@ -965,10 +965,10 @@ document.addEventListener("DOMContentLoaded", () => {
       specEditorLoadedPath = "";
       specEditorSavedText = "";
       specEditorLastValidation = null;
-      setSpecEditorSaveState(localeText("路径已经变化，重新打开编辑器后会读取新的 spec 文件。", "The path changed. Reopen the editor to load the new spec file."));
+      setSpecEditorSaveState(localeText("路径已经变化，重新打开编辑器后会读取新的契约文件。", "The path changed. Reopen the editor to load the new spec file."));
       setSpecEditorValidation({
         state: "detached",
-        error: localeText("当前编辑器还没有绑定新的 spec 文件。", "The editor is not bound to the new spec file yet."),
+        error: localeText("当前编辑器还没有绑定新的契约文件。", "The editor is not bound to the new spec file yet."),
         check_count: 0,
         check_mode: "",
       });

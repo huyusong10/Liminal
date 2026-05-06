@@ -112,12 +112,12 @@ flowchart LR
 
 In the local Web UI:
 
-1. **Workbench** shows current loops and run state.
-2. **New Task** opens the chat-first Loop composition flow.
+1. **Loops** is the daily workspace for saved Loops, active Loop activity, and latest runs.
+2. **Compose** opens the chat-first Loop composition workbench.
 3. Loopora calls your local AI Agent CLI and asks only questions that change the Loop.
 4. READY Loops show the task contract, roles, workflow diagram, and source file action.
 5. **Create and run** materializes the Loop and starts the run.
-6. **Plans** stores reusable Loops and their bundle files.
+6. **Library** keeps plan files, role definitions, and flow library entries for expert reuse.
 
 Manual creation remains available for expert users who already know which `spec`, `roles`, or `workflow` surface they want to edit.
 
@@ -139,7 +139,7 @@ Start the local Web console:
 loopora serve --host 127.0.0.1 --port 8742
 ```
 
-Open [http://127.0.0.1:8742](http://127.0.0.1:8742), choose **New Task**, select a workdir, and describe the task.
+Open [http://127.0.0.1:8742](http://127.0.0.1:8742), choose **Compose**, select a workdir, and describe the task.
 
 ## When Should You Use It?
 
@@ -171,7 +171,7 @@ Do not use a loop when another round will not create new evidence. A loop withou
 
 The Web UI is the recommended path because it keeps Loop composition, validation, preview, execution, and evidence in one guided flow.
 
-If you prefer to align outside the Web UI, open **Resources -> Tools & Skill** and install the repo-local `loopora-task-alignment` Skill into Codex, Claude Code, OpenCode, or another compatible AI Agent CLI.
+If you prefer to align outside the Web UI, open **Tools** and install the repo-local `loopora-task-alignment` Skill into Codex, Claude Code, OpenCode, or another compatible AI Agent CLI.
 
 That Skill now includes a Product Primer so the alignment Agent does not need prior Loopora knowledge. It produces the same YAML bundle, which you can import from the expert manual path when you want Loopora to run the Loop.
 

@@ -543,16 +543,16 @@ def _decorate_loop_overview(loop: dict) -> dict:
     task_verdict = loop.get("latest_task_verdict_json") if isinstance(loop.get("latest_task_verdict_json"), Mapping) else {}
     task_status = str(task_verdict.get("status") or "").strip()
     hints = {
-        "draft": ("还没有运行，先检查 spec 和工作目录。", "No run yet. Start by checking the spec and workdir."),
+        "draft": ("还没有运行，先检查 Loop 契约和工作目录。", "No run yet. Start by checking the spec and workdir."),
         "queued": ("已经进入队列，点进去看最新状态。", "Queued up. Open it to see the current state."),
         "running": ("正在推进中，点进去看实时进展。", "Actively progressing. Open it for live updates."),
-        "succeeded": ("最近一次运行已结束，点进去看任务裁决。", "The latest run finished. Open it for the task verdict."),
-        "failed": ("最近一次运行失败，建议先看运行状态和任务裁决。", "The latest run failed. Start with run status and task verdict."),
+        "succeeded": ("最近一次运行已结束，点进去看 Loop 裁决。", "The latest run finished. Open it for the task verdict."),
+        "failed": ("最近一次运行失败，建议先看运行状态和 Loop 裁决。", "The latest run failed. Start with run status and task verdict."),
         "stopped": ("最近一次运行已停止。", "The latest run was stopped."),
     }
     hint_zh, hint_en = hints.get(latest_status, hints["draft"])
     if latest_status == "succeeded" and task_status in {"passed", "passed_with_residual_risk"}:
-        hint_zh, hint_en = ("最近一次任务裁决已通过。", "The latest task verdict passed.")
+        hint_zh, hint_en = ("最近一次 Loop 裁决已通过。", "The latest task verdict passed.")
     bundle = loop.get("bundle") if isinstance(loop.get("bundle"), Mapping) else None
     managed_by_bundle = bool(bundle and bundle.get("id"))
     return {
@@ -639,27 +639,27 @@ def _build_run_summary_snapshot(run: dict) -> dict:
     composite_score = raw_verdict.get("composite_score")
     task_status = str(task_verdict.get("status") or "not_evaluated")
     if task_status in {"passed", "passed_with_residual_risk"}:
-        verdict_title = ("任务裁决：已通过", "Task verdict: passed")
-        verdict_note = (task_verdict.get("summary") or "证据支持本次任务结论。", task_verdict.get("summary") or "Evidence supports the task conclusion.")
+        verdict_title = ("Loop 裁决：已通过", "Task verdict: passed")
+        verdict_note = (task_verdict.get("summary") or "证据支持本次 Loop 结论。", task_verdict.get("summary") or "Evidence supports the task conclusion.")
     elif task_status == "failed":
-        verdict_title = ("任务裁决：未通过", "Task verdict: failed")
+        verdict_title = ("Loop 裁决：未通过", "Task verdict: failed")
         verdict_note = (
             task_verdict.get("summary") or f"还有 {failed_count} 个阻断项，优先看证据桶。",
             task_verdict.get("summary") or f"{failed_count} blocker(s) remain. Start with the evidence buckets.",
         )
     elif task_status == "insufficient_evidence":
-        verdict_title = ("任务裁决：证据不足", "Task verdict: insufficient evidence")
-        verdict_note = (task_verdict.get("summary") or "运行已到边界，但证据还不足以证明任务通过。", task_verdict.get("summary") or "The run reached its boundary, but evidence is not strong enough for a task pass.")
+        verdict_title = ("Loop 裁决：证据不足", "Task verdict: insufficient evidence")
+        verdict_note = (task_verdict.get("summary") or "运行已到边界，但证据还不足以证明 Loop 通过。", task_verdict.get("summary") or "The run reached its boundary, but evidence is not strong enough for a task pass.")
     else:
-        verdict_title = ("任务裁决：未评估", "Task verdict: not evaluated")
+        verdict_title = ("Loop 裁决：未评估", "Task verdict: not evaluated")
         verdict_note = (task_verdict.get("summary") or "还没有可用的证据裁决。", task_verdict.get("summary") or "No evidence-based task verdict is available yet.")
 
     status_notes = {
         "queued": ("运行已创建，正在等待执行。", "The run is created and waiting to start."),
-        "running": ("当前 run 正在推进，下面的摘要会持续更新。", "This run is in progress and the summary will keep updating."),
-        "succeeded": ("这次 run 已顺利结束。", "This run finished successfully."),
-        "failed": ("这次 run 已失败结束。", "This run finished with a failure."),
-        "stopped": ("这次 run 已被手动停止。", "This run was stopped manually."),
+        "running": ("当前运行正在推进，下面的摘要会持续更新。", "This run is in progress and the summary will keep updating."),
+        "succeeded": ("这次运行已顺利结束。", "This run finished successfully."),
+        "failed": ("这次运行已失败结束。", "This run finished with a failure."),
+        "stopped": ("这次运行已被手动停止。", "This run was stopped manually."),
         "draft": ("运行还没有真正开始。", "The run has not started yet."),
     }
     status = run.get("status") or "draft"

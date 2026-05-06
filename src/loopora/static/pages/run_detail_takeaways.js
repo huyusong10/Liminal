@@ -133,7 +133,7 @@
         ? statusReason
         : coverage.ledger_path
           ? localeText(`${evidenceCount} 条证据 · 账本 ${coverage.ledger_path}`, `${evidenceCount} evidence item${evidenceCount === 1 ? "" : "s"} · Ledger ${coverage.ledger_path}`)
-          : localeText("run 开始后会写入证据账本。", "The ledger appears after the run starts.");
+          : localeText("运行开始后会写入证据账本。", "The ledger appears after the run starts.");
       const provenCount = evidenceBucketCount(snapshot, "proven");
       const weakBucketCount = evidenceBucketCount(snapshot, "weak");
       const unprovenCount = evidenceBucketCount(snapshot, "unproven");
@@ -144,7 +144,7 @@
         evidenceCoverageCard("已证明", "Proven", String(provenCount || coveredChecks || 0), firstBucketText(snapshot, "proven") || (checkCount ? `${coveredChecks}/${checkCount}` : "")),
         evidenceCoverageCard("偏弱", "Weak", String(weakBucketCount), firstBucketText(snapshot, "weak")),
         evidenceCoverageCard("未证明", "Unproven", String(unprovenCount), firstBucketText(snapshot, "unproven") || primaryGap?.text || ""),
-        evidenceCoverageCard("阻断 / 风险", "Blockers / risk", `${blockingCount}/${riskCount}`, firstBucketText(snapshot, "blocking", "residual_risk") || (gatekeeperRefs ? localeText("GateKeeper 已引用上游证据。", "GateKeeper cited upstream evidence.") : "")),
+        evidenceCoverageCard("阻断 / 风险", "Blockers / risk", `${blockingCount}/${riskCount}`, firstBucketText(snapshot, "blocking", "residual_risk") || (gatekeeperRefs ? localeText("守门者已引用上游证据。", "GateKeeper cited upstream evidence.") : "")),
       ].join("");
     }
 
@@ -162,7 +162,7 @@
           soft: taskStatus === "passed",
           title: taskVerdictStatusLabel(taskStatus),
           detail: taskVerdict.summary || localeText(
-            "任务裁决由证据桶支撑；可继续查看 proven / residual risk 的明细。",
+            "Loop 裁决由证据桶支撑；可继续查看已证明 / 残余风险的明细。",
             "The task verdict is backed by evidence buckets; inspect proven and residual-risk details as needed."
           ),
         };
@@ -172,7 +172,7 @@
           soft: false,
           title: taskVerdictStatusLabel(taskStatus === "failed" ? "failed" : "insufficient_evidence"),
           detail: taskVerdict.summary || firstBucketText(snapshot, "blocking", "unproven", "weak") || primaryGap?.text || localeText(
-            "GateKeeper 裁决、证据缺口和阻塞项已保留在本次 run 的证据材料里。",
+            "守门裁决、证据缺口和阻塞项已保留在本次运行的证据材料里。",
             "The verdict, evidence gaps, and blockers are preserved in this run's evidence material."
           ),
         };
@@ -191,7 +191,7 @@
         soft: true,
         title: taskVerdictStatusLabel(taskStatus),
         detail: taskVerdict.summary || localeText(
-          "角色 handoff、证据账本或 GateKeeper 裁决写出后，这里会收敛成证据结论。",
+          "角色交接、证据账本或 GateKeeper 裁决写出后，这里会收敛成证据结论。",
           "Once role handoffs, the evidence ledger, or the GateKeeper verdict lands, this will settle into an evidence outcome."
         ),
       };
@@ -305,7 +305,7 @@
           `最近到第 ${latestIter} 轮 · ${snapshot.role_conclusion_count || 0} 条角色结论 · ${snapshot.evidence_count || 0} 条证据`,
           `Up to iter ${latestIter} · ${snapshot.role_conclusion_count || 0} role conclusions · ${snapshot.evidence_count || 0} evidence items`
         )
-        : localeText("角色 handoff 写出来后，这里会自动更新。", "This updates as soon as the first role handoff lands.");
+        : localeText("角色交接写出来后，这里会自动更新。", "This updates as soon as the first role handoff lands.");
     }
 
     return {

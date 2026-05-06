@@ -97,9 +97,9 @@ class WebRouteLoopPagesMixin:
             form_values = _normalize_orchestration_form(values)
         if is_editing_custom:
             page_copy = {
-                "title_zh": "修改编排，让后续 loop 继续沿着新的流程走。",
+                "title_zh": "修改编排，让后续 Loop 继续沿着新的流程走。",
                 "title_en": "Refine this orchestration before future loops use the new flow.",
-                "body_zh": "这里改的是已经保存的流程编排。你可以调整角色定义的引用关系、步骤顺序和收束规则；角色 prompt 和执行方式请回到“角色定义”页修改。",
+                "body_zh": "这里改的是已经保存的流程编排。你可以调整角色定义的引用关系、步骤顺序和收束规则；角色提示词和执行方式请回到“角色定义”页修改。",
                 "body_en": "You are editing a saved orchestration. Adjust role-definition snapshots, step order, and completion rules here; return to Role Definitions to change prompts or execution settings.",
                 "submit_zh": "保存修改",
                 "submit_en": "Save changes",
@@ -107,7 +107,7 @@ class WebRouteLoopPagesMixin:
             }
         elif is_builtin_template:
             page_copy = {
-                "title_zh": "查看默认编排，先理解 Loopora 推荐的循环结构。",
+                "title_zh": "查看默认编排，先理解 Loopora 推荐的 Loop 结构。",
                 "title_en": "Inspect the built-in orchestration to understand Loopora's recommended loop shape.",
                 "body_zh": "默认编排是固定的，只用于查看和直接复用，不能在这里修改。若要做自己的版本，请新建一条自定义编排，再按需要调整角色快照、步骤顺序和收束规则。",
                 "body_en": "Built-in orchestrations are fixed. You can inspect and reuse them directly here, but not modify them. To make your own version, create a custom orchestration and then adjust role snapshots, step order, and completion rules there.",
@@ -117,9 +117,9 @@ class WebRouteLoopPagesMixin:
             }
         else:
             page_copy = {
-                "title_zh": "先把步骤工作台搭起来，再让 loop 去执行。",
+                "title_zh": "先把步骤编排搭起来，再让 Loop 去执行。",
                 "title_en": "Shape the step workbench first, then let loops execute it.",
-                "body_zh": "这里默认从空白编排开始。你可以在步骤工具条里载入起手模板、按角色定义添加步骤、重排步骤和检查循环实例图；角色 prompt 与执行配置继续在“角色定义”页维护。",
+                "body_zh": "这里默认从空白编排开始。你可以在步骤工具条里载入起手模板、按角色定义添加步骤、重排步骤和检查 Loop 实例图；角色提示词与执行配置继续在“角色定义”页维护。",
                 "body_en": "This editor starts blank by default. Use the step toolbar to load a starter template, add steps from role definitions, reorder steps, and inspect the loop map. Prompts and execution settings still live in Role Definitions.",
                 "submit_zh": "保存编排",
                 "submit_en": "Save orchestration",

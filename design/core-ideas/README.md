@@ -6,7 +6,7 @@ Loopora 是面向长期 AI Agent 任务的本地任务平台。
 
 核心主工作流是：
 
-`编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出运行状态、任务裁决与结果`
+`编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出运行状态、Loop 裁决与结果`
 
 `product-principle.md` 是本目录的最高原则。下方公理都服务于同一件事：让长期任务不只依赖 Agent 自律，而是被外部编排、运行、观察和裁决。
 
@@ -51,7 +51,7 @@ Loopora 是面向长期 AI Agent 任务的本地任务平台。
 - `Inspector` / `GateKeeper` / `Guide` 默认不应修改源文件。
 - `GateKeeper` 的通过结论必须可映射到 checks、metrics、证据或边界约束。
 - `Role Notes` / `posture_notes` 只能改变角色工作姿态，不能静默改变全局成功标准。
-- `run status` 只能说明系统生命周期；任务是否达标必须由 evidence 和 task verdict 表达。
+- `run status` 只能说明系统生命周期；Loop 是否达标必须由 evidence 和 task verdict 表达。
 - `.loopora/` 是系统保留空间；业务改动不应写入该目录。
 
 ## 3. 反例
@@ -65,7 +65,7 @@ Loopora 是面向长期 AI Agent 任务的本地任务平台。
 | 只在 prompt 里描述用户偏好 | 判断没有运行面 | 长任务中容易遗忘或漂移 |
 | 只记录日志，不留 evidence artifact | 证据不可追溯 | 无法复盘、比较或外部再利用 |
 | Web 能做核心能力，CLI/API 无语义入口 | 接口层不同构 | 系统出现双重能力模型 |
-| 把 run succeeded 当作任务通过 | 运行状态与任务裁决混淆 | 用户误信未证明的结果 |
+| 把 run succeeded 当作Loop 通过 | 运行状态与Loop 裁决混淆 | 用户误信未证明的结果 |
 
 ## 4. 非目标
 

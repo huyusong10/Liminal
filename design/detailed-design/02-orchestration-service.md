@@ -18,7 +18,7 @@
 | `role definition` | 名称、角色模板、默认执行配置、prompt 资产 | 可复用角色模版 | 可创建、读取、更新、列出、删除；内置角色定义只能复制，不能原地改写；不持有本次 step 的行动权限 |
 | `loop definition` | workdir、spec、runtime 策略、completion mode、编排引用 | 可执行模板 | 创建时完成输入规范化与快照冻结 |
 | `bundle` | 单文件 YAML，或从现有 loop 派生出的 bundle 内容 | 一组整包管理的 spec / role definitions / orchestration / loop | 可导入、导出、派生、列出、删除；删除时按整包清理其拥有的资产 |
-| `run` | loop definition | 运行状态、任务裁决、事件流、终态摘要、结构化产物 | 同一 run 只有一个系统终态；任务是否达标由 evidence 与 task verdict 表达 |
+| `run` | loop definition | 运行状态、Loop 裁决、事件流、终态摘要、结构化产物 | 同一 run 只有一个系统终态；Loop 是否达标由 evidence 与 task verdict 表达 |
 
 ## 3. 角色职责边界
 
@@ -67,7 +67,7 @@
 
 ### 4.2 Run 执行
 
-`loop definition → 线性步骤 / 有限并行检视组执行 → 事件与产物汇聚 → run 状态与任务裁决更新`
+`loop definition → 线性步骤 / 有限并行检视组执行 → 事件与产物汇聚 → run 状态与Loop 裁决更新`
 
 服务层必须完成：
 
@@ -100,11 +100,11 @@
 失败与停止同样必须收敛为明确终态，并带可读原因。
 一旦终态已经对外可观察，服务层本地活动 bookkeeping 也必须同步收敛，不能继续把该 run 保留为活动后台 worker。
 
-运行状态与任务裁决必须分离：
+运行状态与Loop 裁决必须分离：
 
 - run status 只回答系统生命周期：running / succeeded / failed / stopped / timed out。
 - task verdict 回答任务语义：passed / failed / insufficient evidence / passed with residual risk / not evaluated。
-- 任何界面或 API 都不能把 `succeeded` 直接解释成任务通过。
+- 任何界面或 API 都不能把 `succeeded` 直接解释成Loop 通过。
 - GateKeeper 是 `gatekeeper` 模式下产生强 task verdict 的默认入口；`rounds` 模式若没有裁决 evidence，必须清楚表达“运行完成但任务未被证明”。
 
 GateKeeper evidence gate：

@@ -6,7 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const scrollRegion = document.getElementById("alignment-scroll-region");
   const profiles = JSON.parse(document.getElementById("executor-profiles-json")?.textContent || "[]");
-  const shell = document.querySelector("[data-testid='loop-bundle-create-panel']");
+  const shell = document.querySelector("[data-testid='loop-compose-shell']");
   const startForm = document.getElementById("alignment-start-form");
   const emptyState = document.getElementById("alignment-empty-state");
   const toolsMenu = document.getElementById("alignment-tools-menu");
@@ -45,6 +45,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const consoleOutput = document.getElementById("alignment-console-output");
   const liveDetails = document.getElementById("alignment-live-details");
   const liveToggle = document.getElementById("alignment-live-toggle");
+  const liveSummaryLabel = document.getElementById("alignment-live-summary-label");
+  const liveSummaryMeta = document.getElementById("alignment-live-summary-meta");
   const liveBody = document.getElementById("alignment-live-body");
   const cancelButton = document.getElementById("alignment-cancel-button");
   const readyPreview = document.getElementById("alignment-ready-preview");
@@ -100,6 +102,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let latestEventId = 0;
   let thinkingStartedAt = 0;
   let thinkingTimer = null;
+  let submitPending = false;
+  let cancelPending = false;
   let errorTimer = null;
   const commandDrafts = new Map();
   let lastExecutorKind = executorInput?.value || "codex";
@@ -169,11 +173,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function setBusy(isBusy) {
-    sendButton.disabled = isBusy;
-    sendButton.setAttribute("aria-busy", String(isBusy));
-  }
-
   function statusLabel(status) {
     const labels = {
       idle: localeText("未开始", "Idle"),
@@ -189,9 +188,81 @@ document.addEventListener("DOMContentLoaded", () => {
     return labels[status] || status || "-";
   }
 
-  function setStatus(message, kind = "") {
+  function isActiveStatus(status) {
+    return ACTIVE_STATUSES.has(String(status || ""));
+  }
+
+  function activeStatusCopy(status, seconds = null) {
+    const elapsed = seconds === null ? "" : ` ${seconds}s`;
+    const labels = {
+      running: {
+        label: localeText("Agent 正在执行", "Agent running"),
+        meta: localeText(`${executorLabel()} 正在处理${elapsed}`, `${executorLabel()} is working${elapsed}`),
+      },
+      validating: {
+        label: localeText("正在校验 Loop", "Validating Loop"),
+        meta: localeText(`检查方案契约与运行面${elapsed}`, `Checking plan contract and runtime surface${elapsed}`),
+      },
+      repairing: {
+        label: localeText("正在自动修复", "Repairing plan"),
+        meta: localeText(`根据校验结果修复${elapsed}`, `Repairing from validation results${elapsed}`),
+      },
+    };
+    return labels[String(status || "")] || {
+      label: statusLabel(status),
+      meta: seconds === null ? "" : localeText(`已执行 ${seconds}s`, `Running ${seconds}s`),
+    };
+  }
+
+  function setSendButtonState(status = currentSession?.status || "idle") {
+    const active = isActiveStatus(status);
+    sendButton.disabled = submitPending || cancelPending;
+    sendButton.classList.toggle("is-stop", active);
+    sendButton.dataset.action = active ? "cancel" : "send";
+    sendButton.textContent = active ? "■" : "↑";
+    sendButton.setAttribute("aria-label", active ? localeText("停止执行", "Stop execution") : localeText("发送", "Send"));
+    sendButton.setAttribute("aria-busy", String(submitPending || cancelPending || active));
+  }
+
+  function setLiveSummaryStatus(status = currentSession?.status || "idle") {
+    if (!liveToggle || !liveSummaryLabel || !liveSummaryMeta) {
+      return;
+    }
+    const active = isActiveStatus(status);
+    liveToggle.classList.toggle("is-active", active);
+    liveToggle.dataset.status = status;
+    liveSummaryLabel.textContent = active ? activeStatusCopy(status).label : localeText("执行详情", "Execution details");
+    liveSummaryMeta.textContent = active
+      ? localeText("实时事件流", "Live event stream")
+      : (latestEventId ? localeText(`最近事件 #${latestEventId}`, `Latest event #${latestEventId}`) : "");
+  }
+
+  function setExecutionState(status = currentSession?.status || "idle") {
+    const normalized = String(status || "idle");
+    [panel, shell, startForm, chat, liveDetails].forEach((element) => {
+      if (!element) {
+        return;
+      }
+      element.dataset.alignmentExecutionState = normalized;
+      element.classList.toggle("is-executing", isActiveStatus(normalized));
+    });
+    cancelButton.hidden = !isActiveStatus(normalized);
+    cancelButton.disabled = cancelPending;
+    setSendButtonState(normalized);
+    setLiveSummaryStatus(normalized);
+  }
+
+  function setBusy(isBusy) {
+    submitPending = Boolean(isBusy) && !isActiveStatus(currentSession?.status || "");
+    setExecutionState();
+  }
+
+  function setStatus(message, kind = "", status = "") {
     statusPill.textContent = message;
+    const normalized = String(status || kind || currentSession?.status || "");
     statusPill.className = `alignment-status-pill${kind ? ` is-${kind}` : ""}`;
+    statusPill.classList.toggle("is-active", isActiveStatus(normalized));
+    statusPill.dataset.status = normalized || "idle";
     statusPill.disabled = false;
     statusPill.setAttribute("aria-disabled", String(kind !== "ready"));
     statusPill.setAttribute("aria-pressed", "false");
@@ -215,6 +286,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function syncWorkdirInputFromSession() {
+    const sessionWorkdir = String(currentSession?.workdir || "").trim();
+    if (!sessionWorkdir) {
+      return;
+    }
+    workdirInput.value = sessionWorkdir;
+    updateChips();
+  }
+
   function setToolControlsExpanded(panelName = "") {
     document.querySelectorAll("[data-open-panel][aria-expanded]").forEach((button) => {
       button.setAttribute("aria-expanded", String(!toolsMenu.hidden && button.dataset.openPanel === panelName));
@@ -227,6 +307,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function openTools(panelName = "workdir") {
+    if (panelName === "workdir") {
+      syncWorkdirInputFromSession();
+    }
     toolsMenu.hidden = false;
     toolsMenu.dataset.activePanel = panelName;
     toolPanels.forEach((section) => {
@@ -259,6 +342,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     currentSession = null;
     latestEventId = 0;
+    submitPending = false;
+    cancelPending = false;
     forgetSession();
     closeTools();
     setLiveDetailsOpen(false);
@@ -484,7 +569,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!thinkingStatus) {
       return;
     }
-    if (!ACTIVE_STATUSES.has(String(status || ""))) {
+    if (!isActiveStatus(status)) {
       thinkingStatus.hidden = true;
       thinkingStatus.textContent = "";
       thinkingStartedAt = 0;
@@ -500,14 +585,21 @@ document.addEventListener("DOMContentLoaded", () => {
     const render = () => {
       const seconds = Math.max(0, Math.floor((Date.now() - thinkingStartedAt) / 1000));
       const statusText = String(currentSession?.status || status);
-      const zh = statusText === "validating"
-        ? `正在校验方案 ${seconds}s`
-        : (statusText === "repairing" ? `正在自动修复 ${seconds}s` : `${executorLabel()} 思考中 ${seconds}s`);
-      const en = statusText === "validating"
-        ? `Validating plan ${seconds}s`
-        : (statusText === "repairing" ? `Repairing plan ${seconds}s` : `${executorLabel()} thinking ${seconds}s`);
+      const copy = activeStatusCopy(statusText, seconds);
       thinkingStatus.hidden = false;
-      thinkingStatus.textContent = localeText(zh, en);
+      thinkingStatus.textContent = copy.meta;
+      setLiveSummaryStatus(statusText);
+      if (liveSummaryMeta && isActiveStatus(statusText)) {
+        liveSummaryMeta.textContent = copy.meta;
+      }
+      const workingTitle = transcriptEl.querySelector("[data-working-title]");
+      const workingMeta = transcriptEl.querySelector("[data-working-meta]");
+      if (workingTitle) {
+        workingTitle.textContent = copy.label;
+      }
+      if (workingMeta) {
+        workingMeta.textContent = copy.meta;
+      }
     };
     render();
     if (!thinkingTimer) {
@@ -518,6 +610,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderSession(session, options = {}) {
     currentSession = session;
     rememberSession(session.id);
+    syncWorkdirInputFromSession();
     shell?.classList.add("has-session");
     emptyState.hidden = true;
     chat.hidden = false;
@@ -525,16 +618,15 @@ document.addEventListener("DOMContentLoaded", () => {
       liveDetails.hidden = false;
     }
     const status = String(session.status || "idle");
-    setStatus(statusLabel(status), status === "ready" ? "ready" : (status === "failed" ? "failed" : ""));
+    setStatus(statusLabel(status), status === "ready" ? "ready" : (status === "failed" ? "failed" : ""), status);
     sessionMeta.textContent = `${statusLabel(status)} · ${basename(session.workdir)} · ${session.id}`;
-    cancelButton.hidden = !ACTIVE_STATUSES.has(status);
-    setBusy(ACTIVE_STATUSES.has(status));
+    setBusy(isActiveStatus(status));
     updateThinkingStatus(status);
     updateChips();
     renderTranscript(session.transcript || [], session);
     if (status === "ready") {
       loadReadyBundle({reveal: options.revealReady !== false}).catch((error) => {
-        renderBundleLoadError(error.message || localeText("无法加载循环方案。", "Unable to load the loop plan."));
+        renderBundleLoadError(error.message || localeText("无法加载 Loop 方案。", "Unable to load the loop plan."));
       });
     } else {
       readyPreview.hidden = true;
@@ -561,6 +653,28 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function renderWorkingCard(session = currentSession) {
+    const status = String(session?.status || "");
+    if (!isActiveStatus(status)) {
+      return;
+    }
+    const elapsed = thinkingStartedAt ? Math.max(0, Math.floor((Date.now() - thinkingStartedAt) / 1000)) : 0;
+    const copy = activeStatusCopy(status, elapsed);
+    const card = document.createElement("article");
+    card.className = "alignment-working-card";
+    card.dataset.testid = "alignment-working-card";
+    card.setAttribute("aria-live", "polite");
+    card.innerHTML = `
+      <span class="alignment-working-beacon" aria-hidden="true"></span>
+      <span class="alignment-working-copy">
+        <strong data-working-title>${escapeHtml(copy.label)}</strong>
+        <span data-working-meta>${escapeHtml(copy.meta)}</span>
+      </span>
+      <span class="alignment-working-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    `;
+    transcriptEl.append(card);
+  }
+
   function renderTranscript(transcript, session = currentSession) {
     transcriptEl.innerHTML = "";
     transcript.forEach((entry) => {
@@ -571,16 +685,17 @@ document.addEventListener("DOMContentLoaded", () => {
       `;
       transcriptEl.append(bubble);
     });
+    renderWorkingCard(session);
     if (String(session?.status || "") === "failed") {
       const failure = document.createElement("article");
       failure.className = "alignment-failure-card";
       failure.innerHTML = `
         <strong>${escapeHtml(localeText("这轮没有生成可用方案", "This turn did not produce a usable plan"))}</strong>
-        <p>${escapeHtml(session?.error_message || localeText("可以查看执行详情，或让 Agent 按这个错误继续修复。", "Check execution details, or ask the Agent to repair from this error."))}</p>
+        <p>${escapeHtml(session?.error_message || localeText("可以查看执行详情，或让智能体按这个错误继续修复。", "Check execution details, or ask the Agent to repair from this error."))}</p>
         <div class="card-actions card-actions-compact">
           <button class="primary-button" type="button" data-repair-failure data-testid="alignment-repair-failure-button">${escapeHtml(localeText("继续修复", "Continue repair"))}</button>
           <button class="secondary-button" type="button" data-open-live-details>${escapeHtml(localeText("查看详情", "View details"))}</button>
-          <button class="ghost-button" type="button" data-open-panel="advanced">${escapeHtml(localeText("Agent 设置", "Agent settings"))}</button>
+          <button class="ghost-button" type="button" data-open-panel="advanced">${escapeHtml(localeText("智能体设置", "Agent settings"))}</button>
         </div>
       `;
       failure.querySelector("[data-repair-failure]")?.addEventListener("click", async () => {
@@ -589,7 +704,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         setBusy(true);
         try {
-          await appendMessage(localeText("请根据上面的校验错误继续修复这份循环方案。", "Please repair this loop plan using the validation error above."));
+          await appendMessage(localeText("请根据上面的校验错误继续修复这个 Loop 方案。", "Please repair this loop plan using the validation error above."));
         } catch (error) {
           showError(error.message || localeText("继续修复失败。", "Failed to continue repair."));
           setBusy(false);
@@ -673,6 +788,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (liveDetails) {
       liveDetails.hidden = false;
     }
+    setLiveSummaryStatus(currentSession?.status || "idle");
     consoleOutput.parentElement.scrollTop = consoleOutput.parentElement.scrollHeight;
   }
 
@@ -711,12 +827,18 @@ document.addEventListener("DOMContentLoaded", () => {
       item.className = "alignment-history-item";
       item.dataset.testid = "alignment-history-item";
       item.dataset.sessionId = session.id;
+      const sessionStatus = String(session.status || "");
+      item.dataset.sessionStatus = sessionStatus;
       item.classList.toggle("is-active", currentSession?.id === session.id);
-      const isActive = ACTIVE_STATUSES.has(String(session.status || ""));
+      const isActive = isActiveStatus(sessionStatus);
+      item.classList.toggle("is-running", isActive);
       item.innerHTML = `
         <button class="alignment-history-open" type="button" data-testid="alignment-history-open">
           <strong>${escapeHtml(session.title || session.id)}</strong>
-          <span>${escapeHtml(statusLabel(session.status))} · ${escapeHtml(session.executor_kind || "")}</span>
+          <span class="alignment-history-status">
+            <span class="alignment-history-status-dot" aria-hidden="true"></span>
+            <span>${escapeHtml(statusLabel(session.status))} · ${escapeHtml(session.executor_kind || "")}</span>
+          </span>
         </button>
         <button
           class="alignment-history-delete"
@@ -765,10 +887,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function refreshSession() {
     if (!currentSession?.id) {
-      return;
+      return null;
     }
     const payload = await fetchJson(`/api/alignments/sessions/${encodeURIComponent(currentSession.id)}`);
     renderSession(payload.session);
+    return payload.session;
   }
 
   function openStream(sessionId) {
@@ -813,11 +936,16 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderBundleLoadError(message) {
     shell?.classList.add("has-artifact");
     readyPreview.hidden = false;
-    artifactName.textContent = localeText("无法加载循环方案", "Unable to load loop plan");
+    readyPreview.dataset.previewState = "error";
+    if (importRunButton) {
+      importRunButton.hidden = true;
+      importRunButton.closest(".card-actions")?.setAttribute("hidden", "");
+    }
+    artifactName.textContent = localeText("无法加载 Loop 方案", "Unable to load loop plan");
     previewTitle.textContent = localeText("方案需要重新加载", "Plan needs reload");
     readyNote.textContent = message || "";
     if (artifactTask) {
-      artifactTask.textContent = localeText("任务目标：方案文件暂时不可用。", "Task: plan file is temporarily unavailable.");
+      artifactTask.textContent = localeText("Loop 目标：方案文件暂时不可用。", "Task: plan file is temporarily unavailable.");
     }
     if (artifactRisk) {
       artifactRisk.textContent = localeText("主要风险：-", "Main risk: -");
@@ -853,7 +981,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     specPreview.innerHTML = `
       <div class="field-status is-error">
-        ${escapeHtml(message || localeText("无法加载循环方案。", "Unable to load the loop plan."))}
+        ${escapeHtml(message || localeText("无法加载 Loop 方案。", "Unable to load the loop plan."))}
       </div>
       <div class="card-actions">
         <button class="secondary-button" type="button" data-reload-ready-bundle>${escapeHtml(localeText("重新同步源文件", "Reload source file"))}</button>
@@ -874,7 +1002,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/[#*_`>-]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-    return text.slice(0, 180) || localeText("任务目标已生成。", "Task goal generated.");
+    return text.slice(0, 180) || localeText("Loop 目标已生成。", "Task goal generated.");
   }
 
   function workflowSummary(preview) {
@@ -900,7 +1028,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function verdictSummary(summary) {
     const gatekeeper = summary?.gatekeeper || {};
     if (gatekeeper.enabled) {
-      return localeText("GateKeeper 依据证据裁决。", "GateKeeper judges from evidence.");
+      return localeText("守门者依据证据裁决。", "GateKeeper judges from evidence.");
     }
     return localeText("按轮次预算收束。", "Ends by round budget.");
   }
@@ -934,7 +1062,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const cards = [
       {
         label: localeText("主要风险", "Main risk"),
-        value: listSnippet(summary.risks) || localeText("从任务契约中读取。", "Read from the task contract."),
+        value: listSnippet(summary.risks) || localeText("从 Loop 契约中读取。", "Read from the task contract."),
       },
       {
         label: localeText("证据路径", "Evidence path"),
@@ -942,13 +1070,13 @@ document.addEventListener("DOMContentLoaded", () => {
       },
       {
         label: localeText("执行顺序", "Execution path"),
-        value: workflow.summary || localeText(`${workflow.step_count || 0} 个 step`, `${workflow.step_count || 0} steps`),
+        value: workflow.summary || localeText(`${workflow.step_count || 0} 个步骤`, `${workflow.step_count || 0} steps`),
       },
       {
-        label: "GateKeeper",
+        label: localeText("守门者", "GateKeeper"),
         value: gatekeeper.enabled
-          ? localeText("需要 evidence refs 才能结束。", "Requires evidence refs to finish.")
-          : localeText("未配置 GateKeeper。", "No GateKeeper configured."),
+          ? localeText("需要证据引用才能结束。", "Requires evidence refs to finish.")
+          : localeText("未配置守门者。", "No GateKeeper configured."),
       },
       ...(controls.length ? [{
         label: localeText("运行控制", "Runtime controls"),
@@ -966,7 +1094,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function compactRoleSummary(role) {
     const description = String(role.description || "").trim();
     const posture = String(role.posture_notes || "").trim();
-    return description || posture || localeText("点击查看完整 role 信息。", "Open to inspect the full role definition.");
+    return description || posture || localeText("点击查看完整角色信息。", "Open to inspect the full role definition.");
   }
 
   function roleDetailRow(label, value, options = {}) {
@@ -1029,9 +1157,14 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderBundlePreview(payload, options = {}) {
     shell?.classList.add("has-artifact");
     readyPreview.hidden = false;
+    readyPreview.dataset.previewState = "ready";
+    if (importRunButton) {
+      importRunButton.hidden = false;
+      importRunButton.closest(".card-actions")?.removeAttribute("hidden");
+    }
     const metadata = payload.metadata || payload.bundle?.metadata || {};
-    artifactName.textContent = metadata.name || localeText("循环方案", "Loop plan");
-    previewTitle.textContent = localeText("方案已准备好，可以创建并运行", "Plan is ready to create and run");
+    artifactName.textContent = metadata.name || localeText("Loop 方案", "Loop plan");
+    previewTitle.textContent = localeText("Loop 已准备好，可以创建并运行", "Plan is ready to create and run");
     readyNote.textContent = localeText(
       "先确认它控制的风险、证据路径和裁决方式；需要细看时再打开专家视图。",
       "Confirm the risk controls, evidence path, and verdict path first; open expert views only when needed."
@@ -1039,7 +1172,7 @@ document.addEventListener("DOMContentLoaded", () => {
     importRunButton.hidden = false;
     const summary = payload.control_summary || {};
     if (artifactTask) {
-      artifactTask.textContent = labeledSummary("任务目标", "Task", taskSummary(payload.bundle));
+      artifactTask.textContent = labeledSummary("Loop 目标", "Task", taskSummary(payload.bundle));
     }
     if (artifactRisk) {
       artifactRisk.textContent = labeledSummary("主要风险", "Main risk", mainRiskSummary(summary));
@@ -1116,7 +1249,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (payload.session) {
         currentSession = payload.session;
         renderTranscript(currentSession.transcript || [], currentSession);
-        setStatus(statusLabel(currentSession.status), currentSession.status === "ready" ? "ready" : (currentSession.status === "failed" ? "failed" : ""));
+        setStatus(statusLabel(currentSession.status), currentSession.status === "ready" ? "ready" : (currentSession.status === "failed" ? "failed" : ""), currentSession.status);
+        setExecutionState(currentSession.status);
       }
       if (!payload.ok) {
         renderBundleLoadError(payload.validation?.error || localeText("源文件校验失败。", "Source validation failed."));
@@ -1155,9 +1289,37 @@ document.addEventListener("DOMContentLoaded", () => {
     await loadHistory();
   }
 
+  async function cancelCurrentSession() {
+    if (!currentSession?.id || !isActiveStatus(currentSession.status)) {
+      return;
+    }
+    cancelPending = true;
+    setExecutionState(currentSession.status);
+    try {
+      const response = await fetchJson(`/api/alignments/sessions/${encodeURIComponent(currentSession.id)}/cancel`, {
+        method: "POST",
+        body: "{}",
+      });
+      renderSession(response.session);
+      await loadHistory();
+    } catch (error) {
+      showError(error.message || localeText("取消失败。", "Failed to cancel."));
+    } finally {
+      cancelPending = false;
+      setExecutionState(currentSession?.status || "idle");
+    }
+  }
+
   startForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     showError("");
+    if (isActiveStatus(currentSession?.status || "")) {
+      const latestSession = await refreshSession().catch(() => currentSession);
+      if (isActiveStatus(latestSession?.status || "")) {
+        await cancelCurrentSession();
+        return;
+      }
+    }
     const message = messageInput.value.trim();
     if (!message) {
       showError(localeText("先描述你想做什么。", "Describe what you want first."));
@@ -1197,24 +1359,17 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     event.preventDefault();
+    if (isActiveStatus(currentSession?.status || "")) {
+      showError(localeText("Agent 正在执行；当前输入会保留，需停止后再发送。", "The Agent is running; your draft is preserved and can be sent after stopping."));
+      return;
+    }
     startForm.requestSubmit();
   });
 
   messageInput.addEventListener("input", () => showError(""));
   workdirInput.addEventListener("input", () => showError(""));
-  cancelButton.addEventListener("click", async () => {
-    if (!currentSession?.id) {
-      return;
-    }
-    try {
-      const response = await fetchJson(`/api/alignments/sessions/${encodeURIComponent(currentSession.id)}/cancel`, {
-        method: "POST",
-        body: "{}",
-      });
-      renderSession(response.session);
-    } catch (error) {
-      showError(error.message || localeText("取消失败。", "Failed to cancel."));
-    }
+  cancelButton.addEventListener("click", () => {
+    cancelCurrentSession().catch(() => {});
   });
 
   newSessionButton.addEventListener("click", () => {
@@ -1269,7 +1424,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     loadReadyBundle({reveal: true}).catch((error) => {
-      renderBundleLoadError(error.message || localeText("无法加载循环方案。", "Unable to load the loop plan."));
+      renderBundleLoadError(error.message || localeText("无法加载 Loop 方案。", "Unable to load the loop plan."));
     });
   });
   document.addEventListener("click", (event) => {
@@ -1362,6 +1517,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return;
   }
   updateExecutorControls();
+  setExecutionState("idle");
   loadHistory().catch(() => {});
   restoreSessionIfPresent();
 });

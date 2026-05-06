@@ -1,25 +1,25 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Plans' if page_locale == 'en' else '方案库' }}{% endblock %}
+{% block title %}{{ 'Plan Packages' if page_locale == 'en' else '方案包' }}{% endblock %}
 {% block content %}
 <div class="page-stack page-stack--catalog" data-testid="bundles-page">
   <section class="hero hero-tight">
     <div class="hero-copy-stack">
       <h1>
-        <span data-lang="zh">管理可复用循环方案。</span>
+        <span data-lang="zh">管理可交换的方案包。</span>
         <span data-lang="en">Manage reusable loop plans.</span>
       </h1>
       <p>
-        <span data-lang="zh">这里保存已经落地的任务方案，方便查看、导出、派生和整包删除。YAML bundle 是专家层交换格式，不是新建任务的起点。</span>
+        <span data-lang="zh">这里保留已经导入或派生的方案包，方便查看、导出、替换和整包删除。它是专家交换格式，不是日常查看 Loop 的入口。</span>
         <span data-lang="en">This library keeps materialized task plans available for viewing, export, derivation, and whole-plan deletion. YAML bundles remain the expert exchange format, not the default new-task starting point.</span>
       </p>
     </div>
     <div class="card-actions">
       <a class="primary-button" href="/loops/new/manual#bundle-import-form" data-testid="bundles-create-loop-link">
-        <span data-lang="zh">导入已有方案</span>
+        <span data-lang="zh">导入方案文件</span>
         <span data-lang="en">Import Existing Plan</span>
       </a>
       <a class="ghost-button" href="/loops/new/manual">
-        <span data-lang="zh">手动专家模式</span>
+        <span data-lang="zh">手动编排</span>
         <span data-lang="en">Manual Expert Mode</span>
       </a>
     </div>
@@ -27,10 +27,10 @@
 
   <section class="panel">
     <header class="panel-header">
-      <h2><span data-lang="zh">从现有 Loop 派生方案</span><span data-lang="en">Derive a Plan From a Loop</span></h2>
+    <h2><span data-lang="zh">从现有 Loop 导出方案包</span><span data-lang="en">Derive a Plan From a Loop</span></h2>
     </header>
     <p class="panel-note">
-      <span data-lang="zh">这条路径适合把手动编排过的 loop 导出成可复用方案，再交给外部 agent、团队成员或其他工具使用。</span>
+      <span data-lang="zh">这条路径适合把手动编排过的 Loop 导出成可交换方案包，再交给外部智能体、团队成员或其他工具使用。</span>
       <span data-lang="en">Use this path to export an existing manual loop into a reusable plan for an external agent, teammate, or another tool.</span>
     </p>
     <form class="form-panel" method="post" action="/bundles/derive" data-testid="bundle-derive-form">
@@ -46,7 +46,7 @@
           </select>
         </label>
         <label>
-          <span><span data-lang="zh">方案名称</span><span data-lang="en">Plan name</span></span>
+          <span><span data-lang="zh">方案包名称</span><span data-lang="en">Plan name</span></span>
           <input name="name" value="{{ derive_values.name }}" />
         </label>
         <label class="wide">
@@ -60,7 +60,7 @@
       </div>
       <div class="card-actions">
         <button class="secondary-button" type="submit">
-          <span data-lang="zh">导出方案</span>
+          <span data-lang="zh">导出方案包</span>
           <span data-lang="en">Export Plan</span>
         </button>
       </div>
@@ -69,7 +69,7 @@
 
   <section class="panel" data-testid="bundle-list">
     <header class="panel-header">
-      <h2><span data-lang="zh">已导入的方案</span><span data-lang="en">Imported Plans</span></h2>
+      <h2><span data-lang="zh">已导入的方案包</span><span data-lang="en">Imported Plans</span></h2>
       <span><span id="bundle-count" data-testid="bundle-count">{{ bundles|length }}</span> <span data-lang="zh">个</span><span data-lang="en">total</span></span>
     </header>
     {% if bundles %}
@@ -112,17 +112,17 @@
               </strong>
             </div>
             <div class="bundle-governance-item" data-testid="bundle-governance-workflow">
-              <span>workflow</span>
+              <span><span data-lang="zh">流程</span><span data-lang="en">workflow</span></span>
               <strong>
                 {% if governance.workflow_shape %}
                 {{ governance.workflow_shape }}
                 {% else %}
-                {{ governance.workflow_step_count }} steps
+                {{ governance.workflow_step_count }} <span data-lang="zh">步</span><span data-lang="en">steps</span>
                 {% endif %}
               </strong>
             </div>
             <div class="bundle-governance-item" data-testid="bundle-governance-gatekeeper">
-              <span>GateKeeper</span>
+              <span><span data-lang="zh">守门裁决</span><span data-lang="en">GateKeeper</span></span>
               <strong>
                 {% if gatekeeper.enabled %}
                 <span data-lang="zh">证据引用门禁</span><span data-lang="en">Evidence-ref gate</span>
@@ -136,11 +136,11 @@
             <summary><span data-lang="zh">专家信息</span><span data-lang="en">Expert details</span></summary>
           <dl class="meta-grid">
             <div>
-              <dt><span data-lang="zh">Bundle ID</span><span data-lang="en">Bundle ID</span></dt>
+              <dt><span data-lang="zh">方案包 ID</span><span data-lang="en">Bundle ID</span></dt>
               <dd>{{ bundle.id }}</dd>
             </div>
             <div>
-              <dt><span data-lang="zh">Workdir</span><span data-lang="en">Workdir</span></dt>
+              <dt><span data-lang="zh">工作目录</span><span data-lang="en">Workdir</span></dt>
               <dd>{{ bundle.workdir }}</dd>
             </div>
             <div>
@@ -148,18 +148,18 @@
               <dd>{{ bundle.role_definitions|length }}</dd>
             </div>
             <div>
-              <dt><span data-lang="zh">编排</span><span data-lang="en">Orchestration</span></dt>
+              <dt><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></dt>
               <dd>{{ bundle.orchestration.name if bundle.orchestration else '-' }}</dd>
             </div>
           </dl>
           </details>
           <div class="card-actions card-actions--loop">
             <a class="secondary-button" href="/bundles/{{ bundle.id }}">
-              <span data-lang="zh">查看方案</span>
+              <span data-lang="zh">查看方案包</span>
               <span data-lang="en">View Plan</span>
             </a>
             <a class="ghost-button" href="/api/bundles/{{ bundle.id }}/export">
-              <span data-lang="zh">导出方案</span>
+              <span data-lang="zh">导出方案包</span>
               <span data-lang="en">Export Plan</span>
             </a>
             <button
@@ -168,7 +168,7 @@
               data-delete-bundle="{{ bundle.id }}"
               data-bundle-name="{{ bundle.name }}"
             >
-              <span data-lang="zh">删除方案</span>
+              <span data-lang="zh">删除方案包</span>
               <span data-lang="en">Delete Plan</span>
             </button>
           </div>
@@ -176,29 +176,29 @@
         {% endfor %}
       </div>
       <p class="panel-note bundle-grid-note" data-testid="bundle-grid-note">
-        <span data-lang="zh">删除方案会一起清理它导入的 loop、流程编排和角色定义，不会影响不属于该方案的手动资源。</span>
+        <span data-lang="zh">删除方案包会一起清理它导入的 Loop、流程编排和角色定义，不会影响不属于该方案包的手动资源。</span>
         <span data-lang="en">Deleting a plan also removes its imported loop, orchestration, and role definitions, without touching unrelated manual assets.</span>
       </p>
       <div class="empty-state" id="bundles-empty-state" hidden>
         <img class="empty-state-logo" src="/logo/logo.svg" alt="" aria-hidden="true" />
-        <h3><span data-lang="zh">还没有方案</span><span data-lang="en">No plans yet</span></h3>
+        <h3><span data-lang="zh">还没有方案包</span><span data-lang="en">No plans yet</span></h3>
         <p>
-          <span data-lang="zh">可以先新建任务生成循环方案，或从已有 loop 派生一份专家 YAML 再导入。</span>
-          <span data-lang="en">Start a new task to generate a loop plan, or derive expert YAML from an existing loop and import it here.</span>
+          <span data-lang="zh">可以先在 Loop 工作台对话编排 Loop，或从已有 Loop 导出一份方案文件再导入。</span>
+          <span data-lang="en">Compose a Loop from the workspace, or derive expert YAML from an existing Loop and import it here.</span>
         </p>
       </div>
     {% else %}
       <div class="loop-grid loop-grid--created" id="bundle-grid" hidden></div>
       <p class="panel-note bundle-grid-note" data-testid="bundle-grid-note" hidden>
-        <span data-lang="zh">删除方案会一起清理它导入的 loop、流程编排和角色定义，不会影响不属于该方案的手动资源。</span>
+        <span data-lang="zh">删除方案包会一起清理它导入的 Loop、流程编排和角色定义，不会影响不属于该方案包的手动资源。</span>
         <span data-lang="en">Deleting a plan also removes its imported loop, orchestration, and role definitions, without touching unrelated manual assets.</span>
       </p>
       <div class="empty-state" id="bundles-empty-state">
         <img class="empty-state-logo" src="/logo/logo.svg" alt="" aria-hidden="true" />
-        <h3><span data-lang="zh">还没有方案</span><span data-lang="en">No plans yet</span></h3>
+        <h3><span data-lang="zh">还没有方案包</span><span data-lang="en">No plans yet</span></h3>
         <p>
-          <span data-lang="zh">先新建任务生成循环方案，或者从已有 loop 派生一份专家 YAML。</span>
-          <span data-lang="en">Start a new task to generate a loop plan, or derive expert YAML from an existing loop.</span>
+          <span data-lang="zh">可以先在 Loop 工作台对话编排 Loop，或者从已有 Loop 导出一份方案文件。</span>
+          <span data-lang="en">Compose a Loop from the workspace, or derive expert YAML from an existing Loop.</span>
         </p>
       </div>
     {% endif %}

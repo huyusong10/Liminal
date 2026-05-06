@@ -37,7 +37,7 @@
   <section class="panel workflow-editor-panel">
       <header class="panel-header workflow-editor-header workflow-editor-header-tight">
         <div>
-          <h2><span data-lang="zh">流程工作台</span><span data-lang="en">Workflow workbench</span></h2>
+          <h2><span data-lang="zh">流程编辑器</span><span data-lang="en">Workflow workbench</span></h2>
           <p class="field-note">
             <span data-lang="zh">上方看实例图，下面按卡片管理步骤；需要修改时再进入设置浮窗。</span>
             <span data-lang="en">Use the map above for orientation, manage steps through cards below, and open the settings modal only when you need to edit.</span>
@@ -45,7 +45,7 @@
         </div>
         <div class="card-actions card-actions-compact">
           <button class="secondary-button" type="button" id="open-orchestration-spec-practice-modal" data-testid="open-orchestration-spec-practice-modal-button" aria-haspopup="dialog">
-            <span data-lang="zh">查看 Spec 样例</span>
+            <span data-lang="zh">查看契约样例</span>
             <span data-lang="en">View spec example</span>
           </button>
         </div>
@@ -55,7 +55,7 @@
         <section class="workflow-editor-section workflow-map-panel" data-testid="workflow-loop-preview-panel">
           <div class="workflow-section-head">
             <div>
-              <strong><span data-lang="zh">循环实例图</span><span data-lang="en">Loop instance map</span></strong>
+              <strong><span data-lang="zh">Loop 实例图</span><span data-lang="en">Loop instance map</span></strong>
               <p class="workflow-section-note">
                 <span data-lang="zh">这里把当前步骤串成闭环视图。点击节点会同步定位到下面对应的步骤卡片。</span>
                 <span data-lang="en">This renders the current steps as a closed loop. Clicking a node syncs to the matching step card below.</span>
@@ -125,17 +125,17 @@
             <div>
               <strong><span data-lang="zh">运行控制</span><span data-lang="en">Runtime controls</span></strong>
               <p class="workflow-section-note">
-                <span data-lang="zh">高级 trigger 只用于误差控制：空转、失败、超时或 GateKeeper 拒绝时调用现有 Inspector、Guide 或 GateKeeper。</span>
+              <span data-lang="zh">高级触发器只用于误差控制：空转、失败、超时或守门裁决拒绝时调用现有检查、引导或守门角色。</span>
                 <span data-lang="en">Advanced triggers are only for error control: call an existing Inspector, Guide, or GateKeeper when progress stalls, a role fails, a step times out, or GateKeeper rejects.</span>
               </p>
             </div>
           </div>
           <div id="workflow-controls-list" class="workflow-steps-list workflow-controls-list" data-testid="workflow-controls-list"></div>
           <label class="workflow-controls-json-shell">
-            <span><span data-lang="zh">Controls JSON</span><span data-lang="en">Controls JSON</span></span>
+            <span><span data-lang="zh">控制配置</span><span data-lang="en">Controls JSON</span></span>
             <textarea id="workflow-controls-json-input" rows="7" data-testid="workflow-controls-json-input" {% if orchestration_locked %}readonly{% endif %}></textarea>
             <small class="field-note">
-              <span data-lang="zh">用于复制或专家修改。保存前会和 workflow 一起校验；新手路径不会展示这些配置。</span>
+              <span data-lang="zh">用于复制或专家修改。保存前会和流程一起校验；新手路径不会展示这些配置。</span>
               <span data-lang="en">For copying or expert edits. It is validated with the workflow before saving; the beginner path does not expose this configuration.</span>
             </small>
           </label>
@@ -171,13 +171,13 @@
       <div class="spec-preview-header">
         <div class="spec-preview-copy">
           <span class="spec-preview-kicker"><span data-lang="zh">只读参考</span><span data-lang="en">Read-only reference</span></span>
-          <h2 id="orchestration-spec-practice-title"><span data-lang="zh">Spec 样例</span><span data-lang="en">Spec example</span></h2>
+          <h2 id="orchestration-spec-practice-title"><span data-lang="zh">契约样例</span><span data-lang="en">Spec example</span></h2>
           <p class="spec-preview-status" id="orchestration-spec-practice-status">
             {% if spec_practice_markdown %}
-            <span data-lang="zh">这里展示的是一条适合当前内置流程的真实场景，以及对应的 spec 样例。</span>
+            <span data-lang="zh">这里展示的是一条适合当前内置流程的真实场景，以及对应的契约样例。</span>
             <span data-lang="en">This dialog shows a real scenario that fits the current built-in workflow, followed by a sample spec.</span>
             {% else %}
-            <span data-lang="zh">这里展示按当前 workflow 生成的只读模板。</span>
+            <span data-lang="zh">这里展示按当前流程生成的只读模板。</span>
             <span data-lang="en">This dialog shows the read-only template generated from the current workflow.</span>
             {% endif %}
           </p>
@@ -200,14 +200,14 @@
               {% if spec_practice_markdown %}
               <span data-lang="zh">真实场景示例</span><span data-lang="en">Real scenario example</span>
               {% else %}
-              <span data-lang="zh">当前 workflow 模板</span><span data-lang="en">Current workflow template</span>
+              <span data-lang="zh">当前流程模板</span><span data-lang="en">Current workflow template</span>
               {% endif %}
             </span>
             <span class="markdown-workbench-panel-note" id="orchestration-spec-practice-summary">
               {% if spec_practice_markdown %}
               {{ spec_practice_summary }}
               {% else %}
-              <span data-lang="zh">按当前 workflow 即时生成，只读展示。</span>
+              <span data-lang="zh">按当前流程即时生成，只读展示。</span>
               <span data-lang="en">Generated from the current workflow for read-only preview.</span>
               {% endif %}
             </span>
@@ -276,7 +276,7 @@
             </select>
           </label>
           <label class="workflow-settings-toggle-row wide">
-            <span><span data-lang="zh">继承上一次 session</span><span data-lang="en">Continue previous session</span></span>
+            <span><span data-lang="zh">继承上一次会话</span><span data-lang="en">Continue previous session</span></span>
             <span class="workflow-settings-toggle-control">
               <input
                 id="workflow-settings-step-inherit-session"
@@ -284,15 +284,15 @@
                 data-step-field="inherit_session"
                 data-testid="workflow-settings-step-inherit-session"
               />
-              <span><span data-lang="zh">让这个步骤在下一轮延续自己的 CLI 会话</span><span data-lang="en">Let this step resume its own CLI conversation on the next iteration</span></span>
+              <span><span data-lang="zh">让这个步骤在下一轮延续自己的命令行会话</span><span data-lang="en">Let this step resume its own CLI conversation on the next iteration</span></span>
             </span>
             <p class="workflow-settings-field-note">
-              <span data-lang="zh">Builder 默认开启，其他角色默认关闭。自定义命令模式不会自动推断恢复方式。</span>
+              <span data-lang="zh">构建角色默认开启，其他角色默认关闭。自定义命令模式不会自动推断恢复方式。</span>
               <span data-lang="en">Builder steps default to on, while other roles default to off. Direct command mode does not auto-infer how to resume sessions.</span>
             </p>
           </label>
           <label class="wide">
-            <span><span data-lang="zh">附加 CLI 参数</span><span data-lang="en">Extra CLI args</span></span>
+            <span><span data-lang="zh">附加命令行参数</span><span data-lang="en">Extra CLI args</span></span>
             <input
               id="workflow-settings-step-extra-cli-args"
               data-step-field="extra_cli_args"
@@ -300,7 +300,7 @@
               placeholder="--verbose"
             />
             <p class="workflow-settings-field-note">
-              <span data-lang="zh">把这里的字符串附加到当前步骤的 CLI 调用里，例如 `--verbose` 或 `--max-turns 5`。</span>
+              <span data-lang="zh">把这里的字符串附加到当前步骤的命令行调用里，例如 `--verbose` 或 `--max-turns 5`。</span>
               <span data-lang="en">This string is appended to the current step's CLI invocation, for example `--verbose` or `--max-turns 5`.</span>
             </p>
           </label>
@@ -334,7 +334,7 @@
             <strong id="workflow-settings-role-archetype" data-testid="workflow-settings-role-archetype">-</strong>
           </div>
           <div class="workflow-settings-readonly-field">
-            <span class="workflow-settings-summary-label"><span data-lang="zh">Prompt 文件</span><span data-lang="en">Prompt file</span></span>
+            <span class="workflow-settings-summary-label"><span data-lang="zh">提示词文件</span><span data-lang="en">Prompt file</span></span>
             <strong id="workflow-settings-role-prompt" data-testid="workflow-settings-role-prompt">-</strong>
           </div>
           <div class="workflow-settings-readonly-field">

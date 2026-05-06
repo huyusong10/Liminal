@@ -76,7 +76,7 @@
         checks: {
           title: localeText("正在整理检查项", "Shaping the check list"),
           detail: localeText(
-            "它正在把 Task、Guardrails 和当前工作区收拢成一组可判定的检查项；清单冻结后，这里会立刻换成更具体的细节。",
+            "它正在把 Loop 目标、边界和当前工作区收拢成一组可判定的检查项；清单冻结后，这里会立刻换成更具体的细节。",
             "It is turning the Task, Guardrails, and current workspace into a set of checkable checks. As soon as that list freezes, this card will switch to something more concrete."
           ),
         },

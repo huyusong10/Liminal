@@ -196,6 +196,14 @@ if (!takeaways.evidenceOutcome(snapshot, run).title.includes("Passed")) {
 if (!takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("View trace")) {
   throw new Error("takeaway coverage html projection failed");
 }
+const zhTakeaways = context.window.LooporaRunDetailTakeaways.createTakeawayProjector({
+  localeText: (zh, _en) => zh,
+  escapeHtml: (value) => String(value || ""),
+  formatAbsoluteDate: () => "date",
+});
+if (zhTakeaways.takeawayMeta({}) !== "角色交接写出来后，这里会自动更新。") {
+  throw new Error(`Chinese takeaway meta leaked internal handoff wording: ${zhTakeaways.takeawayMeta({})}`);
+}
 const render = context.window.LooporaRunDetailRender.createRenderProjector({
   localeText: (_zh, en) => en,
   takeawayProjector: takeaways,
@@ -425,34 +433,48 @@ def test_index_page_renders_with_saved_loops(
     _assert_has_testids(
         response.text,
         "top-nav",
-        "nav-workbench-link",
-        "nav-new-task-link",
-        "nav-plans-link",
-        "nav-preferences",
-        "nav-preferences-toggle",
-        "nav-preferences-panel",
+        "nav-loops-link",
+        "nav-compose-link",
+        "nav-resource-menu",
+        "nav-resource-toggle",
+        "nav-resource-panel",
         "nav-resources-menu",
-        "nav-settings-menu",
+        "nav-menu-bundles-link",
         "nav-menu-roles-link",
         "nav-menu-orchestrations-link",
-        "nav-menu-manual-create-link",
-        "nav-menu-tools-link",
-        "nav-menu-tutorial-link",
+        "nav-tools-link",
+        "nav-tutorial-link",
+        "nav-display-controls",
+        "nav-display-toggle",
+        "nav-display-panel",
         "theme-switch",
         "theme-light-button",
         "theme-dark-button",
         "locale-switch",
-        "index-new-task-link",
-        "index-plans-link",
+        "home-workbench",
+        "home-activity-section",
+        "home-saved-loops-section",
     )
+    assert 'class="nav-menu-caret"' in response.text
+    assert 'data-testid="home-compose-primary-link"' not in response.text
+    assert 'data-testid="home-compose-entry"' not in response.text
+    assert 'data-testid="home-compose-workbench-link"' not in response.text
+    assert 'data-testid="home-expert-create-links"' not in response.text
+    assert 'data-testid="nav-runs-link"' not in response.text
+    assert 'data-testid="nav-create-loop-menu"' not in response.text
+    assert 'data-testid="home-alignment-form"' not in response.text
     assert 'data-testid="nav-created-link"' not in response.text
-    assert 'data-testid="nav-create-loop-link"' not in response.text
     assert 'data-testid="nav-role-definitions-link"' not in response.text
     assert 'data-testid="nav-orchestrations-link"' not in response.text
-    assert 'data-testid="nav-tools-link"' not in response.text
-    assert 'data-testid="nav-tutorial-link"' not in response.text
+    assert 'data-testid="nav-new-task-link"' not in response.text
+    assert 'data-testid="nav-plans-link"' not in response.text
+    assert "方案库" not in response.text
+    assert "新建任务" not in response.text
+    assert "创建是低频动作" not in response.text
+    assert "Loop 工作台" in response.text
+    assert "对话编排 Loop" not in response.text
     assert 'href="/loops/new/bundle"' in response.text
-    assert 'href="/bundles"' in response.text
+    assert 'action="/loops/new/bundle"' not in response.text
     assert "data-open-card=" in response.text
     assert "id=\"confirm-modal\"" in response.text
     assert "id=\"loops-empty-state\" hidden" in response.text
@@ -472,6 +494,34 @@ def test_index_page_shell_prefers_primary_request_locale_on_first_paint(service_
     assert response.status_code == 200
     _assert_initial_locale(response.text, "en")
     _assert_display_bootstrap_precedes_css(response.text)
+
+
+def test_runs_list_redirects_to_loop_workbench_activity(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Observation Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    service.rerun(loop["id"])
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/runs", headers={"accept-language": "zh-CN,zh;q=0.9"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/#activity"
 
 
 def test_run_detail_places_takeaways_and_console_before_timeline(
@@ -830,11 +880,12 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     assert response.status_code == 200
     assert '<title>Tools</title>' in response.text
     assert "/static/pages/tools.js?v=" in response.text
-    assert "顺手的小外挂" in response.text
+    assert "handy side tools" in response.text
     assert "wake-lock-toggle" in response.text
     assert 'data-testid="local-assets-diagnostics-panel"' in response.text
     assert 'data-local-assets-count="orphan_alignment_dirs"' in response.text
     assert 'data-local-assets-count="orphan_run_dirs"' in response.text
+    assert 'data-testid="local-assets-details"' in response.text
     assert "Prevent sleep while running" in response.text
     assert "help-dot--tips" in response.text
     assert 'aria-label="Show tip: The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock."' in response.text
@@ -845,12 +896,14 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     assert 'data-install-skill="claude"' in response.text
     assert 'data-install-skill="opencode"' in response.text
     assert "/api/skills/loopora-task-alignment/download" in response.text
-    assert "下载 Skill 包" in response.text
+    assert "Download bundle" in response.text
 
     zh_response = client.get("/tools", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
     assert '<title>工具</title>' in zh_response.text
-    assert 'aria-label="查看提示：只会在检测到有 run 正在执行时请求浏览器保持屏幕唤醒，没有运行中的任务会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收 wake lock，页面也会在重新可见后自动重试。"' in zh_response.text
+    assert "运行辅助、本机维护和外部工具集成" in zh_response.text
+    assert "下载技能包" in zh_response.text
+    assert 'aria-label="查看提示：只会在检测到有运行正在执行时请求浏览器保持屏幕唤醒，没有运行中的 Loop 会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收防休眠锁，页面也会在重新可见后自动重试。"' in zh_response.text
 
 
 def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
@@ -871,7 +924,7 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "/static/pages/workflow_editor.css?v=" in response.text
     assert "/static/pages/alignment.css?v=" in response.text
     assert 'href="/loops/new/bundle"' in response.text
-    assert 'href="/loops/new/manual"' in response.text
+    assert 'href="/loops/new/manual#manual-loop-form"' in response.text
     assert '<title>Create Loop</title>' in response.text
 
     bundle_response = client.get("/loops/new/bundle")
@@ -883,6 +936,11 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "/static/pages/new_loop.js?v=" not in bundle_response.text
     _assert_has_testid(bundle_response.text, "loop-create-page")
     _assert_has_testid(bundle_response.text, "alignment-history-panel")
+    _assert_has_testid(bundle_response.text, "loop-compose-shell")
+    _assert_has_testid(bundle_response.text, "alignment-secondary-paths")
+    _assert_has_testid(bundle_response.text, "alignment-path-chat")
+    _assert_has_testid(bundle_response.text, "alignment-path-import")
+    _assert_has_testid(bundle_response.text, "alignment-path-manual")
     _assert_has_testid(bundle_response.text, "alignment-history-list")
     _assert_has_testid(bundle_response.text, "loop-alignment-panel")
     _assert_has_testid(bundle_response.text, "alignment-scroll-region")
@@ -901,6 +959,7 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(bundle_response.text, "alignment-chat")
     _assert_has_testid(bundle_response.text, "alignment-thinking-status")
     _assert_has_testid(bundle_response.text, "alignment-live-details")
+    _assert_has_testid(bundle_response.text, "alignment-live-summary-meta")
     _assert_has_testid(bundle_response.text, "alignment-ready-preview")
     _assert_has_testid(bundle_response.text, "alignment-artifact-summary")
     assert 'id="alignment-artifact-task"' in bundle_response.text
@@ -917,15 +976,24 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(bundle_response.text, "alignment-import-run-button")
     _assert_has_testid(bundle_response.text, "alignment-source-open-button")
     _assert_has_testid(bundle_response.text, "alignment-source-sync-button")
-    _assert_has_testid(bundle_response.text, "loop-bundle-create-panel")
+    assert 'data-compose-mode="bundle"' in bundle_response.text
     assert 'data-testid="alignment-import-open-button"' not in bundle_response.text
     assert 'data-testid="alignment-import-panel"' not in bundle_response.text
+    assert 'data-testid="nav-create-loop-menu"' not in bundle_response.text
     assert 'data-testid="loop-bundle-import-form"' not in bundle_response.text
     assert 'action="/loops/new/bundle/import-bundle"' not in bundle_response.text
     assert 'name="bundle_yaml"' not in bundle_response.text
+    assert 'placeholder="Leave blank for Codex CLI default"' in bundle_response.text
     assert "{resume_session_id}" in bundle_response.text
     assert 'data-testid="alignment-advanced-chip"' not in bundle_response.text
-    assert '<title>New Task</title>' in bundle_response.text
+    assert '<title>Loop Composer</title>' in bundle_response.text
+
+    prefilled_bundle_response = client.get(
+        "/loops/new/bundle?alignment_message=Advance%20this%20Loop&alignment_workdir=%2Ftmp%2Floopora-demo"
+    )
+    assert prefilled_bundle_response.status_code == 200
+    assert ">Advance this Loop</textarea>" in prefilled_bundle_response.text
+    assert 'value="/tmp/loopora-demo"' in prefilled_bundle_response.text
 
     manual_response = client.get("/loops/new/manual")
     assert manual_response.status_code == 200
@@ -933,6 +1001,20 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert "/static/markdown_workbench.js?v=" in manual_response.text
     assert "/static/pages/bundle_import.js?v=" in manual_response.text
     assert "/static/pages/alignment.js?v=" not in manual_response.text
+    _assert_has_testid(manual_response.text, "loop-compose-shell")
+    _assert_has_testid(manual_response.text, "alignment-history-panel")
+    _assert_has_testid(manual_response.text, "alignment-secondary-paths")
+    _assert_has_testid(manual_response.text, "alignment-path-chat")
+    _assert_has_testid(manual_response.text, "alignment-path-import")
+    _assert_has_testid(manual_response.text, "alignment-path-manual")
+    _assert_has_testid(manual_response.text, "alignment-history-list")
+    _assert_has_testid(manual_response.text, "loop-manual-compose-panel")
+    _assert_has_testid(manual_response.text, "compose-mode-scroll")
+    _assert_has_testid(manual_response.text, "manual-compose-section")
+    assert 'data-compose-mode="manual"' in manual_response.text
+    assert 'data-compose-mode-section="import"' in manual_response.text
+    assert re.search(r'data-compose-mode-section="import"[^>]*hidden', manual_response.text)
+    assert 'data-compose-mode-section="manual"' in manual_response.text
     _assert_has_testid(manual_response.text, "manual-bundle-import-panel")
     _assert_has_testid(manual_response.text, "loop-bundle-import-form")
     _assert_has_testid(manual_response.text, "bundle-preview-button")
@@ -988,12 +1070,11 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     _assert_has_testid(manual_response.text, "loop-regression-window-tip")
     assert "workflow-json-input" not in manual_response.text
     assert "角色定义" in manual_response.text
-    _assert_has_testid(manual_response.text, "nav-menu-tutorial-link")
 
     zh_response = client.get("/loops/new/manual", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
-    assert '<title>手动创建循环</title>' in zh_response.text
-    assert "手动专家模式" in zh_response.text
+    assert '<title>手动编排 Loop</title>' in zh_response.text
+    assert "手动编排" in zh_response.text
     assert 'aria-label="查看提示：' in zh_response.text
     zh_completion_mode = zh_response.text.split('id="completion-mode-input"', 1)[1].split("</select>", 1)[0]
     assert ">守门裁决</option>" in zh_completion_mode
@@ -1159,6 +1240,7 @@ def test_orchestrations_pages_render_as_resource_library_feature(service_factory
     assert "Create loop" not in list_response.text
     assert 'class="page-stack page-stack--catalog"' in list_response.text
     _assert_has_testid(list_response.text, "orchestration-loop-diagram")
+    assert "/static/pages/workflow_editor.css?v=" in list_response.text
     assert "/static/pages/workflow_diagram.js?v=" in list_response.text
     assert "/static/pages/orchestrations.js?v=" in list_response.text
     assert "点进去可以查看结构，并从这个预设派生一个新的自定义编排。" not in list_response.text
@@ -1364,7 +1446,7 @@ Focus on scoped release work.
     assert '<title>Save role</title>' in new_response.text
     assert 'aria-label="Execution mode switch"' in new_response.text
     assert 'id="role-definition-archetype-summary">' in new_response.text
-    assert '<span data-lang="zh">直接推进实现，适合把 spec 和 handoff 落成真实代码与文件改动。</span>' in new_response.text
+    assert '<span data-lang="zh">直接推进实现，适合把 Loop 契约和交接记录落成真实代码与文件改动。</span>' in new_response.text
     assert '<span data-lang="en">Pushes the implementation forward and turns specs plus handoffs into real code changes.</span>' in new_response.text
     assert "task-scoped collaboration posture" in new_response.text
 
@@ -1373,6 +1455,9 @@ Focus on scoped release work.
     assert '<title>保存角色</title>' in zh_response.text
     assert 'aria-label="执行模式切换"' in zh_response.text
     assert "直接推进实现" in zh_response.text
+    assert 'data-label-zh="构建者"' in zh_response.text
+    assert ">构建者</option>" in zh_response.text
+    assert 'data-label-zh="巡检者"' in zh_response.text
     assert "你是 Loopora 内部的 Builder" in zh_response.text
 
     builtin_edit_response = client.get("/roles/builtin:builder/edit")
@@ -1422,8 +1507,7 @@ def test_bundles_pages_render_list_and_detail(
     list_response = client.get("/bundles")
     assert list_response.status_code == 200
     _assert_has_testid(list_response.text, "bundles-page")
-    _assert_has_testid(list_response.text, "nav-plans-link")
-    assert re.search(r'<a class="top-nav-link\s+active" href="/bundles" data-testid="nav-plans-link"', list_response.text)
+    assert 'data-testid="nav-plans-link"' not in list_response.text
     assert not re.search(
         r'<a class="top-nav-link\s+active" href="/loops/new/bundle" data-testid="nav-new-task-link"',
         list_response.text,
@@ -1433,7 +1517,7 @@ def test_bundles_pages_render_list_and_detail(
     _assert_has_testid(list_response.text, "bundle-list")
     _assert_has_testid(list_response.text, "bundle-count")
     assert "Imported Plans" in list_response.text
-    assert "Import Existing Plan" in list_response.text
+    assert "Plan Packages" in list_response.text
     assert "Web Bundle" in list_response.text
     assert 'data-delete-bundle="' in list_response.text
     assert '/api/bundles/' in list_response.text
@@ -1517,9 +1601,12 @@ def test_index_page_uses_bundle_delete_for_bundle_managed_loops(
     assert f'data-delete-bundle="{imported["id"]}"' in response.text
     assert 'Delete Plan' in response.text
     assert "managed by plan" in response.text
+    zh_response = client.get("/", headers={"accept-language": "zh-CN,zh;q=0.9"})
+    assert "删除方案包" in zh_response.text
+    assert "这条 Loop 由方案包" in zh_response.text
 
 
-def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None:
+def test_tutorial_page_is_available_from_top_navigation(service_factory) -> None:
     service = service_factory(scenario="success")
 
     client = TestClient(build_app(service=service))
@@ -1529,7 +1616,7 @@ def test_tutorial_page_is_available_from_resources_menu(service_factory) -> None
     assert '<title>Tutorial</title>' in response.text
     _assert_has_testid(response.text, "tutorial-page")
     assert 'class="page-stack tutorial-page-stack"' in response.text
-    _assert_has_testid(response.text, "nav-menu-tutorial-link")
+    _assert_has_testid(response.text, "nav-tutorial-link")
     _assert_has_testid(response.text, "tutorial-guide-panel")
     _assert_has_testid(response.text, "tutorial-core-spec")
     _assert_has_testid(response.text, "tutorial-core-workflow")
@@ -1611,6 +1698,8 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     alignment_css = alignment_css_response.text
     assert ".alignment-chat {" in alignment_css
     assert ".bundle-chat-shell {" in alignment_css
+    assert ".alignment-working-card {" in alignment_css
+    assert ".alignment-history-item.is-running" in alignment_css
     workflow_css_response = client.get("/static/pages/workflow_editor.css")
     assert workflow_css_response.status_code == 200
     workflow_css = workflow_css_response.text
@@ -1647,7 +1736,7 @@ def test_static_app_js_bootstraps_theme_and_locale_without_mount_flash(service_f
     assert "setTheme(currentTheme(), {persist: false});" in script
     assert "setLocale(currentLocale(), {persist: false});" in script
     assert "function bindNavPreferences()" in script
-    assert "data-toggle-nav-preferences" in script
+    assert "data-toggle-nav-menu" in script
     assert "[data-testid='loop-grid-note']" in script
     assert "[data-testid='bundle-grid-note']" in script
     assert "Unable to delete this bundle." in script

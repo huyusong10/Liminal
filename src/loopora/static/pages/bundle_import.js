@@ -88,7 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/[#*_`>-]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-    return text.slice(0, 180) || localeText("spec 已生成。", "spec generated.");
+    return text.slice(0, 180) || localeText("Loop 契约已生成。", "spec generated.");
   }
 
   function workflowSummary(preview) {
@@ -128,21 +128,21 @@ document.addEventListener("DOMContentLoaded", () => {
     const cards = [
       {
         label: localeText("主要风险", "Main risk"),
-        value: listSnippet(summary.risks) || localeText("从 spec 中读取。", "Read from spec."),
+        value: listSnippet(summary.risks) || localeText("从 Loop 契约中读取。", "Read from spec."),
       },
       {
         label: localeText("证据路径", "Evidence path"),
-        value: listSnippet(summary.evidence) || localeText("由 workflow 运行时落账。", "Recorded by the workflow runtime."),
+        value: listSnippet(summary.evidence) || localeText("由流程运行时落账。", "Recorded by the workflow runtime."),
       },
       {
-        label: "workflow",
-        value: workflow.summary || localeText(`${workflow.step_count || 0} 个 step`, `${workflow.step_count || 0} steps`),
+        label: localeText("流程", "workflow"),
+        value: workflow.summary || localeText(`${workflow.step_count || 0} 个步骤`, `${workflow.step_count || 0} steps`),
       },
       {
-        label: "GateKeeper",
+        label: localeText("守门者", "GateKeeper"),
         value: gatekeeper.enabled
-          ? localeText("需要 evidence refs 才能结束。", "Requires evidence refs to finish.")
-          : localeText("未配置 GateKeeper。", "No GateKeeper configured."),
+          ? localeText("需要证据引用才能结束。", "Requires evidence refs to finish.")
+          : localeText("未配置守门者。", "No GateKeeper configured."),
       },
       ...(controls.length ? [{
         label: localeText("运行控制", "Runtime controls"),
@@ -160,7 +160,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function compactRoleSummary(role) {
     const description = String(role.description || "").trim();
     const posture = String(role.posture_notes || "").trim();
-    return description || posture || localeText("点击查看完整 role 信息。", "Open to inspect the full role definition.");
+    return description || posture || localeText("点击查看完整角色信息。", "Open to inspect the full role definition.");
   }
 
   function roleDetailRow(label, value, options = {}) {
@@ -242,15 +242,15 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderBundlePreview(payload) {
     readyPreview.hidden = false;
     const metadata = payload.metadata || payload.bundle?.metadata || {};
-    artifactName.textContent = metadata.name || localeText("循环方案", "Loop plan");
+    artifactName.textContent = metadata.name || localeText("Loop 方案", "Loop plan");
     previewTitle.textContent = localeText("方案预览已准备好", "Plan preview is ready");
     readyNote.textContent = taskSummary(payload.bundle);
     previewImportButton.hidden = false;
     if (artifactGoal) {
       artifactGoal.textContent = taskSummary(payload.bundle);
     }
-    artifactRoles.textContent = localeText(`${(payload.roles || []).length} roles`, `${(payload.roles || []).length} roles`);
-    artifactFlow.textContent = workflowSummary(payload.workflow_preview) || localeText("workflow 已生成", "workflow generated");
+    artifactRoles.textContent = localeText(`${(payload.roles || []).length} 个角色`, `${(payload.roles || []).length} roles`);
+    artifactFlow.textContent = workflowSummary(payload.workflow_preview) || localeText("流程已生成", "workflow generated");
     artifactWorkdir.textContent = basename(payload.bundle?.loop?.workdir || "");
     artifactWorkdir.title = payload.bundle?.loop?.workdir || "";
     renderControlSummary(payload.control_summary || null);
@@ -285,7 +285,7 @@ document.addEventListener("DOMContentLoaded", () => {
       bundle_yaml: yamlInput?.value || "",
     };
     if (!payload.bundle_path && !payload.bundle_yaml.trim()) {
-      showImportError(localeText("请填写 Bundle 路径或粘贴 YAML。", "Provide a bundle path or paste YAML."));
+      showImportError(localeText("请填写方案文件路径或粘贴 YAML。", "Provide a bundle path or paste YAML."));
       form.scrollIntoView({block: "start", behavior: "smooth"});
       return;
     }
@@ -296,11 +296,11 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify(payload),
       });
       if (!preview.ok) {
-        throw new Error(preview.error || localeText("Bundle 预览失败。", "Bundle preview failed."));
+        throw new Error(preview.error || localeText("方案文件预览失败。", "Bundle preview failed."));
       }
       renderBundlePreview(preview);
     } catch (error) {
-      showImportError(error.message || localeText("Bundle 预览失败。", "Bundle preview failed."));
+      showImportError(error.message || localeText("方案文件预览失败。", "Bundle preview failed."));
     } finally {
       previewButton.disabled = false;
     }
@@ -308,7 +308,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   previewButton?.addEventListener("click", () => {
     previewBundle().catch((error) => {
-      showImportError(error.message || localeText("Bundle 预览失败。", "Bundle preview failed."));
+      showImportError(error.message || localeText("方案文件预览失败。", "Bundle preview failed."));
     });
   });
   previewImportButton?.addEventListener("click", () => form.requestSubmit());

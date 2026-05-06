@@ -112,16 +112,16 @@ flowchart LR
 
 在本地 Web UI 中：
 
-1. **工作台** 展示当前 loop 和 run 状态。
-2. **新建任务** 打开对话式 Loop 编排页面。
-3. Loopora 调用本机 AI Agent CLI，只追问会改变 Loop 的问题。
-4. READY Loop 会展示任务契约、角色、workflow 图和源文件操作。
-5. **创建并运行** 会物化 Loop 并启动 run。
-6. **方案库** 保存可复用的 Loop 和 bundle 文件。
+1. **Loop** 展示已有 Loop、最近运行状态和继续运行入口。
+2. **编排** 打开对话优先的 Loop 编排工作台，并保留导入方案文件和手动编排入口。
+3. Loopora 调用本机智能体命令行，只追问会改变 Loop 的问题。
+4. READY Loop 会展示 Loop 契约、角色、流程图和源文件操作。
+5. **创建并运行** 会物化 Loop 并启动运行。
+6. **资源库** 管理方案文件、角色定义和流程编排，供专家复用。
 
-手动创建仍然存在，但它是 expert path，适合你已经明确知道要改哪个 `spec`、`roles` 或 `workflow` 运行面。
+手动编排仍然存在，但它是专家路径，适合你已经明确知道要改哪个 `spec`、`roles` 或 `workflow` 运行面。方案包仍可导入导出，但它是专家交换格式，不再是日常查看已有 Loop 的主入口。
 
-导入 YAML，或从已有 bundle / run evidence 发起对话改进，也是编排 Loop 的场景。它们很有用，但不是主工作流；候选 Loop 通过校验后，仍然进入同一条运行、证据和裁决路径。
+导入 YAML，或从已有方案包 / 运行证据发起对话改进，也是编排 Loop 的场景。它们很有用，但不是主工作流；候选 Loop 通过校验后，仍然进入同一条运行、证据和裁决路径。
 
 ## 快速开始
 
@@ -139,7 +139,7 @@ uv tool install --editable .
 loopora serve --host 127.0.0.1 --port 8742
 ```
 
-打开 [http://127.0.0.1:8742](http://127.0.0.1:8742)，选择 **新建任务**，选择 workdir，然后描述这次任务。
+打开 [http://127.0.0.1:8742](http://127.0.0.1:8742)，选择顶栏 **编排**，选择工作目录，然后描述这次 Loop。
 
 ## 什么时候该用？
 
@@ -171,7 +171,7 @@ loopora serve --host 127.0.0.1 --port 8742
 
 Web UI 是推荐路径，因为它把 Loop 编排、校验、预览、运行和证据放在同一条引导流程里。
 
-如果你更喜欢在 Web 之外做对齐，可以打开 **资源与设置 -> 工具与 Skill**，把 repo-local `loopora-task-alignment` Skill 安装到 Codex、Claude Code、OpenCode 或其他兼容 AI Agent CLI。
+如果你更喜欢在 Web 之外做对齐，可以打开 **工具 -> 对齐技能安装**，把 repo-local `loopora-task-alignment` 技能安装到 Codex、Claude Code、OpenCode 或其他兼容智能体命令行。
 
 这个 Skill 现在内置 Product Primer，所以 alignment Agent 不需要预先知道 Loopora 是什么。它产出的仍是同一种 YAML bundle，需要运行时从 expert 手动路径导入为 Loop 即可。
 

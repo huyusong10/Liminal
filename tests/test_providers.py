@@ -66,7 +66,27 @@ def test_codex_exec_args_include_output_schema_and_reasoning(tmp_path: Path) -> 
     assert "--output-schema" in args
     assert "--output-last-message" in args
     assert "--model" in args
+    assert args[args.index("--model") + 1] == "gpt-5.4"
     assert 'model_reasoning_effort="high"' in args
+
+
+def test_codex_preset_defaults_to_cli_model() -> None:
+    profile = executor_profile("codex")
+
+    assert profile.default_model == ""
+    assert "--model" not in profile.command_args_template
+    assert "{model}" not in profile.command_args_template
+
+
+def test_codex_exec_args_omit_model_when_blank(tmp_path: Path) -> None:
+    request = _request(tmp_path, executor_kind="codex", model="", reasoning_effort="medium")
+    args = build_codex_exec_args(request, request.run_dir / "schema.json")
+
+    assert args[:3] == ["codex", "exec", "--json"]
+    assert "--output-schema" in args
+    assert "--output-last-message" in args
+    assert "--model" not in args
+    assert 'model_reasoning_effort="medium"' in args
 
 
 def test_codex_exec_args_start_fresh_session_when_resume_id_is_missing(tmp_path: Path) -> None:

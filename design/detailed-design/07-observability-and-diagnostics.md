@@ -20,7 +20,7 @@
 | evidence ledger | 记录本次 run 的证明项、未覆盖风险和对应 artifact refs | 作为 GateKeeper verdict 和 run 复盘的 canonical 证据事实源 |
 | evidence coverage projection | 从 run contract 与 evidence ledger 重算覆盖状态 | 面向 UI 摘要和白盒追溯；不是新的事实源 |
 | run status projection | 从 run record 和终态事件投影系统生命周期 | 只说明 run 是否结束、失败、停止或超时 |
-| task verdict projection | 从 GateKeeper verdict、runtime evidence gate 与 coverage 投影任务裁决 | 说明任务是否被证明、未证明、阻断或带残余风险 |
+| task verdict projection | 从 GateKeeper verdict、runtime evidence gate 与 coverage 投影Loop 裁决 | 说明任务是否被证明、未证明、阻断或带残余风险 |
 
 稳定规则：
 
@@ -51,7 +51,7 @@
 - 当新的 `step_handoff_written`、`control_completed`、`control_failed`、`iteration_summary_written` 或 `run_finished` 事件到达时，run 详情页里的“关键结论”必须在当前会话内自动拉取最新 artifacts 并刷新；不能要求用户手动刷新整页后才能看到最新轮次结论。
 - 提供给角色 prompt 的 artifact refs 必须能从 workspace 直接定位到 `.loopora/runs/...` 下的真实文件，不能只暴露对 run 目录内部才有意义的短相对路径。
 - 当角色尝试获取浏览器或截图证据失败时，诊断线索必须保留在 run event stream 与 step handoff 中，便于后续角色区分“产品问题”与“宿主环境阻断”。
-- run 详情页的运行状态、任务裁决与结果是 Loopora 的输出边界。系统应提供清楚的证据、artifact、再次运行、修改 Loop、导出和停止入口；用户如何基于这些材料调整 Loop 属于用户主动编排场景，不形成系统持有的演化历史。
+- run 详情页的运行状态、Loop 裁决与结果是 Loopora 的输出边界。系统应提供清楚的证据、artifact、再次运行、修改 Loop、导出和停止入口；用户如何基于这些材料调整 Loop 属于用户主动编排场景，不形成系统持有的演化历史。
 
 ## 2.1 真实 CLI 集成验证
 
@@ -170,7 +170,7 @@
 - cleanup 诊断自身也必须是 best-effort：诊断 callback、alignment event 写入、本地 artifact event 写入或 application log 写入失败时，只能再尝试记录结构化失败，不能反向改变原主操作的成功 / 失败语义，也不能遮蔽原始业务异常。
 - registry cleanup 状态标记失败也属于 cleanup 诊断自身失败：主操作不得因此失败，后续诊断日志使用 `operation=<original_operation>_registry_mark`，并继续携带统一的 `operation`、`resource_type`、`resource_id`、`owner_id`、`error_type`、`error_message` 字段。
 - alignment 相关 cleanup 或 cancel signal 失败除 application log 外，还必须写 alignment event 或对应 session 的本地 alignment event artifact，方便对话编排入口在同一个诊断面里追溯。
-- 本地资产诊断 API 只读暴露 orphan alignment dirs、orphan bundle dirs、orphan run dirs 和 record-without-dir 计数/路径，服务 cleanup 追踪和人工维护；它不得自动删除文件，也不得改变主工作流成功/失败语义。
+- 本地资产诊断 API 只读暴露 orphan alignment dirs、orphan bundle dirs、orphan run dirs 和 record-without-dir 计数/路径，服务 cleanup 追踪和人工维护；工具页可以基于这些路径提供定位目录、打开上级目录或复制路径等人工排查入口。它不得自动删除文件，也不得改变主工作流成功/失败语义。
 - 本地资产 registry 是 cleanup diagnostics 的辅助事实源：run dir、bundle managed dir 与 alignment session dir 创建时注册，cleanup 成功标记 `cleaned`，失败标记 `orphaned`。诊断命令和 API 可以读取 registry 来发现 durable record 已消失后的 orphan 文件。
 
 ## 7. 模块分工

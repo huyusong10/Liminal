@@ -558,7 +558,7 @@ class ServiceAlignmentMixin:
         return self._create_revision_alignment_session(
             seed_bundle,
             message=message
-            or "请先阅读这份已有循环方案，和我对话改进它。先指出你需要确认的最小问题，不要直接生成。",
+            or "请先阅读这份已有 Loop 方案，和我对话改进它。先指出你需要确认的最小问题，不要直接生成。",
             start_immediately=start_immediately,
             source_context={
                 "mode": "improvement",
@@ -608,7 +608,7 @@ class ServiceAlignmentMixin:
         return self._create_revision_alignment_session(
             seed_bundle,
             message=message
-            or "请基于这次 run 的 evidence 和 GateKeeper verdict，和我对话改进循环方案。先说明最可能要改的治理点，再问我最小必要问题。",
+            or "请基于这次运行的证据和守门裁决，和我对话改进 Loop 方案。先说明最可能要改的治理点，再问我最小必要问题。",
             start_immediately=start_immediately,
             source_context={
                 "mode": "improvement",
@@ -1000,7 +1000,7 @@ class ServiceAlignmentMixin:
                 missing = ", ".join(evidence_issues)
                 output["assistant_message"] = (
                     "我还不能整理确认协议；这些对齐证据还不够具体："
-                    f"{missing}。请先补一个会改变循环方案的问题。"
+                    f"{missing}。请先补一个会改变 Loop 方案的问题。"
                 )
                 self.repository.append_alignment_event(
                     session_id,
@@ -1042,24 +1042,24 @@ class ServiceAlignmentMixin:
     def _alignment_bundle_stage_error(session: dict, output: dict) -> str:
         stage = str(session.get("alignment_stage", "") or "clarifying").strip()
         if stage not in ALIGNMENT_CONFIRMED_STAGES:
-            return "我还需要先完成需求对齐并得到你的明确确认，再生成循环方案。"
+            return "我还需要先完成需求对齐并得到你的明确确认，再生成 Loop 方案。"
         phase = str(output.get("alignment_phase", "") or "").strip()
         agreement_summary = str(output.get("agreement_summary", "") or "").strip()
         checklist = output.get("readiness_checklist")
         if phase != "bundle":
-            return "我还需要先完成需求对齐，再生成循环方案。请先确认任务边界、成功标准和协作方式。"
+            return "我还需要先完成需求对齐，再生成 Loop 方案。请先确认边界、成功标准和协作方式。"
         if not agreement_summary:
-            return "我还需要先整理一份工作协议摘要并得到确认，然后再生成循环方案。"
+            return "我还需要先整理一份工作协议摘要并得到确认，然后再生成 Loop 方案。"
         if not isinstance(checklist, dict):
-            return "我还需要先补齐对齐检查清单，再生成循环方案。"
+            return "我还需要先补齐对齐检查清单，再生成 Loop 方案。"
         missing = [key for key in ALIGNMENT_READINESS_KEYS if checklist.get(key) is not True]
         if missing:
             labels = ", ".join(missing)
-            return f"我还不能直接生成循环方案；对齐检查还缺：{labels}。请先补齐这些信息。"
+            return f"我还不能直接生成 Loop 方案；对齐检查还缺：{labels}。请先补齐这些信息。"
         evidence_issues = ServiceAlignmentMixin._readiness_evidence_issues(output)
         if evidence_issues:
             labels = ", ".join(evidence_issues)
-            return f"我还不能直接生成循环方案；这些对齐证据还不够具体：{labels}。请先补齐这些信息。"
+            return f"我还不能直接生成 Loop 方案；这些对齐证据还不够具体：{labels}。请先补齐这些信息。"
         return ""
 
     @staticmethod

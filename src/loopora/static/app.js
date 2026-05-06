@@ -20,16 +20,16 @@
 
   const ROLE_LABELS = {
     zh: {
-      generator: "Builder",
-      builder: "Builder",
-      check_planner: "Check Planner",
-      tester: "Inspector",
-      inspector: "Inspector",
-      verifier: "GateKeeper",
-      gatekeeper: "GateKeeper",
-      challenger: "Guide",
-      guide: "Guide",
-      system: "System",
+      generator: "构建者",
+      builder: "构建者",
+      check_planner: "检查规划者",
+      tester: "巡检者",
+      inspector: "巡检者",
+      verifier: "守门者",
+      gatekeeper: "守门者",
+      challenger: "引导者",
+      guide: "引导者",
+      system: "系统",
     },
     en: {
       generator: "Builder",
@@ -51,11 +51,25 @@
     guide: "Guide",
     custom: "Custom Role",
   };
+  const ROLE_DISPLAY_LABELS = {
+    zh: {
+      Builder: "构建者",
+      Inspector: "巡检者",
+      GateKeeper: "守门者",
+      Guide: "引导者",
+      "Custom Role": "自定义角色",
+      "Contract Inspector": "契约巡检者",
+      "Evidence Inspector": "证据巡检者",
+      "Benchmark Inspector": "基准巡检者",
+      "Regression Inspector": "回归巡检者",
+    },
+    en: {},
+  };
   const ROLE_NAME_ALIASES = {
-    builder: ["建造者", "generator", "builder"],
+    builder: ["构建者", "建造者", "generator", "builder"],
     inspector: ["巡检者", "tester", "inspector"],
-    gatekeeper: ["守门人", "verifier", "gatekeeper"],
-    guide: ["向导", "challenger", "guide"],
+    gatekeeper: ["守门者", "守门人", "verifier", "gatekeeper"],
+    guide: ["引导者", "向导", "challenger", "guide"],
     custom: ["自定义角色", "custom role", "custom"],
   };
   const ROLE_NAME_LOOKUP = Object.fromEntries(
@@ -186,18 +200,24 @@
     if (!text) {
       return "-";
     }
+    const localizedText = ROLE_DISPLAY_LABELS[currentLocale()]?.[text];
+    if (localizedText) {
+      return localizedText;
+    }
     const canonical = ROLE_DISPLAY_BY_ARCHETYPE[String(archetype || "").trim().toLowerCase()] || "";
     if (canonical) {
+      const localizedCanonical = ROLE_DISPLAY_LABELS[currentLocale()]?.[canonical] || canonical;
       const lowered = text.toLowerCase();
       if (lowered === canonical.toLowerCase()) {
-        return canonical;
+        return localizedCanonical;
       }
       if (ROLE_NAME_LOOKUP[text] === canonical || ROLE_NAME_LOOKUP[lowered] === canonical) {
-        return canonical;
+        return localizedCanonical;
       }
       return text;
     }
-    return ROLE_NAME_LOOKUP[text] || ROLE_NAME_LOOKUP[text.toLowerCase()] || text;
+    const matchedCanonical = ROLE_NAME_LOOKUP[text] || ROLE_NAME_LOOKUP[text.toLowerCase()];
+    return matchedCanonical ? (ROLE_DISPLAY_LABELS[currentLocale()]?.[matchedCanonical] || matchedCanonical) : text;
   }
 
   function applyLocalizedAttributes(root = document) {
@@ -303,7 +323,7 @@
         },
         failure() {
           return pickText({
-            zh: "无法删除这个循环。",
+            zh: "无法删除这个 Loop。",
             en: "Unable to delete this loop.",
           });
         },
@@ -326,7 +346,7 @@
         },
         failure() {
           return pickText({
-            zh: "无法删除这个 Bundle。",
+            zh: "无法删除这个方案包。",
             en: "Unable to delete this bundle.",
           });
         },
@@ -476,56 +496,86 @@
   }
 
   function bindNavPreferences() {
-    const root = document.querySelector("[data-testid='nav-preferences']");
-    if (!root || root.dataset.boundPreferences === "1") {
-      return;
-    }
-    root.dataset.boundPreferences = "1";
-
-    const toggle = root.querySelector("[data-toggle-nav-preferences]");
-    const panel = root.querySelector("[data-nav-preferences-panel]");
-    if (!toggle || !panel) {
+    const roots = Array.from(document.querySelectorAll("[data-nav-menu]"));
+    if (!roots.length) {
       return;
     }
 
-    const close = () => {
+    const closeMenu = (root) => {
+      const toggle = root.querySelector("[data-toggle-nav-menu]");
+      const panel = root.querySelector("[data-nav-menu-panel]");
+      if (!toggle || !panel) {
+        return;
+      }
       root.classList.remove("is-open");
       panel.hidden = true;
       toggle.setAttribute("aria-expanded", "false");
     };
 
-    const open = () => {
+    const openMenu = (root) => {
+      roots.forEach((otherRoot) => {
+        if (otherRoot !== root) {
+          closeMenu(otherRoot);
+        }
+      });
+      const toggle = root.querySelector("[data-toggle-nav-menu]");
+      const panel = root.querySelector("[data-nav-menu-panel]");
+      if (!toggle || !panel) {
+        return;
+      }
       root.classList.add("is-open");
       panel.hidden = false;
       toggle.setAttribute("aria-expanded", "true");
     };
 
-    toggle.addEventListener("click", (event) => {
-      event.preventDefault();
-      if (root.classList.contains("is-open")) {
-        close();
+    roots.forEach((root) => {
+      if (root.dataset.boundPreferences === "1") {
         return;
       }
-      open();
+      root.dataset.boundPreferences = "1";
+
+      const toggle = root.querySelector("[data-toggle-nav-menu]");
+      const panel = root.querySelector("[data-nav-menu-panel]");
+      if (!toggle || !panel) {
+        return;
+      }
+
+      toggle.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (root.classList.contains("is-open")) {
+          closeMenu(root);
+          return;
+        }
+        openMenu(root);
+      });
+
+      panel.querySelectorAll("a, [data-set-theme], [data-set-locale]").forEach((item) => {
+        item.addEventListener("click", () => {
+          window.setTimeout(() => closeMenu(root), 0);
+        });
+      });
     });
 
+    if (document.body.dataset.boundNavMenuDismiss === "1") {
+      return;
+    }
+    document.body.dataset.boundNavMenuDismiss = "1";
+
     document.addEventListener("click", (event) => {
-      if (!(event.target instanceof Node) || root.contains(event.target)) {
+      if (!(event.target instanceof Node)) {
         return;
       }
-      close();
+      roots.forEach((root) => {
+        if (!root.contains(event.target)) {
+          closeMenu(root);
+        }
+      });
     });
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        close();
+        roots.forEach(closeMenu);
       }
-    });
-
-    panel.querySelectorAll("[data-set-theme], [data-set-locale]").forEach((button) => {
-      button.addEventListener("click", () => {
-        window.setTimeout(close, 0);
-      });
     });
   }
 

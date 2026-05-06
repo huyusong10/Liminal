@@ -5,11 +5,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   const ARCHETYPE_LABELS = {
-    builder: {zh: "Builder", en: "Builder"},
-    inspector: {zh: "Inspector", en: "Inspector"},
-    gatekeeper: {zh: "GateKeeper", en: "GateKeeper"},
-    guide: {zh: "Guide", en: "Guide"},
-    custom: {zh: "Custom Role", en: "Custom Role"},
+    builder: {zh: "构建者", en: "Builder"},
+    inspector: {zh: "巡检者", en: "Inspector"},
+    gatekeeper: {zh: "守门者", en: "GateKeeper"},
+    guide: {zh: "引导者", en: "Guide"},
+    custom: {zh: "自定义角色", en: "Custom Role"},
   };
   const EXECUTOR_LABELS = {
     codex: "Codex",
@@ -188,7 +188,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!specPracticePreviewLabel || !specPracticeSummary || !specPracticePreview) {
       return;
     }
-    specPracticePreviewLabel.textContent = localeText("当前 workflow 模板", "Current workflow template");
+    specPracticePreviewLabel.textContent = localeText("当前流程模板", "Current workflow template");
     specPracticeSummary.textContent = localeText(
       "按当前 workflow 即时生成，只读展示。",
       "Generated from the current workflow for read-only preview.",
@@ -239,7 +239,7 @@ document.addEventListener("DOMContentLoaded", () => {
       copy: {
         label_zh: "空白开始",
         label_en: "Start blank",
-        description_zh: "从空白步骤工作台开始",
+        description_zh: "从空白流程开始",
         description_en: "Start from a blank step workbench",
       },
       workflow: {
@@ -534,7 +534,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     return [
       localeText(
-        "这套编排还没有“通过即结束”的 GateKeeper 步骤。用于按轮次推进没问题；如果要靠放行裁决收敛，请补一个 GateKeeper finish step。",
+        "这套编排还没有“通过即结束”的守门者步骤。用于按轮次推进没问题；如果要靠放行裁决收敛，请补一个守门者收束步骤。",
         "This orchestration does not yet have a finish-on-pass GateKeeper step. That is fine for round-based execution; add one before using gate-based completion.",
       ),
     ];
@@ -590,7 +590,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function promptFileSummary(role) {
-    return role.prompt_ref || localeText("沿用已有 prompt 引用", "Using stored prompt reference");
+    return role.prompt_ref || localeText("沿用已有提示词引用", "Using stored prompt reference");
   }
 
   function stepPassLabel(step, role) {
@@ -640,7 +640,7 @@ document.addEventListener("DOMContentLoaded", () => {
       workflowControlsList.innerHTML = `
         <div class="workflow-empty-state">
           <strong>${localeText("没有运行控制", "No runtime controls")}</strong>
-          <p>${localeText("默认保持 5 分钟上手。只有当任务确实有空转、失败、超时或 GateKeeper 反复拒绝风险时，才在这里保留 trigger。", "The five-minute path stays clear by default. Keep triggers here only when the task really has stagnation, failure, timeout, or repeated GateKeeper rejection risk.")}</p>
+          <p>${localeText("默认保持 5 分钟上手。只有当 Loop 确实有空转、失败、超时或守门者反复拒绝风险时，才在这里保留触发器。", "The five-minute path stays clear by default. Keep triggers here only when the task really has stagnation, failure, timeout, or repeated GateKeeper rejection risk.")}</p>
         </div>
       `;
       syncControlsJsonField();
@@ -756,7 +756,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <span>${escapeHtml(role ? roleRuntimeSummary(role) : "-")}</span>
         </p>
         <p class="workflow-step-summary-line workflow-step-summary-line-muted">
-          <span class="workflow-step-summary-label">${escapeHtml(localeText("Prompt", "Prompt"))}</span>
+          <span class="workflow-step-summary-label">${escapeHtml(localeText("提示词", "Prompt"))}</span>
           <span>${escapeHtml(role ? promptFileSummary(role) : "-")}</span>
         </p>
       `;
@@ -880,11 +880,11 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const loadingMessage = options.loadingMessage || localeText(
-      "正在按当前流程刷新 spec 预览…",
+      "正在按当前流程刷新契约预览…",
       "Refreshing the spec preview for the current workflow...",
     );
     const successMessage = options.successMessage || localeText(
-      "已刷新当前 workflow 的只读模板。",
+      "已刷新当前流程的只读模板。",
       "Refreshed the read-only template for the current workflow.",
     );
     setSpecPracticeModalStatus(loadingMessage, "");
@@ -897,7 +897,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }),
     });
     if (error || !response || !payload.ok) {
-      throw new Error(payload.error || localeText("无法生成 spec 模板。", "Unable to generate the spec template."));
+      throw new Error(payload.error || localeText("无法生成契约模板。", "Unable to generate the spec template."));
     }
     syncGeneratedTemplatePreview(payload.rendered_html || "");
     setSpecPracticeModalStatus(successMessage, "success");
@@ -977,7 +977,7 @@ document.addEventListener("DOMContentLoaded", () => {
       setSpecPracticeModalStatus(
         error instanceof Error && error.message
           ? error.message
-          : localeText("无法生成 spec 模板。", "Unable to generate the spec template."),
+          : localeText("无法生成契约模板。", "Unable to generate the spec template."),
         "error",
       );
     });
@@ -1299,11 +1299,11 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       refreshGeneratedSpecTemplate({
-        loadingMessage: localeText("正在切换当前语言下的 spec 预览…", "Switching the spec preview to the current locale..."),
+        loadingMessage: localeText("正在切换当前语言下的契约预览…", "Switching the spec preview to the current locale..."),
         successMessage: localeText("已切换到当前语言下的模板。", "Switched the template to the current locale."),
       }).catch(() => {
         setSpecPracticeModalStatus(
-          localeText("语言切换后暂时无法刷新 spec 预览。", "Unable to refresh the spec preview after the locale change."),
+          localeText("语言切换后暂时无法刷新契约预览。", "Unable to refresh the spec preview after the locale change."),
           "error",
         );
       });

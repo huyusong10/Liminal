@@ -13,31 +13,31 @@ RUN_ARTIFACT_SPECS = (
         "relative_path": "summary.md",
         "label_zh": "运行摘要",
         "label_en": "Summary",
-        "description_zh": "当前 run 的摘要结论。",
+        "description_zh": "当前运行的摘要结论。",
         "description_en": "The current run summary.",
     },
     {
         "id": "original-spec",
         "relative_path": "contract/spec.md",
-        "label_zh": "原始 Spec",
+        "label_zh": "原始 Loop 契约",
         "label_en": "Original spec",
-        "description_zh": "这次 run 开始时冻结保存的原始 Markdown spec。",
+        "description_zh": "这次运行开始时冻结保存的原始 Markdown 契约。",
         "description_en": "The original Markdown spec snapshot frozen at the start of this run.",
     },
     {
         "id": "compiled-spec",
         "relative_path": "contract/compiled_spec.json",
-        "label_zh": "编译后 Spec",
+        "label_zh": "编译后契约",
         "label_en": "Compiled spec",
-        "description_zh": "本次 run 实际使用的 Task、checks、Guardrails 和 role notes。",
+        "description_zh": "本次运行实际使用的任务、检查项、边界和角色备注。",
         "description_en": "The Task, checks, Guardrails, and role notes used by this run.",
     },
     {
         "id": "workflow-manifest",
         "relative_path": "contract/workflow.json",
-        "label_zh": "工作流清单",
+        "label_zh": "流程清单",
         "label_en": "Workflow manifest",
-        "description_zh": "这次 run 冻结下来的 workflow 定义。",
+        "description_zh": "这次运行冻结下来的流程定义。",
         "description_en": "The workflow definition frozen for this run.",
     },
     {
@@ -45,7 +45,7 @@ RUN_ARTIFACT_SPECS = (
         "relative_path": "contract/run_contract.json",
         "label_zh": "运行契约",
         "label_en": "Run contract",
-        "description_zh": "本次 run 冻结的完整运行时契约与稳定引用。",
+        "description_zh": "本次运行冻结的完整运行时契约与稳定引用。",
         "description_en": "The frozen runtime contract and stable references for this run.",
     },
     {
@@ -53,7 +53,7 @@ RUN_ARTIFACT_SPECS = (
         "relative_path": "context/latest_state.json",
         "label_zh": "最新状态索引",
         "label_en": "Latest state",
-        "description_zh": "当前 run 的最新 step、role 和轮次引用索引。",
+        "description_zh": "当前运行的最新步骤、角色和轮次引用索引。",
         "description_en": "The latest step, role, and iteration references for this run.",
     },
     {
@@ -69,7 +69,7 @@ RUN_ARTIFACT_SPECS = (
         "relative_path": "timeline/events.jsonl",
         "label_zh": "事件时间线",
         "label_en": "Timeline events",
-        "description_zh": "run 事件流的 canonical 时间线。",
+        "description_zh": "运行事件流的规范时间线。",
         "description_en": "The canonical event timeline for this run.",
     },
     {
@@ -77,7 +77,7 @@ RUN_ARTIFACT_SPECS = (
         "relative_path": "timeline/iterations.jsonl",
         "label_zh": "轮次时间线",
         "label_en": "Timeline iterations",
-        "description_zh": "每轮结构化摘要的 canonical 时间线。",
+        "description_zh": "每轮结构化摘要的规范时间线。",
         "description_en": "The canonical iteration summary timeline for this run.",
     },
     {
@@ -85,7 +85,7 @@ RUN_ARTIFACT_SPECS = (
         "relative_path": "timeline/metrics.jsonl",
         "label_zh": "指标时间线",
         "label_en": "Timeline metrics",
-        "description_zh": "每轮分数与停滞信息的 canonical 时间线。",
+        "description_zh": "每轮分数与停滞信息的规范时间线。",
         "description_en": "The canonical metric timeline for this run.",
     },
     {
@@ -93,7 +93,7 @@ RUN_ARTIFACT_SPECS = (
         "relative_path": "evidence/ledger.jsonl",
         "label_zh": "证据账本",
         "label_en": "Evidence ledger",
-        "description_zh": "本次 run 的 canonical 证据账本，记录证明了什么、没证明什么，以及结论对应的 artifact。",
+        "description_zh": "本次运行的规范证据账本，记录证明了什么、没证明什么，以及结论对应的追查材料。",
         "description_en": "The canonical evidence ledger for this run: what was proven, what remains unproven, and which artifacts support each claim.",
     },
     {
@@ -418,9 +418,9 @@ def list_run_artifacts(run: dict) -> list[dict]:
                     "id": f"prompt-{artifact_slug(relative_path)}",
                     "filename": relative_path,
                     "relative_path": relative_path,
-                    "label_zh": f"Prompt · {prompt_path.name}",
+                    "label_zh": f"提示词 · {prompt_path.name}",
                     "label_en": f"Prompt · {prompt_path.name}",
-                    "description_zh": "这次 run 冻结保存的角色 Prompt Markdown。",
+                    "description_zh": "这次运行冻结保存的角色提示词 Markdown。",
                     "description_en": "The role prompt Markdown frozen for this run.",
                     "path": str(prompt_path),
                     "available": True,
@@ -432,7 +432,7 @@ def list_run_artifacts(run: dict) -> list[dict]:
                 continue
             relative_path = layout.relative(artifact_path)
             label_prefix = "Step prompt" if artifact_path.name == "prompt.md" else "Step artifact"
-            label_prefix_zh = "步骤 Prompt" if artifact_path.name == "prompt.md" else "步骤产物"
+            label_prefix_zh = "步骤提示词" if artifact_path.name == "prompt.md" else "步骤产物"
             artifacts.append(
                 {
                     "id": f"step-{artifact_slug(relative_path)}",
@@ -440,7 +440,7 @@ def list_run_artifacts(run: dict) -> list[dict]:
                     "relative_path": relative_path,
                     "label_zh": f"{label_prefix_zh} · {relative_path}",
                     "label_en": f"{label_prefix} · {relative_path}",
-                    "description_zh": "按 step 冻结保存的上下文、Prompt、元数据或输出快照。",
+                    "description_zh": "按步骤冻结保存的上下文、提示词、元数据或输出快照。",
                     "description_en": "A step-scoped context, prompt, metadata, or output snapshot.",
                     "path": str(artifact_path),
                     "available": True,

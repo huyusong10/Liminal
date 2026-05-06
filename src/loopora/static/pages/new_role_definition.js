@@ -619,11 +619,11 @@ document.addEventListener("DOMContentLoaded", () => {
         setPromptPreviewNote();
       },
       emptyMessage: {
-        zh: "这里还没有可显示的 Prompt 正文。",
+        zh: "这里还没有可显示的提示词正文。",
         en: "There is no prompt body to preview yet.",
       },
       loadingMessage: {
-        zh: "正在渲染 Prompt 预览…",
+        zh: "正在渲染提示词预览…",
         en: "Rendering the prompt preview...",
       },
     });

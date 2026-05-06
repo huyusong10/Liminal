@@ -33,11 +33,11 @@
     });
 
     const ARCHETYPE_LABELS = {
-      builder: {zh: "Builder", en: "Builder"},
-      inspector: {zh: "Inspector", en: "Inspector"},
-      gatekeeper: {zh: "GateKeeper", en: "GateKeeper"},
-      guide: {zh: "Guide", en: "Guide"},
-      custom: {zh: "Custom Role", en: "Custom Role"},
+      builder: {zh: "构建者", en: "Builder"},
+      inspector: {zh: "巡检者", en: "Inspector"},
+      gatekeeper: {zh: "守门者", en: "GateKeeper"},
+      guide: {zh: "引导者", en: "Guide"},
+      custom: {zh: "自定义角色", en: "Custom Role"},
     };
     const LEGACY_RUNTIME_ROLE_BY_ARCHETYPE = {
       builder: "generator",
@@ -110,7 +110,7 @@
       const archetype = String(role?.archetype || "").trim();
       const details = {
         builder: localeText(
-          "真正修改工作区，朝 Task 和检查项推进实现。",
+          "真正修改工作区，朝 Loop 目标和检查项推进实现。",
           "Actually changes the workspace to move the implementation toward the Task and checks."
         ),
         inspector: localeText(
@@ -118,7 +118,7 @@
           "Runs commands, page interactions, or source inspection to collect evidence and answer 'what happened?'"
         ),
         gatekeeper: localeText(
-          "根据 Task、检查项、Guardrails 和测试证据做裁决，回答“算不算通过”。",
+          "根据 Loop 目标、检查项、边界和测试证据做裁决，回答“算不算通过”。",
           "Judges the evidence against the Task, checks, and Guardrails to answer 'does this count as passing?'"
         ),
         guide: localeText(
@@ -181,7 +181,7 @@
         kind: "finished",
         title: localeText("完成", "Done"),
         detail: localeText(
-          "这次 run 已经结束，可能是成功、失败或手动停止。",
+          "这次运行已经结束，可能是成功、失败或手动停止。",
           "The run has ended, whether by success, failure, or manual stop."
         ),
       });
@@ -208,7 +208,7 @@
       const workflowStages = getProgressStages(run).filter((stage) => stage.kind === "workflow_step");
       if (!workflowStages.length) {
         return {
-          eyebrow: localeText("Loop steps", "Loop steps"),
+          eyebrow: localeText("Loop 步骤", "Loop steps"),
           title: localeText("还没有中间步骤", "No middle steps yet"),
           detail: localeText(
             "这次运行没有冻结中间步骤，所以这里只显示入口和最终状态。",
@@ -220,11 +220,11 @@
         stage.archetype === "gatekeeper" && String(stage.step?.on_pass || "").trim() === "finish_run"
       ));
       return {
-        eyebrow: localeText("Loop steps", "Loop steps"),
+        eyebrow: localeText("Loop 步骤", "Loop steps"),
         title: workflowStages.map((stage) => stage.title).join(" → "),
         detail: hasFinishGate
           ? localeText(
-            "中间步骤按 Loop 计划循环推进，直到 GateKeeper 放行或运行预算耗尽。",
+            "中间步骤按 Loop 计划循环推进，直到守门者放行或运行预算耗尽。",
             "These middle steps repeat according to the Loop plan until GateKeeper passes or the run budget ends."
           )
           : localeText(

@@ -83,26 +83,26 @@ bundle 生命周期服务于 Loop 编排和交换：
 - 从现有 loop 复制出候选 bundle 时，结果必须回到单文件 YAML，并被视为独立候选，而不是被写入系统级 lineage。
 - 用户如何基于证据迭代 bundle 属于系统外部行为；Loopora 可提供从已有 bundle 或 run evidence 发起的对话改进入口，但该入口只产出独立候选 bundle，不成为 bundle 生命周期的必经阶段。
 - READY 预览与 bundle detail 不展示系统级版本历史、surface diff 或回滚入口；若需要比较，属于用户主动导出后在系统外完成的判断。
-- 方案库列表可以展示失败模式、证据风格、workflow 形状和 GateKeeper 严格度，但这些内容必须来自 bundle projection，不能成为独立标签系统。
+- 方案包兼容入口可以展示失败模式、证据风格、workflow 形状和 GateKeeper 严格度，但这些内容必须来自 bundle projection，不能成为独立标签系统，也不能取代已有 Loop 高频浏览入口。
 
 ## 6. 入口语义
 
 推荐编排场景：
 
-`新建任务 -> Loop 对话页 -> READY 预览 -> 创建并运行`
+`创建 Loop -> 对话编排 -> READY 预览 -> 创建并运行`
 
 专家入口：
 
-`资源与设置 -> 手动创建 -> 选择 spec / roles / workflow，或导入已有 bundle YAML`
+`创建 Loop -> 手动编排 / 导入方案文件 -> 选择 spec / roles / workflow，或导入已有 bundle YAML`
 
 稳定承诺：
 
-- 顶层“新建任务”不要求用户先理解 bundle。
+- 顶层“编排”入口的对话编排工作台不要求用户先理解 bundle；导入方案文件和手动编排作为同一编排工作台的二级入口保留。
 - `bundle` 是内部交换单元和专家导入 / 导出格式。
 - 方案详情和 run 详情可以提供“对话改进方案”入口；它复用 Web alignment session，把当前 bundle 或 run evidence 作为临时输入生成独立候选 Loop，随后仍走 READY 预览和导入 / 运行。
 - READY 预览必须包含从 bundle 派生的控制摘要，至少覆盖主要风险、证据路径、workflow 形状、GateKeeper 门禁和可选 runtime controls；该摘要是 projection，不是新的事实源。
 - 两条路径必须能互相转换：bundle 可以导入成底层资产，手动 loop 也可以导出成 bundle。
-- 方案库负责管理、导出、复制为候选和整包删除；列表卡片应优先呈现治理摘要，详情页保留专家 surface 和 YAML 入口。
+- 方案包兼容入口负责管理、导出、复制为候选和整包删除；列表卡片应优先呈现治理摘要，详情页保留专家 surface 和 YAML 入口。
 
 ## 7. 变更触发
 

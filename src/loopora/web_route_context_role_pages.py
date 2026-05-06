@@ -67,7 +67,7 @@ class WebRouteRolePagesMixin:
             page_copy = {
                 "title_zh": "从内置模板出发，打磨成你团队自己的角色版本。",
                 "title_en": "Start from the built-in template, then tailor it into your team’s own role.",
-                "body_zh": "这里保留的是模板的核心角色身份，你可以修改名字、执行工具、模型和 prompt；保存时会派生出一条新的自定义角色定义。",
+                "body_zh": "这里保留的是模板的核心角色身份，你可以修改名字、执行工具、模型和提示词；保存时会派生出一条新的自定义角色定义。",
                 "body_en": "The core role identity stays fixed here. Adjust the name, executor, model, and prompt, then save a new custom role definition derived from this template.",
                 "submit_zh": "保存为新角色",
                 "submit_en": "Save as new role",
@@ -77,7 +77,7 @@ class WebRouteRolePagesMixin:
             page_copy = {
                 "title_zh": "先把角色定义好，后面的编排就能直接拿来用。",
                 "title_en": "Define the role once, then let orchestrations reuse it directly.",
-                "body_zh": "角色定义保存的是角色名、角色模板、权限边界、默认执行工具、模型和 prompt 模板。编排里选中后，会把这些字段带进去作为角色快照。",
+                "body_zh": "角色定义保存的是角色名、角色模板、权限边界、默认执行工具、模型和提示词模板。编排里选中后，会把这些字段带进去作为角色快照。",
                 "body_en": "A role definition stores the role name, role template, permission boundary, default executor, model, and prompt template. When an orchestration selects it, those values are copied in as a role snapshot.",
                 "submit_zh": "保存角色",
                 "submit_en": "Save role",
