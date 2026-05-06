@@ -131,7 +131,7 @@ class RepositoryAlignmentRecordsMixin:
             updates["active_child_pid"] = None
 
         assignments = ", ".join(f"{column} = ?" for column in updates)
-        values = list(updates.values()) + [session_id]
+        values = [*updates.values(), session_id]
         with self.transaction() as connection:
             connection.execute(f"UPDATE alignment_sessions SET {assignments} WHERE id = ?", values)
             row = connection.execute("SELECT * FROM alignment_sessions WHERE id = ?", (session_id,)).fetchone()

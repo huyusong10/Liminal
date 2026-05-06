@@ -19,10 +19,9 @@ archetype: {archetype}
 """
 
 
-def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_path: Path) -> None:
+def _catalog_with_custom_assets(tmp_path: Path) -> tuple[WorkflowAssetCatalog, dict, dict]:
     repository = LooporaRepository(tmp_path / "app.db")
     catalog = WorkflowAssetCatalog(repository)
-
     role_definition = catalog.create_role_definition(
         name="Release Builder",
         description="Ships focused release work.",
@@ -38,16 +37,14 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
         description="Inspector before Builder.",
         workflow={"preset": "inspect_first"},
     )
+    return catalog, role_definition, orchestration
 
-    role_definitions = catalog.list_role_definitions()
-    orchestrations = catalog.list_orchestrations()
-    builtin_orchestrations = [item for item in orchestrations if item["source"] == "builtin"]
 
-    builtin_role = next(item for item in role_definitions if item["id"] == "builtin:builder")
-    custom_role = next(item for item in role_definitions if item["id"] == role_definition["id"])
-    builtin_orchestration = next(item for item in orchestrations if item["id"] == "builtin:build_then_parallel_review")
-    custom_orchestration = next(item for item in orchestrations if item["id"] == orchestration["id"])
+def _item_by_id(items: list[dict], item_id: str) -> dict:
+    return next(item for item in items if item["id"] == item_id)
 
+
+def _assert_role_catalog_flags(builtin_role: dict, custom_role: dict) -> None:
     assert builtin_role["source"] == "builtin"
     assert builtin_role["editable"] is False
     assert builtin_role["deletable"] is False
@@ -56,6 +53,11 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
     assert custom_role["deletable"] is True
     assert custom_role["executor_kind"] == "claude"
 
+
+def _assert_orchestration_catalog_flags(
+    builtin_orchestration: dict,
+    custom_orchestration: dict,
+) -> None:
     assert builtin_orchestration["source"] == "builtin"
     assert builtin_orchestration["workflow_json"]["preset"] == "build_then_parallel_review"
     assert builtin_orchestration["workflow_json"]["steps"][0]["inherit_session"] is True
@@ -63,48 +65,79 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
     assert builtin_orchestration["workflow_json"]["steps"][0]["extra_cli_args"] == ""
     assert builtin_orchestration["scenario_zh"]
     assert builtin_orchestration["scenario_en"]
+
+    assert custom_orchestration["source"] == "custom"
+    assert custom_orchestration["workflow_json"]["preset"] == "inspect_first"
+    assert isinstance(custom_orchestration["workflow_warnings"], list)
+
+
+def _assert_builtin_practice_assets(builtin_orchestrations: list[dict]) -> None:
+    zh_sections = (
+        "## 场景",
+        "## 需求",
+        "## 适合这个流程，因为",
+        "## 为什么不是其他流程",
+        "## 为什么不直接交给 AI Agent",
+        "## 示例 spec",
+        "# Task",
+        "# Role Notes",
+        "Builder Notes",
+        "GateKeeper Notes",
+    )
+    en_sections = (
+        "## Scenario",
+        "## Request",
+        "## Why this workflow fits",
+        "## Why not the other workflows",
+        "## Why not just let an AI Agent do it",
+        "## Example spec",
+        "# Task",
+        "# Role Notes",
+        "Builder Notes",
+        "GateKeeper Notes",
+    )
     for item in builtin_orchestrations:
         assert item["spec_practice_summary_zh"].startswith("场景：")
         assert item["spec_practice_summary_en"].startswith("Scenario:")
-        assert "## 场景" in item["spec_practice_markdown_zh"]
-        assert "## 需求" in item["spec_practice_markdown_zh"]
-        assert "## 适合这个流程，因为" in item["spec_practice_markdown_zh"]
-        assert "## 为什么不是其他流程" in item["spec_practice_markdown_zh"]
-        assert "## 为什么不直接交给 AI Agent" in item["spec_practice_markdown_zh"]
-        assert "## 示例 spec" in item["spec_practice_markdown_zh"]
-        assert "## Scenario" in item["spec_practice_markdown_en"]
-        assert "## Request" in item["spec_practice_markdown_en"]
-        assert "## Why this workflow fits" in item["spec_practice_markdown_en"]
-        assert "## Why not the other workflows" in item["spec_practice_markdown_en"]
-        assert "## Why not just let an AI Agent do it" in item["spec_practice_markdown_en"]
-        assert "## Example spec" in item["spec_practice_markdown_en"]
-        assert "# Task" in item["spec_practice_markdown_zh"]
-        assert "# Task" in item["spec_practice_markdown_en"]
-        assert "# Role Notes" in item["spec_practice_markdown_zh"]
-        assert "# Role Notes" in item["spec_practice_markdown_en"]
-        assert "Builder Notes" in item["spec_practice_markdown_zh"]
-        assert "Builder Notes" in item["spec_practice_markdown_en"]
-        assert "GateKeeper Notes" in item["spec_practice_markdown_zh"]
-        assert "GateKeeper Notes" in item["spec_practice_markdown_en"]
+        assert all(section in item["spec_practice_markdown_zh"] for section in zh_sections)
+        assert all(section in item["spec_practice_markdown_en"] for section in en_sections)
     assert len(builtin_orchestrations) == 4
     assert any(item["id"] == "builtin:evidence_first" for item in builtin_orchestrations)
     assert any(item["id"] == "builtin:benchmark_gate" for item in builtin_orchestrations)
     assert all(item["id"] != "builtin:fast_lane" for item in builtin_orchestrations)
     assert all(item["id"] != "builtin:quality_gate" for item in builtin_orchestrations)
     assert all(item["id"] != "builtin:build_first" for item in builtin_orchestrations)
-    assert custom_orchestration["source"] == "custom"
-    assert custom_orchestration["workflow_json"]["preset"] == "inspect_first"
-    assert isinstance(custom_orchestration["workflow_warnings"], list)
 
-    hidden_fast_lane = catalog.get_orchestration("builtin:fast_lane")
-    hidden_quality_gate = catalog.get_orchestration("builtin:quality_gate")
-    hidden_build_first = catalog.get_orchestration("builtin:build_first")
-    assert hidden_fast_lane["name"] == "Fast Lane"
-    assert hidden_fast_lane["workflow_json"]["preset"] == "fast_lane"
-    assert hidden_quality_gate["name"] == "Quality Gate"
-    assert hidden_quality_gate["workflow_json"]["preset"] == "quality_gate"
-    assert hidden_build_first["name"] == "Build First"
-    assert hidden_build_first["workflow_json"]["preset"] == "build_first"
+
+def _assert_hidden_legacy_orchestrations_remain_addressable(catalog: WorkflowAssetCatalog) -> None:
+    expectations = {
+        "builtin:fast_lane": ("Fast Lane", "fast_lane"),
+        "builtin:quality_gate": ("Quality Gate", "quality_gate"),
+        "builtin:build_first": ("Build First", "build_first"),
+    }
+    for orchestration_id, (name, preset) in expectations.items():
+        orchestration = catalog.get_orchestration(orchestration_id)
+        assert orchestration["name"] == name
+        assert orchestration["workflow_json"]["preset"] == preset
+
+
+def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_path: Path) -> None:
+    catalog, role_definition, orchestration = _catalog_with_custom_assets(tmp_path)
+
+    role_definitions = catalog.list_role_definitions()
+    orchestrations = catalog.list_orchestrations()
+    builtin_orchestrations = [item for item in orchestrations if item["source"] == "builtin"]
+
+    _assert_role_catalog_flags(
+        builtin_role=_item_by_id(role_definitions, "builtin:builder"),
+        custom_role=_item_by_id(role_definitions, role_definition["id"]),
+    )
+    _assert_orchestration_catalog_flags(
+        builtin_orchestration=_item_by_id(orchestrations, "builtin:build_then_parallel_review"),
+        custom_orchestration=_item_by_id(orchestrations, orchestration["id"]),
+    )
+    _assert_builtin_practice_assets(builtin_orchestrations)
+    _assert_hidden_legacy_orchestrations_remain_addressable(catalog)
 
 
 def test_asset_catalog_resolves_builtin_orchestration_input_and_applies_role_overrides(tmp_path: Path) -> None:
@@ -599,7 +632,7 @@ def test_asset_catalog_rejects_duplicate_role_definition_prompt_refs(tmp_path: P
     repository = LooporaRepository(tmp_path / "app.db")
     catalog = WorkflowAssetCatalog(repository)
 
-    with pytest.raises(ValueError, match="prompt_ref already in use: builder.md"):
+    with pytest.raises(ValueError, match=r"prompt_ref already in use: builder\.md"):
         catalog.create_role_definition(
             name="Custom Builder Alias",
             description="Should not shadow the built-in builder prompt ref.",
@@ -620,7 +653,7 @@ def test_asset_catalog_rejects_duplicate_role_definition_prompt_refs(tmp_path: P
         model="gpt-5.4-mini",
     )
 
-    with pytest.raises(ValueError, match="prompt_ref already in use: release-builder.md"):
+    with pytest.raises(ValueError, match=r"prompt_ref already in use: release-builder\.md"):
         catalog.create_role_definition(
             name="Another Release Builder",
             description="Should not reuse the same prompt ref.",

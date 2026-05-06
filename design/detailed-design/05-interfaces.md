@@ -106,6 +106,7 @@ CLI 的稳定入口是 Python package metadata 暴露的 `loopora` console scrip
 - 从源码试用或贡献时，若目标是得到同一个稳定命令，使用 editable tool install，例如 `uv tool install --editable .`。
 - `uv run loopora ...` 只属于开发 fallback，不作为 Quick Start、自动化或用户 CLI 示例的默认表达。
 - packaging 契约测试必须保护 console script 名称和入口对象，避免发布包或源码安装丢失 `loopora` 命令。
+- CLI 命令回调可以保留公开 option / argument 的完整参数面，用来稳定 help、解析、completion 与脚本兼容性；内部创建、派生、运行等 helper 不应继续复制长参数列表，应通过 typed request object 或同等结构化输入承载。
 
 ## 4. 跨入口一致性
 

@@ -76,15 +76,7 @@ def test_web_url_helpers_keep_redirects_and_filenames_local() -> None:
     assert safe_attachment_filename('Bad/Name" \r\n injected.yml') == "Bad-Name-injected.yml"
 
 
-def test_api_loop_creation_run_preview_and_stream(
-    service_factory,
-    sample_spec_file: Path,
-    sample_spec_text: str,
-    sample_workdir: Path,
-) -> None:
-    service = service_factory(scenario="success")
-    client = TestClient(build_app(service=service))
-
+def _create_api_loop_run(client: TestClient, sample_spec_file: Path, sample_workdir: Path) -> str:
     response = client.post(
         "/api/loops",
         json={
@@ -102,17 +94,21 @@ def test_api_loop_creation_run_preview_and_stream(
         },
     )
     assert response.status_code == 201
-    payload = response.json()
-    run_id = payload["run"]["id"]
+    return response.json()["run"]["id"]
 
+
+def _wait_for_run_success(client: TestClient, run_id: str) -> None:
     deadline = time.time() + 5
     while time.time() < deadline:
         run_response = client.get(f"/api/runs/{run_id}")
         assert run_response.status_code == 200
         if run_response.json()["status"] == "succeeded":
-            break
+            return
         time.sleep(0.05)
+    raise AssertionError(f"run did not succeed before timeout: {run_id}")
 
+
+def _assert_file_explorer_contract(client: TestClient, run_id: str) -> None:
     explorer = client.get(f"/api/files?run_id={run_id}&root=workdir")
     assert explorer.status_code == 200
     assert explorer.json()["kind"] == "directory"
@@ -125,6 +121,8 @@ def test_api_loop_creation_run_preview_and_stream(
     assert invalid_root.status_code == 400
     assert "error" in invalid_root.json()
 
+
+def _assert_run_artifact_catalog(client: TestClient, run_id: str) -> None:
     artifacts = client.get(f"/api/runs/{run_id}/artifacts")
     assert artifacts.status_code == 200
     artifact_payload = artifacts.json()
@@ -132,6 +130,7 @@ def test_api_loop_creation_run_preview_and_stream(
     assert any(item["id"] == "summary" and item["available"] for item in artifact_payload)
     assert any(item["id"] == "evidence-ledger" and item["available"] for item in artifact_payload)
     assert any(item["id"] == "evidence-coverage" and item["available"] for item in artifact_payload)
+
     artifacts_by_id = {item["id"]: item for item in artifact_payload}
     assert artifacts_by_id["original-spec"]["label_zh"] == "原始 Loop 契约"
     assert artifacts_by_id["compiled-spec"]["label_zh"] == "编译后契约"
@@ -155,35 +154,38 @@ def test_api_loop_creation_run_preview_and_stream(
         assert "workflow" not in zh_metadata
         assert "canonical" not in zh_metadata
         assert " run " not in f" {zh_metadata} "
+
+
+def _assert_artifact_file(
+    client: TestClient,
+    run_id: str,
+    artifact_id: str,
+    *,
+    expected_content: str | None = None,
+    content_fragment: str | None = None,
+) -> None:
+    artifact = client.get(f"/api/runs/{run_id}/artifacts/{artifact_id}")
+    assert artifact.status_code == 200
+    payload = artifact.json()
+    assert payload["kind"] == "file"
+    if expected_content is not None:
+        assert payload["content"] == expected_content
+    if content_fragment is not None:
+        assert content_fragment in payload["content"]
+
+
+def _assert_run_artifact_previews(client: TestClient, run_id: str, sample_spec_text: str) -> None:
     missing_artifact = client.get(f"/api/runs/{run_id}/artifacts/missing-artifact/download")
     assert missing_artifact.status_code == 404
     assert missing_artifact.json()["error"] == "unknown artifact"
+    _assert_artifact_file(client, run_id, "original-spec", expected_content=sample_spec_text)
+    _assert_artifact_file(client, run_id, "summary", content_fragment="Loopora Run Summary")
+    _assert_artifact_file(client, run_id, "latest-state", content_fragment="\"latest_iteration\"")
+    _assert_artifact_file(client, run_id, "evidence-ledger", content_fragment="gatekeeper")
+    _assert_artifact_file(client, run_id, "evidence-coverage", content_fragment="\"targets\"")
 
-    original_spec_artifact = client.get(f"/api/runs/{run_id}/artifacts/original-spec")
-    assert original_spec_artifact.status_code == 200
-    assert original_spec_artifact.json()["kind"] == "file"
-    assert original_spec_artifact.json()["content"] == sample_spec_text
 
-    summary_artifact = client.get(f"/api/runs/{run_id}/artifacts/summary")
-    assert summary_artifact.status_code == 200
-    assert summary_artifact.json()["kind"] == "file"
-    assert "Loopora Run Summary" in summary_artifact.json()["content"]
-
-    latest_state_artifact = client.get(f"/api/runs/{run_id}/artifacts/latest-state")
-    assert latest_state_artifact.status_code == 200
-    assert latest_state_artifact.json()["kind"] == "file"
-    assert "\"latest_iteration\"" in latest_state_artifact.json()["content"]
-
-    evidence_artifact = client.get(f"/api/runs/{run_id}/artifacts/evidence-ledger")
-    assert evidence_artifact.status_code == 200
-    assert evidence_artifact.json()["kind"] == "file"
-    assert "gatekeeper" in evidence_artifact.json()["content"]
-
-    coverage_artifact = client.get(f"/api/runs/{run_id}/artifacts/evidence-coverage")
-    assert coverage_artifact.status_code == 200
-    assert coverage_artifact.json()["kind"] == "file"
-    assert "\"targets\"" in coverage_artifact.json()["content"]
-
+def _assert_file_preview_safety(client: TestClient, run_id: str, sample_workdir: Path) -> None:
     binary_path = sample_workdir / ".DS_Store"
     binary_path.write_bytes(b"\x00\x01\x02binary-data")
     binary_preview = client.get(f"/api/files?run_id={run_id}&root=workdir&path=.DS_Store")
@@ -207,6 +209,12 @@ def test_api_loop_creation_run_preview_and_stream(
     assert "<script>" not in unsafe_preview.json()["rendered_html"]
     assert "&lt;script&gt;alert" in unsafe_preview.json()["rendered_html"]
 
+
+def _stream_body(stream_response) -> str:
+    return "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in stream_response.iter_text())
+
+
+def _assert_run_event_streaming(client: TestClient, run_id: str) -> None:
     events = client.get(f"/api/runs/{run_id}/events")
     assert events.status_code == 200
     event_payload = events.json()
@@ -214,13 +222,13 @@ def test_api_loop_creation_run_preview_and_stream(
 
     with client.stream("GET", f"/api/runs/{run_id}/stream") as stream_response:
         assert stream_response.status_code == 200
-        body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in stream_response.iter_text())
+        body = _stream_body(stream_response)
     assert "run_finished" in body or "keep-alive" in body
 
     latest_event_id = event_payload[-1]["id"]
     with client.stream("GET", f"/api/runs/{run_id}/stream?after_id={latest_event_id}") as stream_response:
         assert stream_response.status_code == 200
-        delta_body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in stream_response.iter_text())
+        delta_body = _stream_body(stream_response)
     assert "run_started" not in delta_body
 
     reconnect_from = event_payload[0]["id"]
@@ -230,8 +238,26 @@ def test_api_loop_creation_run_preview_and_stream(
         headers={"Last-Event-ID": str(reconnect_from)},
     ) as stream_response:
         assert stream_response.status_code == 200
-        reconnect_body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in stream_response.iter_text())
+        reconnect_body = _stream_body(stream_response)
     assert f"id: {reconnect_from}\n" not in reconnect_body
+
+
+def test_api_loop_creation_run_preview_and_stream(
+    service_factory,
+    sample_spec_file: Path,
+    sample_spec_text: str,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    run_id = _create_api_loop_run(client, sample_spec_file, sample_workdir)
+    _wait_for_run_success(client, run_id)
+    _assert_file_explorer_contract(client, run_id)
+    _assert_run_artifact_catalog(client, run_id)
+    _assert_run_artifact_previews(client, run_id, sample_spec_text)
+    _assert_file_preview_safety(client, run_id, sample_workdir)
+    _assert_run_event_streaming(client, run_id)
 
 
 def test_api_run_key_takeaways_returns_iteration_role_conclusions(
@@ -874,6 +900,9 @@ def test_api_run_stream_emits_redacted_stream_error_on_backend_failure() -> None
             return {"id": run_id, "status": "running", "loop_id": "loop_test"}
 
         def stream_events(self, run_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
+            assert run_id == "run_test"
+            assert after_id == 42
+            assert limit == 200
             raise RuntimeError("database unavailable")
 
     client = TestClient(build_app(service=FlakyService()))
@@ -907,6 +936,8 @@ def test_api_run_stream_logs_invalid_resume_cursor_and_keeps_request_cursor() ->
             return {"id": run_id, "status": "succeeded", "loop_id": "loop_test"}
 
         def stream_events(self, run_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
+            assert run_id == "run_test"
+            assert limit == 200
             captured["after_id"] = after_id
             return []
 
@@ -1014,7 +1045,8 @@ def test_run_detail_separates_status_verdict_and_reruns_terminal_run(
 
     assert rerun_response.status_code == 303
     new_run_id = rerun_response.headers["location"].removeprefix("/runs/")
-    assert new_run_id and new_run_id != run["id"]
+    assert new_run_id
+    assert new_run_id != run["id"]
     assert service.get_run(new_run_id)["loop_id"] == loop["id"]
     deadline = time.time() + 5
     while time.time() < deadline:

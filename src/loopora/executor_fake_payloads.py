@@ -416,13 +416,12 @@ def alignment_bundle_yaml_without_semantics(workdir: str) -> str:
         yaml_text,
         flags=re.DOTALL,
     )
-    yaml_text = re.sub(
+    return re.sub(
         r"\n    # Evidence Preferences\n\n    - .+?\n(?=\n    # Role Notes)",
         "\n",
         yaml_text,
         flags=re.DOTALL,
     )
-    return yaml_text
 
 
 def _should_destructively_clear_workdir(scenario: str, archetype: str) -> bool:

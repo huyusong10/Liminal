@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -13,22 +14,24 @@ pytestmark = pytest.mark.skipif(NODE is None, reason="node is required for local
 APP_JS = Path(__file__).resolve().parents[1] / "src" / "loopora" / "static" / "app.js"
 
 
-def _run_locale_case(
-    *,
-    saved: str | None = None,
-    languages: list[str] | None = None,
-    language: str | None = None,
-    user_language: str | None = None,
-    browser_language: str | None = None,
-    system_language: str | None = None,
-    intl_locale: str | None = None,
-) -> dict:
+@dataclass(frozen=True)
+class LocaleCase:
+    saved: str | None = None
+    languages: list[str] | None = None
+    language: str | None = None
+    user_language: str | None = None
+    browser_language: str | None = None
+    system_language: str | None = None
+    intl_locale: str | None = None
+
+
+def _run_locale_case(case: LocaleCase) -> dict:
     script = f"""
 const fs = require("fs");
 const vm = require("vm");
 const code = fs.readFileSync({json.dumps(str(APP_JS))}, "utf8");
 const storage = {{
-  value: {json.dumps(saved)},
+  value: {json.dumps(case.saved)},
   getItem(key) {{
     return key === "loopora:locale" ? this.value : null;
   }},
@@ -44,17 +47,17 @@ const document = {{
 }};
 const window = {{ localStorage: storage, LooporaUI: null }};
 const navigator = {{
-  languages: {json.dumps(languages)},
-  language: {json.dumps(language)},
-  userLanguage: {json.dumps(user_language)},
-  browserLanguage: {json.dumps(browser_language)},
-  systemLanguage: {json.dumps(system_language)},
+  languages: {json.dumps(case.languages)},
+  language: {json.dumps(case.language)},
+  userLanguage: {json.dumps(case.user_language)},
+  browserLanguage: {json.dumps(case.browser_language)},
+  systemLanguage: {json.dumps(case.system_language)},
 }};
 const Intl = {{
   DateTimeFormat() {{
     return {{
       resolvedOptions() {{
-        return {{ locale: {json.dumps(intl_locale)} }};
+        return {{ locale: {json.dumps(case.intl_locale)} }};
       }},
     }};
   }},
@@ -81,11 +84,13 @@ console.log(JSON.stringify({{
 
 def test_saved_locale_overrides_environment_detection() -> None:
     result = _run_locale_case(
-        saved="en",
-        languages=["zh-CN"],
-        language="zh-CN",
-        system_language="zh-CN",
-        intl_locale="zh-CN",
+        LocaleCase(
+            saved="en",
+            languages=["zh-CN"],
+            language="zh-CN",
+            system_language="zh-CN",
+            intl_locale="zh-CN",
+        )
     )
 
     assert result["preferred"] == "en"
@@ -95,10 +100,12 @@ def test_saved_locale_overrides_environment_detection() -> None:
 
 def test_system_chinese_defaults_to_chinese_even_if_browser_language_is_english() -> None:
     result = _run_locale_case(
-        languages=["en-US"],
-        language="en-US",
-        system_language="zh-CN",
-        intl_locale="zh-CN",
+        LocaleCase(
+            languages=["en-US"],
+            language="en-US",
+            system_language="zh-CN",
+            intl_locale="zh-CN",
+        )
     )
 
     assert result["preferred"] == "zh"
@@ -108,9 +115,11 @@ def test_system_chinese_defaults_to_chinese_even_if_browser_language_is_english(
 
 def test_primary_browser_chinese_defaults_to_chinese() -> None:
     result = _run_locale_case(
-        languages=["zh-CN", "en-US"],
-        language="zh-CN",
-        intl_locale="en-US",
+        LocaleCase(
+            languages=["zh-CN", "en-US"],
+            language="zh-CN",
+            intl_locale="en-US",
+        )
     )
 
     assert result["preferred"] == "zh"
@@ -157,10 +166,12 @@ console.log(JSON.stringify({{
 
 def test_secondary_browser_chinese_does_not_override_english_default() -> None:
     result = _run_locale_case(
-        languages=["en-US", "zh-CN"],
-        language="en-US",
-        browser_language="en-US",
-        intl_locale="en-US",
+        LocaleCase(
+            languages=["en-US", "zh-CN"],
+            language="en-US",
+            browser_language="en-US",
+            intl_locale="en-US",
+        )
     )
 
     assert result["preferred"] == "en"

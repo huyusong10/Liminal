@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import tomllib
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from loopora.skills import task_alignment_installer
 
@@ -82,11 +82,26 @@ def test_task_alignment_packaged_skill_matches_repo_copy(monkeypatch, tmp_path: 
 
 def test_runtime_assets_are_declared_for_package_data() -> None:
     repo_root = Path(__file__).resolve().parents[1]
+    package_root = repo_root / "src" / "loopora"
     pyproject = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
     package_data = set(pyproject["tool"]["setuptools"]["package-data"]["loopora"])
 
     assert "assets/prompts/*.md" in package_data
     assert "assets/spec_practices/*.md" in package_data
+    assert "static/pages/*.css" in package_data
     assert "skills/assets/*/SKILL.md" in package_data
     assert "skills/assets/*/agents/*.yaml" in package_data
     assert "skills/assets/*/references/*.md" in package_data
+
+    runtime_asset_files = [
+        path.relative_to(package_root).as_posix()
+        for asset_root in ("templates", "static", "assets", "skills/assets")
+        for path in (package_root / asset_root).rglob("*")
+        if path.is_file()
+    ]
+    unlisted_assets = [
+        relative_path
+        for relative_path in runtime_asset_files
+        if not any(PurePosixPath(relative_path).match(pattern) for pattern in package_data)
+    ]
+    assert unlisted_assets == []

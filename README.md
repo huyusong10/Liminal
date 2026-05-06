@@ -204,9 +204,11 @@ Stable commitments:
 
 ## Development
 
-Run the tests:
+Run the local checks:
 
 ```bash
 uv sync
+uv run ruff check .
+uv build --out-dir tmp/package-check
 uv run pytest -q
 ```

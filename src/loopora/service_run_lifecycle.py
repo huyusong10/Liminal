@@ -38,7 +38,7 @@ class ServiceRunLifecycleMixin:
                 return
             payload = build_run_key_takeaways(self._hydrate_run_files(run))
             self.repository.record_run_takeaway_projection(run_id, source_event_id, payload)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - takeaway projection failures must not change run state.
             log_exception(
                 logger,
                 "service.run_takeaway_projection.write_failed",
@@ -71,7 +71,7 @@ class ServiceRunLifecycleMixin:
                     else self._minimal_run_takeaway_projection(hydrated, source_event_id=source_event_id)
                 )
                 self.repository.record_run_takeaway_projection(run_id, source_event_id, payload)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - projection backfill is best-effort startup repair.
                 log_exception(
                     logger,
                     "service.run_takeaway_projection.backfill_failed",
@@ -282,7 +282,7 @@ class ServiceRunLifecycleMixin:
         if hasattr(self.repository, "mark_local_asset_root_state_by_path"):
             try:
                 self.repository.mark_local_asset_root_state_by_path(path=target, state=state)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - local asset registry marking is diagnostic-only cleanup.
                 record_cleanup_failure(
                     logger,
                     operation=f"{operation}_registry_mark",

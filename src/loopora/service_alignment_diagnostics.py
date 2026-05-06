@@ -9,7 +9,7 @@ from loopora.utils import utc_now
 def append_alignment_diagnostic_event(service, logger, session_id: str, event_type: str, payload: dict) -> dict:
     try:
         return service.repository.append_alignment_event(session_id, event_type, payload)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - diagnostic event writes must not mask the original operation.
         log_alignment_diagnostic_event_failure(
             logger,
             session_id=session_id,
@@ -33,7 +33,7 @@ def append_alignment_local_diagnostic_event(service, logger, session: dict, even
         }
         with paths["events"].open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event, ensure_ascii=False) + "\n")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - local diagnostic writes are best-effort fallback evidence.
         log_alignment_diagnostic_event_failure(
             logger,
             session_id=session.get("id", ""),

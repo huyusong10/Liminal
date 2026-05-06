@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
@@ -44,7 +44,7 @@ def main() -> None:
 
     payload = {
         "contract": "help-center-shadow-proof",
-        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "pass": checks,
         "summary": "Help-center slice is shadow-ready." if all(checks.values()) else "Help-center slice is not ready for shadow traffic yet.",
     }

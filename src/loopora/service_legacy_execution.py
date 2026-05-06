@@ -91,7 +91,7 @@ class ServiceLegacyExecutionMixin:
             return self._handle_legacy_role_execution_error(run_id, run, run_dir, exc)
         except WorkspaceSafetyError as exc:
             return self._handle_legacy_workspace_safety_error(run_id, run, run_dir, exc)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - legacy run crash boundary must persist failed run state.
             return self._handle_legacy_run_crash(run_id, run, run_dir, exc)
         finally:
             self._cleanup_run_execution(run_id, run, phase="run")

@@ -44,7 +44,7 @@ class RepositoryRunStateRecordsMixin:
 
     def _persist_run_update(self, run_id: str, updates: dict[str, object]) -> object:
         assignments = ", ".join(f"{column} = ?" for column in updates)
-        values = list(updates.values()) + [run_id]
+        values = [*updates.values(), run_id]
         with self.transaction() as connection:
             connection.execute(f"UPDATE loop_runs SET {assignments} WHERE id = ?", values)
             row = connection.execute("SELECT * FROM loop_runs WHERE id = ?", (run_id,)).fetchone()

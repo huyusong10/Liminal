@@ -79,9 +79,9 @@ def test_loop_delete_logs_artifact_cleanup_failure(
     def fail_rmtree(path: Path) -> None:
         if Path(path) == Path(run["runs_dir"]):
             raise OSError("run dir locked")
-        return None
+        return
 
-    def capture_log_event(logger, level, event, message, **context):
+    def capture_log_event(_logger, _level, event, message, **context):
         log_calls.append({"event": event, "message": message, "context": context})
 
     monkeypatch.setattr(cleanup_diagnostics.shutil, "rmtree", fail_rmtree)
@@ -109,11 +109,12 @@ def test_loop_delete_logs_registry_mark_failure_without_failing(
     log_calls: list[dict] = []
 
     def fail_registry_mark(*, path: Path, state: str) -> int:
+        assert state in {"cleaned", "orphaned"}
         if Path(path) == Path(run["runs_dir"]):
             raise RuntimeError("registry write failed")
         return 1
 
-    def capture_log_event(logger, level, event, message, **context):
+    def capture_log_event(_logger, _level, event, message, **context):
         log_calls.append({"event": event, "message": message, "context": context})
 
     monkeypatch.setattr(service.repository, "mark_local_asset_root_state_by_path", fail_registry_mark)
@@ -548,7 +549,7 @@ def test_benchmark_loop_can_finish_before_builder_runs(
     sample_workdir: Path,
 ) -> None:
     class BenchmarkPassingExecutor(CodexExecutor):
-        def execute(self, request, emit_event, should_stop, set_child_pid):
+        def execute(self, request, _emit_event, _should_stop, set_child_pid):
             set_child_pid(None)
             if request.role_archetype == "gatekeeper":
                 payload = {
@@ -574,7 +575,7 @@ def test_benchmark_loop_can_finish_before_builder_runs(
             raise AssertionError("Builder should not run when benchmark loop already passes.")
 
     service = service_factory(scenario="success")
-    service.executor_factory = lambda: BenchmarkPassingExecutor()
+    service.executor_factory = BenchmarkPassingExecutor
     loop = _create_loop(
         service,
         sample_spec_file,
@@ -598,7 +599,7 @@ def test_gatekeeper_pass_without_evidence_is_blocked(
     sample_workdir: Path,
 ) -> None:
     class UnsupportedPassingExecutor(CodexExecutor):
-        def execute(self, request, emit_event, should_stop, set_child_pid):
+        def execute(self, request, _emit_event, _should_stop, set_child_pid):
             set_child_pid(None)
             if request.role_archetype != "gatekeeper":
                 raise AssertionError("Only GateKeeper should run in this fixture.")
@@ -616,7 +617,7 @@ def test_gatekeeper_pass_without_evidence_is_blocked(
             return payload
 
     service = service_factory(scenario="success")
-    service.executor_factory = lambda: UnsupportedPassingExecutor()
+    service.executor_factory = UnsupportedPassingExecutor
     loop = _create_loop(
         service,
         sample_spec_file,
@@ -642,7 +643,7 @@ def test_gatekeeper_pass_with_claims_but_no_measured_evidence_is_blocked(
     sample_workdir: Path,
 ) -> None:
     class ClaimOnlyExecutor(CodexExecutor):
-        def execute(self, request, emit_event, should_stop, set_child_pid):
+        def execute(self, request, _emit_event, _should_stop, set_child_pid):
             set_child_pid(None)
             if request.role_archetype != "gatekeeper":
                 raise AssertionError("Only GateKeeper should run in this fixture.")
@@ -664,7 +665,7 @@ def test_gatekeeper_pass_with_claims_but_no_measured_evidence_is_blocked(
             return payload
 
     service = service_factory(scenario="success")
-    service.executor_factory = lambda: ClaimOnlyExecutor()
+    service.executor_factory = ClaimOnlyExecutor
     loop = _create_loop(
         service,
         sample_spec_file,
@@ -695,7 +696,7 @@ def test_workflow_step_can_resume_its_own_previous_session_and_append_extra_cli_
     recorded_requests: list[dict] = []
 
     class SessionAwareExecutor(CodexExecutor):
-        def execute(self, request, emit_event, should_stop, set_child_pid):
+        def execute(self, request, _emit_event, _should_stop, set_child_pid):
             set_child_pid(None)
             recorded_requests.append(
                 {
@@ -731,7 +732,7 @@ def test_workflow_step_can_resume_its_own_previous_session_and_append_extra_cli_
             return payload
 
     service = service_factory(scenario="success")
-    service.executor_factory = lambda: SessionAwareExecutor()
+    service.executor_factory = SessionAwareExecutor
     loop = _create_loop(
         service,
         sample_spec_file,
@@ -792,7 +793,7 @@ def test_parallel_inspection_group_fans_out_then_gatekeeper_sees_all_evidence(
             self.timings: dict[str, dict[str, float]] = {}
             self.lock = threading.Lock()
 
-        def execute(self, request, emit_event, should_stop, set_child_pid):
+        def execute(self, request, _emit_event, _should_stop, set_child_pid):
             set_child_pid(None)
             if request.role_archetype == "builder":
                 payload = {
@@ -951,7 +952,7 @@ def test_step_input_policy_filters_handoffs_and_evidence_context(
     recorded_gate_context: dict = {}
 
     class InputPolicyExecutor(CodexExecutor):
-        def execute(self, request, emit_event, should_stop, set_child_pid):
+        def execute(self, request, _emit_event, _should_stop, set_child_pid):
             set_child_pid(None)
             if request.role_archetype == "builder":
                 payload = {
@@ -999,7 +1000,7 @@ def test_step_input_policy_filters_handoffs_and_evidence_context(
             return payload
 
     service = service_factory(scenario="success")
-    service.executor_factory = lambda: InputPolicyExecutor()
+    service.executor_factory = InputPolicyExecutor
     workflow = {
         "version": 1,
         "roles": [
@@ -1175,7 +1176,7 @@ def test_workflow_roles_can_use_distinct_executor_snapshots(
 
 def test_custom_role_outputs_platform_takeaway_fields(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
     class CustomTakeawayExecutor(CodexExecutor):
-        def execute(self, request, emit_event, should_stop, set_child_pid):
+        def execute(self, request, _emit_event, _should_stop, set_child_pid):
             set_child_pid(None)
             if request.role_archetype == "custom":
                 payload = {
@@ -1212,7 +1213,7 @@ def test_custom_role_outputs_platform_takeaway_fields(service_factory, sample_sp
             return payload
 
     service = service_factory(scenario="success")
-    service.executor_factory = lambda: CustomTakeawayExecutor()
+    service.executor_factory = CustomTakeawayExecutor
     workflow = {
         "version": 1,
         "roles": [
@@ -1472,7 +1473,7 @@ def test_stop_requested_run_does_not_retry_the_active_role(
     sample_workdir: Path,
 ) -> None:
     class StopAwareExecutor(CodexExecutor):
-        def execute(self, request, emit_event, should_stop, set_child_pid):
+        def execute(self, _request, _emit_event, should_stop, _set_child_pid):
             deadline = time.time() + 0.4
             while time.time() < deadline:
                 if should_stop():
@@ -1487,7 +1488,7 @@ def test_stop_requested_run_does_not_retry_the_active_role(
             }
 
     service = service_factory(scenario="success")
-    service.executor_factory = lambda: StopAwareExecutor()
+    service.executor_factory = StopAwareExecutor
     loop = _create_loop(service, sample_spec_file, sample_workdir, name="Stop Retry Guard")
     run = service.start_run(loop["id"])
 

@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse
 
 from loopora.markdown_tools import render_safe_markdown_html
 from loopora.providers import list_executor_profiles
+from loopora.service import LooporaError
 from loopora.settings import load_recent_workdirs
 from loopora.specs import render_spec_template
 from loopora.web_inputs import (
@@ -26,6 +27,7 @@ from loopora.workflows import (
     build_preset_workflow,
     preset_names,
     resolve_prompt_files,
+    WorkflowError,
     workflow_preset_copy,
 )
 
@@ -159,7 +161,7 @@ class WebRouteLoopPagesMixin:
             page_copy["action"] = f"{page_copy['action']}?{urlencode({'return_to': return_to})}"
         try:
             spec_template_workflow = _workflow_for_spec_template(form_values)
-        except Exception:
+        except (LooporaError, WorkflowError, ValueError):
             spec_template_workflow = None
         generated_spec_template = render_spec_template(locale=page_locale, workflow=spec_template_workflow)
         spec_practice_markdown = ""

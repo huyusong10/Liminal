@@ -12,6 +12,9 @@ def test_reveal_path_uses_finder_on_macos(monkeypatch, tmp_path: Path) -> None:
     calls: list[list[str]] = []
 
     def fake_run(command, capture_output, text, check):
+        assert capture_output is True
+        assert text is True
+        assert check is False
         calls.append(command)
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
@@ -49,6 +52,9 @@ def test_reveal_path_uses_xdg_open_on_linux(monkeypatch, tmp_path: Path) -> None
     calls: list[list[str]] = []
 
     def fake_run(command, capture_output, text, check):
+        assert capture_output is True
+        assert text is True
+        assert check is False
         calls.append(command)
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 

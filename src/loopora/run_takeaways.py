@@ -54,8 +54,7 @@ def strip_markdown(value: str | None) -> str:
     text = re.sub(r"^#{1,6}\s*", "", text, flags=re.M)
     text = re.sub(r"^\s*[-*+]\s*", "", text, flags=re.M)
     text = re.sub(r"^\s*\d+\.\s*", "", text, flags=re.M)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def truncate_text(value: str, max_length: int = 140) -> str:
@@ -161,21 +160,19 @@ def build_structured_iteration_takeaways(run: dict) -> list[dict]:
     iter_ids = sorted(set(summaries_by_iter) | set(handoffs_by_iter))
     current_iter_id = _current_iter_id(run)
 
-    iterations: list[dict] = []
-    for iter_id in iter_ids:
-        iterations.append(
-            _build_structured_iteration_takeaway(
-                run,
-                iter_id=iter_id,
-                summary_payload=summaries_by_iter.get(iter_id) or {},
-                handoffs=sorted(
-                    handoffs_by_iter.get(iter_id, []),
-                    key=_handoff_step_order,
-                ),
-                current_iter_id=current_iter_id,
-            )
+    return [
+        _build_structured_iteration_takeaway(
+            run,
+            iter_id=iter_id,
+            summary_payload=summaries_by_iter.get(iter_id) or {},
+            handoffs=sorted(
+                handoffs_by_iter.get(iter_id, []),
+                key=_handoff_step_order,
+            ),
+            current_iter_id=current_iter_id,
         )
-    return iterations
+        for iter_id in iter_ids
+    ]
 
 
 def _iteration_summaries_by_iter(runs_dir: Path) -> dict[int, dict]:

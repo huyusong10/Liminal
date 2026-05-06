@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from os import PathLike
@@ -66,11 +67,9 @@ def log_cleanup_diagnostic(logger, *, message: str = "Non-critical cleanup opera
             message,
             **payload,
         )
-    except Exception:
-        try:
+    except Exception:  # noqa: BLE001 - diagnostic logging must never raise into cleanup paths.
+        with suppress(Exception):
             logger.warning("Cleanup diagnostic logging failed")
-        except Exception:
-            pass
 
 
 def record_cleanup_failure(
@@ -119,7 +118,7 @@ def best_effort_rmtree(
         if request.on_failure is not None:
             try:
                 request.on_failure(payload)
-            except Exception as callback_exc:
+            except Exception as callback_exc:  # noqa: BLE001 - diagnostic callbacks are best-effort.
                 record_cleanup_failure(
                     logger,
                     CleanupFailureRequest(

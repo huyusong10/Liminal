@@ -100,7 +100,7 @@ class ServiceOrchestrationAssetMixin:
                     if hasattr(self, "_sync_bundle_loop_snapshot"):
                         try:
                             self._sync_bundle_loop_snapshot(bundle["id"])
-                        except Exception as rollback_exc:
+                        except Exception as rollback_exc:  # noqa: BLE001 - rollback diagnostics must preserve the original update error.
                             record_bundle_asset_update_rollback_failure(self, bundle, rollback_exc)
                 raise
         log_event(

@@ -92,7 +92,7 @@ def load_or_build_evidence_coverage_projection(layout: RunArtifactLayout) -> dic
     if layout.evidence_coverage_path.exists():
         try:
             payload = read_json(layout.evidence_coverage_path)
-        except Exception:
+        except (OSError, UnicodeError, ValueError):
             payload = {}
         if isinstance(payload, dict) and payload.get("schema_version") == 1:
             return payload

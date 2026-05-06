@@ -141,7 +141,7 @@ def _alignment_event_stream(ctx: WebRouteContext, *, session_id: str, after_id: 
                 yield f"event: {event['event_type']}\n"
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             session = ctx.svc().get_alignment_session(session_id)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - SSE streams must surface failures as stream_error events.
             log_exception(
                 ctx.logger,
                 "web.alignment_stream.failed",

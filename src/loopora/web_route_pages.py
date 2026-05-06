@@ -127,7 +127,7 @@ def _register_support_pages(app: FastAPI, ctx: WebRouteContext) -> None:
         return ctx.render_tutorial(request)
 
     @app.get("/runs", response_class=HTMLResponse)
-    async def runs_page(request: Request) -> RedirectResponse:
+    async def runs_page() -> RedirectResponse:
         return RedirectResponse(url="/#activity", status_code=303)
 
 

@@ -112,10 +112,7 @@ class ServiceBundleAssetMixin:
         for bundle in self.list_bundles():
             try:
                 exported_bundle = self.export_bundle(bundle["id"])
-                governance_summary = self._bundle_governance_summary(
-                    exported_bundle,
-                    current_bundle_id=bundle["id"],
-                )
+                governance_summary = self._bundle_governance_summary(exported_bundle)
             except LooporaError:
                 governance_summary = self._empty_bundle_governance_summary()
             cards.append({**bundle, "governance_summary": governance_summary})
@@ -184,11 +181,11 @@ class ServiceBundleAssetMixin:
         return bundle_to_yaml(self.export_bundle(bundle_id))
 
     def get_bundle_revision_summary(self, bundle_id: str) -> dict:
-        _bundle = self.get_bundle(bundle_id)
-        return self._bundle_revision_summary({}, current_bundle_id=bundle_id)
+        self.get_bundle(bundle_id)
+        return self._bundle_revision_summary()
 
     def get_bundle_governance_summary(self, bundle_id: str) -> dict:
-        return self._bundle_governance_summary(self.export_bundle(bundle_id), current_bundle_id=bundle_id)
+        return self._bundle_governance_summary(self.export_bundle(bundle_id))
 
     def _bundle_preview_payload(
         self,
@@ -236,7 +233,7 @@ class ServiceBundleAssetMixin:
     def _bundle_control_summary(bundle: dict) -> dict:
         return build_bundle_control_summary(bundle)
 
-    def _bundle_governance_summary(self, bundle: dict, *, current_bundle_id: str = "") -> dict:
+    def _bundle_governance_summary(self, bundle: dict) -> dict:
         try:
             compiled_spec = compile_markdown_spec(str(bundle.get("spec", {}).get("markdown") or ""))
         except SpecError:
@@ -282,7 +279,8 @@ class ServiceBundleAssetMixin:
             },
         }
 
-    def _bundle_revision_summary(self, bundle: dict, *, current_bundle_id: str = "") -> dict:
+    @staticmethod
+    def _bundle_revision_summary() -> dict:
         return {
             "revision": 1,
             "source_bundle_id": "",
@@ -414,7 +412,7 @@ class ServiceBundleAssetMixin:
         description: str | None = None,
         collaboration_summary: str | None = None,
         spec_markdown: str | None = None,
-        bump_revision: bool = True,
+        bump_revision: bool = True,  # noqa: ARG002 - retained for compatibility; revisions are not tracked.
     ) -> dict:
         bundle = self.get_bundle(bundle_id)
         normalized_markdown = None
@@ -798,7 +796,7 @@ class ServiceBundleAssetMixin:
         if loop_id:
             try:
                 self.delete_loop(loop_id, allow_bundle_owned=True)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - rollback cleanup must preserve the original import failure.
                 self._record_bundle_cleanup_failure(
                     operation="bundle_import_rollback",
                     resource_type="loop",
@@ -809,7 +807,7 @@ class ServiceBundleAssetMixin:
         if orchestration_id:
             try:
                 self.delete_orchestration(orchestration_id, allow_bundle_owned=True)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - rollback cleanup must preserve the original import failure.
                 self._record_bundle_cleanup_failure(
                     operation="bundle_import_rollback",
                     resource_type="orchestration",
@@ -820,7 +818,7 @@ class ServiceBundleAssetMixin:
         for role_definition_id in role_definition_ids:
             try:
                 self.delete_role_definition(role_definition_id, allow_bundle_owned=True)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - rollback cleanup must preserve the original import failure.
                 self._record_bundle_cleanup_failure(
                     operation="bundle_import_rollback",
                     resource_type="role_definition",
@@ -1057,13 +1055,13 @@ class ServiceBundleAssetMixin:
         bundle = self._bundle_record_for_orchestration_id(orchestration_id)
         if not bundle:
             return None
-        return self.update_bundle(bundle["id"], bump_revision=True)
+        return self.update_bundle(bundle["id"])
 
     def _touch_bundle_for_role_definition(self, role_definition_id: str) -> dict | None:
         bundle = self._bundle_record_for_role_definition_id(role_definition_id)
         if not bundle:
             return None
-        return self.update_bundle(bundle["id"], bump_revision=True)
+        return self.update_bundle(bundle["id"])
 
     def _delete_bundle_links(
         self,

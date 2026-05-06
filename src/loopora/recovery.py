@@ -41,7 +41,7 @@ def execute_with_recovery(
             cycle_attempts += 1
             try:
                 return fn()
-            except Exception as exc:  # noqa: PERF203
+            except Exception as exc:  # noqa: BLE001 - recovery wrappers must capture callable failures for retry/degrade.
                 last_exc = exc
             if config.max_retries != 0 and cycle_attempts > config.max_retries:
                 return _SENTINEL

@@ -64,11 +64,9 @@ def stream_process(
                 raise ProcessStreamStopped(f"run {context.run_id} stopped while {context.role} was running")
 
             raw_line = _next_stream_line(output_queue)
-            if raw_line is _NO_LINE:
-                pass
-            elif raw_line is None:
+            if raw_line is None:
                 stream_closed = True
-            else:
+            elif raw_line is not _NO_LINE:
                 last_output_at = time.monotonic()
                 _handle_stream_line(raw_line, callbacks.line_handler)
 

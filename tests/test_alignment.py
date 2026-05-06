@@ -351,14 +351,16 @@ def test_alignment_stream_emits_redacted_stream_error_on_backend_failure(caplog)
             return {"id": session_id, "status": "running"}
 
         def list_alignment_events(self, session_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
+            assert session_id == "session_test"
+            assert after_id == 9
+            assert limit == 200
             raise RuntimeError("alignment database unavailable")
 
     client = TestClient(build_app(service=FlakyService()))
 
-    with caplog.at_level(logging.ERROR, logger="loopora.web"):
-        with client.stream("GET", "/api/alignments/sessions/session_test/stream?after_id=9") as response:
-            assert response.status_code == 200
-            body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text())
+    with caplog.at_level(logging.ERROR, logger="loopora.web"), client.stream("GET", "/api/alignments/sessions/session_test/stream?after_id=9") as response:
+        assert response.status_code == 200
+        body = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text())
 
     assert "event: stream_error" in body
     assert "alignment database unavailable" not in body

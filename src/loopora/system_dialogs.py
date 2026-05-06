@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 
@@ -87,7 +88,7 @@ def _run_osascript_dialog(kind: str, *, start_path: str | None, default_name: st
         "file": "Select a spec file",
         "save": "Choose where to create the spec template",
     }
-    location = _dialog_location(start_path, for_file=(kind == "file"))
+    location = _dialog_location(start_path)
     clauses = [f'with prompt "{_escape_applescript(prompt_map[kind])}"']
     if location is not None:
         clauses.append(f'default location POSIX file "{_escape_applescript(str(location))}"')
@@ -125,12 +126,12 @@ def _run_tk_dialog(kind: str, *, start_path: str | None, default_name: str) -> s
     except Exception as exc:  # pragma: no cover - platform dependent
         raise SystemDialogError("native dialogs are unavailable in this environment") from exc
 
-    initial = _dialog_location(start_path, for_file=(kind == "file"))
+    initial = _dialog_location(start_path)
     root = None
     try:
         root = tk.Tk()
         root.withdraw()
-        root.attributes("-topmost", True)
+        root.attributes("-topmost", True)  # noqa: FBT003 - tkinter requires positional attribute values.
         if kind == "directory":
             selected = filedialog.askdirectory(initialdir=str(initial) if initial else None)
         elif kind == "file":
@@ -148,22 +149,20 @@ def _run_tk_dialog(kind: str, *, start_path: str | None, default_name: str) -> s
     except Exception as exc:  # pragma: no cover - platform dependent
         raise SystemDialogError("failed to open a native dialog") from exc
     finally:  # pragma: no branch - best effort cleanup
-        try:
+        with suppress(Exception):
             root.destroy()
-        except Exception:
-            pass
 
     return str(Path(selected).expanduser().resolve()) if selected else None
 
 
-def _dialog_location(start_path: str | None, *, for_file: bool) -> Path | None:
+def _dialog_location(start_path: str | None) -> Path | None:
     if not start_path:
         return None
     path = Path(start_path).expanduser()
     if path.exists():
         if path.is_dir():
             return path
-        return path.parent if for_file else path.parent
+        return path.parent
     if path.suffix:
         return path.parent
     return path

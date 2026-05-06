@@ -103,7 +103,7 @@ ALIGNMENT_RESPONSE_SCHEMA: dict[str, Any] = {
                 "workdir_facts": {"type": "string"},
                 "open_questions": {"type": "string"},
             },
-            "required": ALIGNMENT_READINESS_EVIDENCE_KEYS + ["open_questions"],
+            "required": [*ALIGNMENT_READINESS_EVIDENCE_KEYS, "open_questions"],
         },
     },
     "required": [
@@ -819,7 +819,7 @@ class ServiceAlignmentMixin:
                 return
         except ExecutionStopped:
             self._fail_alignment_session(session_id, "Cancelled by user.", event_type="alignment_cancelled")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - alignment worker crash boundary must persist session failure.
             log_exception(
                 logger,
                 "service.alignment.failed",
@@ -831,7 +831,7 @@ class ServiceAlignmentMixin:
         finally:
             self.repository.update_alignment_session(session_id, clear_active_child_pid=True)
             thread = self._threads.get(key)
-            if thread is threading.current_thread() or thread and not thread.is_alive():
+            if (thread is threading.current_thread()) or (thread is not None and not thread.is_alive()):
                 self._threads.pop(key, None)
 
     def _alignment_output_message_and_bundle(self, session_id: str, session: dict, output: dict) -> tuple[str, str]:

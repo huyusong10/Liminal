@@ -204,8 +204,11 @@ Loopora 仍处于实验阶段，并坚持 local-first。
 
 ## 开发
 
-运行测试：
+运行本地检查：
 
 ```bash
+uv sync
+uv run ruff check .
+uv build --out-dir tmp/package-check
 uv run pytest -q
 ```

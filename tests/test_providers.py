@@ -295,7 +295,7 @@ def test_extra_cli_args_validation_rejects_unbalanced_quotes() -> None:
         validate_extra_cli_args_text('--verbose "unterminated')
 
 
-def test_claude_stream_parser_extracts_structured_output(tmp_path: Path) -> None:
+def test_claude_stream_parser_extracts_structured_output() -> None:
     executor = RealCodexExecutor()
     state = {"blocks": {}, "structured_output": None}
     emitted: list[tuple[str, dict]] = []
@@ -341,7 +341,7 @@ def test_claude_stream_parser_extracts_structured_output(tmp_path: Path) -> None
     assert ("codex_event", {"type": "stdout", "message": "done"}) in emitted
 
 
-def test_claude_stream_parser_logs_tool_use_and_tool_result(tmp_path: Path) -> None:
+def test_claude_stream_parser_logs_tool_use_and_tool_result() -> None:
     executor = RealCodexExecutor()
     state = {"blocks": {}, "structured_output": None}
     emitted: list[tuple[str, dict]] = []
@@ -393,7 +393,7 @@ def test_claude_stream_parser_summarizes_system_metadata() -> None:
     ]
 
 
-def test_claude_stream_parser_truncates_large_tool_results(tmp_path: Path) -> None:
+def test_claude_stream_parser_truncates_large_tool_results() -> None:
     executor = RealCodexExecutor()
     state = {"blocks": {}, "structured_output": None}
     emitted: list[tuple[str, dict]] = []
@@ -418,7 +418,7 @@ def test_claude_stream_parser_truncates_large_tool_results(tmp_path: Path) -> No
     assert "line 39" not in message
 
 
-def test_opencode_text_parser_extracts_json_object(tmp_path: Path) -> None:
+def test_opencode_text_parser_extracts_json_object() -> None:
     executor = RealCodexExecutor()
     state = {"latest_text": "", "text_parts": []}
     emitted: list[tuple[str, dict]] = []

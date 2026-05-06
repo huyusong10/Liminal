@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+import logging
 from pathlib import Path
 import sys
 
@@ -10,6 +12,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from loopora.branding import APP_PACKAGE
 from loopora.db import LooporaRepository
 from loopora.executor import FakeCodexExecutor
 from loopora.service import LooporaService
@@ -21,7 +24,26 @@ def isolate_loopora_home(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LOOPORA_HOME", str(tmp_path / "loopora-home"))
 
 
-@pytest.fixture()
+@pytest.fixture(autouse=True)
+def isolate_loopora_logging() -> Iterator[None]:
+    package_logger = logging.getLogger(APP_PACKAGE)
+    original_level = package_logger.level
+    original_propagate = package_logger.propagate
+    original_disabled = package_logger.disabled
+    original_handlers = list(package_logger.handlers)
+
+    yield
+
+    for handler in list(package_logger.handlers):
+        if handler not in original_handlers:
+            handler.close()
+    package_logger.handlers[:] = original_handlers
+    package_logger.setLevel(original_level)
+    package_logger.propagate = original_propagate
+    package_logger.disabled = original_disabled
+
+
+@pytest.fixture
 def sample_spec_text() -> str:
     return """# Task
 
@@ -61,14 +83,14 @@ Move the workspace toward a verifiable state with focused edits.
 """
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_spec_file(tmp_path: Path, sample_spec_text: str) -> Path:
     path = tmp_path / "spec.md"
     path.write_text(sample_spec_text, encoding="utf-8")
     return path
 
 
-@pytest.fixture()
+@pytest.fixture
 def exploratory_spec_text() -> str:
     return """# Task
 
@@ -81,14 +103,14 @@ Build a rough prototype that proves the main interaction is promising.
 """
 
 
-@pytest.fixture()
+@pytest.fixture
 def exploratory_spec_file(tmp_path: Path, exploratory_spec_text: str) -> Path:
     path = tmp_path / "exploratory-spec.md"
     path.write_text(exploratory_spec_text, encoding="utf-8")
     return path
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_workdir(tmp_path: Path) -> Path:
     workdir = tmp_path / "workdir"
     workdir.mkdir()
@@ -96,7 +118,7 @@ def sample_workdir(tmp_path: Path) -> Path:
     return workdir
 
 
-@pytest.fixture()
+@pytest.fixture
 def service_factory(tmp_path: Path):
     def build(*, scenario: str = "success", role_delay: float = 0.0) -> LooporaService:
         repository = LooporaRepository(tmp_path / "app.db")

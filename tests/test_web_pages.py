@@ -906,6 +906,199 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     assert 'aria-label="查看提示：只会在检测到有运行正在执行时请求浏览器保持屏幕唤醒，没有运行中的 Loop 会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收防休眠锁，页面也会在重新可见后自动重试。"' in zh_response.text
 
 
+def _assert_new_loop_choice_page(html: str) -> None:
+    _assert_has_testids(
+        html,
+        "loop-create-page",
+        "loop-create-choice-page",
+        "loop-create-bundle-choice",
+        "loop-create-manual-choice",
+        "loop-create-bundle-link",
+        "loop-create-manual-link",
+    )
+    assert "/static/pages/new_loop.js?v=" not in html
+    assert "/static/pages/alignment.js?v=" not in html
+    assert "/static/pages/workflow_editor.css?v=" in html
+    assert "/static/pages/alignment.css?v=" in html
+    assert 'href="/loops/new/bundle"' in html
+    assert 'href="/loops/new/manual#manual-loop-form"' in html
+    assert '<title>Create Loop</title>' in html
+
+
+def _assert_bundle_compose_page(html: str) -> None:
+    assert "/static/pages/alignment.js?v=" in html
+    assert "/static/pages/workflow_diagram.js?v=" in html
+    assert "/static/pages/workflow_editor.css?v=" in html
+    assert "/static/pages/alignment.css?v=" in html
+    assert "/static/pages/new_loop.js?v=" not in html
+    _assert_has_testids(
+        html,
+        "loop-create-page",
+        "alignment-history-panel",
+        "loop-compose-shell",
+        "alignment-secondary-paths",
+        "alignment-path-chat",
+        "alignment-path-import",
+        "alignment-path-manual",
+        "alignment-history-list",
+        "loop-alignment-panel",
+        "alignment-scroll-region",
+        "alignment-empty-state",
+        "alignment-start-form",
+        "alignment-tools-menu",
+        "alignment-tools-close",
+        "alignment-workdir-panel",
+        "alignment-advanced-panel",
+        "alignment-executor-kind",
+        "alignment-executor-mode-switch",
+        "alignment-mode-preset-button",
+        "alignment-mode-command-button",
+        "alignment-executor-mode-input",
+        "alignment-message-input",
+        "alignment-chat",
+        "alignment-thinking-status",
+        "alignment-live-details",
+        "alignment-live-summary-meta",
+        "alignment-ready-preview",
+        "alignment-artifact-summary",
+        "alignment-control-summary",
+        "alignment-preview-tabs",
+        "alignment-preview-tab-spec",
+        "alignment-preview-tab-roles",
+        "alignment-preview-tab-workflow",
+        "alignment-workflow-diagram",
+        "alignment-import-run-button",
+        "alignment-source-open-button",
+        "alignment-source-sync-button",
+    )
+    for artifact_anchor in (
+        'id="alignment-artifact-task"',
+        'id="alignment-artifact-risk"',
+        'id="alignment-artifact-evidence"',
+        'id="alignment-artifact-verdict"',
+    ):
+        assert artifact_anchor in html
+    for removed_surface in (
+        'data-testid="alignment-preview-tab-yaml"',
+        'data-testid="alignment-import-open-button"',
+        'data-testid="alignment-import-panel"',
+        'data-testid="nav-create-loop-menu"',
+        'data-testid="loop-bundle-import-form"',
+        'data-testid="alignment-advanced-chip"',
+        'action="/loops/new/bundle/import-bundle"',
+        'name="bundle_yaml"',
+    ):
+        assert removed_surface not in html
+    assert 'data-compose-mode="bundle"' in html
+    assert 'placeholder="Leave blank for Codex CLI default"' in html
+    assert "{resume_session_id}" in html
+    assert '<title>Loop Composer</title>' in html
+
+
+def _assert_prefilled_bundle_compose_page(html: str) -> None:
+    assert ">Advance this Loop</textarea>" in html
+    assert 'value="/tmp/loopora-demo"' in html
+
+
+def _assert_manual_compose_page(html: str) -> None:
+    assert "/static/pages/new_loop.js?v=" in html
+    assert "/static/markdown_workbench.js?v=" in html
+    assert "/static/pages/bundle_import.js?v=" in html
+    assert "/static/pages/alignment.js?v=" not in html
+    _assert_has_testids(
+        html,
+        "loop-compose-shell",
+        "alignment-history-panel",
+        "alignment-secondary-paths",
+        "alignment-path-chat",
+        "alignment-path-import",
+        "alignment-path-manual",
+        "alignment-history-list",
+        "loop-manual-compose-panel",
+        "compose-mode-scroll",
+        "manual-compose-section",
+        "manual-bundle-import-panel",
+        "loop-bundle-import-form",
+        "bundle-preview-button",
+        "bundle-preview-import-button",
+        "alignment-source-open-button",
+        "loop-create-form",
+        "nav-menu-orchestrations-link",
+        "nav-menu-roles-link",
+        "workdir-browse-button",
+        "spec-editor-button",
+        "spec-template-button",
+        "spec-editor-modal",
+        "spec-editor-preview-toggle-button",
+        "save-spec-document-button",
+        "spec-editor-validation-pill",
+        "spec-editor-workbench",
+        "loop-orchestration-input",
+        "loop-completion-mode-input",
+        "loop-completion-mode-field",
+        "loop-trigger-window-field",
+        "loop-regression-window-field",
+        "loop-iteration-interval-input",
+        "loop-orchestration-panel-tip",
+        "loop-completion-mode-tip",
+        "loop-trigger-window-tip",
+        "loop-regression-window-tip",
+    )
+    assert 'data-compose-mode="manual"' in html
+    assert 'data-compose-mode-section="import"' in html
+    assert re.search(r'data-compose-mode-section="import"[^>]*hidden', html)
+    assert 'data-compose-mode-section="manual"' in html
+    assert 'data-testid="alignment-preview-tab-yaml"' not in html
+    assert "name=\"executor_kind\"" not in html
+    assert "name=\"executor_mode\"" not in html
+    assert "name=\"orchestration_id\"" in html
+    assert "name=\"completion_mode\"" in html
+    assert 'action="/loops/new/manual/import-bundle"' in html
+    assert 'name="bundle_yaml"' in html
+    assert 'name="replace_bundle_id"' in html
+    assert "name=\"iteration_interval_seconds\"" in html
+    for spec_editor_marker in (
+        "id=\"edit-spec\"",
+        "id=\"toggle-spec-preview\"",
+        "id=\"spec-editor-input\"",
+        "id=\"spec-preview-content\"",
+    ):
+        assert spec_editor_marker in html
+    for present_text in (
+        "Spec editor",
+        "Generate from orchestration",
+        "Manual Expert Mode",
+        'class="panel-header workflow-editor-header"',
+        'class="card-actions card-actions-compact"',
+        '<title>Create Loop Manually</title>',
+        'data-label-zh="守门裁决"',
+        ">GateKeeper</option>",
+        ">Rounds</option>",
+        'aria-label="Show tip:',
+        "角色定义",
+    ):
+        assert present_text in html
+    for removed_text in (
+        "Role runtime reminder",
+        "Spec reminder",
+        "Extra tools",
+        'data-testid="loop-spec-practice-hint"',
+        "workflow-json-input",
+    ):
+        assert removed_text not in html
+
+
+def _assert_zh_manual_compose_page(html: str) -> None:
+    assert '<title>手动编排 Loop</title>' in html
+    assert "手动编排" in html
+    assert 'aria-label="查看提示：' in html
+    zh_completion_mode = html.split('id="completion-mode-input"', 1)[1].split("</select>", 1)[0]
+    assert ">守门裁决</option>" in zh_completion_mode
+    assert ">轮次推进</option>" in zh_completion_mode
+    assert ">GateKeeper</option>" not in zh_completion_mode
+    assert ">Rounds</option>" not in zh_completion_mode
+
+
 def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     service = service_factory(scenario="success")
 
@@ -913,174 +1106,25 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     response = client.get("/loops/new")
 
     assert response.status_code == 200
-    _assert_has_testid(response.text, "loop-create-page")
-    _assert_has_testid(response.text, "loop-create-choice-page")
-    _assert_has_testid(response.text, "loop-create-bundle-choice")
-    _assert_has_testid(response.text, "loop-create-manual-choice")
-    _assert_has_testid(response.text, "loop-create-bundle-link")
-    _assert_has_testid(response.text, "loop-create-manual-link")
-    assert "/static/pages/new_loop.js?v=" not in response.text
-    assert "/static/pages/alignment.js?v=" not in response.text
-    assert "/static/pages/workflow_editor.css?v=" in response.text
-    assert "/static/pages/alignment.css?v=" in response.text
-    assert 'href="/loops/new/bundle"' in response.text
-    assert 'href="/loops/new/manual#manual-loop-form"' in response.text
-    assert '<title>Create Loop</title>' in response.text
+    _assert_new_loop_choice_page(response.text)
 
     bundle_response = client.get("/loops/new/bundle")
     assert bundle_response.status_code == 200
-    assert "/static/pages/alignment.js?v=" in bundle_response.text
-    assert "/static/pages/workflow_diagram.js?v=" in bundle_response.text
-    assert "/static/pages/workflow_editor.css?v=" in bundle_response.text
-    assert "/static/pages/alignment.css?v=" in bundle_response.text
-    assert "/static/pages/new_loop.js?v=" not in bundle_response.text
-    _assert_has_testid(bundle_response.text, "loop-create-page")
-    _assert_has_testid(bundle_response.text, "alignment-history-panel")
-    _assert_has_testid(bundle_response.text, "loop-compose-shell")
-    _assert_has_testid(bundle_response.text, "alignment-secondary-paths")
-    _assert_has_testid(bundle_response.text, "alignment-path-chat")
-    _assert_has_testid(bundle_response.text, "alignment-path-import")
-    _assert_has_testid(bundle_response.text, "alignment-path-manual")
-    _assert_has_testid(bundle_response.text, "alignment-history-list")
-    _assert_has_testid(bundle_response.text, "loop-alignment-panel")
-    _assert_has_testid(bundle_response.text, "alignment-scroll-region")
-    _assert_has_testid(bundle_response.text, "alignment-empty-state")
-    _assert_has_testid(bundle_response.text, "alignment-start-form")
-    _assert_has_testid(bundle_response.text, "alignment-tools-menu")
-    _assert_has_testid(bundle_response.text, "alignment-tools-close")
-    _assert_has_testid(bundle_response.text, "alignment-workdir-panel")
-    _assert_has_testid(bundle_response.text, "alignment-advanced-panel")
-    _assert_has_testid(bundle_response.text, "alignment-executor-kind")
-    _assert_has_testid(bundle_response.text, "alignment-executor-mode-switch")
-    _assert_has_testid(bundle_response.text, "alignment-mode-preset-button")
-    _assert_has_testid(bundle_response.text, "alignment-mode-command-button")
-    _assert_has_testid(bundle_response.text, "alignment-executor-mode-input")
-    _assert_has_testid(bundle_response.text, "alignment-message-input")
-    _assert_has_testid(bundle_response.text, "alignment-chat")
-    _assert_has_testid(bundle_response.text, "alignment-thinking-status")
-    _assert_has_testid(bundle_response.text, "alignment-live-details")
-    _assert_has_testid(bundle_response.text, "alignment-live-summary-meta")
-    _assert_has_testid(bundle_response.text, "alignment-ready-preview")
-    _assert_has_testid(bundle_response.text, "alignment-artifact-summary")
-    assert 'id="alignment-artifact-task"' in bundle_response.text
-    assert 'id="alignment-artifact-risk"' in bundle_response.text
-    assert 'id="alignment-artifact-evidence"' in bundle_response.text
-    assert 'id="alignment-artifact-verdict"' in bundle_response.text
-    _assert_has_testid(bundle_response.text, "alignment-control-summary")
-    _assert_has_testid(bundle_response.text, "alignment-preview-tabs")
-    _assert_has_testid(bundle_response.text, "alignment-preview-tab-spec")
-    _assert_has_testid(bundle_response.text, "alignment-preview-tab-roles")
-    _assert_has_testid(bundle_response.text, "alignment-preview-tab-workflow")
-    assert 'data-testid="alignment-preview-tab-yaml"' not in bundle_response.text
-    _assert_has_testid(bundle_response.text, "alignment-workflow-diagram")
-    _assert_has_testid(bundle_response.text, "alignment-import-run-button")
-    _assert_has_testid(bundle_response.text, "alignment-source-open-button")
-    _assert_has_testid(bundle_response.text, "alignment-source-sync-button")
-    assert 'data-compose-mode="bundle"' in bundle_response.text
-    assert 'data-testid="alignment-import-open-button"' not in bundle_response.text
-    assert 'data-testid="alignment-import-panel"' not in bundle_response.text
-    assert 'data-testid="nav-create-loop-menu"' not in bundle_response.text
-    assert 'data-testid="loop-bundle-import-form"' not in bundle_response.text
-    assert 'action="/loops/new/bundle/import-bundle"' not in bundle_response.text
-    assert 'name="bundle_yaml"' not in bundle_response.text
-    assert 'placeholder="Leave blank for Codex CLI default"' in bundle_response.text
-    assert "{resume_session_id}" in bundle_response.text
-    assert 'data-testid="alignment-advanced-chip"' not in bundle_response.text
-    assert '<title>Loop Composer</title>' in bundle_response.text
+    _assert_bundle_compose_page(bundle_response.text)
 
     prefilled_bundle_response = client.get(
         "/loops/new/bundle?alignment_message=Advance%20this%20Loop&alignment_workdir=%2Ftmp%2Floopora-demo"
     )
     assert prefilled_bundle_response.status_code == 200
-    assert ">Advance this Loop</textarea>" in prefilled_bundle_response.text
-    assert 'value="/tmp/loopora-demo"' in prefilled_bundle_response.text
+    _assert_prefilled_bundle_compose_page(prefilled_bundle_response.text)
 
     manual_response = client.get("/loops/new/manual")
     assert manual_response.status_code == 200
-    assert "/static/pages/new_loop.js?v=" in manual_response.text
-    assert "/static/markdown_workbench.js?v=" in manual_response.text
-    assert "/static/pages/bundle_import.js?v=" in manual_response.text
-    assert "/static/pages/alignment.js?v=" not in manual_response.text
-    _assert_has_testid(manual_response.text, "loop-compose-shell")
-    _assert_has_testid(manual_response.text, "alignment-history-panel")
-    _assert_has_testid(manual_response.text, "alignment-secondary-paths")
-    _assert_has_testid(manual_response.text, "alignment-path-chat")
-    _assert_has_testid(manual_response.text, "alignment-path-import")
-    _assert_has_testid(manual_response.text, "alignment-path-manual")
-    _assert_has_testid(manual_response.text, "alignment-history-list")
-    _assert_has_testid(manual_response.text, "loop-manual-compose-panel")
-    _assert_has_testid(manual_response.text, "compose-mode-scroll")
-    _assert_has_testid(manual_response.text, "manual-compose-section")
-    assert 'data-compose-mode="manual"' in manual_response.text
-    assert 'data-compose-mode-section="import"' in manual_response.text
-    assert re.search(r'data-compose-mode-section="import"[^>]*hidden', manual_response.text)
-    assert 'data-compose-mode-section="manual"' in manual_response.text
-    _assert_has_testid(manual_response.text, "manual-bundle-import-panel")
-    _assert_has_testid(manual_response.text, "loop-bundle-import-form")
-    _assert_has_testid(manual_response.text, "bundle-preview-button")
-    _assert_has_testid(manual_response.text, "bundle-preview-import-button")
-    _assert_has_testid(manual_response.text, "alignment-source-open-button")
-    assert 'data-testid="alignment-preview-tab-yaml"' not in manual_response.text
-    _assert_has_testid(manual_response.text, "loop-create-form")
-    _assert_has_testid(manual_response.text, "nav-menu-orchestrations-link")
-    _assert_has_testid(manual_response.text, "nav-menu-roles-link")
-    _assert_has_testid(manual_response.text, "workdir-browse-button")
-    _assert_has_testid(manual_response.text, "spec-editor-button")
-    _assert_has_testid(manual_response.text, "spec-template-button")
-    _assert_has_testid(manual_response.text, "spec-editor-modal")
-    _assert_has_testid(manual_response.text, "spec-editor-preview-toggle-button")
-    _assert_has_testid(manual_response.text, "save-spec-document-button")
-    _assert_has_testid(manual_response.text, "spec-editor-validation-pill")
-    _assert_has_testid(manual_response.text, "spec-editor-workbench")
-    _assert_has_testid(manual_response.text, "loop-orchestration-input")
-    _assert_has_testid(manual_response.text, "loop-completion-mode-input")
-    _assert_has_testid(manual_response.text, "loop-completion-mode-field")
-    _assert_has_testid(manual_response.text, "loop-trigger-window-field")
-    _assert_has_testid(manual_response.text, "loop-regression-window-field")
-    _assert_has_testid(manual_response.text, "loop-iteration-interval-input")
-    assert "name=\"executor_kind\"" not in manual_response.text
-    assert "name=\"executor_mode\"" not in manual_response.text
-    assert "name=\"orchestration_id\"" in manual_response.text
-    assert "name=\"completion_mode\"" in manual_response.text
-    assert 'action="/loops/new/manual/import-bundle"' in manual_response.text
-    assert 'name="bundle_yaml"' in manual_response.text
-    assert 'name="replace_bundle_id"' in manual_response.text
-    assert "name=\"iteration_interval_seconds\"" in manual_response.text
-    assert "id=\"edit-spec\"" in manual_response.text
-    assert "id=\"toggle-spec-preview\"" in manual_response.text
-    assert "id=\"spec-editor-input\"" in manual_response.text
-    assert "id=\"spec-preview-content\"" in manual_response.text
-    assert "Spec editor" in manual_response.text
-    assert "Generate from orchestration" in manual_response.text
-    assert "Manual Expert Mode" in manual_response.text
-    assert "Role runtime reminder" not in manual_response.text
-    assert "Spec reminder" not in manual_response.text
-    assert "Extra tools" not in manual_response.text
-    assert 'data-testid="loop-spec-practice-hint"' not in manual_response.text
-    assert 'class="panel-header workflow-editor-header"' in manual_response.text
-    assert 'class="card-actions card-actions-compact"' in manual_response.text
-    assert '<title>Create Loop Manually</title>' in manual_response.text
-    assert 'data-label-zh="守门裁决"' in manual_response.text
-    assert '>GateKeeper</option>' in manual_response.text
-    assert '>Rounds</option>' in manual_response.text
-    assert 'aria-label="Show tip:' in manual_response.text
-    _assert_has_testid(manual_response.text, "loop-orchestration-panel-tip")
-    _assert_has_testid(manual_response.text, "loop-completion-mode-tip")
-    _assert_has_testid(manual_response.text, "loop-trigger-window-tip")
-    _assert_has_testid(manual_response.text, "loop-regression-window-tip")
-    assert "workflow-json-input" not in manual_response.text
-    assert "角色定义" in manual_response.text
+    _assert_manual_compose_page(manual_response.text)
 
     zh_response = client.get("/loops/new/manual", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
-    assert '<title>手动编排 Loop</title>' in zh_response.text
-    assert "手动编排" in zh_response.text
-    assert 'aria-label="查看提示：' in zh_response.text
-    zh_completion_mode = zh_response.text.split('id="completion-mode-input"', 1)[1].split("</select>", 1)[0]
-    assert ">守门裁决</option>" in zh_completion_mode
-    assert ">轮次推进</option>" in zh_completion_mode
-    assert ">GateKeeper</option>" not in zh_completion_mode
-    assert ">Rounds</option>" not in zh_completion_mode
+    _assert_zh_manual_compose_page(zh_response.text)
 
 
 def test_new_loop_page_surfaces_recent_workdirs_and_browser_draft_controls(
@@ -1220,6 +1264,158 @@ def test_deleting_loop_refreshes_recent_workdir_suggestions(
     assert f'data-fill-workdir="{second_workdir}"' in after_delete.text
 
 
+def _assert_orchestrations_list_page(html: str) -> None:
+    _assert_has_testids(
+        html,
+        "orchestrations-page",
+        "orchestrations-intro-copy",
+        "nav-menu-orchestrations-link",
+        "custom-orchestrations-list",
+        "builtin-orchestrations-list",
+        "builtin-orchestrations-tip",
+        "builtin-orchestration-scenario",
+        "orchestration-loop-diagram",
+    )
+    for expected in (
+        '<title>Orchestrations</title>',
+        "Orchestrations",
+        'data-open-card="/orchestrations/builtin:build_then_parallel_review/edit"',
+        'class="page-stack page-stack--catalog"',
+        "/static/pages/workflow_editor.css?v=",
+        "/static/pages/workflow_diagram.js?v=",
+        "/static/pages/orchestrations.js?v=",
+        "适用场景",
+        'class="loop-card-link"',
+        'class="card-actions card-actions-compact"',
+        'tabindex="-1"',
+        'aria-hidden="true"',
+        'aria-label="Show tip: Built-in starters are read-only.',
+    ):
+        assert expected in html
+    for removed in (
+        "Create loop",
+        "点进去可以查看结构，并从这个预设派生一个新的自定义编排。",
+        'data-testid="builtin-orchestration-spec-practice-summary"',
+        'data-testid="builtin-orchestration-spec-practice-link"',
+        "Fast Lane",
+        "Quality Gate",
+    ):
+        assert removed not in html
+    assert html.count('data-testid="builtin-orchestrations-tip"') == 1
+    custom_section = re.search(r'<section class="panel" data-testid="custom-orchestrations-list">(.*?)</section>', html, re.S)
+    assert custom_section is not None
+    assert "loop-card-glance--scenario" not in custom_section.group(1)
+    assert "适用场景" not in custom_section.group(1)
+
+
+def _assert_zh_orchestrations_list_page(html: str) -> None:
+    assert '<title>流程编排</title>' in html
+    assert 'aria-label="查看提示：内置预设本身是只读的；打开后可以查看结构，并从这个默认流程派生一个新的自定义编排。"' in html
+
+
+def _assert_new_orchestration_page(html: str) -> None:
+    for expected in (
+        "/static/pages/new_orchestration.js?v=",
+        "/static/pages/workflow_diagram.js?v=",
+        "/static/pages/workflow_editor.css?v=",
+        "/static/pages/orchestration.css?v=",
+        'class="panel-header workflow-editor-header workflow-editor-header-tight"',
+        'class="workflow-editor-section workflow-map-panel"',
+        'class="workflow-editor-section workflow-steps-panel"',
+        'class="workflow-toolbar workflow-toolbar-compact"',
+        "role-definitions-json",
+        '<title>Save orchestration</title>',
+        'data-label-zh="空白开始"',
+    ):
+        assert expected in html
+    _assert_has_testids(
+        html,
+        "orchestration-editor-page",
+        "orchestration-editor-form",
+        "workflow-starter-select",
+        "load-workflow-starter-button",
+        "workflow-json-input",
+        "prompt-files-json-input",
+        "role-definition-select",
+        "add-step-button",
+        "workflow-steps-list",
+        "workflow-loop-preview-panel",
+        "workflow-loop-preview",
+        "workflow-step-settings-modal",
+        "save-orchestration-button",
+        "workflow-settings-role-name",
+        "workflow-settings-step-inherit-session",
+        "workflow-settings-step-extra-cli-args",
+    )
+    for removed in (
+        "data-role-field=",
+        'data-testid="workflow-settings-step-enabled"',
+        'data-testid="workflow-role-inspector-panel"',
+        'data-testid="workflow-role-inspector"',
+        'data-testid="workflow-preset-input"',
+        'data-testid="workflow-roles-list"',
+        'option value="build_then_parallel_review" selected',
+        "空白开始 / Start blank",
+    ):
+        assert removed not in html
+
+
+def _assert_zh_new_orchestration_page(html: str) -> None:
+    assert '<title>保存编排</title>' in html
+    assert 'data-label-zh="空白开始"' in html
+    assert ">空白开始</option>" in html
+    assert 'data-label-zh="构建后并行检视"' in html
+    assert "构建后并行检视" in html
+    assert "空白开始 / Start blank" not in html
+    assert "构建后并行检视 / Build + Parallel Review" not in html
+    zh_on_pass_markup = html.split('id="workflow-settings-step-on-pass"', 1)[1].split("</select>", 1)[0]
+    assert ">继续后续步骤</option>" in zh_on_pass_markup
+    assert ">通过后结束流程</option>" in zh_on_pass_markup
+    assert ">Continue</option>" not in zh_on_pass_markup
+    assert ">Finish run</option>" not in zh_on_pass_markup
+
+
+def _assert_builtin_orchestration_edit_page(html: str) -> None:
+    for expected in (
+        "默认编排是固定的",
+        'data-readonly="true"',
+        'name="name" value="Build + Parallel Review" required readonly',
+        'id="workflow-starter-select" data-testid="workflow-starter-select" disabled',
+        "/orchestrations/new?workflow_preset=build_then_parallel_review",
+        "Real scenario example",
+        "two independent evidence views",
+        "Build the first inspectable result",
+        "# Task",
+    ):
+        assert expected in html
+    _assert_has_testids(
+        html,
+        "orchestration-editor-form",
+        "open-orchestration-spec-practice-modal-button",
+        "orchestration-spec-practice-modal",
+        "orchestration-spec-practice-preview-shell",
+        "orchestration-spec-practice-preview",
+    )
+    assert 'id="save-orchestration-button"' not in html
+    assert 'data-testid="orchestration-spec-practice-curated"' not in html
+    assert 'data-testid="orchestration-spec-practice-template-workbench"' not in html
+
+
+def _assert_custom_orchestration_edit_page(html: str, orchestration_id: str) -> None:
+    _assert_has_testids(
+        html,
+        "orchestration-editor-form",
+        "open-orchestration-spec-practice-modal-button",
+        "orchestration-spec-practice-modal",
+        "orchestration-spec-practice-preview-shell",
+        "orchestration-spec-practice-preview",
+    )
+    assert f'action="/orchestrations/{orchestration_id}/edit"' in html
+    assert 'data-readonly="false"' in html
+    assert 'data-testid="orchestration-spec-practice-curated"' not in html
+    assert 'data-testid="orchestration-spec-practice-template-workbench"' not in html
+
+
 def test_orchestrations_pages_render_as_resource_library_feature(service_factory) -> None:
     service = service_factory(scenario="success")
     service.create_orchestration(name="Release Flow", workflow={"preset": "inspect_first"})
@@ -1227,138 +1423,31 @@ def test_orchestrations_pages_render_as_resource_library_feature(service_factory
     client = TestClient(build_app(service=service))
     list_response = client.get("/orchestrations")
     assert list_response.status_code == 200
-    _assert_has_testid(list_response.text, "orchestrations-page")
-    _assert_has_testid(list_response.text, "orchestrations-intro-copy")
-    _assert_has_testid(list_response.text, "nav-menu-orchestrations-link")
-    _assert_has_testid(list_response.text, "custom-orchestrations-list")
-    _assert_has_testid(list_response.text, "builtin-orchestrations-list")
-    _assert_has_testid(list_response.text, "builtin-orchestrations-tip")
-    _assert_has_testid(list_response.text, "builtin-orchestration-scenario")
-    assert '<title>Orchestrations</title>' in list_response.text
-    assert "Orchestrations" in list_response.text
-    assert 'data-open-card="/orchestrations/builtin:build_then_parallel_review/edit"' in list_response.text
-    assert "Create loop" not in list_response.text
-    assert 'class="page-stack page-stack--catalog"' in list_response.text
-    _assert_has_testid(list_response.text, "orchestration-loop-diagram")
-    assert "/static/pages/workflow_editor.css?v=" in list_response.text
-    assert "/static/pages/workflow_diagram.js?v=" in list_response.text
-    assert "/static/pages/orchestrations.js?v=" in list_response.text
-    assert "点进去可以查看结构，并从这个预设派生一个新的自定义编排。" not in list_response.text
-    assert "适用场景" in list_response.text
-    assert 'class="loop-card-link"' in list_response.text
-    assert 'class="card-actions card-actions-compact"' in list_response.text
-    assert 'tabindex="-1"' in list_response.text
-    assert 'aria-hidden="true"' in list_response.text
-    assert 'data-testid="builtin-orchestrations-tip"' in list_response.text
-    assert list_response.text.count('data-testid="builtin-orchestrations-tip"') == 1
-    assert 'aria-label="Show tip: Built-in starters are read-only.' in list_response.text
-    assert 'data-testid="builtin-orchestration-spec-practice-summary"' not in list_response.text
-    assert 'data-testid="builtin-orchestration-spec-practice-link"' not in list_response.text
-    assert "Fast Lane" not in list_response.text
-    assert "Quality Gate" not in list_response.text
-    custom_section = re.search(
-        r'<section class="panel" data-testid="custom-orchestrations-list">(.*?)</section>',
-        list_response.text,
-        re.S,
-    )
-    assert custom_section is not None
-    assert "loop-card-glance--scenario" not in custom_section.group(1)
-    assert "适用场景" not in custom_section.group(1)
+    _assert_orchestrations_list_page(list_response.text)
 
     zh_list_response = client.get("/orchestrations", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_list_response.status_code == 200
-    assert '<title>流程编排</title>' in zh_list_response.text
-    assert 'aria-label="查看提示：内置预设本身是只读的；打开后可以查看结构，并从这个默认流程派生一个新的自定义编排。"' in zh_list_response.text
+    _assert_zh_orchestrations_list_page(zh_list_response.text)
 
     new_response = client.get("/orchestrations/new")
     assert new_response.status_code == 200
-    assert "/static/pages/new_orchestration.js?v=" in new_response.text
-    assert "/static/pages/workflow_diagram.js?v=" in new_response.text
-    assert "/static/pages/workflow_editor.css?v=" in new_response.text
-    assert "/static/pages/orchestration.css?v=" in new_response.text
-    _assert_has_testid(new_response.text, "orchestration-editor-page")
-    _assert_has_testid(new_response.text, "orchestration-editor-form")
-    _assert_has_testid(new_response.text, "workflow-starter-select")
-    _assert_has_testid(new_response.text, "load-workflow-starter-button")
-    _assert_has_testid(new_response.text, "workflow-json-input")
-    _assert_has_testid(new_response.text, "prompt-files-json-input")
-    _assert_has_testid(new_response.text, "role-definition-select")
-    _assert_has_testid(new_response.text, "add-step-button")
-    _assert_has_testid(new_response.text, "workflow-steps-list")
-    _assert_has_testid(new_response.text, "workflow-loop-preview-panel")
-    _assert_has_testid(new_response.text, "workflow-loop-preview")
-    _assert_has_testid(new_response.text, "workflow-step-settings-modal")
-    _assert_has_testid(new_response.text, "save-orchestration-button")
-    _assert_has_testid(new_response.text, "workflow-settings-role-name")
-    _assert_has_testid(new_response.text, "workflow-settings-step-inherit-session")
-    _assert_has_testid(new_response.text, "workflow-settings-step-extra-cli-args")
-    assert 'class="panel-header workflow-editor-header workflow-editor-header-tight"' in new_response.text
-    assert 'class="workflow-editor-section workflow-map-panel"' in new_response.text
-    assert 'class="workflow-editor-section workflow-steps-panel"' in new_response.text
-    assert 'class="workflow-toolbar workflow-toolbar-compact"' in new_response.text
-    assert 'data-role-field=' not in new_response.text
-    assert 'data-testid="workflow-settings-step-enabled"' not in new_response.text
-    assert 'data-testid="workflow-role-inspector-panel"' not in new_response.text
-    assert 'data-testid="workflow-role-inspector"' not in new_response.text
-    assert 'data-testid="workflow-preset-input"' not in new_response.text
-    assert 'data-testid="workflow-roles-list"' not in new_response.text
-    assert 'option value="build_then_parallel_review" selected' not in new_response.text
-    assert "role-definitions-json" in new_response.text
-    assert '<title>Save orchestration</title>' in new_response.text
-    assert 'data-label-zh="空白开始"' in new_response.text
-    assert "空白开始 / Start blank" not in new_response.text
+    _assert_new_orchestration_page(new_response.text)
 
     zh_new_response = client.get("/orchestrations/new", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_new_response.status_code == 200
-    assert '<title>保存编排</title>' in zh_new_response.text
-    assert 'data-label-zh="空白开始"' in zh_new_response.text
-    assert ">空白开始</option>" in zh_new_response.text
-    assert 'data-label-zh="构建后并行检视"' in zh_new_response.text
-    assert "构建后并行检视" in zh_new_response.text
-    assert "空白开始 / Start blank" not in zh_new_response.text
-    assert "构建后并行检视 / Build + Parallel Review" not in zh_new_response.text
-    zh_on_pass_markup = zh_new_response.text.split('id="workflow-settings-step-on-pass"', 1)[1].split("</select>", 1)[0]
-    assert ">继续后续步骤</option>" in zh_on_pass_markup
-    assert ">通过后结束流程</option>" in zh_on_pass_markup
-    assert ">Continue</option>" not in zh_on_pass_markup
-    assert ">Finish run</option>" not in zh_on_pass_markup
+    _assert_zh_new_orchestration_page(zh_new_response.text)
 
     builtin_edit_response = client.get("/orchestrations/builtin:build_then_parallel_review/edit")
     assert builtin_edit_response.status_code == 200
-    assert "默认编排是固定的" in builtin_edit_response.text
-    _assert_has_testid(builtin_edit_response.text, "orchestration-editor-form")
-    assert 'data-readonly="true"' in builtin_edit_response.text
-    assert 'name="name" value="Build + Parallel Review" required readonly' in builtin_edit_response.text
-    assert 'id="workflow-starter-select" data-testid="workflow-starter-select" disabled' in builtin_edit_response.text
-    assert 'id="save-orchestration-button"' not in builtin_edit_response.text
-    assert '/orchestrations/new?workflow_preset=build_then_parallel_review' in builtin_edit_response.text
-    _assert_has_testid(builtin_edit_response.text, "open-orchestration-spec-practice-modal-button")
-    _assert_has_testid(builtin_edit_response.text, "orchestration-spec-practice-modal")
-    _assert_has_testid(builtin_edit_response.text, "orchestration-spec-practice-preview-shell")
-    _assert_has_testid(builtin_edit_response.text, "orchestration-spec-practice-preview")
-    assert "Real scenario example" in builtin_edit_response.text
-    assert "two independent evidence views" in builtin_edit_response.text
-    assert "Build the first inspectable result" in builtin_edit_response.text
-    assert "# Task" in builtin_edit_response.text
-    assert 'data-testid="orchestration-spec-practice-curated"' not in builtin_edit_response.text
-    assert 'data-testid="orchestration-spec-practice-template-workbench"' not in builtin_edit_response.text
+    _assert_builtin_orchestration_edit_page(builtin_edit_response.text)
 
     orchestration = service.create_orchestration(name="Custom", workflow={"preset": "inspect_first"})
     custom_edit_response = client.get(f"/orchestrations/{orchestration['id']}/edit")
     assert custom_edit_response.status_code == 200
-    _assert_has_testid(custom_edit_response.text, "orchestration-editor-form")
-    assert f'action="/orchestrations/{orchestration["id"]}/edit"' in custom_edit_response.text
-    assert 'data-readonly="false"' in custom_edit_response.text
-    _assert_has_testid(custom_edit_response.text, "open-orchestration-spec-practice-modal-button")
-    _assert_has_testid(custom_edit_response.text, "orchestration-spec-practice-modal")
-    _assert_has_testid(custom_edit_response.text, "orchestration-spec-practice-preview-shell")
-    _assert_has_testid(custom_edit_response.text, "orchestration-spec-practice-preview")
-    assert 'data-testid="orchestration-spec-practice-curated"' not in custom_edit_response.text
-    assert 'data-testid="orchestration-spec-practice-template-workbench"' not in custom_edit_response.text
+    _assert_custom_orchestration_edit_page(custom_edit_response.text, orchestration["id"])
 
 
-def test_role_definitions_pages_render_as_top_level_feature(service_factory) -> None:
-    service = service_factory(scenario="success")
+def _create_release_builder_role(service) -> None:
     service.create_role_definition(
         name="Release Builder",
         description="Ship focused release changes.",
@@ -1376,95 +1465,112 @@ Focus on scoped release work.
         reasoning_effort="high",
     )
 
-    client = TestClient(build_app(service=service))
-    list_response = client.get("/roles")
-    assert list_response.status_code == 200
-    _assert_has_testid(list_response.text, "role-definitions-page")
-    _assert_has_testid(list_response.text, "role-definitions-intro-copy")
-    _assert_has_testid(list_response.text, "create-role-definition-link")
-    _assert_has_testid(list_response.text, "role-definitions-list")
-    _assert_has_testid(list_response.text, "builtin-role-templates-list")
-    _assert_has_testid(list_response.text, "builtin-role-templates-tip")
-    _assert_has_testid(list_response.text, "gatekeeper-role-tip")
-    assert '<title>Role Definitions</title>' in list_response.text
-    assert "Role Definitions" in list_response.text
-    assert "Release Builder" in list_response.text
-    assert "/roles/new" in list_response.text
-    assert 'data-role-definition-id="' in list_response.text
-    assert "Saved custom roles" in list_response.text
-    assert "Built-in role templates" in list_response.text
-    assert "Built-in template" in list_response.text
-    assert "Built-in template · builder" not in list_response.text
-    assert 'class="page-stack page-stack--catalog"' in list_response.text
-    assert 'class="loop-grid role-card-grid role-card-grid--definitions"' in list_response.text
-    assert 'class="loop-card-link"' in list_response.text
-    assert 'class="card-actions card-actions-compact"' in list_response.text
-    assert 'tabindex="-1"' in list_response.text
-    assert 'aria-hidden="true"' in list_response.text
-    assert "点进去会以这个模板为基础，派生一个新的团队角色版本。" not in list_response.text
-    assert list_response.text.count('data-testid="builtin-role-templates-tip"') == 1
-    assert list_response.text.count('data-testid="gatekeeper-role-tip"') == 1
-    assert 'aria-label="Show tip: Built-in templates are read-only.' in list_response.text
-    assert 'aria-label="Show tip:' in list_response.text
-    assert "GateKeeper uses that evidence to make the final pass/fail call" in list_response.text
 
-    zh_list_response = client.get("/roles", headers={"accept-language": "zh-CN,zh;q=0.9"})
-    assert zh_list_response.status_code == 200
-    assert '<title>角色定义</title>' in zh_list_response.text
-    assert 'aria-label="查看提示：内置模板本身是只读的；打开后会以它为基础派生一个新的团队角色版本，而不是直接修改默认模板。"' in zh_list_response.text
-    assert 'aria-label="查看提示：' in zh_list_response.text
+def _assert_role_definitions_list_page(html: str) -> None:
+    _assert_has_testids(
+        html,
+        "role-definitions-page",
+        "role-definitions-intro-copy",
+        "create-role-definition-link",
+        "role-definitions-list",
+        "builtin-role-templates-list",
+        "builtin-role-templates-tip",
+        "gatekeeper-role-tip",
+    )
+    for expected in (
+        '<title>Role Definitions</title>',
+        "Role Definitions",
+        "Release Builder",
+        "/roles/new",
+        'data-role-definition-id="',
+        "Saved custom roles",
+        "Built-in role templates",
+        "Built-in template",
+        'class="page-stack page-stack--catalog"',
+        'class="loop-grid role-card-grid role-card-grid--definitions"',
+        'class="loop-card-link"',
+        'class="card-actions card-actions-compact"',
+        'tabindex="-1"',
+        'aria-hidden="true"',
+        'aria-label="Show tip: Built-in templates are read-only.',
+        'aria-label="Show tip:',
+        "GateKeeper uses that evidence to make the final pass/fail call",
+    ):
+        assert expected in html
+    assert "Built-in template · builder" not in html
+    assert "点进去会以这个模板为基础，派生一个新的团队角色版本。" not in html
+    assert html.count('data-testid="builtin-role-templates-tip"') == 1
+    assert html.count('data-testid="gatekeeper-role-tip"') == 1
 
-    new_response = client.get("/roles/new")
-    assert new_response.status_code == 200
-    _assert_has_testid(new_response.text, "role-definition-editor-page")
-    _assert_has_testid(new_response.text, "role-definition-editor-form")
-    _assert_has_testid(new_response.text, "role-definition-executor-kind-input")
-    _assert_has_testid(new_response.text, "role-definition-executor-mode-input")
-    _assert_has_testid(new_response.text, "role-definition-executor-mode-switch")
-    _assert_has_testid(new_response.text, "role-definition-mode-preset-button")
-    _assert_has_testid(new_response.text, "role-definition-mode-command-button")
-    _assert_has_testid(new_response.text, "role-definition-model-input")
-    _assert_has_testid(new_response.text, "role-definition-reasoning-input")
-    _assert_has_testid(new_response.text, "role-definition-command-cli-input")
-    _assert_has_testid(new_response.text, "role-definition-command-args-input")
-    _assert_has_testid(new_response.text, "role-definition-command-preview")
-    _assert_has_testid(new_response.text, "role-definition-prompt-workbench")
-    _assert_has_testid(new_response.text, "role-definition-posture-notes-input")
-    _assert_has_testid(new_response.text, "role-definition-prompt-markdown-input")
-    _assert_has_testid(new_response.text, "role-definition-prompt-markdown-preview")
-    _assert_has_testid(new_response.text, "role-definition-archetype-guide")
-    _assert_has_testid(new_response.text, "save-role-definition-button")
-    assert 'class="panel-header workflow-editor-header role-execution-header"' in new_response.text
-    assert 'class="executor-config-grid"' in new_response.text
-    assert "/static/markdown_workbench.js?v=" in new_response.text
-    assert "Final command preview" in new_response.text
-    assert "Custom Command" in new_response.text
-    assert "Prompt file name" not in new_response.text
-    assert "巡检者 / Inspector" not in new_response.text
-    assert "Pushes the implementation forward" in new_response.text
-    assert "Use it where the workflow needs actual workspace edits" in new_response.text
-    assert '<title>Save role</title>' in new_response.text
-    assert 'aria-label="Execution mode switch"' in new_response.text
-    assert 'id="role-definition-archetype-summary">' in new_response.text
-    assert '<span data-lang="zh">直接推进实现，适合把 Loop 契约和交接记录落成真实代码与文件改动。</span>' in new_response.text
-    assert '<span data-lang="en">Pushes the implementation forward and turns specs plus handoffs into real code changes.</span>' in new_response.text
-    assert "task-scoped collaboration posture" in new_response.text
 
-    zh_response = client.get("/roles/new", headers={"accept-language": "zh-CN,zh;q=0.9"})
-    assert zh_response.status_code == 200
-    assert '<title>保存角色</title>' in zh_response.text
-    assert 'aria-label="执行模式切换"' in zh_response.text
-    assert "直接推进实现" in zh_response.text
-    assert 'data-label-zh="构建者"' in zh_response.text
-    assert ">构建者</option>" in zh_response.text
-    assert 'data-label-zh="巡检者"' in zh_response.text
-    assert "你是 Loopora 内部的 Builder" in zh_response.text
+def _assert_zh_role_definitions_list_page(html: str) -> None:
+    assert '<title>角色定义</title>' in html
+    assert 'aria-label="查看提示：内置模板本身是只读的；打开后会以它为基础派生一个新的团队角色版本，而不是直接修改默认模板。"' in html
+    assert 'aria-label="查看提示：' in html
 
+
+def _assert_new_role_definition_page(html: str) -> None:
+    _assert_has_testids(
+        html,
+        "role-definition-editor-page",
+        "role-definition-editor-form",
+        "role-definition-executor-kind-input",
+        "role-definition-executor-mode-input",
+        "role-definition-executor-mode-switch",
+        "role-definition-mode-preset-button",
+        "role-definition-mode-command-button",
+        "role-definition-model-input",
+        "role-definition-reasoning-input",
+        "role-definition-command-cli-input",
+        "role-definition-command-args-input",
+        "role-definition-command-preview",
+        "role-definition-prompt-workbench",
+        "role-definition-posture-notes-input",
+        "role-definition-prompt-markdown-input",
+        "role-definition-prompt-markdown-preview",
+        "role-definition-archetype-guide",
+        "save-role-definition-button",
+    )
+    for expected in (
+        'class="panel-header workflow-editor-header role-execution-header"',
+        'class="executor-config-grid"',
+        "/static/markdown_workbench.js?v=",
+        "Final command preview",
+        "Custom Command",
+        "Pushes the implementation forward",
+        "Use it where the workflow needs actual workspace edits",
+        '<title>Save role</title>',
+        'aria-label="Execution mode switch"',
+        'id="role-definition-archetype-summary">',
+        '<span data-lang="zh">直接推进实现，适合把 Loop 契约和交接记录落成真实代码与文件改动。</span>',
+        '<span data-lang="en">Pushes the implementation forward and turns specs plus handoffs into real code changes.</span>',
+        "task-scoped collaboration posture",
+    ):
+        assert expected in html
+    assert "Prompt file name" not in html
+    assert "巡检者 / Inspector" not in html
+
+
+def _assert_zh_new_role_definition_page(html: str) -> None:
+    for expected in (
+        '<title>保存角色</title>',
+        'aria-label="执行模式切换"',
+        "直接推进实现",
+        'data-label-zh="构建者"',
+        ">构建者</option>",
+        'data-label-zh="巡检者"',
+        "你是 Loopora 内部的 Builder",
+    ):
+        assert expected in html
+
+
+def _assert_role_definition_edit_pages(client: TestClient, service) -> None:
     builtin_edit_response = client.get("/roles/builtin:builder/edit")
     assert builtin_edit_response.status_code == 200
     _assert_has_testid(builtin_edit_response.text, "role-definition-editor-form")
     assert "保存为新角色" in builtin_edit_response.text
     assert 'id="role-definition-archetype-input" disabled' in builtin_edit_response.text
+
     custom_role = next(item for item in service.list_role_definitions() if item["source"] == "custom")
     custom_edit_response = client.get(f"/roles/{custom_role['id']}/edit")
     assert custom_edit_response.status_code == 200
@@ -1472,12 +1578,30 @@ Focus on scoped release work.
     assert "Save changes" in custom_edit_response.text
 
 
-def test_bundles_pages_render_list_and_detail(
-    service_factory,
-    sample_spec_file: Path,
-    sample_workdir: Path,
-) -> None:
+def test_role_definitions_pages_render_as_top_level_feature(service_factory) -> None:
     service = service_factory(scenario="success")
+    _create_release_builder_role(service)
+
+    client = TestClient(build_app(service=service))
+    list_response = client.get("/roles")
+    assert list_response.status_code == 200
+    _assert_role_definitions_list_page(list_response.text)
+
+    zh_list_response = client.get("/roles", headers={"accept-language": "zh-CN,zh;q=0.9"})
+    assert zh_list_response.status_code == 200
+    _assert_zh_role_definitions_list_page(zh_list_response.text)
+
+    new_response = client.get("/roles/new")
+    assert new_response.status_code == 200
+    _assert_new_role_definition_page(new_response.text)
+
+    zh_response = client.get("/roles/new", headers={"accept-language": "zh-CN,zh;q=0.9"})
+    assert zh_response.status_code == 200
+    _assert_zh_new_role_definition_page(zh_response.text)
+    _assert_role_definition_edit_pages(client, service)
+
+
+def _import_web_bundle(service, sample_spec_file: Path, sample_workdir: Path) -> dict:
     loop = service.create_loop(
         name="Bundle Page Loop",
         spec_path=sample_spec_file,
@@ -1491,7 +1615,7 @@ def test_bundles_pages_render_list_and_detail(
         regression_window=2,
         role_models={},
     )
-    imported = service.import_bundle_text(
+    return service.import_bundle_text(
         bundle_to_yaml(
             service.derive_bundle_from_loop(
                 loop["id"],
@@ -1502,66 +1626,87 @@ def test_bundles_pages_render_list_and_detail(
         )
     )
 
+
+def _assert_bundles_list_page(html: str) -> None:
+    _assert_has_testids(html, "bundles-page", "bundles-create-loop-link", "bundle-derive-form", "bundle-list", "bundle-count")
+    assert 'data-testid="nav-plans-link"' not in html
+    assert not re.search(r'<a class="top-nav-link\s+active" href="/loops/new/bundle" data-testid="nav-new-task-link"', html)
+    for expected in (
+        "Imported Plans",
+        "Plan Packages",
+        "Web Bundle",
+        'data-delete-bundle="',
+        "/api/bundles/",
+        'id="bundle-grid"',
+    ):
+        assert expected in html
+    assert 'data-testid="bundle-import-form"' not in html
+    assert 'action="/bundles/import"' not in html
+
+
+def _assert_bundle_detail_page(html: str, bundle_id: str) -> None:
+    _assert_has_testids(
+        html,
+        "bundle-detail-page",
+        "bundle-detail-form",
+        "bundle-spec-preview",
+        "bundle-yaml-preview",
+        "bundle-replace-yaml-link",
+        "bundle-improve-chat-button",
+    )
+    for expected in (
+        "Web Bundle",
+        "Prefer evidence and visible proof.",
+        f"/bundles/{bundle_id}/edit",
+        f"/bundles/{bundle_id}/revise",
+        f"/api/bundles/{bundle_id}/export",
+        f"?return_to=/bundles/{bundle_id}",
+        f"/loops/new/manual?replace_bundle_id={bundle_id}#bundle-import-form",
+        "Current plan source",
+        "Expert details: source file and YAML",
+        "bundle-surface-grid",
+        "bundle-surface-card--wide",
+    ):
+        assert expected in html
+    assert 'style="margin-top: 1rem;"' not in html
+
+
+def _assert_bundle_revision_routes(client: TestClient, bundle_id: str) -> None:
+    revision_target_response = client.get(f"/loops/new?replace_bundle_id={bundle_id}", follow_redirects=False)
+    assert revision_target_response.status_code == 303
+    assert revision_target_response.headers["location"] == f"/loops/new/manual?replace_bundle_id={bundle_id}#bundle-import-form"
+
+    revision_target_page = client.get(f"/loops/new/manual?replace_bundle_id={bundle_id}")
+    assert revision_target_page.status_code == 200
+    _assert_has_testid(revision_target_page.text, "bundle-replace-target-note")
+
+    legacy_revision_response = client.get(f"/bundles?replace_bundle_id={bundle_id}", follow_redirects=False)
+    assert legacy_revision_response.status_code == 303
+    assert legacy_revision_response.headers["location"] == f"/loops/new/manual?replace_bundle_id={bundle_id}#bundle-import-form"
+
+    encoded_revision_response = client.get("/bundles?replace_bundle_id=bundle%26revision%3D2", follow_redirects=False)
+    assert encoded_revision_response.status_code == 303
+    assert encoded_revision_response.headers["location"] == "/loops/new/manual?replace_bundle_id=bundle%26revision%3D2#bundle-import-form"
+
+
+def test_bundles_pages_render_list_and_detail(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    imported = _import_web_bundle(service, sample_spec_file, sample_workdir)
+
     client = TestClient(build_app(service=service))
 
     list_response = client.get("/bundles")
     assert list_response.status_code == 200
-    _assert_has_testid(list_response.text, "bundles-page")
-    assert 'data-testid="nav-plans-link"' not in list_response.text
-    assert not re.search(
-        r'<a class="top-nav-link\s+active" href="/loops/new/bundle" data-testid="nav-new-task-link"',
-        list_response.text,
-    )
-    _assert_has_testid(list_response.text, "bundles-create-loop-link")
-    _assert_has_testid(list_response.text, "bundle-derive-form")
-    _assert_has_testid(list_response.text, "bundle-list")
-    _assert_has_testid(list_response.text, "bundle-count")
-    assert "Imported Plans" in list_response.text
-    assert "Plan Packages" in list_response.text
-    assert "Web Bundle" in list_response.text
-    assert 'data-delete-bundle="' in list_response.text
-    assert '/api/bundles/' in list_response.text
-    assert 'id="bundle-grid"' in list_response.text
-    assert 'data-testid="bundle-import-form"' not in list_response.text
-    assert 'action="/bundles/import"' not in list_response.text
+    _assert_bundles_list_page(list_response.text)
 
     detail_response = client.get(f"/bundles/{imported['id']}")
     assert detail_response.status_code == 200
-    _assert_has_testid(detail_response.text, "bundle-detail-page")
-    _assert_has_testid(detail_response.text, "bundle-detail-form")
-    _assert_has_testid(detail_response.text, "bundle-spec-preview")
-    _assert_has_testid(detail_response.text, "bundle-yaml-preview")
-    _assert_has_testid(detail_response.text, "bundle-replace-yaml-link")
-    _assert_has_testid(detail_response.text, "bundle-improve-chat-button")
-    assert "Web Bundle" in detail_response.text
-    assert "Prefer evidence and visible proof." in detail_response.text
-    assert f'/bundles/{imported["id"]}/edit' in detail_response.text
-    assert f'/bundles/{imported["id"]}/revise' in detail_response.text
-    assert f'/api/bundles/{imported["id"]}/export' in detail_response.text
-    assert f'?return_to=/bundles/{imported["id"]}' in detail_response.text
-    assert f'/loops/new/manual?replace_bundle_id={imported["id"]}#bundle-import-form' in detail_response.text
-    assert "Current plan source" in detail_response.text
-    assert "Expert details: source file and YAML" in detail_response.text
-    assert "bundle-surface-grid" in detail_response.text
-    assert "bundle-surface-card--wide" in detail_response.text
-    assert 'style="margin-top: 1rem;"' not in detail_response.text
-
-    revision_target_response = client.get(f"/loops/new?replace_bundle_id={imported['id']}", follow_redirects=False)
-    assert revision_target_response.status_code == 303
-    assert revision_target_response.headers["location"] == f"/loops/new/manual?replace_bundle_id={imported['id']}#bundle-import-form"
-    revision_target_page = client.get(f"/loops/new/manual?replace_bundle_id={imported['id']}")
-    assert revision_target_page.status_code == 200
-    _assert_has_testid(revision_target_page.text, "bundle-replace-target-note")
-
-    legacy_revision_response = client.get(f"/bundles?replace_bundle_id={imported['id']}", follow_redirects=False)
-    assert legacy_revision_response.status_code == 303
-    assert legacy_revision_response.headers["location"] == f"/loops/new/manual?replace_bundle_id={imported['id']}#bundle-import-form"
-
-    encoded_revision_response = client.get("/bundles?replace_bundle_id=bundle%26revision%3D2", follow_redirects=False)
-    assert encoded_revision_response.status_code == 303
-    assert encoded_revision_response.headers["location"] == (
-        "/loops/new/manual?replace_bundle_id=bundle%26revision%3D2#bundle-import-form"
-    )
+    _assert_bundle_detail_page(detail_response.text, imported["id"])
+    _assert_bundle_revision_routes(client, imported["id"])
 
 
 def test_index_page_uses_bundle_delete_for_bundle_managed_loops(
@@ -1606,6 +1751,69 @@ def test_index_page_uses_bundle_delete_for_bundle_managed_loops(
     assert "这条 Loop 由方案包" in zh_response.text
 
 
+def _assert_tutorial_page(html: str) -> None:
+    assert '<title>Tutorial</title>' in html
+    _assert_has_testids(
+        html,
+        "tutorial-page",
+        "nav-tutorial-link",
+        "tutorial-guide-panel",
+        "tutorial-core-spec",
+        "tutorial-core-workflow",
+        "tutorial-core-bundle",
+        "tutorial-core-loop",
+        "tutorial-decision-tree-panel",
+        "tutorial-workflow-scenarios-panel",
+        "tutorial-actions-panel",
+        "tutorial-decision-tree-canvas",
+        "tutorial-decision-tree-kicker",
+        "tutorial-decision-tree-primary-question",
+        "tutorial-decision-tree-secondary-question",
+        "tutorial-decision-tree-flow-stack",
+        "tutorial-decision-tree-stop-card",
+        "tutorial-spec-practice-modal",
+        "tutorial-spec-practice-preview",
+    )
+    for expected in (
+        'class="page-stack tutorial-page-stack"',
+        "runnable loop plan",
+        "expert exchange format",
+        "Build + Parallel Review",
+        "Evidence First",
+        "Benchmark Gate",
+        "Repair Loop",
+        'data-open-tutorial-spec-practice="builtin:build_then_parallel_review"',
+        'data-open-tutorial-spec-practice="builtin:evidence_first"',
+        'id="tutorial-spec-practices-json"',
+        "/static/pages/tutorial.js?v=",
+        "/tools",
+        "/orchestrations",
+        "/loops/new/bundle",
+        "/loops/new/manual",
+        "Generate Loop Plan",
+        "Manual Expert Mode",
+    ):
+        assert expected in html
+    for removed in (
+        "Build First",
+        "Inspect First",
+        "Triage First",
+        "Benchmark Loop",
+        "Fast Lane",
+        "Quality Gate",
+        "tutorial-decision-tree-copy",
+        "tutorial-decision-tree-image",
+        'data-testid="tutorial-context-flow-panel"',
+        'data-testid="tutorial-flow-examples-panel"',
+    ):
+        assert removed not in html
+
+
+def _assert_zh_tutorial_page(html: str) -> None:
+    _assert_initial_locale(html, "zh")
+    _assert_has_testid(html, "tutorial-page")
+
+
 def test_tutorial_page_is_available_from_top_navigation(service_factory) -> None:
     service = service_factory(scenario="success")
 
@@ -1613,57 +1821,11 @@ def test_tutorial_page_is_available_from_top_navigation(service_factory) -> None
     response = client.get("/tutorial")
 
     assert response.status_code == 200
-    assert '<title>Tutorial</title>' in response.text
-    _assert_has_testid(response.text, "tutorial-page")
-    assert 'class="page-stack tutorial-page-stack"' in response.text
-    _assert_has_testid(response.text, "nav-tutorial-link")
-    _assert_has_testid(response.text, "tutorial-guide-panel")
-    _assert_has_testid(response.text, "tutorial-core-spec")
-    _assert_has_testid(response.text, "tutorial-core-workflow")
-    _assert_has_testid(response.text, "tutorial-core-bundle")
-    _assert_has_testid(response.text, "tutorial-core-loop")
-    _assert_has_testid(response.text, "tutorial-decision-tree-panel")
-    _assert_has_testid(response.text, "tutorial-workflow-scenarios-panel")
-    _assert_has_testid(response.text, "tutorial-actions-panel")
-    _assert_has_testid(response.text, "tutorial-decision-tree-canvas")
-    _assert_has_testid(response.text, "tutorial-decision-tree-kicker")
-    _assert_has_testid(response.text, "tutorial-decision-tree-primary-question")
-    _assert_has_testid(response.text, "tutorial-decision-tree-secondary-question")
-    _assert_has_testid(response.text, "tutorial-decision-tree-flow-stack")
-    _assert_has_testid(response.text, "tutorial-decision-tree-stop-card")
-    _assert_has_testid(response.text, "tutorial-spec-practice-modal")
-    _assert_has_testid(response.text, "tutorial-spec-practice-preview")
-    assert "runnable loop plan" in response.text
-    assert "expert exchange format" in response.text
-    assert "Build + Parallel Review" in response.text
-    assert "Evidence First" in response.text
-    assert "Benchmark Gate" in response.text
-    assert "Repair Loop" in response.text
-    assert "Build First" not in response.text
-    assert "Inspect First" not in response.text
-    assert "Triage First" not in response.text
-    assert "Benchmark Loop" not in response.text
-    assert "Fast Lane" not in response.text
-    assert "Quality Gate" not in response.text
-    assert "tutorial-decision-tree-copy" not in response.text
-    assert "tutorial-decision-tree-image" not in response.text
-    assert 'data-open-tutorial-spec-practice="builtin:build_then_parallel_review"' in response.text
-    assert 'data-open-tutorial-spec-practice="builtin:evidence_first"' in response.text
-    assert 'id="tutorial-spec-practices-json"' in response.text
-    assert "/static/pages/tutorial.js?v=" in response.text
-    assert "/tools" in response.text
-    assert "/orchestrations" in response.text
-    assert "/loops/new/bundle" in response.text
-    assert "/loops/new/manual" in response.text
-    assert "Generate Loop Plan" in response.text
-    assert "Manual Expert Mode" in response.text
-    assert 'data-testid="tutorial-context-flow-panel"' not in response.text
-    assert 'data-testid="tutorial-flow-examples-panel"' not in response.text
+    _assert_tutorial_page(response.text)
 
     zh_response = client.get("/tutorial", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
-    _assert_initial_locale(zh_response.text, "zh")
-    _assert_has_testid(zh_response.text, "tutorial-page")
+    _assert_zh_tutorial_page(zh_response.text)
 
 
 def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -> None:

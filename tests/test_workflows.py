@@ -425,7 +425,7 @@ def test_normalize_workflow_rejects_builder_control_targets() -> None:
 
 
 def test_normalize_workflow_rejects_unknown_control_signals() -> None:
-    with pytest.raises(WorkflowError, match="when.signal"):
+    with pytest.raises(WorkflowError, match=r"when\.signal"):
         normalize_workflow(
             {
                 "version": 1,
@@ -499,7 +499,7 @@ def test_normalize_workflow_rejects_write_roles_inside_parallel_groups() -> None
 
 
 def test_normalize_workflow_rejects_non_builder_workspace_write() -> None:
-    with pytest.raises(WorkflowError, match="only Builder steps may set action_policy.workspace=workspace_write"):
+    with pytest.raises(WorkflowError, match=r"only Builder steps may set action_policy\.workspace=workspace_write"):
         normalize_workflow(
             {
                 "version": 1,
@@ -518,7 +518,7 @@ def test_normalize_workflow_rejects_non_builder_workspace_write() -> None:
 
 
 def test_normalize_workflow_rejects_non_gatekeeper_finish_permission() -> None:
-    with pytest.raises(WorkflowError, match="only GateKeeper steps may set action_policy.can_finish_run=true"):
+    with pytest.raises(WorkflowError, match=r"only GateKeeper steps may set action_policy\.can_finish_run=true"):
         normalize_workflow(
             {
                 "version": 1,

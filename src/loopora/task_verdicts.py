@@ -112,7 +112,7 @@ def _load_coverage(run: Mapping[str, Any], run_dir: Path | None) -> dict:
         return {}
     try:
         return load_or_build_evidence_coverage_projection(RunArtifactLayout(target_dir))
-    except Exception:
+    except (OSError, UnicodeError, ValueError):
         return {}
 
 

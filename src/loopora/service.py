@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from typing import ClassVar
 
 from loopora.asset_catalog import AssetCatalogError, AssetCatalogNotFoundError, WorkflowAssetCatalog
 from loopora.db import LooporaRepository
@@ -41,9 +42,9 @@ __all__ = [
     "CHECK_PLANNER_SCHEMA",
     "GENERATOR_SCHEMA",
     "LOOP_ROLE_NAMES",
-    "LooporaService",
     "TESTER_SCHEMA",
     "VERIFIER_SCHEMA",
+    "LooporaService",
     "create_service",
     "normalize_role_models",
 ]
@@ -71,8 +72,8 @@ class LooporaService(
     ServiceRunLifecycleMixin,
     ServiceWorkspaceMixin,
 ):
-    _process_active_runs: set[str] = set()
-    _process_active_runs_lock = threading.Lock()
+    _process_active_runs: ClassVar[set[str]] = set()
+    _process_active_runs_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(
         self,

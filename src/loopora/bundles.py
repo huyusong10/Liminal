@@ -597,9 +597,11 @@ def _lint_alignment_gatekeeper_semantics(
     }
     if "gatekeeper" not in archetypes:
         issues.append("gatekeeper completion mode requires a GateKeeper role")
-    for role in normalized["role_definitions"]:
-        if _is_gatekeeper_without_blocking_semantics(role):
-            issues.append("GateKeeper prompt must state what blocks finish")
+    issues.extend(
+        "GateKeeper prompt must state what blocks finish"
+        for role in normalized["role_definitions"]
+        if _is_gatekeeper_without_blocking_semantics(role)
+    )
     return issues
 
 

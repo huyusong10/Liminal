@@ -44,7 +44,7 @@ class RepositoryRowDecodingMixin:
             "working_agreement_json",
             "executor_session_ref_json",
         ):
-            if key in payload and payload[key]:
+            if payload.get(key):
                 payload[key] = RepositoryRowDecodingMixin._decode_json_column(payload.get("id"), key, payload[key])
         if "payload_json" in payload:
             payload["payload"] = payload.pop("payload_json")

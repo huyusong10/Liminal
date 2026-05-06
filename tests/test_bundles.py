@@ -534,7 +534,7 @@ def test_bundle_failed_import_cleanup_logs_and_preserves_original_error(
     configure_logging()
     original_create_role_definition = service.create_role_definition
 
-    def fail_create_role_definition(*args, **kwargs):
+    def fail_create_role_definition(*_args, **_kwargs):
         raise LooporaError("forced role import failure")
 
     def fail_rmtree(path: Path) -> None:
@@ -543,9 +543,8 @@ def test_bundle_failed_import_cleanup_logs_and_preserves_original_error(
     service.create_role_definition = fail_create_role_definition
     monkeypatch.setattr(cleanup_diagnostics.shutil, "rmtree", fail_rmtree)
 
-    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"):
-        with pytest.raises(LooporaError, match="forced role import failure"):
-            service.import_bundle_text(_bundle_yaml(sample_workdir))
+    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"), pytest.raises(LooporaError, match="forced role import failure"):
+        service.import_bundle_text(_bundle_yaml(sample_workdir))
 
     service.create_role_definition = original_create_role_definition
     assert _has_cleanup_record(caplog, operation="bundle_failed_import_cleanup", resource_type="path")
@@ -559,13 +558,13 @@ def test_bundle_failed_import_cleanup_diagnostic_failure_preserves_original_erro
     service = service_factory(scenario="success")
     original_create_role_definition = service.create_role_definition
 
-    def fail_create_role_definition(*args, **kwargs):
+    def fail_create_role_definition(*_args, **_kwargs):
         raise LooporaError("forced role import failure")
 
     def fail_rmtree(path: Path) -> None:
         raise OSError(f"cannot remove {Path(path).name}")
 
-    def fail_log_event(*args, **kwargs) -> None:
+    def fail_log_event(*_args, **_kwargs) -> None:
         raise RuntimeError("cleanup log sink down")
 
     service.create_role_definition = fail_create_role_definition
@@ -587,18 +586,20 @@ def test_bundle_import_rollback_diagnostics_preserve_original_error_for_unexpect
     service = service_factory(scenario="success")
     configure_logging()
 
-    def fail_after_graph_creation(*args, **kwargs):
+    def fail_after_graph_creation(*_args, **_kwargs):
         raise LooporaError("forced import failure after graph creation")
 
-    def fail_delete_loop(*args, **kwargs):
+    def fail_delete_loop(*_args, **_kwargs):
         raise RuntimeError("rollback loop deletion failed")
 
     monkeypatch.setattr(service, "derive_bundle_from_loop", fail_after_graph_creation)
     monkeypatch.setattr(service, "delete_loop", fail_delete_loop)
 
-    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"):
-        with pytest.raises(LooporaError, match="forced import failure after graph creation"):
-            service.import_bundle_text(_bundle_yaml(sample_workdir))
+    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"), pytest.raises(
+        LooporaError,
+        match="forced import failure after graph creation",
+    ):
+        service.import_bundle_text(_bundle_yaml(sample_workdir))
 
     assert _has_cleanup_record(caplog, operation="bundle_import_rollback", resource_type="loop")
 
@@ -852,7 +853,7 @@ def test_bundle_replace_rolls_back_when_graph_transaction_fails(service_factory,
         [role for role in service.list_role_definitions() if role["source"] == "custom"]
     )
 
-    def fail_replace_bundle_graph(bundle_id: str, payload: dict) -> bool:
+    def fail_replace_bundle_graph(bundle_id: str, _payload: dict) -> bool:
         if bundle_id == imported["id"]:
             raise LooporaError("forced graph transaction failure")
         return True
@@ -1044,7 +1045,7 @@ def test_invalid_bundle_orchestration_edit_rolls_back_asset_and_bundle(
     workflow["steps"] = [dict(step) for step in workflow["steps"]]
     workflow["steps"][-1]["on_pass"] = "continue"
 
-    with pytest.raises(LooporaError, match="action_policy.can_finish_run=true requires on_pass=finish_run"):
+    with pytest.raises(LooporaError, match=r"action_policy\.can_finish_run=true requires on_pass=finish_run"):
         service.update_orchestration(
             orchestration["id"],
             name=orchestration["name"],
@@ -1086,16 +1087,18 @@ def test_bundle_orchestration_update_rollback_snapshot_failure_logs_and_preserve
     monkeypatch.setattr(service, "_touch_bundle_for_orchestration", fail_touch_bundle)
     monkeypatch.setattr(service, "_sync_bundle_loop_snapshot", fail_snapshot_sync)
 
-    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"):
-        with pytest.raises(LooporaError, match="forced orchestration bundle touch failure"):
-            service.update_orchestration(
-                orchestration["id"],
-                name=orchestration["name"],
-                description=orchestration["description"],
-                workflow=workflow,
-                prompt_files=orchestration["prompt_files_json"],
-                role_models=orchestration.get("role_models_json"),
-            )
+    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"), pytest.raises(
+        LooporaError,
+        match="forced orchestration bundle touch failure",
+    ):
+        service.update_orchestration(
+            orchestration["id"],
+            name=orchestration["name"],
+            description=orchestration["description"],
+            workflow=workflow,
+            prompt_files=orchestration["prompt_files_json"],
+            role_models=orchestration.get("role_models_json"),
+        )
 
     preserved_orchestration = service.get_orchestration(orchestration["id"])
     assert preserved_orchestration["workflow_json"]["collaboration_intent"] == orchestration["workflow_json"]["collaboration_intent"]
@@ -1129,23 +1132,22 @@ def test_bundle_role_update_rollback_snapshot_failure_logs_and_preserves_origina
     monkeypatch.setattr(service, "_touch_bundle_for_role_definition", fail_touch_bundle)
     monkeypatch.setattr(service, "_sync_bundle_loop_snapshot", fail_snapshot_sync)
 
-    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"):
-        with pytest.raises(LooporaError, match="forced role bundle touch failure"):
-            service.update_role_definition(
-                role_definition["id"],
-                name=role_definition["name"],
-                description=role_definition["description"],
-                archetype=role_definition["archetype"],
-                prompt_ref=role_definition["prompt_ref"],
-                prompt_markdown=role_definition["prompt_markdown"] + "\nThis edit should roll back.\n",
-                posture_notes="This posture should roll back.",
-                executor_kind=role_definition["executor_kind"],
-                executor_mode=role_definition["executor_mode"],
-                command_cli=role_definition["command_cli"],
-                command_args_text=role_definition["command_args_text"],
-                model=role_definition["model"],
-                reasoning_effort=role_definition["reasoning_effort"],
-            )
+    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"), pytest.raises(LooporaError, match="forced role bundle touch failure"):
+        service.update_role_definition(
+            role_definition["id"],
+            name=role_definition["name"],
+            description=role_definition["description"],
+            archetype=role_definition["archetype"],
+            prompt_ref=role_definition["prompt_ref"],
+            prompt_markdown=role_definition["prompt_markdown"] + "\nThis edit should roll back.\n",
+            posture_notes="This posture should roll back.",
+            executor_kind=role_definition["executor_kind"],
+            executor_mode=role_definition["executor_mode"],
+            command_cli=role_definition["command_cli"],
+            command_args_text=role_definition["command_args_text"],
+            model=role_definition["model"],
+            reasoning_effort=role_definition["reasoning_effort"],
+        )
 
     preserved_role = service.get_role_definition(role_definition["id"])
     assert preserved_role["prompt_markdown"] == role_definition["prompt_markdown"]

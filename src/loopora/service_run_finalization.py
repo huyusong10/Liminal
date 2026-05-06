@@ -123,7 +123,7 @@ class ServiceRunFinalizationMixin:
                 task_verdict=task_verdict,
                 summary_md=summary,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - crash finalization must fall back to an in-memory failed state.
             log_exception(
                 logger,
                 "service.run.execution.crash_state_persist_failed",
@@ -145,7 +145,7 @@ class ServiceRunFinalizationMixin:
                 degraded=False,
                 error_text=error_text,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - crash event append failure must not mask the failed run state.
             log_exception(
                 logger,
                 "service.run.execution.crash_event_append_failed",
@@ -158,7 +158,7 @@ class ServiceRunFinalizationMixin:
         self._mark_run_inactive(run_id)
         try:
             self.repository.release_run_slot(run_id)
-        except Exception:
+        except Exception:  # noqa: BLE001 - cleanup must not raise after run execution has ended.
             log_exception(
                 logger,
                 "service.run.slot_release_failed",

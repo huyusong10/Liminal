@@ -63,12 +63,12 @@ def test_cli_run_allows_zero_max_iters(monkeypatch, tmp_path: Path) -> None:
             calls["create_loop"] = kwargs
             return {"id": "loop_test"}
 
-        def rerun(self, loop_id: str, background: bool = False):
+        def rerun(self, loop_id: str, *, background: bool = False):
             calls["rerun"] = loop_id
             calls["background"] = background
             return {"id": "run_test", "status": "running", "runs_dir": str(tmp_path / "runs" / "run_test")}
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -100,10 +100,10 @@ def test_cli_loop_creation_emits_structured_logs(monkeypatch, tmp_path: Path) ->
         def create_loop(self, **kwargs):
             return {"id": "loop_logged", "name": kwargs["name"], "workdir": str(kwargs["workdir"])}
 
-        def rerun(self, loop_id: str, background: bool = False):
-            raise AssertionError("loop creation without --start should not rerun")
+        def rerun(self, loop_id: str, *, background: bool = False):
+            raise AssertionError(f"loop creation without --start should not rerun: {loop_id=} {background=}")
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -197,10 +197,10 @@ controls:
             calls["create_loop"] = kwargs
             return {"id": "loop_parallel", "name": kwargs["name"], "workdir": str(kwargs["workdir"])}
 
-        def rerun(self, loop_id: str, background: bool = False):
-            raise AssertionError("loop creation without --start should not rerun")
+        def rerun(self, loop_id: str, *, background: bool = False):
+            raise AssertionError(f"loop creation without --start should not rerun: {loop_id=} {background=}")
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -251,10 +251,10 @@ def test_cli_run_supports_command_mode_background_and_role_models(monkeypatch, t
                 "workdir": str(workdir),
             }
 
-        def rerun(self, loop_id: str, background: bool = False):
-            raise AssertionError("background CLI path should not call service.rerun()")
+        def rerun(self, loop_id: str, *, background: bool = False):
+            raise AssertionError(f"background CLI path should not call service.rerun(): {loop_id=} {background=}")
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
 
     def fake_spawn_background_worker(_service, run: dict):
         calls["spawned_run_id"] = run["id"]
@@ -331,11 +331,12 @@ def test_cli_run_supports_round_completion_and_iteration_interval(monkeypatch, t
             calls["create_loop"] = kwargs
             return {"id": "loop_rounds"}
 
-        def rerun(self, loop_id: str, background: bool = False):
+        def rerun(self, loop_id: str, *, background: bool = False):
+            assert background is False
             calls["rerun"] = loop_id
             return {"id": "run_rounds", "status": "succeeded", "runs_dir": str(tmp_path / "runs" / "run_rounds")}
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -374,10 +375,10 @@ def test_cli_loops_rerun_background_spawns_worker(monkeypatch, tmp_path: Path) -
                 "workdir": str(tmp_path / "workdir"),
             }
 
-        def rerun(self, loop_id: str, background: bool = False):
-            raise AssertionError("background CLI path should not call service.rerun()")
+        def rerun(self, loop_id: str, *, background: bool = False):
+            raise AssertionError(f"background CLI path should not call service.rerun(): {loop_id=} {background=}")
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
 
     def fake_spawn_background_worker(_service, run: dict):
         calls["spawned"] = run["id"]
@@ -406,11 +407,11 @@ def test_cli_loops_create_can_save_without_starting(monkeypatch, tmp_path: Path)
             calls["create_loop"] = kwargs
             return {"id": "loop_saved", "name": kwargs["name"], "workdir": str(kwargs["workdir"])}
 
-        def rerun(self, loop_id: str, background: bool = False):
+        def rerun(self, loop_id: str, *, background: bool = False):
             calls["rerun"] = (loop_id, background)
             return {"id": "run_saved", "status": "queued", "runs_dir": str(tmp_path / "runs" / "run_saved")}
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
     runner = CliRunner()
 
     result = runner.invoke(
@@ -444,7 +445,7 @@ def test_cli_loops_create_accepts_orchestration_id(monkeypatch, tmp_path: Path) 
             calls["create_loop"] = kwargs
             return {"id": "loop_saved", "name": kwargs["name"], "workdir": str(kwargs["workdir"])}
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
     runner = CliRunner()
     result = runner.invoke(
         cli.app,
@@ -479,7 +480,7 @@ def test_cli_orchestrations_create_and_list(monkeypatch) -> None:
                 {"id": "orch_1", "name": "Custom", "source": "custom", "workflow_json": {"roles": [1, 2], "steps": [1, 2]}},
             ]
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
     runner = CliRunner()
 
     create_result = runner.invoke(cli.app, ["orchestrations", "create", "--name", "Custom", "--workflow-preset", "inspect_first"])
@@ -531,7 +532,7 @@ def test_cli_orchestrations_get_update_derive_and_delete(monkeypatch) -> None:
             calls["delete"] = orchestration_id
             return {"id": orchestration_id, "deleted": True}
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
     runner = CliRunner()
 
     get_result = runner.invoke(cli.app, ["orchestrations", "get", "orch_1"])
@@ -560,7 +561,7 @@ def test_cli_loops_delete_prints_json(monkeypatch) -> None:
         def delete_loop(self, loop_id: str):
             return {"id": loop_id, "deleted_runs": 2, "workdir": "/tmp/project"}
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
     runner = CliRunner()
 
     result = runner.invoke(cli.app, ["loops", "delete", "loop_test"])
@@ -629,7 +630,7 @@ def test_cli_roles_list_get_create_update_derive_and_delete(monkeypatch, tmp_pat
             calls["delete"] = role_definition_id
             return {"id": role_definition_id, "deleted": True}
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
     runner = CliRunner()
 
     list_result = runner.invoke(cli.app, ["roles", "list"])
@@ -711,7 +712,7 @@ def test_cli_spec_template_read_and_write(tmp_path: Path, monkeypatch) -> None:
             assert orchestration_id == "builtin:repair_loop"
             return {"workflow_json": {"preset": "repair_loop"}}
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
 
     template_result = runner.invoke(
         cli.app,
@@ -921,7 +922,7 @@ def test_cli_bundles_import_export_derive_and_delete(monkeypatch, tmp_path: Path
             calls["delete"] = bundle_id
             return {"id": bundle_id, "deleted": True}
 
-    monkeypatch.setattr(cli, "create_service", lambda: FakeService())
+    monkeypatch.setattr(cli, "create_service", FakeService)
 
     import_result = runner.invoke(
         cli.app,

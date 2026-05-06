@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 import pytest
@@ -32,8 +32,19 @@ REAL_CLI_CODEX_MODEL_ENV = "LOOPORA_REAL_CLI_CODEX_MODEL"
 REAL_SEARCH_RUN_ID_ENV = "LOOPORA_REAL_SEARCH_RUN_ID"
 REAL_SEARCH_OUTPUT_ROOT_ENV = "LOOPORA_REAL_SEARCH_OUTPUT_ROOT"
 DEFAULT_PROVIDER = "codex"
-_CACHED_SUITE_OUTPUT_ROOT: Path | None = None
-_CACHED_SUITE_OUTPUT_KEY: tuple[str, str, str] | None = None
+
+
+@dataclass
+class _SuiteOutputCache:
+    root: Path | None = None
+    key: tuple[str, str, str] | None = None
+
+    def clear(self) -> None:
+        self.root = None
+        self.key = None
+
+
+_SUITE_OUTPUT_CACHE = _SuiteOutputCache()
 
 
 @dataclass(frozen=True)
@@ -113,24 +124,23 @@ def _timeout_seconds() -> float:
 
 
 def _suite_output_root() -> Path:
-    global _CACHED_SUITE_OUTPUT_ROOT, _CACHED_SUITE_OUTPUT_KEY
     override = str(os.environ.get(REAL_SEARCH_OUTPUT_ROOT_ENV, "") or "").strip()
     run_id = str(os.environ.get(REAL_SEARCH_RUN_ID_ENV, "") or "").strip()
     cache_key = (str(RESULTS_ROOT.resolve()), override, run_id)
-    if _CACHED_SUITE_OUTPUT_ROOT is not None and _CACHED_SUITE_OUTPUT_KEY == cache_key:
-        return _CACHED_SUITE_OUTPUT_ROOT
+    if _SUITE_OUTPUT_CACHE.root is not None and cache_key == _SUITE_OUTPUT_CACHE.key:
+        return _SUITE_OUTPUT_CACHE.root
     if override:
         root = Path(override).expanduser().resolve()
     else:
         if not run_id:
-            run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         root = (RESULTS_ROOT / run_id).resolve()
     root.mkdir(parents=True, exist_ok=True)
     latest_pointer = RESULTS_ROOT / "LATEST.txt"
     latest_pointer.parent.mkdir(parents=True, exist_ok=True)
     latest_pointer.write_text(f"{root}\n", encoding="utf-8")
-    _CACHED_SUITE_OUTPUT_ROOT = root
-    _CACHED_SUITE_OUTPUT_KEY = cache_key
+    _SUITE_OUTPUT_CACHE.root = root
+    _SUITE_OUTPUT_CACHE.key = cache_key
     return root
 
 
@@ -278,15 +288,13 @@ def test_suite_output_root_is_stable_for_one_pytest_process(monkeypatch, tmp_pat
         def now(cls, tz):
             cls.calls += 1
             second = 0 if cls.calls == 1 else 1
-            return real_datetime(2026, 1, 1, 0, 0, second, tzinfo=timezone.utc)
+            return real_datetime(2026, 1, 1, 0, 0, second, tzinfo=tz)
 
     monkeypatch.setattr(sys.modules[__name__], "RESULTS_ROOT", tmp_path / "artifacts")
     monkeypatch.setattr(sys.modules[__name__], "datetime", FakeDateTime)
     monkeypatch.delenv(REAL_SEARCH_RUN_ID_ENV, raising=False)
     monkeypatch.delenv(REAL_SEARCH_OUTPUT_ROOT_ENV, raising=False)
-    global _CACHED_SUITE_OUTPUT_ROOT, _CACHED_SUITE_OUTPUT_KEY
-    _CACHED_SUITE_OUTPUT_ROOT = None
-    _CACHED_SUITE_OUTPUT_KEY = None
+    _SUITE_OUTPUT_CACHE.clear()
 
     first = _suite_output_root()
     second = _suite_output_root()

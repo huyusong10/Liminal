@@ -6,12 +6,15 @@ from .query_rewrite import normalize_tokens
 
 def lexical_candidates(query_terms: list[str], *, viewer: str) -> list[dict]:
     candidates: list[dict] = []
+    query_term_set = set(query_terms)
     for doc in SEARCH_DOCS:
         if viewer != "employee" and doc["visibility"] != "public":
             continue
         title_tokens = normalize_tokens(doc["title"])
         body_tokens = normalize_tokens(doc["body"])
         tag_tokens = list(doc["tags"])
+        if query_term_set.isdisjoint(title_tokens) and query_term_set.isdisjoint(body_tokens) and query_term_set.isdisjoint(tag_tokens):
+            continue
         candidates.append(
             {
                 "id": doc["id"],

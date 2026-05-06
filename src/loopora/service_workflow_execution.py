@@ -916,7 +916,9 @@ class ServiceWorkflowExecutionMixin(
                     summary=summary,
                 )
             )
-        except (StopRequested, ExecutionStopped, RoleExecutionError, WorkspaceSafetyError, Exception) as exc:
+        except (StopRequested, ExecutionStopped, RoleExecutionError, WorkspaceSafetyError) as exc:
+            return self._handle_workflow_execution_exception(run_id, run, run_dir, exc)
+        except Exception as exc:  # noqa: BLE001 - workflow crash boundary must persist failed run state.
             return self._handle_workflow_execution_exception(run_id, run, run_dir, exc)
         finally:
             self._cleanup_run_execution(run_id, run, phase="workflow")

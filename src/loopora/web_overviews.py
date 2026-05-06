@@ -49,20 +49,20 @@ def _format_timeline_event(event: dict) -> dict:
     }
 
 
-def _format_checks_resolved(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_checks_resolved(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
     source = "auto-generated" if payload.get("source") == "auto_generated" else "specified"
     return "Checks resolved", f"{payload.get('count', 0)} checks, {source}"
 
 
-def _format_role_request_prepared(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_role_request_prepared(payload: Mapping[str, object], role: object, _event_type: str) -> tuple[str, str]:
     return "Role request prepared", str(payload.get("role_name") or role or "").strip()
 
 
-def _format_step_context_prepared(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_step_context_prepared(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
     return "Step context prepared", str(payload.get("step_id") or "").strip()
 
 
-def _format_role_execution_summary(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_role_execution_summary(payload: Mapping[str, object], role: object, _event_type: str) -> tuple[str, str]:
     duration_ms = payload.get("duration_ms")
     if payload.get("ok"):
         return f"{role or 'role'} completed", _role_execution_success_detail(payload, duration_ms)
@@ -87,11 +87,11 @@ def _role_execution_failure_detail(payload: Mapping[str, object], duration_ms: o
     return ", ".join(part for part in parts if part)
 
 
-def _format_role_degraded(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_role_degraded(payload: Mapping[str, object], role: object, _event_type: str) -> tuple[str, str]:
     return f"{role or 'role'} degraded", str(payload.get("mode", "")).strip()
 
 
-def _format_step_handoff_written(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_step_handoff_written(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
     return "Step handoff written", str(payload.get("summary") or payload.get("step_id") or "").strip()
 
 
@@ -107,31 +107,31 @@ def _format_control_event(payload: Mapping[str, object], role: object, event_typ
     return CONTROL_TIMELINE_TITLES[event_type], detail
 
 
-def _format_iteration_summary_written(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_iteration_summary_written(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
     return "Iteration summary written", str(payload.get("composite_score", "")).strip()
 
 
-def _format_challenger_done(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_challenger_done(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
     return "Challenger suggested a new direction", str(payload.get("mode", "")).strip()
 
 
-def _format_iteration_wait_started(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_iteration_wait_started(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
     return "Waiting for the next iteration", f"{payload.get('duration_seconds', 0)}s"
 
 
-def _format_iteration_wait_finished(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_iteration_wait_finished(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
     return "Iteration wait finished", f"{payload.get('duration_seconds', 0)}s"
 
 
-def _format_run_aborted(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_run_aborted(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
     return f"Run aborted in {payload.get('role', 'role')}", str(payload.get("attempts", "")).strip()
 
 
-def _format_workspace_guard_triggered(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_workspace_guard_triggered(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
     return "Workspace safety guard triggered", f"deleted={payload.get('deleted_original_count', 0)}"
 
 
-def _format_run_finished(payload: Mapping[str, object], role: object, event_type: str) -> tuple[str, str]:
+def _format_run_finished(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
     title = f"Run {payload.get('status', 'finished')}"
     reason = str(payload.get("reason", "")).strip()
     iter_id = payload.get("iter")
@@ -344,12 +344,12 @@ def _build_run_summary_snapshot(run: dict) -> dict:
 __all__ = [
     "LEGACY_RUNTIME_ROLE_TO_ARCHETYPE",
     "_artifact_record_or_404",
+    "_build_evidence_coverage",
     "_build_run_key_takeaways",
     "_build_run_summary_snapshot",
     "_decorate_loop_overview",
     "_decorate_run_overview",
     "_display_iter",
     "_format_timeline_event",
-    "_build_evidence_coverage",
     "_progress_stage_seed",
 ]

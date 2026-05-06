@@ -264,9 +264,9 @@ def build_opencode_exec_args(request: RoleRequest) -> list[str]:
         str(request.workdir),
         "--dangerously-skip-permissions",
     ]
-    if request.inherit_session:
-        if request.resume_session_id.strip():
-            args.extend(["--session", request.resume_session_id.strip()])
+    resume_session_id = request.resume_session_id.strip()
+    if request.inherit_session and resume_session_id:
+        args.extend(["--session", resume_session_id])
     args.extend(extra_args)
     if request.model.strip():
         args.extend(["--model", request.model.strip()])

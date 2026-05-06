@@ -62,7 +62,7 @@ class ServiceWorkspaceMixin:
         remaining_original = baseline_count - deleted_count
         deleted_ratio = deleted_count / baseline_count if baseline_count else 0.0
         destructive = False
-        if remaining_original == 0 or deleted_count >= 3 and deleted_ratio >= 0.8 or deleted_count >= 20 and deleted_ratio >= 0.5:
+        if remaining_original == 0 or (deleted_count >= 3 and deleted_ratio >= 0.8) or (deleted_count >= 20 and deleted_ratio >= 0.5):
             destructive = True
 
         if not destructive:

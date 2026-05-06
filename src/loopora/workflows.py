@@ -1630,10 +1630,7 @@ def resolve_prompt_files(
 def load_workflow_file(path: Path) -> tuple[dict[str, Any], dict[str, str]]:
     raw_text = path.read_text(encoding="utf-8")
     suffix = path.suffix.lower()
-    if suffix in {".yaml", ".yml"}:
-        payload = yaml.safe_load(raw_text) or {}
-    else:
-        payload = json.loads(raw_text)
+    payload = (yaml.safe_load(raw_text) or {}) if suffix in {".yaml", ".yml"} else json.loads(raw_text)
     if not isinstance(payload, dict):
         raise WorkflowError("workflow file must decode to an object")
     workflow = payload.get("workflow", payload)

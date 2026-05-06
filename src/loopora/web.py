@@ -118,7 +118,7 @@ def _web_route_dependencies(
         pick_directory_dialog=lambda start_path=None: pick_directory(start_path),
         pick_file_dialog=lambda start_path=None: pick_file(start_path),
         pick_save_file_dialog=lambda start_path=None, **kwargs: pick_save_file(start_path, **kwargs),
-        reveal_path_callback=lambda target: reveal_path(target),
+        reveal_path_callback=lambda target: reveal_path(target),  # noqa: PLW0108 - keep late binding for host shortcut overrides.
     )
 
 

@@ -175,7 +175,7 @@ def _run_event_stream(ctx: WebRouteContext, *, run_id: str, after_id: int) -> It
                 yield f"event: {event['event_type']}\n"
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             run = ctx.svc().get_run(run_id)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - SSE streams must surface failures as stream_error events.
             log_exception(
                 ctx.logger,
                 "web.run_stream.failed",

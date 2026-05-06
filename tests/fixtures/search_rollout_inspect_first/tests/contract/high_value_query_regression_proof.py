@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
@@ -52,7 +52,7 @@ def main() -> None:
     }
     payload = {
         "contract": "high-value-query-regression-proof",
-        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "generated_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "pass": checks,
         "summary": "High-value query regression is repaired at the first failing layer."
         if all(checks.values())

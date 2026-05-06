@@ -38,8 +38,8 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     _register_skill_api_routes(app, ctx)
     _register_orchestration_api_routes(app, ctx)
     _register_role_definition_api_routes(app, ctx)
-    _register_spec_validation_api_routes(app, ctx)
-    _register_spec_document_api_routes(app, ctx)
+    _register_spec_validation_api_routes(app)
+    _register_spec_document_api_routes(app)
     _register_spec_save_api_route(app, ctx)
     _register_markdown_prompt_api_routes(app, ctx)
     _register_spec_template_api_routes(app, ctx)
@@ -228,7 +228,7 @@ def _register_role_definition_api_routes(app: FastAPI, ctx: WebRouteContext) -> 
         return JSONResponse(ctx.svc().delete_role_definition(role_definition_id))
 
 
-def _register_spec_validation_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+def _register_spec_validation_api_routes(app: FastAPI) -> None:
     @app.get("/api/specs/validate")
     async def api_validate_spec(path: str = "") -> JSONResponse:
         path_text = path.strip()
@@ -249,7 +249,7 @@ def _register_spec_validation_api_routes(app: FastAPI, ctx: WebRouteContext) -> 
         )
 
 
-def _register_spec_document_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
+def _register_spec_document_api_routes(app: FastAPI) -> None:
     @app.get("/api/specs/preview")
     async def api_preview_spec(path: str = "") -> JSONResponse:
         path_text = path.strip()
