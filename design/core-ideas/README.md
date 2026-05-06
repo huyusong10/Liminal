@@ -65,7 +65,7 @@ Loopora 是面向长期 AI Agent 任务的本地任务平台。
 | 只在 prompt 里描述用户偏好 | 判断没有运行面 | 长任务中容易遗忘或漂移 |
 | 只记录日志，不留 evidence artifact | 证据不可追溯 | 无法复盘、比较或外部再利用 |
 | Web 能做核心能力，CLI/API 无语义入口 | 接口层不同构 | 系统出现双重能力模型 |
-| 把 run succeeded 当作Loop 通过 | 运行状态与Loop 裁决混淆 | 用户误信未证明的结果 |
+| 把 run succeeded 当作 Loop 通过 | 运行状态与 Loop 裁决混淆 | 用户误信未证明的结果 |
 
 ## 4. 非目标
 

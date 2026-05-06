@@ -17,7 +17,7 @@
 | loop definition | 可执行模板、runtime 策略、编排引用 | 可被重新读取并复用 |
 | orchestration definition | workflow 与 prompt 资产 | 可被列出、复制、编辑与复用 |
 | role definition | 角色模版、默认执行配置、prompt 资产 | 可被列出、复制、编辑与复用 |
-| run record | 生命周期状态、当前轮次、终态摘要、最近Loop 裁决 | 可被恢复、查询、停止与复盘；运行状态与Loop 裁决必须分开解释 |
+| run record | 生命周期状态、当前轮次、终态摘要、最近 Loop 裁决 | 可被恢复、查询、停止与复盘；运行状态与 Loop 裁决必须分开解释 |
 | run event stream | 关键状态转换与角色阶段事件 | 外部观察面可增量消费 |
 | run takeaway projection | 某个 run event 后冻结的关键结论观察投影 | observation snapshot 可按 event cutoff 读取，不现场依赖可变 artifact 文件 |
 | bundle asset ownership | bundle 对 loop / orchestration / role definition 的 durable 归属 | bundle 删除只删除明确属于该 bundle 的资产，缺失或冲突归属必须失败关闭 |

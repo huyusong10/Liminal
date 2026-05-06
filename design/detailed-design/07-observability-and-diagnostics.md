@@ -20,7 +20,7 @@
 | evidence ledger | 记录本次 run 的证明项、未覆盖风险和对应 artifact refs | 作为 GateKeeper verdict 和 run 复盘的 canonical 证据事实源 |
 | evidence coverage projection | 从 run contract 与 evidence ledger 重算覆盖状态 | 面向 UI 摘要和白盒追溯；不是新的事实源 |
 | run status projection | 从 run record 和终态事件投影系统生命周期 | 只说明 run 是否结束、失败、停止或超时 |
-| task verdict projection | 从 GateKeeper verdict、runtime evidence gate 与 coverage 投影Loop 裁决 | 说明任务是否被证明、未证明、阻断或带残余风险 |
+| task verdict projection | 从 GateKeeper verdict、runtime evidence gate 与 coverage 投影 Loop 裁决 | 说明任务是否被证明、未证明、阻断或带残余风险 |
 
 稳定规则：
 

@@ -66,7 +66,7 @@
 
 - 产品与架构讨论先读 `core-ideas/README.md`；如果被术语层级绕住，先读 `core-ideas/concept-map.md`。
 - 改某个模块前先读对应的 `detailed-design/*.md`。
-- 演进路线、阶段性落点和非契约规划记录放在 `planning/`，不作为模块改动前的必读设计契约。
+- 演进路线、阶段性落点和非契约规划记录不作为模块改动前的必读设计契约；若后续重新引入规划目录，必须在本文档登记当前入口。
 - 涉及跨模块变更时，至少同时检查：
   - `02-orchestration-service.md`
   - `04-persistence-and-reliability.md`

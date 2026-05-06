@@ -69,7 +69,7 @@
 
 ### 4.2 Run 执行
 
-`loop definition → 线性步骤 / 有限并行检视组执行 → 事件与产物汇聚 → run 状态与Loop 裁决更新`
+`loop definition → 线性步骤 / 有限并行检视组执行 → 事件与产物汇聚 → run 状态与 Loop 裁决更新`
 
 服务层必须完成：
 
@@ -104,11 +104,11 @@
 失败与停止同样必须收敛为明确终态，并带可读原因。
 一旦终态已经对外可观察，服务层本地活动 bookkeeping 也必须同步收敛，不能继续把该 run 保留为活动后台 worker。
 
-运行状态与Loop 裁决必须分离：
+运行状态与 Loop 裁决必须分离：
 
 - run status 只回答系统生命周期：running / succeeded / failed / stopped / timed out。
 - task verdict 回答任务语义：passed / failed / insufficient evidence / passed with residual risk / not evaluated。
-- 任何界面或 API 都不能把 `succeeded` 直接解释成Loop 通过。
+- 任何界面或 API 都不能把 `succeeded` 直接解释成 Loop 通过。
 - GateKeeper 是 `gatekeeper` 模式下产生强 task verdict 的默认入口；`rounds` 模式若没有裁决 evidence，必须清楚表达“运行完成但任务未被证明”。
 
 GateKeeper evidence gate：
