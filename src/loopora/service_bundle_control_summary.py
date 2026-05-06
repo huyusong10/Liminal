@@ -166,7 +166,16 @@ def _control_summaries(workflow: dict, role_lookup: dict) -> list[dict]:
                 "role_name": str(role_definition.get("name") or role_id).strip(),
                 "role_archetype": str(role_definition.get("archetype") or "").strip(),
                 "mode": str(control.get("mode") or "").strip(),
-                "max_fires_per_run": int(control.get("max_fires_per_run", 1) or 1),
+                "max_fires_per_run": _control_max_fires_per_run(control.get("max_fires_per_run")),
             }
         )
     return control_summaries
+
+
+def _control_max_fires_per_run(value: object) -> int | str:
+    if value is None or value == "":
+        return 1
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return str(value).strip()

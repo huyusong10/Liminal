@@ -156,6 +156,46 @@ def test_service_imports_and_exports_bundle_round_trip(service_factory, sample_w
     assert rerun["status"] == "succeeded"
 
 
+@pytest.mark.parametrize(
+    ("yaml_line", "error_text"),
+    (
+        ('  delta_threshold: "inf"', "bundle loop settings must use finite numbers"),
+        ("  delta_threshold: -0.1", "bundle loop.delta_threshold must be >= 0"),
+    ),
+)
+def test_bundle_import_rejects_invalid_loop_runtime_numbers(
+    service_factory,
+    sample_workdir: Path,
+    yaml_line: str,
+    error_text: str,
+) -> None:
+    service = service_factory(scenario="success")
+    yaml_text = _bundle_yaml(sample_workdir).replace("  delta_threshold: 0.005", yaml_line)
+
+    with pytest.raises(LooporaError, match=error_text):
+        service.import_bundle_text(yaml_text)
+
+
+def test_bundle_import_preserves_zero_loop_runtime_numbers(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    yaml_text = (
+        _bundle_yaml(sample_workdir)
+        .replace("  max_iters: 4", "  max_iters: 0")
+        .replace("  max_role_retries: 1", "  max_role_retries: 0")
+        .replace("  delta_threshold: 0.005", "  delta_threshold: 0")
+    )
+
+    imported = service.import_bundle_text(yaml_text)
+
+    assert imported["loop"]["max_iters"] == 0
+    assert imported["loop"]["max_role_retries"] == 0
+    assert imported["loop"]["delta_threshold"] == 0.0
+    exported = service.export_bundle(imported["id"])
+    assert exported["loop"]["max_iters"] == 0
+    assert exported["loop"]["max_role_retries"] == 0
+    assert exported["loop"]["delta_threshold"] == 0.0
+
+
 def test_bundle_round_trip_preserves_parallel_groups_and_step_inputs(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     yaml_text = _bundle_yaml(sample_workdir).replace(
@@ -341,6 +381,26 @@ def test_bundle_rejects_controls_that_call_builders(service_factory, sample_work
         service.preview_bundle_text(yaml_text)
 
 
+def test_bundle_rejects_zero_workflow_control_max_fires(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    yaml_text = _bundle_yaml(sample_workdir).replace(
+        '      on_pass: "finish_run"\n',
+        '      on_pass: "finish_run"\n'
+        "  controls:\n"
+        '    - id: "disabled_review"\n'
+        "      when:\n"
+        '        signal: "gatekeeper_rejected"\n'
+        '        after: "0s"\n'
+        "      call:\n"
+        '        role_id: "inspector"\n'
+        '      mode: "advisory"\n'
+        "      max_fires_per_run: 0\n",
+    )
+
+    with pytest.raises(LooporaError, match="control max_fires_per_run must be between 1 and 20"):
+        service.preview_bundle_text(yaml_text)
+
+
 def test_bundle_preview_projects_error_control_summary(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
 
@@ -368,12 +428,73 @@ def test_bundle_preview_projects_error_control_summary(service_factory, sample_w
     assert summary["controls"][0]["role_name"] == "Evidence Inspector"
 
 
+def test_bundle_control_summary_does_not_hide_invalid_fire_limit_projection(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    yaml_text = _bundle_yaml(sample_workdir).replace(
+        '      on_pass: "finish_run"\n',
+        '      on_pass: "finish_run"\n'
+        "  controls:\n"
+        '    - id: "gatekeeper_rejection_review"\n'
+        "      when:\n"
+        '        signal: "gatekeeper_rejected"\n'
+        '        after: "0s"\n'
+        "      call:\n"
+        '        role_id: "inspector"\n'
+        '      mode: "advisory"\n',
+    )
+    bundle = service.preview_bundle_text(yaml_text)["bundle"]
+    bundle["workflow"]["controls"][0]["max_fires_per_run"] = 0
+
+    assert service._bundle_control_summary(bundle)["controls"][0]["max_fires_per_run"] == 0
+
+    bundle["workflow"]["controls"][0]["max_fires_per_run"] = "not-a-number"
+    assert service._bundle_control_summary(bundle)["controls"][0]["max_fires_per_run"] == "not-a-number"
+
+
 def test_bundle_preview_rejects_spec_markdown_that_cannot_compile(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     invalid_yaml = _bundle_yaml(sample_workdir).replace("## Builder Notes", "Builder notes without a subheading")
 
     with pytest.raises(LooporaError, match="Role Notes"):
         service.preview_bundle_text(invalid_yaml)
+
+
+@pytest.mark.parametrize(
+    ("yaml_edit", "message"),
+    [
+        (lambda text: text.replace("version: 1", "version: 0", 1), "unsupported bundle version: 0"),
+        (lambda text: text.replace("version: 1", "version: not-a-number", 1), "bundle version must be an integer"),
+        (
+            lambda text: text.replace(
+                '  description: "Bundle created from task-scoped alignment."',
+                '  description: "Bundle created from task-scoped alignment."\n  revision: 0',
+                1,
+            ),
+            r"bundle metadata\.revision must be >= 1",
+        ),
+        (
+            lambda text: text.replace("workflow:\n  version: 1", "workflow:\n  version: 0", 1),
+            "unsupported bundle workflow version: 0",
+        ),
+        (
+            lambda text: text.replace("workflow:\n  version: 1", "workflow:\n  version: false", 1),
+            "bundle workflow version must be an integer",
+        ),
+    ],
+)
+def test_bundle_preview_rejects_invalid_explicit_versions(
+    service_factory,
+    sample_workdir: Path,
+    yaml_edit,
+    message: str,
+) -> None:
+    service = service_factory(scenario="success")
+
+    with pytest.raises(LooporaError, match=message):
+        service.preview_bundle_text(yaml_edit(_bundle_yaml(sample_workdir)))
 
 
 def test_bundle_preview_rejects_task_contract_list_sections_without_bullets(
@@ -653,6 +774,40 @@ def test_bundle_delete_refuses_unowned_linked_assets(
     assert bundle_dir.exists()
     assert service.repository.get_bundle(imported["id"]) is not None
     assert service.repository.get_loop(imported["loop_id"]) is not None
+
+
+@pytest.mark.parametrize(
+    ("asset_kind", "table_name", "expected_error"),
+    [
+        ("loop", "loop_definitions", "linked loop"),
+        ("orchestration", "orchestration_definitions", "linked orchestration"),
+        ("role_definition", "role_definitions", "linked role definitions"),
+    ],
+)
+def test_bundle_delete_refuses_missing_linked_assets(
+    service_factory,
+    sample_workdir: Path,
+    asset_kind: str,
+    table_name: str,
+    expected_error: str,
+) -> None:
+    service = service_factory(scenario="success")
+    imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
+    bundle_dir = service._bundle_dir(imported["id"])
+    asset_id = (
+        imported["role_definition_ids"][0]
+        if asset_kind == "role_definition"
+        else imported[f"{asset_kind}_id"]
+    )
+
+    with service.repository.transaction() as connection:
+        connection.execute(f"DELETE FROM {table_name} WHERE id = ?", (asset_id,))
+
+    with pytest.raises(LooporaConflictError, match=expected_error):
+        service.delete_bundle(imported["id"])
+
+    assert bundle_dir.exists()
+    assert service.repository.get_bundle(imported["id"]) is not None
 
 
 def test_bundle_delete_refuses_active_linked_runs(

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from loopora.branding import APP_PACKAGE
+from loopora.event_redaction import redact_sensitive_text, redact_sensitive_value
 
 LOG_SCHEMA_VERSION = 1
 
@@ -65,7 +66,7 @@ class LooporaJsonFormatter(logging.Formatter):
             "logger": record.name,
             "component": _component_name(record.name),
             "event": getattr(record, "event", "log.unclassified"),
-            "message": record.getMessage(),
+            "message": redact_sensitive_text(record.getMessage()),
             "pid": record.process,
             "thread": record.threadName,
         }
@@ -83,8 +84,8 @@ class LooporaJsonFormatter(logging.Formatter):
             exc_type, exc_value, _ = record.exc_info
             payload["error"] = {
                 "type": exc_type.__name__ if exc_type is not None else type(exc_value).__name__,
-                "message": str(exc_value),
-                "traceback": self.formatException(record.exc_info),
+                "message": redact_sensitive_text(exc_value),
+                "traceback": redact_sensitive_text(self.formatException(record.exc_info)),
             }
 
         return json.dumps(payload, ensure_ascii=False)
@@ -97,7 +98,7 @@ def _build_log_extra(*, event: str, context: dict[str, Any]) -> dict[str, Any]:
     for key, value in context.items():
         if value is None:
             continue
-        normalized = _normalize_value(value)
+        normalized = _normalize_value(value, key=key)
         if key in _TOP_LEVEL_CONTEXT_KEYS:
             extra[key] = normalized
         else:
@@ -108,13 +109,14 @@ def _build_log_extra(*, event: str, context: dict[str, Any]) -> dict[str, Any]:
     return extra
 
 
-def _normalize_value(value: Any) -> Any:
+def _normalize_value(value: Any, *, key: str = "") -> Any:
+    value = redact_sensitive_value(key, value)
     if isinstance(value, Path):
         normalized = str(value)
     elif isinstance(value, PathLike):
         normalized = str(Path(value))
     elif isinstance(value, dict):
-        normalized = {str(key): _normalize_value(item) for key, item in value.items() if item is not None}
+        normalized = {str(child_key): _normalize_value(item, key=str(child_key)) for child_key, item in value.items() if item is not None}
     elif isinstance(value, (list, tuple, set)):
         normalized = [_normalize_value(item) for item in value]
     elif isinstance(value, str):

@@ -35,6 +35,7 @@
 - 内置 prompt 可提供多语言变体，只要 front matter 版本与 archetype 契约保持一致。
 - orchestration 保存或更新时，只保留当前 workflow 实际引用的 prompt 资产。
 - 运行期只消费冻结后的 workflow snapshot 和 prompt snapshot。
+- 持久化 prompt artifact 必须是 UTF-8 Markdown；读盘或编码失败在展示投影中降级为空 prompt 投影，在 run 启动或执行契约中必须失败关闭，不能静默换用 fallback prompt。
 
 ## 3. Workflow 结构
 
@@ -46,6 +47,8 @@ workflow 保持两层结构：
 workflow 可携带顶层 `collaboration_intent`，用于表达本任务整体判断方式，例如“先取证再推进”或“尽快收束到签字判断”。
 
 workflow 还可以携带可选 `controls[]`。它是高级误差控制机制，不是通用事件自动化。默认 starter 不要求用户理解 controls；只有当任务存在可解释的长程误差风险时，alignment 或专家编辑才应加入。
+
+workflow `version` 目前只支持整数 `1`。缺失或空值可按当前版本处理；显式 `0`、布尔值、小数、非数字或未来版本必须在保存、预览或导入边界失败关闭，不能被 truthy/default 逻辑吞成当前版本。
 
 每个 role 至少表达：
 
@@ -101,6 +104,7 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 - posture 可以承载用户难以完全规则化的隐性判断；Inspector 可以按 posture 做语义检视，只要输出能落到 evidence、handoff、blocker 或 residual risk。
 - `action_policy` 归属于 step。Builder archetype 通常获得写入权限，Inspector / GateKeeper / Guide / Custom 通常只读或只产出判断；例外必须在 workflow 中显式表达。
 - `extra_cli_args` 必须是可被 shell 风格分词解析的字符串。
+- command mode 参数模板是每行一个 argv 参数，只能使用 executor 公开声明的运行时占位符；未知 `{name}` 占位符在保存、预览或启动前失败，`{extra_cli_args}` 只能作为独立 argv 插入点。
 - `parallel_group` 第一阶段只支持连续的 Inspector / Custom step，用于 fan-out / fan-in 检视；它不是任意 DAG 语法。
 - 同一 `parallel_group` 内的 step 看到相同的上游快照，不读取彼此输出；组结束后按 workflow 原顺序汇聚 handoff 和 evidence。
 - `inputs.handoffs_from` 可按 step id、role id、runtime role、archetype 或 role name 选择当前轮上游 handoff。
@@ -109,6 +113,7 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 - `controls[].when.signal` v1 只允许 `no_evidence_progress / role_timeout / step_failed / gatekeeper_rejected`。
 - control 只能调用当前 workflow 中已有的 Inspector、Guide 或 GateKeeper；不能调用 Builder，避免自动修复污染工作区。
 - control invocation 是控制检查调用，不插入 canonical workflow 顺序；它只产生 evidence、handoff、blocker 或修复建议。
+- `controls[].max_fires_per_run` 必须是 `1..20` 的有界正整数；显式 `0` 不能在 Web 编辑器、bundle projection 或运行装配中被默认值隐藏。
 - control 自身失败必须写入 run event stream，不能静默吞掉。
 
 ## 4. 内置 starter orchestration
@@ -175,7 +180,7 @@ workflow 保存前必须满足：
 - 并行组内第一阶段只允许 `inspector` 与 `custom`，不允许 `builder`、`gatekeeper` 或 `guide`，避免并发写入和并发收敛污染 run 状态。
 - 并行 Inspector 应表达不同证据责任，例如 contract、evidence、regression、benchmark 或 posture，而不是只复制多个同名 Inspector。
 - workflow controls 必须服务于误差控制，不能表达任意 cron、webhook、文件监听、外部事件、动态 DAG 或隐式 Builder 修复。
-- control signal 必须来自稳定枚举；未知 signal、未知 role、Builder target、无效 mode 或不受限触发配置必须被拒绝。
+- control signal 必须来自稳定枚举；未知 signal、未知 role、Builder target、无效 mode 或不受限触发配置必须被拒绝。运行期重新装配冻结 workflow 时若发现损坏的 controls 配置，必须失败关闭，而不是按默认值执行。
 - action policy 必须与 archetype 和 workflow 语义兼容；并行检视组内不得出现写入工作区或收束 run 的 step。
 
 prompt 资产必须满足：
@@ -250,6 +255,8 @@ workflow 与 prompt 资产必须：
 
 - 可通过 Web 编辑与复用。
 - 可通过 CLI 或 API 引用、提交或校验；CLI 对 `parallel_group` 与 `inputs` 的专家入口是 `--workflow-file`，默认不提供大量逐字段 flags。
+- `--workflow-file` 只接受 UTF-8 JSON / YAML；编码或解析失败属于 workflow 输入错误，必须进入统一错误语义。
+- prompt 文件入口只接受 UTF-8 Markdown；front matter 与编码错误都属于 workflow / prompt 输入错误。
 - 保持 role definition 先独立存在，再被 orchestration 选入的边界。
 - 保持 step 级模型覆盖、session 继承与附加 CLI 参数的跨入口表达能力。
 - 保持 orchestration 不直接维护角色默认 prompt 与执行配置。

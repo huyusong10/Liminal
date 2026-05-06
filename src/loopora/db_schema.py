@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 from collections import defaultdict
 
 from loopora.db_shared import logger
+from loopora.db_row_decoding import RepositoryRowDecodingMixin
 from loopora.diagnostics import log_event
 from loopora.utils import utc_now
 
@@ -316,11 +316,12 @@ class RepositorySchemaMixin:
         orchestration_id = str(bundle["orchestration_id"] or "").strip()
         if orchestration_id:
             rows.append((bundle_id, "orchestration", orchestration_id))
-        try:
-            role_ids = json.loads(str(bundle["role_definition_ids_json"] or "[]"))
-        except json.JSONDecodeError:
-            role_ids = []
-        for role_id in role_ids if isinstance(role_ids, list) else []:
+        role_ids = RepositoryRowDecodingMixin._decode_json_column(
+            bundle_id,
+            "role_definition_ids_json",
+            bundle["role_definition_ids_json"],
+        )
+        for role_id in role_ids:
             normalized = str(role_id or "").strip()
             if normalized:
                 rows.append((bundle_id, "role_definition", normalized))

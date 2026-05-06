@@ -211,8 +211,15 @@ def compile_markdown_spec(markdown_text: str) -> dict:
 
 
 def read_and_compile(path: Path) -> tuple[str, dict]:
-    markdown_text = path.read_text(encoding="utf-8")
+    markdown_text = load_spec_file(path)
     return markdown_text, compile_markdown_spec(markdown_text)
+
+
+def load_spec_file(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise SpecError("spec file must be UTF-8 encoded Markdown") from exc
 
 
 def resolve_role_note(compiled_spec: dict[str, Any], *, role_name: str, archetype: str | None = None) -> str:

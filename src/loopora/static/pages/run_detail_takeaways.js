@@ -1,7 +1,16 @@
 (function () {
+  function defaultEscapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
   function createTakeawayProjector(deps = {}) {
     const localeText = deps.localeText || ((zh, en) => en || zh || "");
-    const escapeHtml = deps.escapeHtml || ((value) => String(value || ""));
+    const escapeHtml = deps.escapeHtml || defaultEscapeHtml;
     const formatAbsoluteDate = deps.formatAbsoluteDate || (() => "-");
 
     function takeawayStatusLabel(status) {

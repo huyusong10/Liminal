@@ -7,6 +7,7 @@ from loopora.service import LooporaError, normalize_role_models
 from loopora.workflows import (
     PROMPT_FILES,
     builtin_prompt_markdown,
+    load_prompt_file,
     load_workflow_file,
     normalize_archetype,
 )
@@ -104,7 +105,7 @@ def read_prompt_markdown(
     fallback: str = "",
 ) -> str:
     if prompt_file is not None:
-        return prompt_file.read_text(encoding="utf-8")
+        return load_prompt_file(prompt_file)
     if prompt_template.strip():
         return builtin_prompt_markdown(prompt_template.strip(), locale=locale)
     if fallback:

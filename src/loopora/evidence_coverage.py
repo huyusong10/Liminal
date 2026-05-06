@@ -100,8 +100,8 @@ def load_or_build_evidence_coverage_projection(layout: RunArtifactLayout) -> dic
 
 
 def build_evidence_coverage_projection(layout: RunArtifactLayout) -> dict:
-    compiled_spec = read_json(layout.contract_compiled_spec_path)
-    run_contract = read_json(layout.run_contract_path)
+    compiled_spec = _safe_read_json_artifact(layout.contract_compiled_spec_path)
+    run_contract = _safe_read_json_artifact(layout.run_contract_path)
     completion_mode = str(run_contract.get("completion_mode") or "gatekeeper").strip().lower() or "gatekeeper"
     targets = build_coverage_targets(compiled_spec, completion_mode=completion_mode)
     ledger_exists = layout.evidence_ledger_path.exists()
@@ -197,6 +197,14 @@ def build_evidence_coverage_projection(layout: RunArtifactLayout) -> dict:
         "top_gaps": top_gaps,
         "targets": target_rows,
     }
+
+
+def _safe_read_json_artifact(path) -> dict:
+    try:
+        payload = read_json(path)
+    except (OSError, UnicodeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def summarize_evidence_coverage_projection(projection: Mapping[str, Any], *, coverage_path_available: bool = True) -> dict:

@@ -11,11 +11,19 @@ from pathlib import Path
 from typing import Any
 
 from loopora.branding import state_dir_for_workdir
-from loopora.bundles import BundleError, bundle_to_yaml, lint_alignment_bundle_semantics, load_bundle_text
+from loopora.bundles import (
+    BundleError,
+    bundle_to_yaml,
+    lint_alignment_bundle_semantics,
+    load_bundle_text,
+    read_bundle_file_text,
+)
 from loopora.diagnostics import get_logger, log_exception
+from loopora.event_redaction import redact_alignment_event_payload
 from loopora.evidence_coverage import load_or_build_evidence_coverage_projection, summarize_evidence_coverage_projection
 from loopora.executor import ExecutionStopped, ExecutorError, RoleRequest, validate_command_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
+from loopora.run_artifacts import read_jsonl
 from loopora.service_alignment_diagnostics import (
     append_alignment_diagnostic_event,
     append_alignment_local_diagnostic_event,
@@ -441,10 +449,11 @@ class ServiceAlignmentMixin:
                 "bundle": None,
                 "validation": session.get("validation") or {"ok": False, "error": "bundle file does not exist"},
             }
-        raw_yaml = bundle_path.read_text(encoding="utf-8")
+        raw_yaml = ""
         try:
+            raw_yaml = read_bundle_file_text(bundle_path)
             bundle = load_bundle_text(raw_yaml)
-        except BundleError as exc:
+        except (BundleError, OSError) as exc:
             return {
                 "ok": False,
                 "session": session,
@@ -480,9 +489,9 @@ class ServiceAlignmentMixin:
             }
             return self._record_alignment_bundle_sync_failure(session_id, validation)
 
-        raw_yaml = bundle_path.read_text(encoding="utf-8")
         semantic_issues: list[str] = []
         try:
+            raw_yaml = read_bundle_file_text(bundle_path)
             bundle = load_bundle_text(raw_yaml)
             self._assert_alignment_bundle_workdir(bundle, expected_workdir=Path(session["workdir"]))
             semantic_issues = lint_alignment_bundle_semantics(bundle)
@@ -490,7 +499,7 @@ class ServiceAlignmentMixin:
                 raise LooporaError("bundle semantic lint failed: " + "; ".join(semantic_issues))
             normalized_yaml = bundle_to_yaml(bundle)
             bundle_path.write_text(normalized_yaml, encoding="utf-8")
-        except (BundleError, LooporaError) as exc:
+        except (BundleError, LooporaError, OSError) as exc:
             validation = {
                 "ok": False,
                 "error": str(exc),
@@ -543,17 +552,20 @@ class ServiceAlignmentMixin:
         bundle_path = Path(session["bundle_path"])
         if not bundle_path.exists():
             raise LooporaNotFoundError(f"alignment bundle does not exist: {bundle_path}")
-        raw_yaml = bundle_path.read_text(encoding="utf-8")
         try:
+            raw_yaml = read_bundle_file_text(bundle_path)
             bundle = self.import_bundle_text(raw_yaml, imported_from_path=str(bundle_path))
-        except LooporaError as exc:
-            self.repository.update_alignment_session(session_id, error_message=str(exc))
+        except (BundleError, LooporaError, OSError) as exc:
+            error = str(exc)
+            self.repository.update_alignment_session(session_id, error_message=error)
             self.repository.append_alignment_event(
                 session_id,
                 "alignment_import_failed",
-                {"error": str(exc), "status": "ready"},
+                {"error": error, "status": "ready"},
             )
-            raise
+            if isinstance(exc, LooporaError):
+                raise
+            raise LooporaError(error) from exc
         self.repository.update_alignment_session(
             session_id,
             status="imported",
@@ -735,26 +747,19 @@ class ServiceAlignmentMixin:
         layout = self._run_artifact_layout(Path(run["runs_dir"]))
         if not layout.evidence_ledger_path.exists():
             return []
-        items: list[dict] = []
-        for line in layout.evidence_ledger_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                item = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            items.append(
-                {
-                    "id": str(item.get("id") or ""),
-                    "kind": str(item.get("evidence_kind") or ""),
-                    "archetype": str(item.get("archetype") or ""),
-                    "step_id": str(item.get("step_id") or ""),
-                    "claim": str(item.get("claim") or "")[:500],
-                    "result": str(item.get("result") or ""),
-                    "residual_risk": str(item.get("residual_risk") or "")[:300],
-                    "verifies": list(item.get("verifies") or [])[:8],
-                }
-            )
+        items = [
+            {
+                "id": str(item.get("id") or ""),
+                "kind": str(item.get("evidence_kind") or ""),
+                "archetype": str(item.get("archetype") or ""),
+                "step_id": str(item.get("step_id") or ""),
+                "claim": str(item.get("claim") or "")[:500],
+                "result": str(item.get("result") or ""),
+                "residual_risk": str(item.get("residual_risk") or "")[:300],
+                "verifies": list(item.get("verifies") or [])[:8],
+            }
+            for item in read_jsonl(layout.evidence_ledger_path)
+        ]
         return items[-limit:]
 
     def _alignment_run_coverage_summary(self, run: dict) -> dict:
@@ -993,7 +998,7 @@ class ServiceAlignmentMixin:
         stdout_path = request.run_dir / "stdout.log"
 
         def emit_alignment_event(event_type: str, payload: dict) -> dict:
-            sanitized = self._sanitize_alignment_event_payload(payload, invocation_id=invocation_id)
+            sanitized = self._sanitize_alignment_event_payload(event_type, payload, invocation_id=invocation_id)
             if event_type == "codex_event":
                 message = str(sanitized.get("message", "") or "").strip()
                 if message:
@@ -1495,7 +1500,10 @@ GateKeeper verdict:
         current_bundle = ""
         bundle_path = Path(session["bundle_path"])
         if bundle_path.exists():
-            current_bundle = bundle_path.read_text(encoding="utf-8")
+            try:
+                current_bundle = read_bundle_file_text(bundle_path)
+            except (BundleError, OSError) as exc:
+                current_bundle = f"Current bundle file could not be read: {exc}"
         transcript_text = json.dumps(session.get("transcript") or [], ensure_ascii=False, indent=2)
         working_agreement_text = json.dumps(session.get("working_agreement") or {}, ensure_ascii=False, indent=2)
         alignment_stage = str(session.get("alignment_stage", "") or "clarifying")
@@ -1799,7 +1807,7 @@ This is a lightweight Loopora-provided snapshot. Treat it as observed context, n
             return
         try:
             payload = json.loads(output_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             shutil.copy2(output_path, target)
             return
         target.write_text(
@@ -1877,29 +1885,11 @@ This is a lightweight Loopora-provided snapshot. Treat it as observed context, n
             payload["bundle_bytes"] = 0
         return payload
 
-    @staticmethod
-    def _truncate_alignment_event_text(value: str, *, limit: int = 2000) -> str:
-        text = str(value or "")
-        if len(text) <= limit:
-            return text
-        return text[:limit] + f"\n... [truncated {len(text) - limit} chars]"
-
     @classmethod
-    def _sanitize_alignment_event_payload(cls, payload: dict, *, invocation_id: str = "") -> dict:
-        sanitized = dict(payload) if isinstance(payload, dict) else {}
+    def _sanitize_alignment_event_payload(cls, event_type: str, payload: dict, *, invocation_id: str = "") -> dict:
+        sanitized = redact_alignment_event_payload(event_type, payload)
         if invocation_id:
             sanitized.setdefault("invocation_id", invocation_id)
-        for key in ("prompt", "json_schema", "bundle_yaml"):
-            if key in sanitized:
-                sanitized[f"{key}_omitted"] = True
-                sanitized.pop(key, None)
-        if sanitized.get("type") == "command" and "message" in sanitized:
-            sanitized["message"] = cls._truncate_alignment_event_text(sanitized["message"], limit=500)
-            sanitized["command_truncated"] = True
-        elif "message" in sanitized:
-            sanitized["message"] = cls._truncate_alignment_event_text(sanitized["message"])
-        if "error" in sanitized:
-            sanitized["error"] = cls._truncate_alignment_event_text(sanitized["error"])
         return sanitized
 
     @classmethod

@@ -222,6 +222,87 @@ if (!latestSummary.title.includes("Run finished") || latestSummary.meta !== "dat
     subprocess.run([node, "-e", script], cwd=root, check=True)
 
 
+def test_run_detail_projector_defaults_escape_dynamic_html() -> None:
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required for static JS module checks")
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const context = {
+  window: {},
+  Date,
+  Number,
+  String,
+  Array,
+};
+vm.createContext(context);
+for (const file of [
+  "src/loopora/static/pages/run_detail_timeline.js",
+  "src/loopora/static/pages/run_detail_takeaways.js",
+]) {
+  vm.runInContext(fs.readFileSync(file, "utf8"), context);
+}
+const timeline = context.window.LooporaRunDetailTimeline.createTimelineProjector({
+  localeText: (_zh, en) => en,
+  formatClock: () => "00:00:00",
+  formatAbsoluteDate: () => "date",
+});
+const timelineHtml = timeline.renderTimelineItem({
+  event_type: "step_handoff_written",
+  created_at: "2026-04-30T00:00:00Z",
+  payload: {summary: "<img src=x onerror=alert(1)>&'\""},
+});
+if (timelineHtml.includes("<img src=x") || !timelineHtml.includes("&lt;img src=x")) {
+  throw new Error(`timeline default escape failed: ${timelineHtml}`);
+}
+if (!timelineHtml.includes("&amp;") || !timelineHtml.includes("&#39;") || !timelineHtml.includes("&quot;")) {
+  throw new Error(`timeline escaped entities missing: ${timelineHtml}`);
+}
+const takeaways = context.window.LooporaRunDetailTakeaways.createTakeawayProjector({
+  localeText: (_zh, en) => en,
+  formatAbsoluteDate: () => "date",
+});
+const iterationHtml = takeaways.renderTakeawayIterationCard({
+  display_iter: "<b>1</b>",
+  status: "passed\"><svg onload=alert(1)>",
+  summary: "<script>alert(1)</script>",
+  role_count: 1,
+  roles: [{
+    role_name: "<b>Builder</b>",
+    status: "failed\" onclick=\"alert(1)",
+    summary: "<img src=x onerror=alert(1)>",
+    blocking_item: "<stop>",
+  }],
+}, {evidence_count: 1});
+for (const unsafe of ["<script>", "<img src=x", "<b>Builder", "<svg onload"]) {
+  if (iterationHtml.includes(unsafe)) {
+    throw new Error(`takeaway default escape leaked ${unsafe}: ${iterationHtml}`);
+  }
+}
+for (const escaped of ["&lt;script&gt;", "&lt;img src=x", "&lt;b&gt;Builder", "&quot;", "&lt;stop&gt;"]) {
+  if (!iterationHtml.includes(escaped)) {
+    throw new Error(`takeaway default escape missing ${escaped}: ${iterationHtml}`);
+  }
+}
+for (const file of [
+  "src/loopora/static/pages/run_detail_timeline.js",
+  "src/loopora/static/pages/run_detail_takeaways.js",
+  "src/loopora/static/pages/run_detail_render.js",
+]) {
+  const source = fs.readFileSync(file, "utf8");
+  if (source.includes("deps.escapeHtml || ((value) => String(value || \"\"))")) {
+    throw new Error(`unsafe escape fallback remains in ${file}`);
+  }
+  if (!source.includes("deps.escapeHtml || defaultEscapeHtml")) {
+    throw new Error(`default escape fallback is not wired in ${file}`);
+  }
+}
+"""
+    subprocess.run([node, "-e", script], cwd=root, check=True)
+
+
 def test_run_detail_observation_projector_handles_snapshot_dedupe_and_stream_state() -> None:
     node = shutil.which("node")
     if not node:
@@ -1689,6 +1770,18 @@ def _assert_bundle_revision_routes(client: TestClient, bundle_id: str) -> None:
     assert encoded_revision_response.headers["location"] == "/loops/new/manual?replace_bundle_id=bundle%26revision%3D2#bundle-import-form"
 
 
+def test_new_loop_compat_redirects_strip_auth_token_from_forwarded_query(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service, bind_host="0.0.0.0", auth_token="secret-token"))
+
+    response = client.get("/loops/new?token=secret-token&workdir=/tmp/demo", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/loops/new/manual?workdir=%2Ftmp%2Fdemo#manual-loop-form"
+    assert "secret-token" not in response.headers["location"]
+    assert client.cookies.get("loopora_auth") == "secret-token"
+
+
 def test_bundles_pages_render_list_and_detail(
     service_factory,
     sample_spec_file: Path,
@@ -1707,6 +1800,23 @@ def test_bundles_pages_render_list_and_detail(
     assert detail_response.status_code == 200
     _assert_bundle_detail_page(detail_response.text, imported["id"])
     _assert_bundle_revision_routes(client, imported["id"])
+
+
+def test_bundle_detail_page_tolerates_unreadable_spec_file(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    imported = _import_web_bundle(service, sample_spec_file, sample_workdir)
+    service._bundle_spec_path(imported["id"]).write_bytes(b"\xff")
+    client = TestClient(build_app(service=service))
+
+    response = client.get(f"/bundles/{imported['id']}")
+
+    assert response.status_code == 200
+    _assert_has_testid(response.text, "bundle-detail-page")
+    assert "bundle spec file could not be read" in response.text
 
 
 def test_index_page_uses_bundle_delete_for_bundle_managed_loops(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -21,6 +22,7 @@ from loopora.workflows import (
     normalize_step_on_pass,
     normalize_step_parallel_group,
     normalize_workflow_identifier,
+    normalize_workflow_version,
     normalize_workflow_controls,
     validate_workflow_parallel_groups,
 )
@@ -57,7 +59,7 @@ def normalize_bundle(payload: Mapping[str, object] | None) -> dict[str, Any]:
     if not isinstance(payload, Mapping):
         raise BundleError("bundle payload must decode to an object")
     raw = dict(payload)
-    version = int(raw.get("version", BUNDLE_VERSION) or BUNDLE_VERSION)
+    version = _normalize_bundle_version(raw.get("version"))
     if version != BUNDLE_VERSION:
         raise BundleError(f"unsupported bundle version: {version}")
 
@@ -91,13 +93,39 @@ def _normalize_bundle_metadata(raw_metadata: object) -> dict[str, Any]:
     name = str(metadata.get("name", "") or "").strip()
     if not name:
         raise BundleError("bundle metadata.name is required")
+    revision = _normalize_bundle_integer(
+        metadata.get("revision"),
+        default=1,
+        field_name="bundle metadata.revision",
+    )
+    if revision < 1:
+        raise BundleError("bundle metadata.revision must be >= 1")
     return {
         "bundle_id": str(metadata.get("bundle_id", "") or "").strip(),
         "name": name,
         "description": str(metadata.get("description", "") or "").strip(),
         "source_bundle_id": str(metadata.get("source_bundle_id", "") or "").strip(),
-        "revision": int(metadata.get("revision", 1) or 1),
+        "revision": revision,
     }
+
+
+def _normalize_bundle_version(value: object) -> int:
+    return _normalize_bundle_integer(value, default=BUNDLE_VERSION, field_name="bundle version")
+
+
+def _normalize_bundle_integer(value: object, *, default: int, field_name: str) -> int:
+    if value is None:
+        return default
+    if isinstance(value, str) and not value.strip():
+        return default
+    if isinstance(value, bool):
+        raise BundleError(f"{field_name} must be an integer")
+    if isinstance(value, float) and not value.is_integer():
+        raise BundleError(f"{field_name} must be an integer")
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise BundleError(f"{field_name} must be an integer") from exc
 
 
 def _normalize_bundle_loop(raw_loop: object) -> dict[str, Any]:
@@ -108,25 +136,7 @@ def _normalize_bundle_loop(raw_loop: object) -> dict[str, Any]:
     if not workdir:
         raise BundleError("bundle loop.workdir is required")
     name = str(payload.get("name", "") or "").strip() or Path(workdir).expanduser().resolve().name
-    try:
-        iteration_interval_seconds = float(payload.get("iteration_interval_seconds", 0.0) or 0.0)
-        max_iters = int(payload.get("max_iters", 8) or 8)
-        max_role_retries = int(payload.get("max_role_retries", 2) or 2)
-        delta_threshold = float(payload.get("delta_threshold", 0.005) or 0.005)
-        trigger_window = int(payload.get("trigger_window", 4) or 4)
-        regression_window = int(payload.get("regression_window", 2) or 2)
-    except (TypeError, ValueError) as exc:
-        raise BundleError("bundle loop settings must use valid numbers") from exc
-    if max_iters < 0:
-        raise BundleError("bundle loop.max_iters must be >= 0")
-    if max_role_retries < 0:
-        raise BundleError("bundle loop.max_role_retries must be >= 0")
-    if trigger_window < 1:
-        raise BundleError("bundle loop.trigger_window must be >= 1")
-    if regression_window < 1:
-        raise BundleError("bundle loop.regression_window must be >= 1")
-    if iteration_interval_seconds < 0:
-        raise BundleError("bundle loop.iteration_interval_seconds must be >= 0")
+    runtime = _normalize_bundle_loop_runtime(payload)
     return {
         "name": name,
         "workdir": workdir,
@@ -137,6 +147,35 @@ def _normalize_bundle_loop(raw_loop: object) -> dict[str, Any]:
         "command_args_text": str(payload.get("command_args_text", "") or ""),
         "model": str(payload.get("model", "") or "").strip(),
         "reasoning_effort": str(payload.get("reasoning_effort", "") or "").strip(),
+        **runtime,
+    }
+
+
+def _normalize_bundle_loop_runtime(payload: Mapping[str, Any]) -> dict[str, int | float]:
+    try:
+        iteration_interval_seconds = float(_bundle_numeric_value(payload, "iteration_interval_seconds"))
+        max_iters = int(_bundle_numeric_value(payload, "max_iters"))
+        max_role_retries = int(_bundle_numeric_value(payload, "max_role_retries"))
+        delta_threshold = float(_bundle_numeric_value(payload, "delta_threshold"))
+        trigger_window = int(_bundle_numeric_value(payload, "trigger_window"))
+        regression_window = int(_bundle_numeric_value(payload, "regression_window"))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise BundleError("bundle loop settings must use valid numbers") from exc
+    if not math.isfinite(iteration_interval_seconds) or not math.isfinite(delta_threshold):
+        raise BundleError("bundle loop settings must use finite numbers")
+    if max_iters < 0:
+        raise BundleError("bundle loop.max_iters must be >= 0")
+    if max_role_retries < 0:
+        raise BundleError("bundle loop.max_role_retries must be >= 0")
+    if delta_threshold < 0:
+        raise BundleError("bundle loop.delta_threshold must be >= 0")
+    if trigger_window < 1:
+        raise BundleError("bundle loop.trigger_window must be >= 1")
+    if regression_window < 1:
+        raise BundleError("bundle loop.regression_window must be >= 1")
+    if iteration_interval_seconds < 0:
+        raise BundleError("bundle loop.iteration_interval_seconds must be >= 0")
+    return {
         "iteration_interval_seconds": iteration_interval_seconds,
         "max_iters": max_iters,
         "max_role_retries": max_role_retries,
@@ -144,6 +183,17 @@ def _normalize_bundle_loop(raw_loop: object) -> dict[str, Any]:
         "trigger_window": trigger_window,
         "regression_window": regression_window,
     }
+
+
+def _bundle_numeric_value(payload: Mapping[str, Any], key: str) -> object:
+    value = payload.get(key, BUNDLE_DEFAULT_LOOP[key])
+    if value is None:
+        return BUNDLE_DEFAULT_LOOP[key]
+    if isinstance(value, str) and not value.strip():
+        return BUNDLE_DEFAULT_LOOP[key]
+    if isinstance(value, bool):
+        raise BundleError("bundle loop settings must use valid numbers")
+    return value
 
 
 def _normalize_bundle_spec(raw_spec: object) -> dict[str, str]:
@@ -274,8 +324,12 @@ def _normalize_bundle_workflow(raw_workflow: object, *, role_definitions: list[d
     steps = _normalize_bundle_workflow_steps(raw_steps, archetype_lookup=archetype_lookup)
     workflow_role_by_id = _bundle_workflow_role_archetypes(archetype_lookup)
     controls = _normalize_bundle_workflow_controls(payload.get("controls"), steps=steps, role_by_id=workflow_role_by_id)
+    try:
+        version = normalize_workflow_version(payload.get("version"), field_name="bundle workflow version")
+    except WorkflowError as exc:
+        raise BundleError(str(exc)) from exc
     workflow = {
-        "version": int(payload.get("version", 1) or 1),
+        "version": version,
         "preset": str(payload.get("preset", "") or "").strip(),
         "collaboration_intent": str(payload.get("collaboration_intent", "") or "").strip(),
         "roles": roles,
@@ -612,8 +666,15 @@ def _is_gatekeeper_without_blocking_semantics(role: Mapping[str, Any]) -> bool:
     return not re.search(r"block|fail|do not pass|阻断|不要通过|不通过|拒绝", gatekeeper_text, re.I)
 
 
+def read_bundle_file_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise BundleError("bundle file must be UTF-8 encoded YAML") from exc
+
+
 def load_bundle_file(path: Path) -> dict[str, Any]:
-    raw_text = path.read_text(encoding="utf-8")
+    raw_text = read_bundle_file_text(path)
     return load_bundle_text(raw_text)
 
 

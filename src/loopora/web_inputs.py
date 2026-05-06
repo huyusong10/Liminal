@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -104,14 +105,16 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
         raise LooporaError("spec path is required")
 
     try:
-        iteration_interval_seconds = float(payload.get("iteration_interval_seconds", 0))
-        max_iters = int(payload.get("max_iters", 8))
-        max_role_retries = int(payload.get("max_role_retries", 2))
-        delta_threshold = float(payload.get("delta_threshold", 0.005))
-        trigger_window = int(payload.get("trigger_window", 4))
-        regression_window = int(payload.get("regression_window", 2))
-    except (TypeError, ValueError) as exc:
+        iteration_interval_seconds = _loop_payload_number(payload, "iteration_interval_seconds", default=0, integer_only=False)
+        max_iters = _loop_payload_number(payload, "max_iters", default=8, integer_only=True)
+        max_role_retries = _loop_payload_number(payload, "max_role_retries", default=2, integer_only=True)
+        delta_threshold = _loop_payload_number(payload, "delta_threshold", default=0.005, integer_only=False)
+        trigger_window = _loop_payload_number(payload, "trigger_window", default=4, integer_only=True)
+        regression_window = _loop_payload_number(payload, "regression_window", default=2, integer_only=True)
+    except (TypeError, ValueError, OverflowError) as exc:
         raise LooporaError("numeric loop settings must use valid numbers") from exc
+    if not math.isfinite(iteration_interval_seconds) or not math.isfinite(delta_threshold):
+        raise LooporaError("numeric loop settings must use finite numbers")
 
     loop_kwargs = {
         "name": name,
@@ -136,6 +139,19 @@ def _loop_payload_from_mapping(payload: Mapping[str, object]) -> tuple[dict[str,
         "role_models": _role_models_from_mapping(payload),
     }
     return loop_kwargs, _coerce_bool(payload.get("start_immediately"))
+
+
+def _loop_payload_number(
+    payload: Mapping[str, object],
+    key: str,
+    *,
+    default: int | float,
+    integer_only: bool,
+) -> int | float:
+    value = payload.get(key, default)
+    if isinstance(value, bool):
+        raise ValueError(f"{key} must be numeric")
+    return int(value) if integer_only else float(value)
 
 
 def _orchestration_payload_from_mapping(
@@ -569,9 +585,10 @@ def _accept_language_q_value(params: list[str]) -> float:
 
 def _float_or_zero(value: str) -> float:
     try:
-        return float(value.strip())
+        parsed = float(value.strip())
     except ValueError:
         return 0.0
+    return parsed if math.isfinite(parsed) and 0.0 <= parsed <= 1.0 else 0.0
 
 
 def _spec_validation_from_markdown(markdown_text: str) -> dict[str, object]:

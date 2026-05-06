@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
@@ -216,7 +218,7 @@ def _register_bundle_export_page(app: FastAPI, ctx: WebRouteContext) -> None:
 
 
 def _forward_create_query(request: Request, path: str, fragment: str) -> str:
-    query = str(request.url.query or "")
+    query = urlencode([(key, value) for key, value in request.query_params.multi_items() if key != "token"])
     return f"{path}{'?' + query if query else ''}#{fragment}"
 
 

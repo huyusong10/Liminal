@@ -203,6 +203,31 @@ def test_custom_command_args_require_output_path_placeholder() -> None:
         validate_command_args_text("--prompt\n{prompt}\n", executor_kind="custom")
 
 
+def test_custom_command_args_reject_unknown_placeholders() -> None:
+    with pytest.raises(ValueError, match="unsupported placeholders: \\{outpt_path\\}"):
+        validate_command_args_text(
+            "exec\n--output-schema\n{schema_path}\n--output-last-message\n{output_path}\n{outpt_path}\n{prompt}\n",
+            executor_kind="codex",
+        )
+
+
+def test_custom_command_args_allow_json_literals() -> None:
+    args = validate_command_args_text(
+        '--config\n{"mode":"strict"}\n--output\n{output_path}\n{prompt}\n',
+        executor_kind="custom",
+    )
+
+    assert '{"mode":"strict"}' in args
+
+
+def test_extra_cli_args_placeholder_must_be_its_own_argument() -> None:
+    with pytest.raises(ValueError, match="\\{extra_cli_args\\} must be its own argument"):
+        validate_command_args_text(
+            "--output\n{output_path}\n--flags={extra_cli_args}\n{prompt}\n",
+            executor_kind="custom",
+        )
+
+
 def test_custom_exec_args_resolve_runtime_values(tmp_path: Path) -> None:
     request = _request(tmp_path, executor_kind="claude", model="sonnet", reasoning_effort="medium")
     request.executor_mode = "command"

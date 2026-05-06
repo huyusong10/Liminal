@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from loopora.diagnostics import log_exception
+from loopora.diagnostics import log_event, log_exception
 from loopora.service_alignment import ALIGNMENT_ACTIVE_STATUSES
 from loopora.web_route_context import WebRouteContext
-from loopora.web_streaming import stream_error_payload
+from loopora.web_streaming import MAX_EVENT_CURSOR_ID, parse_sse_last_event_id, stream_error_payload
 
 
 def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
@@ -63,7 +64,7 @@ def _register_alignment_session_routes(app: FastAPI, ctx: WebRouteContext) -> No
         return JSONResponse({"session": session}, status_code=201)
 
     @app.get("/api/alignments/sessions")
-    async def api_list_alignment_sessions(limit: int = 30) -> JSONResponse:
+    async def api_list_alignment_sessions(limit: int = Query(default=30, ge=1, le=100)) -> JSONResponse:
         return JSONResponse({"sessions": ctx.svc().list_alignment_sessions(limit=limit)})
 
     @app.get("/api/alignments/sessions/{session_id}")
@@ -85,15 +86,23 @@ def _register_alignment_session_routes(app: FastAPI, ctx: WebRouteContext) -> No
         return JSONResponse({"session": ctx.svc().cancel_alignment_session(session_id)})
 
     @app.get("/api/alignments/sessions/{session_id}/events")
-    async def api_alignment_events(session_id: str, after_id: int = 0, limit: int = 200) -> JSONResponse:
+    async def api_alignment_events(
+        session_id: str,
+        after_id: int = Query(default=0, ge=0, le=MAX_EVENT_CURSOR_ID),
+        limit: int = Query(default=200, ge=1, le=5000),
+    ) -> JSONResponse:
         return JSONResponse(ctx.svc().list_alignment_events(session_id, after_id=after_id, limit=limit))
 
 
 def _register_alignment_stream_route(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/alignments/sessions/{session_id}/stream")
-    async def api_alignment_stream(request: Request, session_id: str, after_id: int = 0) -> StreamingResponse:
+    async def api_alignment_stream(
+        request: Request,
+        session_id: str,
+        after_id: int = Query(default=0, ge=0, le=MAX_EVENT_CURSOR_ID),
+    ) -> StreamingResponse:
         ctx.svc().get_alignment_session(session_id)
-        after_id = _resolve_alignment_stream_after_id(request, after_id=after_id)
+        after_id = _resolve_alignment_stream_after_id(ctx, request, session_id=session_id, after_id=after_id)
         return StreamingResponse(
             _alignment_event_stream(ctx, session_id=session_id, after_id=after_id),
             media_type="text/event-stream",
@@ -160,14 +169,23 @@ def _alignment_event_stream(ctx: WebRouteContext, *, session_id: str, after_id: 
         time.sleep(1)
 
 
-def _resolve_alignment_stream_after_id(request: Request, *, after_id: int) -> int:
+def _resolve_alignment_stream_after_id(ctx: WebRouteContext, request: Request, *, session_id: str, after_id: int) -> int:
     last_event_header = str(request.headers.get("last-event-id", "")).strip()
     if not last_event_header:
         return after_id
-    try:
-        return max(after_id, int(last_event_header))
-    except ValueError:
+    parsed_header = parse_sse_last_event_id(last_event_header)
+    if parsed_header is None:
+        log_event(
+            ctx.logger,
+            logging.WARNING,
+            "web.alignment_stream.resume_cursor_invalid",
+            "Ignored invalid SSE resume cursor and kept the request cursor",
+            session_id=session_id,
+            after_id=after_id,
+            invalid_last_event_id=last_event_header,
+        )
         return after_id
+    return max(after_id, parsed_header)
 
 
 def _coerce_bool(value: object) -> bool:

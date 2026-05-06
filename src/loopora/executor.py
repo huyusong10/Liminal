@@ -62,6 +62,24 @@ class ExecutionStopped(BaseException):
 
 
 COMMAND_EVENT_PREVIEW_LIMIT = 500
+EXECUTOR_OUTPUT_MAX_BYTES = 1_000_000
+COMMAND_PLACEHOLDER_PATTERN = re.compile(r"\{[A-Za-z_][A-Za-z0-9_]*\}")
+COMMAND_PLACEHOLDERS = frozenset(
+    {
+        "{workdir}",
+        "{schema_path}",
+        "{output_path}",
+        "{prompt}",
+        "{sandbox}",
+        "{json_schema}",
+        "{model}",
+        "{reasoning_effort}",
+        "{resume_session_id}",
+        "{alignment_session_id}",
+        "{session_ref_json}",
+        "{extra_cli_args}",
+    }
+)
 _SENSITIVE_ARG_NAMES = {
     "--api-key",
     "--auth-token",
@@ -302,6 +320,15 @@ def validate_command_args_text(command_args_text: str | None, *, executor_kind: 
     if not args:
         raise ValueError("custom command arguments are required in command mode")
     joined = "\n".join(args)
+    unsupported_placeholders = sorted(set(COMMAND_PLACEHOLDER_PATTERN.findall(joined)) - COMMAND_PLACEHOLDERS)
+    if unsupported_placeholders:
+        joined_unsupported = ", ".join(unsupported_placeholders)
+        raise ValueError(f"custom command has unsupported placeholders: {joined_unsupported}")
+    invalid_extra_args_placeholder = [
+        arg for arg in args if "{extra_cli_args}" in arg and arg.strip() != "{extra_cli_args}"
+    ]
+    if invalid_extra_args_placeholder:
+        raise ValueError("custom command placeholder {extra_cli_args} must be its own argument")
     profile = executor_profile(executor_kind)
     required_placeholders = profile.command_required_placeholders
     missing = [placeholder for placeholder in required_placeholders if placeholder not in joined]
@@ -350,6 +377,22 @@ def build_custom_exec_args(request: RoleRequest, schema_path: Path) -> list[str]
     if extra_args and not extra_args_consumed:
         resolved_args.extend(extra_args)
     return [cli_name, *resolved_args]
+
+
+def read_executor_output_text(path: Path, *, role: str, executor_label: str) -> str:
+    try:
+        output_size = path.stat().st_size
+    except OSError as exc:
+        raise ExecutorError(f"{executor_label} output file is not readable for role={role}") from exc
+    if output_size > EXECUTOR_OUTPUT_MAX_BYTES:
+        raise ExecutorError(
+            f"{executor_label} output file is too large for role={role}: "
+            f"{output_size} bytes exceeds {EXECUTOR_OUTPUT_MAX_BYTES} bytes"
+        )
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ExecutorError(f"role={role} produced non-UTF-8 output") from exc
 
 
 class RealCodexExecutor(CodexExecutor):
@@ -437,10 +480,11 @@ class RealCodexExecutor(CodexExecutor):
             if not isinstance(current, dict) or not current.get("session_id"):
                 request.extra_context["session_ref"] = {"session_id": request.resume_session_id.strip()}
 
+        output_text = read_executor_output_text(request.output_path, role=request.role, executor_label="codex exec")
         try:
-            return json.loads(request.output_path.read_text(encoding="utf-8"))
+            return json.loads(output_text)
         except json.JSONDecodeError as exc:
-            payload = self._parse_structured_output_from_text(request.output_path.read_text(encoding="utf-8"))
+            payload = self._parse_structured_output_from_text(output_text)
             if isinstance(payload, dict):
                 return payload
             raise ExecutorError(f"role={request.role} produced invalid JSON output") from exc
@@ -547,8 +591,9 @@ class RealCodexExecutor(CodexExecutor):
             raise ExecutorError(f"custom exec failed for role={request.role} exit_code={return_code}")
         if not request.output_path.exists():
             raise ExecutorError(f"custom exec did not produce an output file for role={request.role}")
+        output_text = read_executor_output_text(request.output_path, role=request.role, executor_label="custom exec")
         try:
-            payload = json.loads(request.output_path.read_text(encoding="utf-8"))
+            payload = json.loads(output_text)
         except json.JSONDecodeError as exc:
             raise ExecutorError(f"role={request.role} produced invalid JSON output") from exc
         if not isinstance(payload, dict):

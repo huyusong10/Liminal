@@ -33,12 +33,20 @@ def preflight_bundle_graph_delete(repository, bundle: dict, links: BundleGraphLi
 
     paths: list[Path] = []
     loop = repository.get_loop(links.loop_id) if links.loop_id else None
+    if links.loop_id and not loop:
+        raise LooporaConflictError(f"bundle {bundle_id} cannot delete linked loop {links.loop_id}: asset is missing")
     if loop:
         paths.extend(_preflight_loop_delete(repository, bundle_id, links, loop))
 
     orchestration = repository.get_orchestration(links.orchestration_id) if links.orchestration_id else None
+    if links.orchestration_id and not orchestration:
+        raise LooporaConflictError(
+            f"bundle {bundle_id} cannot delete linked orchestration {links.orchestration_id}: asset is missing"
+        )
     if links.orchestration_id:
         _assert_orchestration_not_shared(repository, bundle_id, links)
+
+    _assert_role_definitions_exist(repository, bundle_id, links)
 
     if orchestration and links.role_definition_ids:
         _assert_roles_belong_to_orchestration(bundle_id, links.orchestration_id, links.role_definition_ids, orchestration)
@@ -67,6 +75,19 @@ def _assert_assets_owned_by_bundle(repository, bundle_id: str, assets: list[tupl
             continue
         reason = "unowned" if not owner_id else f"owned by {owner_id}"
         raise LooporaConflictError(f"bundle {bundle_id} cannot delete {asset_type} {asset_id}: asset is {reason}")
+
+
+def _assert_role_definitions_exist(repository, bundle_id: str, links: BundleGraphLinks) -> None:
+    missing_role_ids = [
+        role_definition_id
+        for role_definition_id in links.role_definition_ids
+        if not repository.get_role_definition(role_definition_id)
+    ]
+    if missing_role_ids:
+        raise LooporaConflictError(
+            f"bundle {bundle_id} cannot delete linked role definitions: assets are missing: "
+            f"{', '.join(missing_role_ids)}"
+        )
 
 
 def _preflight_loop_delete(repository, bundle_id: str, links: BundleGraphLinks, loop: dict) -> list[Path]:

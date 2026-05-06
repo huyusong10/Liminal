@@ -38,6 +38,15 @@ def test_recent_workdirs_ignores_invalid_saved_payload(monkeypatch, tmp_path: Pa
     assert load_recent_workdirs() == []
 
 
+def test_recent_workdirs_ignores_non_utf8_saved_payload(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("LOOPORA_HOME", str(tmp_path / "loopora-home"))
+    storage_path = app_home() / "recent_workdirs.json"
+    storage_path.parent.mkdir(parents=True, exist_ok=True)
+    storage_path.write_bytes(b"\xff")
+
+    assert load_recent_workdirs() == []
+
+
 def test_recent_workdirs_ignore_non_string_entries_but_keep_valid_paths(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LOOPORA_HOME", str(tmp_path / "loopora-home"))
     storage_path = app_home() / "recent_workdirs.json"
@@ -88,6 +97,24 @@ def test_load_settings_resets_invalid_json_to_defaults(monkeypatch, tmp_path: Pa
     )
 
 
+def test_load_settings_resets_non_utf8_payload_to_defaults(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("LOOPORA_HOME", str(tmp_path / "loopora-home"))
+    storage_path = app_home() / "settings.json"
+    storage_path.write_bytes(b"\xff")
+
+    settings = load_settings()
+
+    assert settings == AppSettings()
+    assert storage_path.read_text(encoding="utf-8") == (
+        "{\n"
+        '  "max_concurrent_runs": 2,\n'
+        '  "polling_interval_seconds": 0.5,\n'
+        '  "stop_grace_period_seconds": 2.0,\n'
+        '  "role_idle_timeout_seconds": 300.0\n'
+        "}\n"
+    )
+
+
 def test_load_settings_coerces_valid_numbers_and_drops_unknown_fields(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LOOPORA_HOME", str(tmp_path / "loopora-home"))
     storage_path = app_home() / "settings.json"
@@ -116,6 +143,34 @@ def test_load_settings_coerces_valid_numbers_and_drops_unknown_fields(monkeypatc
         "{\n"
         '  "max_concurrent_runs": 4,\n'
         '  "polling_interval_seconds": 0.25,\n'
+        '  "stop_grace_period_seconds": 2.0,\n'
+        '  "role_idle_timeout_seconds": 300.0\n'
+        "}\n"
+    )
+
+
+def test_load_settings_rejects_non_finite_numeric_values(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("LOOPORA_HOME", str(tmp_path / "loopora-home"))
+    storage_path = app_home() / "settings.json"
+    storage_path.write_text(
+        (
+            "{\n"
+            '  "max_concurrent_runs": Infinity,\n'
+            '  "polling_interval_seconds": "nan",\n'
+            '  "stop_grace_period_seconds": "inf",\n'
+            '  "role_idle_timeout_seconds": "-inf"\n'
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    settings = load_settings()
+
+    assert settings == AppSettings()
+    assert storage_path.read_text(encoding="utf-8") == (
+        "{\n"
+        '  "max_concurrent_runs": 2,\n'
+        '  "polling_interval_seconds": 0.5,\n'
         '  "stop_grace_period_seconds": 2.0,\n'
         '  "role_idle_timeout_seconds": 300.0\n'
         "}\n"

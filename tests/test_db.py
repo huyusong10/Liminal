@@ -6,8 +6,10 @@ import sqlite3
 from pathlib import Path
 
 from loopora.db import LooporaRepository
+from loopora.db_event_records import RunObservationSnapshotRowsRequest
 from loopora.db_schema import CURRENT_SCHEMA_VERSION
 from loopora.settings import app_home, configure_logging
+import loopora.db_row_decoding as row_decoding
 
 
 def _read_service_log_records() -> list[dict]:
@@ -144,6 +146,17 @@ def test_append_event_tolerates_jsonl_mirror_failures(tmp_path: Path, monkeypatc
     assert stored[0]["payload"]["status"] == "running"
 
 
+def test_list_events_normalizes_cursor_and_limit_before_sqlite(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    _create_run(repository, tmp_path)
+    for index in range(3):
+        repository.append_event("run_test", "progress", {"index": index})
+
+    assert [event["payload"]["index"] for event in repository.list_events("run_test", after_id=-10, limit=2)] == [0, 1]
+    assert repository.list_events("run_test", limit=0) == []
+    assert repository.list_events("run_test", limit=-1) == []
+
+
 def test_append_event_does_not_write_takeaway_projection(tmp_path: Path) -> None:
     repository = LooporaRepository(tmp_path / "app.db")
     run = _create_run(repository, tmp_path, run_id="run_projection_boundary", status="running")
@@ -157,6 +170,41 @@ def test_append_event_does_not_write_takeaway_projection(tmp_path: Path) -> None
             (run["id"],),
         ).fetchone()
     assert row is None
+
+
+def test_takeaway_projection_shape_mismatch_degrades_with_diagnostic(tmp_path: Path, monkeypatch) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    run = _create_run(repository, tmp_path, run_id="run_projection_shape", status="succeeded")
+    event = repository.append_event(run["id"], "run_finished", {"status": "succeeded"})
+    repository.record_run_takeaway_projection(run["id"], event["id"], {"run_status": "succeeded"})
+    log_calls: list[dict] = []
+
+    def capture_log_event(_logger, _level, event_name, _message, **context):
+        log_calls.append({"event": event_name, "context": context})
+
+    monkeypatch.setattr(row_decoding, "log_event", capture_log_event)
+    with repository.transaction() as connection:
+        connection.execute(
+            "UPDATE run_takeaway_projections SET payload_json = ? WHERE run_id = ? AND source_event_id = ?",
+            ("[]", run["id"], event["id"]),
+        )
+
+    snapshot = repository.run_observation_snapshot_rows(
+        RunObservationSnapshotRowsRequest(
+            run_id=run["id"],
+            timeline_event_types=["run_finished"],
+            progress_event_types=[],
+        )
+    )
+
+    assert snapshot["key_takeaway_projection"] == {"source_event_id": event["id"]}
+    assert any(
+        call["event"] == "db.row.decode_json_shape_mismatch"
+        and call["context"]["column"] == "payload_json"
+        and call["context"]["expected_type"] == "dict"
+        and call["context"]["actual_type"] == "list"
+        for call in log_calls
+    )
 
 
 def test_append_event_redacts_sensitive_payload_before_storage_and_mirrors(tmp_path: Path) -> None:
@@ -189,6 +237,37 @@ def test_append_event_redacts_sensitive_payload_before_storage_and_mirrors(tmp_p
     assert "TOKEN_SECRET_MARKER" not in combined_text
     assert "BEARER_SECRET_MARKER" not in combined_text
     assert "API_KEY_SECRET_MARKER" not in combined_text
+
+
+def test_append_event_redacts_auth_and_cookie_headers(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    run = _create_run(repository, tmp_path, run_id="run_sensitive_headers", status="running")
+
+    event = repository.append_event(
+        run["id"],
+        "web_diagnostic",
+        {
+            "headers": {
+                "Authorization": "Basic HEADER_AUTH_SECRET_MARKER",
+                "Cookie": "session=HEADER_COOKIE_SECRET_MARKER",
+            },
+            "message": (
+                "curl -H 'Authorization: Basic INLINE_AUTH_SECRET_MARKER' "
+                "-H 'Cookie: session=INLINE_COOKIE_SECRET_MARKER'"
+            ),
+        },
+    )
+
+    stored = repository.list_events(run["id"])[0]
+    timeline_text = (Path(run["runs_dir"]) / "timeline" / "events.jsonl").read_text(encoding="utf-8")
+    combined_text = json.dumps([event, stored], ensure_ascii=False) + timeline_text
+
+    assert event["payload"]["headers"]["Authorization"] == "<secret omitted>"
+    assert event["payload"]["headers"]["Cookie"] == "<secret omitted>"
+    assert "HEADER_AUTH_SECRET_MARKER" not in combined_text
+    assert "HEADER_COOKIE_SECRET_MARKER" not in combined_text
+    assert "INLINE_AUTH_SECRET_MARKER" not in combined_text
+    assert "INLINE_COOKIE_SECRET_MARKER" not in combined_text
 
 
 def test_append_codex_event_keeps_safe_shape_and_drops_raw_item_details(tmp_path: Path) -> None:
@@ -329,6 +408,41 @@ def test_corrupted_run_json_columns_fall_back_to_empty_objects(tmp_path: Path) -
     assert refreshed["workflow_json"] == {}
 
 
+def test_corrupted_array_json_columns_fall_back_to_empty_lists(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    workdir = tmp_path / "bundle-workdir"
+    workdir.mkdir()
+    bundle = repository.create_bundle(
+        {
+            "id": "bundle_corrupt_arrays",
+            "name": "Corrupt Arrays",
+            "workdir": str(workdir),
+            "role_definition_ids": ["role_builder", "role_gatekeeper"],
+        }
+    )
+    session = repository.create_alignment_session(
+        {
+            "id": "alignment_corrupt_arrays",
+            "workdir": str(workdir),
+            "bundle_path": str(workdir / ".loopora" / "alignment_sessions" / "alignment_corrupt_arrays" / "artifacts" / "bundle.yml"),
+            "transcript": [{"role": "user", "content": "Build this."}],
+        }
+    )
+
+    with repository.transaction() as connection:
+        connection.execute(
+            "UPDATE bundle_definitions SET role_definition_ids_json = ? WHERE id = ?",
+            ("{", bundle["id"]),
+        )
+        connection.execute(
+            "UPDATE alignment_sessions SET transcript_json = ? WHERE id = ?",
+            ("{", session["id"]),
+        )
+
+    assert repository.get_bundle(bundle["id"])["role_definition_ids_json"] == []
+    assert repository.get_alignment_session(session["id"])["transcript"] == []
+
+
 def test_run_schema_persists_task_verdict_separately_from_raw_verdict(tmp_path: Path) -> None:
     repository = LooporaRepository(tmp_path / "app.db")
     run = _create_run(repository, tmp_path, run_id="run_task_verdict", status="running")
@@ -376,3 +490,53 @@ def test_corrupted_event_payload_json_falls_back_to_empty_object(tmp_path: Path)
 
     assert len(events) == 1
     assert events[0]["payload"] == {}
+
+
+def test_json_column_shape_mismatches_fall_back_to_declared_defaults(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    run = _create_run(repository, tmp_path, run_id="run_shape_mismatch", status="running")
+    event = repository.append_event(run["id"], "run_started", {"status": "running"})
+    workdir = tmp_path / "shape-bundle-workdir"
+    workdir.mkdir()
+    bundle = repository.create_bundle(
+        {
+            "id": "bundle_shape_mismatch",
+            "name": "Shape Mismatch",
+            "workdir": str(workdir),
+            "role_definition_ids": ["role_builder"],
+        }
+    )
+    session = repository.create_alignment_session(
+        {
+            "id": "alignment_shape_mismatch",
+            "workdir": str(workdir),
+            "bundle_path": str(workdir / ".loopora" / "alignment_sessions" / "alignment_shape_mismatch" / "artifacts" / "bundle.yml"),
+            "transcript": [{"role": "user", "content": "Build this."}],
+            "validation": {"ready": False},
+        }
+    )
+
+    with repository.transaction() as connection:
+        connection.execute(
+            "UPDATE loop_runs SET workflow_json = ? WHERE id = ?",
+            ("[]", run["id"]),
+        )
+        connection.execute(
+            "UPDATE run_events SET payload_json = ? WHERE id = ?",
+            ("[]", event["id"]),
+        )
+        connection.execute(
+            "UPDATE bundle_definitions SET role_definition_ids_json = ? WHERE id = ?",
+            ('{"role": "role_builder"}', bundle["id"]),
+        )
+        connection.execute(
+            "UPDATE alignment_sessions SET transcript_json = ?, validation_json = ? WHERE id = ?",
+            ('{"role": "user"}', "[]", session["id"]),
+        )
+
+    assert repository.get_run(run["id"])["workflow_json"] == {}
+    assert repository.list_events(run["id"])[0]["payload"] == {}
+    assert repository.get_bundle(bundle["id"])["role_definition_ids_json"] == []
+    refreshed_session = repository.get_alignment_session(session["id"])
+    assert refreshed_session["transcript"] == []
+    assert refreshed_session["validation"] == {}

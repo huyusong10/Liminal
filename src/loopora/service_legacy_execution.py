@@ -10,6 +10,7 @@ from typing import Any
 from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.executor import ExecutionStopped
 from loopora.recovery import RetryConfig
+from loopora.run_artifacts import read_stagnation_state
 from loopora.service_iteration_reporting import IterationReportContext, IterationSummaryRequest
 from loopora.service_role_execution import IterationRoleRunRequest, RoleExecutionRequest
 from loopora.service_run_finalization import TerminalRunFinalizationRequest
@@ -22,7 +23,7 @@ from loopora.service_types import (
     normalize_completion_mode,
 )
 from loopora.stagnation import StagnationUpdateRequest, update_stagnation
-from loopora.utils import append_jsonl, read_json, utc_now
+from loopora.utils import append_jsonl, utc_now, write_json
 
 logger = get_logger(__name__)
 
@@ -71,7 +72,7 @@ class ServiceLegacyExecutionMixin:
         )
         self._mark_run_active(run_id)
         run_dir = Path(run["runs_dir"])
-        workflow = self._normalized_workflow_from_record(run)
+        workflow = self._normalized_workflow_from_record(run) if run.get("workflow_json") else {}
         if workflow:
             return self._execute_workflow_run(run_id, run, run_dir, workflow)
 
@@ -128,7 +129,7 @@ class ServiceLegacyExecutionMixin:
             executor=executor,
             compiled_spec=compiled_spec,
             retry_config=retry_config,
-            stagnation=read_json(run_dir / "stagnation.json"),
+            stagnation=read_stagnation_state(run_dir / "stagnation.json"),
             metrics_history_path=metrics_history_path,
             completion_mode=normalize_completion_mode(run.get("completion_mode", "gatekeeper")),
             iteration_interval_seconds=float(run.get("iteration_interval_seconds", 0.0) or 0.0),
@@ -177,7 +178,7 @@ class ServiceLegacyExecutionMixin:
         )
         context.stagnation = self._update_legacy_stagnation(context, iter_id, verifier_result)
         challenger_result = self._execute_legacy_challenger_if_needed(run_id, context, iter_id)
-        self._write_json(context.run_dir / "stagnation.json", context.stagnation)
+        write_json(context.run_dir / "stagnation.json", context.stagnation)
         self._record_legacy_iteration_metrics(context, iter_id, verifier_result, previous_composite)
 
         iteration_report = IterationReportContext(
@@ -279,7 +280,7 @@ class ServiceLegacyExecutionMixin:
             ),
         )
         tester_result = self._enrich_tester_result(tester_result)
-        self._write_json(context.run_dir / "tester_output.json", tester_result)
+        write_json(context.run_dir / "tester_output.json", tester_result)
         self._enforce_workspace_safety(context.run, context.run_dir, iter_id, role="tester")
         return tester_result
 
@@ -318,7 +319,7 @@ class ServiceLegacyExecutionMixin:
             ),
         )
         verifier_result = self._enrich_verifier_result(verifier_result, context.compiled_spec, tester_result)
-        self._write_json(context.run_dir / "verifier_verdict.json", verifier_result)
+        write_json(context.run_dir / "verifier_verdict.json", verifier_result)
         self.repository.update_run(run_id, last_verdict=verifier_result)
         return verifier_result
 
@@ -366,7 +367,7 @@ class ServiceLegacyExecutionMixin:
             ),
         )
         context.stagnation.setdefault("challenger_triggered_at_iters", []).append(iter_id)
-        self._write_json(context.run_dir / "challenger_seed.json", challenger_result)
+        write_json(context.run_dir / "challenger_seed.json", challenger_result)
         self.append_run_event(
             run_id,
             "challenger_done",

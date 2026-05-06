@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
@@ -54,7 +55,7 @@ def load_settings() -> AppSettings:
         return defaults
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         log_event(
             logger,
             logging.WARNING,
@@ -83,7 +84,7 @@ def load_recent_workdirs(limit: int = 50) -> list[str]:
         return []
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         log_event(
             logger,
             logging.WARNING,
@@ -241,7 +242,7 @@ def _coerce_setting_number(
 
     try:
         value = int(raw_value) if integer_only else float(raw_value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         log_event(
             logger,
             logging.WARNING,
@@ -263,6 +264,17 @@ def _coerce_setting_number(
             raw_value=raw_value,
             default_value=default,
             minimum=minimum,
+        )
+        return default
+    if isinstance(value, float) and not math.isfinite(value):
+        log_event(
+            logger,
+            logging.WARNING,
+            "settings.normalize.out_of_range",
+            "Non-finite settings value; using default",
+            setting_key=key,
+            raw_value=raw_value,
+            default_value=default,
         )
         return default
     return value

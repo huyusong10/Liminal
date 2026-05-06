@@ -12,7 +12,7 @@ from loopora.context_flow import evidence_entry_id
 from loopora.diagnostics import get_logger, log_event
 from loopora.executor import ExecutionStopped
 from loopora.recovery import RetryConfig
-from loopora.run_artifacts import INITIAL_STAGNATION_STATE
+from loopora.run_artifacts import read_stagnation_state
 from loopora.service_types import (
     LooporaNotFoundError,
     RoleExecutionError,
@@ -32,7 +32,7 @@ from loopora.service_workflow_iteration_state import (
 )
 from loopora.service_workflow_runtime import WorkflowStepRuntimeRequest
 from loopora.service_workflow_support import StepOutputNormalizationRequest, WorkflowSummaryRequest
-from loopora.workflows import default_step_action_policy
+from loopora.workflows import default_step_action_policy, normalize_workflow_controls
 from loopora.utils import read_json
 
 logger = get_logger(__name__)
@@ -685,9 +685,9 @@ class ServiceWorkflowExecutionMixin(
         retry_config = RetryConfig(max_retries=run["max_role_retries"])
         prompt_files = self._read_prompt_files_for_run(run)
         layout = self._run_artifact_layout(run_dir)
-        workflow_steps = list(workflow.get("steps", []))
-        workflow_controls = list(workflow.get("controls", []) or [])
         role_by_id = {role["id"]: role for role in workflow.get("roles", [])}
+        workflow_steps = list(workflow.get("steps", []))
+        workflow_controls = normalize_workflow_controls(workflow.get("controls"), role_by_id=role_by_id)
         completion_mode = normalize_completion_mode(run.get("completion_mode", "gatekeeper"))
         run_contract = read_json(layout.run_contract_path)
 
@@ -728,7 +728,7 @@ class ServiceWorkflowExecutionMixin(
 
     def _new_workflow_run_progress(self, context: _WorkflowRunContext) -> _WorkflowRunProgress:
         return _WorkflowRunProgress(
-            stagnation=read_json(context.layout.timeline_stagnation_path) or dict(INITIAL_STAGNATION_STATE)
+            stagnation=read_stagnation_state(context.layout.timeline_stagnation_path)
         )
 
     def _build_workflow_iteration_state(

@@ -7,7 +7,16 @@ from loopora.run_artifacts import RunArtifactLayout
 from loopora.service_asset_common import _normalize_role_models
 from loopora.service_types import LooporaNotFoundError
 from loopora.task_verdicts import hydrate_run_status_and_task_verdict
-from loopora.workflows import DEFAULT_WORKFLOW_PRESET, WorkflowError, build_preset_workflow, normalize_workflow, prompt_asset_path, resolve_prompt_files, workflow_warnings
+from loopora.workflows import (
+    DEFAULT_WORKFLOW_PRESET,
+    WorkflowError,
+    build_preset_workflow,
+    load_prompt_file,
+    normalize_workflow,
+    prompt_asset_path,
+    resolve_prompt_files,
+    workflow_warnings,
+)
 
 
 class ServiceLoopRecordMixin:
@@ -45,8 +54,16 @@ class ServiceLoopRecordMixin:
             if not prompt_ref or prompt_ref in prompt_files:
                 continue
             path = prompt_asset_path(self._prompt_dir(base_dir), prompt_ref)
-            if path.exists():
-                prompt_files[prompt_ref] = path.read_text(encoding="utf-8")
+            try:
+                prompt_exists = path.exists()
+                if prompt_exists:
+                    prompt_files[prompt_ref] = load_prompt_file(path)
+            except WorkflowError as exc:
+                if "could not be read" in str(exc):
+                    raise WorkflowError(f"prompt artifact {prompt_ref} could not be read") from exc
+                raise WorkflowError(f"prompt artifact {prompt_ref}: {exc}") from exc
+            except OSError as exc:
+                raise WorkflowError(f"prompt artifact {prompt_ref} could not be read") from exc
         return resolve_prompt_files(workflow, prompt_files)
 
     def _read_prompt_files_for_loop(self, workdir: str, loop_id: str, workflow: dict) -> dict[str, str]:

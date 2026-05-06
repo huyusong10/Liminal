@@ -9,6 +9,8 @@ SECRET_OMITTED = "<secret omitted>"
 PAYLOAD_OMITTED = "<payload omitted>"
 MAX_CODEX_MESSAGE_LENGTH = 4000
 MAX_CODEX_ITEM_TEXT_LENGTH = 4000
+MAX_ALIGNMENT_EVENT_TEXT_LENGTH = 2000
+MAX_ALIGNMENT_COMMAND_MESSAGE_LENGTH = 500
 _CODEX_PASSTHROUGH_KEYS = {
     "type",
     "step_id",
@@ -17,10 +19,16 @@ _CODEX_PASSTHROUGH_KEYS = {
     "role_name",
     "archetype",
     "iter",
+    "invocation_id",
+    "alignment_status",
     "prompt_omitted",
     "json_schema_omitted",
     "token_omitted",
     "command_truncated",
+    "message_truncated",
+    "summary_truncated",
+    "payload_omitted",
+    "omitted_keys",
     "arg_count",
 }
 _CODEX_PREVIEW_KEYS = ("message", "summary")
@@ -40,25 +48,32 @@ _JSON_SCHEMA_KEYS = {
     "schema",
     "schema_json",
 }
+_ALIGNMENT_OMITTED_KEYS = _PROMPT_KEYS | _JSON_SCHEMA_KEYS | {"bundle_yaml"}
 _SECRET_KEYS = {
     "api_key",
     "apikey",
+    "authorization",
     "auth_token",
     "bearer_token",
+    "cookie",
     "password",
     "secret",
     "secret_token",
+    "set_cookie",
     "token",
 }
-_SECRET_KEY_SUFFIXES = ("_api_key", "_password", "_secret", "_token")
+_SECRET_KEY_SUFFIXES = ("_api_key", "_authorization", "_cookie", "_password", "_private_key", "_secret", "_token")
 _SECRET_ARG_PATTERN = re.compile(
     r"(?i)(--(?:api-key|auth-token|bearer-token|password|secret(?:-token)?|token)(?:=|\s+))"
-    r"(\"[^\"]*\"|'[^']*'|[^\s]+)"
+    r"(<secret omitted>|\"[^\"]*\"|'[^']*'|[^\s]+)"
 )
 _ENV_SECRET_PATTERN = re.compile(
-    r"(?i)\b((?:OPENAI_API_KEY|ANTHROPIC_API_KEY|API_KEY|TOKEN|SECRET|PASSWORD)=)([^\s]+)"
+    r"(?i)\b((?:OPENAI_API_KEY|ANTHROPIC_API_KEY|API_KEY|TOKEN|SECRET|PASSWORD)=)(<secret omitted>|[^\s]+)"
 )
 _BEARER_SECRET_PATTERN = re.compile(r"(?i)\b((?:authorization:\s*)?bearer\s+)([A-Za-z0-9._~+/=-]+)")
+_HEADER_SECRET_PATTERN = re.compile(
+    r"(?i)\b((?:authorization|cookie|set-cookie|x-api-key|x-loopora-token):\s*)([^\r\n]+)"
+)
 
 
 def redact_run_event_payload(event_type: str, payload: Mapping[str, object] | None) -> dict:
@@ -70,6 +85,25 @@ def redact_run_event_payload(event_type: str, payload: Mapping[str, object] | No
         str(key): _redact_value(str(key), value)
         for key, value in payload.items()
     }
+
+
+def redact_alignment_event_payload(event_type: str, payload: Mapping[str, object] | None) -> dict:
+    if not isinstance(payload, Mapping):
+        return {}
+    sanitized = (
+        _redact_codex_event_payload(payload)
+        if str(event_type or "").strip() == "codex_event"
+        else _redact_alignment_mapping(payload)
+    )
+    return _truncate_alignment_event_payload(sanitized)
+
+
+def redact_sensitive_value(key: str, value: object) -> object:
+    return _redact_value(str(key), value)
+
+
+def redact_sensitive_text(value: object) -> str:
+    return _redact_string(str(value or ""))
 
 
 def _redact_codex_event_payload(payload: Mapping[str, object]) -> dict:
@@ -102,6 +136,40 @@ def _redact_codex_event_payload(payload: Mapping[str, object]) -> dict:
 def _codex_omitted_payload_keys(payload: Mapping[str, object]) -> list[str]:
     allowed_keys = _CODEX_PASSTHROUGH_KEYS | set(_CODEX_PREVIEW_KEYS) | _CODEX_STRUCTURED_KEYS
     return sorted(str(key) for key in payload if str(key) not in allowed_keys)
+
+
+def _redact_alignment_mapping(payload: Mapping[str, object]) -> dict:
+    sanitized: dict[str, object] = {}
+    for key, value in payload.items():
+        normalized_key = _normalized_key(str(key))
+        if normalized_key in _ALIGNMENT_OMITTED_KEYS:
+            sanitized[f"{key}_omitted"] = True
+            continue
+        sanitized[str(key)] = _redact_value(str(key), value)
+    return sanitized
+
+
+def _truncate_alignment_event_payload(payload: dict) -> dict:
+    sanitized = dict(payload)
+    if "message" in sanitized:
+        message_limit = (
+            MAX_ALIGNMENT_COMMAND_MESSAGE_LENGTH
+            if sanitized.get("type") == "command"
+            else MAX_ALIGNMENT_EVENT_TEXT_LENGTH
+        )
+        sanitized["message"] = _truncate_alignment_event_text(sanitized["message"], limit=message_limit)
+        if sanitized.get("type") == "command":
+            sanitized["command_truncated"] = True
+    if "error" in sanitized:
+        sanitized["error"] = _truncate_alignment_event_text(sanitized["error"], limit=MAX_ALIGNMENT_EVENT_TEXT_LENGTH)
+    return sanitized
+
+
+def _truncate_alignment_event_text(value: object, *, limit: int) -> str:
+    text = _redact_string(str(value or ""))
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n... [truncated {len(text) - limit} chars]"
 
 
 def _redact_error(value: object) -> object:
@@ -232,7 +300,8 @@ def _redact_container(value: object) -> object:
 def _redact_string(value: str) -> str:
     redacted = _SECRET_ARG_PATTERN.sub(lambda match: f"{match.group(1)}{SECRET_OMITTED}", value)
     redacted = _ENV_SECRET_PATTERN.sub(lambda match: f"{match.group(1)}{SECRET_OMITTED}", redacted)
-    return _BEARER_SECRET_PATTERN.sub(lambda match: f"{match.group(1)}{SECRET_OMITTED}", redacted)
+    redacted = _BEARER_SECRET_PATTERN.sub(lambda match: f"{match.group(1)}{SECRET_OMITTED}", redacted)
+    return _HEADER_SECRET_PATTERN.sub(lambda match: f"{match.group(1)}{SECRET_OMITTED}", redacted)
 
 
 def _redact_preview_string(value: object, *, max_length: int) -> tuple[str, bool]:

@@ -87,6 +87,15 @@ class WebRouteContextBase:
     def json_error(message: str, status_code: int = 400) -> JSONResponse:
         return JSONResponse({"error": message}, status_code=status_code)
 
+    @staticmethod
+    def error_status_code(exc: BaseException) -> int:
+        if isinstance(exc, FileExistsError):
+            return 409
+        return int(getattr(exc, "status_code", 400) or 400)
+
+    def json_error_from_exception(self, exc: BaseException) -> JSONResponse:
+        return self.json_error(str(exc), status_code=self.error_status_code(exc))
+
     def render_auth_required(self, request: Request) -> HTMLResponse:
         return HTMLResponse(
             self.templates.TemplateResponse(

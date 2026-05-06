@@ -285,6 +285,12 @@ def _wait_for_run_status(service: LooporaService, run_id: str, *statuses: str, t
     raise AssertionError(f"run stayed in {run['status']}, expected {sorted(expected)}")
 
 
+def _wait_for_run_detail_page(page, *, timeout: int = 10_000) -> str:
+    page.wait_for_url("**/runs/**", wait_until="domcontentloaded", timeout=timeout)
+    page.get_by_test_id("run-detail-page").wait_for(state="visible", timeout=timeout)
+    return page.url.rstrip("/").split("/")[-1]
+
+
 def _layout_guard_metrics(page, selectors: str | None = None) -> dict:
     audited_selectors = selectors or ",".join(
         [
@@ -682,8 +688,7 @@ def _assert_alignment_preview_surfaces_remain_stable(page) -> None:
 
 def _import_alignment_preview_and_assert_run(page, service: LooporaService, session: dict) -> None:
     page.get_by_test_id("alignment-import-run-button").click()
-    page.wait_for_url("**/runs/**", wait_until="networkidle", timeout=10_000)
-    run_id = page.url.rstrip("/").split("/")[-1]
+    run_id = _wait_for_run_detail_page(page)
     run = _wait_for_run_status(service, run_id, "succeeded", "failed", timeout=20.0)
     assert run["status"] == "succeeded"
     bundles = service.list_bundles()
@@ -1003,8 +1008,7 @@ def test_bundle_yaml_preview_imports_and_runs_from_browser(tmp_path: Path) -> No
             _assert_preview_has_expert_tabs_and_stable_hover(page)
 
             page.get_by_test_id("bundle-preview-import-button").click()
-            page.wait_for_url("**/runs/**", wait_until="networkidle", timeout=10_000)
-            run_id = page.url.rstrip("/").split("/")[-1]
+            run_id = _wait_for_run_detail_page(page)
             run = _wait_for_run_status(service, run_id, "succeeded", "failed", timeout=20.0)
             assert run["status"] == "succeeded"
             bundles = service.list_bundles()
@@ -1942,6 +1946,49 @@ def _assert_new_orchestration_editor_interactions(page, base_url: str) -> None:
     inspector_card.locator('[data-testid="workflow-step-settings-button"]').click()
     assert page.locator('[data-testid="workflow-settings-step-inherit-session"]').is_checked() is False
     page.click('button[data-close-workflow-settings="1"]')
+
+    page.locator("#workflow-controls-json-input").fill(
+        json.dumps(
+            [
+                {
+                    "id": "bad_check",
+                    "when": {"signal": "no_evidence_progress", "after": "0s"},
+                    "call": {"role_id": "guide"},
+                    "mode": "repair_guidance",
+                    "max_fires_per_run": "not-a-number",
+                }
+            ],
+            indent=2,
+        )
+    )
+    page.locator('input[name="name"]').click()
+    page.wait_for_function(
+        "() => JSON.parse(document.querySelector('#workflow-controls-json-input').value)[0].max_fires_per_run === 'not-a-number'"
+    )
+
+    page.locator('input[name="name"]').fill("Invalid Control Limit")
+    page.locator("#workflow-controls-json-input").fill(
+        json.dumps(
+            [
+                {
+                    "id": "disabled_check",
+                    "when": {"signal": "no_evidence_progress", "after": "0s"},
+                    "call": {"role_id": "guide"},
+                    "mode": "repair_guidance",
+                    "max_fires_per_run": 0,
+                }
+            ],
+            indent=2,
+        )
+    )
+    page.locator('input[name="name"]').click()
+    page.wait_for_function(
+        "() => JSON.parse(document.querySelector('#workflow-controls-json-input').value)[0].max_fires_per_run === 0"
+    )
+    assert "0" in (page.get_by_test_id("workflow-control-row").locator(".workflow-chip").last.text_content() or "")
+    page.get_by_test_id("save-orchestration-button").click()
+    page.wait_for_selector("#form-error:not([hidden])")
+    assert "max_fires_per_run" in (page.locator("#form-error").text_content() or "")
 
 
 def _assert_builtin_orchestration_step_settings_locked(page, base_url: str) -> None:

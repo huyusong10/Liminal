@@ -4,6 +4,7 @@ import json
 import logging
 
 from loopora.db_shared import logger
+from loopora.db_row_decoding import RepositoryRowDecodingMixin
 from loopora.diagnostics import log_event
 from loopora.settings import app_home
 from loopora.utils import utc_now
@@ -286,11 +287,12 @@ class RepositoryBundleRecordsMixin:
         orchestration_id = str(bundle["orchestration_id"] or "").strip()
         if orchestration_id:
             rows.append(("orchestration", orchestration_id))
-        try:
-            role_definition_ids = json.loads(str(bundle["role_definition_ids_json"] or "[]"))
-        except json.JSONDecodeError:
-            role_definition_ids = []
-        for role_definition_id in role_definition_ids if isinstance(role_definition_ids, list) else []:
+        role_definition_ids = RepositoryRowDecodingMixin._decode_json_column(
+            bundle["id"],
+            "role_definition_ids_json",
+            bundle["role_definition_ids_json"],
+        )
+        for role_definition_id in role_definition_ids:
             normalized = str(role_definition_id or "").strip()
             if normalized:
                 rows.append(("role_definition", normalized))

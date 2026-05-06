@@ -6,14 +6,14 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 
-from loopora.markdown_tools import decode_text_bytes, looks_binary, normalize_markdown_text, render_safe_markdown_html
+from loopora.markdown_tools import looks_binary, normalize_markdown_text, render_safe_markdown_html
 from loopora.service import LooporaError
 from loopora.skills import (
     build_task_alignment_skill_archive,
     install_task_alignment_skill,
     list_task_alignment_skill_targets,
 )
-from loopora.specs import SpecError, init_spec_file_for_workflow, read_and_compile, render_spec_template
+from loopora.specs import SpecError, compile_markdown_spec, init_spec_file_for_workflow, render_spec_template
 from loopora.web_inputs import (
     _coerce_bool,
     _orchestration_payload_from_mapping,
@@ -29,6 +29,9 @@ from loopora.workflows import (
     normalize_role_display_name,
     validate_prompt_markdown,
 )
+
+SPEC_MARKDOWN_SUFFIXES = {".md", ".markdown"}
+SPEC_DOCUMENT_MAX_BYTES = 1_000_000
 
 
 def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
@@ -234,15 +237,15 @@ def _register_spec_validation_api_routes(app: FastAPI) -> None:
         path_text = path.strip()
         if not path_text:
             return JSONResponse({"ok": False, "error": "spec path is required"})
-        spec_path = Path(path_text).expanduser()
         try:
-            _, compiled = read_and_compile(spec_path)
-        except (FileNotFoundError, OSError, SpecError) as exc:
+            spec_path, markdown_text = _load_spec_markdown_document(path_text, binary_error="spec validation only supports text markdown files")
+            compiled = compile_markdown_spec(markdown_text)
+        except (FileNotFoundError, OSError, LooporaError, SpecError) as exc:
             return JSONResponse({"ok": False, "error": str(exc)})
         return JSONResponse(
             {
                 "ok": True,
-                "path": str(spec_path.resolve()),
+                "path": str(spec_path),
                 "check_count": len(compiled["checks"]),
                 "check_mode": compiled["check_mode"],
             }
@@ -255,28 +258,22 @@ def _register_spec_document_api_routes(app: FastAPI) -> None:
         path_text = path.strip()
         if not path_text:
             return JSONResponse({"ok": False, "error": "spec path is required"})
-        spec_path = Path(path_text).expanduser()
         try:
-            raw_bytes = spec_path.read_bytes()
-        except (FileNotFoundError, OSError) as exc:
+            spec_path, markdown_text = _load_spec_markdown_document(path_text, binary_error="spec preview only supports text markdown files")
+        except (FileNotFoundError, OSError, LooporaError) as exc:
             return JSONResponse({"ok": False, "error": str(exc)})
-        if looks_binary(raw_bytes):
-            return JSONResponse({"ok": False, "error": "spec preview only supports text markdown files"})
-        return JSONResponse(_spec_document_payload(spec_path, decode_text_bytes(raw_bytes)))
+        return JSONResponse(_spec_document_payload(spec_path, markdown_text))
 
     @app.get("/api/specs/document")
     async def api_get_spec_document(path: str = "") -> JSONResponse:
         path_text = path.strip()
         if not path_text:
             return JSONResponse({"ok": False, "error": "spec path is required"})
-        spec_path = Path(path_text).expanduser()
         try:
-            raw_bytes = spec_path.read_bytes()
-        except (FileNotFoundError, OSError) as exc:
+            spec_path, markdown_text = _load_spec_markdown_document(path_text, binary_error="spec editor only supports text markdown files")
+        except (FileNotFoundError, OSError, LooporaError) as exc:
             return JSONResponse({"ok": False, "error": str(exc)})
-        if looks_binary(raw_bytes):
-            return JSONResponse({"ok": False, "error": "spec editor only supports text markdown files"})
-        return JSONResponse(_spec_document_payload(spec_path, decode_text_bytes(raw_bytes)))
+        return JSONResponse(_spec_document_payload(spec_path, markdown_text))
 
 
 def _register_spec_save_api_route(app: FastAPI, ctx: WebRouteContext) -> None:
@@ -287,7 +284,14 @@ def _register_spec_save_api_route(app: FastAPI, ctx: WebRouteContext) -> None:
         markdown_text = normalize_markdown_text(str(payload.get("content", "")))
         if not path_text:
             return JSONResponse({"ok": False, "error": "spec path is required"})
-        spec_path = Path(path_text).expanduser()
+        try:
+            spec_path = _resolve_spec_markdown_path(path_text)
+            _assert_spec_markdown_content(
+                markdown_text.encode("utf-8"),
+                binary_error="spec editor only supports text markdown files",
+            )
+        except LooporaError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)})
         if not spec_path.parent.exists():
             return JSONResponse({"ok": False, "error": f"spec parent directory does not exist: {spec_path.parent}"})
         try:
@@ -344,12 +348,13 @@ def _register_spec_template_api_routes(app: FastAPI, ctx: WebRouteContext) -> No
         locale = str(payload.get("locale", "zh"))
         try:
             workflow = _workflow_for_spec_template(payload)
-        except LooporaError as exc:
-            return ctx.json_error(str(exc))
+        except (LooporaError, WorkflowError) as exc:
+            return ctx.json_error_from_exception(exc)
         try:
-            created = init_spec_file_for_workflow(Path(path_text).expanduser(), locale=locale, workflow=workflow)
-        except (FileExistsError, OSError) as exc:
-            return ctx.json_error(str(exc))
+            spec_path = _resolve_spec_markdown_path(path_text)
+            created = init_spec_file_for_workflow(spec_path, locale=locale, workflow=workflow)
+        except (FileExistsError, OSError, LooporaError) as exc:
+            return ctx.json_error_from_exception(exc)
         return JSONResponse({"path": str(created.resolve())}, status_code=201)
 
     @app.post("/api/specs/template")
@@ -357,8 +362,8 @@ def _register_spec_template_api_routes(app: FastAPI, ctx: WebRouteContext) -> No
         payload = await ctx.read_json_mapping(request)
         try:
             workflow = _workflow_for_spec_template(payload)
-        except LooporaError as exc:
-            return ctx.json_error(str(exc))
+        except (LooporaError, WorkflowError) as exc:
+            return ctx.json_error_from_exception(exc)
         locale = str(payload.get("locale", "zh"))
         markdown_text = render_spec_template(locale=locale, workflow=workflow)
         return JSONResponse(
@@ -394,6 +399,35 @@ def _role_note_sections_from_workflow(workflow: dict | None) -> list[dict[str, s
             }
         )
     return sections
+
+
+def _load_spec_markdown_document(path_text: str, *, binary_error: str) -> tuple[Path, str]:
+    spec_path = _resolve_spec_markdown_path(path_text)
+    raw_bytes = spec_path.read_bytes()
+    _assert_spec_markdown_content(raw_bytes, binary_error=binary_error)
+    try:
+        markdown_text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise LooporaError("spec file must be UTF-8 encoded Markdown") from exc
+    return spec_path, markdown_text
+
+
+def _resolve_spec_markdown_path(path_text: str) -> Path:
+    spec_path = Path(path_text).expanduser().resolve()
+    if spec_path.suffix.lower() not in SPEC_MARKDOWN_SUFFIXES:
+        raise LooporaError("spec path must point to a Markdown file (.md or .markdown)")
+    return spec_path
+
+
+def _assert_spec_markdown_size(raw_bytes: bytes) -> None:
+    if len(raw_bytes) > SPEC_DOCUMENT_MAX_BYTES:
+        raise LooporaError(f"spec file is too large; maximum size is {SPEC_DOCUMENT_MAX_BYTES} bytes")
+
+
+def _assert_spec_markdown_content(raw_bytes: bytes, *, binary_error: str) -> None:
+    _assert_spec_markdown_size(raw_bytes)
+    if looks_binary(raw_bytes):
+        raise LooporaError(binary_error)
 
 
 def _register_system_picker_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
@@ -483,7 +517,11 @@ def _system_request_is_same_origin(request: Request) -> bool:
 
 def _header_origin_tuple(value: str) -> tuple[str, str, int] | None:
     parsed = urlsplit(value)
-    return _origin_tuple(scheme=parsed.scheme, hostname=parsed.hostname, port=parsed.port)
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+    return _origin_tuple(scheme=parsed.scheme, hostname=parsed.hostname, port=port)
 
 
 def _origin_tuple(*, scheme: str | None, hostname: str | None, port: int | None) -> tuple[str, str, int] | None:

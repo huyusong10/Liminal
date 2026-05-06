@@ -134,8 +134,9 @@ Session artifact 必须落在目标 workdir 下，并按事实源、事件流和
 
 - 新 session 只写上述结构，不再在 session 根目录平铺文件。
 - `invocations/<n>/output.json` 不保存完整 `bundle_yaml` 副本；若本轮产生 bundle，只保存 `bundle_path`、`bundle_sha256`、`bundle_written` 和响应摘要。
-- `events/events.jsonl` 不是完整调试日志，不能内嵌完整 prompt、schema、bundle YAML 或超长 CLI 命令；完整调试材料通过 `invocation_id` 指向 `invocations/`。
+- `events/events.jsonl` 不是完整调试日志，不能内嵌完整 prompt、schema、bundle YAML、token / secret、认证头、Cookie 或超长 CLI 命令；DB event、API/SSE payload 与本地事件文件都必须在写入边界保留脱敏后的轻量预览。完整调试材料通过 `invocation_id` 指向 `invocations/`。
 - 旧平铺 session 可兼容读取；首次加载时可迁移到新结构，并把旧文件保留或移动到 `legacy/`，但业务读取只看 canonical 文件。
+- 旧 invocation output 若无法按 UTF-8 JSON 解析，只能作为原始调试文件复制到 canonical invocation，不得阻断 session 读取。
 
 状态机：
 
@@ -318,8 +319,10 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 
 - 这些 API 归属于 Web 内置入口；不要求 CLI 提供同构命令。
 - `GET /api/alignments/sessions/{id}` 返回的 `working_agreement` 可以包含 `readiness_checklist` 与 `readiness_evidence`；旧 session 没有 evidence 时仍可读取，但新 Web alignment 生成前必须具备 evidence。
+- alignment session 列表和事件读取接口的分页参数必须有明确上界；事件 `after_id` 必须是非负游标，`limit` 必须是受限正整数，越界请求返回 4xx。
 - `/api/alignments/*/import` 必须复用现有 bundle import 服务，不直接绕过 bundle 生命周期物化底层资产。
 - `/api/bundles/{id}/revise` 与 `/api/runs/{id}/revise` 是向后兼容的 API 名称；产品语言不得把它们包装成 Loopora 的默认后续阶段，也不得暗示系统会记录候选 Loop 与原 Loop 的演化关系。
+- 从 run evidence 创建改进 session 时，source context 是 best-effort 摘要；损坏或不可读的 evidence artifact 只能降级为空摘要，不得阻断 session 创建。
 - `/api/bundles/preview` 不创建 bundle、loop 或 run；它只复用 bundle 契约校验和预览投影。
 
 ## 11. 错误与恢复
@@ -333,12 +336,14 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 | Agent 需要澄清 | 进入 `waiting_user`，显示问题并保留输入框 |
 | bundle 文件不存在 | 提示 Agent 尚未写出 bundle，可继续对话或重试 |
 | bundle 校验失败 | 自动修复一轮；失败后展示摘要错误 |
+| READY bundle 源文件不可按 UTF-8 YAML 读取 | 预览与同步返回可读 source file 错误；导入失败时保留 READY session 供用户修正后重试 |
 | 导入失败 | 保留 READY bundle，不清空 session，允许用户修正后重试导入 |
 
 补充规则：
 
 - 失败不得吞掉 session transcript。
 - READY bundle 不应因为导入失败而被删除。
+- 后续对话构造 prompt 时，READY bundle 当前内容只是 best-effort context；源文件不可读时必须降级成可读错误摘要，而不是让 alignment worker 失败。
 - 用户取消活动 CLI 后，应能继续发送新消息重启同一个 session。
 
 ## 12. 非目标

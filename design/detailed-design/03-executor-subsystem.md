@@ -73,6 +73,8 @@
 
 - command mode 是 escape hatch
 - 但仍必须经过最小可运行性校验
+- 参数模板只接受执行器声明的运行时占位符；无法识别的 `{name}` 形式占位符必须在启动子进程前失败
+- command mode 仍必须把输出收敛为结构化对象，不能把未受限的大块文件内容当作角色结果吞入内存
 
 ## 6. Provider Abstraction Rules
 
@@ -91,7 +93,8 @@
 
 - 所有 provider 最终都必须向上层返回同构的结构化对象
 - provider 私有输出必须在本层被消化
-- 子进程必须受 stop 与 timeout 控制
+- provider 写入的结构化输出文件必须是有界、可解码的文本；过大、非 UTF-8 或无法解析为对象时必须映射为明确执行错误
+- 子进程必须受 stop 与 timeout 控制；stream/handler 内部失败时也必须先终止子进程，再向上抛出错误
 - command mode 不得绕过结构化输出要求
 
 ## 8. Dependency Direction

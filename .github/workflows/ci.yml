@@ -50,6 +50,9 @@ jobs:
 
   browser-e2e:
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright/python:v1.58.0-noble
+      options: --user 1001
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -67,10 +70,6 @@ jobs:
 
       - name: Install dependencies
         run: uv sync
-
-      - name: Install Chromium
-        timeout-minutes: 15
-        run: uv run playwright install --with-deps chromium
 
       - name: Run browser E2E tests
         timeout-minutes: 10

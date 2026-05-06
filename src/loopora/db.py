@@ -79,7 +79,7 @@ class LooporaRepository(
                     error_message=str(exc),
                 )
                 time.sleep(sleep_seconds)
-        raise AssertionError("sqlite connection retry loop exited unexpectedly")
+        raise RuntimeError("sqlite connection retry loop exited unexpectedly")
 
     @staticmethod
     def _is_retryable_connect_error(exc: sqlite3.OperationalError) -> bool:

@@ -20,7 +20,7 @@ from loopora.cli_shared import (
 )
 from loopora.markdown_tools import normalize_markdown_text
 from loopora.service import LooporaError
-from loopora.specs import SpecError, init_spec_file_for_workflow, read_and_compile, render_spec_template
+from loopora.specs import SpecError, init_spec_file_for_workflow, load_spec_file, read_and_compile, render_spec_template
 from loopora.workflows import WorkflowError
 
 
@@ -107,9 +107,9 @@ def _register_spec_read_command(spec_app: typer.Typer) -> None:
     ) -> None:
         """Read a spec document together with rendered HTML and validation status."""
         try:
-            markdown_text = path.read_text(encoding="utf-8")
+            markdown_text = load_spec_file(path)
             echo_json(spec_document_payload(path, markdown_text))
-        except (FileNotFoundError, OSError) as exc:
+        except (SpecError, FileNotFoundError, OSError) as exc:
             handle_error(exc)
 
 
@@ -123,9 +123,9 @@ def _register_spec_write_command(spec_app: typer.Typer) -> None:
         try:
             if from_file is None:
                 raise LooporaError("--from-file is required")
-            markdown_text = normalize_markdown_text(from_file.read_text(encoding="utf-8"))
+            markdown_text = normalize_markdown_text(load_spec_file(from_file))
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(markdown_text, encoding="utf-8")
             echo_json(spec_document_payload(path, markdown_text))
-        except (LooporaError, OSError) as exc:
+        except (LooporaError, SpecError, OSError) as exc:
             handle_error(exc)

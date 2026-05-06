@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,7 @@ from loopora.run_artifacts import INITIAL_STAGNATION_STATE, write_json_with_mirr
 from loopora.service_asset_common import _normalize_role_models, logger
 from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError, normalize_completion_mode
 from loopora.utils import make_id, write_json
-from loopora.workflows import has_finish_gatekeeper_step
+from loopora.workflows import WorkflowError, has_finish_gatekeeper_step
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -94,16 +95,32 @@ def _normalize_loop_paths(workdir: Path, spec_path: Path) -> tuple[Path, Path]:
 
 
 def _validate_loop_limits(request: LoopCreateRequest) -> None:
+    for field_name in (
+        "iteration_interval_seconds",
+        "max_iters",
+        "max_role_retries",
+        "delta_threshold",
+        "trigger_window",
+        "regression_window",
+    ):
+        _validate_finite_loop_number(getattr(request, field_name), field_name=field_name)
     if request.max_iters < 0:
         raise LooporaError("max_iters must be >= 0")
     if request.max_role_retries < 0:
         raise LooporaError("max_role_retries must be >= 0")
     if request.iteration_interval_seconds < 0:
         raise LooporaError("iteration_interval_seconds must be >= 0")
+    if request.delta_threshold < 0:
+        raise LooporaError("delta_threshold must be >= 0")
     if request.trigger_window < 1:
         raise LooporaError("trigger_window must be >= 1")
     if request.regression_window < 1:
         raise LooporaError("regression_window must be >= 1")
+
+
+def _validate_finite_loop_number(value: object, *, field_name: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise LooporaError(f"{field_name} must be a finite number")
 
 
 def _normalize_loop_executor_settings(request: LoopCreateRequest) -> dict[str, str]:
@@ -285,14 +302,17 @@ class ServiceRunRegistrationMixin:
         if self.repository.has_active_run_for_workdir(loop["workdir"]):
             raise LooporaConflictError(f"another active run is already using {loop['workdir']}")
 
+        workflow = loop.get("workflow_json") or self._legacy_workflow_from_loop(loop)
+        try:
+            prompt_files = self._read_prompt_files_for_loop(loop["workdir"], loop["id"], workflow)
+        except WorkflowError as exc:
+            raise LooporaError(str(exc)) from exc
         run_id = make_id("run")
         run_dir = self._ensure_run_dir(Path(loop["workdir"]), run_id)
-        workflow = loop.get("workflow_json") or self._legacy_workflow_from_loop(loop)
         layout = self._run_artifact_layout(run_dir)
         layout.initialize()
         queued_summary = "# Loopora Run Summary\n\nQueued.\n"
         workspace_baseline = self._capture_workspace_manifest(Path(loop["workdir"]))
-        prompt_files = self._read_prompt_files_for_loop(loop["workdir"], loop["id"], workflow)
         write_text_with_mirrors(layout.summary_path, queued_summary)
         write_json_with_mirrors(layout.workspace_baseline_path, workspace_baseline)
         write_json_with_mirrors(

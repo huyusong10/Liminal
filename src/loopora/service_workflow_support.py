@@ -9,6 +9,14 @@ from loopora.utils import read_json, utc_now, write_json
 from loopora.workflows import LEGACY_ROLE_BY_ARCHETYPE
 
 
+def _safe_read_json_object(path) -> dict:
+    try:
+        payload = read_json(path)
+    except (OSError, UnicodeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _string_list(value: object) -> list[str]:
     if isinstance(value, str):
         return [value.strip()] if value.strip() else []
@@ -366,7 +374,7 @@ class ServiceWorkflowSupportMixin:
         )
         write_json(request.layout.iteration_summary_path(request.iter_id), iteration_summary)
         append_jsonl_with_mirrors(request.layout.timeline_iterations_path, iteration_summary)
-        latest_state = derive_latest_state(read_json(request.layout.latest_state_path), iteration_summary)
+        latest_state = derive_latest_state(_safe_read_json_object(request.layout.latest_state_path), iteration_summary)
         write_json(request.layout.latest_iteration_summary_path, iteration_summary)
         write_json(request.layout.latest_state_path, latest_state)
         self.append_run_event(

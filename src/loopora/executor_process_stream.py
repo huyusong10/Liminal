@@ -51,6 +51,10 @@ def stream_process(
         text=True,
         bufsize=1,
     )
+    if process.stdout is None:
+        callbacks.terminate_process(process)
+        raise RuntimeError("executor process stdout pipe was not configured")
+
     callbacks.set_child_pid(process.pid)
     callbacks.emit_event("codex_event", command_event_payload)
     output_queue = _start_stdout_reader(process, context.role)
@@ -82,6 +86,8 @@ def stream_process(
                 break
         return process.wait()
     finally:
+        if process.poll() is None:
+            callbacks.terminate_process(process)
         callbacks.set_child_pid(None)
         output_queue.reader.join(timeout=0.2)
 
@@ -94,11 +100,13 @@ class _OutputQueue:
 
 def _start_stdout_reader(process: subprocess.Popen[str], role: str) -> _OutputQueue:
     output_queue: queue.Queue[str | None] = queue.Queue()
+    stdout = process.stdout
+    if stdout is None:
+        raise RuntimeError("executor process stdout pipe was not configured")
 
     def pump_stdout() -> None:
-        assert process.stdout is not None
         try:
-            for raw_line in process.stdout:
+            for raw_line in stdout:
                 output_queue.put(raw_line)
         finally:
             output_queue.put(None)

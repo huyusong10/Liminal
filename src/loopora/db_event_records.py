@@ -103,6 +103,10 @@ class RepositoryEventRecordsMixin:
         return record
 
     def list_events(self, run_id: str, *, after_id: int = 0, limit: int = 200) -> list[dict]:
+        normalized_after_id = max(0, int(after_id or 0))
+        normalized_limit = max(0, min(int(limit or 0), 5000))
+        if normalized_limit <= 0:
+            return []
         with self._connect() as connection:
             rows = connection.execute(
                 """
@@ -111,7 +115,7 @@ class RepositoryEventRecordsMixin:
                 ORDER BY id ASC
                 LIMIT ?
                 """,
-                (run_id, after_id, limit),
+                (run_id, normalized_after_id, normalized_limit),
             ).fetchall()
         return [self._decode_row(row) for row in rows]
 
@@ -199,8 +203,8 @@ class RepositoryEventRecordsMixin:
             (run_id, int(source_event_id), json.dumps(projection, ensure_ascii=False), utc_now()),
         )
 
-    @staticmethod
     def _latest_takeaway_projection_for_connection(
+        self,
         connection: sqlite3.Connection,
         run_id: str,
         *,
@@ -217,12 +221,11 @@ class RepositoryEventRecordsMixin:
         ).fetchone()
         if row is None:
             return None
-        try:
-            payload = json.loads(str(row["payload_json"] or "{}"))
-        except json.JSONDecodeError:
-            payload = {}
-        if not isinstance(payload, dict):
-            payload = {}
+        payload = self._decode_json_column(
+            f"{run_id}:{row['source_event_id']}",
+            "payload_json",
+            row["payload_json"],
+        )
         payload["source_event_id"] = int(row["source_event_id"])
         return payload
 

@@ -8,7 +8,9 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from loopora.bundles import bundle_to_yaml
+from loopora.executor import FakeCodexExecutor
 from loopora.web import build_app
+from loopora.web_streaming import MAX_EVENT_CURSOR_ID
 import loopora.service_alignment as alignment_module
 import loopora.service_cleanup_diagnostics as cleanup_diagnostics
 
@@ -90,6 +92,102 @@ def test_alignment_service_writes_validates_previews_imports_and_runs(
     assert final_session["linked_run_id"] == imported["run"]["id"]
 
 
+def test_alignment_executor_events_redact_sensitive_values_before_persistence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    class SensitiveAlignmentExecutor(FakeCodexExecutor):
+        def execute(self, request, emit_event, _should_stop, set_child_pid) -> dict:
+            set_child_pid(None)
+            emit_event(
+                "codex_event",
+                {
+                    "type": "command",
+                    "message": (
+                        "codex exec --token leak-command-token\n"
+                        "Authorization: Bearer leak-bearer-token\n"
+                        "Cookie: sid=leak-cookie-token"
+                    ),
+                    "auth_token": "leak-field-token",
+                    "prompt": "leak-prompt-body",
+                    "json_schema": {"secret": "leak-schema-body"},
+                },
+            )
+            payload = self._alignment_agreement_response()
+            request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            return payload
+
+    service = service_factory(scenario="success")
+    service.executor_factory = SensitiveAlignmentExecutor
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Create an alignment session with sensitive executor output.",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    event = next(
+        event
+        for event in service.list_alignment_events(session["id"])
+        if event["event_type"] == "codex_event" and event["payload"].get("type") == "command"
+    )
+    artifact_events = (Path(session["artifact_dir"]) / "events" / "events.jsonl").read_text(encoding="utf-8")
+    stdout_text = (Path(session["artifact_dir"]) / "invocations" / "0001" / "stdout.log").read_text(encoding="utf-8")
+    persisted_event = json.dumps(event, ensure_ascii=False)
+
+    for text in (persisted_event, artifact_events, stdout_text):
+        assert "leak-command-token" not in text
+        assert "leak-bearer-token" not in text
+        assert "leak-cookie-token" not in text
+        assert "leak-field-token" not in text
+        assert "leak-prompt-body" not in text
+        assert "leak-schema-body" not in text
+    assert "<secret omitted>" in event["payload"]["message"]
+    assert event["payload"]["command_truncated"] is True
+    assert event["payload"]["payload_omitted"] is True
+    assert {"auth_token", "json_schema", "prompt"}.issubset(set(event["payload"]["omitted_keys"]))
+
+
+def test_alignment_repository_redacts_sensitive_values_before_db_and_artifact(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Create a local alignment event sink.",
+        start_immediately=False,
+    )
+
+    event = service.repository.append_alignment_event(
+        session["id"],
+        "alignment_failed",
+        {
+            "message": "OPENAI_API_KEY=leak-env-token",
+            "error": "Authorization: Bearer leak-error-token",
+            "headers": {"Cookie": "sid=leak-cookie-token"},
+            "auth_token": "leak-field-token",
+            "prompt": "leak-prompt-body",
+            "json_schema": {"secret": "leak-schema-body"},
+            "bundle_yaml": "leak-bundle-body",
+        },
+    )
+    listed = service.list_alignment_events(session["id"])[-1]
+    artifact_events = (Path(session["artifact_dir"]) / "events" / "events.jsonl").read_text(encoding="utf-8")
+
+    for text in (json.dumps(event, ensure_ascii=False), json.dumps(listed, ensure_ascii=False), artifact_events):
+        assert "leak-env-token" not in text
+        assert "leak-error-token" not in text
+        assert "leak-cookie-token" not in text
+        assert "leak-field-token" not in text
+        assert "leak-prompt-body" not in text
+        assert "leak-schema-body" not in text
+        assert "leak-bundle-body" not in text
+    assert listed["payload"]["auth_token"] == "<secret omitted>"
+    assert listed["payload"]["prompt_omitted"] is True
+    assert listed["payload"]["json_schema_omitted"] is True
+    assert listed["payload"]["bundle_yaml_omitted"] is True
+
+
 def test_alignment_service_waits_for_user_question(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="alignment_question")
 
@@ -130,6 +228,71 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
     assert synced["ok"] is True
     refreshed = service.get_alignment_session(session["id"])
     assert "已重新读取 bundle.yml" in refreshed["transcript"][-1]["content"]
+
+
+def test_alignment_bundle_source_file_rejects_invalid_utf8(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+
+    preview_session = _confirm_alignment_agreement(
+        service,
+        service.create_alignment_session(workdir=sample_workdir, message="Create a previewable Loop.")["id"],
+    )
+    Path(preview_session["bundle_path"]).write_bytes(b"\xff")
+
+    preview = service.get_alignment_bundle(preview_session["id"])
+    assert preview["ok"] is False
+    assert preview["yaml"] == ""
+    assert "UTF-8 encoded YAML" in preview["validation"]["error"]
+
+    sync_result = service.sync_alignment_bundle_from_file(preview_session["id"])
+    assert sync_result["ok"] is False
+    assert "UTF-8 encoded YAML" in sync_result["validation"]["error"]
+    synced_session = service.get_alignment_session(preview_session["id"])
+    assert synced_session["status"] == "failed"
+    assert "UTF-8 encoded YAML" in synced_session["error_message"]
+    assert any(
+        event["event_type"] == "alignment_bundle_sync_failed"
+        for event in service.list_alignment_events(preview_session["id"])
+    )
+
+    import_session = _confirm_alignment_agreement(
+        service,
+        service.create_alignment_session(workdir=sample_workdir, message="Create an importable Loop.")["id"],
+    )
+    Path(import_session["bundle_path"]).write_bytes(b"\xff")
+    client = TestClient(build_app(service=service))
+
+    import_response = client.post(
+        f"/api/alignments/sessions/{import_session['id']}/import",
+        json={"start_immediately": False},
+    )
+    assert import_response.status_code == 400
+    assert "UTF-8 encoded YAML" in import_response.json()["error"]
+    import_failed_session = service.get_alignment_session(import_session["id"])
+    assert import_failed_session["status"] == "ready"
+    assert "UTF-8 encoded YAML" in import_failed_session["error_message"]
+    assert any(
+        event["event_type"] == "alignment_import_failed"
+        for event in service.list_alignment_events(import_session["id"])
+    )
+
+
+def test_alignment_message_after_corrupt_ready_bundle_keeps_session_usable(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    session = _confirm_alignment_agreement(
+        service,
+        service.create_alignment_session(workdir=sample_workdir, message="Create a recoverable Loop.")["id"],
+    )
+    Path(session["bundle_path"]).write_bytes(b"\xff")
+
+    service.append_alignment_message(session["id"], "请根据对话重新整理方案。")
+
+    continued = _wait_for_status(service, session["id"], "waiting_user")
+    assert continued["error_message"] == ""
+    assert continued["transcript"][-1]["role"] == "assistant"
 
 
 def test_alignment_service_blocks_premature_bundle_output(service_factory, sample_workdir: Path) -> None:
@@ -379,6 +542,57 @@ def test_alignment_stream_emits_redacted_stream_error_on_backend_failure(caplog)
     )
 
 
+def test_alignment_event_api_rejects_out_of_range_query_params(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    for path in (
+        "/api/alignments/sessions?limit=0",
+        "/api/alignments/sessions?limit=101",
+        "/api/alignments/sessions/session_test/events?after_id=-1",
+        f"/api/alignments/sessions/session_test/events?after_id={MAX_EVENT_CURSOR_ID + 1}",
+        "/api/alignments/sessions/session_test/events?limit=0",
+        "/api/alignments/sessions/session_test/events?limit=5001",
+        "/api/alignments/sessions/session_test/stream?after_id=-1",
+        f"/api/alignments/sessions/session_test/stream?after_id={MAX_EVENT_CURSOR_ID + 1}",
+    ):
+        response = client.get(path)
+        assert response.status_code == 400
+        assert response.json()["error"] == "request validation failed"
+
+
+def test_alignment_stream_logs_invalid_resume_cursor_and_keeps_request_cursor(caplog) -> None:
+    captured: dict[str, int] = {}
+
+    class CursorAwareService:
+        def get_alignment_session(self, session_id: str) -> dict:
+            return {"id": session_id, "status": "ready"}
+
+        def list_alignment_events(self, session_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
+            assert session_id == "session_test"
+            assert limit == 200
+            captured["after_id"] = after_id
+            return []
+
+    client = TestClient(build_app(service=CursorAwareService()))
+
+    with caplog.at_level(logging.WARNING, logger="loopora.web"), client.stream(
+        "GET",
+        "/api/alignments/sessions/session_test/stream?after_id=7",
+        headers={"Last-Event-ID": str(MAX_EVENT_CURSOR_ID + 1)},
+    ) as response:
+        assert response.status_code == 200
+        assert "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text()) == ""
+
+    assert captured["after_id"] == 7
+    assert any(
+        getattr(record, "event", "") == "web.alignment_stream.resume_cursor_invalid"
+        and getattr(record, "context", {}).get("session_id") == "session_test"
+        and getattr(record, "context", {}).get("after_id") == 7
+        for record in caplog.records
+    )
+
+
 def test_alignment_improvement_session_can_start_from_existing_bundle(
     service_factory,
     sample_spec_file: Path,
@@ -472,6 +686,39 @@ def test_alignment_improvement_session_can_start_from_run_evidence(
     assert "source_bundle_id" not in preview["yaml"]
 
 
+def test_alignment_run_revision_tolerates_corrupt_evidence_ledger(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Corrupt Evidence Revision Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    (Path(run["runs_dir"]) / "evidence" / "ledger.jsonl").write_bytes(b"\xff")
+
+    session = service.create_run_revision_session(run["id"], start_immediately=False)
+
+    agreement = session["working_agreement"]
+    assert agreement["mode"] == "improvement"
+    assert agreement["source"]["source_type"] == "run"
+    assert agreement["source"]["source_run_id"] == run["id"]
+    assert agreement["source"]["evidence_summary"] == []
+    preview = service.get_alignment_bundle(session["id"])
+    assert preview["ok"] is True
+
+
 def test_alignment_api_creates_improvement_sessions_from_bundle_and_run(
     service_factory,
     sample_spec_file: Path,
@@ -542,6 +789,7 @@ def test_alignment_service_lazily_migrates_legacy_flat_artifacts(service_factory
         json.dumps({"assistant_message": "done", "bundle_yaml": "raw yaml"}, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+    (legacy_root / "alignment_output_1.json").write_bytes(b"\xff")
     service.repository.create_alignment_session(
         {
             "id": session_id,
@@ -567,6 +815,7 @@ def test_alignment_service_lazily_migrates_legacy_flat_artifacts(service_factory
     output = json.loads((root / "invocations" / "0001" / "output.json").read_text(encoding="utf-8"))
     assert "bundle_yaml" not in output
     assert output["bundle_sha256"]
+    assert (root / "invocations" / "0002" / "output.json").read_bytes() == b"\xff"
     assert (root / "legacy" / "bundle.yml").exists()
 
 

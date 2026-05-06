@@ -222,6 +222,10 @@ document.addEventListener("DOMContentLoaded", () => {
       "{prompt}": "<role prompt>",
       "{model}": modelInput?.value.trim() || "<model>",
       "{reasoning_effort}": reasoningMirrorInput?.value.trim() || "<reasoning>",
+      "{resume_session_id}": "<resume session>",
+      "{session_ref_json}": "<session ref>",
+      "{alignment_session_id}": "<alignment session>",
+      "{extra_cli_args}": "<extra CLI args>",
     };
     let output = String(value || "");
     Object.entries(replacements).forEach(([placeholder, replacement]) => {

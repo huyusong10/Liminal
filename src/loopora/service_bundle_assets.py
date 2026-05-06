@@ -91,6 +91,13 @@ def _derive_bundle_request_from_args(
     return derive_request
 
 
+def _loop_runtime_number(loop: dict, key: str, default: int | float, *, integer_only: bool) -> int | float:
+    value = loop.get(key, default)
+    if value is None or value == "":
+        value = default
+    return int(value) if integer_only else float(value)
+
+
 class ServiceBundleAssetMixin:
     def _bundle_dir(self, bundle_id: str) -> Path:
         return app_home() / "bundles" / bundle_id
@@ -383,12 +390,17 @@ class ServiceBundleAssetMixin:
                 "command_args_text": str(loop.get("command_args_text", "") or ""),
                 "model": str(loop.get("model", "") or "").strip(),
                 "reasoning_effort": str(loop.get("reasoning_effort", "") or "").strip(),
-                "iteration_interval_seconds": float(loop.get("iteration_interval_seconds", 0.0) or 0.0),
-                "max_iters": int(loop.get("max_iters", 8) or 8),
-                "max_role_retries": int(loop.get("max_role_retries", 2) or 2),
-                "delta_threshold": float(loop.get("delta_threshold", 0.005) or 0.005),
-                "trigger_window": int(loop.get("trigger_window", 4) or 4),
-                "regression_window": int(loop.get("regression_window", 2) or 2),
+                "iteration_interval_seconds": _loop_runtime_number(
+                    loop,
+                    "iteration_interval_seconds",
+                    0.0,
+                    integer_only=False,
+                ),
+                "max_iters": _loop_runtime_number(loop, "max_iters", 8, integer_only=True),
+                "max_role_retries": _loop_runtime_number(loop, "max_role_retries", 2, integer_only=True),
+                "delta_threshold": _loop_runtime_number(loop, "delta_threshold", 0.005, integer_only=False),
+                "trigger_window": _loop_runtime_number(loop, "trigger_window", 4, integer_only=True),
+                "regression_window": _loop_runtime_number(loop, "regression_window", 2, integer_only=True),
             },
             "spec": {"markdown": str(spec_markdown or "").strip()},
             "role_definitions": role_definitions,

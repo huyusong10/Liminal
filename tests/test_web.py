@@ -8,12 +8,15 @@ import time
 import zipfile
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from loopora.bundles import bundle_to_yaml
 from loopora.branding import state_dir_for_workdir
+from loopora.file_previews import preview_existing_path
 from loopora.run_takeaways import build_minimal_run_takeaway_projection
 from loopora.settings import app_home, configure_logging
+from loopora.web_streaming import MAX_EVENT_CURSOR_ID
 from loopora.web_url_utils import safe_attachment_filename, safe_local_return_path, with_query_params
 import loopora.web as web_module
 from loopora.web import build_app
@@ -112,10 +115,12 @@ def _assert_file_explorer_contract(client: TestClient, run_id: str) -> None:
     explorer = client.get(f"/api/files?run_id={run_id}&root=workdir")
     assert explorer.status_code == 200
     assert explorer.json()["kind"] == "directory"
+    assert explorer.json()["entries_truncated"] is False
 
     loopora_dir = client.get(f"/api/files?run_id={run_id}&root=loopora")
     assert loopora_dir.status_code == 200
     assert loopora_dir.json()["kind"] == "directory"
+    assert loopora_dir.json()["entries_truncated"] is False
 
     invalid_root = client.get(f"/api/files?run_id={run_id}&root=archive")
     assert invalid_root.status_code == 400
@@ -174,15 +179,53 @@ def _assert_artifact_file(
         assert content_fragment in payload["content"]
 
 
+def _assert_attachment_download(response, *, filename: str) -> None:
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert response.headers["content-disposition"].startswith("attachment;")
+    assert filename in response.headers["content-disposition"]
+
+
 def _assert_run_artifact_previews(client: TestClient, run_id: str, sample_spec_text: str) -> None:
     missing_artifact = client.get(f"/api/runs/{run_id}/artifacts/missing-artifact/download")
     assert missing_artifact.status_code == 404
     assert missing_artifact.json()["error"] == "unknown artifact"
+    summary_download = client.get(f"/api/runs/{run_id}/artifacts/summary/download")
+    _assert_attachment_download(summary_download, filename="summary.md")
     _assert_artifact_file(client, run_id, "original-spec", expected_content=sample_spec_text)
     _assert_artifact_file(client, run_id, "summary", content_fragment="Loopora Run Summary")
     _assert_artifact_file(client, run_id, "latest-state", content_fragment="\"latest_iteration\"")
     _assert_artifact_file(client, run_id, "evidence-ledger", content_fragment="gatekeeper")
     _assert_artifact_file(client, run_id, "evidence-coverage", content_fragment="\"targets\"")
+
+
+def test_run_artifact_download_rejects_symlink_escaping_loopora_root(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    run_id = _create_api_loop_run(client, sample_spec_file, sample_workdir)
+    _wait_for_run_success(client, run_id)
+    run = client.get(f"/api/runs/{run_id}").json()
+
+    outside_artifact = sample_workdir.parent / "outside-summary.md"
+    outside_artifact.write_text("outside secret", encoding="utf-8")
+    summary_path = Path(run["runs_dir"]) / "summary.md"
+    summary_path.unlink()
+    try:
+        summary_path.symlink_to(outside_artifact)
+    except OSError as exc:
+        pytest.skip(f"symlinks are not available in this environment: {exc}")
+
+    preview = client.get(f"/api/runs/{run_id}/artifacts/summary")
+    assert preview.status_code == 400
+
+    download = client.get(f"/api/runs/{run_id}/artifacts/summary/download")
+    assert download.status_code == 400
+    assert "outside secret" not in download.text
 
 
 def _assert_file_preview_safety(client: TestClient, run_id: str, sample_workdir: Path) -> None:
@@ -208,6 +251,98 @@ def _assert_file_preview_safety(client: TestClient, run_id: str, sample_workdir:
     assert unsafe_preview.status_code == 200
     assert "<script>" not in unsafe_preview.json()["rendered_html"]
     assert "&lt;script&gt;alert" in unsafe_preview.json()["rendered_html"]
+
+    large_path = sample_workdir / "large.txt"
+    large_body = "x" * 1_000_001
+    large_path.write_text(large_body, encoding="utf-8")
+    large_preview = client.get(f"/api/files?run_id={run_id}&root=workdir&path=large.txt")
+    assert large_preview.status_code == 200
+    large_payload = large_preview.json()
+    assert large_payload["kind"] == "file"
+    assert large_payload["preview_omitted"] is True
+    assert large_payload["content"] == ""
+    assert large_payload["size_bytes"] == len(large_body)
+    assert "too large" in large_payload["preview_error"]
+
+    large_download = client.get(f"/api/files/download?run_id={run_id}&root=workdir&path=large.txt")
+    _assert_attachment_download(large_download, filename="large.txt")
+    assert large_download.content == large_body.encode()
+
+    html_download_path = sample_workdir / "untrusted.html"
+    html_download_path.write_text("<script>alert('xss')</script>", encoding="utf-8")
+    html_download = client.get(f"/api/files/download?run_id={run_id}&root=workdir&path=untrusted.html")
+    _assert_attachment_download(html_download, filename="untrusted.html")
+
+    crowded_dir = sample_workdir / "crowded"
+    crowded_dir.mkdir()
+    for index in range(1001):
+        (crowded_dir / f"entry-{index:04d}.txt").write_text("", encoding="utf-8")
+    crowded_preview = client.get(f"/api/files?run_id={run_id}&root=workdir&path=crowded")
+    assert crowded_preview.status_code == 200
+    crowded_payload = crowded_preview.json()
+    assert crowded_payload["kind"] == "directory"
+    assert crowded_payload["entries_truncated"] is True
+    assert len(crowded_payload["entries"]) == 1000
+
+
+def test_api_file_preview_reports_unreadable_file_without_500(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+    monkeypatch,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Unreadable File Preview Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    unreadable_path = sample_workdir / "unreadable.txt"
+    unreadable_path.write_text("hidden", encoding="utf-8")
+    unreadable_resolved = unreadable_path.resolve()
+    original_read_bytes = Path.read_bytes
+
+    def fail_target_read(path: Path) -> bytes:
+        if path == unreadable_resolved:
+            raise OSError("forced unreadable file")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", fail_target_read)
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/api/files?run_id={run['id']}&root=workdir&path=unreadable.txt")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["kind"] == "file"
+    assert payload["content"] == ""
+    assert payload["preview_error"] == "file could not be read"
+
+
+def test_file_preview_reports_unreadable_directory(monkeypatch, tmp_path: Path) -> None:
+    directory = tmp_path / "blocked"
+    directory.mkdir()
+    original_iterdir = Path.iterdir
+
+    def fail_target_iterdir(path: Path):
+        if path == directory:
+            raise OSError("forced unreadable directory")
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", fail_target_iterdir)
+    payload = preview_existing_path(base=tmp_path, relative_path="blocked", resolved=directory)
+
+    assert payload["kind"] == "directory"
+    assert payload["entries"] == []
+    assert payload["preview_error"] == "directory could not be read"
 
 
 def _stream_body(stream_response) -> str:
@@ -240,6 +375,56 @@ def _assert_run_event_streaming(client: TestClient, run_id: str) -> None:
         assert stream_response.status_code == 200
         reconnect_body = _stream_body(stream_response)
     assert f"id: {reconnect_from}\n" not in reconnect_body
+
+
+def test_run_event_api_rejects_out_of_range_query_params(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    for path in (
+        "/api/runs/run_test/events?after_id=-1",
+        f"/api/runs/run_test/events?after_id={MAX_EVENT_CURSOR_ID + 1}",
+        "/api/runs/run_test/events?limit=0",
+        "/api/runs/run_test/events?limit=5001",
+        "/api/runs/run_test/stream?after_id=-1",
+        f"/api/runs/run_test/stream?after_id={MAX_EVENT_CURSOR_ID + 1}",
+    ):
+        response = client.get(path)
+        assert response.status_code == 400
+        assert response.json()["error"] == "request validation failed"
+
+
+def test_run_event_api_rejects_cursor_beyond_current_run_events(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Cursor Boundary Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    latest_event = service.repository.append_event(run["id"], "run_started", {"status": "running"})
+    future_cursor = latest_event["id"] + 1
+    client = TestClient(build_app(service=service))
+
+    for path in (
+        f"/api/runs/{run['id']}/events?after_id={future_cursor}",
+        f"/api/runs/{run['id']}/stream?after_id={future_cursor}",
+    ):
+        response = client.get(path)
+        assert response.status_code == 400
+        assert response.json()["error"] == "event cursor is out of range"
 
 
 def test_api_loop_creation_run_preview_and_stream(
@@ -318,6 +503,43 @@ def test_api_run_key_takeaways_returns_iteration_role_conclusions(
     assert coverage["latest_gatekeeper"]["evidence_refs"]
     assert coverage["evidence_kind_counts"]["inspection"] >= 1
     assert coverage["evidence_kind_counts"]["verdict"] >= 1
+
+
+def test_api_run_key_takeaways_tolerates_invalid_utf8_json_artifacts(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Corrupt Artifact Takeaway Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    run_dir = Path(run["runs_dir"])
+    (run_dir / "contract" / "compiled_spec.json").write_bytes(b"\xff")
+    (run_dir / "contract" / "run_contract.json").write_bytes(b"\xff")
+    (run_dir / "evidence" / "ledger.jsonl").write_bytes(b"\xff")
+    for handoff_path in run_dir.glob("iterations/iter_*/steps/*/handoff.json"):
+        handoff_path.write_bytes(b"\xff")
+        break
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/api/runs/{run['id']}/key-takeaways")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["evidence_count"] == 0
+    assert payload["run_status"] == "succeeded"
 
 
 def test_minimal_run_takeaway_projection_keeps_status_verdict_and_empty_evidence_shape(tmp_path: Path) -> None:
@@ -616,6 +838,15 @@ def test_system_picker_requires_post_and_same_origin(monkeypatch, service_factor
     assert "same origin" in cross_origin.json()["error"]
     assert called == []
 
+    malformed_origin = client.post(
+        "/api/system/pick-directory",
+        json={"start_path": str(sample_workdir)},
+        headers={"Origin": "http://testserver:bad"},
+    )
+    assert malformed_origin.status_code == 403
+    assert "same origin" in malformed_origin.json()["error"]
+    assert called == []
+
     same_origin = client.post(
         "/api/system/pick-directory",
         json={"start_path": str(sample_workdir)},
@@ -659,6 +890,16 @@ def test_api_json_endpoints_reject_invalid_json_body(service_factory) -> None:
 
     assert response.status_code == 400
     assert "invalid JSON body" in response.json()["error"]
+
+    invalid_utf8_response = client.post(
+        "/api/markdown/render",
+        content=b'{"markdown":"\xff"}',
+        headers={"content-type": "application/json"},
+    )
+
+    assert invalid_utf8_response.status_code == 400
+    assert "invalid JSON body" in invalid_utf8_response.json()["error"]
+    assert "UTF-8" in invalid_utf8_response.json()["error"]
 
 
 def test_api_json_endpoints_require_object_bodies(service_factory) -> None:
@@ -899,6 +1140,10 @@ def test_api_run_stream_emits_redacted_stream_error_on_backend_failure() -> None
         def get_run(self, run_id: str) -> dict:
             return {"id": run_id, "status": "running", "loop_id": "loop_test"}
 
+        def latest_run_event_id(self, run_id: str) -> int:
+            assert run_id == "run_test"
+            return 42
+
         def stream_events(self, run_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
             assert run_id == "run_test"
             assert after_id == 42
@@ -935,6 +1180,10 @@ def test_api_run_stream_logs_invalid_resume_cursor_and_keeps_request_cursor() ->
         def get_run(self, run_id: str) -> dict:
             return {"id": run_id, "status": "succeeded", "loop_id": "loop_test"}
 
+        def latest_run_event_id(self, run_id: str) -> int:
+            assert run_id == "run_test"
+            return 10
+
         def stream_events(self, run_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
             assert run_id == "run_test"
             assert limit == 200
@@ -959,7 +1208,48 @@ def test_api_run_stream_logs_invalid_resume_cursor_and_keeps_request_cursor() ->
     )
     assert record["run_id"] == "run_test"
     assert record["context"]["after_id"] == 7
+    assert record["context"]["latest_event_id"] == 10
     assert record["context"]["invalid_last_event_id"] == "not-a-number"
+
+
+def test_api_run_stream_ignores_resume_cursor_beyond_current_run_events() -> None:
+    configure_logging()
+    captured: dict[str, int] = {}
+
+    class CursorAwareService:
+        def get_run(self, run_id: str) -> dict:
+            return {"id": run_id, "status": "succeeded", "loop_id": "loop_test"}
+
+        def latest_run_event_id(self, run_id: str) -> int:
+            assert run_id == "run_test"
+            return 10
+
+        def stream_events(self, run_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
+            assert run_id == "run_test"
+            assert limit == 200
+            captured["after_id"] = after_id
+            return []
+
+    client = TestClient(build_app(service=CursorAwareService()))
+
+    with client.stream(
+        "GET",
+        "/api/runs/run_test/stream?after_id=7",
+        headers={"Last-Event-ID": "11"},
+    ) as response:
+        assert response.status_code == 200
+        assert "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text()) == ""
+
+    assert captured["after_id"] == 7
+    record = next(
+        item
+        for item in _read_service_log_records()
+        if item["event"] == "web.run_stream.resume_cursor_invalid"
+    )
+    assert record["run_id"] == "run_test"
+    assert record["context"]["after_id"] == 7
+    assert record["context"]["latest_event_id"] == 10
+    assert record["context"]["invalid_last_event_id"] == "11"
 
 
 def test_web_logs_completed_requests(service_factory) -> None:
@@ -1154,6 +1444,32 @@ def test_api_loop_creation_rejects_invalid_numeric_settings(
 
     assert response.status_code == 400
     assert "numeric loop settings" in response.json()["error"]
+
+    bool_response = client.post(
+        "/api/loops",
+        json={
+            "name": "Broken Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "max_iters": False,
+        },
+    )
+
+    assert bool_response.status_code == 400
+    assert "numeric loop settings" in bool_response.json()["error"]
+
+    non_finite_response = client.post(
+        "/api/loops",
+        json={
+            "name": "Broken Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "delta_threshold": "nan",
+        },
+    )
+
+    assert non_finite_response.status_code == 400
+    assert "finite" in non_finite_response.json()["error"]
 
 
 def test_api_loop_creation_supports_command_mode(
@@ -2247,6 +2563,37 @@ def test_api_bundles_import_export_and_delete(
     assert "unknown bundle" in missing_response.json()["error"]
 
 
+def test_api_bundle_file_inputs_reject_invalid_utf8(service_factory, tmp_path: Path) -> None:
+    service = service_factory(scenario="success")
+    bundle_path = tmp_path / "broken-bundle.yaml"
+    bundle_path.write_bytes(b"\xff")
+    client = TestClient(build_app(service=service))
+
+    preview_response = client.post("/api/bundles/preview", json={"bundle_path": str(bundle_path)})
+    assert preview_response.status_code == 200
+    preview_payload = preview_response.json()
+    assert preview_payload["ok"] is False
+    assert "UTF-8 encoded YAML" in preview_payload["error"]
+
+    import_response = client.post("/api/bundles/import", json={"bundle_path": str(bundle_path)})
+    assert import_response.status_code == 400
+    assert "UTF-8 encoded YAML" in import_response.json()["error"]
+
+
+def test_api_bundle_preview_and_import_report_invalid_version_without_500(service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+    invalid_yaml = "version: not-a-number\nmetadata:\n  name: Broken Bundle\n"
+
+    preview_response = client.post("/api/bundles/preview", json={"bundle_yaml": invalid_yaml})
+    assert preview_response.status_code == 200
+    assert preview_response.json() == {"ok": False, "error": "bundle version must be an integer"}
+
+    import_response = client.post("/api/bundles/import", json={"bundle_yaml": invalid_yaml})
+    assert import_response.status_code == 400
+    assert import_response.json()["error"] == "bundle version must be an integer"
+
+
 def test_api_bundles_derive_returns_bundle_payload(
     service_factory,
     sample_spec_file: Path,
@@ -2417,6 +2764,45 @@ def test_bundle_form_import_and_edit_flow(
     assert updated_bundle["collaboration_summary"] == "Take fake done seriously."
     spec_path = app_home() / "bundles" / bundle_id / "spec.md"
     assert spec_path.read_text(encoding="utf-8").startswith("# Task")
+
+
+def test_bundle_detail_stays_open_when_managed_spec_is_unreadable(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Bundle Broken Spec Source",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    imported = service.import_bundle_text(
+        bundle_to_yaml(
+            service.derive_bundle_from_loop(
+                loop["id"],
+                name="Broken Spec Bundle",
+                description="The managed spec file can be repaired from the detail page.",
+                collaboration_summary="Keep the plan detail page usable.",
+            )
+        )
+    )
+    (app_home() / "bundles" / imported["id"] / "spec.md").write_bytes(b"\xff")
+
+    response = TestClient(build_app(service=service)).get(f"/bundles/{imported['id']}")
+
+    assert response.status_code == 200
+    assert 'data-testid="bundle-detail-page"' in response.text
+    assert 'data-testid="bundle-detail-form"' in response.text
+    assert "bundle spec file could not be read" in response.text
 
 
 def test_bundle_derive_form_encodes_query_values(service_factory) -> None:
@@ -2870,6 +3256,13 @@ def test_api_spec_init_validate_and_delete_loop(service_factory, tmp_path: Path,
     assert "## GateKeeper Notes" in created_text
     assert "## Guide Notes" in created_text
 
+    duplicate_init_response = client.post(
+        "/api/specs/init",
+        json={"path": str(spec_path), "locale": "en", "workflow_preset": "build_first"},
+    )
+    assert duplicate_init_response.status_code == 409
+    assert "already exists" in duplicate_init_response.json()["error"]
+
     validate_response = client.get("/api/specs/validate", params={"path": str(spec_path)})
     assert validate_response.status_code == 200
     assert validate_response.json()["ok"] is True
@@ -2925,6 +3318,43 @@ def test_api_spec_template_accepts_workflow_json_mapping(service_factory) -> Non
     assert "## GateKeeper Notes" in payload["content"]
     assert [item["role_name"] for item in payload["role_note_sections"]] == ["Builder", "GateKeeper"]
     assert "<h1>Task</h1>" in payload["rendered_html"]
+
+
+def test_api_spec_template_and_init_reject_invalid_workflow_json(
+    tmp_path: Path,
+    service_factory,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+    invalid_workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder"},
+        ],
+        "controls": [
+            {
+                "id": "bad_repair",
+                "when": {"signal": "step_failed", "after": "0s"},
+                "call": {"role_id": "builder"},
+            }
+        ],
+    }
+
+    template_response = client.post("/api/specs/template", json={"workflow_json": invalid_workflow})
+    assert template_response.status_code == 400
+    assert "controls may only call Inspector" in template_response.json()["error"]
+
+    spec_path = tmp_path / "invalid-workflow-template.md"
+    init_response = client.post(
+        "/api/specs/init",
+        json={"path": str(spec_path), "locale": "en", "workflow_json": invalid_workflow},
+    )
+    assert init_response.status_code == 400
+    assert "controls may only call Inspector" in init_response.json()["error"]
+    assert not spec_path.exists()
 
 
 def test_api_spec_validate_reports_auto_generated_check_mode(tmp_path: Path, service_factory) -> None:
@@ -3031,6 +3461,101 @@ def test_api_spec_document_save_writes_file_and_returns_validation(tmp_path: Pat
     assert "<h1>Done When</h1>" in payload["rendered_html"]
 
 
+def test_api_spec_document_endpoints_reject_non_markdown_paths(tmp_path: Path, service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    non_spec_path = tmp_path / "not-a-spec.txt"
+    non_spec_path.write_text("# Task\n\nSensitive but parseable local text.\n", encoding="utf-8")
+
+    for endpoint in ("/api/specs/validate", "/api/specs/preview", "/api/specs/document"):
+        response = client.get(endpoint, params={"path": str(non_spec_path)})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ok"] is False
+        assert "Markdown file" in payload["error"]
+        assert "Sensitive but parseable" not in json.dumps(payload, ensure_ascii=False)
+
+    save_response = client.put(
+        "/api/specs/document",
+        json={"path": str(non_spec_path), "content": "# Task\n\nOverwritten\n"},
+    )
+    assert save_response.status_code == 200
+    assert save_response.json()["ok"] is False
+    assert "Markdown file" in save_response.json()["error"]
+    assert "Sensitive but parseable" in non_spec_path.read_text(encoding="utf-8")
+
+    init_response = client.post("/api/specs/init", json={"path": str(tmp_path / "created.txt"), "locale": "en"})
+    assert init_response.status_code == 400
+    assert "Markdown file" in init_response.json()["error"]
+
+
+def test_api_spec_document_endpoints_reject_oversized_markdown(tmp_path: Path, service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    oversized_path = tmp_path / "oversized-spec.md"
+    oversized_path.write_text("# Task\n\n" + ("x" * 1_000_001), encoding="utf-8")
+
+    for endpoint in ("/api/specs/validate", "/api/specs/preview", "/api/specs/document"):
+        response = client.get(endpoint, params={"path": str(oversized_path)})
+        assert response.status_code == 200
+        assert response.json()["ok"] is False
+        assert "too large" in response.json()["error"]
+
+    save_response = client.put(
+        "/api/specs/document",
+        json={"path": str(tmp_path / "new-spec.md"), "content": "# Task\n\n" + ("x" * 1_000_001)},
+    )
+    assert save_response.status_code == 200
+    assert save_response.json()["ok"] is False
+    assert "too large" in save_response.json()["error"]
+    assert not (tmp_path / "new-spec.md").exists()
+
+
+def test_api_spec_document_endpoints_reject_binary_markdown(tmp_path: Path, service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    binary_path = tmp_path / "binary-spec.md"
+    binary_path.write_bytes(b"# Task\n\n\x00binary-like content\n")
+
+    for endpoint in ("/api/specs/validate", "/api/specs/preview", "/api/specs/document"):
+        response = client.get(endpoint, params={"path": str(binary_path)})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ok"] is False
+        assert "text markdown" in payload["error"]
+        assert "binary-like content" not in json.dumps(payload, ensure_ascii=False)
+
+    save_path = tmp_path / "save-target.md"
+    save_path.write_text("# Task\n\nKeep this text.\n", encoding="utf-8")
+
+    save_response = client.put(
+        "/api/specs/document",
+        json={"path": str(save_path), "content": "# Task\n\n\u0000binary-like content\n"},
+    )
+    assert save_response.status_code == 200
+    assert save_response.json()["ok"] is False
+    assert "text markdown" in save_response.json()["error"]
+    assert save_path.read_text(encoding="utf-8") == "# Task\n\nKeep this text.\n"
+
+
+def test_api_spec_document_endpoints_reject_non_utf8_markdown(tmp_path: Path, service_factory) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    invalid_path = tmp_path / "invalid-spec.md"
+    invalid_path.write_bytes(b"# Task\n\n\xff\n")
+
+    for endpoint in ("/api/specs/validate", "/api/specs/preview", "/api/specs/document"):
+        response = client.get(endpoint, params={"path": str(invalid_path)})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["ok"] is False
+        assert "UTF-8 encoded Markdown" in payload["error"]
+
+
 def test_api_markdown_render_can_strip_prompt_front_matter(service_factory) -> None:
     service = service_factory(scenario="success")
     client = TestClient(build_app(service=service))
@@ -3072,6 +3597,18 @@ def test_network_mode_requires_auth_token_and_sets_cookie(service_factory) -> No
     unsupported_header = client.get("/", headers={"X-Other-Token": "secret-token"})
     assert unsupported_header.status_code == 401
 
+    bearer_authorized = TestClient(build_app(service=service, bind_host="0.0.0.0", auth_token="secret-token")).get(
+        "/api/loops",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+    assert bearer_authorized.status_code == 200
+
+    custom_header_authorized = TestClient(build_app(service=service, bind_host="0.0.0.0", auth_token="secret-token")).get(
+        "/api/loops",
+        headers={"X-Loopora-Token": "secret-token"},
+    )
+    assert custom_header_authorized.status_code == 200
+
     authorized = client.get("/?token=secret-token")
     assert authorized.status_code == 200
     assert client.cookies.get("loopora_auth") == "secret-token"
@@ -3101,6 +3638,14 @@ def test_network_mode_auth_page_uses_request_locale_and_shared_styles(service_fa
     assert "X-Other-Token" not in unauthorized.text
     assert 'class="auth-logo" src="/logo/logo-with-text-horizontal.svg" alt="" aria-hidden="true"' in unauthorized.text
 
+    unauthenticated_css = client.get("/static/app.css")
+    assert unauthenticated_css.status_code == 200
+    assert "text/css" in unauthenticated_css.headers["content-type"]
+    assert ".auth-shell {" in unauthenticated_css.text
+    unauthenticated_logo = client.get("/logo/logo.svg")
+    assert unauthenticated_logo.status_code == 200
+    assert "image/svg+xml" in unauthenticated_logo.headers["content-type"]
+
     css = client.get("/static/app.css?token=secret-token")
     assert css.status_code == 200
     assert ".auth-shell {" in css.text
@@ -3118,6 +3663,10 @@ def test_preferred_locale_from_accept_language_respects_q_values_and_supported_l
     assert web_module._preferred_locale_from_accept_language("en-US;q=0,zh-CN;q=0.6") == "zh"
     assert web_module._preferred_locale_from_accept_language("zh_CN;q=0.7,en-US;q=0.4") == "zh"
     assert web_module._preferred_locale_from_accept_language("zh-CN;q=bad,en-US;q=0.4") == "en"
+    assert web_module._preferred_locale_from_accept_language("zh-CN;q=nan,en-US;q=0.4") == "en"
+    assert web_module._preferred_locale_from_accept_language("zh-CN;q=inf,en-US;q=0.4") == "en"
+    assert web_module._preferred_locale_from_accept_language("zh-CN;q=1.5,en-US;q=0.4") == "en"
+    assert web_module._preferred_locale_from_accept_language("zh-CN;q=-0.1,en-US;q=0.4") == "en"
 
 
 def test_network_mode_disables_native_dialog_endpoints(service_factory) -> None:

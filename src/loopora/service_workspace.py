@@ -5,19 +5,42 @@ from pathlib import Path
 
 from loopora.branding import APP_STATE_DIRNAME, state_dir_for_workdir
 from loopora.run_artifacts import write_json_with_mirrors
-from loopora.service_types import WorkspaceSafetyError
+from loopora.service_types import LooporaError, WorkspaceSafetyError
 from loopora.utils import read_json, utc_now
 from loopora.settings import save_recent_workdirs
+
+WORKSPACE_USER_FILE_IGNORED_DIRS = {
+    ".git",
+    APP_STATE_DIRNAME,
+    ".venv",
+    "venv",
+    "node_modules",
+    "dist",
+    "build",
+    "__pycache__",
+    ".cache",
+    ".mypy_cache",
+    ".nox",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".parcel-cache",
+    ".next",
+    ".nuxt",
+    ".vite",
+    "htmlcov",
+}
+
+WORKSPACE_USER_FILE_IGNORED_FILES = {".DS_Store", ".coverage", "coverage.xml"}
 
 
 class ServiceWorkspaceMixin:
     def _is_bootstrap_workspace(self, workdir: Path) -> bool:
-        ignored_dirs = {".git", APP_STATE_DIRNAME, ".venv", "venv", "node_modules", "dist", "build", "__pycache__"}
         scanned_files = 0
         for root, dirs, files in os.walk(workdir):
-            dirs[:] = [name for name in dirs if name not in ignored_dirs]
+            dirs[:] = [name for name in dirs if name not in WORKSPACE_USER_FILE_IGNORED_DIRS]
             for filename in files:
-                if filename == ".DS_Store":
+                if filename in WORKSPACE_USER_FILE_IGNORED_FILES:
                     continue
                 scanned_files += 1
                 if scanned_files >= 200:
@@ -37,19 +60,16 @@ class ServiceWorkspaceMixin:
         }
 
     def _iter_user_workspace_files(self, workdir: Path):
-        ignored_dirs = {".git", APP_STATE_DIRNAME, ".venv", "venv", "node_modules", "dist", "build", "__pycache__"}
-        ignored_files = {".DS_Store"}
         for root, dirs, files in os.walk(workdir):
-            dirs[:] = [name for name in dirs if name not in ignored_dirs]
+            dirs[:] = [name for name in dirs if name not in WORKSPACE_USER_FILE_IGNORED_DIRS]
             for filename in sorted(files):
-                if filename in ignored_files:
+                if filename in WORKSPACE_USER_FILE_IGNORED_FILES:
                     continue
                 yield (Path(root) / filename).relative_to(workdir).as_posix()
 
     def _enforce_workspace_safety(self, run: dict, run_dir: Path, iter_id: int, *, role: str) -> None:
         layout = self._run_artifact_layout(run_dir)
-        baseline = read_json(layout.workspace_baseline_path)
-        baseline_files = set((baseline or {}).get("files") or [])
+        baseline_files = self._read_workspace_baseline_files(layout.workspace_baseline_path)
         if not baseline_files:
             return
         current_files = set(self._iter_user_workspace_files(Path(run["workdir"])))
@@ -94,6 +114,22 @@ class ServiceWorkspaceMixin:
             baseline_count=baseline_count,
             current_count=remaining_original,
         )
+
+    @staticmethod
+    def _read_workspace_baseline_files(path: Path) -> set[str]:
+        try:
+            baseline = read_json(path)
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise LooporaError(f"workspace safety baseline could not be read: {path}") from exc
+        if not isinstance(baseline, dict) or "files" not in baseline:
+            raise LooporaError(f"workspace safety baseline is missing or malformed: {path}")
+        files = baseline.get("files")
+        if not isinstance(files, list):
+            raise LooporaError(f"workspace safety baseline is missing or malformed: {path}")
+        normalized_files = {str(item).strip() for item in files if isinstance(item, str) and str(item).strip()}
+        if len(normalized_files) != len(files):
+            raise LooporaError(f"workspace safety baseline is missing or malformed: {path}")
+        return normalized_files
 
     def _ensure_loop_dir(self, workdir: Path, loop_id: str) -> Path:
         path = state_dir_for_workdir(workdir) / "loops" / loop_id

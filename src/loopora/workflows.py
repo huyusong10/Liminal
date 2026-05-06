@@ -14,6 +14,7 @@ from loopora.executor import validate_extra_cli_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
 
 ARCHETYPES = ("builder", "inspector", "gatekeeper", "guide", "custom")
+WORKFLOW_VERSION = 1
 LEGACY_ROLE_TO_ARCHETYPE = {
     "generator": "builder",
     "tester": "inspector",
@@ -152,6 +153,24 @@ def normalize_workflow_identifier(value: object, *, field_name: str) -> str:
     if not WORKFLOW_SAFE_IDENTIFIER_RE.fullmatch(normalized):
         raise WorkflowError(f"{field_name} must use letters, numbers, dot, underscore, or dash")
     return normalized
+
+
+def normalize_workflow_version(value: Any, *, field_name: str = "workflow version") -> int:
+    if value is None:
+        return WORKFLOW_VERSION
+    if isinstance(value, str) and not value.strip():
+        return WORKFLOW_VERSION
+    if isinstance(value, bool):
+        raise WorkflowError(f"{field_name} must be an integer")
+    if isinstance(value, float) and not value.is_integer():
+        raise WorkflowError(f"{field_name} must be an integer")
+    try:
+        version = int(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise WorkflowError(f"{field_name} must be an integer") from exc
+    if version != WORKFLOW_VERSION:
+        raise WorkflowError(f"unsupported {field_name}: {version}")
+    return version
 
 
 def prompt_asset_path(root: Path, prompt_ref: str) -> Path:
@@ -560,8 +579,9 @@ def normalize_workflow_control_mode(value: Any) -> str:
 
 
 def normalize_workflow_control_max_fires(value: Any) -> int:
+    raw_value = 1 if value is None or value == "" else value
     try:
-        max_fires = int(value or 1)
+        max_fires = int(raw_value)
     except (TypeError, ValueError) as exc:
         raise WorkflowError("workflow control max_fires_per_run must be an integer") from exc
     if max_fires < 1 or max_fires > 20:
@@ -1198,6 +1218,15 @@ def builtin_prompt_markdown(prompt_ref: str, *, locale: str | None = None) -> st
     return path.read_text(encoding="utf-8")
 
 
+def load_prompt_file(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise WorkflowError("prompt file must be UTF-8 encoded Markdown") from exc
+    except OSError as exc:
+        raise WorkflowError(f"prompt file could not be read: {path}") from exc
+
+
 def builtin_prompt_markdown_by_locale(prompt_ref: str) -> dict[str, str]:
     return {
         "en": builtin_prompt_markdown(prompt_ref, locale="en"),
@@ -1450,7 +1479,7 @@ def normalize_workflow(workflow: dict[str, Any] | None, *, role_models: dict[str
     controls = normalize_workflow_controls(raw.get("controls"), role_by_id=role_by_id)
 
     normalized = {
-        "version": int(raw.get("version", 1) or 1),
+        "version": normalize_workflow_version(raw.get("version")),
         "preset": str(raw.get("preset", "")).strip(),
         "collaboration_intent": str(raw.get("collaboration_intent", "") or "").strip(),
         "roles": roles,
@@ -1628,9 +1657,17 @@ def resolve_prompt_files(
 
 
 def load_workflow_file(path: Path) -> tuple[dict[str, Any], dict[str, str]]:
-    raw_text = path.read_text(encoding="utf-8")
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise WorkflowError("workflow file must be UTF-8 encoded YAML or JSON") from exc
     suffix = path.suffix.lower()
-    payload = (yaml.safe_load(raw_text) or {}) if suffix in {".yaml", ".yml"} else json.loads(raw_text)
+    try:
+        payload = (yaml.safe_load(raw_text) or {}) if suffix in {".yaml", ".yml"} else json.loads(raw_text)
+    except yaml.YAMLError as exc:
+        raise WorkflowError(f"invalid workflow YAML: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise WorkflowError(f"invalid workflow JSON: {exc.msg}") from exc
     if not isinstance(payload, dict):
         raise WorkflowError("workflow file must decode to an object")
     workflow = payload.get("workflow", payload)

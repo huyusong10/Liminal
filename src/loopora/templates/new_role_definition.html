@@ -248,8 +248,8 @@
                   data-testid="role-definition-command-args-input"
                 >{{- form_values.command_args_text -}}</textarea>
                 <small class="field-note">
-                  <span data-lang="zh">每行一个参数。支持占位符：`{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}`。</span>
-                  <span data-lang="en">Use one argument per line. Supported placeholders: `{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}`.</span>
+                  <span data-lang="zh">每行一个参数。只支持占位符：`{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}` `{resume_session_id}` `{session_ref_json}` `{alignment_session_id}` `{extra_cli_args}`；未知 `{name}` 会被拒绝。</span>
+                  <span data-lang="en">Use one argument per line. Only these placeholders are supported: `{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}` `{resume_session_id}` `{session_ref_json}` `{alignment_session_id}` `{extra_cli_args}`; unknown `{name}` placeholders are rejected.</span>
                 </small>
               </label>
             </div>

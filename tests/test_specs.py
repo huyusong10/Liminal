@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from loopora.specs import SpecError, compile_markdown_spec, render_spec_template, resolve_role_note
+from loopora.specs import SpecError, compile_markdown_spec, load_spec_file, render_spec_template, resolve_role_note
 
 
 def test_compile_markdown_spec_extracts_sections(sample_spec_text: str) -> None:
@@ -43,6 +43,14 @@ def test_compile_markdown_spec_allows_missing_checks_for_exploration(exploratory
     assert compiled["check_mode"] == "auto_generated"
     assert compiled["checks"] == []
     assert [item["id"] for item in compiled["coverage_targets"]] == ["gatekeeper.finish"]
+
+
+def test_load_spec_file_reports_encoding_errors(tmp_path) -> None:
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_bytes(b"\xff")
+
+    with pytest.raises(SpecError, match="UTF-8 encoded Markdown"):
+        load_spec_file(spec_path)
 
 
 def test_compile_markdown_spec_requires_task() -> None:

@@ -6,7 +6,7 @@ from typing import Annotated
 import typer
 
 from loopora.cli_shared import ArchetypeOption, LocaleOption, echo_json, handle_error
-from loopora.workflows import WorkflowError, available_prompt_templates, builtin_prompt_markdown, validate_prompt_markdown
+from loopora.workflows import WorkflowError, available_prompt_templates, builtin_prompt_markdown, load_prompt_file, validate_prompt_markdown
 
 
 def register_prompt_commands(prompts_app: typer.Typer) -> None:
@@ -36,7 +36,7 @@ def register_prompt_commands(prompts_app: typer.Typer) -> None:
     ) -> None:
         """Validate prompt Markdown and print parsed metadata."""
         try:
-            markdown_text = path.read_text(encoding="utf-8")
+            markdown_text = load_prompt_file(path)
             metadata, body = validate_prompt_markdown(markdown_text, expected_archetype=archetype or None)
             echo_json({"ok": True, "metadata": metadata, "body": body})
         except (WorkflowError, OSError) as exc:

@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import shutil
 import threading
 import time
 from pathlib import Path
 
 import pytest
 
+from loopora.branding import state_dir_for_workdir
 from loopora.executor import CodexExecutor, ExecutorError, FakeCodexExecutor, build_command_event_payload
+from loopora.run_artifacts import RunArtifactLayout
 from loopora.service import LooporaError, LooporaService
 from loopora.service_types import LooporaNotFoundError
 from loopora.settings import app_home, configure_logging
+from loopora.workflows import prompt_asset_path
 import loopora.service_cleanup_diagnostics as cleanup_diagnostics
 
 
@@ -157,6 +162,29 @@ def _create_loop(
     return service.create_loop(**payload)
 
 
+@pytest.mark.parametrize(
+    "case",
+    (
+        ("iteration_interval_seconds", math.nan, "iteration_interval_seconds must be a finite number"),
+        ("delta_threshold", math.inf, "delta_threshold must be a finite number"),
+        ("max_iters", math.inf, "max_iters must be a finite number"),
+        ("max_iters", False, "max_iters must be a finite number"),
+        ("delta_threshold", -0.1, "delta_threshold must be >= 0"),
+    ),
+)
+def test_create_loop_rejects_invalid_runtime_numbers(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+    case: tuple[str, object, str],
+) -> None:
+    service = service_factory(scenario="success")
+    field_name, value, error_text = case
+
+    with pytest.raises(LooporaError, match=error_text):
+        _create_loop(service, sample_spec_file, sample_workdir, **{field_name: value})
+
+
 def _force_run_into_legacy_mode(service: LooporaService, run_id: str) -> dict:
     with service.repository.transaction() as connection:
         connection.execute(
@@ -164,6 +192,16 @@ def _force_run_into_legacy_mode(service: LooporaService, run_id: str) -> dict:
             (json.dumps({}, ensure_ascii=False), run_id),
         )
     return service.get_run(run_id)
+
+
+def _corrupt_loop_prompt_artifact(loop: dict, prompt_ref: str) -> None:
+    prompt_dir = state_dir_for_workdir(Path(loop["workdir"])) / "loops" / loop["id"] / "prompts"
+    prompt_asset_path(prompt_dir, prompt_ref).write_bytes(b"\xff")
+
+
+def _corrupt_run_prompt_artifact(run: dict, prompt_ref: str) -> None:
+    layout = RunArtifactLayout(Path(run["runs_dir"]))
+    prompt_asset_path(layout.contract_prompts_dir, prompt_ref).write_bytes(b"\xff")
 
 
 def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
@@ -449,6 +487,57 @@ def test_run_persists_role_request_snapshots_and_iteration_handoff(
     assert "Immediate upstream handoff" in prompt_text
 
 
+def test_loop_projection_degrades_when_prompt_artifact_is_corrupt(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Corrupt Prompt Projection Loop")
+    prompt_ref = next(iter(loop["prompt_files"]))
+    _corrupt_loop_prompt_artifact(loop, prompt_ref)
+
+    listed_loop = next(item for item in service.list_loops() if item["id"] == loop["id"])
+    hydrated_loop = service.get_loop(loop["id"])
+
+    assert listed_loop["prompt_files"] == {}
+    assert hydrated_loop["prompt_files"] == {}
+
+
+def test_start_run_reports_corrupt_loop_prompt_artifact_as_domain_error(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Corrupt Prompt Start Loop")
+    prompt_ref = next(iter(loop["prompt_files"]))
+    _corrupt_loop_prompt_artifact(loop, prompt_ref)
+    runs_root = state_dir_for_workdir(sample_workdir) / "runs"
+
+    with pytest.raises(LooporaError, match="UTF-8 encoded Markdown"):
+        service.start_run(loop["id"])
+    assert not runs_root.exists() or not list(runs_root.iterdir())
+
+
+def test_execute_run_fails_readably_when_run_prompt_artifact_is_corrupt(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Corrupt Run Prompt Loop")
+    run = service.start_run(loop["id"])
+    prompt_ref = next(iter(run["prompt_files"]))
+    _corrupt_run_prompt_artifact(run, prompt_ref)
+
+    failed_run = service.execute_run(run["id"])
+
+    assert failed_run["status"] == "failed"
+    assert "UTF-8 encoded Markdown" in failed_run["error_message"]
+    assert failed_run["prompt_files"] == {}
+
+
 def test_role_request_prompt_renders_workspace_visible_artifact_refs(
     service_factory,
     sample_spec_file: Path,
@@ -465,6 +554,60 @@ def test_role_request_prompt_renders_workspace_visible_artifact_refs(
 
     assert f".loopora/runs/{run['id']}/contract/run_contract.json" in prompt_text
     assert "run-local: contract/run_contract.json" in prompt_text
+
+
+def test_workflow_iteration_context_recovers_corrupt_latest_state(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+    monkeypatch,
+) -> None:
+    service = service_factory(scenario="plateau")
+    original_persist_iteration_context = service._persist_iteration_context
+    persist_calls = 0
+
+    def corrupt_latest_state_before_second_persist(request):
+        nonlocal persist_calls
+        persist_calls += 1
+        if persist_calls == 2:
+            request.layout.latest_state_path.write_text("{", encoding="utf-8")
+        return original_persist_iteration_context(request)
+
+    monkeypatch.setattr(service, "_persist_iteration_context", corrupt_latest_state_before_second_persist)
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Corrupt Latest State Loop",
+        max_iters=2,
+    )
+
+    run = service.rerun(loop["id"])
+    latest_state = json.loads((Path(run["runs_dir"]) / "context" / "latest_state.json").read_text(encoding="utf-8"))
+
+    assert persist_calls == 2
+    assert run["status"] == "failed"
+    assert "Expecting" not in str(run.get("error_message") or "")
+    assert latest_state["latest_iteration"] == 1
+
+
+def test_workflow_run_recovers_corrupt_stagnation_projection(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Corrupt Stagnation Loop")
+    queued = service.start_run(loop["id"])
+    layout = RunArtifactLayout(Path(queued["runs_dir"]))
+    layout.timeline_stagnation_path.write_text("{", encoding="utf-8")
+
+    run = service.execute_run(queued["id"])
+    stagnation = json.loads(layout.timeline_stagnation_path.read_text(encoding="utf-8"))
+
+    assert run["status"] == "succeeded"
+    assert "Expecting" not in str(run.get("error_message") or "")
+    assert stagnation["stagnation_mode"] == "none"
 
 
 def test_builtin_prompts_define_runtime_evidence_fallback_rules() -> None:
@@ -944,6 +1087,56 @@ def test_workflow_control_records_runtime_evidence_and_respects_fire_limit(
     assert "control:gatekeeper_rejected" in control_entries[0]["verifies"]
 
 
+def test_workflow_run_rejects_invalid_persisted_control_fire_limit(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            {"id": "guide", "name": "Guide", "archetype": "guide", "prompt_ref": "guide.md"},
+            {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+        ],
+        "controls": [
+            {
+                "id": "stale_evidence_check",
+                "when": {"signal": "no_evidence_progress", "after": "0s"},
+                "call": {"role_id": "guide"},
+                "mode": "repair_guidance",
+                "max_fires_per_run": 1,
+            }
+        ],
+    }
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Corrupted Control Loop",
+        workflow=workflow,
+    )
+    corrupted_workflow = json.loads(json.dumps(loop["workflow_json"]))
+    corrupted_workflow["controls"][0]["max_fires_per_run"] = 0
+    with service.repository.transaction() as connection:
+        connection.execute(
+            "UPDATE loop_definitions SET workflow_json = ? WHERE id = ?",
+            (json.dumps(corrupted_workflow, ensure_ascii=False), loop["id"]),
+        )
+
+    run = service.rerun(loop["id"])
+    events = service.stream_events(run["id"], limit=100)
+
+    assert run["status"] == "failed"
+    assert "max_fires_per_run" in run["error_message"]
+    assert not any(event["event_type"] == "control_triggered" for event in events)
+
+
 def test_step_input_policy_filters_handoffs_and_evidence_context(
     service_factory,
     sample_spec_file: Path,
@@ -1368,6 +1561,69 @@ def test_destructive_generator_is_blocked_by_workspace_guard(
     assert "Execution stopped by the workspace safety guard." in (run_dir / "summary.md").read_text(encoding="utf-8")
 
 
+def test_workspace_guard_ignores_generated_cache_deletions(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    (sample_workdir / "src").mkdir()
+    (sample_workdir / "src" / "app.py").write_text("print('keep')\n", encoding="utf-8")
+    (sample_workdir / ".pytest_cache" / "v" / "cache").mkdir(parents=True)
+    (sample_workdir / ".pytest_cache" / "v" / "cache" / "nodeids").write_text("[]\n", encoding="utf-8")
+    (sample_workdir / ".ruff_cache").mkdir()
+    (sample_workdir / ".ruff_cache" / "metadata.json").write_text("{}\n", encoding="utf-8")
+    (sample_workdir / ".coverage").write_text("coverage data\n", encoding="utf-8")
+
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Cache Cleanup Loop")
+    run = service.start_run(loop["id"])
+    run_dir = Path(run["runs_dir"])
+    baseline = json.loads((run_dir / "contract" / "workspace_baseline.json").read_text(encoding="utf-8"))
+
+    assert "src/app.py" in baseline["files"]
+    assert "progress.md" in baseline["files"]
+    assert not any(path.startswith(".pytest_cache/") for path in baseline["files"])
+    assert not any(path.startswith(".ruff_cache/") for path in baseline["files"])
+    assert ".coverage" not in baseline["files"]
+
+    shutil.rmtree(sample_workdir / ".pytest_cache")
+    shutil.rmtree(sample_workdir / ".ruff_cache")
+    (sample_workdir / ".coverage").unlink()
+
+    service._enforce_workspace_safety(run, run_dir, 0, role="builder")
+
+    assert not (run_dir / "workspace_guard.json").exists()
+    assert not (run_dir / "timeline" / "workspace_guard.json").exists()
+    assert not any(event["event_type"] == "workspace_guard_triggered" for event in service.stream_events(run["id"], limit=10))
+
+
+def test_workspace_guard_fails_closed_when_baseline_is_missing_or_malformed(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    (sample_workdir / "src").mkdir()
+    (sample_workdir / "src" / "app.py").write_text("print('keep')\n", encoding="utf-8")
+
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Missing Baseline Loop")
+    run = service.start_run(loop["id"])
+    run_dir = Path(run["runs_dir"])
+    baseline_path = RunArtifactLayout(run_dir).workspace_baseline_path
+
+    baseline_path.unlink()
+    with pytest.raises(LooporaError, match="workspace safety baseline"):
+        service._enforce_workspace_safety(run, run_dir, 0, role="builder")
+
+    baseline_path.write_text("{not json}\n", encoding="utf-8")
+    with pytest.raises(LooporaError, match="workspace safety baseline"):
+        service._enforce_workspace_safety(run, run_dir, 0, role="builder")
+
+    baseline_path.write_text('{"files": [42]}\n', encoding="utf-8")
+    with pytest.raises(LooporaError, match="workspace safety baseline"):
+        service._enforce_workspace_safety(run, run_dir, 0, role="builder")
+
+
 def test_destructive_tester_is_blocked_by_workspace_guard(
     service_factory,
     sample_spec_file: Path,
@@ -1639,6 +1895,31 @@ def test_legacy_gatekeeper_run_exhausts_without_crashing(
         for event in events
     )
     assert all(event["event_type"] != "run_aborted" for event in events)
+
+
+def test_empty_workflow_snapshot_dispatches_to_legacy_execution(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+    monkeypatch,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Legacy Dispatch Loop")
+    run = service.start_run(loop["id"])
+    _force_run_into_legacy_mode(service, run["id"])
+    original_legacy_run = service._execute_legacy_run
+    dispatched = {"legacy": False}
+
+    def record_legacy_dispatch(run_id: str, run: dict, run_dir: Path) -> dict:
+        dispatched["legacy"] = True
+        return original_legacy_run(run_id, run, run_dir)
+
+    monkeypatch.setattr(service, "_execute_legacy_run", record_legacy_dispatch)
+
+    finished = service.execute_run(run["id"])
+
+    assert dispatched["legacy"] is True
+    assert finished["status"] == "succeeded"
 
 
 def test_legacy_rounds_run_finishes_after_planned_iterations(

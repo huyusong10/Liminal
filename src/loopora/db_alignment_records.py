@@ -6,6 +6,7 @@ from pathlib import Path
 
 from loopora.db_shared import logger
 from loopora.diagnostics import log_event
+from loopora.event_redaction import redact_alignment_event_payload
 from loopora.utils import utc_now
 
 
@@ -207,7 +208,8 @@ class RepositoryAlignmentRecordsMixin:
 
     def append_alignment_event(self, session_id: str, event_type: str, payload: dict) -> dict:
         now = utc_now()
-        payload_json = json.dumps(payload, ensure_ascii=False)
+        redacted_payload = redact_alignment_event_payload(event_type, payload)
+        payload_json = json.dumps(redacted_payload, ensure_ascii=False)
         with self.transaction() as connection:
             cursor = connection.execute(
                 """
@@ -226,7 +228,7 @@ class RepositoryAlignmentRecordsMixin:
             "session_id": session_id,
             "created_at": now,
             "event_type": event_type,
-            "payload": payload,
+            "payload": redacted_payload,
         }
         if session_row:
             self._append_alignment_event_artifact(self._alignment_event_artifact_root(Path(str(session_row["bundle_path"]))), event)
@@ -236,27 +238,9 @@ class RepositoryAlignmentRecordsMixin:
     def _alignment_event_artifact_root(bundle_path: Path) -> Path:
         return bundle_path.parent.parent if bundle_path.parent.name == "artifacts" else bundle_path.parent
 
-    @staticmethod
-    def _truncate_alignment_event_artifact_text(value: object, *, limit: int = 2000) -> str:
-        text = str(value or "")
-        if len(text) <= limit:
-            return text
-        return text[:limit] + f"\n... [truncated {len(text) - limit} chars]"
-
     @classmethod
     def _alignment_event_artifact_payload(cls, event: dict) -> dict:
-        payload = dict(event.get("payload") or {})
-        for key in ("prompt", "json_schema", "bundle_yaml"):
-            if key in payload:
-                payload[f"{key}_omitted"] = True
-                payload.pop(key, None)
-        if payload.get("type") == "command" and "message" in payload:
-            payload["message"] = cls._truncate_alignment_event_artifact_text(payload["message"], limit=500)
-            payload["command_truncated"] = True
-        elif "message" in payload:
-            payload["message"] = cls._truncate_alignment_event_artifact_text(payload["message"])
-        if "error" in payload:
-            payload["error"] = cls._truncate_alignment_event_artifact_text(payload["error"])
+        payload = redact_alignment_event_payload(str(event.get("event_type") or ""), event.get("payload") or {})
         return {**event, "payload": payload}
 
     @classmethod
@@ -270,6 +254,10 @@ class RepositoryAlignmentRecordsMixin:
             return
 
     def list_alignment_events(self, session_id: str, *, after_id: int = 0, limit: int = 200) -> list[dict]:
+        normalized_after_id = max(0, int(after_id or 0))
+        normalized_limit = max(0, min(int(limit or 0), 5000))
+        if normalized_limit <= 0:
+            return []
         with self._connect() as connection:
             rows = connection.execute(
                 """
@@ -278,9 +266,30 @@ class RepositoryAlignmentRecordsMixin:
                 ORDER BY id ASC
                 LIMIT ?
                 """,
-                (session_id, after_id, limit),
+                (session_id, normalized_after_id, normalized_limit),
             ).fetchall()
         return [self._decode_row(row) for row in rows]
+
+    def list_alignment_events_for_redaction_audit(self) -> list[dict]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT e.*, s.bundle_path
+                FROM alignment_events e
+                JOIN alignment_sessions s ON s.id = e.session_id
+                ORDER BY e.id ASC
+                """
+            ).fetchall()
+        return [self._decode_row(row) for row in rows]
+
+    def update_alignment_event_payload_for_redaction(self, event_id: int, payload: dict) -> bool:
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        with self.transaction() as connection:
+            cursor = connection.execute(
+                "UPDATE alignment_events SET payload_json = ? WHERE id = ?",
+                (payload_json, int(event_id)),
+            )
+        return cursor.rowcount > 0
 
     def request_alignment_stop(self, session_id: str) -> dict | None:
         with self.transaction() as connection:

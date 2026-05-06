@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 from loopora.branding import FILE_ROOT_QUERY_PATTERN
 from loopora.diagnostics import log_exception
@@ -18,7 +18,8 @@ from loopora.web_overviews import (
 )
 from loopora.web_inputs import _loop_payload_from_mapping
 from loopora.web_route_context import WebRouteContext
-from loopora.web_streaming import stream_error_payload
+from loopora.web_streaming import MAX_EVENT_CURSOR_ID, stream_error_payload
+from loopora.web_url_utils import attachment_content_disposition
 
 
 def register_run_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
@@ -84,7 +85,14 @@ def _register_run_observation_api_routes(app: FastAPI, ctx: WebRouteContext) -> 
         return JSONResponse(ctx.svc().stop_run(run_id))
 
     @app.get("/api/runs/{run_id}/events")
-    async def api_run_events(run_id: str, after_id: int = 0, limit: int = 200) -> JSONResponse:
+    async def api_run_events(
+        run_id: str,
+        after_id: int = Query(default=0, ge=0, le=MAX_EVENT_CURSOR_ID),
+        limit: int = Query(default=200, ge=1, le=5000),
+    ) -> JSONResponse:
+        latest_event_id = _latest_run_event_id(ctx, run_id)
+        if after_id > latest_event_id:
+            return ctx.json_error("event cursor is out of range")
         return JSONResponse(ctx.svc().stream_events(run_id, after_id=after_id, limit=limit))
 
 
@@ -130,14 +138,26 @@ def _register_run_artifact_api_routes(app: FastAPI, ctx: WebRouteContext) -> Non
         artifact_path = Path(run["runs_dir"]) / artifact["relative_path"]
         if not artifact_path.exists():
             raise HTTPException(status_code=404, detail="artifact not found")
-        return FileResponse(artifact_path.resolve())
+        relative_path = f"runs/{run_id}/{artifact['relative_path']}"
+        return _attachment_file_response(ctx.svc().download_file_path(run_id, root="loopora", relative_path=relative_path))
 
 
 def _register_run_stream_api_route(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/runs/{run_id}/stream")
-    async def api_run_stream(request: Request, run_id: str, after_id: int = 0) -> StreamingResponse:
-        ctx.svc().get_run(run_id)
-        after_id = ctx.resolve_stream_after_id(request, run_id=run_id, after_id=after_id)
+    async def api_run_stream(
+        request: Request,
+        run_id: str,
+        after_id: int = Query(default=0, ge=0, le=MAX_EVENT_CURSOR_ID),
+    ) -> Response:
+        latest_event_id = _latest_run_event_id(ctx, run_id)
+        if after_id > latest_event_id:
+            return ctx.json_error("event cursor is out of range")
+        after_id = ctx.resolve_stream_after_id(
+            request,
+            run_id=run_id,
+            after_id=after_id,
+            latest_event_id=latest_event_id,
+        )
         return StreamingResponse(_run_event_stream(ctx, run_id=run_id, after_id=after_id), media_type="text/event-stream")
 
 
@@ -156,12 +176,19 @@ def _register_file_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         root: str = Query(default="workdir", pattern=FILE_ROOT_QUERY_PATTERN),
         path: str = "",
     ) -> FileResponse:
-        preview = ctx.svc().preview_file(run_id, root=root, relative_path=path)
-        if preview["kind"] != "file":
-            raise HTTPException(status_code=400, detail="path is not a file")
-        base = Path(preview["base"])
-        resolved = (base / path).resolve()
-        return FileResponse(resolved)
+        return _attachment_file_response(ctx.svc().download_file_path(run_id, root=root, relative_path=path))
+
+
+def _attachment_file_response(path: Path) -> FileResponse:
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": attachment_content_disposition(path.name, default="download")},
+    )
+
+
+def _latest_run_event_id(ctx: WebRouteContext, run_id: str) -> int:
+    return max(0, int(ctx.svc().latest_run_event_id(run_id) or 0))
 
 
 def _run_event_stream(ctx: WebRouteContext, *, run_id: str, after_id: int) -> Iterator[str]:

@@ -684,6 +684,12 @@ def test_cli_spec_init_accepts_locale_and_validate_reports_check_mode(tmp_path: 
     assert payload["ok"] is True
     assert payload["check_mode"] == "specified"
 
+    invalid_spec_path = tmp_path / "invalid-spec.md"
+    invalid_spec_path.write_bytes(b"\xff")
+    invalid_result = runner.invoke(cli.app, ["spec", "validate", str(invalid_spec_path)])
+    assert invalid_result.exit_code == 1
+    assert "UTF-8 encoded Markdown" in invalid_result.stderr
+
 
 def test_cli_spec_init_accepts_workflow_preset(tmp_path: Path) -> None:
     spec_path = tmp_path / "repair-loop-spec.md"
@@ -734,6 +740,15 @@ def test_cli_spec_template_read_and_write(tmp_path: Path, monkeypatch) -> None:
     assert read_payload["content"] == "# Task\n\nUpdated task.\n"
     assert read_payload["validation"]["ok"] is True
 
+    invalid_source_path = tmp_path / "invalid-source.md"
+    invalid_source_path.write_bytes(b"\xff")
+    invalid_read = runner.invoke(cli.app, ["spec", "read", str(invalid_source_path)])
+    assert invalid_read.exit_code == 1
+    assert "UTF-8 encoded Markdown" in invalid_read.stderr
+    invalid_write = runner.invoke(cli.app, ["spec", "write", str(spec_path), "--from-file", str(invalid_source_path)])
+    assert invalid_write.exit_code == 1
+    assert "UTF-8 encoded Markdown" in invalid_write.stderr
+
 
 def test_cli_prompts_list_template_and_validate(tmp_path: Path) -> None:
     runner = CliRunner()
@@ -753,6 +768,12 @@ def test_cli_prompts_list_template_and_validate(tmp_path: Path) -> None:
     payload = json.loads(validate_result.stdout)
     assert payload["ok"] is True
     assert payload["metadata"]["archetype"] == "builder"
+
+    invalid_prompt_path = tmp_path / "invalid-prompt.md"
+    invalid_prompt_path.write_bytes(b"\xff")
+    invalid_result = runner.invoke(cli.app, ["prompts", "validate", str(invalid_prompt_path)])
+    assert invalid_result.exit_code == 1
+    assert "UTF-8 encoded Markdown" in invalid_result.stderr
 
 
 def test_cli_bundles_import_export_derive_and_delete(monkeypatch, tmp_path: Path) -> None:
@@ -953,6 +974,7 @@ def test_cli_bundles_import_export_derive_and_delete(monkeypatch, tmp_path: Path
 
 def test_cli_diagnose_event_redaction_dry_run_and_fix(monkeypatch, tmp_path: Path) -> None:
     marker = "UNIQUE-CLI-REDACTION-MARKER"
+    alignment_marker = "UNIQUE-ALIGNMENT-REDACTION-MARKER"
     repository = LooporaRepository(tmp_path / "app.db")
     service = LooporaService(
         repository=repository,
@@ -1006,6 +1028,39 @@ def test_cli_diagnose_event_redaction_dry_run_and_fix(monkeypatch, tmp_path: Pat
         )
     layout = RunArtifactLayout(Path(run["runs_dir"]))
     layout.timeline_events_path.write_text(json.dumps(unsafe_event, ensure_ascii=False) + "\n", encoding="utf-8")
+    alignment = service.create_alignment_session(
+        workdir=workdir,
+        message="Create an alignment event redaction audit fixture.",
+        start_immediately=False,
+    )
+    unsafe_alignment_event = {
+        "id": 1000,
+        "session_id": alignment["id"],
+        "created_at": utc_now(),
+        "event_type": "codex_event",
+        "payload": {
+            "type": "command",
+            "message": f"codex exec --token {alignment_marker}",
+            "prompt": alignment_marker,
+            "json_schema": {"marker": alignment_marker},
+        },
+    }
+    with repository.transaction() as connection:
+        connection.execute(
+            """
+            INSERT INTO alignment_events (session_id, created_at, event_type, payload_json)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                alignment["id"],
+                unsafe_alignment_event["created_at"],
+                unsafe_alignment_event["event_type"],
+                json.dumps(unsafe_alignment_event["payload"], ensure_ascii=False),
+            ),
+        )
+    alignment_events_path = Path(alignment["artifact_dir"]) / "events" / "events.jsonl"
+    with alignment_events_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(unsafe_alignment_event, ensure_ascii=False) + "\n")
 
     class FakeService:
         def __init__(self, repository):
@@ -1019,18 +1074,25 @@ def test_cli_diagnose_event_redaction_dry_run_and_fix(monkeypatch, tmp_path: Pat
     dry_report = json.loads(dry_run.stdout)
     assert dry_report["mode"] == "dry-run"
     assert dry_report["suspect"] >= 2
+    assert dry_report["alignment_db_events"]["suspect"] >= 1
+    assert dry_report["alignment_event_files"]["suspect"] >= 1
     assert marker in layout.timeline_events_path.read_text(encoding="utf-8")
+    assert alignment_marker in alignment_events_path.read_text(encoding="utf-8")
 
     fix_run = runner.invoke(cli.app, ["diagnose", "event-redaction", "--fix"])
     assert fix_run.exit_code == 0, fix_run.stdout
     fix_report = json.loads(fix_run.stdout)
     assert fix_report["mode"] == "fix"
-    assert fix_report["fixed"] >= 2
+    assert fix_report["fixed"] >= 4
     assert marker not in layout.timeline_events_path.read_text(encoding="utf-8")
     assert "uv run pytest -q" in layout.timeline_events_path.read_text(encoding="utf-8")
     fixed_payload = repository.list_events(run["id"], after_id=0, limit=20)[-1]["payload"]
     assert marker not in json.dumps(fixed_payload, ensure_ascii=False)
     assert fixed_payload["message"] == "uv run pytest -q"
+    assert alignment_marker not in alignment_events_path.read_text(encoding="utf-8")
+    fixed_alignment_payload = service.list_alignment_events(alignment["id"])[-1]["payload"]
+    assert alignment_marker not in json.dumps(fixed_alignment_payload, ensure_ascii=False)
+    assert fixed_alignment_payload["message"] == "codex exec --token <secret omitted>"
 
 
 def test_cli_diagnose_event_redaction_scans_registered_orphan_run_dirs(monkeypatch, tmp_path: Path) -> None:
@@ -1080,3 +1142,47 @@ def test_cli_diagnose_event_redaction_scans_registered_orphan_run_dirs(monkeypat
     timeline_text = layout.timeline_events_path.read_text(encoding="utf-8")
     assert marker not in timeline_text
     assert "uv run pytest -q" in timeline_text
+
+
+def test_cli_diagnose_event_redaction_reports_unreadable_timeline_files(monkeypatch, tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    run_dir = tmp_path / ".loopora" / "runs" / "run_unreadable"
+    layout = RunArtifactLayout(run_dir)
+    layout.timeline_dir.mkdir(parents=True)
+    layout.timeline_events_path.write_bytes(b"\xff")
+    repository.upsert_local_asset_root(
+        resource_type="run",
+        resource_id="run_unreadable",
+        path=run_dir,
+        workdir=str(tmp_path),
+        owner_id="loop_missing",
+        state="orphaned",
+    )
+
+    class FakeService:
+        def __init__(self, repository):
+            self.repository = repository
+
+    monkeypatch.setattr(cli, "create_service", lambda: FakeService(repository))
+    runner = CliRunner()
+
+    dry_run = runner.invoke(cli.app, ["diagnose", "event-redaction"])
+    assert dry_run.exit_code == 0, dry_run.stdout
+    dry_report = json.loads(dry_run.stdout)
+    assert dry_report["suspect"] == 0
+    assert dry_report["fixed"] == 0
+    assert dry_report["timeline_files"]["scanned_files"] == 1
+    assert dry_report["timeline_files"]["scanned_events"] == 0
+    assert any(
+        item["source"] == "timeline"
+        and item["reason"] == "read_failed"
+        and item["error_type"] == "UnicodeDecodeError"
+        for item in dry_report["unfixable"]
+    )
+
+    fix_run = runner.invoke(cli.app, ["diagnose", "event-redaction", "--fix"])
+    assert fix_run.exit_code == 0, fix_run.stdout
+    fix_report = json.loads(fix_run.stdout)
+    assert fix_report["fixed"] == 0
+    assert any(item["reason"] == "read_failed" for item in fix_report["unfixable"])
+    assert layout.timeline_events_path.read_bytes() == b"\xff"

@@ -13,6 +13,7 @@ from loopora.workflows import (
     resolve_prompt_files,
     workflow_warnings,
     load_workflow_file,
+    load_prompt_file,
 )
 
 
@@ -29,6 +30,27 @@ def test_normalize_workflow_rejects_duplicate_step_ids() -> None:
                     {"id": "shared_step", "role_id": "builder"},
                     {"id": "shared_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
                 ],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("version", "message"),
+    [
+        (0, "unsupported workflow version: 0"),
+        ("2", "unsupported workflow version: 2"),
+        ("not-a-number", "workflow version must be an integer"),
+        (False, "workflow version must be an integer"),
+        (1.2, "workflow version must be an integer"),
+    ],
+)
+def test_normalize_workflow_rejects_invalid_explicit_version(version, message) -> None:
+    with pytest.raises(WorkflowError, match=message):
+        normalize_workflow(
+            {
+                "version": version,
+                "roles": [{"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"}],
+                "steps": [{"id": "builder_step", "role_id": "builder"}],
             }
         )
 
@@ -400,6 +422,29 @@ def test_normalize_workflow_preserves_control_triggers() -> None:
     ]
 
 
+def test_normalize_workflow_rejects_zero_control_fire_limit() -> None:
+    with pytest.raises(WorkflowError, match="control max_fires_per_run must be between 1 and 20"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"},
+                ],
+                "steps": [
+                    {"id": "guide_step", "role_id": "guide"},
+                ],
+                "controls": [
+                    {
+                        "id": "disabled_control",
+                        "when": {"signal": "no_evidence_progress", "after": "0s"},
+                        "call": {"role_id": "guide"},
+                        "max_fires_per_run": 0,
+                    }
+                ],
+            }
+        )
+
+
 def test_normalize_workflow_rejects_builder_control_targets() -> None:
     with pytest.raises(WorkflowError, match="controls may only call Inspector, Guide, or GateKeeper"):
         normalize_workflow(
@@ -479,6 +524,38 @@ def test_workflow_file_can_express_controls(tmp_path) -> None:
 
     assert normalized["controls"][0]["id"] == "stale_check"
     assert normalized["controls"][0]["mode"] == "repair_guidance"
+
+
+def test_workflow_file_reports_encoding_and_parse_errors(tmp_path) -> None:
+    invalid_utf8_file = tmp_path / "workflow.yml"
+    invalid_utf8_file.write_bytes(b"\xff")
+    with pytest.raises(WorkflowError, match="UTF-8 encoded YAML or JSON"):
+        load_workflow_file(invalid_utf8_file)
+
+    invalid_yaml_file = tmp_path / "workflow.yaml"
+    invalid_yaml_file.write_text("workflow:\n  roles: [", encoding="utf-8")
+    with pytest.raises(WorkflowError, match="invalid workflow YAML"):
+        load_workflow_file(invalid_yaml_file)
+
+    invalid_json_file = tmp_path / "workflow.json"
+    invalid_json_file.write_text("{", encoding="utf-8")
+    with pytest.raises(WorkflowError, match="invalid workflow JSON"):
+        load_workflow_file(invalid_json_file)
+
+
+def test_prompt_file_reports_encoding_errors(tmp_path) -> None:
+    prompt_file = tmp_path / "prompt.md"
+    prompt_file.write_bytes(b"\xff")
+
+    with pytest.raises(WorkflowError, match="UTF-8 encoded Markdown"):
+        load_prompt_file(prompt_file)
+
+
+def test_prompt_file_reports_read_errors(tmp_path) -> None:
+    prompt_file = tmp_path / "missing.md"
+
+    with pytest.raises(WorkflowError, match="could not be read"):
+        load_prompt_file(prompt_file)
 
 
 def test_normalize_workflow_rejects_write_roles_inside_parallel_groups() -> None:

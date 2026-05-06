@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import time
@@ -24,6 +25,7 @@ from loopora.web_inputs import (
 )
 from loopora.web_route_context_base import WebRouteDependencies
 from loopora.web_routes import register_web_routes
+from loopora.web_streaming import parse_sse_last_event_id
 
 logger = get_logger(__name__)
 
@@ -98,6 +100,8 @@ def _template_context(request: Request) -> dict[str, str]:
 async def _read_json_mapping(request: Request) -> Mapping[str, object]:
     try:
         payload = await request.json()
+    except UnicodeDecodeError as exc:
+        raise LooporaError("invalid JSON body: request body must be UTF-8 encoded") from exc
     except json.JSONDecodeError as exc:
         raise LooporaError(f"invalid JSON body: {exc.msg}") from exc
     if not isinstance(payload, Mapping):
@@ -148,8 +152,11 @@ def _install_auth_middleware(
             _log_web_response(request, response.status_code, start_time)
             return response
 
+        if request.url.path.startswith(("/static/", "/logo/")):
+            return await call_next(request)
+
         provided_token = _extract_request_token(request)
-        if provided_token != expected_token:
+        if not _auth_token_matches(provided_token, expected_token):
             response = auth_required_response(request)
             log_event(
                 logger,
@@ -183,6 +190,12 @@ def _install_auth_middleware(
         return response
 
 
+def _auth_token_matches(provided_token: str | None, expected_token: object) -> bool:
+    expected = str(expected_token or "")
+    provided = str(provided_token or "")
+    return bool(expected and provided) and hmac.compare_digest(provided, expected)
+
+
 def _log_web_response(request: Request, status_code: int, started_at: float) -> None:
     path = request.url.path
     if path.startswith(("/static/", "/logo/")):
@@ -202,20 +215,21 @@ def _log_web_response(request: Request, status_code: int, started_at: float) -> 
     )
 
 
-def _resolve_stream_after_id(request: Request, *, run_id: str, after_id: int) -> int:
+def _resolve_stream_after_id(request: Request, *, run_id: str, after_id: int, latest_event_id: int) -> int:
     last_event_header = str(request.headers.get("last-event-id", "")).strip()
     if not last_event_header:
         return after_id
-    try:
-        return max(after_id, int(last_event_header))
-    except ValueError:
+    parsed_header = parse_sse_last_event_id(last_event_header)
+    if parsed_header is None or parsed_header > latest_event_id:
         log_event(
             logger,
             logging.WARNING,
             "web.run_stream.resume_cursor_invalid",
-            "Ignored invalid SSE resume cursor and kept the request cursor",
+            "Ignored invalid or out-of-range SSE resume cursor and kept the request cursor",
             run_id=run_id,
             after_id=after_id,
+            latest_event_id=latest_event_id,
             invalid_last_event_id=last_event_header,
         )
         return after_id
+    return max(after_id, parsed_header)

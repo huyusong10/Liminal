@@ -388,8 +388,8 @@
               <span><span data-lang="zh">参数模板</span><span data-lang="en">Argument template</span></span>
               <textarea id="alignment-command-args" name="alignment_command_args_text" rows="6" spellcheck="false"></textarea>
               <small class="field-note">
-                <span data-lang="zh">支持占位符：`{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}` `{resume_session_id}` `{session_ref_json}` `{alignment_session_id}`。</span>
-                <span data-lang="en">Supported placeholders: `{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}` `{resume_session_id}` `{session_ref_json}` `{alignment_session_id}`.</span>
+                <span data-lang="zh">只支持占位符：`{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}` `{resume_session_id}` `{session_ref_json}` `{alignment_session_id}` `{extra_cli_args}`；未知 `{name}` 会被拒绝。</span>
+                <span data-lang="en">Only these placeholders are supported: `{workdir}` `{schema_path}` `{output_path}` `{json_schema}` `{sandbox}` `{prompt}` `{model}` `{reasoning_effort}` `{resume_session_id}` `{session_ref_json}` `{alignment_session_id}` `{extra_cli_args}`; unknown `{name}` placeholders are rejected.</span>
               </small>
             </label>
           </div>

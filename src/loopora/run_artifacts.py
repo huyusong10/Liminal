@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Iterable
 
-from loopora.utils import append_jsonl, ensure_parent, write_json
+from loopora.diagnostics import get_logger, log_exception
+from loopora.utils import append_jsonl, ensure_parent, read_json, write_json
+
+logger = get_logger(__name__)
 
 RUN_ARTIFACT_SPECS = (
     {
@@ -130,6 +134,22 @@ INITIAL_LATEST_STATE = {
     "latest_gatekeeper": None,
     "latest_summary_path": "",
 }
+
+
+def read_stagnation_state(path: Path) -> dict:
+    try:
+        payload = read_json(path)
+    except (OSError, UnicodeError, ValueError) as exc:
+        log_exception(
+            logger,
+            "run_artifact.stagnation_read_failed",
+            "Failed to read run stagnation state; resetting to initial state",
+            error=exc,
+            level=logging.WARNING,
+            path=path,
+        )
+        return dict(INITIAL_STAGNATION_STATE)
+    return payload if isinstance(payload, dict) and payload else dict(INITIAL_STAGNATION_STATE)
 
 
 @dataclass(frozen=True)
@@ -358,7 +378,10 @@ def append_jsonl_with_mirrors(path: Path, payload: dict, *, mirror_paths: Iterab
     for mirror_path in mirror_paths:
         if mirror_path == path:
             continue
-        append_jsonl(mirror_path, payload)
+        try:
+            append_jsonl(mirror_path, payload)
+        except OSError as exc:
+            _log_mirror_write_failure(exc, operation="append_jsonl", canonical_path=path, mirror_path=mirror_path)
 
 
 def write_json_with_mirrors(path: Path, payload: dict, *, mirror_paths: Iterable[Path] = ()) -> None:
@@ -366,7 +389,10 @@ def write_json_with_mirrors(path: Path, payload: dict, *, mirror_paths: Iterable
     for mirror_path in mirror_paths:
         if mirror_path == path:
             continue
-        write_json(mirror_path, payload)
+        try:
+            write_json(mirror_path, payload)
+        except OSError as exc:
+            _log_mirror_write_failure(exc, operation="write_json", canonical_path=path, mirror_path=mirror_path)
 
 
 def write_text_with_mirrors(path: Path, text: str, *, mirror_paths: Iterable[Path] = ()) -> None:
@@ -375,15 +401,43 @@ def write_text_with_mirrors(path: Path, text: str, *, mirror_paths: Iterable[Pat
     for mirror_path in mirror_paths:
         if mirror_path == path:
             continue
-        ensure_parent(mirror_path)
-        mirror_path.write_text(text, encoding="utf-8")
+        try:
+            ensure_parent(mirror_path)
+            mirror_path.write_text(text, encoding="utf-8")
+        except OSError as exc:
+            _log_mirror_write_failure(exc, operation="write_text", canonical_path=path, mirror_path=mirror_path)
+
+
+def _log_mirror_write_failure(exc: OSError, *, operation: str, canonical_path: Path, mirror_path: Path) -> None:
+    log_exception(
+        logger,
+        "run_artifact.mirror_write_failed",
+        "Failed to write legacy run artifact mirror",
+        error=exc,
+        level=logging.WARNING,
+        operation=operation,
+        canonical_path=canonical_path,
+        mirror_path=mirror_path,
+    )
 
 
 def read_jsonl(path: Path, *, limit: int | None = None) -> list[dict]:
     if not path.exists() or not path.is_file():
         return []
     records: list[dict] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        log_exception(
+            logger,
+            "run_artifact.jsonl_read_failed",
+            "Failed to read run artifact JSONL; returning no records",
+            error=exc,
+            level=logging.WARNING,
+            path=path,
+        )
+        return []
+    for line in lines:
         if not line.strip():
             continue
         try:

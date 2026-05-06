@@ -38,9 +38,10 @@
 - run status 与 task verdict 必须分开投影。`run_finished` 或 `succeeded` 只能说明系统生命周期，不代表任务已经通过。
 - 面向用户的 evidence projection 应优先使用稳定语义桶：已证明、证据薄弱、未证明、阻断问题、残余风险。完整 ledger 仍通过追查入口访问。
 - Web 终端必须把关键系统动作白盒化投影出来，不能只展示底层命令输出。
-- run event 写入边界必须在数据库和 `timeline/events.jsonl` mirror 前做最终脱敏；完整 prompt、JSON schema、token / secret 参数值不得进入 event stream、数据库镜像或 `timeline/events.jsonl`。command 事件只能展示脱敏命令预览。
+- run event 写入边界必须在数据库和 `timeline/events.jsonl` mirror 前做最终脱敏；完整 prompt、JSON schema、token / secret 参数值、认证头和 Cookie 不得进入 event stream、数据库镜像或 `timeline/events.jsonl`。command 事件只能展示脱敏命令预览。
+- alignment event 写入边界必须提供同等级保护；Web alignment 的 DB event、SSE/API payload 和 `events/events.jsonl` 只能保存脱敏后的轻量预览，完整 prompt、JSON schema、bundle YAML、token / secret 参数值、认证头和 Cookie 不得进入该观察面。
 - `codex_event` 属于高风险白盒观察事件，写入边界必须按事件形状保留白名单字段，并丢弃未承诺的 raw payload；stdout、command、tool item、file change、todo 和 agent message 只能保存可读预览，长文本必须裁剪并标记截断。
-- 历史 run events 可能早于当前 redaction 规则；本地诊断命令必须提供 dry-run 审计与显式 `--fix` 修复入口。修复只复用当前 redaction 规则，不能猜测或重写无法安全判断的 payload。
+- 历史 run / alignment events 可能早于当前 redaction 规则；本地诊断命令必须提供 dry-run 审计与显式 `--fix` 修复入口，覆盖数据库事件和本地事件文件。修复只复用当前 redaction 规则，不能猜测或重写无法安全判断的 payload。
 - run 详情页 HTML 不得内联大量 run events；页面只保留最小 run seed，启动后通过 observation snapshot 获取有界首屏投影，再用 snapshot 的 `latest_event_id` 建立 SSE 增量连接。
 - observation snapshot 负责首屏投影，SSE 负责增量观察；二者都消费同一条 run event stream，不能各自定义不同的事件语义。snapshot 必须在 service/repository 只读边界使用一致 cutoff：返回的 `latest_event_id` 是本次首屏投影的上界，所有 snapshot 事件和 key takeaway projection 都不得大于该 id，SSE 从该 id 后继续增量读取。
 - key takeaway projection 是 run observation 的冻结投影：稳定事件写入后可以读取 artifacts 生成 projection，并记录真实 `source_event_id`；snapshot 只读取 `source_event_id <= latest_event_id` 的最新 projection。`/key-takeaways` 可以继续现算最新 artifacts，用作当前状态接口，不替代 snapshot cutoff 语义。
@@ -53,7 +54,15 @@
 - 当角色尝试获取浏览器或截图证据失败时，诊断线索必须保留在 run event stream 与 step handoff 中，便于后续角色区分“产品问题”与“宿主环境阻断”。
 - run 详情页的运行状态、Loop 裁决与结果是 Loopora 的输出边界。系统应提供清楚的证据、artifact、再次运行、修改 Loop、导出和停止入口；用户如何基于这些材料调整 Loop 属于用户主动编排场景，不形成系统持有的演化历史。
 
-## 2.1 真实 CLI 集成验证
+## 2.1 默认 CI 与浏览器回归
+
+默认 CI 负责快速证明代码、包产物和 Web 浏览器主路径仍可运行：
+
+- push / PR 路径必须包含 Python 静态检查、包构建、全量快速测试和浏览器 E2E。
+- 浏览器 E2E 应失败在项目行为或测试断言上，而不是失败在每次运行时重复安装系统包依赖；浏览器 runtime 与系统库依赖应由固定 runner/container/cache 边界提供。
+- 默认浏览器 E2E 不访问真实 provider、不依赖用户 secret，也不写入真实任务 workspace；真实 provider 验证只能走显式触发路径。
+
+## 2.2 真实 CLI 集成验证
 
 为了覆盖预设执行器与真实 workspace 的组合，仓库允许存在 opt-in 的真实 CLI 集成测试：
 
@@ -160,6 +169,7 @@
 打印必须遵守以下规则：
 
 - 只记录诊断所需的摘要，不记录完整 prompt、spec 正文、workflow 正文或认证 token。
+- 结构化日志 formatter 必须在写盘前对 message、context 与 exception payload 执行最终敏感值脱敏，调用点不得成为唯一保护层。
 - 命令行参数、请求信息与运行配置只记录足以定位问题的摘要字段。
 - 任何异常日志都必须带 `event`，并在可能时附带 `error` 对象。
 - 同一次动作只记录一个主里程碑日志，避免 repository、service、web 在同一层级重复记录相同语义。

@@ -58,9 +58,11 @@
 - 若 workflow role 同时提供 `role_definition_id` 与冲突的 role 级字段，或通过同名 `prompt_files` 改写该 role definition 的 prompt 内容，必须直接报错，不能静默保留或覆盖冲突值
 - workflow 可以携带整条流程的 `collaboration_intent`；它属于 workflow 结构本身，而不是 prompt 边注
 - workflow 可以携带可选 `controls[]`；它只用于受控误差风险触发，不是通用自动化入口
+- loop runtime 数值必须是真正的有限数字；布尔值不属于数值，接口层不得先把 `false/true` 转成 `0/1` 再传给服务层。显式 `0` 只在服务层声明允许的字段上保留其原义，例如无限制迭代或零延迟，而不能被默认值覆盖。
 - 只有 GateKeeper step 可以声明 `on_pass=finish_run`；其他 step 若尝试声明结束语义，必须在创建时被拒绝
 - 更新 orchestration 时，未显式提供的 workflow 与 prompt 资产必须沿用当前快照，不能静默回退到默认 preset，也不能丢失已有自定义 prompt
 - 读取已保存 orchestration 时，历史遗留但已无法被当前 workflow 合法引用的 prompt 资产条目不得阻塞复用；服务层应先完成内部清洗，再继续对外提供稳定快照
+- 运行策略中的数值字段必须在持久化前完成有限值与范围校验；`NaN`、`Infinity` 或负数阈值不得进入 loop definition
 - 校验 completion mode 与 workflow 是否匹配
 - 冻结运行所需的 spec、workflow 与 prompt 资产
 - 当 loop 来自 bundle 导入时，把它视为同一 bundle 生命周期中的一组资产，而不是四份彼此独立的手工对象
@@ -82,11 +84,13 @@
 - 在每个 step 结束后写入 `evidence/ledger.jsonl`，并让 `StepHandoff.evidence_refs` 指向本 step 的 evidence item
 - 在 run 注册和每个 step evidence 落账后刷新 `evidence/coverage.json`，该文件只能从 run contract、ledger 与 GateKeeper verdict 重算
 - 在每轮结束后生成 `IterationSummary`
+- 执行分发只能在 run record 持有非空 workflow snapshot 时进入 workflow engine；旧数据的空 `workflow_json` 走 legacy 执行兼容路径。展示投影可以合成兼容 workflow，但不能把这个合成结果当成运行期冻结契约。
 - 角色上下文主键必须以 `step_id` 和 `role_id` 为主，`archetype` 只能作为聚类与回退
 - 同一份 workflow snapshot 内，`role_id` 与 `step_id` 都必须唯一，避免上下文、事件与产物主键冲突
 - Step 可通过 `inputs` 显式裁剪角色间 handoff、evidence ledger 摘要和轮次间记忆；裁剪只影响当前 prompt，不删除 canonical artifact
 - Workflow control 可在 `no_evidence_progress / role_timeout / step_failed / gatekeeper_rejected` 信号出现时调用既有 Inspector、Guide 或 GateKeeper 做控制检查
 - Control invocation 不改变 canonical workflow 顺序，不直接调用 Builder 写入工作区；它只能产生 evidence、handoff、blocker 或修复建议
+- 运行入口必须重新校验冻结 workflow controls；损坏或越界的 control 配置不得被默认值掩盖后继续执行
 - 每次 control 触发、完成、失败或跳过都必须写入 run event stream；完成时必须写入 `evidence_kind=control` 的 ledger item
 - 汇聚结构化结果与人类可读摘要
 

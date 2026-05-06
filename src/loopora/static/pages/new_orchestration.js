@@ -393,6 +393,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function normalizeControl(control, index) {
+    const rawMaxFires = control?.max_fires_per_run;
     return {
       id: String(control?.id || `control_${index + 1}`),
       when: {
@@ -401,7 +402,7 @@ document.addEventListener("DOMContentLoaded", () => {
       },
       call: {role_id: String(control?.call?.role_id || "")},
       mode: String(control?.mode || "advisory"),
-      max_fires_per_run: Number(control?.max_fires_per_run || 1),
+      max_fires_per_run: rawMaxFires === undefined || rawMaxFires === null || rawMaxFires === "" ? 1 : rawMaxFires,
     };
   }
 
@@ -676,7 +677,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <span class="workflow-chip workflow-chip-muted">${escapeHtml(control.when?.signal || "")}</span>
           <span class="workflow-chip workflow-chip-muted">${escapeHtml(control.when?.after || "0s")}</span>
           <span class="workflow-chip workflow-chip-muted">${escapeHtml(role ? roleLabel(role.archetype) : localeText("缺失角色", "Missing role"))}</span>
-          <span class="workflow-chip workflow-chip-muted">${escapeHtml(`${localeText("上限", "Limit")} ${control.max_fires_per_run || 1}`)}</span>
+          <span class="workflow-chip workflow-chip-muted">${escapeHtml(`${localeText("上限", "Limit")} ${control.max_fires_per_run ?? 1}`)}</span>
         </div>
       `;
       workflowControlsList.appendChild(row);
