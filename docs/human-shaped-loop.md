@@ -22,7 +22,42 @@ If a human must answer those questions after every meaningful round, Agent auton
 
 That is a human-shaped Loop.
 
-## 1. Why Simple Loops Are Not Enough
+```mermaid
+flowchart LR
+    subgraph H["Human-in-the-loop"]
+        H1["Agent acts"] --> H2["Human checks"]
+        H2 --> H3["Human corrects"]
+        H3 --> H4["Agent acts again"]
+        H4 --> H2
+    end
+
+    subgraph S["Human-shaped Loop"]
+        S1["Human shapes judgment before the run"] --> S2["Loopora compiles the Loop"]
+        S2 --> S3["Agent iterates inside it"]
+        S3 --> S4["Evidence and verdicts accumulate"]
+        S4 --> S5["Human audits the result"]
+    end
+```
+
+## 1. The Core Move: A Time Shift In Communication
+
+Loopora is easiest to misunderstand if we start from implementation.
+
+It is not "a better retry loop." It is not "more roles." It is not "a bigger prompt." It is not "an Agent that runs longer."
+
+The deeper move is a time shift:
+
+> Move future human correction before execution, then make it runnable.
+
+In ordinary human-in-the-loop work, humans participate after the Agent has already produced an intermediate result. They correct the task direction, reject weak evidence, ask for a different proof path, or decide whether the risk is acceptable.
+
+Loopora asks: can those future corrections be anticipated? Can the human explain, before the run starts, what kind of result would be fake, which evidence would be trusted, which tradeoffs matter, and which risks must block?
+
+If yes, that judgment can become the shape of the loop.
+
+This is why "human-shaped Loop" is more precise than "human before the loop." The human is not merely giving instructions earlier. The human is shaping the runtime structure that decides how the Agent moves, observes, repairs, and stops.
+
+## 2. Why Simple Loops Are Not Enough
 
 Many systems already extend Agent work with loops: `/goal`, ralph-loop, repeated Agent calls, self-review, checklists, and similar harnesses.
 
@@ -37,7 +72,15 @@ When judgment has already been externalized into those tools, a simple loop can 
 
 The harder case is different. Some long tasks do have judgment standards, but those standards are hard to reduce to one stable score. They are not automatically more important, and they are not automatically a good fit for Loopora. They are simply more likely to drift under a naive loop.
 
-A simple loop extends time. If there is no governance structure, early error can be inherited, amplified, and rationalized by later rounds. If the first round misunderstands the goal, the second round may optimize the misunderstanding. The third round may treat the first two rounds as facts. The final result can become more complete, more coherent, and still wrong.
+A simple loop extends time. If there is no governance structure, early error can be inherited, amplified, and rationalized by later rounds.
+
+```mermaid
+flowchart TD
+    A["Round 1 misunderstands the goal"] --> B["Round 2 optimizes the misunderstanding"]
+    B --> C["Round 3 treats prior output as context fact"]
+    C --> D["Round 4 polishes the wrong direction"]
+    D --> E["Final answer looks coherent but is wrong"]
+```
 
 So the important difference is not whether there is a loop. The important difference is whether the loop has governance.
 
@@ -45,9 +88,11 @@ So the important difference is not whether there is a loop. The important differ
 
 Loopora does not promise to eliminate error. Long tasks accumulate error. The goal is to slow that accumulation, expose error earlier, make false completion harder, and give later rounds a better chance to correct course.
 
-## 2. The Deeper Problem: Externalizing Human Judgment
+## 3. The Autonomy Problem Is Judgment Externalization
 
-If we want Agents to become more autonomous, the core question is not "how do we make the Agent run more rounds?"
+If we want Agents to become more autonomous, the core question is not:
+
+> How do we make the Agent run more rounds?
 
 The core question is:
 
@@ -87,7 +132,7 @@ This is hard to benchmark, but it can be structured. It can be broken into quest
 
 That is where Loopora fits.
 
-## 3. A Multiplication Formula for Agent Autonomy
+## 4. A Multiplication Formula For Agent Autonomy
 
 One useful, imprecise formula for Loopora is:
 
@@ -96,13 +141,21 @@ Agent autonomy
 ≈ judgment structure quality × evidence feedback quality × error exposure speed
 ```
 
-A simple loop mostly increases the number of attempts. It lets the Agent run more rounds, but it does not necessarily improve any of those three variables.
+Simple loops mostly increase the number of attempts. They let the Agent run more rounds, but they do not necessarily improve any of those three variables.
 
 Loopora tries to improve:
 
 - **Judgment structure quality**: does the system know how this task should be judged, what counts as real completion, what counts as fake completion, which risks are acceptable, and which risks must block?
 - **Evidence feedback quality**: does each round leave evidence that is strong, traceable, and close to the task goal, rather than only natural-language summary?
 - **Error exposure speed**: when the direction is wrong, evidence is weak, standards drift, or the result is fake done, can Inspectors, GateKeeper, benchmarks, artifacts, or review surfaces expose that early?
+
+```mermaid
+flowchart LR
+    J["Judgment structure"] --> A["Agent autonomy"]
+    E["Evidence feedback"] --> A
+    X["Error exposure speed"] --> A
+    Z["If any input collapses, autonomy collapses"] -.-> A
+```
 
 These variables behave more like multiplication than addition. If any one of them approaches zero, autonomy collapses.
 
@@ -120,7 +173,7 @@ Another way to say it:
 
 When judgment can already be expressed by a benchmark, Loopora should respect that benchmark and pin the evidence path around it. When judgment cannot yet be scored reliably, Loopora should turn it into a judgment protocol: what has priority, what blocks, which evidence is trusted, and which residual risks may be accepted only after they are visible.
 
-## 4. Loopora Is a Task-Scoped Judgment Compiler
+## 5. Loopora Is A Task-Scoped Judgment Compiler
 
 Loopora can be described as:
 
@@ -128,9 +181,22 @@ Loopora can be described as:
 
 It takes the user's implicit judgment for the current task and compiles it into a Loop that can run, observe, and decide.
 
+```mermaid
+flowchart TD
+    U["User's tacit judgment"] --> Q["Questions that expose tradeoffs"]
+    Q --> W["Working agreement"]
+    W --> S["spec: contract and fake-done risks"]
+    W --> R["roles: build, doubt, gather, gate"]
+    W --> F["workflow: order, handoff, stop conditions"]
+    S --> L["Runnable Loop"]
+    R --> L
+    F --> L
+    L --> O["Evidence, verdict, residual risk"]
+```
+
 There are two important words here.
 
-The first is task-scoped. Loopora is not trying to learn a permanent user personality. Judgment for one task is often local, temporary, and debatable:
+The first is **task-scoped**. Loopora is not trying to learn a permanent user personality. Judgment for one task is often local, temporary, and debatable:
 
 - This task should be strict. That does not mean every task should be strict.
 - This project must be conservative. That does not mean all projects should be conservative.
@@ -141,7 +207,7 @@ Those judgments should not silently disappear into model weights. They should no
 
 > The model learns general capability. The Loop learns how this task should be judged.
 
-The second word is compiler. Loopora is not only asking the user for preferences, and it is not merely writing those preferences into a prompt. Prompts can be forgotten, diluted by context, or interpreted as tone instead of runtime constraint.
+The second word is **compiler**. Loopora is not only asking the user for preferences, and it is not merely writing those preferences into a prompt. Prompts can be forgotten, diluted by context, or interpreted as tone instead of runtime constraint.
 
 Loopora compiles judgment into a runnable structure:
 
@@ -152,39 +218,76 @@ Loopora compiles judgment into a runnable structure:
 
 That is why Loopora is not a YAML generator. YAML is just the exchange format. The important thing is the judgment structure behind it.
 
-## 5. From Human-in-the-Loop to Human-Shaped Loop
+## 6. Why Should The Agent Layer Learn Judgment, Not The Model?
 
-Traditional human-in-the-loop looks like this:
+It is tempting to ask: if judgment matters so much, why not teach it to the model?
 
-```text
-Agent acts
--> human checks
--> human corrects
--> Agent acts again
--> human checks again
+The answer is that these are different kinds of learning.
+
+Models should learn general capability: language, code, planning, tool use, reasoning patterns, and broad taste. That learning should be reusable across users and tasks.
+
+Loopora learns something narrower and more situated: how this task should be judged this time.
+
+That judgment often has properties that make it a poor fit for model weights:
+
+| Property | Why the Loop layer fits better |
+| --- | --- |
+| Local | The right judgment for one task may be wrong for another task |
+| Temporary | A project can need strictness today and exploration tomorrow |
+| Debatable | The user may revise the judgment after seeing examples |
+| Auditable | The team should inspect what rule closed the run |
+| Reversible | Bad judgment should be editable or discarded, not buried |
+| Evidence-bound | The rule should connect to artifacts and verdicts, not only style |
+
+This is also a governance boundary. If the model "learns" a user's task judgment invisibly, the user loses ownership. If the Loop learns it, the user can preview it, edit it, export it, reuse it, or throw it away.
+
+The Agent becomes more autonomous not because the human vanished, but because the human's local judgment has become part of the execution environment.
+
+## 7. Alignment Helps Users Discover Their Own Judgment
+
+One of Loopora's core mechanisms is the alignment conversation or Skill.
+
+But this is not ordinary requirement clarification.
+
+Ordinary clarification asks:
+
+- What do you want to build?
+- Which technology should be used?
+- When is it due?
+
+Loopora alignment asks:
+
+- Which result would look done but still be unacceptable?
+- Which evidence would actually persuade you?
+- Between two imperfect outcomes, which one would you reject?
+- Are you more afraid of moving slowly or shipping something sloppy?
+- Would a strict GateKeeper block the exploration you want?
+- Would a pragmatic GateKeeper let fake done slip through?
+
+This helps users discover their own judgment. Users do not need to name every rule up front. Loopora uses cases and contrasts to make judgment visible.
+
+```mermaid
+flowchart LR
+    A["Vague task"] --> B["Contrastive questions"]
+    B --> C["Tacit judgment becomes visible"]
+    C --> D["Working agreement"]
+    D --> E["Loop surfaces"]
 ```
 
-This works, but it consumes continuous human attention. The human must keep returning during execution to explain judgment standards again, reject fake completion, demand evidence, and decide the next move.
+Good alignment should not rush to produce configuration. It should first form a working agreement:
 
-Loopora aims for a time shift in communication:
+- What is this task trying to accomplish?
+- What counts as real progress?
+- What is fake done?
+- Which evidence does the user trust most?
+- How should roles split responsibility?
+- Why does this workflow shape fit?
+- Which residual risks are acceptable?
+- Which blockers must stop the run?
 
-```text
-human externalizes judgment
--> Loopora compiles a judgment structure
--> Agent iterates inside that structure
--> the system leaves evidence and verdicts
--> human audits the result, evidence, and residual risk
-```
+Only then should the working agreement compile into a Loop that can be previewed, run, and judged through evidence.
 
-That is:
-
-> human-in-the-loop -> human-shaped loop
-
-The human does not disappear. The human moves from live per-round correction to loop design and evidence audit.
-
-This is also why Loopora is not just about making the Agent work harder. It lets the Agent act inside a space shaped by human judgment. The Agent can be more autonomous, but not unconstrained. It can run longer, but not blindly. It can reduce human intervention, but not erase human judgment.
-
-## 6. Which Tasks Fit Loopora
+## 8. Which Tasks Fit Loopora
 
 It is not accurate to say that "creative work, prototypes, refactors, debugging, and fuzzy alignment all fit Loopora." That is too broad.
 
@@ -214,7 +317,7 @@ With that lens, many scenarios are sometimes good fits and sometimes not:
 
 | Scenario | Usually skip Loopora | Better fit for Loopora |
 | --- | --- | --- |
-| Creative emergence | You only need twenty raw ideas | You need multi-round exploration and judgment about novelty, feasibility, style, or anti-cliche direction |
+| Creative emergence | You only need raw ideas | You need multi-round exploration and judgment about novelty, feasibility, style, or anti-cliche direction |
 | Product prototype | You need a one-off demo or sketch | You need to block "pretty but not real" and let evidence drive the next round |
 | Architecture refactor | The scope is small and one review is enough | The work needs repeated tradeoffs across contract, structure, regression, and residual risk |
 | Debugging / root cause | The bug is clear and directly fixable | Symptoms are mixed, the wrong layer is easy to chase, and evidence should precede action |
@@ -222,43 +325,7 @@ With that lens, many scenarios are sometimes good fits and sometimes not:
 
 Loopora is not for "all complex tasks." It is for long tasks where human judgment would repeat, evidence changes across rounds, and fake completion is worth blocking.
 
-## 7. Alignment Helps Users Discover Their Own Judgment
-
-One of Loopora's core mechanisms is the alignment conversation or Skill.
-
-But this is not ordinary requirement clarification.
-
-Ordinary clarification asks:
-
-- What do you want to build?
-- Which technology should be used?
-- When is it due?
-
-Loopora alignment asks:
-
-- Which result would look done but still be unacceptable?
-- Which evidence would actually persuade you?
-- Between two imperfect outcomes, which one would you reject?
-- Are you more afraid of moving slowly or shipping something sloppy?
-- Would a strict GateKeeper block the exploration you want?
-- Would a pragmatic GateKeeper let fake done slip through?
-
-This helps users discover their own judgment. Users do not need to name every rule up front. Loopora uses cases and contrasts to make judgment visible.
-
-Good alignment should not rush to produce configuration. It should first form a working agreement:
-
-- What is this task trying to accomplish?
-- What counts as real progress?
-- What is fake done?
-- Which evidence does the user trust most?
-- How should roles split responsibility?
-- Why does this workflow shape fit?
-- Which residual risks are acceptable?
-- Which blockers must stop the run?
-
-Only then should the working agreement compile into a Loop that can be previewed, run, and judged through evidence.
-
-## 8. How Loopora Makes This Runnable
+## 9. How Loopora Makes This Runnable
 
 Only now do we need a little technical vocabulary.
 
@@ -275,7 +342,7 @@ Users should not need to hand-write these surfaces at the start. The default pat
 
 Advanced fields, parallel Inspectors, evidence routing, workflow controls, and bundle YAML all serve the same purpose: making human judgment actually constrain the Agent instead of remaining prompt text.
 
-## 9. What Loopora Is Not
+## 10. What Loopora Must Refuse
 
 To preserve this paradigm, Loopora must keep rejecting several easy distortions:
 
@@ -289,7 +356,7 @@ To preserve this paradigm, Loopora must keep rejecting several easy distortions:
 
 Loopora can become more powerful, but it must preserve this boundary: it serves "compose Loop -> run Loop -> automatic iteration with evidence -> run status, task verdict, and result." It should not drift into a generic automation platform.
 
-## 10. The Larger Direction
+## 11. The Larger Direction
 
 The future of AI collaboration will not only be about making models smarter.
 
@@ -305,7 +372,7 @@ The higher-order collaboration pattern is not to bring humans back for every ste
 
 Human-in-the-loop puts humans inside the execution process.
 
-Human-shaped loop turns human judgment into the shape of the execution process.
+Human-shaped Loop turns human judgment into the shape of the execution process.
 
 Loopora's long-term direction is to let more tasks use this pattern when it fits:
 
