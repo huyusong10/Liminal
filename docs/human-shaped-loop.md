@@ -22,22 +22,9 @@ If a human must answer those questions after every meaningful round, Agent auton
 
 That is a human-shaped Loop.
 
-```mermaid
-flowchart LR
-    subgraph H["Human-in-the-loop"]
-        H1["Agent acts"] --> H2["Human checks"]
-        H2 --> H3["Human corrects"]
-        H3 --> H4["Agent acts again"]
-        H4 --> H2
-    end
-
-    subgraph S["Human-shaped Loop"]
-        S1["Human shapes judgment before the run"] --> S2["Loopora compiles the Loop"]
-        S2 --> S3["Agent iterates inside it"]
-        S3 --> S4["Evidence and verdicts accumulate"]
-        S4 --> S5["Human audits the result"]
-    end
-```
+<p align="center">
+  <img src="./assets/diagrams/time-shift.en.svg" alt="Human-in-the-loop compared with a human-shaped Loop" width="1000" />
+</p>
 
 ## 1. The Core Move: A Time Shift In Communication
 
@@ -74,13 +61,9 @@ The harder case is different. Some long tasks do have judgment standards, but th
 
 A simple loop extends time. If there is no governance structure, early error can be inherited, amplified, and rationalized by later rounds.
 
-```mermaid
-flowchart TD
-    A["Round 1 misunderstands the goal"] --> B["Round 2 optimizes the misunderstanding"]
-    B --> C["Round 3 treats prior output as context fact"]
-    C --> D["Round 4 polishes the wrong direction"]
-    D --> E["Final answer looks coherent but is wrong"]
-```
+<p align="center">
+  <img src="./assets/diagrams/error-cascade.en.svg" alt="How early error cascades through a naive loop" width="1000" />
+</p>
 
 So the important difference is not whether there is a loop. The important difference is whether the loop has governance.
 
@@ -149,13 +132,9 @@ Loopora tries to improve:
 - **Evidence feedback quality**: does each round leave evidence that is strong, traceable, and close to the task goal, rather than only natural-language summary?
 - **Error exposure speed**: when the direction is wrong, evidence is weak, standards drift, or the result is fake done, can Inspectors, GateKeeper, benchmarks, artifacts, or review surfaces expose that early?
 
-```mermaid
-flowchart LR
-    J["Judgment structure"] --> A["Agent autonomy"]
-    E["Evidence feedback"] --> A
-    X["Error exposure speed"] --> A
-    Z["If any input collapses, autonomy collapses"] -.-> A
-```
+<p align="center">
+  <img src="./assets/diagrams/autonomy-multiplication.en.svg" alt="Agent autonomy as judgment structure times evidence feedback times error exposure speed" width="1000" />
+</p>
 
 These variables behave more like multiplication than addition. If any one of them approaches zero, autonomy collapses.
 
@@ -181,18 +160,9 @@ Loopora can be described as:
 
 It takes the user's implicit judgment for the current task and compiles it into a Loop that can run, observe, and decide.
 
-```mermaid
-flowchart TD
-    U["User's tacit judgment"] --> Q["Questions that expose tradeoffs"]
-    Q --> W["Working agreement"]
-    W --> S["spec: contract and fake-done risks"]
-    W --> R["roles: build, doubt, gather, gate"]
-    W --> F["workflow: order, handoff, stop conditions"]
-    S --> L["Runnable Loop"]
-    R --> L
-    F --> L
-    L --> O["Evidence, verdict, residual risk"]
-```
+<p align="center">
+  <img src="./assets/diagrams/judgment-compiler.en.svg" alt="Loopora as a task-scoped judgment compiler" width="1000" />
+</p>
 
 There are two important words here.
 
@@ -266,13 +236,9 @@ Loopora alignment asks:
 
 This helps users discover their own judgment. Users do not need to name every rule up front. Loopora uses cases and contrasts to make judgment visible.
 
-```mermaid
-flowchart LR
-    A["Vague task"] --> B["Contrastive questions"]
-    B --> C["Tacit judgment becomes visible"]
-    C --> D["Working agreement"]
-    D --> E["Loop surfaces"]
-```
+<p align="center">
+  <img src="./assets/diagrams/alignment-reveals-judgment.en.svg" alt="Alignment questions reveal tacit judgment before compiling a Loop" width="1000" />
+</p>
 
 Good alignment should not rush to produce configuration. It should first form a working agreement:
 

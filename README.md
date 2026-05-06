@@ -35,15 +35,12 @@ If yes, do not use Loopora. Direct Agent work is cheaper.
 
 Loopora is for the moment when "ask the Agent again" stops being the right abstraction. The missing piece is no longer effort. It is the repeated human judgment that decides whether each round is real progress, fake progress, acceptable risk, or a reason to redirect.
 
-```mermaid
-flowchart TD
-    A["One Agent pass plus one human review is enough?"] -->|Yes| B["Skip Loopora"]
-    A -->|No| C["Would a human keep returning after key rounds?"]
-    C -->|No| D["Use direct Agent work or a simple loop"]
-    C -->|Yes| E["Can that future judgment be shaped before the run?"]
-    E -->|No| F["Keep humans in the live loop"]
-    E -->|Yes| G["Compose a human-shaped Loop"]
-```
+Use a text gate first:
+
+1. If one Agent pass plus one review is enough, skip Loopora.
+2. If humans would not keep returning after key rounds, direct Agent work or a simple loop is usually enough.
+3. If future judgment cannot be shaped before the run, keep humans in the live loop.
+4. If future judgment repeats and can be shaped ahead of time, compose a human-shaped Loop.
 
 ## What Are We Trying To Save?
 
@@ -76,28 +73,9 @@ Loopora's goal is not "more rounds." Its goal is slower error accumulation.
 
 > A loop without governance is a blind box. A governed Loop is an error decelerator.
 
-```mermaid
-flowchart LR
-    subgraph N["Naive loop"]
-        N1["Agent acts"] --> N2["Agent judges itself"]
-        N2 --> N3["Agent acts again"]
-        N3 --> N4["Done is declared"]
-        N2 -. "standard can drift" .-> N4
-    end
-
-    subgraph L["Human-shaped Loop"]
-        L0["Human judgment before run"] --> L1["spec"]
-        L0 --> L2["roles"]
-        L0 --> L3["workflow"]
-        L1 --> L4["Agent iteration"]
-        L2 --> L4
-        L3 --> L4
-        L4 --> L5["evidence"]
-        L5 --> L6["GateKeeper verdict"]
-        L6 -->|repair with evidence| L4
-        L6 -->|evidence supports closure| L7["auditable result"]
-    end
-```
+<p align="center">
+  <img src="./docs/assets/diagrams/governed-loop.en.svg" alt="Comparison between a naive loop and a governed human-shaped Loop" width="1000" />
+</p>
 
 ## What Does Loopora Compile?
 
@@ -114,18 +92,9 @@ A Loop is not a longer prompt. It is the runnable shape of how this task should 
 
 Internally, Loopora can store or exchange a Loop as a YAML **bundle**. Users do not need to start there. The Web UI helps you describe the task, answer Loop-shaping questions, preview the governance surfaces, and create a run only after the candidate Loop validates.
 
-```mermaid
-flowchart TD
-    J["Tacit human judgment"] --> Q["Alignment questions"]
-    Q --> W["Working agreement"]
-    W --> S["spec: what must be true"]
-    W --> R["roles: who builds, doubts, gathers, gates"]
-    W --> F["workflow: when judgment happens"]
-    S --> X["Runnable Loop"]
-    R --> X
-    F --> X
-    X --> E["evidence and verdicts"]
-```
+<p align="center">
+  <img src="./docs/assets/diagrams/judgment-compiler.en.svg" alt="Loopora compiles tacit judgment into spec, roles, workflow, evidence, and verdicts" width="1000" />
+</p>
 
 ## Why Not Let The Model Learn This?
 
@@ -159,14 +128,11 @@ Loopora asks judgment questions first:
 
 That may compile into:
 
-```mermaid
-flowchart LR
-    B["Builder"] --> I1["Contract Inspector"]
-    B --> I2["Evidence Inspector"]
-    I1 --> G["GateKeeper"]
-    I2 --> G
-    G -->|blocked| B
-    G -->|passed| R["Result with evidence"]
+```text
+Builder
+-> Contract Inspector + Evidence Inspector
+-> GateKeeper
+-> repair with evidence, or close with evidence
 ```
 
 The Agent can still create, inspect, and repair. The difference is that "done" is no longer whatever the last message can plausibly claim. Done must be supported by the evidence the Loop asked for.
@@ -179,13 +145,7 @@ Loopora can become powerful, but first use must stay simple:
 
 Advanced features such as parallel Inspectors, evidence routing, workflow controls, trigger rules, and provider-specific execution are compiled into the plan only when they help control long-task error. They are not concepts a new user must configure up front.
 
-```mermaid
-flowchart LR
-    A["Describe task"] --> B["Answer Loop-shaping questions"]
-    B --> C["Preview spec, roles, workflow"]
-    C --> D["Create and run"]
-    D --> E["Inspect evidence and verdict"]
-```
+In practice, the first path should stay plain and low-friction: describe the task, answer the few questions that change the Loop, preview `spec`, `roles`, and `workflow`, create the run, then inspect evidence and verdict.
 
 ## When Should You Use It?
 

@@ -22,22 +22,9 @@ Loopora 的出发点很朴素：偷懒。
 
 这就是 human-shaped Loop。
 
-```mermaid
-flowchart LR
-    subgraph H["Human-in-the-loop"]
-        H1["Agent 行动"] --> H2["人类检查"]
-        H2 --> H3["人类纠偏"]
-        H3 --> H4["Agent 再行动"]
-        H4 --> H2
-    end
-
-    subgraph S["Human-shaped Loop"]
-        S1["人类在运行前塑形判断"] --> S2["Loopora 编译 Loop"]
-        S2 --> S3["Agent 在结构内迭代"]
-        S3 --> S4["证据与裁决持续累积"]
-        S4 --> S5["人类审计结果"]
-    end
-```
+<p align="center">
+  <img src="./assets/diagrams/time-shift.zh.svg" alt="human-in-the-loop 与 human-shaped Loop 的对比" width="1000" />
+</p>
 
 ## 1. 核心动作：沟通的时空转换
 
@@ -74,13 +61,9 @@ Loopora 问的是：这些未来的纠偏能不能提前被预判？人类能不
 
 普通循环延长的是时间。时间变长后，如果没有治理结构，早期误差会被后续轮次继承、放大、合理化。
 
-```mermaid
-flowchart TD
-    A["第 1 轮误解目标"] --> B["第 2 轮沿着误解优化"]
-    B --> C["第 3 轮把前文错误当事实"]
-    C --> D["第 4 轮把错误方向打磨得更完整"]
-    D --> E["最终结果自洽但方向已偏"]
-```
+<p align="center">
+  <img src="./assets/diagrams/error-cascade.zh.svg" alt="早期误差如何在普通循环中级联" width="1000" />
+</p>
 
 所以关键区别不是有没有循环，而是循环有没有治理结构。
 
@@ -149,13 +132,9 @@ Loopora 真正想提高的是：
 - **证据反馈质量**：每一轮是否留下足够硬、足够可追溯、足够贴近任务目标的证据，而不是只留下自然语言总结。
 - **误差暴露速度**：方向错了、证据弱了、标准漂移了、结果假完成了，能否尽早被 Inspector、GateKeeper、benchmark、artifact 或用户复盘面暴露出来。
 
-```mermaid
-flowchart LR
-    J["判断结构"] --> A["Agent 自治程度"]
-    E["证据反馈"] --> A
-    X["误差暴露速度"] --> A
-    Z["任何一项塌掉，自治都会塌掉"] -.-> A
-```
+<p align="center">
+  <img src="./assets/diagrams/autonomy-multiplication.zh.svg" alt="Agent 自治程度等于判断结构、证据反馈和误差暴露速度的乘积" width="1000" />
+</p>
 
 这三个变量更像相乘，而不是相加。任何一个接近零，自治程度都会塌掉。
 
@@ -181,18 +160,9 @@ Loopora 的本质可以这样说：
 
 它把用户对当前任务的隐性判断力，编译成可运行、可观察、可裁决的 Loop。
 
-```mermaid
-flowchart TD
-    U["用户的隐性判断"] --> Q["暴露 tradeoff 的问题"]
-    Q --> W["working agreement"]
-    W --> S["spec：契约与假完成风险"]
-    W --> R["roles：构建、怀疑、取证、守门"]
-    W --> F["workflow：顺序、handoff、停止条件"]
-    S --> L["可运行 Loop"]
-    R --> L
-    F --> L
-    L --> O["证据、裁决、残余风险"]
-```
+<p align="center">
+  <img src="./assets/diagrams/judgment-compiler.zh.svg" alt="Loopora 作为 task-scoped judgment compiler" width="1000" />
+</p>
 
 这里有两个关键词。
 
@@ -266,13 +236,9 @@ Loopora alignment 问：
 
 这是一种帮助用户自省判断力的机制。用户不需要一开始说清全部规则；Loopora 用案例和对比让判断显影。
 
-```mermaid
-flowchart LR
-    A["模糊任务"] --> B["对比式问题"]
-    B --> C["隐性判断显影"]
-    C --> D["working agreement"]
-    D --> E["Loop 运行面"]
-```
+<p align="center">
+  <img src="./assets/diagrams/alignment-reveals-judgment.zh.svg" alt="alignment 问题在编译 Loop 前让隐性判断显影" width="1000" />
+</p>
 
 好的 alignment 不应该急着生成配置，而是先形成 working agreement：
 
