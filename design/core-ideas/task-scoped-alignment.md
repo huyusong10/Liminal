@@ -4,7 +4,7 @@
 
 ## 1. 目标
 
-本文档定义 Web 问答和外部 Skill 如何帮助用户编排 Loop。它们不是普通需求澄清器，而是帮助用户把隐性判断力显影并编译成 human-shaped Loop 的前端。
+本文档定义 Web 问答如何帮助用户编排 Loop。它不是普通需求澄清器，而是帮助用户把隐性判断力显影并编译成 human-shaped Loop 的前端。
 
 一句话：
 
@@ -64,6 +64,9 @@ Alignment 的 workflow 判断还必须保护 Loopora 的自治公式：判断结
 - 不让 evidence-first 或 benchmark-first 变成名义顺序。若 Builder 排在 Inspector / Custom / benchmark review 之后，且没有 Guide 先把 review 压缩成修复方向，Builder 必须显式读取 review handoff。
 - 不让 Guide 变成环境上下文里的泛泛建议者。若 Guide 在 Inspector / Custom review 之后运行，它必须显式读取 review handoff 并查询 review evidence；若后续 Builder 执行修复，它必须显式读取 Guide handoff。
 - 不让最终 GateKeeper 跳过已经发生的审查。若 GateKeeper 前存在 Inspector、Custom 或 Guide 的审查 / 纠偏 handoff，最终裁决必须显式读取这些 handoff，并查询对应审查证据；否则只是重新相信 Builder 或环境上下文。
+- 不把复杂任务默认升级成嵌套 Loop 或任意分支。若任务由多个会产生新证据的阶段组成，优先编译成长链 workflow：多个窄 Builder / Inspector / Guide step 串联，每个阶段有明确 handoff、证据责任和 GateKeeper fan-in；若新增角色不能说明新的判断或证据边界，应合并而不是扩张。
+- Web alignment 以后台 Agent 作为语义对话主导者，但 Loopora 后端只承认符合阶段门槛的候选结果：Agent 可以提出 clarifying / agreement / bundle / blocked 候选，后端负责判断是否接受、回退或要求继续对齐。
+- 主动注入与被动检测必须配合：提示词负责让 Agent 理解当前 compiler gate 和下一步约束，后端检测负责拒绝阶段跳过、空泛 agreement、未投影判断、断链 workflow 或未通过校验的 bundle。
 - Alignment 只生成候选 Loop；判断结构进入 run 后，仍必须由 runtime evidence 检验。
 
 ## 3. Working Agreement
@@ -128,7 +131,7 @@ Loopora 本体负责：
 - 按 Loop 自动迭代
 - 记录事件、产物、证据和终态
 
-Alignment agent 负责：
+Web alignment Agent 负责：
 
 - 与用户沟通
 - 暴露关键 tradeoff
@@ -136,11 +139,11 @@ Alignment agent 负责：
 - 产出 working agreement
 - 编译 YAML bundle
 
-Alignment agent 可以来自 Web 内置 session，也可以来自外部 AI Agent 加载 repo-local Skill。两条路径必须产出同一种可运行 bundle。Loopora 本体不决定用户应该如何演进 Loop；它只负责提供取得 / 调整 Loop 的入口、导入导出、运行和证据记录。
+Web alignment Agent 来自 Loopora 内置 session。用户仍可手动导入 YAML，但外部 Agent Skill 不再是一等 bundle 编译入口；否则判断外化会漂移到 Loopora 无法掌控的上下文里。Loopora 本体不决定用户应该如何演进 Loop；它只负责提供取得 / 调整 Loop 的入口、导入导出、运行和证据记录。
 
 ## 7. 调整已有 Loop
 
-用户可以拿着 bundle、run evidence 和自己的判断去外部 Agent、Web 对话改进入口或手工编辑器里生成新 bundle。这是用户主动编排行为，不是 Loopora 的运行职责，也不是系统持有的 Loop 演化历史。
+用户可以拿着 bundle、run evidence 和自己的判断，通过 Web 对话改进入口、YAML 导入或手工编辑器生成新候选 bundle。这是用户主动编排行为，不是 Loopora 的运行职责，也不是系统持有的 Loop 演化历史。
 
 Loopora 需要保证：
 

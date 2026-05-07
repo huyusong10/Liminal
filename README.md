@@ -204,13 +204,11 @@ Manual creation remains available for expert users who already know which `spec`
 
 Importing YAML or asking an Agent to improve an existing bundle are also Loop composition scenarios. They are useful, but they are not the main product workflow; after a candidate Loop is validated, it still enters the same run, evidence, and verdict path.
 
-## External AI Agent Path
+## Expert YAML Path
 
-The Web UI is the recommended path because it keeps Loop composition, validation, preview, execution, and evidence in one guided flow.
+The Web UI is the recommended path because it keeps judgment elicitation, Loop composition, validation, preview, execution, and evidence in one guided flow.
 
-If you prefer to align outside the Web UI, open **Tools** and install the repo-local `loopora-task-alignment` Skill into Codex, Claude Code, OpenCode, or another compatible AI Agent CLI.
-
-That Skill includes a Product Primer so the alignment Agent does not need prior Loopora knowledge. It produces the same YAML bundle, which you can import from the expert manual path when you want Loopora to run the Loop.
+YAML remains an expert import/export format. It is useful for auditing, reuse, and manual exchange, but Loopora no longer treats an external Agent Skill as a first-class bundle compiler.
 
 ## CLI
 

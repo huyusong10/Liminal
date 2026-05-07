@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import io
 import json
 import re
 import shutil
 import time
-import zipfile
 from pathlib import Path
 
 import pytest
@@ -2633,82 +2631,12 @@ def test_api_bundles_derive_returns_bundle_payload(
     assert bundle["role_definitions"]
 
 
-def test_api_task_alignment_skill_install_targets_and_install(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
-
+def test_task_alignment_skill_api_is_not_registered() -> None:
     client = TestClient(build_app())
 
-    targets_response = client.get("/api/skills/loopora-task-alignment")
-    assert targets_response.status_code == 200
-    targets = {item["target"]: item for item in targets_response.json()["targets"]}
-    assert targets["codex"]["installed"] is False
-    assert targets["codex"]["install_state"] == "missing"
-    assert targets["claude"]["installed"] is False
-    assert targets["opencode"]["installed"] is False
-    assert targets["codex"]["install_paths"] == [
-        str(tmp_path / ".codex" / "skills" / "loopora-task-alignment" / "SKILL.md")
-    ]
-
-    install_response = client.post("/api/skills/loopora-task-alignment/install", json={"target": "codex"})
-    assert install_response.status_code == 201
-    install_payload = install_response.json()
-    assert install_payload["result"]["action"] == "installed"
-    codex_targets = {item["target"]: item for item in install_payload["targets"]}
-    assert codex_targets["codex"]["installed"] is True
-    assert codex_targets["codex"]["install_state"] == "installed"
-
-    skill_dir = tmp_path / ".codex" / "skills" / "loopora-task-alignment"
-    skill_path = skill_dir / "SKILL.md"
-    contract_path = skill_dir / "references" / "bundle-contract.md"
-    agent_path = skill_dir / "agents" / "openai.yaml"
-    original_skill_text = skill_path.read_text(encoding="utf-8")
-
-    assert skill_path.exists()
-    assert contract_path.exists()
-    assert agent_path.exists()
-
-    skill_path.write_text("tampered", encoding="utf-8")
-    stale_file = skill_dir / "stale-note.txt"
-    stale_file.write_text("old", encoding="utf-8")
-
-    stale_targets_response = client.get("/api/skills/loopora-task-alignment")
-    assert stale_targets_response.status_code == 200
-    stale_targets = {item["target"]: item for item in stale_targets_response.json()["targets"]}
-    assert stale_targets["codex"]["installed"] is False
-    assert stale_targets["codex"]["install_state"] == "stale"
-
-    reinstall_response = client.post("/api/skills/loopora-task-alignment/install", json={"target": "codex"})
-    assert reinstall_response.status_code == 201
-    reinstall_payload = reinstall_response.json()
-    assert reinstall_payload["result"]["action"] == "reinstalled"
-    refreshed_targets = {item["target"]: item for item in reinstall_payload["targets"]}
-    assert refreshed_targets["codex"]["installed"] is True
-    assert refreshed_targets["codex"]["install_state"] == "installed"
-    assert skill_path.read_text(encoding="utf-8") == original_skill_text
-    assert not stale_file.exists()
-
-
-def test_api_task_alignment_skill_bundle_download_returns_zip(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
-
-    client = TestClient(build_app())
-    response = client.get("/api/skills/loopora-task-alignment/download")
-
-    assert response.status_code == 200
-    assert response.headers["content-type"] == "application/zip"
-    assert response.headers["content-disposition"] == 'attachment; filename="loopora-task-alignment.zip"'
-
-    archive = zipfile.ZipFile(io.BytesIO(response.content))
-    names = set(archive.namelist())
-    assert "loopora-task-alignment/SKILL.md" in names
-    assert "loopora-task-alignment/references/product-primer.md" in names
-    assert "loopora-task-alignment/references/alignment-playbook.md" in names
-    assert "loopora-task-alignment/references/quality-rubric.md" in names
-    assert "loopora-task-alignment/references/bundle-contract.md" in names
-    assert "loopora-task-alignment/references/examples.md" in names
-    assert "loopora-task-alignment/agents/openai.yaml" in names
+    assert client.get("/api/skills/loopora-task-alignment").status_code == 404
+    assert client.post("/api/skills/loopora-task-alignment/install", json={"target": "codex"}).status_code == 404
+    assert client.get("/api/skills/loopora-task-alignment/download").status_code == 404
 
 
 def test_bundle_form_import_and_edit_flow(

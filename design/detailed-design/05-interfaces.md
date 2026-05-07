@@ -20,7 +20,6 @@
 | `role definition` | 定义可复用角色模版 | 供 orchestration 复制成角色快照，并定义默认执行配置；本次 step 的实际行动权限由 workflow 决定 |
 | `run` | 观察一次具体执行 | 提供运行状态、事件、摘要、证据产物、Loop 裁决与终态原因 |
 | `alignment session` | 通过对话编排或调整 Loop | 调用本机 AI Agent CLI，在 bundle 通过校验后提供 READY 预览与创建运行 |
-| `skill installer` | 分发 repo-local Skill 到外部 AI Agent 工具 | 只做文件安装 / 下载辅助，不改变 Web 内置 alignment 的语义 |
 
 ## 3. 入口职责
 
@@ -37,7 +36,7 @@ Web 顶层信息架构按用户反复回来的理由组织：
 | Loop / Loops | 高频工作台：查看活动 Loop、进入已有 Loop 与最近运行 | `/`、`/loops/{id}` |
 | 编排 / Compose | 专业编排工作台：通过对话编排 Loop，并保留导入方案文件与手动编排的二级入口 | `/loops/new/bundle`、`/loops/new/manual` |
 | 资源库 / Library | 管理方案文件、可复用角色定义与流程编排 | `/bundles`、`/roles`、`/orchestrations` |
-| 工具 / Tools | 运行辅助、本机维护和外部工具集成 | `/tools` |
+| 工具 / Tools | 运行辅助与本机维护 | `/tools` |
 | 教程 / Tutorial | 帮用户判断何时使用 Loopora，以及从哪条路径开始 | `/tutorial` |
 
 创建 Loop 不是单一频率动作：`对话编排 Loop` 是专业主入口，必须是一级导航可达的完整工作台；Loop 工作台不重复编排模式按钮，也不得把它压成内嵌表单。编排工作台稳定提供：
@@ -124,7 +123,6 @@ CLI 的稳定入口是 Python package metadata 暴露的 `loopora` console scrip
 | 启动、停止、删除 run | 生命周期语义一致 |
 | 观察 run artifacts / evidence | artifact 列表用于追查细节，`evidence/ledger.jsonl` 是证明项与 GateKeeper verdict 的事实源 |
 | 展示 run status / task verdict | run status 表达系统生命周期；task verdict 表达 Loop 达标、未达标、证据不足或残余风险 |
-| 安装 task-alignment Skill | 只分发 repo-local Skill，不改变 bundle 或 run 契约 |
 
 允许交互形态不同，例如 Web 可以提供可视化 workflow 编辑器、对话式 alignment、主题和语言偏好；CLI 可以提供同步等待与后台执行开关。但这些差异不能改变底层语义。
 
@@ -144,7 +142,7 @@ CLI 对高阶 workflow 的稳定承诺：
 | `/loops/new/manual` | 编排工作台的专家分支 | 在同一侧栏框架内手动选择 spec、workflow、executor，或导入已有 bundle YAML |
 | `/bundles` | 资源库里的方案文件 | 查看、导出、删除和派生方案包；服务专家交换与导入导出 |
 | `/roles` / `/orchestrations` | 资源库 | 编辑可复用角色与 workflow 资产 |
-| `/tools` | 工具与 Skill | 管理外部 AI Agent Skill 安装与下载 |
+| `/tools` | 工具 | 管理运行辅助与本机资产诊断 |
 | `/tutorial` | 使用教程 | 帮用户判断何时使用 Loopora，以及从哪条路径开始 |
 
 旧路由可以保持兼容跳转，但新的默认心智不得再要求新手先理解内部对象，也不得把创建动作和已有 Loop 高频浏览混成同一个一级页面。

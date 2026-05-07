@@ -2847,10 +2847,6 @@ html[data-locale="zh"] .callout {
   padding: 18px;
 }
 
-.skill-install-callout {
-  margin-top: 20px;
-}
-
 .tools-copy {
   margin: 8px 0 0;
   color: var(--muted);
@@ -3090,85 +3086,6 @@ html[data-locale="zh"] .callout {
   border: 1px dashed rgba(var(--outline-rgb), 0.16);
   color: var(--muted);
   background: rgba(var(--glass-rgb), 0.36);
-}
-
-/* ── Skill Install ── */
-
-.skill-install-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-  margin-top: 14px;
-}
-
-.skill-target-card {
-  padding: 14px;
-  border-radius: 0;
-  border: 1px solid var(--line);
-  background: rgba(var(--glass-rgb), 0.58);
-}
-
-.skill-target-head {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.skill-target-state {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 0;
-  padding: 4px 10px;
-  font-size: 0.8rem;
-}
-
-.skill-target-state.is-installed {
-  background: rgba(13, 124, 102, 0.12);
-  color: var(--accent-2);
-}
-
-.skill-target-state.is-stale {
-  background: rgba(214, 106, 54, 0.12);
-  color: var(--accent);
-}
-
-.skill-target-state.is-missing {
-  background: rgba(var(--outline-rgb), 0.08);
-  color: var(--muted);
-}
-
-.skill-target-path {
-  margin: 0 0 12px;
-  color: var(--muted);
-  font-size: 0.86rem;
-  line-height: 1.55;
-  word-break: break-word;
-}
-
-.skill-download-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 16px;
-  padding: 16px 18px;
-  border-radius: 0;
-  border: 1px dashed rgba(13, 124, 102, 0.2);
-  background: rgba(13, 124, 102, 0.04);
-}
-
-.skill-download-copy {
-  min-width: 0;
-}
-
-.skill-download-copy strong {
-  display: block;
-}
-
-.skill-download-copy .tools-copy {
-  margin-top: 6px;
 }
 
 /* ── Field Status ── */
@@ -4597,7 +4514,6 @@ html[data-locale="zh"] .preview-box {
   .spec-preview-readonly,
   .field-status,
   .empty-state,
-  .skill-download-card,
   .timeline-event-body,
   .timeline-meta-pill,
   .console-filter-chip,
@@ -5030,11 +4946,6 @@ html[data-locale="zh"] .preview-box {
 
   .loop-detail-spec-toolbar {
     align-items: start;
-  }
-
-  .skill-download-card {
-    flex-direction: column;
-    align-items: stretch;
   }
 
   .workflow-toolbar-compact,

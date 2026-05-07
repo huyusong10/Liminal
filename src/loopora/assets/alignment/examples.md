@@ -165,3 +165,21 @@ User:
 Better response:
 
 > 这类任务适合 `Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper`：Builder 先做可运行页面，Contract Inspector 看报表口径、筛选和权限是否符合任务契约，Evidence Inspector 独立跑浏览器路径或数据检查证明报表确实可信。两个 Inspector 并行看同一个 Builder handoff，GateKeeper 只在两边证据都足够时通过。最终证据桶里，数据对账和真实浏览器路径才可能成为 Proven；只有 UI 截图通常只是 Weak；没有数据校验是 Unproven；权限或口径错误是 Blocking。再确认一个会改变 spec 的点：你更信任哪类证据，真实浏览器操作、数据 fixture 对账，还是项目已有测试？
+
+## Long-chain multi-Builder example
+
+User:
+
+> 我要让 Agent 大幅重构一个搜索系统，从查询改写、召回、排序到前端证据都要稳，最好拆细一点
+
+Weak response:
+
+> 我会创建很多角色：Builder 1、Builder 2、Builder 3、Inspector 1、Inspector 2、GateKeeper。
+
+Better response:
+
+> 这类任务可能适合长链 workflow，但不是因为“角色越多越稳”，而是因为每个阶段会产生不同证据边界。可以考虑 `Baseline Inspector -> Query Builder -> Retrieval Builder -> Ranking Builder -> Regression Inspector -> Evidence Hardening Builder -> GateKeeper`。Baseline Inspector 先固定当前失败和可重复证据；Query / Retrieval / Ranking Builder 分别只推进一个阶段并留下 handoff；Regression Inspector 读取这些阶段 handoff 和 Builder evidence，指出哪些 Proven / Weak / Unproven / Blocking；Evidence Hardening Builder 只补强缺失 proof，不继续扩大功能；GateKeeper 读取关键阶段 handoff 和 evidence 后裁决。这个长链仍然是一个线性 `workflow.steps`，不是嵌套 Loop 或任意分支。先确认一个会改变链条形状的问题：这次最怕哪一类假完成，排序指标看起来提升但召回变差、UI 结果看起来合理但证据不可复验，还是重构后复杂度只是换了地方？
+
+If the user confirms the long-chain need, the agreement should say why each Builder is a phase boundary and why GateKeeper must fan in more than the final Builder:
+
+> 长链成立的理由不是“5+ 角色”，而是查询改写、召回、排序和证据补强各自产生不同 artifact、proof target 和 handoff。后续 Builder 必须读取前序阶段或 review handoff；Regression Inspector 和 GateKeeper 必须查询 Builder / Inspector evidence，不能只看最后一轮自然语言摘要。若某个阶段没有独立证据或交接边界，应合并到相邻 Builder，避免 role zoo。

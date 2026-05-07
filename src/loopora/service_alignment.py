@@ -11,6 +11,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from loopora.alignment_guidance import load_alignment_guidance_assets
 from loopora.branding import APP_STATE_DIRNAME, state_dir_for_workdir
 from loopora.bundles import (
     BundleError,
@@ -33,7 +34,6 @@ from loopora.service_alignment_diagnostics import (
 )
 from loopora.service_cleanup_diagnostics import best_effort_rmtree, cleanup_diagnostic_payload, log_cleanup_diagnostic
 from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError
-from loopora.skills.task_alignment_installer import load_task_alignment_skill_bundle
 from loopora.utils import make_id, utc_now
 
 logger = get_logger(__name__)
@@ -2579,6 +2579,55 @@ GateKeeper verdict:
         (invocation_dir / "validation.json").write_text(payload, encoding="utf-8")
         ServiceAlignmentMixin._write_alignment_manifest(session)
 
+    @staticmethod
+    def _alignment_stage_policy_text(session: dict, *, mode: str) -> str:
+        stage = str(session.get("alignment_stage", "") or "clarifying")
+        base = [
+            "The Agent drives the semantic conversation. Loopora backend only accepts or rejects candidate phases.",
+            "You may choose the next conversational move, but your structured output must propose one candidate phase.",
+            "Do not turn the flow into a fixed questionnaire. Ask the smallest useful task-risk question when judgment is missing.",
+            "Policy feedback from the backend should be treated as compiler diagnostics, not as user preference.",
+        ]
+        if mode == "repair":
+            return "\n".join(
+                [
+                    *base,
+                    "Current compiler gate: repair.",
+                    "Allowed candidate phase: bundle.",
+                    "Fix repairable compiler diagnostics in the YAML surfaces. Do not invent missing human judgment.",
+                    "If the diagnostic reveals a human-required judgment gap, return a clarifying question with no bundle.",
+                ]
+            )
+        if stage == "agreement_ready":
+            return "\n".join(
+                [
+                    *base,
+                    "Current compiler gate: waiting for explicit confirmation.",
+                    "Allowed candidate phase: clarifying or blocked. Do not include bundle YAML.",
+                    "If the user confirms without changes, the backend will advance to confirmed before the next Agent call.",
+                    "If the user asks a product question or changes any judgment, absorb it and propose the next useful clarification or updated agreement.",
+                ]
+            )
+        if stage in ALIGNMENT_CONFIRMED_STAGES:
+            return "\n".join(
+                [
+                    *base,
+                    "Current compiler gate: confirmed agreement.",
+                    "Allowed candidate phase: bundle, or clarifying if a human-required judgment gap is discovered.",
+                    "Compile the confirmed agreement into runnable surfaces and keep the bundle grounded in the session workdir.",
+                    "Repairable structural gaps should be fixed by the Agent; unresolved judgment gaps must go back to the user.",
+                ]
+            )
+        return "\n".join(
+            [
+                *base,
+                "Current compiler gate: clarifying.",
+                "Allowed candidate phase: clarifying, agreement, or blocked. Do not include bundle YAML.",
+                "You may propose an agreement as soon as the user's free-form input makes the Loop shape clear enough.",
+                "The backend will accept agreement only when readiness evidence is concrete, task-scoped, and user-confirmable.",
+            ]
+        )
+
     def _build_alignment_prompt(
         self,
         session: dict,
@@ -2587,14 +2636,14 @@ GateKeeper verdict:
         validation_error: str = "",
         invalid_yaml: str = "",
     ) -> str:
-        source_dir = load_task_alignment_skill_bundle().source_dir
-        skill_text = (source_dir / "SKILL.md").read_text(encoding="utf-8")
-        product_primer = (source_dir / "references" / "product-primer.md").read_text(encoding="utf-8")
-        alignment_playbook = (source_dir / "references" / "alignment-playbook.md").read_text(encoding="utf-8")
-        quality_rubric = (source_dir / "references" / "quality-rubric.md").read_text(encoding="utf-8")
-        bundle_contract = (source_dir / "references" / "bundle-contract.md").read_text(encoding="utf-8")
-        examples = (source_dir / "references" / "examples.md").read_text(encoding="utf-8")
-        feedback_improvement = (source_dir / "references" / "feedback-improvement.md").read_text(encoding="utf-8")
+        guidance = load_alignment_guidance_assets()
+        compiler_policy = guidance.compiler_policy
+        product_primer = guidance.product_primer
+        alignment_playbook = guidance.alignment_playbook
+        quality_rubric = guidance.quality_rubric
+        bundle_contract = guidance.bundle_contract
+        examples = guidance.examples
+        feedback_improvement = guidance.feedback_improvement
         current_bundle = ""
         bundle_path = Path(session["bundle_path"])
         if bundle_path.exists():
@@ -2608,6 +2657,7 @@ GateKeeper verdict:
         user_language_hint = self._alignment_user_language_hint(session)
         workdir_snapshot = self._alignment_workdir_snapshot(Path(session["workdir"]))
         improvement_context = self._alignment_improvement_context_text(session)
+        stage_policy = self._alignment_stage_policy_text(session, mode=mode)
         repair_text = ""
         if mode == "repair":
             repair_text = f"""
@@ -2639,9 +2689,10 @@ The session already has a bundle. If the latest user message asks to adjust this
         return f"""
 You are Loopora's built-in Web Loop alignment agent.
 
-The user is using an internal Web flow, so do not ask them to install or invoke a Skill manually.
+The user is using Loopora's internal Web compiler. There is no external alignment Skill path in this product flow.
 Assume you know nothing about Loopora except what is embedded below.
-Start from the Product Primer before applying the Skill text, schema rules, or bundle contract.
+Start from the Product Primer before applying the compiler policy, schema rules, or bundle contract.
+The Agent drives semantic conversation; Loopora backend decides whether candidate phases are accepted.
 
 You must return one JSON object matching the provided schema:
 - `status`: "question" if you need user input, "bundle" if `bundle_yaml` is complete, or "blocked" if you cannot proceed. If the task may not fit Loopora, still ask what repeated judgment, new evidence, or fake-done risk would justify a Loop; do not treat not-fit as a terminal provider failure.
@@ -2713,6 +2764,8 @@ Alignment stage gate:
 - Use Inspector -> Builder -> GateKeeper when the first safe change is unclear.
 - Use Builder -> [parallel Inspectors or Custom reviewers] -> Guide -> Builder -> GateKeeper when the task expects a second repair pass.
 - Use Benchmark Inspector -> Builder -> Regression Inspector -> GateKeeper when an existing benchmark or contract proof should control the decision.
+- Use a long-chain phase workflow when the task has several evidence-bearing stages that would otherwise be hidden inside one oversized Builder prompt. Long chains may have 5+ roles or steps and multiple narrow Builder passes, but every added role must expose a distinct artifact, proof target, handoff boundary, review responsibility, repair direction, or GateKeeper input.
+- Long-chain workflows are still linear `workflow.steps` in version 1. Do not generate nested Loops, arbitrary branch syntax, dynamic DAGs, or sub-workflow entities.
 - When using bounded parallel inspection, set the same `parallel_group` on two or more contiguous Inspector or Custom steps. Do not put Builder, Guide, or GateKeeper inside a parallel group.
 - If the workflow uses `parallel_group`, `workflow.collaboration_intent` must explain why bounded parallel or independent inspection is needed for this task.
 - Parallel Inspector or Custom review steps must read the same upstream Builder handoff so independent reviewers inspect the same Builder output from different evidence responsibilities.
@@ -2722,6 +2775,8 @@ Alignment stage gate:
 - If Builder runs after Inspector / Custom / benchmark review without a Guide in between, it must read the review handoff so evidence-first work shapes implementation.
 - If Guide runs after Inspector / Custom review, it must read review handoffs and query review evidence before writing repair guidance.
 - If Builder runs after Guide, it must read the Guide handoff so the next implementation pass follows the narrowed repair direction.
+- If the workflow uses multiple Builder roles or Builder steps, name each Builder by its phase responsibility, such as API Builder, UI Builder, Migration Builder, Repair Builder, or Evidence Hardening Builder. Do not generate `Builder 1` / `Builder 2`; do not split a continuous implementation unless the split creates a clearer evidence boundary.
+- Later Builder steps in a long chain must read prior phase, review, or Guide handoffs when those handoffs shape the next phase. The finishing GateKeeper must read critical phase handoffs and query Builder / Inspector / Guide evidence rather than judging only the final Builder output.
 - Any finishing GateKeeper step must name upstream handoffs and query relevant upstream evidence; final judgment cannot rely only on its own prompt.
 - If Inspector, Custom, or Guide review happened before final judgment, the finishing GateKeeper must read those review handoffs and query their evidence; it must not sign off from Builder evidence alone.
 - When a GateKeeper finishes a workflow after parallel inspection, its `inputs.handoffs_from` must include every parallel Inspector or Custom review step id so the final verdict reads all independent handoffs.
@@ -2768,13 +2823,17 @@ This is a lightweight Loopora-provided snapshot. Treat it as observed context, n
 
 {improvement_context}
 
+## Active Compiler Gate
+
+{stage_policy}
+
 ## Loopora Product Primer
 
 {product_primer}
 
-## Embedded Skill
+## Agent-Led Compiler Policy
 
-{skill_text}
+{compiler_policy}
 
 ## Alignment Playbook
 

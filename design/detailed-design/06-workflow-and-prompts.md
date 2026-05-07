@@ -107,6 +107,9 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 - command mode 参数模板是每行一个 argv 参数，只能使用 executor 公开声明的运行时占位符；未知 `{name}` 占位符在保存、预览或启动前失败，`{extra_cli_args}` 只能作为独立 argv 插入点。
 - `parallel_group` 第一阶段只支持连续的 Inspector / Custom step，用于 fan-out / fan-in 检视；它不是任意 DAG 语法。
 - 同一 `parallel_group` 内的 step 看到相同的上游快照，不读取彼此输出；组结束后按 workflow 原顺序汇聚 handoff 和 evidence。
+- 复杂任务可以编译成长链 workflow：多个窄 Builder 或多个 Builder step 串联推进不同证据阶段，例如设计收敛、后端实现、前端接线、验证补强。长链不新增运行实体，也不表达嵌套循环；它仍是同一轮内的线性 step 序列，由外层 run iteration 负责自动迭代。
+- 长链中的每个 Builder 必须有明确阶段产物、handoff 和下游读取者；若某个 Builder 只重复“继续推进”而没有新的证据责任或交接边界，应合并到相邻 Builder，避免退化成 role zoo 或 loop script。
+- 当 Builder 排在另一个 Builder 之后，若中间存在 Inspector、Custom 或 Guide，后一个 Builder 必须显式读取对应 handoff；若两个 Builder 直接相邻，也应通过 task-specific role posture 或 step input 说明阶段边界，避免依赖 ambient context。
 - `inputs.handoffs_from` 可按 step id、role id、runtime role、archetype 或 role name 选择当前轮上游 handoff。
 - `inputs.evidence_query` 可按 evidence 生产角色、验证目标和数量上限裁剪 evidence ledger 摘要；完整 ledger 仍是 canonical source。
 - `inputs.iteration_memory` 可选择 `default / none / same_step / same_role / summary_only`，用于控制轮次间信息传递。
@@ -214,6 +217,13 @@ step 级执行附加项只影响当前 step：
 | `action_policy` | 只控制当前 step 的行动权限；不改变 role definition 或全局 task contract |
 
 预设执行器可以把 `inherit_session` 映射到各自原生恢复语义；直接命令模式不承诺能自动恢复任意第三方命令的上下文。
+
+长链 workflow 的推荐使用边界：
+
+- 适合：任务天然分成多个会产生新 artifact、proof 或 handoff 的阶段，且每个阶段之后的人类判断可以提前外化。
+- 不适合：只是为了“更稳”而复制多个 Builder / Inspector，或把一个可由单个 Builder 完成的连续实现拆成无证据边界的角色队列。
+- GateKeeper 必须能从最终裁决 step 追溯到关键阶段的 Builder、Inspector、Custom 或 Guide handoff 与 evidence；长链不能让最终裁决只看最后一个 Builder。
+- Alignment 和 starter 可以生成 5+ role / step 的长链，但默认新手路径不要求用户手动理解这些字段。
 
 ## 8. 运行时装配
 

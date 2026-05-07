@@ -204,13 +204,11 @@ loopora serve --host 127.0.0.1 --port 8742
 
 导入 YAML，或从已有方案包 / 运行证据发起对话改进，也是编排 Loop 的场景。它们很有用，但不是主工作流；候选 Loop 通过校验后，仍然进入同一条运行、证据和裁决路径。
 
-## 外部 AI Agent 路径
+## 专家 YAML 路径
 
-Web UI 是推荐路径，因为它把 Loop 编排、校验、预览、运行和证据放在同一条引导流程里。
+Web UI 是推荐路径，因为它把判断显影、Loop 编排、校验、预览、运行和证据放在同一条引导流程里。
 
-如果你更喜欢在 Web 之外做对齐，可以打开 **工具 -> 对齐技能安装**，把 repo-local `loopora-task-alignment` 技能安装到 Codex、Claude Code、OpenCode 或其他兼容智能体命令行。
-
-这个 Skill 内置 Product Primer，所以 alignment Agent 不需要预先知道 Loopora 是什么。它产出的仍是同一种 YAML bundle，需要运行时从 expert 手动路径导入为 Loop 即可。
+YAML 仍然是专家导入 / 导出格式，适合审查、复用和手动交换；但 Loopora 不再把外部 Agent Skill 当成一等 bundle 编译器。
 
 ## CLI
 

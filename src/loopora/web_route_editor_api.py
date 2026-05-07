@@ -8,11 +8,6 @@ from fastapi.responses import JSONResponse, Response
 
 from loopora.markdown_tools import looks_binary, normalize_markdown_text, render_safe_markdown_html
 from loopora.service import LooporaError
-from loopora.skills import (
-    build_task_alignment_skill_archive,
-    install_task_alignment_skill,
-    list_task_alignment_skill_targets,
-)
 from loopora.specs import SpecError, compile_markdown_spec, init_spec_file_for_workflow, render_spec_template
 from loopora.web_inputs import (
     _coerce_bool,
@@ -38,7 +33,6 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     _register_bundle_record_api_routes(app, ctx)
     _register_bundle_import_api_routes(app, ctx)
     _register_bundle_export_api_routes(app, ctx)
-    _register_skill_api_routes(app, ctx)
     _register_orchestration_api_routes(app, ctx)
     _register_role_definition_api_routes(app, ctx)
     _register_spec_validation_api_routes(app)
@@ -138,39 +132,6 @@ def _register_bundle_export_api_routes(app: FastAPI, ctx: WebRouteContext) -> No
     @app.delete("/api/bundles/{bundle_id}")
     async def api_delete_bundle(bundle_id: str) -> JSONResponse:
         return JSONResponse(ctx.svc().delete_bundle(bundle_id))
-
-
-def _register_skill_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
-    @app.get("/api/skills/loopora-task-alignment")
-    async def api_task_alignment_skill_targets() -> JSONResponse:
-        return JSONResponse(
-            {
-                "skill_name": "loopora-task-alignment",
-                "targets": list_task_alignment_skill_targets(),
-            }
-        )
-
-    @app.post("/api/skills/loopora-task-alignment/install")
-    async def api_install_task_alignment_skill(request: Request) -> JSONResponse:
-        payload = await ctx.read_json_mapping(request)
-        target = str(payload.get("target", "")).strip().lower()
-        try:
-            result = install_task_alignment_skill(target)
-        except ValueError as exc:
-            return ctx.json_error(str(exc))
-        return JSONResponse(
-            {"result": result, "targets": list_task_alignment_skill_targets()},
-            status_code=201,
-        )
-
-    @app.get("/api/skills/loopora-task-alignment/download")
-    async def api_download_task_alignment_skill_bundle() -> Response:
-        filename, archive_bytes = build_task_alignment_skill_archive()
-        return Response(
-            content=archive_bytes,
-            media_type="application/zip",
-            headers={"Content-Disposition": attachment_content_disposition(filename, default="loopora-task-alignment.zip")},
-        )
 
 
 def _register_orchestration_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:

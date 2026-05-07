@@ -228,12 +228,15 @@ Use workflow for execution shape:
 Use `workflow.collaboration_intent` to capture the high-level execution bias.
 
 Runtime invariant:
-- Default Web / Skill alignment bundles should set `loop.completion_mode` to `gatekeeper` so task verdicts come from evidence and GateKeeper judgment rather than run lifecycle completion.
+- Default Web compiler bundles should set `loop.completion_mode` to `gatekeeper` so task verdicts come from evidence and GateKeeper judgment rather than run lifecycle completion.
 - In `gatekeeper` mode, the workflow must include a role whose role definition has `archetype: "gatekeeper"` and at least one step for that role with `on_pass: "finish_run"`.
 - For fresh implementation bundles where the target is clear enough to build, prefer Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper.
 - Use Inspector -> Builder -> GateKeeper when the first safe change is unclear.
 - Use Builder -> [parallel Inspectors / Custom reviewers] -> Guide -> Builder -> GateKeeper when the task expects a second repair pass.
 - Use Benchmark Inspector -> Builder -> Regression Inspector -> GateKeeper when an existing benchmark or contract proof should control the decision.
+- Use a long-chain phase workflow when the task has multiple evidence-bearing stages that would otherwise be hidden inside one oversized Builder prompt. A 5+ role or step chain is acceptable when every added role produces a distinct artifact, proof target, handoff, review responsibility, repair direction, or GateKeeper input.
+- Long-chain workflows are still one linear `workflow.steps` sequence in version 1. Do not emit nested Loops, arbitrary branch syntax, dynamic DAGs, or sub-workflow entities.
+- Multiple Builder roles or Builder steps must be task-specific, such as API Builder, UI Builder, Migration Builder, Repair Builder, or Evidence Hardening Builder. Do not use `Builder 1` / `Builder 2`, and do not split a single continuous implementation into multiple Builders unless the split creates a clearer evidence boundary.
 - `parallel_group` is only for contiguous Inspector / Custom steps. Do not put Builder, Guide, or GateKeeper inside a parallel group.
 - If the workflow uses `parallel_group`, `workflow.collaboration_intent` must explain why bounded parallel or independent inspection fits this task.
 - `workflow.collaboration_intent` must also explain where weak evidence, drift, or fake done is exposed early. A role order that only says Builder then Inspector then GateKeeper is not yet human-shaped.
@@ -245,6 +248,7 @@ Runtime invariant:
 - A non-parallel Inspector / Custom review step that runs after a Builder must still name a Builder handoff and query Builder evidence; otherwise the review is relying on ambient context.
 - A Builder step that runs after Inspector / Custom / benchmark review and before any Guide must name the review handoff, otherwise the evidence-first or benchmark-first workflow is only a visual order.
 - A Builder step that runs after Inspector / Custom / benchmark review and before any Guide must declare `inputs.iteration_memory` so the evidence-first repair pass does not rely on ambient context.
+- A Builder step that runs after another Builder step should either name the prior phase handoff or be separated by Inspector / Custom / Guide evidence that it explicitly reads. If it does neither, the long-chain split probably belongs in one Builder step.
 - Parallel specialized Inspectors must use distinct task-scoped `role_definition_key` values so each evidence responsibility has its own prompt and posture; copying the same Inspector prompt under two keys is not enough.
 - A Guide step that runs after Inspector / Custom review must name those review handoffs and query review evidence before producing repair guidance.
 - A Guide step that runs after Inspector / Custom review must declare `inputs.iteration_memory`, usually `summary_only`, so repair guidance can cite prior iteration evidence explicitly.
@@ -252,6 +256,7 @@ Runtime invariant:
 - A Builder step that runs after Guide must declare `inputs.iteration_memory`, often `same_step` or `summary_only`, so the repair pass does not depend on implicit chat memory.
 - Any finishing GateKeeper step must name upstream handoffs through `inputs.handoffs_from` and query relevant evidence through `inputs.evidence_query`; final judgment cannot rely only on the GateKeeper prompt.
 - If Inspector, Custom, or Guide review / correction steps run before a finishing GateKeeper, that GateKeeper must read those review handoffs and query their evidence. Do not let the final verdict look only at Builder evidence after review has happened.
+- In a long-chain workflow, the finishing GateKeeper must read the critical phase handoffs, not only the final Builder handoff. It should query Builder, Inspector, Custom, and Guide evidence as applicable so the final verdict can explain which phase claims are Proven, Weak, Unproven, Blocking, or Residual risk.
 - When a GateKeeper finishes after a parallel inspection group, its `inputs.handoffs_from` must name every parallel Inspector / Custom review step id, not only the last review or a generic Inspector label.
 - A finishing GateKeeper after parallel inspection must query Builder, Inspector, and Custom evidence as applicable through `inputs.evidence_query`.
 - Every workflow role must have task-scoped `name` and `posture_notes`; Web alignment treats bare names like `Builder`, `Inspector`, `GateKeeper`, or numbered names like `Inspector 1` as semantic lint failures.

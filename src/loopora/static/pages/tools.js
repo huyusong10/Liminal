@@ -8,8 +8,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const wakeLockRuntimePill = document.getElementById("wake-lock-runtime-pill");
   const wakeLockHoldPill = document.getElementById("wake-lock-hold-pill");
   const wakeLockRuns = document.getElementById("wake-lock-runs");
-  const skillInstallStatusBox = document.getElementById("skill-install-status");
-  const skillInstallButtons = Array.from(document.querySelectorAll("[data-install-skill]"));
   const localAssetsStatusBox = document.getElementById("local-assets-status");
   const localAssetsCountNodes = Array.from(document.querySelectorAll("[data-local-assets-count]"));
   const localAssetsDetails = document.getElementById("local-assets-details");
@@ -86,63 +84,6 @@ document.addEventListener("DOMContentLoaded", () => {
       return value;
     }
     return value.slice(0, slashIndex);
-  }
-
-  function skillStateLabel(state) {
-    if (state === "installed") {
-      return localeText("已同步", "Up to date");
-    }
-    if (state === "stale") {
-      return localeText("需覆盖更新", "Needs refresh");
-    }
-    return localeText("未安装", "Not installed");
-  }
-
-  function skillActionLabel(state) {
-    if (state === "missing") {
-      return localeText("安装", "Install");
-    }
-    if (state === "stale") {
-      return localeText("覆盖更新", "Overwrite");
-    }
-    return localeText("重新安装", "Reinstall");
-  }
-
-  function renderSkillTargets(targets) {
-    if (!Array.isArray(targets)) {
-      return;
-    }
-    for (const target of targets) {
-      const targetName = String(target.target || "");
-      const state = String(target.install_state || "missing");
-      const stateNode = document.getElementById(`skill-state-${targetName}`);
-      const pathNode = document.getElementById(`skill-path-${targetName}`);
-      const button = skillInstallButtons.find((candidate) => candidate.dataset.installSkill === targetName);
-      if (stateNode) {
-        stateNode.textContent = skillStateLabel(state);
-        stateNode.className = `skill-target-state skill-target-state--${state} ${
-          state === "installed" ? "is-installed" : state === "stale" ? "is-stale" : "is-missing"
-        }`;
-      }
-      if (pathNode) {
-        pathNode.textContent = Array.isArray(target.install_paths) ? target.install_paths.join(" · ") : "";
-      }
-      if (button) {
-        button.textContent = skillActionLabel(state);
-      }
-    }
-  }
-
-  async function refreshSkillTargets(options = {}) {
-    const quiet = options.quiet ?? false;
-    const {response, payload} = await fetchJson("/api/skills/loopora-task-alignment");
-    if (!response.ok) {
-      if (!quiet) {
-        showStatus(skillInstallStatusBox, payload.error || localeText("无法读取技能安装状态。", "Unable to load skill installation status."), "error");
-      }
-      return;
-    }
-    renderSkillTargets(payload.targets);
   }
 
   function renderLocalAssetDiagnostics(payload) {
@@ -339,45 +280,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     renderLocalAssetDiagnostics(payload);
     showStatus(localAssetsStatusBox, "");
-  }
-
-  async function installSkillTarget(target) {
-    showStatus(skillInstallStatusBox, localeText("正在安装技能…", "Installing skill…"));
-    for (const button of skillInstallButtons) {
-      button.disabled = true;
-    }
-    try {
-      const {response, payload} = await fetchJson("/api/skills/loopora-task-alignment/install", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({target}),
-      });
-      if (!response.ok) {
-        showStatus(skillInstallStatusBox, payload.error || localeText("技能安装失败。", "Skill installation failed."), "error");
-        return;
-      }
-      renderSkillTargets(payload.targets);
-      const result = payload.result || {};
-      const paths = Array.isArray(result.written_paths) ? result.written_paths.join(" · ") : "";
-      showStatus(
-        skillInstallStatusBox,
-        localeText(
-          `已安装 ${result.skill_name || "技能"}。重启目标工具后生效。${paths ? ` 写入：${paths}` : ""}`,
-          `${result.skill_name || "Skill"} installed. Restart the target tool to load it.${paths ? ` Written to: ${paths}` : ""}`,
-        ),
-        "success",
-      );
-    } catch (error) {
-      showStatus(
-        skillInstallStatusBox,
-        localeText(`技能安装失败：${error?.message || "未知错误"}`, `Skill installation failed: ${error?.message || "unknown error"}`),
-        "error",
-      );
-    } finally {
-      for (const button of skillInstallButtons) {
-        button.disabled = false;
-      }
-    }
   }
 
   function readWakeLockPreference() {
@@ -622,15 +524,6 @@ document.addEventListener("DOMContentLoaded", () => {
   updateWakeLockHoldPill();
   renderRuntimeRuns();
 
-  for (const button of skillInstallButtons) {
-    button.addEventListener("click", () => {
-      const target = String(button.dataset.installSkill || "").trim();
-      if (target) {
-        installSkillTarget(target).catch(() => {});
-      }
-    });
-  }
-
   localAssetsDetails?.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLButtonElement)) {
@@ -675,7 +568,6 @@ document.addEventListener("DOMContentLoaded", () => {
     updateWakeLockRuntimePill();
     updateWakeLockHoldPill();
     renderRuntimeRuns();
-    refreshSkillTargets({quiet: true}).catch(() => {});
     refreshLocalAssetDiagnostics({quiet: true}).catch(() => {});
     syncWakeLock().catch(() => {});
   });

@@ -23,7 +23,7 @@ Every alignment should serve this main workflow:
 If a question does not improve that Loop, skip it. If a missing answer would change the Loop, ask it.
 If several answers are missing, ask the next answer that would most change the Loop. Do not turn alignment into a long questionnaire.
 
-Start with the negative gate when fit is not already clear. Loopora is justified only when future human judgment would repeat, later rounds can create new evidence, fake completion is worth blocking, the judgment should survive one chat as run-owned or auditable governance, and the judgment is not already captured by one stable benchmark or one Agent pass plus review.
+Start with the Loopora fit gate when fit is not already clear. Loopora is justified only when future human judgment would repeat, later rounds can create new evidence, fake completion is worth blocking, the judgment should survive one chat as run-owned or auditable governance, and the judgment is not already captured by one stable benchmark or one Agent pass plus review.
 
 ## Interview phases
 
@@ -98,8 +98,10 @@ Choose the workflow because of the posture:
 - Inspector -> Builder -> GateKeeper when the first safe change is unclear.
 - Builder -> [Regression Inspector + Contract Inspector] -> Guide -> Builder -> GateKeeper when a second repair pass is expected.
 - Benchmark Inspector -> Builder -> Regression Inspector -> GateKeeper when an existing benchmark, contract proof, or repeatable measurement should control the decision.
+- A long-chain phase workflow when the task has multiple evidence-bearing stages that should not be hidden inside one oversized Builder prompt. Use task-specific Builder roles or Builder steps for distinct phase artifacts, such as API Builder, UI Builder, Migration Builder, or Evidence Hardening Builder.
 
 Do not use arbitrary DAG language. Loopora supports bounded fan-out / fan-in inspection groups: two or more contiguous Inspector or Custom steps may share a `parallel_group`, then downstream roles consume their handoffs and evidence.
+Do not use nested Loop language. A long-chain workflow is still one linear `steps[]` sequence inside workflow v1; the outer run iteration repeats the whole chain when GateKeeper does not close.
 
 ### 6. Decide information flow
 
@@ -117,6 +119,14 @@ Use these workflow fields when they make the bundle clearer:
 - `inputs.iteration_memory`: `default`, `none`, `same_step`, `same_role`, or `summary_only`.
 - `controls`: only for concrete runtime error risks such as no evidence progress, role failure, timeout, or repeated GateKeeper rejection. A control may call an existing Inspector, Guide, or GateKeeper, never Builder.
 
+For long-chain workflows:
+
+- every Builder should own a distinct phase artifact, proof target, or repair slice
+- downstream Inspectors, Guides, later Builders, and GateKeeper should read the relevant phase handoffs through `inputs.handoffs_from`
+- later Builders should read review or Guide handoffs before continuing the next phase
+- final GateKeeper should fan in the critical phase handoffs and query Builder / Inspector / Guide evidence, not only the last Builder output
+- do not add a 5+ role chain unless each added role exposes a new judgment boundary, evidence responsibility, or handoff boundary
+
 ## Anti-premature generation
 
 Do not generate a bundle when any of these are missing:
@@ -133,7 +143,7 @@ Do not generate a bundle when any of these are missing:
 - whether bounded parallel inspection is needed or deliberately avoided
 - what information flow prevents prompt flooding or evidence loss
 - how GateKeeper should distinguish Proven, Weak, Unproven, Blocking, and Residual risk evidence
-- whether every confirmed judgment item has a concrete bundle destination in `collaboration_summary`, `spec.markdown`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, or GateKeeper evidence rules
+- whether the agreement-to-bundle traceability checklist is satisfied: every confirmed judgment item has a concrete bundle destination in `collaboration_summary`, `spec.markdown`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, or GateKeeper evidence rules
 - whether one complete intended run path has been privately rehearsed: Builder output, Inspector / Custom review, optional Guide repair direction, any second Builder pass, GateKeeper verdict, and user evidence audit must all be connected through explicit handoffs, evidence queries, and evidence buckets
 - whether one plausible failed future round has been privately pressure-tested against the candidate Loop: a fake-done, weak-proof, drift, missing-coverage, or unacceptable residual-risk result must be exposed, repaired, or blocked by the proposed `spec`, roles, workflow, handoffs, evidence queries, and GateKeeper rules
 

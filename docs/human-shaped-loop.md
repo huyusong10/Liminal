@@ -215,7 +215,7 @@ The Agent becomes more autonomous not because the human vanished, but because th
 
 ## 7. Alignment Helps Users Discover Their Own Judgment
 
-One of Loopora's core mechanisms is the alignment conversation or Skill.
+One of Loopora's core mechanisms is the alignment conversation.
 
 But this is not ordinary requirement clarification.
 

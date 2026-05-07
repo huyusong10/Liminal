@@ -34,6 +34,7 @@ A working agreement is ready only when it includes:
 - role posture tradeoffs, not just role names
 - workflow rationale, not just workflow order
 - where weak evidence, drift, or fake done will be exposed early
+- if the workflow is a 5+ role or multi-Builder long chain, why each phase creates a new artifact, proof target, handoff, or review boundary instead of role-zoo complexity
 - an explicit reason when the workflow chooses parallel inspection or avoids it
 - role-to-role and iteration-to-iteration information flow when the workflow has more than one reviewer or repair pass
 - an agreement-to-bundle traceability check: every confirmed judgment item can be mapped to `collaboration_summary`, `spec.markdown`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, or GateKeeper evidence rules
@@ -66,6 +67,9 @@ Treat this section as quality guidance, not a fixed regex vocabulary. Loopora's 
 - `workflow.collaboration_intent` explains the task-specific judgment order, evidence flow, and final GateKeeper judgment / closure.
 - if the workflow uses `parallel_group`, `workflow.collaboration_intent` explains why bounded parallel or independent inspection is needed.
 - workflow steps use `parallel_group` only for bounded Inspector / Custom fan-out and use `inputs` when downstream roles should not receive indiscriminate context.
+- long-chain workflows use linear `workflow.steps`, not nested Loops, dynamic branches, or sub-workflow entities.
+- 5+ role or multi-Builder workflows justify every added role through a distinct artifact, proof target, handoff, review responsibility, repair direction, or GateKeeper input.
+- multiple Builder roles or Builder steps have task-specific names and phase responsibilities, not `Builder 1` / `Builder 2`; later Builders read prior phase, review, or Guide handoffs when those handoffs shape the next phase.
 - complex review or repair steps declare `inputs.iteration_memory` so cross-iteration evidence flow is explicit instead of relying on ambient context.
 - Inspector / Custom review steps after Builder name a Builder handoff and query Builder evidence instead of relying on ambient context.
 - Builder after Inspector / Custom / benchmark review reads the review handoff when no Guide has narrowed the direction.
@@ -102,7 +106,10 @@ Reject these patterns:
 - parallel Custom review steps that bypass the handoff / evidence rules required of Inspector reviewers
 - Custom review roles that sound like generic advisers, workdir writers, or final decision makers instead of low-permission specialized reviewers
 - adding many roles without distinct evidence responsibilities
+- long-chain workflows where extra Builders do not create distinct phase evidence or handoff boundaries
+- nested Loop, arbitrary branch, or dynamic DAG language disguised as workflow v1
 - GateKeeper relying on only the last Inspector when parallel inspection was used
+- GateKeeper relying only on the final Builder in a long chain while skipping earlier phase handoffs or evidence
 - finishing GateKeeper steps with no upstream handoff or no evidence query
 - finishing GateKeeper steps that skip Inspector / Custom / Guide review handoffs or review evidence
 - Inspector or GateKeeper steps reading only handoff prose when the workflow has parallel evidence responsibilities
