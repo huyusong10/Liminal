@@ -112,10 +112,20 @@ class ServiceIterationReportingMixin:
                 + ", ".join(self._truncate_text(item.get("summary"), 120) for item in priority_failures[:2])
             )
         if verifier_result.get("passed"):
-            return "All specified and dynamic checks passed with no blocking constraint violations."
+            return (
+                "Task verdict passes because GateKeeper evidence supports the specified and dynamic checks; "
+                "run lifecycle alone is not proof."
+            )
         if not reasons:
-            return "The run is not yet passing because one or more checks or metrics remain below threshold."
-        return "The run is not yet passing because " + "; ".join(reasons) + "."
+            return (
+                "Task verdict is not ready because Weak or Unproven evidence remains below threshold; "
+                "do not lower the frozen run contract."
+            )
+        return (
+            "Task verdict is not ready because "
+            + "; ".join(reasons)
+            + ". Treat these as Blocking or Unproven evidence until repaired."
+        )
 
     def _split_action_hints(self, feedback: str | None) -> list[str]:
         text = str(feedback or "").strip()

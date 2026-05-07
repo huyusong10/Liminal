@@ -384,3 +384,70 @@ def test_generator_prompt_includes_previous_iteration_feedback(service_factory, 
     assert "The primary flow still stalls before completion." in prompt
     assert "Try a smaller but end-to-end interaction fix." in prompt
     assert "Do not restart from scratch." in prompt
+
+
+def test_challenger_prompt_uses_evidence_buckets_for_repair_direction(service_factory) -> None:
+    service = service_factory()
+    compiled_spec = {
+        "goal": "Improve the primary flow.",
+        "checks": [
+            {
+                "id": "check_001",
+                "title": "Main flow works",
+                "details": "The main flow is usable.",
+                "when": "When the user follows the main path.",
+                "expect": "The main path succeeds.",
+                "fail_if": "The path breaks.",
+            }
+        ],
+        "constraints": "- Keep changes focused.",
+    }
+
+    prompt = service._challenger_prompt(
+        compiled_spec,
+        {"stagnation_mode": "plateau", "recent_composites": [0.62, 0.63]},
+        2,
+    )
+
+    assert "Proven, Weak, Unproven, Blocking, and Residual risk" in prompt
+    assert "Turn Blocking or Unproven gaps into the next smallest proof or fix" in prompt
+    assert "keep Residual risk visible" in prompt
+
+
+def test_legacy_runtime_prompts_treat_run_contract_as_frozen(service_factory, tmp_path: Path) -> None:
+    service = service_factory()
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    compiled_spec = {
+        "goal": "Improve the primary flow.",
+        "checks": [
+            {
+                "id": "check_001",
+                "title": "Main flow works",
+                "details": "The main flow is usable.",
+                "when": "When the user follows the main path.",
+                "expect": "The main path succeeds.",
+                "fail_if": "The path breaks.",
+            }
+        ],
+        "constraints": "- Keep changes focused.",
+    }
+    tester_output = {
+        "execution_summary": "The flow still breaks.",
+        "check_results": [],
+        "dynamic_checks": [],
+        "tester_observations": "No passing proof.",
+    }
+    prompts = [
+        service._check_planner_prompt(compiled_spec),
+        service._generator_prompt(compiled_spec, workdir, 0, "default"),
+        service._tester_prompt(compiled_spec, 0, "default"),
+        service._verifier_prompt(compiled_spec, tester_output, 0, "default"),
+        service._challenger_prompt(compiled_spec, {"stagnation_mode": "plateau"}, 1),
+    ]
+
+    for prompt in prompts:
+        assert "Treat the run contract as frozen" in prompt
+        assert "do not reinterpret or lower the Task, Done When, checks, or guardrails" in prompt
+        assert "evidence gap, blocker, or Loop-adjustment recommendation" in prompt
+        assert "project-local instructions, design docs, and tests" in prompt

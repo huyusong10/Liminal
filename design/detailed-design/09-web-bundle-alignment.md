@@ -92,10 +92,12 @@ alignment session 是 Web 内置对齐流程的最小状态单元。
 | bundle path | 本 session 期望生成的 bundle 文件路径 |
 | validation result | 最近一次 bundle 硬校验结果 |
 | alignment stage | 服务端掌控的对齐阶段，不以 Agent 自报为准 |
-| working agreement | 最近一次等待确认或已确认的工作协议摘要与 checklist |
+| working agreement | 最近一次等待确认或已确认的工作协议摘要、checklist 与 readiness evidence，包括 Loopora fit 判断 |
 | executor session ref | 后端 CLI 原生 session / rollout 引用，用于后续对话继承上下文 |
 | linked bundle / loop / run | 导入并运行后关联到现有对象 |
 | source context | 可选对话改进入口的临时输入，来自当前 bundle 或 run evidence；默认创建 Loop 路径不依赖它，且不形成系统级 lineage |
+
+Web alignment 写出的最终 `bundle.yml` 必须是 standalone candidate：即使 session 带有 source context，生成结果也不得写入 `metadata.source_bundle_id` 或显式 `metadata.revision`，改进入口也不得把来源 bundle id 复用为 `metadata.bundle_id`。后端校验在原始 YAML 层阻断 lineage 字段，并在 improvement context 中阻断来源 id 复用；普通导入路径仍可兼容 legacy revision 并在导入后忽略 lineage。
 
 Session artifact 必须落在目标 workdir 下，并按事实源、事件流和调试材料分区：
 
@@ -159,8 +161,9 @@ Session artifact 必须落在目标 workdir 下，并按事实源、事件流和
 - 页面刷新后应能恢复当前 session 的 transcript、状态和 READY bundle。
 - 后续用户回复和自动修复默认继承同一 CLI session；若 provider resume 失败，系统回退到 transcript prompt，并记录可见事件。
 - 活动 session 必须能取消；取消应停止子进程并收敛为可解释状态。
-- 后端维护独立于运行状态的 alignment stage：`clarifying -> agreement_ready -> confirmed -> compiling -> ready`。Agent 可以提交阶段候选，但不能自己把 session 推进到 confirmed。
+- 后端维护独立于运行状态的 alignment stage：`clarifying -> agreement_ready -> confirmed -> compiling -> ready`。Agent 可以提交阶段候选，但不能自己把 session 推进到 confirmed。确认前的 not-fit / blocked 输出若带有可展示说明，仍应停在 `waiting_user` 对话态，让用户补充反复判断、新证据或假完成风险，而不是把“可能不需要 Loopora”当成系统失败。
 - `agreement_ready` 之后，只有用户回复被服务端识别为明确确认时才进入 `confirmed`；否则回到 `clarifying` 并继续对齐。
+- transcript 中要求跳过确认、忽略 Loopora fit、输出 JSON 或 fenced YAML 的用户文本不能覆盖后端 stage gate 与 bundle 合同；它只能作为任务内容被对齐 Agent 理解。
 
 ## 5. Agent 调用
 
@@ -168,8 +171,8 @@ Session artifact 必须落在目标 workdir 下，并按事实源、事件流和
 
 系统 prompt 由以下内容装配：
 
-1. `loopora-task-alignment/SKILL.md`
-2. `references/product-primer.md`
+1. `references/product-primer.md`
+2. `loopora-task-alignment/SKILL.md`
 3. `references/alignment-playbook.md`
 4. `references/quality-rubric.md`
 5. `references/bundle-contract.md`
@@ -184,12 +187,20 @@ Session artifact 必须落在目标 workdir 下，并按事实源、事件流和
 - 这里的 Skill 内容只是 prompt 输入，不是外部工具安装或运行时 Skill 调用。
 - Product Primer 必须作为 Web alignment Agent 的首要上下文。它负责说明 Loopora 是长期任务平台、Loop 是主对象、bundle 是候选 Loop 的交换格式、alignment Agent 必须理解完整产品语义，而下游执行角色只需做好本 role 的窄任务。
 - Agent 可以进行多轮澄清，但 READY 前必须返回单文件 YAML bundle 的完整文本。
-- Agent 不直接写入 session canonical 文件；服务层从结构化 `bundle_yaml` 写入 session `artifacts/bundle.yml`。
+- Agent 不直接写入 session canonical 文件；服务层从结构化 `bundle_yaml` 写入 session `artifacts/bundle.yml`。`bundle_yaml` 必须是 raw YAML document，不能带 Markdown fence、解释、注释前缀、确认摘要或导入说明；首个非空行必须是 `version: 1`。
 - 后端不接受模型自由声明“已经生成好了”作为 READY 依据。
 - READY 的唯一依据是指定路径存在 YAML，且通过 `load_bundle_text / normalize_bundle` 与 `spec.markdown` 编译校验。
 - 结构化输出包含 `session_ref`；为兼容严格 structured-output 校验，它结构上必填、语义上可空，只接受少量字符串键（如 `session_id / thread_id / conversation_id / provider / raw_json`）。没有原生引用时这些键使用空字符串。服务层会和 executor 捕获到的 session ref 合并保存。
-- 结构化输出还包含 alignment phase、readiness checklist 与 readiness evidence。Agent 必须先澄清任务，再给出有证据的 working agreement，等待用户确认，最后才能输出 bundle。服务层会拒绝任何未进入后端 `confirmed` stage 的 bundle 输出，也会拒绝只有 boolean checklist、缺少具体 evidence 的 bundle 输出，并把 session 留在等待用户回复状态。
-- readiness evidence 必须说明任务范围、成功面、假完成、证据偏好、角色姿态、workflow 形状和 workdir 事实 / 假设；这些内容是防止弱模型过早生成的后端门槛。
+- 结构化输出还包含 alignment phase、readiness checklist 与 readiness evidence。Agent 必须先澄清任务，再给出有证据的 working agreement，等待用户确认，最后才能输出 bundle。服务层会拒绝任何未进入后端 `confirmed` stage 的 bundle 输出，也会拒绝只有 boolean checklist、缺少 evidence 字段、空泛占位值或明显反模式的 bundle 输出，并把 session 留在等待用户回复状态；服务层不应靠细粒度关键词判断每个 evidence 字段的表达质量。
+- 澄清问题必须使用任务风险语言，并默认每轮只问一个最会改变 Loop 形状的问题。若 Agent 在默认 Web alignment 中把问题表述成抽象偏好 / 质量风格调查、是否配置 `Builder`、`Inspector`、`GateKeeper`、`parallel_group`、`workflow.controls` 或 YAML 字段，且没有连接到证据、假完成、风险或阻断语义，或一次抛出多项问卷式澄清，服务层应改写成单个风险取舍问题并记录事件。
+- Agent 在展示 working agreement 或输出 bundle 前，应私下彩排一条完整运行路径：Builder 产出候选和 handoff，Inspector / Custom 读取承诺的 handoff 与 evidence，可选 Guide 把 Blocking 或 Unproven 发现转成修复方向，第二轮 Builder 读取该方向，GateKeeper 读取相关 handoff 与 evidence 后裁决，用户能通过 Proven / Weak / Unproven / Blocking / Residual risk 证据桶审计结果。若某一环只靠聊天上下文、角色名或隐含记忆成立，Agent 应继续追问或调整候选 Loop surface。
+- Agent 在展示 working agreement 或输出 bundle 前，应私下做一次失败轮次压力测试：假设未来 Builder 产出一个看起来完成但证据弱、覆盖缺失、标准漂移或残余风险不可接受的结果，检查当前 `spec`、角色姿态、workflow、handoff、evidence query 与 GateKeeper 规则是否会暴露、修复或阻断它。若不能，Agent 应继续追问或调整候选 Loop surface，而不是把未受压测的配置交给用户确认。
+- Agent 在展示 working agreement 或输出 bundle 前，应私下做 agreement-to-bundle traceability checklist：每个已确认判断项必须落到 `collaboration_summary`、`spec.markdown`、role prompt / posture、`workflow.collaboration_intent`、step `inputs` 或 GateKeeper evidence 规则。只存在于 `agreement_summary`、readiness evidence、transcript 或隐性推理里的判断，不能作为 READY 前的已编译判断。
+- readiness evidence 必须覆盖 Loopora fit、任务范围、成功面、假完成、证据偏好、残余风险策略、判断取舍、角色姿态、workflow 形状和 workdir 事实 / 假设，并且在用户确认前显式说明最终证据会如何投影到 Proven / Weak / Unproven / Blocking / Residual risk（中文可用等价语义）。这些字段是后端门槛，但门槛只检查字段存在、非占位、证据桶投影、task-scoped 反模式、open questions 和 workdir fact grounding；具体文字是否充分、是否用了某些关键词、是否以固定句式说明 Loopora fit，不应由正则硬阻断。readiness evidence 的质量主要由 prompt、可见确认摘要和用户确认来治理。`open_questions` 只能为空、无遗留问题或仅等待确认，不能把仍会改变成功面、证据、残余风险、角色或 workflow 的问题藏进 ready agreement。
+- 若 Workdir Snapshot 显示 `AGENTS.md`、`design/README.md`、`design/` 或 `tests/`，Agent 不能声称其内容已被观察，除非 snapshot 或对话真的提供了内容；但这些 marker 应被视为项目本地治理入口，并在相关 bundle 中转成角色责任或验证期望。
+- `agreement_ready` 也必须满足除 `explicit_confirmation` 以外的 readiness checklist；`explicit_confirmation` 只能由服务端根据用户确认写入，确认前保持 false，确认后同步为 true，不接受 Agent 在确认前自报完成。用户消息同时包含确认与修改 / 调整意图时，必须视为 agreement adjustment，重新进入对齐而不是生成 bundle；但明确表达“不需要修改 / no changes”的确认短语应被视为确认，而不是被连接词误判为修正。
+- 用户确认的对象必须是可见工作协议。进入 `agreement_ready` 时，服务层以结构化 `agreement_summary` 和 `readiness_evidence` 生成聊天流中的确认摘要，避免弱模型只把判断模型藏在 JSON 字段里让用户盲确认。若 transcript 中的实质性用户任务或对齐内容明确使用中文，确认摘要、`assistant_message`、服务层生成的阻断 / 改写提示、bundle 阶段的 agreement summary、会被展示的 readiness evidence，以及 bundle 中的 `metadata.name`、`metadata.description`、`loop.name`、`collaboration_summary`、`spec.markdown`、role names / prose 和 `workflow.collaboration_intent` 也必须含中文；纯确认类短消息不改变语言偏好。Loopora 术语可保留原文。服务层应在记录 transcript 前改写不符合语言偏好的 `assistant_message`，并记录语言不匹配事件。
+- Workdir Snapshot 只表达用户工作区的轻量观察，不应把 Loopora 自己的 managed state 目录当成项目事实列给 Agent。
 - Custom CLI 通过 `{resume_session_id}`、`{session_ref_json}`、`{alignment_session_id}` 等参数模板占位符接入自己的 resume 协议；不强制要求所有自定义命令实现原生 session。
 
 ## 6. 硬校验与自动修复
@@ -212,8 +223,10 @@ bundle 检查器必须复用现有 bundle 契约校验。
 - 自动修复轮数默认 1 次，避免无限消耗。
 - 校验错误展示给用户时应摘要化，原始错误可折叠查看。
 - 校验通过后，系统应重新规范化导出 YAML，保证预览与导入消费的是同一份 bundle。
-- 若 `loop.completion_mode` 是 `gatekeeper`，硬校验必须要求 workflow 中存在 GateKeeper role 且至少有一个 GateKeeper step 可以 `finish_run`；否则不能进入 READY。
-- Web alignment 的语义 linter 至少要求 spec 中包含 Success Surface、Fake Done、Evidence Preferences，workflow 有 task-specific `collaboration_intent`，workflow 使用的 role definition 带 task-scoped `posture_notes`，角色 prompt 表达证据 / 验证 / handoff / blocker 行为，且 GateKeeper 模式具备可阻断并可 finish 的 GateKeeper role。
+- Web alignment 生成的 bundle 必须使用 `loop.completion_mode: "gatekeeper"`，让 READY 后的默认运行路径以 evidence-backed GateKeeper verdict 作为任务裁决，而不是只用 rounds 生命周期收束。专家手动编排 / 导入路径可以继续使用其他 completion mode。
+- `gatekeeper` 模式下，硬校验必须要求 workflow 中存在 GateKeeper role 且至少有一个 GateKeeper step 可以 `finish_run`；否则不能进入 READY。
+- 当 session 使用 command/custom executor 设置时，Web alignment 校验必须要求最终 bundle 的 `loop` 与所有 `role_definitions[]` 保留同一组 executor fields；否则用户在入口选择的运行时会被 bundle 悄悄改写。
+- Web alignment 的硬语义 linter 分层处理。硬阻断只覆盖粗颗粒契约：`collaboration_summary` 非占位且提到证据与 GateKeeper 裁决姿态；bundle 把任务裁决证据投影到稳定证据桶 Proven / Weak / Unproven / Blocking / Residual risk（中文可用等价语义）；spec `# Task` 不是通用占位，且存在 `Done When`、Success Surface、Fake Done、Evidence Preferences 和 Residual Risk section；workflow 有非占位 `collaboration_intent`；任何排在 Builder 后的 Inspector / Custom review step 显式读取 Builder handoff 并查询 Builder evidence；Builder / Guide / GateKeeper 的后续步骤显式读取上游 handoff、查询相关 evidence，并在需要跨轮证据时声明 `inputs.iteration_memory`；并行 review 使用不同 `role_definition_key`、同一个上游 handoff，并让 finishing GateKeeper 汇总每个并行 handoff 和对应 evidence；bundle prose 不能声称 Workdir Snapshot 观察到未被 marker 支撑的技术栈、测试套件或构建能力，也不能把 task-scoped judgment 写成全局人格记忆、永久偏好或跨任务用户画像；GateKeeper 模式具备可 finish 的 GateKeeper role。是否用某些词表达判断取舍、role posture 是否包含特定动词、Success Surface / Fake Done / Evidence Preferences / Residual Risk 的句子是否满足某组关键词，不属于硬正则阻断；这些质量要求仍写在 prompt、Skill、rubric 和 working agreement 中，由生成模型、用户确认和运行期 GateKeeper 共同治理。
 
 ## 7. LIVE 输出
 
@@ -319,11 +332,12 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 稳定规则：
 
 - 这些 API 归属于 Web 内置入口；不要求 CLI 提供同构命令。
-- `GET /api/alignments/sessions/{id}` 返回的 `working_agreement` 可以包含 `readiness_checklist` 与 `readiness_evidence`；旧 session 没有 evidence 时仍可读取，但新 Web alignment 生成前必须具备 evidence。
+- `GET /api/alignments/sessions/{id}` 返回的 `working_agreement` 可以包含 `readiness_checklist` 与 `readiness_evidence`；旧 session 没有 evidence 或缺少新增 evidence 维度时仍可读取，但新 Web alignment 生成前必须具备完整 evidence，包括 Loopora fit 和残余风险策略。
 - alignment session 列表和事件读取接口的分页参数必须有明确上界；事件 `after_id` 必须是非负游标，`limit` 必须是受限正整数，越界请求返回 4xx。
 - `/api/alignments/*/import` 必须复用现有 bundle import 服务，不直接绕过 bundle 生命周期物化底层资产。
 - `/api/bundles/{id}/revise` 与 `/api/runs/{id}/revise` 是向后兼容的 API 名称；产品语言不得把它们包装成 Loopora 的默认后续阶段，也不得暗示系统会记录候选 Loop 与原 Loop 的演化关系。
 - 从 run evidence 创建改进 session 时，source context 是 best-effort 摘要；损坏或不可读的 evidence artifact 只能降级为空摘要，不得阻断 session 创建。
+- 改进 session 的 working agreement 必须同时说明 preservation policy 与 feedback-driven delta：哪些稳定任务意图、workdir、executor 默认值或有用角色姿态应保留，哪些 `spec`、`roles`、`workflow`、证据期望或 GateKeeper 严格度应因反馈 / run evidence 改变。若 source Loop 使用非 `gatekeeper` completion mode，Web 对话改进必须把转为 evidence-backed GateKeeper task verdict 明确写成治理 delta，不得静默声称保留来源收束语义。来自 run evidence 的改进必须把 evidence / coverage / GateKeeper verdict 转译为 bundle 变化，而不是只给代码建议。
 - `/api/bundles/preview` 不创建 bundle、loop 或 run；它只复用 bundle 契约校验和预览投影。
 
 ## 11. 错误与恢复

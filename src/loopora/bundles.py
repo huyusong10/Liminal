@@ -530,8 +530,12 @@ def _semantic_text_is_specific(text: object, *, min_chars: int = 48) -> bool:
     generic_patterns = [
         r"requested behavior",
         r"do the task",
+        r"task is done",
+        r"\bit works\b",
         r"make it work",
+        r"works well",
         r"requested task",
+        r"alignment agreement",
         r"按需求完成",
         r"完成任务",
         r"实现需求",
@@ -565,16 +569,100 @@ def _semantic_text_mentions_evidence(text: object) -> bool:
     return any(term in value for term in evidence_terms)
 
 
+def _semantic_text_mentions_evidence_bucket_projection(text: object) -> bool:
+    value = str(text or "")
+    bucket_patterns = {
+        "proven": r"\bproven\b|已证明",
+        "weak": r"\bweak\b|弱证据|证据薄弱",
+        "unproven": r"\bunproven\b|未证明",
+        "blocking": r"\bblocking\b|阻断",
+        "residual": r"\bresidual risk\b|残余风险",
+    }
+    return all(re.search(pattern, value, re.I) for pattern in bucket_patterns.values())
+
+
+def _semantic_text_mentions_personality_memory_antipattern(text: object) -> bool:
+    value = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    if not value:
+        return False
+    patterns = [
+        r"\b(?:global|permanent|always-on|chat-wide)\s+(?:user\s+)?"
+        r"(?:persona|personality|preference|preferences|memory|trait|style)\b",
+        r"\b(?:persona|personality|preference|preferences|style)\s+(?:memory|profile)\b",
+        r"\b(?:remember|store|capture|codify)\s+(?:the\s+)?(?:user's|my)\s+"
+        r"(?:persona|personality|preference|preferences|style|traits?)\b",
+        r"\balways\s+(?:follow|use|prefer|behave|act|answer)\b.{0,80}\b(?:user|my)\b.{0,80}"
+        r"\b(?:persona|personality|preference|preferences|style|trait)\b",
+        r"全局(?:人格|偏好|记忆|画像)",
+        r"永久(?:人格|偏好|记忆|画像)",
+        r"(?:人格|偏好|用户画像|用户特质).{0,8}(?:记忆|长期记住|全局继承)",
+        r"记住.{0,12}(?:我的|用户).{0,8}(?:偏好|人格|风格)",
+        r"总是.{0,16}(?:按|遵循|使用).{0,12}(?:偏好|人格|风格)",
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, value, re.I):
+            if _semantic_antipattern_match_is_negated(value, match.start()):
+                continue
+            return True
+    return False
+
+
+def _semantic_text_mentions_named_loopora_antipattern(text: object) -> bool:
+    value = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    if not value:
+        return False
+    patterns = [
+        r"\bprompt[- ]pack\b",
+        r"\brole[- ]zoo\b",
+        r"\bloop[- ]script\b",
+        r"\bbenchmark[- ]grinder\b",
+        r"\bchat[- ]wrapper\b",
+        r"提示词包|堆提示词|堆角色|循环脚本|刷基准|基准刷分|聊天壳",
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, value, re.I):
+            if _semantic_antipattern_match_is_negated(value, match.start()):
+                continue
+            return True
+    return False
+
+
+def _semantic_antipattern_match_is_negated(value: str, start: int) -> bool:
+    context = value[max(0, start - 48) : start]
+    return bool(
+        re.search(
+            r"do not|don't|must not|should not|never|avoid|refuse|reject|rather than|instead of|"
+            r"\bnot\s+(?:a|an|as)?\s*$|\bno\s+$|不要|不能|不得|不应|不是|拒绝|避免",
+            context,
+            re.I,
+        )
+    )
+
+
 def lint_alignment_bundle_semantics(bundle: Mapping[str, object]) -> list[str]:
     """Return high-signal semantic issues for Web-generated alignment bundles."""
 
     normalized = normalize_bundle(bundle)
     issues: list[str] = []
+    issues.extend(_lint_alignment_standalone_metadata(normalized))
+    issues.extend(_lint_alignment_collaboration_summary(normalized.get("collaboration_summary")))
+    issues.extend(_lint_alignment_task_scoped_antipatterns(normalized))
+    issues.extend(_lint_alignment_completion_mode(normalized))
+    issues.extend(_lint_alignment_evidence_bucket_projection(normalized))
     compiled_spec = compile_markdown_spec(str(normalized["spec"]["markdown"]))
     issues.extend(_lint_alignment_spec_semantics(compiled_spec))
     issues.extend(_lint_alignment_workflow_intent(normalized["workflow"]))
     role_by_key = {item["key"]: item for item in normalized["role_definitions"]}
     used_role_keys = _alignment_workflow_role_keys(normalized["workflow"])
+    issues.extend(_lint_alignment_review_builder_inputs(normalized["workflow"], role_by_key=role_by_key))
+    issues.extend(_lint_alignment_parallel_review_inputs(normalized["workflow"], role_by_key=role_by_key))
+    issues.extend(_lint_alignment_builder_review_inputs(normalized["workflow"], role_by_key=role_by_key))
+    issues.extend(_lint_alignment_guide_review_inputs(normalized["workflow"], role_by_key=role_by_key))
+    issues.extend(_lint_alignment_builder_guide_inputs(normalized["workflow"], role_by_key=role_by_key))
+    issues.extend(_lint_alignment_finishing_gatekeeper_inputs(normalized["workflow"], role_by_key=role_by_key))
+    issues.extend(_lint_alignment_review_gatekeeper_inputs(normalized["workflow"], role_by_key=role_by_key))
+    issues.extend(_lint_alignment_parallel_gatekeeper_inputs(normalized["workflow"], role_by_key=role_by_key))
+    issues.extend(_lint_alignment_iteration_memory_inputs(normalized["workflow"], role_by_key=role_by_key))
     issues.extend(_lint_alignment_role_semantics(role_by_key, used_role_keys=used_role_keys))
     issues.extend(_lint_alignment_gatekeeper_semantics(normalized, role_by_key=role_by_key, used_role_keys=used_role_keys))
     if len(used_role_keys) < 2:
@@ -582,24 +670,679 @@ def lint_alignment_bundle_semantics(bundle: Mapping[str, object]) -> list[str]:
     return issues
 
 
+def lint_alignment_bundle_generation_text(raw_text: str) -> list[str]:
+    """Return raw-text issues for Web/Skill generated bundle candidates."""
+
+    issues: list[str] = []
+    stripped = str(raw_text or "").strip()
+    if not stripped:
+        return issues
+    non_empty_lines = [
+        line.strip()
+        for line in str(raw_text or "").splitlines()
+        if line.strip()
+    ]
+    if non_empty_lines and re.match(r"^```(?:yaml|yml)?\s*$", non_empty_lines[0], re.I):
+        issues.append(
+            "Web alignment generated bundle_yaml must be one raw YAML document, not markdown-fenced output"
+        )
+    if non_empty_lines and not re.match(r"^version\s*:\s*1(?:\s*(?:#.*)?)?$", non_empty_lines[0]):
+        issues.append("Web alignment generated bundle_yaml must start with version: 1")
+    issues.extend(lint_alignment_bundle_generation_metadata(raw_text))
+    return issues
+
+
+def lint_alignment_bundle_generation_metadata(raw_text: str) -> list[str]:
+    """Return raw-YAML metadata issues for Web/Skill generated bundle candidates."""
+
+    try:
+        payload = yaml.safe_load(raw_text) or {}
+    except yaml.YAMLError:
+        return []
+    if not isinstance(payload, Mapping):
+        return []
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return []
+    metadata_keys = {str(key).strip() for key in metadata}
+    if "source_bundle_id" not in metadata_keys and "revision" not in metadata_keys:
+        return []
+    return [
+        "Web alignment generated bundles must omit metadata.source_bundle_id and metadata.revision; "
+        "source context is temporary and final bundles are standalone candidates"
+    ]
+
+
+def _lint_alignment_standalone_metadata(normalized: Mapping[str, Any]) -> list[str]:
+    metadata = normalized.get("metadata") if isinstance(normalized.get("metadata"), Mapping) else {}
+    if not str(metadata.get("source_bundle_id", "") or "").strip():
+        return []
+    return [
+        "Web alignment bundles must not encode metadata.source_bundle_id; "
+        "source context is temporary and final bundles are standalone candidates"
+    ]
+
+
+def _lint_alignment_evidence_bucket_projection(normalized: Mapping[str, Any]) -> list[str]:
+    if _semantic_text_mentions_evidence_bucket_projection(_alignment_bundle_governance_text(normalized)):
+        return []
+    return [
+        "alignment bundle must project task verdict evidence into Proven, Weak, Unproven, "
+        "Blocking, and Residual risk buckets"
+    ]
+
+
+def _lint_alignment_completion_mode(normalized: Mapping[str, Any]) -> list[str]:
+    completion_mode = str(normalized["loop"].get("completion_mode", "") or "").strip().lower()
+    if completion_mode == "gatekeeper":
+        return []
+    return [
+        "Web alignment bundles must use gatekeeper completion_mode so task verdict is evidence-based, "
+        "not only run lifecycle completion"
+    ]
+
+
+def _lint_alignment_task_scoped_antipatterns(normalized: Mapping[str, Any]) -> list[str]:
+    text = _alignment_bundle_governance_text(normalized)
+    issues: list[str] = []
+    if _semantic_text_mentions_named_loopora_antipattern(text):
+        issues.append(
+            "alignment bundle must not present prompt pack, role zoo, loop script, "
+            "benchmark grinder, or chat wrapper as Loopora governance"
+        )
+    if _semantic_text_mentions_personality_memory_antipattern(text):
+        issues.append("alignment bundle must stay task-scoped, not personality memory or global preferences")
+    return issues
+
+
+def _alignment_bundle_governance_text(normalized: Mapping[str, Any]) -> str:
+    metadata = normalized.get("metadata") if isinstance(normalized.get("metadata"), Mapping) else {}
+    loop = normalized.get("loop") if isinstance(normalized.get("loop"), Mapping) else {}
+    workflow = normalized.get("workflow") if isinstance(normalized.get("workflow"), Mapping) else {}
+    spec = normalized.get("spec") if isinstance(normalized.get("spec"), Mapping) else {}
+    parts = [
+        str(metadata.get("name", "") or "") if isinstance(metadata, Mapping) else "",
+        str(metadata.get("description", "") or "") if isinstance(metadata, Mapping) else "",
+        str(normalized.get("collaboration_summary", "") or ""),
+        str(loop.get("name", "") or "") if isinstance(loop, Mapping) else "",
+        str(spec.get("markdown", "") or "") if isinstance(spec, Mapping) else "",
+        str(workflow.get("collaboration_intent", "") or "") if isinstance(workflow, Mapping) else "",
+    ]
+    for role in normalized.get("role_definitions", []):
+        if not isinstance(role, Mapping):
+            continue
+        parts.extend(
+            [
+                str(role.get("name", "") or ""),
+                str(role.get("description", "") or ""),
+                str(role.get("prompt_markdown", "") or ""),
+                str(role.get("posture_notes", "") or ""),
+            ]
+        )
+    return "\n".join(parts)
+
+
+def _lint_alignment_collaboration_summary(summary: object) -> list[str]:
+    if not _semantic_text_is_specific(summary, min_chars=72):
+        return ["collaboration_summary must explain the governance story"]
+    if not _semantic_text_mentions_evidence(summary):
+        return ["collaboration_summary must mention evidence, proof, verification, handoff, or blockers"]
+    if not re.search(r"gatekeeper|gate keeper|裁决|阻断|签字|收束", str(summary or ""), re.I):
+        return ["collaboration_summary must explain GateKeeper or final judgment posture"]
+    return []
+
+
 def _lint_alignment_spec_semantics(compiled_spec: Mapping[str, Any]) -> list[str]:
+    issues: list[str] = []
+    if not _semantic_text_is_specific(compiled_spec.get("goal"), min_chars=72):
+        issues.append("spec Task must describe the concrete user-facing task")
+    issues.extend(_lint_alignment_spec_contract_sections(compiled_spec))
+    return issues
+
+
+def _lint_alignment_spec_contract_sections(compiled_spec: Mapping[str, Any]) -> list[str]:
+    return [
+        *_lint_alignment_done_when_semantics(compiled_spec),
+        *_lint_alignment_success_and_fake_done_semantics(compiled_spec),
+        *_lint_alignment_evidence_and_risk_semantics(compiled_spec),
+    ]
+
+
+def _lint_alignment_done_when_semantics(compiled_spec: Mapping[str, Any]) -> list[str]:
+    issues: list[str] = []
+    if not compiled_spec.get("checks"):
+        issues.append("spec must include at least one Done When bullet")
+    return issues
+
+
+def _lint_alignment_success_and_fake_done_semantics(compiled_spec: Mapping[str, Any]) -> list[str]:
     issues: list[str] = []
     if not compiled_spec.get("success_surface"):
         issues.append("spec must include at least one Success Surface bullet")
     if not compiled_spec.get("fake_done_states"):
         issues.append("spec must include at least one Fake Done bullet")
+    return issues
+
+
+def _lint_alignment_evidence_and_risk_semantics(compiled_spec: Mapping[str, Any]) -> list[str]:
+    issues: list[str] = []
     if not compiled_spec.get("evidence_preferences"):
         issues.append("spec must include at least one Evidence Preferences bullet")
+    if not str(compiled_spec.get("residual_risk", "") or "").strip():
+        issues.append("spec must include Residual Risk guidance")
     return issues
 
 
 def _lint_alignment_workflow_intent(workflow: Mapping[str, Any]) -> list[str]:
     intent = workflow.get("collaboration_intent", "")
+    issues: list[str] = []
     if not str(intent or "").strip():
         return ["workflow.collaboration_intent is required"]
     if not _semantic_text_is_specific(intent, min_chars=64):
-        return ["workflow.collaboration_intent must explain the task-specific judgment order"]
-    return []
+        issues.append("workflow.collaboration_intent must explain the task-specific judgment order")
+    return issues
+
+
+def _lint_alignment_parallel_review_inputs(
+    workflow: Mapping[str, Any],
+    *,
+    role_by_key: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    steps = [step for step in workflow.get("steps", []) if isinstance(step, Mapping)]
+    workflow_role_archetype = _alignment_workflow_role_archetype(workflow, role_by_key=role_by_key)
+    workflow_role_key = _alignment_workflow_role_definition_key(workflow)
+    review_steps_by_group: dict[str, list[tuple[str, str, tuple[str, ...]]]] = {}
+    issues: list[str] = []
+    for step in steps:
+        step_id = str(step.get("id", "") or "").strip()
+        parallel_group = str(step.get("parallel_group", "") or "").strip()
+        if not parallel_group:
+            continue
+        role_id = str(step.get("role_id", "") or "")
+        if workflow_role_archetype.get(role_id) not in {"inspector", "custom"}:
+            continue
+        inputs = step.get("inputs") if isinstance(step.get("inputs"), Mapping) else {}
+        handoffs_from = (inputs.get("handoffs_from") if isinstance(inputs, Mapping) else []) or []
+        handoff_ids = tuple(sorted(str(handoff or "").strip() for handoff in handoffs_from if str(handoff or "").strip()))
+        review_steps_by_group.setdefault(parallel_group, []).append((step_id, workflow_role_key.get(role_id, ""), handoff_ids))
+        if not any(str(handoff or "").strip() for handoff in handoffs_from):
+            issues.append(
+                "parallel review step must name upstream handoffs in inputs.handoffs_from: "
+                + step_id
+            )
+        if not _step_evidence_query_mentions_archetypes(step, {"builder"}):
+            issues.append(
+                "parallel review step must query Builder evidence in inputs.evidence_query: "
+                + step_id
+            )
+    for review_steps in review_steps_by_group.values():
+        role_keys = [role_key for _, role_key, _ in review_steps]
+        if len(role_keys) > 1 and len(set(role_keys)) < len(role_keys):
+            issues.append(
+                "parallel review steps must use distinct role_definition_key values: "
+                + ", ".join(step_id for step_id, _, _ in review_steps)
+            )
+        handoff_sets = [handoffs for _, _, handoffs in review_steps if handoffs]
+        if len(handoff_sets) > 1 and len(set(handoff_sets)) > 1:
+            issues.append(
+                "parallel review steps must read the same upstream handoffs: "
+                + ", ".join(step_id for step_id, _, _ in review_steps)
+            )
+        role_texts = [_parallel_review_role_text(role_by_key.get(role_key)) for role_key in role_keys]
+        if len(role_texts) > 1 and len(set(role_texts)) < len(role_texts):
+            issues.append(
+                "parallel review role_definitions must have responsibility-specific prompt and posture: "
+                + ", ".join(role_keys)
+            )
+    return issues
+
+
+def _lint_alignment_iteration_memory_inputs(
+    workflow: Mapping[str, Any],
+    *,
+    role_by_key: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    steps = [step for step in workflow.get("steps", []) if isinstance(step, Mapping)]
+    workflow_role_archetype = _alignment_workflow_role_archetype(workflow, role_by_key=role_by_key)
+    issues: list[str] = []
+    issues.extend(_parallel_review_iteration_memory_issues(steps, workflow_role_archetype=workflow_role_archetype))
+    issues.extend(_guide_review_iteration_memory_issues(steps, workflow_role_archetype=workflow_role_archetype))
+    issues.extend(_builder_review_iteration_memory_issues(steps, workflow_role_archetype=workflow_role_archetype))
+    issues.extend(_builder_guide_iteration_memory_issues(steps, workflow_role_archetype=workflow_role_archetype))
+    return issues
+
+
+def _parallel_review_iteration_memory_issues(
+    steps: list[Mapping[str, Any]],
+    *,
+    workflow_role_archetype: Mapping[str, str],
+) -> list[str]:
+    issues: list[str] = []
+    for step in steps:
+        step_id = str(step.get("id", "") or "").strip()
+        role_id = str(step.get("role_id", "") or "")
+        if not str(step.get("parallel_group", "") or "").strip():
+            continue
+        if workflow_role_archetype.get(role_id) not in {"inspector", "custom"}:
+            continue
+        if not _step_declares_iteration_memory(step):
+            issues.append(
+                "parallel review step must declare inputs.iteration_memory so cross-iteration evidence flow is explicit: "
+                + step_id
+            )
+    return issues
+
+
+def _guide_review_iteration_memory_issues(
+    steps: list[Mapping[str, Any]],
+    *,
+    workflow_role_archetype: Mapping[str, str],
+) -> list[str]:
+    issues: list[str] = []
+    for index, step in enumerate(steps):
+        if workflow_role_archetype.get(str(step.get("role_id", "") or "")) != "guide":
+            continue
+        review_steps = _review_steps_since_latest_builder(
+            steps[:index],
+            workflow_role_archetype=workflow_role_archetype,
+            include_guides=False,
+        )
+        if review_steps and not _step_declares_iteration_memory(step):
+            issues.append(
+                "Guide step after review must declare inputs.iteration_memory so repair guidance can use prior iteration evidence explicitly: "
+                + str(step.get("id", "") or "").strip()
+            )
+    return issues
+
+
+def _builder_review_iteration_memory_issues(
+    steps: list[Mapping[str, Any]],
+    *,
+    workflow_role_archetype: Mapping[str, str],
+) -> list[str]:
+    review_steps_since_builder: list[str] = []
+    guide_seen_since_builder = False
+    issues: list[str] = []
+    for step in steps:
+        step_id = str(step.get("id", "") or "").strip()
+        archetype = workflow_role_archetype.get(str(step.get("role_id", "") or ""))
+        if archetype in {"inspector", "custom"}:
+            review_steps_since_builder.append(step_id)
+            continue
+        if archetype == "guide":
+            guide_seen_since_builder = True
+            continue
+        if archetype != "builder":
+            continue
+        if review_steps_since_builder and not guide_seen_since_builder and not _step_declares_iteration_memory(step):
+            issues.append(
+                "Builder step after review must declare inputs.iteration_memory so evidence-first repair does not rely on ambient context: "
+                + step_id
+            )
+        review_steps_since_builder = []
+        guide_seen_since_builder = False
+    return issues
+
+
+def _builder_guide_iteration_memory_issues(
+    steps: list[Mapping[str, Any]],
+    *,
+    workflow_role_archetype: Mapping[str, str],
+) -> list[str]:
+    guide_seen_since_builder = False
+    issues: list[str] = []
+    for step in steps:
+        step_id = str(step.get("id", "") or "").strip()
+        archetype = workflow_role_archetype.get(str(step.get("role_id", "") or ""))
+        if archetype == "guide":
+            guide_seen_since_builder = True
+            continue
+        if archetype != "builder":
+            continue
+        if guide_seen_since_builder and not _step_declares_iteration_memory(step):
+            issues.append(
+                "Builder step after Guide must declare inputs.iteration_memory so repair pass does not rely on ambient context: "
+                + step_id
+            )
+        guide_seen_since_builder = False
+    return issues
+
+
+def _step_declares_iteration_memory(step: Mapping[str, Any]) -> bool:
+    inputs = step.get("inputs") if isinstance(step.get("inputs"), Mapping) else {}
+    return bool(str(inputs.get("iteration_memory", "") if isinstance(inputs, Mapping) else "").strip())
+
+
+def _lint_alignment_review_builder_inputs(
+    workflow: Mapping[str, Any],
+    *,
+    role_by_key: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    steps = [step for step in workflow.get("steps", []) if isinstance(step, Mapping)]
+    workflow_role_archetype = _alignment_workflow_role_archetype(workflow, role_by_key=role_by_key)
+    previous_builder_steps: list[str] = []
+    issues: list[str] = []
+    for step in steps:
+        step_id = str(step.get("id", "") or "").strip()
+        role_id = str(step.get("role_id", "") or "")
+        archetype = workflow_role_archetype.get(role_id)
+        if archetype == "builder":
+            previous_builder_steps.append(step_id)
+            continue
+        if archetype not in {"inspector", "custom"} or not previous_builder_steps:
+            continue
+        inputs = step.get("inputs") if isinstance(step.get("inputs"), Mapping) else {}
+        handoffs_from = {
+            str(handoff or "").strip()
+            for handoff in (inputs.get("handoffs_from") if isinstance(inputs, Mapping) else []) or []
+        }
+        if not handoffs_from.intersection(previous_builder_steps):
+            issues.append("review step after Builder must name a Builder handoff in inputs.handoffs_from: " + step_id)
+        if not _step_evidence_query_mentions_archetypes(step, {"builder"}):
+            issues.append("review step after Builder must query Builder evidence in inputs.evidence_query: " + step_id)
+    return issues
+
+
+def _parallel_review_role_text(role: Mapping[str, Any] | None) -> str:
+    if not role:
+        return ""
+    value = "\n".join(
+        [
+            str(role.get("name", "") or ""),
+            str(role.get("description", "") or ""),
+            str(role.get("prompt_markdown", "") or ""),
+            str(role.get("posture_notes", "") or ""),
+        ]
+    )
+    return re.sub(r"\s+", " ", value).strip().lower()
+
+
+def _lint_alignment_guide_review_inputs(
+    workflow: Mapping[str, Any],
+    *,
+    role_by_key: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    steps = [step for step in workflow.get("steps", []) if isinstance(step, Mapping)]
+    workflow_role_archetype = _alignment_workflow_role_archetype(workflow, role_by_key=role_by_key)
+    issues: list[str] = []
+    for index, step in enumerate(steps):
+        if workflow_role_archetype.get(str(step.get("role_id", "") or "")) != "guide":
+            continue
+        review_steps = _review_steps_since_latest_builder(
+            steps[:index],
+            workflow_role_archetype=workflow_role_archetype,
+            include_guides=False,
+        )
+        if not review_steps:
+            continue
+        step_id = str(step.get("id", "") or "").strip()
+        inputs = step.get("inputs") if isinstance(step.get("inputs"), Mapping) else {}
+        handoffs_from = {
+            str(handoff or "").strip()
+            for handoff in (inputs.get("handoffs_from") if isinstance(inputs, Mapping) else []) or []
+        }
+        missing_handoffs = [review_step_id for review_step_id, _ in review_steps if review_step_id not in handoffs_from]
+        if missing_handoffs:
+            issues.append(
+                "Guide step after review must include review handoffs in inputs.handoffs_from: "
+                + step_id
+            )
+        missing_archetypes = _step_missing_evidence_query_archetypes(
+            step,
+            {archetype for _, archetype in review_steps},
+        )
+        if missing_archetypes:
+            issues.append(
+                "Guide step after review must query review evidence in inputs.evidence_query: "
+                + ", ".join(missing_archetypes)
+            )
+    return issues
+
+
+def _lint_alignment_builder_review_inputs(
+    workflow: Mapping[str, Any],
+    *,
+    role_by_key: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    steps = [step for step in workflow.get("steps", []) if isinstance(step, Mapping)]
+    workflow_role_archetype = _alignment_workflow_role_archetype(workflow, role_by_key=role_by_key)
+    review_steps_since_builder: list[str] = []
+    guide_seen_since_builder = False
+    issues: list[str] = []
+    for step in steps:
+        step_id = str(step.get("id", "") or "").strip()
+        archetype = workflow_role_archetype.get(str(step.get("role_id", "") or ""))
+        if archetype in {"inspector", "custom"}:
+            review_steps_since_builder.append(step_id)
+            continue
+        if archetype == "guide":
+            guide_seen_since_builder = True
+            continue
+        if archetype != "builder":
+            continue
+        if review_steps_since_builder and not guide_seen_since_builder:
+            inputs = step.get("inputs") if isinstance(step.get("inputs"), Mapping) else {}
+            handoffs_from = {
+                str(handoff or "").strip()
+                for handoff in (inputs.get("handoffs_from") if isinstance(inputs, Mapping) else []) or []
+            }
+            missing = [review_step_id for review_step_id in review_steps_since_builder if review_step_id not in handoffs_from]
+            if missing:
+                issues.append(
+                    "Builder step after review must include review handoffs in inputs.handoffs_from: "
+                    + step_id
+                )
+        review_steps_since_builder = []
+        guide_seen_since_builder = False
+    return issues
+
+
+def _lint_alignment_builder_guide_inputs(
+    workflow: Mapping[str, Any],
+    *,
+    role_by_key: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    steps = [step for step in workflow.get("steps", []) if isinstance(step, Mapping)]
+    workflow_role_archetype = _alignment_workflow_role_archetype(workflow, role_by_key=role_by_key)
+    guide_steps_since_builder: list[str] = []
+    issues: list[str] = []
+    for step in steps:
+        step_id = str(step.get("id", "") or "").strip()
+        archetype = workflow_role_archetype.get(str(step.get("role_id", "") or ""))
+        if archetype == "guide":
+            guide_steps_since_builder.append(step_id)
+            continue
+        if archetype != "builder":
+            continue
+        if not guide_steps_since_builder:
+            continue
+        inputs = step.get("inputs") if isinstance(step.get("inputs"), Mapping) else {}
+        handoffs_from = {
+            str(handoff or "").strip()
+            for handoff in (inputs.get("handoffs_from") if isinstance(inputs, Mapping) else []) or []
+        }
+        if not handoffs_from.intersection(guide_steps_since_builder):
+            issues.append("Builder step after Guide must name a Guide handoff in inputs.handoffs_from: " + step_id)
+        guide_steps_since_builder = []
+    return issues
+
+
+def _lint_alignment_finishing_gatekeeper_inputs(
+    workflow: Mapping[str, Any],
+    *,
+    role_by_key: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    workflow_role_archetype = _alignment_workflow_role_archetype(workflow, role_by_key=role_by_key)
+    issues: list[str] = []
+    for step in workflow.get("steps", []):
+        if not isinstance(step, Mapping):
+            continue
+        if workflow_role_archetype.get(str(step.get("role_id", "") or "")) != "gatekeeper":
+            continue
+        if str(step.get("on_pass", "") or "") != "finish_run":
+            continue
+        step_id = str(step.get("id", "") or "").strip()
+        inputs = step.get("inputs") if isinstance(step.get("inputs"), Mapping) else {}
+        handoffs_from = (inputs.get("handoffs_from") if isinstance(inputs, Mapping) else []) or []
+        if not any(str(handoff or "").strip() for handoff in handoffs_from):
+            issues.append(
+                "finishing GateKeeper step must name upstream handoffs in inputs.handoffs_from: "
+                + step_id
+            )
+        if not (isinstance(inputs, Mapping) and inputs.get("evidence_query")):
+            issues.append(
+                "finishing GateKeeper step must query upstream evidence in inputs.evidence_query: "
+                + step_id
+            )
+    return issues
+
+
+def _lint_alignment_review_gatekeeper_inputs(
+    workflow: Mapping[str, Any],
+    *,
+    role_by_key: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    steps = [step for step in workflow.get("steps", []) if isinstance(step, Mapping)]
+    workflow_role_archetype = _alignment_workflow_role_archetype(workflow, role_by_key=role_by_key)
+    issues: list[str] = []
+    for index, step in enumerate(steps):
+        role_id = str(step.get("role_id", "") or "")
+        if workflow_role_archetype.get(role_id) != "gatekeeper":
+            continue
+        if str(step.get("on_pass", "") or "") != "finish_run":
+            continue
+        review_steps = _review_steps_since_latest_builder(
+            steps[:index],
+            workflow_role_archetype=workflow_role_archetype,
+        )
+        if not review_steps:
+            continue
+        inputs = step.get("inputs") if isinstance(step.get("inputs"), Mapping) else {}
+        handoffs_from = {
+            str(handoff or "").strip()
+            for handoff in (inputs.get("handoffs_from") if isinstance(inputs, Mapping) else []) or []
+        }
+        missing_handoffs = [step_id for step_id, _ in review_steps if step_id not in handoffs_from]
+        if missing_handoffs:
+            issues.append(
+                "finishing GateKeeper after review must include review handoffs in inputs.handoffs_from: "
+                + ", ".join(missing_handoffs)
+            )
+        missing_archetypes = _step_missing_evidence_query_archetypes(
+            step,
+            {archetype for _, archetype in review_steps},
+        )
+        if missing_archetypes:
+            issues.append(
+                "finishing GateKeeper after review must query review evidence in inputs.evidence_query: "
+                + ", ".join(missing_archetypes)
+            )
+    return issues
+
+
+def _review_steps_since_latest_builder(
+    previous_steps: list[Mapping[str, Any]],
+    *,
+    workflow_role_archetype: Mapping[str, str],
+    include_guides: bool = True,
+) -> list[tuple[str, str]]:
+    last_builder_index = -1
+    for index, step in enumerate(previous_steps):
+        if workflow_role_archetype.get(str(step.get("role_id", "") or "")) == "builder":
+            last_builder_index = index
+    review_steps: list[tuple[str, str]] = []
+    review_archetypes = {"inspector", "custom", "guide"} if include_guides else {"inspector", "custom"}
+    for step in previous_steps[last_builder_index + 1 :]:
+        archetype = workflow_role_archetype.get(str(step.get("role_id", "") or ""))
+        if archetype not in review_archetypes:
+            continue
+        step_id = str(step.get("id", "") or "").strip()
+        if step_id:
+            review_steps.append((step_id, archetype))
+    return review_steps
+
+
+def _lint_alignment_parallel_gatekeeper_inputs(
+    workflow: Mapping[str, Any],
+    *,
+    role_by_key: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    steps = [step for step in workflow.get("steps", []) if isinstance(step, Mapping)]
+    workflow_role_archetype = _alignment_workflow_role_archetype(workflow, role_by_key=role_by_key)
+    parallel_review_steps = [
+        (
+            str(step.get("id", "") or "").strip(),
+            workflow_role_archetype.get(str(step.get("role_id", "") or "")),
+        )
+        for step in steps
+        if str(step.get("parallel_group", "") or "").strip()
+        and workflow_role_archetype.get(str(step.get("role_id", "") or "")) in {"inspector", "custom"}
+    ]
+    parallel_review_step_ids = [
+        str(step.get("id", "") or "").strip()
+        for step in steps
+        if str(step.get("parallel_group", "") or "").strip()
+        and workflow_role_archetype.get(str(step.get("role_id", "") or "")) in {"inspector", "custom"}
+    ]
+    if not parallel_review_step_ids:
+        return []
+    issues: list[str] = []
+    for step in steps:
+        if workflow_role_archetype.get(str(step.get("role_id", "") or "")) != "gatekeeper":
+            continue
+        if str(step.get("on_pass", "") or "") != "finish_run":
+            continue
+        inputs = step.get("inputs") if isinstance(step.get("inputs"), Mapping) else {}
+        handoffs_from = {
+            str(handoff or "").strip()
+            for handoff in (inputs.get("handoffs_from") if isinstance(inputs, Mapping) else []) or []
+        }
+        missing = [step_id for step_id in parallel_review_step_ids if step_id not in handoffs_from]
+        if missing:
+            issues.append(
+                "GateKeeper step must include every parallel review handoff in inputs.handoffs_from: "
+                + ", ".join(missing)
+            )
+        expected_archetypes = {"builder", *(archetype for _, archetype in parallel_review_steps if archetype)}
+        missing_archetypes = _step_missing_evidence_query_archetypes(step, expected_archetypes)
+        if missing_archetypes:
+            issues.append(
+                "GateKeeper step must query Builder and parallel review evidence in inputs.evidence_query: "
+                + ", ".join(missing_archetypes)
+            )
+    return issues
+
+
+def _step_evidence_query_mentions_archetypes(step: Mapping[str, Any], expected_archetypes: set[str]) -> bool:
+    return not _step_missing_evidence_query_archetypes(step, expected_archetypes)
+
+
+def _step_missing_evidence_query_archetypes(step: Mapping[str, Any], expected_archetypes: set[str]) -> list[str]:
+    inputs = step.get("inputs") if isinstance(step.get("inputs"), Mapping) else {}
+    evidence_query = inputs.get("evidence_query") if isinstance(inputs, Mapping) else {}
+    archetypes = evidence_query.get("archetypes") if isinstance(evidence_query, Mapping) else []
+    actual = {str(archetype or "").strip().lower() for archetype in archetypes or []}
+    return sorted(expected_archetypes.difference(actual))
+
+
+def _alignment_workflow_role_archetype(
+    workflow: Mapping[str, Any],
+    *,
+    role_by_key: Mapping[str, Mapping[str, Any]],
+) -> dict[str, str]:
+    return {
+        str(role.get("id", "") or ""): str(role_by_key.get(str(role.get("role_definition_key", "") or ""), {}).get("archetype", "") or "")
+        for role in workflow.get("roles", [])
+        if isinstance(role, Mapping)
+    }
+
+
+def _alignment_workflow_role_definition_key(workflow: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        str(role.get("id", "") or ""): str(role.get("role_definition_key", "") or "")
+        for role in workflow.get("roles", [])
+        if isinstance(role, Mapping)
+    }
 
 
 def _alignment_workflow_role_keys(workflow: Mapping[str, Any]) -> list[object]:
@@ -620,19 +1363,34 @@ def _lint_alignment_role_semantics(
         role = role_by_key.get(str(role_key))
         if role is None:
             continue
+        if _alignment_role_name_is_generic(role):
+            issues.append(f"role_definition {role['key']} must use a task-specific role name")
         if not str(role.get("posture_notes", "") or "").strip():
             issues.append(f"role_definition {role['key']} must include task-scoped posture_notes")
-        elif not _semantic_text_is_specific(role.get("posture_notes", "")):
-            issues.append(f"role_definition {role['key']} posture_notes must describe a task-specific tradeoff")
-        if not _alignment_role_mentions_evidence(role):
-            issues.append(f"role_definition {role['key']} must describe evidence, verification, handoff, or blocker behavior")
     return issues
 
 
-def _alignment_role_mentions_evidence(role: Mapping[str, Any]) -> bool:
-    prompt_text = str(role.get("prompt_markdown", "") or "")
-    combined = prompt_text + "\n" + str(role.get("posture_notes", "") or "")
-    return _semantic_text_mentions_evidence(combined)
+def _alignment_role_name_is_generic(role: Mapping[str, Any]) -> bool:
+    name = re.sub(r"\s+", " ", str(role.get("name", "") or "")).strip().lower()
+    if name in {
+        "builder",
+        "generator",
+        "inspector",
+        "tester",
+        "gatekeeper",
+        "gate keeper",
+        "verifier",
+        "guide",
+        "challenger",
+        "custom",
+    }:
+        return True
+    return bool(
+        re.fullmatch(
+            r"(?:builder|generator|inspector|tester|gatekeeper|gate keeper|verifier|guide|challenger|agent|role)[\s#_-]*\d+",
+            name,
+        )
+    )
 
 
 def _lint_alignment_gatekeeper_semantics(
@@ -651,19 +1409,7 @@ def _lint_alignment_gatekeeper_semantics(
     }
     if "gatekeeper" not in archetypes:
         issues.append("gatekeeper completion mode requires a GateKeeper role")
-    issues.extend(
-        "GateKeeper prompt must state what blocks finish"
-        for role in normalized["role_definitions"]
-        if _is_gatekeeper_without_blocking_semantics(role)
-    )
     return issues
-
-
-def _is_gatekeeper_without_blocking_semantics(role: Mapping[str, Any]) -> bool:
-    if str(role.get("archetype", "") or "") != "gatekeeper":
-        return False
-    gatekeeper_text = str(role.get("prompt_markdown", "") or "") + "\n" + str(role.get("posture_notes", "") or "")
-    return not re.search(r"block|fail|do not pass|阻断|不要通过|不通过|拒绝", gatekeeper_text, re.I)
 
 
 def read_bundle_file_text(path: Path) -> str:

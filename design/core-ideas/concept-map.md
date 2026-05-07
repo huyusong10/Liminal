@@ -55,7 +55,7 @@ Loopora 的稳定主工作流是：
 层级规则：
 
 - `GateKeeper` 不能和 `roles` 并列。它在 `roles` 里是一个 role archetype，在 `workflow` 里可以是 finish step，在 `evidence` / run result 里表现为 verdict。
-- `Builder / Inspector / GateKeeper / Guide / Custom Restricted` 是 role archetype，归属于 `roles`。
+- `Builder / Inspector / GateKeeper / Guide / Custom` 是 role archetype，归属于 `roles`；Custom 的只读、建议或低权限边界来自 workflow step 的行动权限与收束规则，不是另一种 archetype。
 - `steps / parallel_group / inputs / handoff / controls / finish_run` 归属于 `workflow`。
 - `evidence ledger / coverage / artifact refs / GateKeeper verdict` 归属于 `evidence` 与 Loop 裁决投影。
 - `Bundle ID` 是 `bundle` 的属性，不是独立概念。Loopora 不把 Loop 演化历史、lineage、diff 或回滚作为系统持有的核心概念。

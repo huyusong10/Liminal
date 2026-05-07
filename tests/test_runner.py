@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from loopora.branding import state_dir_for_workdir
+from loopora.context_flow import output_contract_prompt, system_prompt_prefix
 from loopora.executor import CodexExecutor, ExecutorError, FakeCodexExecutor, build_command_event_payload
 from loopora.run_artifacts import RunArtifactLayout
 from loopora.service import LooporaError, LooporaService
@@ -355,6 +356,7 @@ def test_successful_run_enriches_logs_and_role_outputs(
 
     run_dir = Path(run["runs_dir"])
     step_outputs = _step_outputs_by_archetype(run_dir)
+    builder_output = step_outputs["builder"][-1]["output"]
     tester_output = step_outputs["inspector"][-1]["output"]
     verifier_verdict = step_outputs["gatekeeper"][-1]["output"]
     metrics_history = _read_jsonl(run_dir / "timeline" / "metrics.jsonl")
@@ -362,10 +364,18 @@ def test_successful_run_enriches_logs_and_role_outputs(
     iteration_log = _read_jsonl(run_dir / "iteration_log.jsonl")
     latest_iteration_summary = json.loads((run_dir / "context" / "latest_iteration_summary.json").read_text(encoding="utf-8"))
 
+    assert "frozen task contract" in builder_output["attempted"]
+    assert "proof surface" in builder_output["summary"]
     assert tester_output["status_counts"]["overall"]["passed"] >= 1
     assert "failed_items" in tester_output
+    assert "frozen run contract" in tester_output["tester_observations"]
+    assert "Blocking or Unproven" in tester_output["tester_observations"]
     assert verifier_verdict["decision_summary"]
+    assert "run lifecycle alone is not proof" in verifier_verdict["decision_summary"]
     assert verifier_verdict["evidence_refs"]
+    assert verifier_verdict["evidence_claims"]
+    assert "Proven:" in verifier_verdict["evidence_claims"][0]
+    assert "run status separate from task verdict" in verifier_verdict["evidence_claims"][0]
     assert verifier_verdict["evidence_gate_status"] == "passed"
     assert "failing_metrics" in verifier_verdict
     assert "next_actions" in verifier_verdict
@@ -483,7 +493,7 @@ def test_run_persists_role_request_snapshots_and_iteration_handoff(
     prompt_text = prompt_path.read_text(encoding="utf-8")
     assert "This is iteration 2." in prompt_text
     assert "Previous iteration summary:" in prompt_text
-    assert "Improve the most visible failing checks without widening scope." in prompt_text
+    assert "Repair the smallest Blocking or Unproven gap without lowering the frozen contract." in prompt_text
     assert "Immediate upstream handoff" in prompt_text
 
 
@@ -610,15 +620,118 @@ def test_workflow_run_recovers_corrupt_stagnation_projection(
     assert stagnation["stagnation_mode"] == "none"
 
 
+def _assert_runtime_contract_frozen_prefixes() -> None:
+    for archetype in ["builder", "inspector", "gatekeeper", "custom", "guide"]:
+        prefix = system_prompt_prefix(archetype)
+        assert "Treat the run contract as frozen" in prefix
+        assert "do not reinterpret or lower Task, Done When, or Guardrails" in prefix
+        assert "evidence gaps or blockers" in prefix
+        assert "project-local instructions, design docs, and tests" in prefix
+
+
+def _assert_prompt_assets_contract_frozen(prompts: list[str], zh_prompts: list[str]) -> None:
+    for prompt in prompts:
+        assert "Treat the run contract as frozen" in prompt
+        assert "do not reinterpret or lower Task, Done When, checks, or guardrails" in prompt
+        assert "evidence gaps or blockers" in prompt
+        assert "project-local instructions, design docs" in prompt
+    for prompt in zh_prompts:
+        assert "把 run contract 当作已冻结" in prompt
+        assert "不要重新解释或降低 Task、Done When、checks 或 guardrails" in prompt
+        assert "证据缺口或 blocker" in prompt
+        assert "项目本地指令、design 文档或 tests" in prompt
+
+
 def test_builtin_prompts_define_runtime_evidence_fallback_rules() -> None:
     prompts_dir = Path(__file__).resolve().parents[1] / "src" / "loopora" / "assets" / "prompts"
     builder_prompt = (prompts_dir / "builder.md").read_text(encoding="utf-8")
+    builder_zh_prompt = (prompts_dir / "builder.zh.md").read_text(encoding="utf-8")
+    inspector_prompt = (prompts_dir / "inspector.md").read_text(encoding="utf-8")
+    inspector_zh_prompt = (prompts_dir / "inspector.zh.md").read_text(encoding="utf-8")
+    custom_prompt = (prompts_dir / "custom.md").read_text(encoding="utf-8")
+    custom_zh_prompt = (prompts_dir / "custom.zh.md").read_text(encoding="utf-8")
+    guide_prompt = (prompts_dir / "guide.md").read_text(encoding="utf-8")
+    guide_zh_prompt = (prompts_dir / "guide.zh.md").read_text(encoding="utf-8")
     gatekeeper_prompt = (prompts_dir / "gatekeeper.md").read_text(encoding="utf-8")
+    gatekeeper_zh_prompt = (prompts_dir / "gatekeeper.zh.md").read_text(encoding="utf-8")
+    benchmark_gatekeeper_prompt = (prompts_dir / "gatekeeper-benchmark.md").read_text(encoding="utf-8")
+    benchmark_gatekeeper_zh_prompt = (prompts_dir / "gatekeeper-benchmark.zh.md").read_text(encoding="utf-8")
 
     assert "smallest repeatable verification artifact" in builder_prompt
     assert "strongest no-install executable proof" in builder_prompt
+    assert "最小可重复验证产物" in builder_zh_prompt
+    assert "最强免安装可执行证明" in builder_zh_prompt
     assert "strongest repeatable fallback evidence" in gatekeeper_prompt
     assert "deterministic local proof" in gatekeeper_prompt
+    assert "最强可重复 fallback 证据" in gatekeeper_zh_prompt
+    assert "确定性本地证明" in gatekeeper_zh_prompt
+    assert "Inspector or Custom review steps will run in parallel" in builder_prompt
+    assert "Inspector 或 Custom review step 并行检视" in builder_zh_prompt
+    assert "parallel review group" in inspector_prompt
+    assert "peer reviewers" in inspector_prompt
+    assert "Custom reviewer" in inspector_prompt
+    assert "并行 review 组" in inspector_zh_prompt
+    assert "其他 reviewer" in inspector_zh_prompt
+    assert "Custom reviewer" in inspector_zh_prompt
+    assert "places you in a parallel review group" in custom_prompt
+    assert "downstream GateKeeper can fan in" in custom_prompt
+    assert "把你放进并行 review 组" in custom_zh_prompt
+    assert "GateKeeper 可以和其他 review 分支一起汇总" in custom_zh_prompt
+    assert "parallel Inspector or Custom review steps" in gatekeeper_prompt
+    assert "all relevant review handoffs" in gatekeeper_prompt
+    assert "并行 Inspector 或 Custom review step" in gatekeeper_zh_prompt
+    assert "相关 review handoff" in gatekeeper_zh_prompt
+    evidence_bucket_phrase = "Proven / Weak / Unproven / Blocking / Residual risk"
+    evidence_bucket_zh_phrase = "已证明 / 弱证据 / 未证明 / 阻断 / 残余风险"
+    prompts = [
+        builder_prompt,
+        inspector_prompt,
+        custom_prompt,
+        guide_prompt,
+        gatekeeper_prompt,
+        benchmark_gatekeeper_prompt,
+    ]
+    zh_prompts = [
+        builder_zh_prompt,
+        inspector_zh_prompt,
+        custom_zh_prompt,
+        guide_zh_prompt,
+        gatekeeper_zh_prompt,
+        benchmark_gatekeeper_zh_prompt,
+    ]
+    for prompt in prompts:
+        assert evidence_bucket_phrase in prompt
+    for prompt in zh_prompts:
+        assert evidence_bucket_zh_phrase in prompt
+    assert "run status is not a task pass" in gatekeeper_prompt
+    assert "run 正常结束不等于任务通过" in gatekeeper_zh_prompt
+    assert "run status separate from task verdict" in system_prompt_prefix("gatekeeper")
+    _assert_runtime_contract_frozen_prefixes()
+    assert "Proven, Weak, Unproven, Blocking, and Residual risk" in output_contract_prompt("inspector")
+    assert "run status from task verdict" in output_contract_prompt("gatekeeper")
+    assert "Blocking or Unproven gaps into the smallest repair direction" in output_contract_prompt("guide")
+
+
+def test_builtin_prompt_assets_treat_run_contract_as_frozen() -> None:
+    prompts_dir = Path(__file__).resolve().parents[1] / "src" / "loopora" / "assets" / "prompts"
+    prompts = [
+        (prompts_dir / "builder.md").read_text(encoding="utf-8"),
+        (prompts_dir / "inspector.md").read_text(encoding="utf-8"),
+        (prompts_dir / "custom.md").read_text(encoding="utf-8"),
+        (prompts_dir / "guide.md").read_text(encoding="utf-8"),
+        (prompts_dir / "gatekeeper.md").read_text(encoding="utf-8"),
+        (prompts_dir / "gatekeeper-benchmark.md").read_text(encoding="utf-8"),
+    ]
+    zh_prompts = [
+        (prompts_dir / "builder.zh.md").read_text(encoding="utf-8"),
+        (prompts_dir / "inspector.zh.md").read_text(encoding="utf-8"),
+        (prompts_dir / "custom.zh.md").read_text(encoding="utf-8"),
+        (prompts_dir / "guide.zh.md").read_text(encoding="utf-8"),
+        (prompts_dir / "gatekeeper.zh.md").read_text(encoding="utf-8"),
+        (prompts_dir / "gatekeeper-benchmark.zh.md").read_text(encoding="utf-8"),
+    ]
+
+    _assert_prompt_assets_contract_frozen(prompts, zh_prompts)
 
 
 def test_inspect_first_workflow_runs_inspector_before_builder(

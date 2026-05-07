@@ -917,13 +917,21 @@ def system_prompt_prefix(archetype: str) -> str:
             "System safety rules:\n"
             "- You may edit files inside the workdir.\n"
             "- Preserve existing non-.loopora files and avoid destructive rewrites.\n"
-            "- Prefer focused, incremental changes over broad resets."
+            "- Prefer focused, incremental changes over broad resets.\n"
+            "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
+            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, or Guardrails; "
+            "surface contract problems as evidence gaps or blockers instead.\n"
+            "- In the handoff, name which claim moved toward Proven and what remains Weak, Unproven, Blocking, or Residual risk."
         )
     if archetype == "inspector":
         return (
             "System safety rules:\n"
             "- Collect evidence with project-owned commands, files, and artifacts.\n"
             "- Prefer concrete commands and observations.\n"
+            "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
+            "- Classify important observations as Proven, Weak, Unproven, Blocking, or Residual risk when that helps downstream judgment.\n"
+            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, or Guardrails; "
+            "surface contract problems as evidence gaps or blockers instead.\n"
             "- Do not rewrite source files as part of inspection."
         )
     if archetype == "gatekeeper":
@@ -931,6 +939,10 @@ def system_prompt_prefix(archetype: str) -> str:
             "System safety rules:\n"
             "- Decide conservatively from direct evidence.\n"
             "- When evidence is weak, fail closed and explain what is missing.\n"
+            "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
+            "- Keep run status separate from task verdict, and organize the verdict as Proven, Weak, Unproven, Blocking, or Residual risk.\n"
+            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, or Guardrails; "
+            "surface contract problems as evidence gaps or blockers instead.\n"
             "- Keep the verdict short and operational."
         )
     if archetype == "custom":
@@ -939,12 +951,20 @@ def system_prompt_prefix(archetype: str) -> str:
             "- You are a low-permission supporting role.\n"
             "- Read the workspace and evidence, but do not claim write actions or final authority.\n"
             "- Prefer concrete observations and next-step recommendations.\n"
+            "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
+            "- Mark specialized observations as Proven, Weak, Unproven, Blocking, or Residual risk when useful.\n"
+            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, or Guardrails; "
+            "surface contract problems as evidence gaps or blockers instead.\n"
             "- Always return a stable takeaway with status, summary, blocking_items, and recommended_next_action."
         )
     return (
         "System safety rules:\n"
         "- Suggest the smallest useful direction change.\n"
         "- Do not act like a second GateKeeper.\n"
+        "- Turn Blocking or Unproven gaps into a smaller proof or repair direction while keeping Residual risk visible.\n"
+        "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
+        "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, or Guardrails; "
+        "surface contract problems as evidence gaps or blockers instead.\n"
         "- Keep the advice grounded in the current evidence."
     )
 
@@ -955,21 +975,27 @@ def output_contract_prompt(archetype: str) -> str:
     if archetype == "inspector":
         return (
             "Output contract: return JSON with execution_summary, check_results, dynamic_checks, tester_observations, "
-            "and coverage_results. Use an empty coverage_results list unless you can explicitly verify or reject coverage target ids."
+            "and coverage_results. Use an empty coverage_results list unless you can explicitly verify or reject coverage target ids. "
+            "Use notes to distinguish Proven, Weak, Unproven, Blocking, and Residual risk evidence."
         )
     if archetype == "gatekeeper":
         return (
             "Output contract: return JSON with passed, decision_summary, feedback_to_builder, blocking_issues, "
             "metrics, failed_check_ids, priority_failures, composite_score, evidence_refs, and evidence_claims. "
             "A pass must cite upstream evidence_refs from the Evidence ledger. If this is the first gate in the workflow, "
-            "claims alone are not enough; provide concrete metric_scores tied to the evidence you inspected."
+            "claims alone are not enough; provide concrete metric_scores tied to the evidence you inspected. "
+            "The decision_summary should separate run status from task verdict and name any Weak, Unproven, Blocking, or Residual risk evidence."
         )
     if archetype == "custom":
         return (
             "Output contract: return JSON with status, summary, blocking_items, recommended_next_action, "
             "observations, recommendations, risks, and handoff_note."
         )
-    return "Output contract: return JSON with created_at_iter, mode, consumed, analysis, seed_question, and meta_note."
+    return (
+        "Output contract: return JSON with created_at_iter, mode, consumed, analysis, seed_question, and meta_note. "
+        "Inside analysis, turn Blocking or Unproven gaps into the smallest repair direction, strengthen Weak evidence only when it changes the decision, "
+        "and keep Residual risk visible."
+    )
 
 
 def render_run_contract_section(contract: dict, compiled_spec: dict) -> str:

@@ -178,7 +178,8 @@ workflow 保存前必须满足：
 - `custom` role 可以进入编排，但不能成为收敛裁决入口。
 - 并行组必须是连续 step，且每组至少 2 个 step。
 - 并行组内第一阶段只允许 `inspector` 与 `custom`，不允许 `builder`、`gatekeeper` 或 `guide`，避免并发写入和并发收敛污染 run 状态。
-- 并行 Inspector 应表达不同证据责任，例如 contract、evidence、regression、benchmark 或 posture，而不是只复制多个同名 Inspector。
+- 并行 review step（Inspector 或 Custom）应表达不同证据责任，例如 contract、evidence、regression、benchmark、posture 或任务专属检视面，而不是只复制多个同名 reviewer。
+- Custom 若作为只读专项 review 出现在 Builder、Guide 或 GateKeeper 之前，信息流规则与 Inspector review 相同：下游必须显式读取对应 handoff，并在需要裁决或修复方向时查询 Custom evidence。
 - workflow controls 必须服务于误差控制，不能表达任意 cron、webhook、文件监听、外部事件、动态 DAG 或隐式 Builder 修复。
 - control signal 必须来自稳定枚举；未知 signal、未知 role、Builder target、无效 mode 或不受限触发配置必须被拒绝。运行期重新装配冻结 workflow 时若发现损坏的 controls 配置，必须失败关闭，而不是按默认值执行。
 - action policy 必须与 archetype 和 workflow 语义兼容；并行检视组内不得出现写入工作区或收束 run 的 step。
@@ -190,7 +191,10 @@ prompt 资产必须满足：
 - 声明与 role 一致的角色原型。
 - 正文非空。
 - `prompt_ref` 是安全相对引用，不允许绝对路径、空段或 `.` / `..` 段。
-- 内置 prompt 必须解释 Inspector 的广义证据生产者语义、并行检视时的分工、GateKeeper 对多证据分支的 fan-in 责任，以及 Builder 在并行检视前应留下可检查 handoff。
+- 内置 prompt 必须解释 Inspector 的广义证据生产者语义、Custom 在并行 review 中的只读专门检视语义、并行检视时的分工、GateKeeper 对多证据分支的 fan-in 责任，以及 Builder 在并行检视前应留下可检查 handoff。
+- 中英文内置 prompt 必须在核心运行语义上保持一致，尤其是并行 review、GateKeeper fan-in、环境阻断后的 fallback 证据策略、run contract 冻结边界，以及不能用主观信心替代证据的规则。
+- 内置 prompt 应引导角色使用稳定证据投影桶：`Proven / Weak / Unproven / Blocking / Residual risk`。这些桶帮助 Builder handoff、Inspector review、Guide repair direction、Custom review 和 GateKeeper verdict 把自然语言观察投影到用户最终能审计的 Loop 裁决面；中文 prompt 使用等价语义即可。
+- 内置 prompt 应把项目本地指令、design 文档和 tests 视为存在时的契约与证据输入：Builder 不应绕过它们改动，Inspector / Custom 应把相关 design 或测试契约纳入检视，Guide 的修复方向不应绕过它们，GateKeeper 不应让跳过本地规则或缺失预期验证的 run 仅凭自然语言摘要通过。
 
 ## 7. 模型与 step 覆盖优先级
 
@@ -224,8 +228,10 @@ step 级执行附加项只影响当前 step：
 - 系统安全边界、输出契约和 context packet shape 不能被自定义 prompt 绕开。
 - evidence ledger 摘要只传递近期 item、已知 evidence id 列表和 ledger 路径，避免把证据账本全文复制进每个 prompt。
 - `inputs` 只能裁剪当前 prompt 的可见上下文，不能改变 run 的 canonical evidence ledger、step output、handoff 或 iteration summary。
+- Guide / Challenger 的运行时 prompt 与输出契约必须把 Blocking 或 Unproven 缺口转成最小修复方向；Weak 证据只有在会改变裁决时才优先补强，Residual risk 必须保持可见。
 - control prompt 必须显式说明触发信号、原因、读取的 evidence refs 和模式；它产生的 ledger item 使用 `evidence_kind=control`。
 - `Role Notes` / `posture_notes` / `collaboration_intent` 可以影响角色工作姿态，但不能改写 `Task / Done When / Guardrails`。
+- 所有运行期 archetype 的 system prompt 前缀都必须提醒角色：run contract 已冻结；若发现 `Task / Done When / Guardrails` 过窄、过松或冲突，应作为 evidence gap / blocker / Loop 调整建议暴露，而不能在 run 内静默降级或改写。
 - step `action_policy` 可以收窄或授予当前调用的行动边界，但不能让角色越过系统安全约束、workspace guard 或 completion mode 语义。
 - 当环境阻断浏览器、截图或桌面控制能力时，prompt 应引导角色切换到可重复 fallback 证据，并把环境限制写入 handoff。
 

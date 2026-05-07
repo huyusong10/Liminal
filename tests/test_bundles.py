@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
 
-from loopora.bundles import bundle_to_yaml
+from loopora.bundles import (
+    bundle_to_yaml,
+    lint_alignment_bundle_generation_metadata,
+    lint_alignment_bundle_generation_text,
+    lint_alignment_bundle_semantics,
+    load_bundle_text,
+)
+from loopora.executor_fake_payloads import alignment_bundle_yaml
 from loopora.service import LooporaError
 from loopora.service_types import LooporaConflictError
 from loopora.settings import app_home, configure_logging
@@ -460,6 +468,1070 @@ def test_bundle_preview_rejects_spec_markdown_that_cannot_compile(service_factor
 
     with pytest.raises(LooporaError, match="Role Notes"):
         service.preview_bundle_text(invalid_yaml)
+
+
+def test_alignment_semantic_lint_requires_residual_risk(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert "spec must include Residual Risk guidance" not in lint_alignment_bundle_semantics(valid_bundle)
+
+    yaml_without_residual_risk = re.sub(
+        r"\n    # Residual Risk\n\n    .+?(?=\n\n    # Role Notes)",
+        "\n",
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+        flags=re.DOTALL,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_without_residual_risk))
+
+    assert "spec must include Residual Risk guidance" in issues
+
+
+def test_alignment_semantic_lint_accepts_alternate_residual_risk_prose(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert "spec Residual Risk must say what can remain visible and what must block" not in lint_alignment_bundle_semantics(valid_bundle)
+
+    yaml_with_generic_residual_risk = re.sub(
+        r"\n    # Residual Risk\n\n    .+?(?=\n\n    # Role Notes)",
+        "\n    # Residual Risk\n\n    Some remaining risk is probably fine for this task.",
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+        flags=re.DOTALL,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_generic_residual_risk))
+
+    assert "spec Residual Risk must say what can remain visible and what must block" not in issues
+
+
+def test_alignment_semantic_lint_requires_summary_governance_story(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert "collaboration_summary must explain the governance story" not in lint_alignment_bundle_semantics(valid_bundle)
+
+    yaml_without_governance_summary = re.sub(
+        r"collaboration_summary: \|\n(?:  .+\n)+loop:",
+        'collaboration_summary: "Build the requested task."\nloop:',
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_without_governance_summary))
+
+    assert "collaboration_summary must explain the governance story" in issues
+
+
+def test_alignment_semantic_lint_accepts_concise_summary_without_surface_keywords(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("project judgment across spec, roles, and workflow" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
+
+    yaml_without_surface_projection = re.sub(
+        r"collaboration_summary: \|\n(?:  .+\n)+loop:",
+        (
+            "collaboration_summary: |\n"
+            "  Collect reproducible evidence and let GateKeeper block weak proof before closing the task.\n"
+            "loop:"
+        ),
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_without_surface_projection))
+
+    assert "collaboration_summary must project judgment across spec, roles, and workflow" not in issues
+
+
+def test_alignment_semantic_lint_accepts_summary_that_names_surfaces_without_mapping_verbs(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("maps onto spec, roles, and workflow" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
+
+    yaml_with_surface_list_only = re.sub(
+        r"collaboration_summary: \|\n(?:  .+\n)+loop:",
+        (
+            "collaboration_summary: |\n"
+            "  The spec, roles, and workflow all support evidence collection, "
+            "handoff review, and GateKeeper final judgment for this concrete starter task.\n"
+            "loop:"
+        ),
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_surface_list_only))
+
+    assert "collaboration_summary must explain how judgment maps onto spec, roles, and workflow" not in issues
+
+
+def test_alignment_semantic_lint_accepts_chinese_summary_surface_projection(sample_workdir: Path) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["collaboration_summary"] = (
+        "把工作协议投影到任务契约、角色和 workflow：spec 承载成功面、假完成和残余风险，"
+        "角色负责 Builder、Inspector、GateKeeper 的证据交接，workflow 安排并行检查、信息流和 GateKeeper 裁决。"
+    )
+
+    assert not any("collaboration_summary" in issue for issue in lint_alignment_bundle_semantics(bundle))
+
+
+@pytest.mark.parametrize(
+    "generic_task",
+    [
+        "Do the task.",
+        "Ship the focused starter experience described only by the alignment agreement.",
+    ],
+)
+def test_alignment_semantic_lint_requires_specific_task_contract(sample_workdir: Path, generic_task: str) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert "spec Task must describe the concrete user-facing task" not in lint_alignment_bundle_semantics(valid_bundle)
+
+    yaml_with_generic_task = re.sub(
+        r"\n    # Task\n\n    .+?(?=\n\n    # Done When)",
+        f"\n    # Task\n\n    {generic_task}",
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+        flags=re.DOTALL,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_generic_task))
+
+    assert "spec Task must describe the concrete user-facing task" in issues
+
+
+def test_alignment_semantic_lint_requires_done_when_checks(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert "spec must include at least one Done When bullet" not in lint_alignment_bundle_semantics(valid_bundle)
+
+    yaml_without_done_when = re.sub(
+        r"\n    # Done When\n\n    - .+?(?=\n\n    # Guardrails)",
+        "",
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+        flags=re.DOTALL,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_without_done_when))
+
+    assert "spec must include at least one Done When bullet" in issues
+
+
+def test_alignment_semantic_lint_accepts_alternate_done_when_wording(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert "spec Done When must contain concrete, judgeable success checks" not in lint_alignment_bundle_semantics(valid_bundle)
+
+    yaml_with_generic_done_when = re.sub(
+        r"\n    # Done When\n\n    - .+?(?=\n\n    # Guardrails)",
+        "\n    # Done When\n\n    - It works.\n    - The task is done.",
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+        flags=re.DOTALL,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_generic_done_when))
+
+    assert "spec Done When must contain concrete, judgeable success checks" not in issues
+
+
+def test_alignment_semantic_lint_accepts_alternate_success_surface_wording(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert "spec Success Surface must name an observable, runnable, or checkable result" not in lint_alignment_bundle_semantics(valid_bundle)
+
+    yaml_with_generic_success_surface = re.sub(
+        r"\n    # Success Surface\n\n    - .+?(?=\n\n    # Fake Done)",
+        "\n    # Success Surface\n\n    - The result is high quality and useful.",
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+        flags=re.DOTALL,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_generic_success_surface))
+
+    assert "spec Success Surface must name an observable, runnable, or checkable result" not in issues
+
+
+def test_alignment_semantic_lint_accepts_alternate_evidence_preference_wording(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert "spec Evidence Preferences must name a concrete proof type" not in lint_alignment_bundle_semantics(valid_bundle)
+
+    yaml_with_generic_evidence = re.sub(
+        r"\n    # Evidence Preferences\n\n    - .+?(?=\n\n    # Residual Risk)",
+        "\n    # Evidence Preferences\n\n    - Need enough evidence before accepting the result.",
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+        flags=re.DOTALL,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_generic_evidence))
+
+    assert "spec Evidence Preferences must name a concrete proof type" not in issues
+
+
+def test_alignment_semantic_lint_requires_evidence_bucket_projection(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("must project task verdict evidence" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
+
+    yaml_without_bucket_projection = (
+        alignment_bundle_yaml(str(sample_workdir.resolve()))
+        .replace(
+            " Evidence projection must distinguish Proven direct run proof, Weak indirect evidence, "
+            "Unproven promised surfaces, Blocking fake-done findings, and visible Residual risk.",
+            "",
+        )
+        .replace(
+            "    - Final evidence should be bucketed as Proven, Weak, Unproven, Blocking, "
+            "or Residual risk instead of flattened into one summary.\n",
+            "",
+        )
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_without_bucket_projection))
+
+    assert (
+        "alignment bundle must project task verdict evidence into Proven, Weak, Unproven, "
+        "Blocking, and Residual risk buckets"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_gatekeeper_completion_mode(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("must use gatekeeper completion_mode" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
+
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["loop"]["completion_mode"] = "rounds"
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "Web alignment bundles must use gatekeeper completion_mode so task verdict is evidence-based, "
+        "not only run lifecycle completion"
+    ) in issues
+
+
+def test_alignment_generated_metadata_omits_lineage_fields(sample_workdir: Path) -> None:
+    valid_yaml = alignment_bundle_yaml(str(sample_workdir.resolve()))
+    assert lint_alignment_bundle_generation_text(valid_yaml) == []
+    assert lint_alignment_bundle_generation_metadata(valid_yaml) == []
+
+    lineage_yaml = valid_yaml.replace(
+        '  description: "Bundle generated by the Web alignment flow."\n',
+        '  description: "Bundle generated by the Web alignment flow."\n'
+        '  source_bundle_id: "source_bundle_old"\n'
+        "  revision: 2\n",
+        1,
+    )
+
+    assert lint_alignment_bundle_generation_metadata(lineage_yaml) == [
+        "Web alignment generated bundles must omit metadata.source_bundle_id and metadata.revision; "
+        "source context is temporary and final bundles are standalone candidates"
+    ]
+    semantic_issues = lint_alignment_bundle_semantics(load_bundle_text(lineage_yaml))
+    assert (
+        "Web alignment bundles must not encode metadata.source_bundle_id; "
+        "source context is temporary and final bundles are standalone candidates"
+    ) in semantic_issues
+
+
+def test_alignment_generated_bundle_text_must_be_raw_yaml(sample_workdir: Path) -> None:
+    valid_yaml = alignment_bundle_yaml(str(sample_workdir.resolve()))
+    yaml_with_internal_fence = valid_yaml.replace(
+        "Leave concrete handoffs and evidence references for downstream review.",
+        "Leave concrete handoffs and evidence references for downstream review.\n\n      ```text\n      internal example\n      ```",
+        1,
+    )
+
+    fenced_issues = lint_alignment_bundle_generation_text(f"```yaml\n{valid_yaml}```")
+    prefixed_issues = lint_alignment_bundle_generation_text("Here is the bundle:\n" + valid_yaml)
+    comment_prefixed_issues = lint_alignment_bundle_generation_text("# Here is the bundle\n" + valid_yaml)
+
+    assert lint_alignment_bundle_generation_text(yaml_with_internal_fence) == []
+    assert "Web alignment generated bundle_yaml must be one raw YAML document, not markdown-fenced output" in fenced_issues
+    assert "Web alignment generated bundle_yaml must start with version: 1" in fenced_issues
+    assert prefixed_issues == ["Web alignment generated bundle_yaml must start with version: 1"]
+    assert comment_prefixed_issues == ["Web alignment generated bundle_yaml must start with version: 1"]
+
+
+def test_alignment_semantic_lint_does_not_hard_block_judgment_tradeoff_wording(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("must project judgment tradeoffs" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
+
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["collaboration_summary"] = (
+        "Project the working agreement into spec, roles, and workflow: spec carries the concrete task "
+        "contract and evidence needs, roles own Builder / Inspector / GateKeeper handoffs, and workflow "
+        "routes proof before final GateKeeper judgment."
+    )
+    bundle["spec"]["markdown"] = (
+        bundle["spec"]["markdown"]
+        .replace("Prefer project-owned checks", "Use project-owned checks")
+        .replace("Prefer a small maintainable patch over broad rewrites.", "Keep the patch small, maintainable, and verifiable.")
+        .replace("Fail closed when", "Treat as a blocker when")
+        .replace("fail closed on", "treat as a blocker for")
+    )
+    for role in bundle["role_definitions"]:
+        if role["key"] == "builder":
+            role["posture_notes"] = (
+                "Keep implementation narrow and leave a verifiable handoff with changed behavior, command evidence, "
+                "and blockers for later review."
+            )
+        elif role["key"] == "contract-inspector":
+            role["posture_notes"] = (
+                "Inspect the delivered slice against agreed scope and report unresolved fake-done risk as a blocker "
+                "with concrete evidence references."
+            )
+        elif role["key"] == "evidence-inspector":
+            role["posture_notes"] = (
+                "Collect direct run output, concrete artifacts, and missing-proof blockers in a clear handoff for "
+                "GateKeeper review."
+            )
+        elif role["key"] == "gatekeeper":
+            role["posture_notes"] = (
+                "Block missing handoff evidence and close only after the task contract and verification evidence agree."
+            )
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert not any("must project judgment tradeoffs" in issue for issue in issues)
+
+
+def test_alignment_semantic_lint_rejects_personality_memory_bundle(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("personality memory" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
+
+    valid_bundle["collaboration_summary"] = (
+        "This bundle maps the user's permanent preference memory into spec, roles, and workflow "
+        "so Builder always follows the user's global personality, Inspector gathers browser "
+        "and test evidence, and GateKeeper signs off only after that evidence supports the "
+        "preferred behavior."
+    )
+    issues = lint_alignment_bundle_semantics(valid_bundle)
+
+    assert "alignment bundle must stay task-scoped, not personality memory or global preferences" in issues
+
+
+@pytest.mark.parametrize(
+    "antipattern_phrase",
+    [
+        "prompt pack",
+        "role zoo",
+        "loop script",
+        "benchmark grinder",
+        "chat wrapper",
+    ],
+)
+def test_alignment_semantic_lint_rejects_named_loopora_antipatterns(
+    sample_workdir: Path,
+    antipattern_phrase: str,
+) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("prompt pack" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
+
+    valid_bundle["collaboration_summary"] = (
+        f"This {antipattern_phrase} maps the user's task into spec, roles, and workflow. "
+        "Builder follows the role prose, Inspector gathers browser and test evidence, "
+        "and GateKeeper signs off only after proof supports the promised task surface."
+    )
+    issues = lint_alignment_bundle_semantics(valid_bundle)
+
+    assert (
+        "alignment bundle must not present prompt pack, role zoo, loop script, "
+        "benchmark grinder, or chat wrapper as Loopora governance"
+    ) in issues
+
+
+def test_alignment_semantic_lint_allows_antipatterns_named_as_fake_done_risks(sample_workdir: Path) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["collaboration_summary"] += (
+        " The spec also avoids prompt pack and personality memory failures by keeping "
+        "the judgment task-scoped and evidence-owned."
+    )
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert not any("prompt pack" in issue for issue in issues)
+    assert not any("personality memory" in issue for issue in issues)
+
+
+def test_alignment_semantic_lint_accepts_alternate_fake_done_wording(
+    sample_workdir: Path,
+) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert "spec Fake Done must name a shallow or false-completion risk" not in lint_alignment_bundle_semantics(valid_bundle)
+
+    yaml_with_generic_fake_done = re.sub(
+        r"\n    # Fake Done\n\n    - .+?(?=\n\n    # Evidence Preferences)",
+        "\n    # Fake Done\n\n    - Avoid bugs and low quality results.",
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+        flags=re.DOTALL,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_generic_fake_done))
+
+    assert "spec Fake Done must name a shallow or false-completion risk" not in issues
+
+
+def test_alignment_semantic_lint_does_not_hard_block_workflow_intent_wording(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("workflow.collaboration_intent" in issue for issue in lint_alignment_bundle_semantics(bundle))
+
+    bundle["workflow"]["collaboration_intent"] = (
+        "Coordinate the task-specific starter implementation across the selected roles, "
+        "keeping the work focused and manageable for this Loop."
+    )
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert not any("workflow.collaboration_intent must explain evidence flow" in issue for issue in issues)
+    assert not any("workflow.collaboration_intent must explain final GateKeeper" in issue for issue in issues)
+    assert not any("workflow.collaboration_intent must explain where weak evidence" in issue for issue in issues)
+
+    bundle["workflow"]["collaboration_intent"] = (
+        "Build the starter implementation, inspect evidence from the Builder handoff, "
+        "and let GateKeeper finish when verification supports the task contract."
+    )
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert not any("workflow.collaboration_intent must explain where weak evidence" in issue for issue in issues)
+
+
+def test_alignment_semantic_lint_does_not_hard_block_parallel_rationale_wording(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert "workflow.collaboration_intent must explain why bounded parallel inspection is needed" not in lint_alignment_bundle_semantics(bundle)
+
+    bundle["workflow"]["collaboration_intent"] = (
+        "Build one focused starter slice, inspect evidence from the Builder handoff, "
+        "then let GateKeeper finish only when inspection evidence supports the task contract."
+    )
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert "workflow.collaboration_intent must explain why bounded parallel inspection is needed" not in issues
+
+
+def test_alignment_semantic_lint_requires_parallel_review_to_read_upstream_handoffs(
+    sample_workdir: Path,
+) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("parallel review step must name upstream handoffs" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
+
+    yaml_with_missing_parallel_handoff_input = alignment_bundle_yaml(str(sample_workdir.resolve())).replace(
+        'handoffs_from: ["builder_step"]',
+        "handoffs_from: []",
+        1,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_missing_parallel_handoff_input))
+
+    assert (
+        "parallel review step must name upstream handoffs in inputs.handoffs_from: "
+        "contract_inspection_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_review_after_builder_to_read_builder_inputs(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["contract_inspection_step"].pop("parallel_group")
+    steps_by_id["evidence_inspection_step"].pop("parallel_group")
+    assert not any("review step after Builder" in issue for issue in lint_alignment_bundle_semantics(bundle))
+
+    steps_by_id["contract_inspection_step"].pop("inputs")
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "review step after Builder must name a Builder handoff in inputs.handoffs_from: "
+        "contract_inspection_step"
+    ) in issues
+    assert (
+        "review step after Builder must query Builder evidence in inputs.evidence_query: "
+        "contract_inspection_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_custom_after_builder_to_read_builder_inputs(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    _make_contract_inspector_custom_review(bundle)
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["contract_inspection_step"].pop("parallel_group")
+    steps_by_id["evidence_inspection_step"].pop("parallel_group")
+    steps_by_id["gatekeeper_step"]["inputs"]["evidence_query"]["archetypes"].append("custom")
+    assert not any("review step after Builder" in issue for issue in lint_alignment_bundle_semantics(bundle))
+
+    steps_by_id["contract_inspection_step"].pop("inputs")
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "review step after Builder must name a Builder handoff in inputs.handoffs_from: "
+        "contract_inspection_step"
+    ) in issues
+    assert (
+        "review step after Builder must query Builder evidence in inputs.evidence_query: "
+        "contract_inspection_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_parallel_review_to_read_same_upstream_handoff(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("same upstream handoffs" in issue for issue in lint_alignment_bundle_semantics(bundle))
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["evidence_inspection_step"]["inputs"]["handoffs_from"] = ["contract_inspection_step"]
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "parallel review steps must read the same upstream handoffs: "
+        "contract_inspection_step, evidence_inspection_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_parallel_review_to_query_builder_evidence(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any(
+        "parallel review step must query Builder evidence" in issue
+        for issue in lint_alignment_bundle_semantics(bundle)
+    )
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["contract_inspection_step"]["inputs"].pop("evidence_query")
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "parallel review step must query Builder evidence in inputs.evidence_query: "
+        "contract_inspection_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_parallel_review_iteration_memory(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any(
+        "parallel review step must declare inputs.iteration_memory" in issue
+        for issue in lint_alignment_bundle_semantics(bundle)
+    )
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["contract_inspection_step"]["inputs"].pop("iteration_memory")
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "parallel review step must declare inputs.iteration_memory so cross-iteration evidence flow is explicit: "
+        "contract_inspection_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_parallel_review_to_use_distinct_role_definitions(
+    sample_workdir: Path,
+) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("distinct role_definition_key" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
+
+    yaml_with_shared_parallel_role_definition = alignment_bundle_yaml(str(sample_workdir.resolve())).replace(
+        'role_definition_key: "contract-inspector"',
+        'role_definition_key: "evidence-inspector"',
+        1,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_shared_parallel_role_definition))
+
+    assert (
+        "parallel review steps must use distinct role_definition_key values: "
+        "contract_inspection_step, evidence_inspection_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_parallel_review_to_have_distinct_posture(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any(
+        "responsibility-specific prompt and posture" in issue
+        for issue in lint_alignment_bundle_semantics(bundle)
+    )
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    role_by_key["contract-inspector"]["name"] = role_by_key["evidence-inspector"]["name"]
+    role_by_key["contract-inspector"]["description"] = role_by_key["evidence-inspector"]["description"]
+    role_by_key["contract-inspector"]["prompt_markdown"] = role_by_key["evidence-inspector"]["prompt_markdown"]
+    role_by_key["contract-inspector"]["posture_notes"] = role_by_key["evidence-inspector"]["posture_notes"]
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "parallel review role_definitions must have responsibility-specific prompt and posture: "
+        "contract-inspector, evidence-inspector"
+    ) in issues
+
+
+def test_alignment_semantic_lint_rejects_generic_role_names(sample_workdir: Path) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("task-specific role name" in issue for issue in lint_alignment_bundle_semantics(bundle))
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    role_by_key["contract-inspector"]["name"] = "Inspector 1"
+    role_by_key["evidence-inspector"]["name"] = "Inspector 2"
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert "role_definition contract-inspector must use a task-specific role name" in issues
+    assert "role_definition evidence-inspector must use a task-specific role name" in issues
+
+
+def test_alignment_semantic_lint_does_not_hard_block_role_responsibility_wording(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("responsibility" in issue for issue in lint_alignment_bundle_semantics(bundle))
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+
+    generic_role_text = {
+        "description": "Maintains evidence handoffs for downstream roles.",
+        "posture_notes": "Prefer concrete evidence and clear handoffs over broad confidence.",
+    }
+    role_by_key["builder"].update(generic_role_text)
+    role_by_key["builder"]["prompt_markdown"] = """---
+version: 1
+archetype: builder
+---
+
+Leave reproducible evidence, handoff notes, and blockers for downstream roles."""
+    role_by_key["contract-inspector"].update(generic_role_text)
+    role_by_key["contract-inspector"]["prompt_markdown"] = """---
+version: 1
+archetype: inspector
+---
+
+Collect direct evidence and leave blockers for GateKeeper."""
+    role_by_key["gatekeeper"].update(generic_role_text)
+    role_by_key["gatekeeper"]["prompt_markdown"] = """---
+version: 1
+archetype: gatekeeper
+---
+
+Read upstream evidence and leave a handoff for the next round."""
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert not any("must describe Builder construction" in issue for issue in issues)
+    assert not any("must describe Inspector inspection" in issue for issue in issues)
+    assert not any("must describe GateKeeper final judgment" in issue for issue in issues)
+
+
+def test_alignment_semantic_lint_uses_graph_contract_for_custom_review_roles(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    role_by_key["contract-inspector"]["archetype"] = "custom"
+    role_by_key["contract-inspector"]["prompt_markdown"] = role_by_key["contract-inspector"][
+        "prompt_markdown"
+    ].replace("archetype: inspector", "archetype: custom")
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert not any("Custom read-only specialized review" in issue for issue in issues)
+    assert "finishing GateKeeper after review must query review evidence in inputs.evidence_query: custom" in issues
+
+
+def _add_repair_guide_flow(bundle: dict) -> dict:
+    bundle["role_definitions"].append(
+        {
+            "key": "repair-guide",
+            "name": "Repair Direction Guide",
+            "description": "Turns inspection evidence into a focused repair direction.",
+            "archetype": "guide",
+            "prompt_ref": "repair-guide.md",
+            "prompt_markdown": """---
+version: 1
+archetype: guide
+---
+
+Use the inspection evidence to narrow the next Builder step. Leave a handoff that names the repair direction, the evidence behind it, and the scope that must not expand.""",
+            "posture_notes": "Narrow the repair target from review evidence instead of offering broad advice.",
+            "executor_kind": "codex",
+            "executor_mode": "preset",
+            "command_cli": "",
+            "command_args_text": "",
+            "model": "",
+            "reasoning_effort": "",
+        }
+    )
+    bundle["workflow"]["roles"].append(
+        {"id": "repair_guide", "role_definition_key": "repair-guide"}
+    )
+    gatekeeper_step = bundle["workflow"]["steps"][-1]
+    bundle["workflow"]["steps"].insert(
+        -1,
+        {
+            "id": "repair_guide_step",
+            "role_id": "repair_guide",
+            "inputs": {
+                "handoffs_from": ["contract_inspection_step", "evidence_inspection_step"],
+                "evidence_query": {"archetypes": ["inspector"], "limit": 12},
+                "iteration_memory": "summary_only",
+            },
+            "on_pass": "continue",
+        },
+    )
+    gatekeeper_step["inputs"]["handoffs_from"].append("repair_guide_step")
+    gatekeeper_step["inputs"]["evidence_query"]["archetypes"].append("guide")
+    return bundle
+
+
+def test_alignment_semantic_lint_does_not_hard_block_guide_prompt_wording(
+    sample_workdir: Path,
+) -> None:
+    bundle = _add_repair_guide_flow(load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve()))))
+    assert not any("role_definition repair-guide" in issue for issue in lint_alignment_bundle_semantics(bundle))
+
+    guide_role = next(role for role in bundle["role_definitions"] if role["key"] == "repair-guide")
+    guide_role["description"] = "Maintains evidence handoffs for downstream roles."
+    guide_role["prompt_markdown"] = """---
+version: 1
+archetype: guide
+---
+
+Read upstream evidence and leave a clear handoff for downstream roles."""
+    guide_role["posture_notes"] = "Prefer concrete evidence and clear handoffs over broad confidence."
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert not any("role_definition repair-guide must describe Guide" in issue for issue in issues)
+
+
+def test_alignment_semantic_lint_requires_guide_after_review_to_read_review_inputs(
+    sample_workdir: Path,
+) -> None:
+    bundle = _add_repair_guide_flow(load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve()))))
+    assert not any("Guide step after review" in issue for issue in lint_alignment_bundle_semantics(bundle))
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["repair_guide_step"]["inputs"]["handoffs_from"] = ["builder_step"]
+    steps_by_id["repair_guide_step"]["inputs"].pop("evidence_query")
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "Guide step after review must include review handoffs in inputs.handoffs_from: "
+        "repair_guide_step"
+    ) in issues
+    assert (
+        "Guide step after review must query review evidence in inputs.evidence_query: "
+        "inspector"
+    ) in issues
+
+
+def _make_contract_inspector_custom_review(bundle: dict) -> None:
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    contract_role = role_by_key["contract-inspector"]
+    contract_role["archetype"] = "custom"
+    contract_role["prompt_markdown"] = contract_role["prompt_markdown"].replace(
+        "archetype: inspector",
+        "archetype: custom",
+    )
+    contract_role["prompt_markdown"] += (
+        "\n\n      Act as a read-only specialized Custom reviewer for contract evidence; "
+        "do not edit files, and leave a focused handoff."
+    )
+    contract_role["posture_notes"] += (
+        " As a low-permission Custom reviewer, provide only specialized contract review signal."
+    )
+
+
+def test_alignment_semantic_lint_treats_custom_as_review_before_builder(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    _make_contract_inspector_custom_review(bundle)
+    bundle["workflow"]["steps"].insert(
+        0,
+        {
+            "id": "preflight_custom_review_step",
+            "role_id": "contract_inspector",
+            "on_pass": "continue",
+        },
+    )
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["builder_step"]["inputs"] = {
+        "handoffs_from": ["preflight_custom_review_step"],
+        "iteration_memory": "summary_only",
+    }
+    steps_by_id["gatekeeper_step"]["inputs"]["evidence_query"]["archetypes"].append("custom")
+    assert not any("Builder step after review" in issue for issue in lint_alignment_bundle_semantics(bundle))
+
+    steps_by_id["builder_step"]["inputs"] = {"handoffs_from": []}
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "Builder step after review must include review handoffs in inputs.handoffs_from: "
+        "builder_step"
+    ) in issues
+    assert (
+        "Builder step after review must declare inputs.iteration_memory so evidence-first repair does not rely on ambient context: "
+        "builder_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_treats_custom_as_review_before_gatekeeper(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    _make_contract_inspector_custom_review(bundle)
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["contract_inspection_step"].pop("parallel_group")
+    steps_by_id["evidence_inspection_step"].pop("parallel_group")
+    steps_by_id["gatekeeper_step"]["inputs"]["handoffs_from"] = ["evidence_inspection_step"]
+    steps_by_id["gatekeeper_step"]["inputs"]["evidence_query"]["archetypes"] = ["builder", "inspector"]
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "finishing GateKeeper after review must include review handoffs in inputs.handoffs_from: "
+        "contract_inspection_step"
+    ) in issues
+    assert (
+        "finishing GateKeeper after review must query review evidence in inputs.evidence_query: "
+        "custom"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_guide_after_review_iteration_memory(
+    sample_workdir: Path,
+) -> None:
+    bundle = _add_repair_guide_flow(load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve()))))
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["repair_guide_step"]["inputs"].pop("iteration_memory")
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "Guide step after review must declare inputs.iteration_memory so repair guidance can use prior iteration evidence explicitly: "
+        "repair_guide_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_builder_after_guide_to_read_guide_handoff(
+    sample_workdir: Path,
+) -> None:
+    bundle = _add_repair_guide_flow(load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve()))))
+    gatekeeper_step = bundle["workflow"]["steps"].pop()
+    bundle["workflow"]["steps"].append(
+        {
+            "id": "builder_repair_step",
+            "role_id": "builder",
+            "inputs": {
+                "handoffs_from": ["builder_step"],
+                "iteration_memory": "same_step",
+            },
+            "on_pass": "continue",
+        }
+    )
+    gatekeeper_step["inputs"]["handoffs_from"].append("builder_repair_step")
+    bundle["workflow"]["steps"].append(gatekeeper_step)
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "Builder step after Guide must name a Guide handoff in inputs.handoffs_from: "
+        "builder_repair_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_builder_after_guide_iteration_memory(
+    sample_workdir: Path,
+) -> None:
+    bundle = _add_repair_guide_flow(load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve()))))
+    gatekeeper_step = bundle["workflow"]["steps"].pop()
+    bundle["workflow"]["steps"].append(
+        {
+            "id": "builder_repair_step",
+            "role_id": "builder",
+            "inputs": {
+                "handoffs_from": ["repair_guide_step"],
+            },
+            "on_pass": "continue",
+        }
+    )
+    gatekeeper_step["inputs"]["handoffs_from"].append("builder_repair_step")
+    bundle["workflow"]["steps"].append(gatekeeper_step)
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "Builder step after Guide must declare inputs.iteration_memory so repair pass does not rely on ambient context: "
+        "builder_repair_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_builder_after_review_to_read_review_handoff(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["workflow"]["steps"].insert(
+        0,
+        {
+            "id": "preflight_inspection_step",
+            "role_id": "contract_inspector",
+            "on_pass": "continue",
+        },
+    )
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["builder_step"]["inputs"] = {
+        "handoffs_from": ["preflight_inspection_step"],
+        "iteration_memory": "summary_only",
+    }
+    assert not any("Builder step after review" in issue for issue in lint_alignment_bundle_semantics(bundle))
+
+    steps_by_id["builder_step"]["inputs"]["handoffs_from"] = []
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "Builder step after review must include review handoffs in inputs.handoffs_from: "
+        "builder_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_builder_after_review_iteration_memory(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["workflow"]["steps"].insert(
+        0,
+        {
+            "id": "preflight_inspection_step",
+            "role_id": "contract_inspector",
+            "on_pass": "continue",
+        },
+    )
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["builder_step"]["inputs"] = {
+        "handoffs_from": ["preflight_inspection_step"],
+    }
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "Builder step after review must declare inputs.iteration_memory so evidence-first repair does not rely on ambient context: "
+        "builder_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_gatekeeper_to_read_parallel_handoffs(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("parallel review handoff" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
+
+    yaml_with_missing_parallel_handoff = alignment_bundle_yaml(str(sample_workdir.resolve())).replace(
+        'handoffs_from: ["contract_inspection_step", "evidence_inspection_step"]',
+        'handoffs_from: ["evidence_inspection_step"]',
+        1,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_missing_parallel_handoff))
+
+    assert (
+        "GateKeeper step must include every parallel review handoff in inputs.handoffs_from: "
+        "contract_inspection_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_finishing_gatekeeper_to_read_handoff_and_evidence(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("finishing GateKeeper step" in issue for issue in lint_alignment_bundle_semantics(bundle))
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["gatekeeper_step"].pop("inputs")
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "finishing GateKeeper step must name upstream handoffs in inputs.handoffs_from: "
+        "gatekeeper_step"
+    ) in issues
+    assert (
+        "finishing GateKeeper step must query upstream evidence in inputs.evidence_query: "
+        "gatekeeper_step"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_gatekeeper_after_review_to_read_review_evidence(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any("GateKeeper after review" in issue for issue in lint_alignment_bundle_semantics(bundle))
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["contract_inspection_step"].pop("parallel_group")
+    steps_by_id["evidence_inspection_step"].pop("parallel_group")
+    steps_by_id["gatekeeper_step"]["inputs"]["handoffs_from"] = ["builder_step"]
+    steps_by_id["gatekeeper_step"]["inputs"]["evidence_query"]["archetypes"] = ["builder"]
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "finishing GateKeeper after review must include review handoffs in inputs.handoffs_from: "
+        "contract_inspection_step, evidence_inspection_step"
+    ) in issues
+    assert (
+        "finishing GateKeeper after review must query review evidence in inputs.evidence_query: "
+        "inspector"
+    ) in issues
+
+
+def test_alignment_semantic_lint_requires_gatekeeper_to_query_builder_and_inspector_evidence(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert not any(
+        "GateKeeper step must query Builder and parallel review evidence" in issue
+        for issue in lint_alignment_bundle_semantics(bundle)
+    )
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["gatekeeper_step"]["inputs"]["evidence_query"]["archetypes"] = ["inspector"]
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "GateKeeper step must query Builder and parallel review evidence in inputs.evidence_query: "
+        "builder"
+    ) in issues
+
+
+def test_alignment_semantic_lint_gatekeeper_fan_in_counts_parallel_custom_review_steps(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    role_by_key["contract-inspector"]["archetype"] = "custom"
+    role_by_key["evidence-inspector"]["archetype"] = "custom"
+    role_by_key["contract-inspector"]["prompt_markdown"] = role_by_key["contract-inspector"][
+        "prompt_markdown"
+    ].replace("archetype: inspector", "archetype: custom")
+    role_by_key["evidence-inspector"]["prompt_markdown"] = role_by_key["evidence-inspector"][
+        "prompt_markdown"
+    ].replace("archetype: inspector", "archetype: custom")
+    role_by_key["contract-inspector"]["prompt_markdown"] += (
+        "\n\n      Act as a read-only specialized Custom reviewer for contract evidence; "
+        "do not edit files, and leave a focused handoff."
+    )
+    role_by_key["contract-inspector"]["posture_notes"] += (
+        " As a low-permission Custom reviewer, provide only specialized review signal."
+    )
+    role_by_key["evidence-inspector"]["prompt_markdown"] += (
+        "\n\n      Act as a read-only specialized Custom reviewer for evidence quality; "
+        "do not edit files, and leave a focused handoff."
+    )
+    role_by_key["evidence-inspector"]["posture_notes"] += (
+        " As a low-permission Custom reviewer, provide only specialized evidence signal."
+    )
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["gatekeeper_step"]["inputs"]["handoffs_from"] = []
+    steps_by_id["gatekeeper_step"]["inputs"]["evidence_query"]["archetypes"] = ["builder"]
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "GateKeeper step must include every parallel review handoff in inputs.handoffs_from: "
+        "contract_inspection_step, evidence_inspection_step"
+    ) in issues
+    assert (
+        "GateKeeper step must query Builder and parallel review evidence in inputs.evidence_query: "
+        "custom"
+    ) in issues
+
+
+def test_alignment_semantic_lint_does_not_hard_block_control_risk_wording(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["workflow"]["controls"] = [
+        {
+            "id": "gatekeeper_rejection_review",
+            "when": {"signal": "gatekeeper_rejected", "after": "0s"},
+            "call": {"role_id": "contract_inspector"},
+            "mode": "advisory",
+            "max_fires_per_run": 1,
+        }
+    ]
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert not any("workflow control gatekeeper_rejection_review" in issue for issue in issues)
+
+    bundle["workflow"]["collaboration_intent"] += (
+        " If repeated GateKeeper rejection shows evidence drift, route the Contract Inspector "
+        "back in before another finish attempt."
+    )
+    assert not any("workflow control gatekeeper_rejection_review" in issue for issue in lint_alignment_bundle_semantics(bundle))
 
 
 @pytest.mark.parametrize(

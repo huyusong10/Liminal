@@ -8,6 +8,14 @@ from typing import Any
 from loopora.specs import resolve_role_note
 
 
+FROZEN_CONTRACT_GUIDANCE = (
+    "Treat the run contract as frozen: do not reinterpret or lower the Task, Done When, checks, or guardrails. "
+    "If the contract seems too narrow, too loose, or conflicted, surface that as an evidence gap, blocker, "
+    "or Loop-adjustment recommendation instead of silently changing the target. "
+    "Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
+)
+
+
 @dataclass(frozen=True)
 class GeneratorPromptRequest:
     compiled_spec: dict
@@ -27,6 +35,7 @@ class ServiceRunPromptMixin:
             "You are the Check Planner inside Loopora.\n"
             "The spec did not provide explicit checks, so you must derive a frozen exploratory set for this run.\n"
             "Inspect the current workdir, stay close to the stated goal, and do not invent unrelated requirements.\n"
+            f"{FROZEN_CONTRACT_GUIDANCE}"
             "Generate 3 to 5 independently judgeable checks. Prefer concise titles and practical evaluation criteria.\n"
             "Do not edit files.\n"
             f"Goal:\n{compiled_spec['goal']}\n\n"
@@ -87,6 +96,7 @@ class ServiceRunPromptMixin:
             "You may edit files inside the workdir. Do not write into .loopora except for explicitly requested outputs.\n"
             "Treat existing non-.loopora files as user-owned. Never wipe the whole workdir, bulk-delete existing files, or reset the project from scratch.\n"
             "Prefer targeted in-place edits and additive changes. Delete a file only when that deletion is narrowly necessary to your change.\n"
+            f"{FROZEN_CONTRACT_GUIDANCE}"
             f"{action_guidance}"
             f"{bootstrap_guidance}"
             f"{prior_iteration_feedback}"
@@ -152,6 +162,8 @@ class ServiceRunPromptMixin:
             "Inspect the workdir, run the most relevant commands, and evaluate the listed checks.\n"
             "Do not edit source files.\n"
             "Keep notes concise and evidence-focused. Prefer concrete commands, files, and observed outputs over restating the whole spec.\n"
+            "Use the stable evidence buckets in notes when useful: Proven, Weak, Unproven, Blocking, and Residual risk.\n"
+            f"{FROZEN_CONTRACT_GUIDANCE}"
             "When fresh project-owned benchmark artifacts already exist, inspect them first and reuse them as primary evidence before rerunning an expensive end-to-end flow.\n"
             "If a long-running evaluation appears stalled, confirm that with live status files, logs, or preserved artifacts instead of guessing from silent stdout alone.\n"
             f"Iteration: {iter_id}\n"
@@ -171,6 +183,8 @@ class ServiceRunPromptMixin:
             "Keep the verdict concise and tied to direct evidence. Do not rewrite the whole spec as policy prose.\n"
             "When the main evidence comes from a project-owned benchmark or harness, treat those artifacts as primary evidence.\n"
             "Distinguish product or knowledge failures from harness-process defects, and surface harness defects as first-class failures when they block trustworthy evaluation.\n"
+            "Separate run status from task verdict. Organize evidence as Proven, Weak, Unproven, Blocking, and Residual risk; do not treat a normal run lifecycle as task proof.\n"
+            f"{FROZEN_CONTRACT_GUIDANCE}"
             "Return `coverage_results` as an empty list unless you can explicitly verify or reject Fake Done or Evidence Preferences coverage targets; entries must include target_id, status, evidence_refs, and note.\n"
             f"Iteration: {iter_id}\n"
             f"Mode: {mode}\n"
@@ -193,6 +207,9 @@ class ServiceRunPromptMixin:
         return (
             "You are the Challenger role inside Loopora.\n"
             "Suggest the smallest high-leverage direction change when progress stalls.\n"
+            "Use the stable evidence buckets to choose the repair direction: Proven, Weak, Unproven, Blocking, and Residual risk.\n"
+            "Turn Blocking or Unproven gaps into the next smallest proof or fix, strengthen Weak evidence only when it changes the decision, and keep Residual risk visible.\n"
+            f"{FROZEN_CONTRACT_GUIDANCE}"
             f"Iteration: {iter_id}\n"
             f"Spec goal:\n{compiled_spec['goal']}\n\n"
             f"Checks:\n{self._render_checks(compiled_spec['checks'])}\n\n"

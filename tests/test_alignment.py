@@ -6,9 +6,11 @@ import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
-from loopora.bundles import bundle_to_yaml
+from loopora.bundles import bundle_to_yaml, load_bundle_text
 from loopora.executor import FakeCodexExecutor
+from loopora.executor_fake_payloads import alignment_bundle_yaml
 from loopora.web import build_app
 from loopora.web_streaming import MAX_EVENT_CURSOR_ID
 import loopora.service_alignment as alignment_module
@@ -31,9 +33,13 @@ def _confirm_alignment_agreement(service, session_id: str, *final_statuses: str)
     agreement = _wait_for_status(service, session_id, "waiting_user")
     assert agreement["alignment_stage"] == "agreement_ready"
     assert agreement["working_agreement"]["summary"]
+    assert agreement["working_agreement"]["readiness_evidence"]["loop_fit"]
     assert agreement["working_agreement"]["readiness_evidence"]["task_scope"]
+    assert agreement["working_agreement"]["readiness_evidence"]["residual_risk_policy"]
     service.append_alignment_message(session_id, "确认")
-    return _wait_for_status(service, session_id, *(final_statuses or ("ready",)))
+    confirmed = _wait_for_status(service, session_id, *(final_statuses or ("ready",)))
+    assert confirmed["working_agreement"]["readiness_checklist"]["explicit_confirmation"] is True
+    return confirmed
 
 
 def test_alignment_service_writes_validates_previews_imports_and_runs(
@@ -204,8 +210,455 @@ def test_alignment_service_waits_for_user_question(service_factory, sample_workd
     assert session["executor_session_ref"]["session_id"]
 
 
+def test_alignment_service_keeps_not_fit_gate_in_dialogue(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="alignment_not_fit")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Just run one obvious one-off edit.",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert "一次 Agent 执行加一次人工 review" in session["transcript"][-1]["content"]
+    assert session["alignment_stage"] == "clarifying"
+
+
+def test_alignment_service_keeps_blocked_not_fit_output_in_dialogue(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_not_fit_without_needs_user_input")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Just run one obvious one-off edit.",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert session["error_message"] == ""
+    assert "反复出现的判断或新证据" in session["transcript"][-1]["content"]
+    assert session["alignment_stage"] == "clarifying"
+    events = service.list_alignment_events(created["id"])
+    assert any(event["event_type"] == "alignment_waiting_user" for event in events)
+    assert not any(event["event_type"] == "alignment_failed" for event in events)
+
+
+def test_alignment_service_reframes_mechanical_configuration_questions(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_mechanical_question")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我编排一个长期任务。",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+    assistant_message = session["transcript"][-1]["content"]
+
+    assert "配置两个 Inspector" not in assistant_message
+    assert "任务风险" in assistant_message
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_question_reframed"
+        and "mechanical_configuration_question" in event["payload"].get("issues", [])
+        for event in events
+    )
+
+
+def test_alignment_service_reframes_generic_preference_questions(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_generic_preference_question")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我编排一个长期任务。",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+    assistant_message = session["transcript"][-1]["content"]
+
+    assert "你有什么偏好" not in assistant_message
+    assert "抽象偏好调查" in assistant_message
+    assert "任务风险" in assistant_message
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_question_reframed"
+        and "generic_alignment_question" in event["payload"].get("issues", [])
+        for event in events
+    )
+
+
+def test_alignment_service_reframes_clarifying_questionnaires(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_questionnaire_overload")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我编排一个长期任务。",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+    assistant_message = session["transcript"][-1]["content"]
+
+    assert "1. 你想完成什么任务" not in assistant_message
+    assert "长问卷" in assistant_message
+    assert "一个会改变 Loop 的点" in assistant_message
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_question_reframed"
+        and "questionnaire_overload" in event["payload"].get("issues", [])
+        for event in events
+    )
+
+
+def test_alignment_service_materializes_visible_working_agreement(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_hidden_agreement_message")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a governed starter experience.",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+    visible_agreement = session["transcript"][-1]["content"]
+
+    assert visible_agreement.startswith("Please confirm this working agreement.")
+    assert "Loopora fit:" in visible_agreement
+    assert "Task scope:" in visible_agreement
+    assert "Success surface:" in visible_agreement
+    assert "Residual risk:" in visible_agreement
+    assert "Judgment tradeoffs:" in visible_agreement
+    assert "Role posture:" in visible_agreement
+    assert "Workflow shape:" in visible_agreement
+    assert "Proven, Weak, Unproven, Blocking" in visible_agreement
+    assert visible_agreement != "Please confirm."
+
+
+def test_alignment_service_materializes_chinese_working_agreement(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_hidden_agreement_message")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我编排一个需要多轮证据判断的 Loop。",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+    visible_agreement = session["transcript"][-1]["content"]
+
+    assert visible_agreement.startswith("请先确认这份工作协议。")
+    assert "为什么用 Loopora：" in visible_agreement
+    assert "后续轮次需要新证据" in visible_agreement
+    assert "判断取舍：" in visible_agreement
+    assert "workflow 形状：" in visible_agreement
+    assert visible_agreement != "Please confirm."
+
+
+def test_alignment_service_treats_confirmation_with_correction_as_adjustment(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我编排一个需要证据判断的中文任务。",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "可以，但把证据偏好改成浏览器截图和命令输出。")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert session["working_agreement"]["readiness_checklist"]["explicit_confirmation"] is False
+    events = service.list_alignment_events(created["id"])
+    assert any(event["event_type"] == "alignment_agreement_reopened" for event in events)
+    assert not any(event["event_type"] == "alignment_agreement_confirmed" for event in events)
+
+
+def test_alignment_service_accepts_confirmation_that_says_no_changes(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我编排一个需要证据判断的中文任务。",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "可以，不需要修改，继续。")
+    session = _wait_for_status(service, created["id"], "ready")
+
+    assert Path(session["bundle_path"]).exists()
+    assert session["working_agreement"]["readiness_checklist"]["explicit_confirmation"] is True
+    events = service.list_alignment_events(created["id"])
+    assert any(event["event_type"] == "alignment_agreement_confirmed" for event in events)
+
+
+def test_alignment_service_accepts_english_confirmation_with_no_change_clause(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a governed starter experience.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "OK, but no changes, proceed.")
+    session = _wait_for_status(service, created["id"], "ready")
+
+    assert Path(session["bundle_path"]).exists()
+    assert session["working_agreement"]["readiness_checklist"]["explicit_confirmation"] is True
+    assert session["working_agreement"]["confirmation_message"] == "OK, but no changes, proceed."
+    events = service.list_alignment_events(created["id"])
+    assert any(event["event_type"] == "alignment_agreement_confirmed" for event in events)
+
+
+def test_alignment_service_treats_confirmation_with_addition_as_adjustment(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a governed starter experience.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "OK, add browser screenshot evidence before generating.")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert session["working_agreement"]["readiness_checklist"]["explicit_confirmation"] is False
+    events = service.list_alignment_events(created["id"])
+    assert any(event["event_type"] == "alignment_agreement_reopened" for event in events)
+    assert not any(event["event_type"] == "alignment_agreement_confirmed" for event in events)
+
+
+def test_alignment_service_blocks_chinese_agreement_with_english_evidence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_english_agreement_for_chinese_user")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我编排一个中文任务的 Loop。",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert session["alignment_stage"] == "clarifying"
+    assert not session["working_agreement"]
+    assert "需要使用中文" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_language_mismatch"
+        and "agreement_summary" in event["payload"].get("missing", [])
+        for event in events
+    )
+
+
+def test_alignment_service_rewrites_english_clarifying_message_for_chinese_user(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_english_clarifying_message_for_chinese_user")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我编排一个中文任务的 Loop。",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assistant_message = session["transcript"][-1]["content"]
+    assert "我需要继续用中文对齐" in assistant_message
+    assert "What evidence" not in assistant_message
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_language_mismatch"
+        and event["payload"].get("missing") == ["assistant_message"]
+        for event in events
+    )
+
+
+def test_alignment_service_blocks_chinese_bundle_with_english_evidence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_english_bundle_for_chinese_user")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我编排一个中文任务的 Loop。",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert "需要使用中文" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_stage_blocked"
+        and "agreement_summary" in event["payload"].get("error", "")
+        for event in events
+    )
+
+
+def test_alignment_service_rewrites_english_bundle_message_for_chinese_user(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_english_assistant_message_for_chinese_bundle")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我编排一个中文任务的 Loop。",
+    )
+    session = _confirm_alignment_agreement(service, created["id"])
+
+    assert session["validation"]["ok"] is True
+    assert session["transcript"][-1]["content"] == "已整理成一个可导入的 Loopora bundle。"
+    assert "I prepared" not in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_language_mismatch"
+        and event["payload"].get("missing") == ["assistant_message"]
+        for event in events
+    )
+
+
+def test_alignment_service_blocks_chinese_bundle_with_english_prose(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_english_bundle_prose_for_chinese_user")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我编排一个中文任务的 Loop。",
+    )
+    session = _confirm_alignment_agreement(service, created["id"], "failed")
+
+    assert not session["validation"]["ok"]
+    assert "bundle field collaboration_summary must follow Chinese user language" in session["error_message"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_validation_failed"
+        and "bundle field collaboration_summary" in event["payload"].get("error", "")
+        for event in events
+    )
+
+
+def test_alignment_service_blocks_chinese_bundle_with_english_visible_names(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_english_visible_bundle_names_for_chinese_user")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请帮我编排一个中文任务的 Loop。",
+    )
+    session = _confirm_alignment_agreement(service, created["id"], "failed")
+
+    assert not session["validation"]["ok"]
+    assert "bundle field metadata.name must follow Chinese user language" in session["error_message"]
+    assert "bundle field loop.name must follow Chinese user language" in session["error_message"]
+    assert "bundle role_definition builder.name must follow Chinese user language" in session["error_message"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_validation_failed"
+        and "bundle role_definition builder.name" in event["payload"].get("error", "")
+        for event in events
+    )
+
+
+def test_alignment_service_blocks_agreement_with_incomplete_checklist(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_incomplete_agreement_checklist")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience without workflow judgment.",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert session["alignment_stage"] == "clarifying"
+    assert not session["working_agreement"]
+    assert "workflow_shape" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_checklist_incomplete"
+        and "workflow_shape" in event["payload"].get("missing", [])
+        for event in events
+    )
+
+
+def test_alignment_service_blocks_agreement_with_unresolved_open_questions(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_unresolved_open_questions")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience where evidence choice still matters.",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert session["alignment_stage"] == "clarifying"
+    assert not session["working_agreement"]
+    assert "open_questions" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_evidence_incomplete"
+        and "open_questions" in event["payload"].get("missing", [])
+        for event in events
+    )
+
+
+def test_alignment_service_blocks_agreement_without_evidence_bucket_projection(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_missing_evidence_bucket_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience where final evidence buckets should be visible before confirmation.",
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert session["alignment_stage"] == "clarifying"
+    assert not session["working_agreement"]
+    assert "evidence_buckets" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_evidence_incomplete"
+        and "evidence_buckets" in event["payload"].get("missing", [])
+        for event in events
+    )
+
+
 def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
+    (sample_workdir / "AGENTS.md").write_text("Project rules.\n", encoding="utf-8")
+    (sample_workdir / "design").mkdir()
+    (sample_workdir / "design" / "README.md").write_text("# Design\n", encoding="utf-8")
+    (sample_workdir / "tests").mkdir()
 
     created = service.create_alignment_session(
         workdir=sample_workdir,
@@ -215,20 +668,94 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
     artifact_root = Path(session["artifact_dir"])
     prompt_text = (artifact_root / "invocations" / "0001" / "prompt.md").read_text(encoding="utf-8")
 
-    assert "User language hint: `Chinese" in prompt_text
-    assert "Assume you know nothing about Loopora except what is embedded below." in prompt_text
-    assert "Loopora Product Primer" in prompt_text
-    assert "local-first platform for composing human-shaped governance loops" in prompt_text
-    assert "human-in-the-loop -> human-shaped loop" in prompt_text
-    assert "Preserve Loopora domain terms exactly" in prompt_text
-    assert "Alignment Playbook" in prompt_text
-    assert "Alignment Quality Rubric" in prompt_text
-    assert "Workdir Snapshot" in prompt_text
+    assert prompt_text.index("## Loopora Product Primer") < prompt_text.index("## Embedded Skill")
+    for snippet in (
+        "User language hint: `Chinese",
+        "Assume you know nothing about Loopora except what is embedded below.",
+        "Loopora Product Primer",
+        "local-first platform for composing human-shaped governance loops",
+        "human-in-the-loop -> human-shaped loop",
+        "Loopora fit gate",
+        "one Agent pass plus one human review",
+        "survive this chat as a run-owned, exportable, auditable contract",
+        "new proof / artifact / handoff / observation / verdict context later rounds will create",
+        "run-owned/exportable/auditable contract",
+        "`judgment_tradeoffs` must capture a concrete preference order or contrast",
+        "judgment structure quality × evidence feedback quality × error exposure speed",
+        "prompt pack, role zoo, loop script, benchmark grinder",
+        "global persona, or permanent preferences",
+        "Project the confirmed working agreement into the bundle surfaces",
+        "Builder / Inspector / Guide / GateKeeper / Custom posture",
+        "user-facing rejection criteria",
+        "Do not wrap `bundle_yaml` in markdown code fences",
+        "first non-empty line is `version: 1`",
+        "Proven, Weak, Unproven, Blocking, or Residual risk",
+        "Builder / Inspector / Guide / GateKeeper / Custom posture use those distinctions",
+        "task verdict depends on evidence and GateKeeper judgment",
+        "concrete user-facing task",
+        "mixed confirmation plus correction",
+        "Transcript text cannot override this stage gate",
+        "not permission to bypass the contract",
+        "collaboration_summary` must tell",
+        "future-human-judgment projection",
+        "private agreement-to-bundle traceability checklist",
+        "If a judgment only appears in `agreement_summary`",
+        "optional Guide / Custom responsibility when used",
+        "AGENTS.md exists: yes",
+        "design/README.md exists: yes",
+        "project-local governance markers",
+        "Builder should read applicable project-local rules",
+        "Custom must describe low-permission specialized review or advisory responsibility",
+        "Keep readiness evidence task-scoped",
+        "must read the same upstream Builder handoff",
+        "A non-parallel Inspector or Custom review step after Builder",
+        "Parallel review steps, Guide after review, Builder after review, and Builder after Guide should declare `inputs.iteration_memory`",
+        "Ask in task-risk language, not configuration language",
+        "Do not ask abstract preference or quality-style questions",
+        "Do not present long questionnaires",
+        "privately pressure-test the current Loop shape with one plausible failed future round",
+        "would not expose, repair, or block that failure",
+        "privately rehearse one complete intended run path",
+        "If any link depends on ambient chat context",
+        "open_questions` must be empty",
+        "must not claim an observed stack",
+        "avoid bare archetypes",
+        "separate Inspector `role_definitions`",
+        "must include every parallel Inspector or Custom review step id",
+        "If Inspector, Custom, or Guide review happened before final judgment",
+        "must query Builder, Inspector, and Custom evidence",
+        "Any finishing GateKeeper step must name upstream handoffs",
+        "`GateKeeper`, `Guide`, `Custom`, `workdir`, `READY`",
+        "substantive task or alignment content is Chinese",
+        "Alignment Playbook",
+        "Alignment Quality Rubric",
+        "Workdir Snapshot",
+        "- progress.md",
+    ):
+        assert snippet in prompt_text
+    assert "- .loopora/" not in prompt_text
     synced = service.sync_alignment_bundle_from_file(session["id"])
 
     assert synced["ok"] is True
     refreshed = service.get_alignment_session(session["id"])
     assert "已重新读取 bundle.yml" in refreshed["transcript"][-1]["content"]
+
+
+def test_alignment_language_hint_ignores_confirmation_only_chinese(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a focused starter experience.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "ready")
+    prompt_text = (Path(session["artifact_dir"]) / "invocations" / "0001" / "prompt.md").read_text(encoding="utf-8")
+
+    assert "I prepared an importable Loopora bundle." in session["transcript"][-1]["content"]
+    assert "User language hint: `Follow the user's language from the transcript" in prompt_text
+    assert "User language hint: `Chinese" not in prompt_text
 
 
 def test_alignment_bundle_source_file_rejects_invalid_utf8(service_factory, sample_workdir: Path) -> None:
@@ -306,7 +833,8 @@ def test_alignment_service_blocks_premature_bundle_output(service_factory, sampl
     session = _wait_for_status(service, created["id"], "waiting_user")
 
     assert not Path(session["bundle_path"]).exists()
-    assert "对齐" in session["transcript"][-1]["content"]
+    assert "finish alignment" in session["transcript"][-1]["content"]
+    assert "Loop plan" in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
     assert any(event["event_type"] == "alignment_stage_blocked" for event in events)
 
@@ -323,9 +851,337 @@ def test_alignment_service_blocks_bundle_without_readiness_evidence(service_fact
     session = _wait_for_status(service, created["id"], "waiting_user")
 
     assert not Path(session["bundle_path"]).exists()
-    assert "对齐证据" in session["transcript"][-1]["content"]
+    assert "readiness evidence" in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
     assert any(event["event_type"] == "alignment_stage_blocked" for event in events)
+
+
+def test_alignment_service_blocks_bundle_without_loop_fit_readiness_evidence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_missing_loop_fit_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a one-pass starter experience without proving Loopora is needed.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert "loop_fit" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_stage_blocked"
+        and "loop_fit" in event["payload"].get("error", "")
+        for event in events
+    )
+
+
+def test_alignment_service_accepts_nonempty_loop_fit_readiness_evidence_without_keyword_gate(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_vague_loop_fit_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a complex but possibly one-pass starter experience.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "ready")
+
+    assert Path(session["bundle_path"]).exists()
+    assert session["validation"]["ok"] is True
+
+
+def test_alignment_service_accepts_loop_fit_evidence_without_full_keyword_set(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_single_marker_loop_fit_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a task that only says it needs review.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "ready")
+
+    assert Path(session["bundle_path"]).exists()
+    assert session["validation"]["ok"] is True
+
+
+def test_alignment_service_accepts_loop_fit_evidence_without_new_evidence_keyword(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_loop_fit_without_new_evidence_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a task that mentions GateKeeper but not new evidence.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "ready")
+
+    assert Path(session["bundle_path"]).exists()
+    assert session["validation"]["ok"] is True
+
+
+def test_alignment_service_blocks_bundle_without_residual_risk_readiness_evidence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_missing_residual_risk_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience without clarifying what risks can remain.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert "residual_risk_policy" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_stage_blocked"
+        and "residual_risk_policy" in event["payload"].get("error", "")
+        for event in events
+    )
+
+
+def test_alignment_service_accepts_nonempty_residual_risk_readiness_evidence_without_keyword_gate(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_vague_residual_risk_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience with a vague risk policy.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "ready")
+
+    assert Path(session["bundle_path"]).exists()
+    assert session["validation"]["ok"] is True
+
+
+def test_alignment_service_blocks_invented_workdir_facts_readiness_evidence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_invented_workdir_facts_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience without grounding workdir facts.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert "workdir_facts" in session["transcript"][-1]["content"]
+
+
+def test_alignment_service_blocks_observed_stack_claims_not_in_workdir_snapshot(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_invented_observed_workdir_facts_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience without inventing stack facts.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert "workdir_facts" in session["transcript"][-1]["content"]
+    prompt_text = (Path(session["artifact_dir"]) / "invocations" / "0001" / "prompt.md").read_text(encoding="utf-8")
+    assert "package.json" not in prompt_text
+    assert "tests/ exists: no" in prompt_text
+
+
+def test_alignment_service_blocks_bundle_observed_stack_claims_not_in_workdir_snapshot(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_bundle_unsupported_observed_workdir_claim")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience without inventing stack facts in the final bundle.",
+    )
+    session = _confirm_alignment_agreement(service, created["id"], "failed")
+
+    assert not session["validation"]["ok"]
+    assert "bundle field spec.markdown must not claim an observed workdir stack" in session["error_message"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_validation_failed"
+        and "bundle field spec.markdown" in event["payload"].get("error", "")
+        for event in events
+    )
+
+
+def test_alignment_service_blocks_generated_bundle_lineage_metadata(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_generated_lineage_metadata")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a standalone candidate bundle, not a lineage revision.",
+    )
+    session = _confirm_alignment_agreement(service, created["id"], "failed")
+
+    assert session["validation"]["ok"] is False
+    assert "must omit metadata.source_bundle_id and metadata.revision" in session["error_message"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_validation_failed"
+        and "source context is temporary" in event["payload"].get("error", "")
+        for event in events
+    )
+
+
+def test_alignment_service_blocks_markdown_fenced_bundle_yaml(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_markdown_fenced_bundle")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a raw YAML bundle without wrappers.",
+    )
+    session = _confirm_alignment_agreement(service, created["id"], "failed")
+
+    assert session["validation"]["ok"] is False
+    assert "must be one raw YAML document" in session["error_message"]
+    assert "must start with version: 1" in session["error_message"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_validation_failed"
+        and "markdown-fenced output" in event["payload"].get("error", "")
+        for event in events
+    )
+
+
+@pytest.mark.parametrize(
+    ("scenario", "missing_key"),
+    [
+        ("alignment_vague_task_scope_readiness_evidence", "task_scope"),
+        ("alignment_vague_success_surface_readiness_evidence", "success_surface"),
+        ("alignment_vague_fake_done_readiness_evidence", "fake_done_risks"),
+        ("alignment_vague_judgment_tradeoffs_readiness_evidence", "judgment_tradeoffs"),
+        ("alignment_vague_role_posture_readiness_evidence", "role_posture"),
+        ("alignment_role_posture_without_gatekeeper_readiness_evidence", "role_posture"),
+        ("alignment_vague_workflow_shape_readiness_evidence", "workflow_shape"),
+        ("alignment_workflow_shape_without_error_exposure_readiness_evidence", "workflow_shape"),
+        ("alignment_workflow_shape_without_gatekeeper_readiness_evidence", "workflow_shape"),
+    ],
+)
+def test_alignment_service_accepts_nonempty_bundle_shaping_readiness_evidence_without_keyword_gate(
+    service_factory,
+    sample_workdir: Path,
+    scenario: str,
+    missing_key: str,
+) -> None:
+    service = service_factory(scenario=scenario)
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message=f"Build a starter experience with weak {missing_key} evidence.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "ready")
+
+    assert Path(session["bundle_path"]).exists()
+    assert session["validation"]["ok"] is True
+    assert session["working_agreement"]["readiness_evidence"][missing_key]
+
+
+def test_alignment_service_blocks_global_persona_readiness_evidence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_global_persona_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience without turning task judgment into memory.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert "task_scoped_judgment" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] in {"alignment_evidence_incomplete", "alignment_stage_blocked"}
+        and (
+            "task_scoped_judgment" in event["payload"].get("missing", [])
+            or "task_scoped_judgment" in event["payload"].get("error", "")
+        )
+        for event in events
+    )
+
+
+def test_alignment_service_accepts_chinese_readiness_evidence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_chinese_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请用中文对齐这个需要多轮证据判断的任务。",
+    )
+    session = _confirm_alignment_agreement(service, created["id"])
+
+    assert session["validation"]["ok"] is True
+    assert Path(session["bundle_path"]).exists()
+    bundle_text = Path(session["bundle_path"]).read_text(encoding="utf-8")
+    assert "将工作协议投影到 spec" in bundle_text
+    assert "name: 对齐 Starter Bundle" in bundle_text
+    assert "name: 聚焦 Builder" in bundle_text
+    assert "中文整理" in session["transcript"][-1]["content"]
+    assert not any(event["event_type"] == "alignment_stage_blocked" for event in service.list_alignment_events(created["id"]))
+
+
+def test_alignment_service_accepts_survive_chat_as_loop_fit_evidence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_survive_chat_loop_fit_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a task whose judgment should survive the current chat.",
+    )
+    session = _confirm_alignment_agreement(service, created["id"])
+
+    assert session["validation"]["ok"] is True
+    assert Path(session["bundle_path"]).exists()
+    assert "survive one chat" in session["working_agreement"]["readiness_evidence"]["loop_fit"]
+    assert not any(event["event_type"] == "alignment_stage_blocked" for event in service.list_alignment_events(created["id"]))
 
 
 def test_alignment_service_reuses_executor_session_ref_between_turns(service_factory, sample_workdir: Path) -> None:
@@ -434,6 +1290,33 @@ def test_alignment_service_normalizes_custom_command_settings(service_factory, s
     assert session["command_cli"] == "my-aligner"
     assert session["model"] == ""
     assert session["reasoning_effort"] == ""
+
+
+def test_alignment_service_blocks_custom_executor_bundle_that_drops_session_settings(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Generate a bundle that preserves the selected runtime.",
+        executor_kind="custom",
+        executor_mode="preset",
+        command_cli="my-aligner",
+        command_args_text="{prompt}\n--output\n{output_path}",
+    )
+    session = _confirm_alignment_agreement(service, created["id"], "failed")
+
+    assert session["validation"]["ok"] is False
+    assert "must preserve selected Web executor settings" in session["error_message"]
+    assert "loop.executor_kind" in session["error_message"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_validation_failed"
+        and "command/custom sessions" in event["payload"].get("error", "")
+        for event in events
+    )
 
 
 def test_alignment_api_covers_session_events_bundle_and_import(
@@ -594,12 +1477,13 @@ def test_alignment_stream_logs_invalid_resume_cursor_and_keeps_request_cursor(ca
     )
 
 
-def test_alignment_improvement_session_can_start_from_existing_bundle(
-    service_factory,
+def _create_alignment_improvement_source_bundle(
+    service,
     sample_spec_file: Path,
     sample_workdir: Path,
-) -> None:
-    service = service_factory(scenario="success")
+    *,
+    completion_mode: str = "gatekeeper",
+) -> dict:
     loop = service.create_loop(
         name="Improvement Source Loop",
         spec_path=sample_spec_file,
@@ -612,8 +1496,9 @@ def test_alignment_improvement_session_can_start_from_existing_bundle(
         trigger_window=2,
         regression_window=2,
         role_models={},
+        completion_mode=completion_mode,
     )
-    source = service.import_bundle_text(
+    return service.import_bundle_text(
         bundle_to_yaml(
             service.derive_bundle_from_loop(
                 loop["id"],
@@ -624,6 +1509,15 @@ def test_alignment_improvement_session_can_start_from_existing_bundle(
         )
     )
 
+
+def test_alignment_improvement_session_can_start_from_existing_bundle(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    source = _create_alignment_improvement_source_bundle(service, sample_spec_file, sample_workdir)
+
     session = service.create_bundle_revision_session(source["id"], start_immediately=False)
 
     agreement = session["working_agreement"]
@@ -631,6 +1525,7 @@ def test_alignment_improvement_session_can_start_from_existing_bundle(
     assert agreement["source"]["source_type"] == "bundle"
     assert agreement["source"]["source_bundle_id"] == source["id"]
     assert agreement["source"]["source_run_id"] == ""
+    assert agreement["source"]["source_completion_mode"] == "gatekeeper"
     preview = service.get_alignment_bundle(session["id"])
     assert preview["ok"] is True
     assert preview["bundle"]["metadata"]["source_bundle_id"] == ""
@@ -639,6 +1534,196 @@ def test_alignment_improvement_session_can_start_from_existing_bundle(
     assert "revision:" not in preview["yaml"]
     events = service.list_alignment_events(session["id"])
     assert any(event["event_type"] == "alignment_bundle_improvement_seeded" for event in events)
+
+
+def test_alignment_improvement_session_materializes_preservation_and_delta(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    source = _create_alignment_improvement_source_bundle(service, sample_spec_file, sample_workdir)
+
+    created = service.create_bundle_revision_session(
+        source["id"],
+        message="Please improve this Loop while preserving its stable intent.",
+        start_immediately=True,
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert session["alignment_stage"] == "agreement_ready"
+    agreement = session["working_agreement"]
+    assert agreement["mode"] == "improvement"
+    evidence = agreement["readiness_evidence"]
+    assert "Preserve" in evidence["task_scope"]
+    assert "change" in evidence["task_scope"]
+    assert "evidence" in evidence["workflow_shape"]
+    visible_agreement = session["transcript"][-1]["content"]
+    assert "Preserve" in visible_agreement
+    assert "source bundle" in evidence["task_scope"]
+
+
+def test_alignment_improvement_session_requires_completion_mode_delta_for_rounds_source(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    source = _create_alignment_improvement_source_bundle(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        completion_mode="rounds",
+    )
+
+    created = service.create_bundle_revision_session(
+        source["id"],
+        message="Please improve this Loop while preserving its stable intent.",
+        start_immediately=True,
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert session["alignment_stage"] == "clarifying"
+    assert session["working_agreement"]["source"]["source_completion_mode"] == "rounds"
+    assert "improvement_completion_mode_delta" in session["transcript"][-1]["content"]
+    prompt_text = (Path(session["artifact_dir"]) / "invocations" / "0001" / "prompt.md").read_text(encoding="utf-8")
+    assert "Source completion mode: rounds" in prompt_text
+    assert "conversion to evidence-backed GateKeeper task verdicts" in prompt_text
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_improvement_incomplete"
+        and "improvement_completion_mode_delta" in event["payload"].get("missing", [])
+        for event in events
+    )
+
+
+def test_alignment_improvement_bundle_requires_completion_mode_delta_for_rounds_source(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["collaboration_summary"] = (
+        "Preserve the source Loop stable intent, source workdir, and useful source posture while applying "
+        "a feedback-driven governance delta that maps to spec, roles, workflow, evidence expectations, "
+        "and GateKeeper strictness."
+    )
+    session = {
+        "working_agreement": {
+            "mode": "improvement",
+            "source": {
+                "source_completion_mode": "rounds",
+            },
+        },
+    }
+
+    issues = service._alignment_improvement_bundle_issues(session, bundle)
+
+    assert "improvement bundle must state the source completion-mode governance delta" in issues
+
+
+def test_alignment_improvement_bundle_rejects_reusing_source_bundle_id(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    source_bundle_id = "bundle_source"
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["metadata"]["bundle_id"] = source_bundle_id
+    bundle["collaboration_summary"] = (
+        "Preserve the source Loop stable intent, source workdir, and useful source posture while applying "
+        "a feedback-driven governance delta that maps to spec, roles, workflow, evidence expectations, "
+        "and GateKeeper strictness."
+    )
+    session = {
+        "working_agreement": {
+            "mode": "improvement",
+            "source": {
+                "source_bundle_id": source_bundle_id,
+                "source_completion_mode": "gatekeeper",
+            },
+        },
+    }
+
+    issues = service._alignment_improvement_bundle_issues(session, bundle)
+
+    assert (
+        "improvement bundle must not reuse the source bundle id as metadata.bundle_id; "
+        "leave bundle_id empty or choose a new standalone candidate id"
+    ) in issues
+
+
+def test_alignment_improvement_session_validates_feedback_driven_bundle_delta(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    source = _create_alignment_improvement_source_bundle(service, sample_spec_file, sample_workdir)
+
+    created = service.create_bundle_revision_session(
+        source["id"],
+        message="Please improve this Loop while preserving its stable intent.",
+        start_immediately=True,
+    )
+    session = _confirm_alignment_agreement(service, created["id"])
+
+    assert session["validation"]["ok"] is True
+    bundle_text = Path(session["bundle_path"]).read_text(encoding="utf-8")
+    assert "Preserve the source Loop" in bundle_text
+    assert "feedback-driven governance delta" in bundle_text
+    assert "spec" in bundle_text
+    assert "roles" in bundle_text
+    assert "workflow" in bundle_text
+
+
+def test_alignment_improvement_session_blocks_generic_final_bundle(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_improvement_generic_bundle")
+    source = _create_alignment_improvement_source_bundle(service, sample_spec_file, sample_workdir)
+
+    created = service.create_bundle_revision_session(
+        source["id"],
+        message="Please improve this Loop while preserving its stable intent.",
+        start_immediately=True,
+    )
+    session = _confirm_alignment_agreement(service, created["id"], "failed")
+
+    assert session["validation"]["ok"] is False
+    assert "feedback-driven governance delta" in session["error_message"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_validation_failed"
+        and "improvement bundle must state the feedback-driven governance delta" in event["payload"].get("error", "")
+        for event in events
+    )
+
+
+def test_alignment_improvement_session_blocks_vague_improvement_agreement(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_improvement_missing_delta")
+    source = _create_alignment_improvement_source_bundle(service, sample_spec_file, sample_workdir)
+
+    created = service.create_bundle_revision_session(
+        source["id"],
+        message="Please improve this Loop.",
+        start_immediately=True,
+    )
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert session["alignment_stage"] == "clarifying"
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_improvement_incomplete"
+        and "improvement_delta" in event["payload"].get("missing", [])
+        for event in events
+    )
 
 
 def test_alignment_improvement_session_can_start_from_run_evidence(

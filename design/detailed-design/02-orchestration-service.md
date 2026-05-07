@@ -28,7 +28,7 @@
 | `Inspector` | 广义证据生产者：执行规则检查、语义检视、专家审阅或用户姿态检视，并整理结果 | 改写通过标准 |
 | `GateKeeper` | 根据证据判断是否通过 | 直接产出实现 |
 | `Guide` | 在停滞或回退时提供方向调整 | 作为每轮固定主路径 |
-| `Custom (Restricted)` | 读取现状、补充分析、提出建议 | 写入工作区、结束流程、替代 GateKeeper |
+| `Custom` | 读取现状、补充分析、提出建议 | 写入工作区、结束流程、替代 GateKeeper |
 
 稳定规则：
 
@@ -37,7 +37,7 @@
 - 写入、只读、可收束等本次行动权限属于 `workflow step`，不配置到每个 role definition。role 定义“以什么姿态判断”，step 定义“此刻允许做什么”。
 - `Guide` 只应出现在停滞相关分支，不应成为每轮必跑步骤。
 - `GateKeeper` 是 `gatekeeper` completion mode 的唯一收敛裁决入口。
-- `Custom (Restricted)` 可以被编排自由引用，但不能成为流程收敛入口。
+- `Custom` 可以被编排自由引用；它的只读或低权限边界来自 workflow step 的行动权限，且不能成为流程收敛入口。
 - 任务级治理结构必须共同体现在 `spec / role definition / workflow` 三个运行面上；其中任何单面都不足以单独定义本次任务的判断方式。
 
 ## 4. 运行数据流
@@ -84,6 +84,7 @@
 - 在每个 step 结束后写入 `evidence/ledger.jsonl`，并让 `StepHandoff.evidence_refs` 指向本 step 的 evidence item
 - 在 run 注册和每个 step evidence 落账后刷新 `evidence/coverage.json`，该文件只能从 run contract、ledger 与 GateKeeper verdict 重算
 - 在每轮结束后生成 `IterationSummary`
+- 服务层生成或重写的 GateKeeper / iteration 摘要必须继续表达 task verdict 与 evidence 关系，不能把 run lifecycle、检查数量或分数摘要改写成任务已证明。
 - 执行分发只能在 run record 持有非空 workflow snapshot 时进入 workflow engine；旧数据的空 `workflow_json` 走 legacy 执行兼容路径。展示投影可以合成兼容 workflow，但不能把这个合成结果当成运行期冻结契约。
 - 角色上下文主键必须以 `step_id` 和 `role_id` 为主，`archetype` 只能作为聚类与回退
 - 同一份 workflow snapshot 内，`role_id` 与 `step_id` 都必须唯一，避免上下文、事件与产物主键冲突

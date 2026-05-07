@@ -21,6 +21,9 @@ Every alignment should serve this main workflow:
 `compose Loop -> run Loop -> automatic iteration with evidence -> evidence verdict and result`
 
 If a question does not improve that Loop, skip it. If a missing answer would change the Loop, ask it.
+If several answers are missing, ask the next answer that would most change the Loop. Do not turn alignment into a long questionnaire.
+
+Start with the negative gate when fit is not already clear. Loopora is justified only when future human judgment would repeat, later rounds can create new evidence, fake completion is worth blocking, the judgment should survive one chat as run-owned or auditable governance, and the judgment is not already captured by one stable benchmark or one Agent pass plus review.
 
 ## Interview phases
 
@@ -31,10 +34,15 @@ Find out what kind of work this is:
 - implementation, research, refactor, diagnosis, migration, writing, design, or mixed
 - first version, repair, expansion, or audit
 - narrow deliverable or exploratory investigation
+- whether a Loop is needed, or direct Agent work / benchmark-first validation is enough
 
 Good question:
 
 > 这次更像是先交一个可运行首版，还是先把失败层查清楚再动手？
+
+Loop-fit question:
+
+> 如果只让 Agent 做一次、你最后 review 一遍，会漏掉哪类需要多轮证据和 GateKeeper 判断的问题？
 
 Bad question:
 
@@ -71,6 +79,7 @@ Ask which evidence should persuade the loop:
 - benchmark or measurement
 
 Do not accept “looks done” as evidence for implementation tasks.
+Also ask how evidence should be bucketed when it changes the verdict: what would count as Proven, what would remain Weak, what would be Unproven, what must be Blocking, and what Residual risk may stay visible.
 
 ### 4. Set role posture
 
@@ -112,14 +121,21 @@ Use these workflow fields when they make the bundle clearer:
 
 Do not generate a bundle when any of these are missing:
 
+- why this task deserves Loopora instead of one Agent pass, direct chat, or benchmark-only validation
+- why this task's judgment should survive one chat as run-owned evidence, export, reuse, or audit
 - what task is being attempted
 - what success means
 - what fake done must be rejected
 - what evidence should persuade the loop
+- what residual risk can be accepted only after it is visible, or must fail closed
 - how strict the roles should be
 - why the workflow order fits
 - whether bounded parallel inspection is needed or deliberately avoided
 - what information flow prevents prompt flooding or evidence loss
+- how GateKeeper should distinguish Proven, Weak, Unproven, Blocking, and Residual risk evidence
+- whether every confirmed judgment item has a concrete bundle destination in `collaboration_summary`, `spec.markdown`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, or GateKeeper evidence rules
+- whether one complete intended run path has been privately rehearsed: Builder output, Inspector / Custom review, optional Guide repair direction, any second Builder pass, GateKeeper verdict, and user evidence audit must all be connected through explicit handoffs, evidence queries, and evidence buckets
+- whether one plausible failed future round has been privately pressure-tested against the candidate Loop: a fake-done, weak-proof, drift, missing-coverage, or unacceptable residual-risk result must be exposed, repaired, or blocked by the proposed `spec`, roles, workflow, handoffs, evidence queries, and GateKeeper rules
 
 If the user asks to generate early, say what is missing and ask one focused question.
 
@@ -133,12 +149,14 @@ If you can inspect the target workdir, use visible facts:
 
 - project type and stack
 - README or docs
+- project-local governance markers such as `AGENTS.md`, `design/README.md`, `design/`, and `tests/`
 - existing tests
 - existing design docs
 - existing app entrypoints
 - whether the directory appears empty
 
 Never invent workdir facts. If uncertain, say it is an assumption.
+If governance markers exist, do not claim their contents unless you observed them. Compile their existence into the Loop when relevant: Builder reads applicable project rules and design, Inspector / Custom review checks design or test contracts, and GateKeeper treats skipped rules or missing expected validation as Weak, Unproven, or Blocking.
 
 The working agreement should separate:
 
