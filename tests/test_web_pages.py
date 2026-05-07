@@ -1040,6 +1040,8 @@ def _assert_bundle_compose_page(html: str) -> None:
         "alignment-ready-preview",
         "alignment-artifact-stage",
         "alignment-artifact-summary",
+        "alignment-judgment-map",
+        "alignment-diagnostics-strip",
         "alignment-preview-tabs",
         "alignment-preview-tab-spec",
         "alignment-preview-tab-roles",
@@ -1051,6 +1053,7 @@ def _assert_bundle_compose_page(html: str) -> None:
     for artifact_anchor in (
         'id="alignment-artifact-risk"',
         'id="alignment-artifact-evidence"',
+        'id="alignment-artifact-judgment"',
         'id="alignment-artifact-verdict"',
         'id="alignment-artifact-workdir"',
     ):
@@ -1098,6 +1101,8 @@ def _assert_manual_compose_page(html: str) -> None:
         "loop-bundle-import-form",
         "bundle-preview-button",
         "bundle-preview-import-button",
+        "alignment-judgment-map",
+        "alignment-diagnostics-strip",
         "alignment-source-open-button",
         "loop-create-form",
         "nav-menu-orchestrations-link",

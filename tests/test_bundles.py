@@ -427,6 +427,7 @@ def test_bundle_preview_projects_error_control_summary(service_factory, sample_w
     preview = service.preview_bundle_text(yaml_text)
 
     summary = preview["control_summary"]
+    traceability = summary["traceability"]
     assert summary["risks"]
     assert summary["evidence"]
     assert summary["gatekeeper"]["enabled"] is True
@@ -434,6 +435,62 @@ def test_bundle_preview_projects_error_control_summary(service_factory, sample_w
     assert summary["workflow"]["step_count"] == 3
     assert summary["controls"][0]["signal"] == "gatekeeper_rejected"
     assert summary["controls"][0]["role_name"] == "Evidence Inspector"
+    assert preview["diagnostics"] == summary["diagnostics"]
+    assert {item["code"] for item in summary["diagnostics"]} >= {
+        "gatekeeper_missing_handoff_fan_in",
+        "gatekeeper_missing_evidence_fan_in",
+    }
+    assert preview["traceability"] == traceability
+    assert traceability["mapped_count"] == traceability["required_count"]
+    assert "spec.markdown#Fake Done" in traceability["surfaces"]
+    assert "workflow.controls[]" in traceability["surfaces"]
+
+
+def test_bundle_preview_warns_about_legacy_guide_and_weak_builder_handoff(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    yaml_text = (
+        _bundle_yaml(sample_workdir)
+        .replace(
+            "  - key: \"gatekeeper\"\n",
+            "  - key: \"guide\"\n"
+            "    name: \"Repair Guide\"\n"
+            "    description: \"Narrows the next move from upstream evidence.\"\n"
+            "    archetype: \"guide\"\n"
+            "    prompt_markdown: |\n"
+            "      ---\n"
+            "      version: 1\n"
+            "      archetype: guide\n"
+            "      ---\n\n"
+            "      Guide the next repair slice.\n"
+            "    posture_notes: |\n"
+            "      Turn weak or unproven evidence into a smaller repair direction.\n"
+            "  - key: \"gatekeeper\"\n",
+        )
+        .replace(
+            "    - id: \"builder\"\n      role_definition_key: \"builder\"\n",
+            "    - id: \"guide\"\n"
+            "      role_definition_key: \"guide\"\n"
+            "    - id: \"builder\"\n"
+            "      role_definition_key: \"builder\"\n",
+        )
+        .replace(
+            "    - id: \"builder_step\"\n      role_id: \"builder\"\n",
+            "    - id: \"guide_step\"\n"
+            "      role_id: \"guide\"\n"
+            "    - id: \"builder_step\"\n"
+            "      role_id: \"builder\"\n",
+        )
+    )
+
+    preview = service.preview_bundle_text(yaml_text)
+
+    codes = {item["code"] for item in preview["diagnostics"]}
+    assert "guide_missing_upstream_handoff" in codes
+    assert "guide_missing_upstream_evidence" in codes
+    assert "builder_missing_guide_handoff" in codes
 
 
 def test_bundle_control_summary_does_not_hide_invalid_fire_limit_projection(

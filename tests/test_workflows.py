@@ -319,6 +319,23 @@ def test_visible_workflow_presets_are_curated_governance_shapes() -> None:
     ]
 
 
+def test_builtin_guide_steps_read_upstream_handoffs_and_evidence() -> None:
+    for preset in ("build_first", "inspect_first", "triage_first", "repair_loop"):
+        workflow = build_preset_workflow(preset)
+        guide_steps = [
+            step
+            for step in workflow["steps"]
+            if next(role for role in workflow["roles"] if role["id"] == step["role_id"])["archetype"] == "guide"
+        ]
+
+        assert guide_steps, preset
+        for step in guide_steps:
+            inputs = step["inputs"]
+            assert inputs["handoffs_from"], preset
+            assert inputs["evidence_query"]["archetypes"], preset
+            assert inputs["iteration_memory"] == "summary_only"
+
+
 def test_normalize_workflow_preserves_collaboration_intent() -> None:
     workflow = normalize_workflow(
         {

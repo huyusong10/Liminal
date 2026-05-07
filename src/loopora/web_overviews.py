@@ -112,7 +112,7 @@ def _format_iteration_summary_written(payload: Mapping[str, object], _role: obje
 
 
 def _format_challenger_done(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
-    return "Challenger suggested a new direction", str(payload.get("mode", "")).strip()
+    return "Guide suggested a new direction", str(payload.get("mode", "")).strip()
 
 
 def _format_iteration_wait_started(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:

@@ -122,8 +122,8 @@
           "Judges the evidence against the Task, checks, and Guardrails to answer 'does this count as passing?'"
         ),
         guide: localeText(
-          "只有在停滞或回退时才触发，用来提出新的方向，不是每轮必跑。",
-          "Only triggers on plateau or regression to suggest a new direction; it does not run on every iteration."
+          "把上游证据压缩成下一步修复或收窄方向；显式出现在流程里时会正常运行。",
+          "Turns upstream evidence into the next repair or narrowing direction; it runs when explicitly placed in the workflow."
         ),
         custom: localeText(
           "执行当前编排里定义的自定义步骤，并把结果交接给后续阶段。",
@@ -483,7 +483,7 @@
             stateLabel: localeText("未触发", "Skipped"),
             durationLabel: localeText("未触发", "Skipped"),
             meta: stage.archetype === "guide"
-              ? localeText("只有停滞或回退才会运行", "Only on plateau or regression")
+              ? localeText("本次运行没有进入这个引导步骤。", "This run did not enter this Guide step.")
               : localeText("本次运行没有走到这一步。", "This run never reached this step."),
           };
           return;

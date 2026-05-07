@@ -110,6 +110,7 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 - 复杂任务可以编译成长链 workflow：多个窄 Builder 或多个 Builder step 串联推进不同证据阶段，例如设计收敛、后端实现、前端接线、验证补强。长链不新增运行实体，也不表达嵌套循环；它仍是同一轮内的线性 step 序列，由外层 run iteration 负责自动迭代。
 - 长链中的每个 Builder 必须有明确阶段产物、handoff 和下游读取者；若某个 Builder 只重复“继续推进”而没有新的证据责任或交接边界，应合并到相邻 Builder，避免退化成 role zoo 或 loop script。
 - 当 Builder 排在另一个 Builder 之后，若中间存在 Inspector、Custom 或 Guide，后一个 Builder 必须显式读取对应 handoff；若两个 Builder 直接相邻，也应通过 task-specific role posture 或 step input 说明阶段边界，避免依赖 ambient context。
+- Guide step 是只读的方向转换步骤，不会因当前未停滞而被服务层自动跳过。若 workflow 显式安排 Guide，它必须通过 `inputs.handoffs_from` / `inputs.evidence_query` 读取上游审查、阻断或未证明证据；条件式 Guide 应通过 `controls[]` 表达。
 - `inputs.handoffs_from` 可按 step id、role id、runtime role、archetype 或 role name 选择当前轮上游 handoff。
 - `inputs.evidence_query` 可按 evidence 生产角色、验证目标和数量上限裁剪 evidence ledger 摘要；完整 ledger 仍是 canonical source。
 - `inputs.iteration_memory` 可选择 `default / none / same_step / same_role / summary_only`，用于控制轮次间信息传递。
@@ -146,7 +147,7 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 | `builder` | 改动工作区并推进实现 |
 | `inspector` | 广义证据生产者：可执行规则检查，也可按用户 posture 做语义检视；具体实例应按证据责任或判断姿态命名 |
 | `gatekeeper` | 根据 evidence ledger 给出通过裁决 |
-| `guide` | 在停滞或回退时给出方向调整 |
+| `guide` | 把上游审查、阻断、未证明或停滞证据转成最小修复 / 收窄方向 |
 | `custom` | 以最低权限读取现状、补充分析并给出建议 |
 
 系统固定支持四类执行器：
@@ -238,7 +239,7 @@ step 级执行附加项只影响当前 step：
 - 系统安全边界、输出契约和 context packet shape 不能被自定义 prompt 绕开。
 - evidence ledger 摘要只传递近期 item、已知 evidence id 列表和 ledger 路径，避免把证据账本全文复制进每个 prompt。
 - `inputs` 只能裁剪当前 prompt 的可见上下文，不能改变 run 的 canonical evidence ledger、step output、handoff 或 iteration summary。
-- Guide / Challenger 的运行时 prompt 与输出契约必须把 Blocking 或 Unproven 缺口转成最小修复方向；Weak 证据只有在会改变裁决时才优先补强，Residual risk 必须保持可见。
+- Guide 的运行时 prompt 与输出契约必须把 Blocking、Unproven 或停滞信号转成最小修复 / 收窄方向；Weak 证据只有在会改变裁决时才优先补强，Residual risk 必须保持可见。
 - control prompt 必须显式说明触发信号、原因、读取的 evidence refs 和模式；它产生的 ledger item 使用 `evidence_kind=control`。
 - `Role Notes` / `posture_notes` / `collaboration_intent` 可以影响角色工作姿态，但不能改写 `Task / Done When / Guardrails`。
 - 所有运行期 archetype 的 system prompt 前缀都必须提醒角色：run contract 已冻结；若发现 `Task / Done When / Guardrails` 过窄、过松或冲突，应作为 evidence gap / blocker / Loop 调整建议暴露，而不能在 run 内静默降级或改写。

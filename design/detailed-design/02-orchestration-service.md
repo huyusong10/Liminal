@@ -27,7 +27,7 @@
 | `Builder` | 改动工作区并推进实现 | 终态裁决 |
 | `Inspector` | 广义证据生产者：执行规则检查、语义检视、专家审阅或用户姿态检视，并整理结果 | 改写通过标准 |
 | `GateKeeper` | 根据证据判断是否通过 | 直接产出实现 |
-| `Guide` | 在停滞或回退时提供方向调整 | 作为每轮固定主路径 |
+| `Guide` | 把上游审查、阻断、未证明或停滞证据压缩成收窄、纠偏或修复方向；可作为显式只读 workflow step，也可由 controls 在受控误差信号下调用 | 直接裁决或修改工作区 |
 | `Custom` | 读取现状、补充分析、提出建议 | 写入工作区、结束流程、替代 GateKeeper |
 
 稳定规则：
@@ -35,7 +35,7 @@
 - 角色职责边界稳定，步骤顺序可配置。
 - 角色默认执行工具与默认模型属于 `role definition`，不属于 `loop definition`。
 - 写入、只读、可收束等本次行动权限属于 `workflow step`，不配置到每个 role definition。role 定义“以什么姿态判断”，step 定义“此刻允许做什么”。
-- `Guide` 只应出现在停滞相关分支，不应成为每轮必跑步骤。
+- `Guide` 不应作为没有上游证据输入的装饰性步骤；当 workflow 显式安排 Guide 时，服务层必须按正常 step 执行，且该 step 应读取相关 handoff / evidence。controls 仍可在停滞、失败或 GateKeeper 拒绝等受控误差信号下调用 Guide。
 - `GateKeeper` 是 `gatekeeper` completion mode 的唯一收敛裁决入口。
 - `Custom` 可以被编排自由引用；它的只读或低权限边界来自 workflow step 的行动权限，且不能成为流程收敛入口。
 - 任务级治理结构必须共同体现在 `spec / role definition / workflow` 三个运行面上；其中任何单面都不足以单独定义本次任务的判断方式。

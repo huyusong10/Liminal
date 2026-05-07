@@ -7,6 +7,7 @@ from pathlib import Path
 from loopora.context_flow import StepEvidenceEntryRequest, StepResultContext, build_step_evidence_entry, build_step_handoff
 from loopora.diagnostics import get_logger, log_event
 from loopora.evidence_coverage import write_evidence_coverage_projection
+from loopora.evidence_manifest import write_evidence_manifest_projection
 from loopora.run_artifacts import append_jsonl_with_mirrors, write_json_with_mirrors
 from loopora.service_run_finalization import TerminalRunFinalizationRequest
 from loopora.service_workflow_support import IterationContextPersistRequest, StepOutputsWriteRequest, WorkflowSummaryRequest
@@ -197,8 +198,6 @@ class ServiceWorkflowIterationStateMixin:
         handoff = build_step_handoff(step_result)
         evidence_entry = build_step_evidence_entry(StepEvidenceEntryRequest(result=step_result, handoff=handoff))
         handoff["evidence_refs"] = [evidence_entry["id"]]
-        append_jsonl_with_mirrors(request.layout.evidence_ledger_path, evidence_entry)
-        coverage_projection = write_evidence_coverage_projection(request.layout)
         self._write_step_outputs(
             StepOutputsWriteRequest(
                 layout=request.layout,
@@ -210,6 +209,12 @@ class ServiceWorkflowIterationStateMixin:
                 output=request.normalized_output,
                 handoff=handoff,
             )
+        )
+        append_jsonl_with_mirrors(request.layout.evidence_ledger_path, evidence_entry)
+        coverage_projection = write_evidence_coverage_projection(request.layout)
+        manifest_projection = write_evidence_manifest_projection(
+            request.layout,
+            coverage_projection=coverage_projection,
         )
         self.append_run_event(
             request.run_id,
@@ -225,6 +230,7 @@ class ServiceWorkflowIterationStateMixin:
                 ),
                 "evidence_ledger_path": request.layout.relative(request.layout.evidence_ledger_path),
                 "evidence_coverage_path": coverage_projection.get("coverage_path", ""),
+                "evidence_manifest_path": manifest_projection.get("manifest_path", ""),
                 "evidence_refs": handoff["evidence_refs"],
                 "status": handoff["status"],
                 "summary": handoff["summary"],

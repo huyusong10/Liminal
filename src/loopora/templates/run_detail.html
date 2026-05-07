@@ -44,20 +44,20 @@
       <span data-lang="zh">返回 Loop</span>
       <span data-lang="en">Back to loop</span>
     </a>
-    <form method="post" action="/runs/{{ run.id }}/revise" class="inline-form">
-      <button class="primary-button" type="submit" data-testid="run-improve-chat-button">
-        <span data-lang="zh">用证据改进 Loop</span>
-        <span data-lang="en">Improve plan with evidence</span>
-      </button>
-    </form>
     {% if run.status in ["succeeded", "failed", "stopped"] %}
     <form method="post" action="/runs/{{ run.id }}/rerun" class="inline-form">
-      <button class="secondary-button" type="submit" data-testid="run-rerun-button">
+      <button class="primary-button" type="submit" data-testid="run-rerun-button">
         <span data-lang="zh">重新运行</span>
         <span data-lang="en">Rerun</span>
       </button>
     </form>
     {% endif %}
+    <form method="post" action="/runs/{{ run.id }}/revise" class="inline-form">
+      <button class="secondary-button" type="submit" data-testid="run-improve-chat-button">
+        <span data-lang="zh">用证据改进 Loop</span>
+        <span data-lang="en">Improve plan with evidence</span>
+      </button>
+    </form>
     {% if run.status in ["queued", "running"] %}
     <button class="ghost-button" id="stop-run">
       <span data-lang="zh">停止运行</span>

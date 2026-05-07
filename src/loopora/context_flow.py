@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 
 from loopora.specs import resolve_role_note
 
@@ -277,9 +278,11 @@ STEP_CONTEXT_PACKET_SCHEMA = {
         },
         "evidence": {
             "type": "object",
-            "required": ["ledger_path", "items", "known_ids"],
+            "required": ["ledger_path", "manifest_path", "coverage_path", "items", "known_ids"],
             "properties": {
                 "ledger_path": {"type": "string"},
+                "manifest_path": {"type": "string"},
+                "coverage_path": {"type": "string"},
                 "items": {"type": "array", "items": EVIDENCE_ITEM_SCHEMA},
                 "known_ids": {"type": "array", "items": {"type": "string"}},
             },
@@ -460,6 +463,8 @@ def build_run_contract_snapshot(request: RunContractSnapshotRequest) -> dict:
             ),
             "timeline_metrics": artifact_ref(layout, layout.timeline_metrics_path, kind="timeline", label="timeline-metrics"),
             "evidence_ledger": artifact_ref(layout, layout.evidence_ledger_path, kind="evidence", label="evidence-ledger"),
+            "evidence_coverage": artifact_ref(layout, layout.evidence_coverage_path, kind="evidence", label="evidence-coverage"),
+            "evidence_manifest": artifact_ref(layout, layout.evidence_manifest_path, kind="evidence", label="evidence-manifest"),
         },
     }
 
@@ -517,6 +522,8 @@ def build_step_context_packet(request: StepContextPacketRequest) -> dict:
         },
         "evidence": {
             "ledger_path": layout.relative(layout.evidence_ledger_path),
+            "manifest_path": layout.relative(layout.evidence_manifest_path),
+            "coverage_path": layout.relative(layout.evidence_coverage_path),
             "items": list(request.evidence_items or []),
             "known_ids": list(request.evidence_known_ids or []),
         },
@@ -528,6 +535,8 @@ def build_step_context_packet(request: StepContextPacketRequest) -> dict:
             artifact_ref(layout, layout.timeline_iterations_path, kind="timeline", label="timeline-iterations"),
             artifact_ref(layout, layout.timeline_metrics_path, kind="timeline", label="timeline-metrics"),
             artifact_ref(layout, layout.evidence_ledger_path, kind="evidence", label="evidence-ledger"),
+            artifact_ref(layout, layout.evidence_coverage_path, kind="evidence", label="evidence-coverage"),
+            artifact_ref(layout, layout.evidence_manifest_path, kind="evidence", label="evidence-manifest"),
         ],
     }
 
@@ -586,6 +595,28 @@ def build_step_handoff(result: StepResultContext) -> dict:
         )
         status = _clean_text(output.get("status")).lower() or "advisory"
 
+    artifact_refs = [
+        artifact_ref(
+            layout,
+            layout.step_output_raw_path(result.iter_id, result.step_order, step["id"]),
+            kind="step",
+            label="output-raw",
+        ),
+        artifact_ref(
+            layout,
+            layout.step_output_normalized_path(result.iter_id, result.step_order, step["id"]),
+            kind="step",
+            label="output-normalized",
+        ),
+        artifact_ref(
+            layout,
+            layout.step_metadata_path(result.iter_id, result.step_order, step["id"]),
+            kind="step",
+            label="metadata",
+        ),
+    ]
+    artifact_refs.extend(_output_workspace_artifact_refs(layout, output))
+
     return {
         "source": {
             "iter": int(result.iter_id),
@@ -601,26 +632,55 @@ def build_step_handoff(result: StepResultContext) -> dict:
         "blocking_items": blocking_items,
         "recommended_next_action": recommended_next_action,
         "evidence_refs": [],
-        "artifact_refs": [
-            artifact_ref(
-                layout,
-                layout.step_output_raw_path(result.iter_id, result.step_order, step["id"]),
-                kind="step",
-                label="output-raw",
-            ),
-            artifact_ref(
-                layout,
-                layout.step_output_normalized_path(result.iter_id, result.step_order, step["id"]),
-                kind="step",
-                label="output-normalized",
-            ),
-            artifact_ref(
-                layout,
-                layout.step_metadata_path(result.iter_id, result.step_order, step["id"]),
-                kind="step",
-                label="metadata",
-            ),
-        ],
+        "artifact_refs": artifact_refs,
+    }
+
+
+def _output_workspace_artifact_refs(layout: RunArtifactLayout, output: dict) -> list[dict[str, str]]:
+    fields = (
+        ("changed_files", "changed-file"),
+        ("generated_files", "generated-file"),
+        ("proof_files", "proof-file"),
+        ("proof_artifacts", "proof-artifact"),
+        ("artifact_paths", "artifact"),
+    )
+    refs: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for field_name, label_prefix in fields:
+        for value in _string_list(output.get(field_name)):
+            ref = _workspace_artifact_ref(layout, value, label_prefix=label_prefix)
+            if not ref or ref["absolute_path"] in seen:
+                continue
+            refs.append(ref)
+            seen.add(ref["absolute_path"])
+    return refs[:20]
+
+
+def _workspace_artifact_ref(layout: RunArtifactLayout, value: str, *, label_prefix: str) -> dict[str, str] | None:
+    cleaned = str(value or "").strip()
+    if not cleaned or "\x00" in cleaned:
+        return None
+    candidate = Path(cleaned)
+    workdir = layout.workdir_path.resolve()
+    try:
+        resolved = candidate.resolve() if candidate.is_absolute() else (workdir / candidate).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    try:
+        workspace_path = resolved.relative_to(workdir).as_posix()
+    except ValueError:
+        return None
+    try:
+        if not resolved.exists():
+            return None
+    except OSError:
+        return None
+    return {
+        "kind": "workspace",
+        "label": f"{label_prefix}:{workspace_path}",
+        "relative_path": workspace_path,
+        "workspace_path": workspace_path,
+        "absolute_path": str(resolved),
     }
 
 
@@ -1133,9 +1193,15 @@ def render_previous_iteration_summary(summary: dict | None) -> str:
 def render_evidence_section(evidence: dict) -> str:
     items = list(evidence.get("items") or [])
     ledger_path = str(evidence.get("ledger_path") or "").strip()
+    manifest_path = str(evidence.get("manifest_path") or "").strip()
+    coverage_path = str(evidence.get("coverage_path") or "").strip()
     lines = ["Evidence ledger:"]
     if ledger_path:
         lines.append(f"- Path: {ledger_path}")
+    if manifest_path:
+        lines.append(f"- Manifest: {manifest_path}")
+    if coverage_path:
+        lines.append(f"- Coverage: {coverage_path}")
     known_ids = [str(item).strip() for item in list(evidence.get("known_ids") or []) if str(item).strip()]
     if known_ids:
         lines.append(f"- Known ids: {json.dumps(known_ids[-40:], ensure_ascii=False)}")
@@ -1152,7 +1218,34 @@ def render_evidence_section(evidence: dict) -> str:
         related = item.get("related_evidence_ids") if isinstance(item.get("related_evidence_ids"), list) else []
         if related:
             lines.append(f"  related={json.dumps(related, ensure_ascii=False)}")
+        artifacts = _artifact_ref_prompt_paths(item.get("artifact_refs"))
+        if artifacts:
+            lines.append(f"  artifacts={json.dumps(artifacts, ensure_ascii=False)}")
     return "\n".join(lines)
+
+
+def _artifact_ref_prompt_paths(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    paths: list[str] = []
+    refs = [ref for ref in value if isinstance(ref, dict)]
+    refs = [
+        *[ref for ref in refs if str(ref.get("kind") or "").strip() == "workspace"],
+        *[ref for ref in refs if str(ref.get("kind") or "").strip() != "workspace"],
+    ]
+    for ref in refs:
+        label = str(ref.get("label") or ref.get("kind") or "artifact").strip()
+        workspace_path = str(ref.get("workspace_path") or "").strip()
+        relative_path = str(ref.get("relative_path") or "").strip()
+        if not workspace_path and not relative_path:
+            continue
+        if workspace_path and relative_path and workspace_path != relative_path:
+            paths.append(f"{label}: {workspace_path} (run-local: {relative_path})")
+        else:
+            paths.append(f"{label}: {workspace_path or relative_path}")
+        if len(paths) >= 4:
+            break
+    return paths
 
 
 def render_artifact_refs(refs: list[dict]) -> str:

@@ -18,6 +18,13 @@ from loopora.settings import app_home
 from loopora.utils import utc_now
 
 
+def _result_error_text(result) -> str:
+    try:
+        return result.stderr
+    except ValueError:
+        return result.output
+
+
 def test_cli_package_exposes_loopora_console_script() -> None:
     console_scripts = {
         entry_point.name: entry_point.value
@@ -688,7 +695,7 @@ def test_cli_spec_init_accepts_locale_and_validate_reports_check_mode(tmp_path: 
     invalid_spec_path.write_bytes(b"\xff")
     invalid_result = runner.invoke(cli.app, ["spec", "validate", str(invalid_spec_path)])
     assert invalid_result.exit_code == 1
-    assert "UTF-8 encoded Markdown" in invalid_result.stderr
+    assert "UTF-8 encoded Markdown" in _result_error_text(invalid_result)
 
 
 def test_cli_spec_init_accepts_workflow_preset(tmp_path: Path) -> None:
@@ -744,10 +751,10 @@ def test_cli_spec_template_read_and_write(tmp_path: Path, monkeypatch) -> None:
     invalid_source_path.write_bytes(b"\xff")
     invalid_read = runner.invoke(cli.app, ["spec", "read", str(invalid_source_path)])
     assert invalid_read.exit_code == 1
-    assert "UTF-8 encoded Markdown" in invalid_read.stderr
+    assert "UTF-8 encoded Markdown" in _result_error_text(invalid_read)
     invalid_write = runner.invoke(cli.app, ["spec", "write", str(spec_path), "--from-file", str(invalid_source_path)])
     assert invalid_write.exit_code == 1
-    assert "UTF-8 encoded Markdown" in invalid_write.stderr
+    assert "UTF-8 encoded Markdown" in _result_error_text(invalid_write)
 
 
 def test_cli_prompts_list_template_and_validate(tmp_path: Path) -> None:
@@ -773,7 +780,7 @@ def test_cli_prompts_list_template_and_validate(tmp_path: Path) -> None:
     invalid_prompt_path.write_bytes(b"\xff")
     invalid_result = runner.invoke(cli.app, ["prompts", "validate", str(invalid_prompt_path)])
     assert invalid_result.exit_code == 1
-    assert "UTF-8 encoded Markdown" in invalid_result.stderr
+    assert "UTF-8 encoded Markdown" in _result_error_text(invalid_result)
 
 
 def test_cli_bundles_import_export_derive_and_delete(monkeypatch, tmp_path: Path) -> None:

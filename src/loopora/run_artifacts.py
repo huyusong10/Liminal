@@ -108,6 +108,14 @@ RUN_ARTIFACT_SPECS = (
         "description_zh": "从运行契约与证据账本重算得到的覆盖投影，用于追溯收束结论。",
         "description_en": "A derived coverage projection rebuilt from the run contract and evidence ledger for tracing closure decisions.",
     },
+    {
+        "id": "evidence-manifest",
+        "relative_path": "evidence/manifest.json",
+        "label_zh": "证据清单",
+        "label_en": "Evidence manifest",
+        "description_zh": "从证据账本和覆盖投影派生的 claim、producer、proof artifact 与可复验状态索引。",
+        "description_en": "A derived claim, producer, proof artifact, and verification-state index rebuilt from the evidence ledger and coverage projection.",
+    },
 )
 
 STEP_ARTIFACT_FILENAMES = {
@@ -262,6 +270,10 @@ class RunArtifactLayout:
     @property
     def evidence_coverage_path(self) -> Path:
         return self.evidence_dir / "coverage.json"
+
+    @property
+    def evidence_manifest_path(self) -> Path:
+        return self.evidence_dir / "manifest.json"
 
     @property
     def iterations_dir(self) -> Path:

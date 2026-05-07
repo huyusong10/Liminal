@@ -205,6 +205,16 @@ def _corrupt_run_prompt_artifact(run: dict, prompt_ref: str) -> None:
     prompt_asset_path(layout.contract_prompts_dir, prompt_ref).write_bytes(b"\xff")
 
 
+def _assert_evidence_manifest(run_dir: Path) -> None:
+    manifest = json.loads((run_dir / "evidence" / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["manifest_path"] == "evidence/manifest.json"
+    assert manifest["ledger_path"] == "evidence/ledger.jsonl"
+    assert manifest["coverage_path"] == "evidence/coverage.json"
+    assert manifest["claim_count"] >= 3
+    assert manifest["artifact_backed_claim_count"] == manifest["claim_count"]
+    assert all(claim["producer"]["step_id"] for claim in manifest["claims"])
+
+
 def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     loop = _create_loop(service, sample_spec_file, sample_workdir)
@@ -220,6 +230,7 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     assert (run_dir / "stagnation.json").exists()
     assert (run_dir / "evidence" / "ledger.jsonl").exists()
     assert (run_dir / "evidence" / "coverage.json").exists()
+    assert (run_dir / "evidence" / "manifest.json").exists()
     assert (run_dir / "contract" / "compiled_spec.json").exists()
     assert (run_dir / "contract" / "workflow.json").exists()
     assert (run_dir / "contract" / "run_contract.json").exists()
@@ -233,6 +244,7 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     assert coverage["ledger_path"] == "evidence/ledger.jsonl"
     assert coverage["status"] in {"covered", "weak"}
     assert coverage["targets"]
+    _assert_evidence_manifest(run_dir)
     assert run["run_status"] == "succeeded"
     assert run["task_verdict"]["status"] == "passed"
     assert run["task_verdict"]["source"] == "gatekeeper"
@@ -266,6 +278,55 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     assert "All checks passed in this iteration." in summary
     assert "evidence/ledger.jsonl" in summary
     assert "timeline/iterations.jsonl" in summary
+
+
+def test_builder_declared_workspace_artifacts_are_written_to_evidence_refs(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    class ChangedFileExecutor(FakeCodexExecutor):
+        def _build_payload(self, request):
+            payload = super()._build_payload(request)
+            if request.role_archetype == "builder":
+                proof_path = request.workdir / "tests" / "evidence" / "proof.json"
+                proof_path.parent.mkdir(parents=True, exist_ok=True)
+                proof_path.write_text('{"ok": true}\n', encoding="utf-8")
+                (request.workdir / "progress.md").write_text("# Progress\n\nChanged.\n", encoding="utf-8")
+                payload["changed_files"] = ["progress.md", "missing.md", "../outside.md"]
+                payload["proof_files"] = ["tests/evidence/proof.json"]
+            return payload
+
+    service = service_factory(scenario="success")
+    service.executor_factory = lambda: ChangedFileExecutor(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Workspace Artifact Loop")
+
+    run = service.rerun(loop["id"])
+
+    run_dir = Path(run["runs_dir"])
+    ledger = _read_jsonl(run_dir / "evidence" / "ledger.jsonl")
+    builder_entry = next(item for item in ledger if item["archetype"] == "builder")
+    workspace_refs = [item for item in builder_entry["artifact_refs"] if item["kind"] == "workspace"]
+    assert {item["workspace_path"] for item in workspace_refs} == {
+        "progress.md",
+        "tests/evidence/proof.json",
+    }
+    assert all(Path(item["absolute_path"]).is_absolute() for item in workspace_refs)
+    role_requests = _read_jsonl(run_dir / "context" / "role_requests.jsonl")
+    gatekeeper_request = next(item for item in role_requests if item["role_archetype"] == "gatekeeper")
+    gatekeeper_prompt = (run_dir / gatekeeper_request["prompt_path"]).read_text(encoding="utf-8")
+    assert "changed-file:progress.md" in gatekeeper_prompt
+    assert "proof-file:tests/evidence/proof.json" in gatekeeper_prompt
+    assert "Manifest: evidence/manifest.json" in gatekeeper_prompt
+    manifest = json.loads((run_dir / "evidence" / "manifest.json").read_text(encoding="utf-8"))
+    builder_claim = next(item for item in manifest["claims"] if item["producer"]["archetype"] == "builder")
+    assert builder_claim["verification_status"] == "direct_proof"
+    assert builder_claim["workspace_backed"] is True
+    assert builder_claim["reproducible"] is True
+    proof_ref = next(item for item in builder_claim["artifact_refs"] if item["label"] == "proof-file:tests/evidence/proof.json")
+    assert proof_ref["exists"] is True
+    assert proof_ref["hash_status"] == "sha256"
+    assert proof_ref["sha256"]
 
 
 def test_command_events_do_not_persist_prompt_or_secret_markers(
@@ -1367,7 +1428,12 @@ def test_triage_first_workflow_runs_inspector_then_guide_then_builder(
         if line.strip()
     ]
     workflow_entry = next(entry for entry in iteration_log if entry["phase"] == "complete")
-    assert [step["archetype"] for step in workflow_entry["workflow"][:3]] == ["inspector", "builder", "gatekeeper"]
+    assert [step["archetype"] for step in workflow_entry["workflow"][:4]] == [
+        "inspector",
+        "guide",
+        "builder",
+        "gatekeeper",
+    ]
 
 
 def test_fast_lane_workflow_runs_builder_before_gatekeeper(

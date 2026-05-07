@@ -498,8 +498,10 @@ def _assert_plan_preview_has_default_summary_and_expert_tabs(page) -> None:
     summary_text = page.get_by_test_id("alignment-artifact-summary").text_content() or ""
     assert "Risk" in summary_text or "风险" in summary_text
     assert "Evidence" in summary_text or "证据" in summary_text
+    assert "Judgment" in summary_text or "判断" in summary_text
     assert "Verdict" in summary_text or "裁决" in summary_text
     assert "Workdir" in summary_text or "目录" in summary_text
+    page.get_by_test_id("alignment-judgment-map").wait_for(state="visible", timeout=5_000)
     assert page.get_by_test_id("alignment-preview-tab-spec").get_attribute("aria-selected") == "true"
     assert page.get_by_test_id("alignment-spec-preview").is_visible()
     _assert_preview_has_expert_tabs_and_stable_hover(page)

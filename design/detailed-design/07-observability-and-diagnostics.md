@@ -19,6 +19,7 @@
 | run artifacts | 记录 prompt、输出、summary、metrics 等复盘材料 | 用于还原单次 run 的细节，不替代系统级日志 |
 | evidence ledger | 记录本次 run 的证明项、未覆盖风险和对应 artifact refs | 作为 GateKeeper verdict 和 run 复盘的 canonical 证据事实源 |
 | evidence coverage projection | 从 run contract 与 evidence ledger 重算覆盖状态 | 面向 UI 摘要和白盒追溯；不是新的事实源 |
+| evidence manifest projection | 从 evidence ledger、coverage projection 与 run contract 投影 claim -> artifact -> producer 的可验证索引 | 面向 GateKeeper、UI 与审计的证据闭环摘要；不是新的事实源 |
 | run status projection | 从 run record 和终态事件投影系统生命周期 | 只说明 run 是否结束、失败、停止或超时 |
 | task verdict projection | 从 GateKeeper verdict、runtime evidence gate 与 coverage 投影 Loop 裁决 | 说明任务是否被证明、未证明、阻断或带残余风险 |
 
@@ -28,15 +29,18 @@
 - 同一诊断场景优先用共享关联字段串联三者，而不是复制大段内容。
 - evidence ledger 的 canonical 文件是 `evidence/ledger.jsonl`；它不是 timeline、metrics 或 raw output 的复制品。
 - evidence coverage 的 canonical artifact 是 `evidence/coverage.json`，但它是 derived projection；任何冲突都以 `contract/compiled_spec.json`、`evidence/ledger.jsonl` 和 GateKeeper verdict 为准。
+- evidence manifest 的 canonical artifact 是 `evidence/manifest.json`，它把每个 evidence claim 的 producer、method、verifies、artifact refs、coverage targets 与可复验状态压缩到一个索引里；它只派生自 ledger、coverage 与 run contract，不能引入新的证明事实。
 - coverage target 由后端从 `# Done When`、`# Fake Done`、`# Evidence Preferences` 与 GateKeeper 收束方式派生；用户界面不要求用户手工维护 target。
 - 每个 evidence item 至少要能表达 claim、method、result、artifact refs、produced by、verifies 与 residual risk。
+- evidence manifest 中的 claim 至少要表达：claim id、producer、method、result、verifies、coverage targets、artifact refs、verification status 与 residual risk。`verification status` 只能说明证据是否 artifact-backed / workspace-backed / ledger-only / unverified，不替代 GateKeeper verdict。
 - evidence item 的 `verifies` 可以引用 coverage target；旧的 `check_results:<check_id>:<status>` 仍兼容，新的 target 引用使用稳定 id，例如 `target:done_when.check_001:covered`。
+- evidence item 的 artifact refs 不只指向角色 raw / normalized output 和 metadata；当结构化输出声明工作区产物或 proof 文件（例如 Builder `changed_files`）时，应同步投影为 workspace artifact refs，使证据能追到真实文件而不是只追到角色自述。
 - Step handoff 可以摘要证据，但必须通过 `evidence_refs` 指回 ledger item；面向用户的结论不能只停留在自由文本。
 - 并行检视组中的多个 evidence producer 共享同一上游快照；ledger 按 workflow step 顺序落账，并保留各自的 `step_id / role_id / archetype / iter`。
 - GateKeeper pass 必须能回到 evidence ledger；没有 evidence refs 或可落账 evidence claims 的 pass 不能成为新 run 的强收敛条件。
 - `Fake Done` 与 `Evidence Preferences` 在第一阶段属于 advisory coverage；缺口会让 projection 标记为 weak，但不扩大当前 GateKeeper 硬失败条件。
 - run status 与 task verdict 必须分开投影。`run_finished` 或 `succeeded` 只能说明系统生命周期，不代表任务已经通过。
-- 面向用户的 evidence projection 应优先使用稳定语义桶：已证明、证据薄弱、未证明、阻断问题、残余风险。完整 ledger 仍通过追查入口访问。
+- 面向用户的 evidence projection 应优先使用稳定语义桶：已证明、证据薄弱、未证明、阻断问题、残余风险。完整 ledger 与 manifest 仍通过追查入口访问。
 - Web 终端必须把关键系统动作白盒化投影出来，不能只展示底层命令输出。
 - run event 写入边界必须在数据库和 `timeline/events.jsonl` mirror 前做最终脱敏；完整 prompt、JSON schema、token / secret 参数值、认证头和 Cookie 不得进入 event stream、数据库镜像或 `timeline/events.jsonl`。command 事件只能展示脱敏命令预览。
 - alignment event 写入边界必须提供同等级保护；Web alignment 的 DB event、SSE/API payload 和 `events/events.jsonl` 只能保存脱敏后的轻量预览，完整 prompt、JSON schema、bundle YAML、token / secret 参数值、认证头和 Cookie 不得进入该观察面。
@@ -50,7 +54,7 @@
 - 观察状态不是 run 生命周期事实源。终态 run 到达后观察状态可以收敛为 `finished`，但不能把 `ready / degraded / stream-stale` 映射成 run succeeded / failed / stopped。
 - 面向用户的 run 详情页应优先消费 run artifacts 中已经冻结的 handoff、iteration summary 与 coverage projection 来生成“关键结论”，默认只展示简洁状态与主要原因；完整 target、ledger 和 artifact 链路通过白盒追溯入口查看。
 - 当新的 `step_handoff_written`、`control_completed`、`control_failed`、`iteration_summary_written` 或 `run_finished` 事件到达时，run 详情页里的“关键结论”必须在当前会话内自动拉取最新 artifacts 并刷新；不能要求用户手动刷新整页后才能看到最新轮次结论。
-- 提供给角色 prompt 的 artifact refs 必须能从 workspace 直接定位到 `.loopora/runs/...` 下的真实文件，不能只暴露对 run 目录内部才有意义的短相对路径。
+- 提供给角色 prompt 的 artifact refs 必须能从 workspace 直接定位到 `.loopora/runs/...` 下的真实文件；指向工作区 proof / changed file 的 refs 也必须带 workspace-relative 与 absolute path。不能只暴露对 run 目录内部才有意义的短相对路径。prompt 中的 evidence section 必须同时暴露 ledger、manifest 与 coverage 路径，便于后续角色追查 claim 与 proof artifact 的绑定。
 - 当角色尝试获取浏览器或截图证据失败时，诊断线索必须保留在 run event stream 与 step handoff 中，便于后续角色区分“产品问题”与“宿主环境阻断”。
 - run 详情页的运行状态、Loop 裁决与结果是 Loopora 的输出边界。系统应提供清楚的证据、artifact、再次运行、修改 Loop、导出和停止入口；用户如何基于这些材料调整 Loop 属于用户主动编排场景，不形成系统持有的演化历史。
 

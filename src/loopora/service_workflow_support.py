@@ -492,10 +492,10 @@ class ServiceWorkflowSupportMixin:
             role = item["role"]
             output = item["output"]
             heading = {
-                "builder": "Generator / Builder",
-                "inspector": "Tester / Inspector",
-                "gatekeeper": "Verifier / GateKeeper",
-                "guide": "Challenger / Guide",
+                "builder": "Builder",
+                "inspector": "Inspector",
+                "gatekeeper": "GateKeeper",
+                "guide": "Guide",
                 "custom": "Restricted Custom Role",
             }.get(role["archetype"], role["name"])
             lines.extend(

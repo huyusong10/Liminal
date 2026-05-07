@@ -40,8 +40,8 @@ ROLE_NOTE_DEFAULTS = {
         "en": "Only pass when Done When and Guardrails are backed by direct evidence; stay conservative when evidence is weak.",
     },
     "guide": {
-        "zh": "在停滞或回退时，优先给出最小但高杠杆的方向调整，不要变成第二个 GateKeeper。",
-        "en": "When progress stalls or regresses, suggest the smallest high-leverage direction change instead of acting like a second GateKeeper.",
+        "zh": "把上游证据、未证明缺口或停滞信号收窄成最小但高杠杆的方向调整，不要变成第二个 GateKeeper。",
+        "en": "Turn upstream evidence, unproven gaps, or stagnation signals into the smallest high-leverage direction change instead of acting like a second GateKeeper.",
     },
     "custom": {
         "zh": "保持只读辅助角色定位，优先给出具体观察和窄范围建议。",

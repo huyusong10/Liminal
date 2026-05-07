@@ -98,7 +98,7 @@
       }
       if (event.event_type === "challenger_done") {
         return {
-          title: localeText("挑战阶段给出新方向", "Challenger suggested a new direction"),
+          title: localeText("引导者给出新方向", "Guide suggested a new direction"),
           detail: String(payload.mode || ""),
         };
       }

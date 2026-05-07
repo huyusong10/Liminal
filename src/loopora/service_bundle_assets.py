@@ -202,6 +202,7 @@ class ServiceBundleAssetMixin:
         validation: dict | None = None,
     ) -> dict:
         normalized_yaml = bundle_to_yaml(bundle)
+        control_summary = self._bundle_control_summary(bundle)
         return {
             "ok": True,
             "yaml": normalized_yaml,
@@ -211,7 +212,9 @@ class ServiceBundleAssetMixin:
             "spec_rendered_html": render_safe_markdown_html(bundle["spec"]["markdown"]),
             "roles": bundle["role_definitions"],
             "workflow_preview": self._bundle_workflow_preview(bundle),
-            "control_summary": self._bundle_control_summary(bundle),
+            "control_summary": control_summary,
+            "traceability": control_summary.get("traceability", {}),
+            "diagnostics": list(control_summary.get("diagnostics") or []),
             "validation": validation or {"ok": True, "error": "", "source_path": source_path},
         }
 

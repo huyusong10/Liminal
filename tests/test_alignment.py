@@ -86,6 +86,8 @@ def test_alignment_service_writes_validates_previews_imports_and_runs(
     assert preview["bundle"]["loop"]["workdir"] == str(sample_workdir.resolve())
     assert preview["workflow_preview"]["roles"][0]["name"] == "Focused Builder"
     assert preview["control_summary"]["gatekeeper"]["requires_evidence_refs"] is True
+    assert preview["traceability"] == preview["control_summary"]["traceability"]
+    assert preview["traceability"]["mapped_count"] == preview["traceability"]["required_count"]
     assert "Ship the focused starter experience" in preview["spec_rendered_html"]
 
     imported = service.import_alignment_bundle(session["id"], start_immediately=True)

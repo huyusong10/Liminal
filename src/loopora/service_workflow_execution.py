@@ -152,26 +152,6 @@ class ServiceWorkflowExecutionMixin(
         state_snapshot = request.state_snapshot
         role = context.role_by_id[step["role_id"]]
         runtime_role = self._runtime_role_key(role)
-        if (
-            not request.is_control
-            and role["archetype"] == "guide"
-            and iteration.stagnation.get("stagnation_mode", "none") == "none"
-        ):
-            log_event(
-                logger,
-                logging.INFO,
-                "service.workflow.step.skipped",
-                "Skipped guide step because the run is not currently stagnating",
-                **self._run_log_context(
-                    context.run,
-                    iter=iteration.iter_id,
-                    step_id=step["id"],
-                    role=runtime_role,
-                    archetype=role["archetype"],
-                    stagnation_mode=iteration.stagnation.get("stagnation_mode", "none"),
-                ),
-            )
-            return {"skipped": True, "step_order": step_order, "step": step, "role": role}
 
         execution_settings = self._resolve_role_execution_settings(context.run, step, role)
         log_event(

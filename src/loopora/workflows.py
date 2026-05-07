@@ -922,7 +922,16 @@ WORKFLOW_PRESETS = {
             _preset_step(step_id="builder_step", role_id="builder", archetype="builder"),
             _preset_step(step_id="inspector_step", role_id="inspector", archetype="inspector"),
             _preset_step(step_id="gatekeeper_step", role_id="gatekeeper", archetype="gatekeeper", on_pass="finish_run"),
-            _preset_step(step_id="guide_step", role_id="guide", archetype="guide"),
+            _preset_step(
+                step_id="guide_step",
+                role_id="guide",
+                archetype="guide",
+                inputs={
+                    "handoffs_from": ["builder_step", "inspector_step", "gatekeeper_step"],
+                    "evidence_query": {"archetypes": ["builder", "inspector", "gatekeeper"], "limit": 24},
+                    "iteration_memory": "summary_only",
+                },
+            ),
         ],
     ),
     "inspect_first": _workflow_preset_definition(
@@ -947,7 +956,16 @@ WORKFLOW_PRESETS = {
             _preset_step(step_id="inspector_step", role_id="inspector", archetype="inspector"),
             _preset_step(step_id="builder_step", role_id="builder", archetype="builder"),
             _preset_step(step_id="gatekeeper_step", role_id="gatekeeper", archetype="gatekeeper", on_pass="finish_run"),
-            _preset_step(step_id="guide_step", role_id="guide", archetype="guide"),
+            _preset_step(
+                step_id="guide_step",
+                role_id="guide",
+                archetype="guide",
+                inputs={
+                    "handoffs_from": ["inspector_step", "builder_step", "gatekeeper_step"],
+                    "evidence_query": {"archetypes": ["inspector", "builder", "gatekeeper"], "limit": 24},
+                    "iteration_memory": "summary_only",
+                },
+            ),
         ],
     ),
     "benchmark_loop": _workflow_preset_definition(
@@ -1012,9 +1030,32 @@ WORKFLOW_PRESETS = {
         ],
         steps=[
             _preset_step(step_id="inspector_step", role_id="inspector", archetype="inspector"),
-            _preset_step(step_id="guide_step", role_id="guide", archetype="guide"),
-            _preset_step(step_id="builder_step", role_id="builder", archetype="builder"),
-            _preset_step(step_id="gatekeeper_step", role_id="gatekeeper", archetype="gatekeeper", on_pass="finish_run"),
+            _preset_step(
+                step_id="guide_step",
+                role_id="guide",
+                archetype="guide",
+                inputs={
+                    "handoffs_from": ["inspector_step"],
+                    "evidence_query": {"archetypes": ["inspector"], "limit": 12},
+                    "iteration_memory": "summary_only",
+                },
+            ),
+            _preset_step(
+                step_id="builder_step",
+                role_id="builder",
+                archetype="builder",
+                inputs={"handoffs_from": ["guide_step"], "iteration_memory": "same_step"},
+            ),
+            _preset_step(
+                step_id="gatekeeper_step",
+                role_id="gatekeeper",
+                archetype="gatekeeper",
+                on_pass="finish_run",
+                inputs={
+                    "handoffs_from": ["inspector_step", "guide_step", "builder_step"],
+                    "evidence_query": {"archetypes": ["inspector", "guide", "builder"], "limit": 24},
+                },
+            ),
         ],
     ),
     "repair_loop": _workflow_preset_definition(
@@ -1077,7 +1118,11 @@ WORKFLOW_PRESETS = {
                 step_id="guide_step",
                 role_id="guide",
                 archetype="guide",
-                inputs={"handoffs_from": ["regression_inspection_step", "contract_inspection_step"]},
+                inputs={
+                    "handoffs_from": ["regression_inspection_step", "contract_inspection_step"],
+                    "evidence_query": {"archetypes": ["inspector"], "limit": 12},
+                    "iteration_memory": "summary_only",
+                },
             ),
             _preset_step(
                 step_id="builder_repair_step",
@@ -1091,8 +1136,13 @@ WORKFLOW_PRESETS = {
                 archetype="gatekeeper",
                 on_pass="finish_run",
                 inputs={
-                    "handoffs_from": ["regression_inspection_step", "contract_inspection_step", "builder_repair_step"],
-                    "evidence_query": {"archetypes": ["inspector", "builder"], "limit": 24},
+                    "handoffs_from": [
+                        "regression_inspection_step",
+                        "contract_inspection_step",
+                        "guide_step",
+                        "builder_repair_step",
+                    ],
+                    "evidence_query": {"archetypes": ["inspector", "guide", "builder"], "limit": 24},
                 },
             ),
         ],

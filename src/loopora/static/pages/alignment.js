@@ -55,9 +55,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const readyNote = document.getElementById("alignment-ready-note");
   const artifactRisk = document.getElementById("alignment-artifact-risk");
   const artifactEvidence = document.getElementById("alignment-artifact-evidence");
+  const artifactJudgment = document.getElementById("alignment-artifact-judgment");
   const artifactVerdict = document.getElementById("alignment-artifact-verdict");
   const artifactWorkdir = document.getElementById("alignment-artifact-workdir");
   const controlSummary = document.getElementById("alignment-control-summary");
+  const judgmentMap = document.getElementById("alignment-judgment-map");
+  const diagnosticsStrip = document.getElementById("alignment-diagnostics-strip");
   const artifactSource = document.getElementById("alignment-artifact-source");
   const sourcePathLabel = document.getElementById("alignment-source-path");
   const specPreview = document.getElementById("alignment-spec-preview");
@@ -367,6 +370,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (sourcePathLabel) {
       sourcePathLabel.textContent = "";
     }
+    renderJudgmentMap({}, []);
     emptyState.hidden = false;
     shell?.classList.remove("has-session", "has-artifact");
     setStatus(localeText("未开始", "Idle"));
@@ -949,6 +953,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (artifactEvidence) {
       artifactEvidence.textContent = localeText("证据：-", "Evidence: -");
     }
+    if (artifactJudgment) {
+      artifactJudgment.textContent = localeText("判断：-", "Judgment: -");
+    }
     if (artifactVerdict) {
       artifactVerdict.textContent = localeText("裁决：-", "Verdict: -");
     }
@@ -957,6 +964,7 @@ document.addEventListener("DOMContentLoaded", () => {
       `Workdir: ${basename(currentSession?.workdir || "") || "-"}`
     );
     renderControlSummary(null);
+    renderJudgmentMap({}, []);
     roleList.innerHTML = "";
     workflowDiagram.innerHTML = "";
     if (sourceOpenButton) {
@@ -1024,15 +1032,44 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function evidencePathSummary(summary) {
-    return listSnippet(summary?.evidence) || localeText("运行时写入证据账本。", "Recorded into the run evidence ledger.");
+    const evidence = listSnippet(summary?.evidence) || localeText("运行时写入证据账本。", "Recorded into the run evidence ledger.");
+    const traceability = summary?.traceability || {};
+    if (Number(traceability.mapped_count || 0) > 0) {
+      return localeText(
+        `${evidence}；${traceability.mapped_count}/${traceability.required_count || traceability.mapped_count} 项判断已投影。`,
+        `${evidence}; ${traceability.mapped_count}/${traceability.required_count || traceability.mapped_count} judgments projected.`
+      );
+    }
+    return evidence;
   }
 
   function evidenceStatus(summary) {
     const count = (summary?.evidence || []).filter((value) => String(value || "").trim()).length;
+    const traceabilityCount = Number(summary?.traceability?.mapped_count || 0);
     if (count) {
+      if (traceabilityCount) {
+        return localeText(`${count} 项 · ${traceabilityCount} 映射`, `${count} checks · ${traceabilityCount} mapped`);
+      }
       return localeText(`${count} 项`, `${count} checks`);
     }
+    if (traceabilityCount) {
+      return localeText(`${traceabilityCount} 映射`, `${traceabilityCount} mapped`);
+    }
     return localeText("已配置", "configured");
+  }
+
+  function judgmentStatus(summary) {
+    const traceability = summary?.traceability || {};
+    const mapped = Number(traceability.mapped_count || 0);
+    const required = Number(traceability.required_count || mapped);
+    const diagnostics = (summary?.diagnostics || []).filter((item) => String(item?.severity || "") !== "info");
+    const base = mapped
+      ? localeText(`${mapped}/${required || mapped} 已投影`, `${mapped}/${required || mapped} projected`)
+      : localeText("未投影", "not projected");
+    if (diagnostics.length) {
+      return localeText(`${base} · ${diagnostics.length} 提醒`, `${base} · ${diagnostics.length} warnings`);
+    }
+    return base;
   }
 
   function verdictSummary(summary) {
@@ -1097,6 +1134,75 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="alignment-control-card">
         <strong>${escapeHtml(card.label)}</strong>
         <span>${escapeHtml(card.value)}</span>
+      </div>
+    `).join("");
+  }
+
+  function traceItemLabel(item) {
+    const labels = {
+      collaboration_story: localeText("协作判断", "Collaboration"),
+      task_scope: localeText("任务边界", "Task scope"),
+      success_surface: localeText("成功面", "Success"),
+      fake_done_risks: localeText("假完成", "Fake done"),
+      evidence_preferences: localeText("证据偏好", "Evidence"),
+      residual_risk_policy: localeText("残余风险", "Risk policy"),
+      role_posture: localeText("角色姿态", "Role posture"),
+      workflow_judgment: localeText("流程判断", "Workflow"),
+      gatekeeper_closure: localeText("裁决收口", "Closure"),
+      runtime_controls: localeText("运行控制", "Controls"),
+    };
+    return labels[item?.key] || item?.label || item?.key || "-";
+  }
+
+  function surfaceSummary(surfaces) {
+    const values = (surfaces || []).map((value) => String(value || "").trim()).filter(Boolean);
+    return values.slice(0, 2).join(" / ") || "-";
+  }
+
+  function localizedDiagnosticText(item, field) {
+    const zh = item?.[`${field}_zh`] || item?.[field];
+    const en = item?.[`${field}_en`] || item?.[field];
+    return localeText(zh || "", en || "");
+  }
+
+  function renderJudgmentMap(traceability, diagnostics = []) {
+    if (!judgmentMap || !diagnosticsStrip) {
+      return;
+    }
+    const items = Array.isArray(traceability?.items) ? traceability.items : [];
+    const visibleItems = items.slice(0, 9);
+    if (!visibleItems.length) {
+      judgmentMap.hidden = true;
+      judgmentMap.innerHTML = "";
+    } else {
+      judgmentMap.hidden = false;
+      judgmentMap.innerHTML = visibleItems.map((item) => {
+        const evidence = (item.evidence || []).map((value) => String(value || "").trim()).filter(Boolean)[0] || "";
+        const surface = surfaceSummary(item.surfaces);
+        const mapped = Boolean(item.mapped);
+        return `
+          <div class="alignment-judgment-row" data-mapped="${mapped}">
+            <strong>${escapeHtml(traceItemLabel(item))}</strong>
+            <span>${escapeHtml(mapped ? surface : localeText("缺少可运行映射", "Missing runnable mapping"))}</span>
+            ${evidence ? `<span>${escapeHtml(evidence)}</span>` : ""}
+          </div>
+        `;
+      }).join("");
+    }
+
+    const visibleDiagnostics = (diagnostics || [])
+      .filter((item) => item && String(item.severity || "") !== "info")
+      .slice(0, 3);
+    if (!visibleDiagnostics.length) {
+      diagnosticsStrip.hidden = true;
+      diagnosticsStrip.innerHTML = "";
+      return;
+    }
+    diagnosticsStrip.hidden = false;
+    diagnosticsStrip.innerHTML = visibleDiagnostics.map((item) => `
+      <div class="alignment-diagnostic-row">
+        <strong>${escapeHtml(localizedDiagnosticText(item, "title"))}</strong>
+        <span>${escapeHtml(localizedDiagnosticText(item, "message"))}</span>
       </div>
     `).join("");
   }
@@ -1188,6 +1294,11 @@ document.addEventListener("DOMContentLoaded", () => {
       artifactEvidence.textContent = labeledSummary("证据", "Evidence", evidenceStatus(summary));
       artifactEvidence.title = evidenceText;
     }
+    const diagnostics = payload.diagnostics || summary.diagnostics || [];
+    if (artifactJudgment) {
+      artifactJudgment.textContent = labeledSummary("判断", "Judgment", judgmentStatus({...summary, diagnostics}));
+      artifactJudgment.title = evidencePathSummary(summary);
+    }
     if (artifactVerdict) {
       artifactVerdict.textContent = labeledSummary("裁决", "Verdict", summary?.gatekeeper?.enabled ? "GateKeeper" : verdictSummary(summary));
       artifactVerdict.title = verdictSummary(summary);
@@ -1195,6 +1306,7 @@ document.addEventListener("DOMContentLoaded", () => {
     artifactWorkdir.textContent = labeledSummary("目录", "Workdir", basename(payload.bundle?.loop?.workdir || ""));
     artifactWorkdir.title = payload.bundle?.loop?.workdir || "";
     renderControlSummary(null);
+    renderJudgmentMap(payload.traceability || summary.traceability || {}, diagnostics);
     specPreview.innerHTML = payload.spec_rendered_html || "";
     if (sourceOpenButton) {
       sourceOpenButton.hidden = !payload.source_path;

@@ -208,6 +208,7 @@
         <p class="alignment-decision-risk" id="alignment-artifact-risk">-</p>
         <div class="alignment-decision-facts">
           <span id="alignment-artifact-evidence">-</span>
+          <span id="alignment-artifact-judgment">-</span>
           <span id="alignment-artifact-verdict">-</span>
           <span id="alignment-artifact-workdir">-</span>
           <div class="alignment-artifact-source" id="alignment-artifact-source" data-testid="alignment-artifact-source" hidden>
@@ -223,6 +224,8 @@
           </div>
         </div>
       </div>
+      <section class="alignment-judgment-map" id="alignment-judgment-map" data-testid="alignment-judgment-map" hidden></section>
+      <section class="alignment-diagnostics-strip" id="alignment-diagnostics-strip" data-testid="alignment-diagnostics-strip" hidden></section>
       <div class="alignment-preview-tabs" data-testid="alignment-preview-tabs" role="tablist" aria-label="{{ 'Loop 预览' if page_locale == 'zh' else 'Loop plan preview' }}">
         <button type="button" class="alignment-preview-tab is-active" data-preview-tab="spec" data-testid="alignment-preview-tab-spec" role="tab" aria-selected="true">
           <span data-lang="zh">Loop 契约</span><span data-lang="en">spec</span>
@@ -493,6 +496,7 @@
       <p class="alignment-decision-risk" id="alignment-artifact-roles">-</p>
       <div class="alignment-decision-facts">
         <span id="alignment-artifact-verdict">-</span>
+        <span id="alignment-artifact-judgment">-</span>
         <span id="alignment-artifact-workdir">-</span>
         <div class="alignment-artifact-source" id="alignment-artifact-source" data-testid="alignment-artifact-source" hidden>
           <span class="alignment-artifact-source-path" id="alignment-source-path" hidden></span>
@@ -503,6 +507,8 @@
         </div>
       </div>
     </div>
+    <section class="alignment-judgment-map" id="alignment-judgment-map" data-testid="alignment-judgment-map" hidden></section>
+    <section class="alignment-diagnostics-strip" id="alignment-diagnostics-strip" data-testid="alignment-diagnostics-strip" hidden></section>
     <div class="alignment-preview-tabs" data-testid="alignment-preview-tabs" role="tablist" aria-label="{{ 'Loop 预览' if page_locale == 'zh' else 'Loop plan preview' }}">
       <button type="button" class="alignment-preview-tab is-active" data-preview-tab="spec" data-testid="alignment-preview-tab-spec" role="tab" aria-selected="true">
         <span data-lang="zh">Loop 契约</span><span data-lang="en">spec</span>
