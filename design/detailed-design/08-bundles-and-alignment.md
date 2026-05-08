@@ -23,7 +23,7 @@
 稳定规则：
 
 - `working agreement` 是编译期中间产物，不是运行期资产。
-- Alignment 必须先说明 Loopora fit：这次为什么需要可运行治理 Loop，而不是一次 Agent 执行加一次人工 review、直接聊天或 benchmark-first 简单循环。
+- Alignment 必须先判断 Loopora fit：这次为什么需要可运行治理 Loop，而不是一次 Agent 执行加一次人工 review、直接聊天或 benchmark-first 简单循环。默认对话不应把 `Loopora fit` 当成用户术语，而应用普通任务语言给出推荐判断和可选路径。
 - Loopora 不执行独立 agreement 文件。
 - 最终运行输入仍然是 `spec / role definitions / workflow / loop`。
 - 外部 Agent Skill 不再是一等 bundle 编译入口；YAML 导入 / 导出仍是专家交换格式，但判断显影和候选 bundle 编译默认由 Web alignment 的受控 compiler 完成。

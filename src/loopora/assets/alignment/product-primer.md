@@ -91,6 +91,8 @@ Do not ask the user to define an abstract personality. Use concrete comparisons 
 - Which evidence should persuade GateKeeper?
 - When should speed lose to proof, structure, safety, or residual-risk clarity?
 
+Do not make the user invent every answer from a blank page. Good alignment proposes a task-shaped judgment first, marks the recommended answer, and lets the user accept, choose another option, or correct the judgment. The user should feel they are choosing and editing a candidate judgment, not doing Loopora's compiler work manually.
+
 If judgment can be reduced to a stable benchmark, use the benchmark. If it cannot be reliably scored but can be structured into success surfaces, fake-done risks, evidence preferences, role responsibilities, and GateKeeper rules, compile that structure into the Loop.
 
 ## What Loopora must refuse

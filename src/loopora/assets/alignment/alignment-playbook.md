@@ -25,6 +25,15 @@ If several answers are missing, ask the next answer that would most change the L
 
 Start with the Loopora fit gate when fit is not already clear. Loopora is justified only when future human judgment would repeat, later rounds can create new evidence, fake completion is worth blocking, the judgment should survive one chat as run-owned or auditable governance, and the judgment is not already captured by one stable benchmark or one Agent pass plus review.
 
+Clarifying turns must be shaped as guided choices:
+
+1. Interpret the task in the user's domain language.
+2. State your recommended judgment or default answer.
+3. Offer 2-4 concrete `decision_options`, with exactly one obvious recommendation unless the user has already rejected it.
+4. Let the user accept, choose another option, or correct the judgment.
+
+Do not ask naked questions such as "what do you care about?" or "which risk worries you?" unless you also provide a recommended answer. The alignment Agent should reduce cognitive load by drafting the judgment, not outsource the draft to the user.
+
 ## Interview phases
 
 ### 1. Shape the task
@@ -38,11 +47,11 @@ Find out what kind of work this is:
 
 Good question:
 
-> 这次更像是先交一个可运行首版，还是先把失败层查清楚再动手？
+> 我先按“先交一个可运行首版”来理解，因为这个需求已经有明确交付物；推荐先做小而真实的闭环，再用证据阻断假完成。你可以选：A. 可运行首版优先（推荐）；B. 先查清失败层；C. 先做技术骨架。
 
 Loop-fit question:
 
-> 如果只让 Agent 做一次、你最后 review 一遍，会漏掉哪类需要多轮证据和 GateKeeper 判断的问题？
+> 这看起来可能一次 Agent 加人工 review 就够；我的推荐是只有当“后续轮次会产生新证据，并且需要阻断假完成”时才编排 Loop。你可以选：A. 先不生成 Loop（推荐）；B. 仍然编排，因为这套判断需要被 run 继承；C. 我补充会反复判断的风险。
 
 Bad question:
 
@@ -54,7 +63,7 @@ Ask what would make the user trust the result, and what would make the result fe
 
 Good question:
 
-> 你最不能接受的是“页面好看但不能用”，还是“功能能跑但结构很难继续扩展”？
+> 我建议默认先防“页面好看但不能用”，因为它最容易把假完成伪装成产品完成。你可以选：A. 真实主路径优先（推荐）；B. 可维护结构优先；C. 展示完整度优先。
 
 Bad question:
 
@@ -62,7 +71,7 @@ Bad question:
 
 When the user struggles to name rules, use contrast questions instead of abstract preference questions:
 
-> 如果 A 功能少但路径真实，B 看起来完整但核心闭环没跑通，你会让 GateKeeper 放哪一个？
+> 我建议选择 A：功能少但路径真实。B 看起来完整但核心闭环没跑通，应该先被挡住。你可以直接采用这个判断，或改成先追求展示完整度。
 
 Complex judgment often appears as a preference order, not a score. Capture that order as fake-done risks, evidence responsibility, residual-risk policy, and GateKeeper strictness.
 

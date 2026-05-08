@@ -54,9 +54,10 @@ Alignment 的 workflow 判断还必须保护 Loopora 的自治公式：判断结
 
 - 如果 Loopora fit 不清楚，Alignment 必须先过负向门槛：一次 Agent + review 是否足够、下一轮是否有新证据、是否已有稳定 benchmark 能表达判断；不能为了产出 bundle 而把不需要 Loopora 的任务包装成 Loop。
 - readiness evidence 不需要用固定句式证明 Loopora fit，但若它显式承认一次 Agent + review 已足够、后续不会产生新证据、已有 benchmark 已完整表达判断，或判断不需要活过本次聊天，后端必须把这视为 fit 矛盾并继续对话，而不是接受 `loop_fit=true`。
-- 不问抽象人格问题，优先问能改变 Loop 的场景选择题：两个都不完美的结果里，用户会拒绝哪一个，为什么？
+- 不问抽象人格问题，也不把用户推到空白页上自想答案。默认 clarifying turn 必须先给出任务语境里的候选判断与推荐答案，再让用户在少量选项中接受、改选或纠正；两个都不完美的结果里，系统应先说明推荐拒绝哪一个以及为什么。
 - 不把对齐变成长问卷。默认每轮只问一个最会改变 Loop 形状的问题；弱模型一次抛出多项问卷时，服务层应改写为单个任务风险问题。
 - 不把 Loopora 配置术语当作新手问题。默认 Web alignment 必须用任务风险语言提问，而不是让用户决定是否配置 `Builder`、`Inspector`、`GateKeeper`、`parallel_group`、`workflow.controls` 或 YAML 字段；弱模型给出这类机械问题时，服务层应改写成风险取舍问题。
+- Web alignment 的结构化输出可携带 `decision_options`。它不是新的运行期资产，只是对话期交互投影：每个 option 表达一个用户可选回答、一个是否推荐的标记和点击后要追加到 transcript 的用户回复。选项帮助用户校正候选判断，不替代 working agreement、bundle 或运行期 evidence。
 - 不把“用户确认了”当作充分条件；确认必须足以说明成功面、假完成、证据偏好、角色姿态和 workflow 形状。
 - 不把未解决问题藏进 ready agreement。`open_questions` 只能为空、无遗留问题或仅等待确认；仍会改变成功面、证据、残余风险、角色或 workflow 的问题必须继续提问。
 - 在交付 working agreement 或 bundle 前，Alignment 应私下彩排一条完整运行路径：Builder 产出和 handoff、Inspector / Custom 取证、可选 Guide 修复方向、第二轮 Builder、GateKeeper 裁决和用户证据审计，都必须能通过显式 handoff、evidence query、角色姿态和证据桶串起来；若某一环只靠聊天上下文或角色名成立，继续追问或调整候选 Loop。

@@ -136,8 +136,25 @@ def _alignment_preconfirmation_scenario_payload(scenario: str, *, workdir: str) 
     needs_user_input = True
     bundle_yaml = ""
     phase = "clarifying"
+    decision_options: list[dict] | None = None
     if scenario == "alignment_question":
-        assistant_message = "这次你更怕做慢，还是更怕做糙？"
+        assistant_message = "我建议先按“证据不足不能通过”来编排，这样结果可以小一点，但不会只靠表面完成过关。你可以直接采用推荐，或改成更偏速度。"
+        decision_options = [
+            {
+                "id": "evidence_first",
+                "label": "优先阻断假完成（推荐）",
+                "description": "少做一点也可以，但必须证明核心路径真的成立。",
+                "recommended": True,
+                "user_reply": "采用推荐：优先阻断看起来完成但证据不足的结果，少而真实也可以。",
+            },
+            {
+                "id": "speed_first",
+                "label": "优先快速推进",
+                "description": "先交一个更务实的首版，允许部分残余风险保持可见。",
+                "recommended": False,
+                "user_reply": "我选择优先快速推进，可以接受部分残余风险保持可见。",
+            },
+        ]
     elif scenario == "alignment_not_fit":
         status = "blocked"
         assistant_message = "这看起来一次 Agent 执行加一次人工 review 就够了；如果你仍想用 Loopora，请说明会反复出现的判断或新证据。"
@@ -162,13 +179,16 @@ def _alignment_preconfirmation_scenario_payload(scenario: str, *, workdir: str) 
         bundle_yaml = alignment_bundle_yaml(workdir)
     else:
         return None
-    return alignment_response(
+    payload = alignment_response(
         status=status,
         assistant_message=assistant_message,
         needs_user_input=needs_user_input,
         bundle_yaml=bundle_yaml,
         phase=phase,
     )
+    if decision_options:
+        payload["decision_options"] = decision_options
+    return payload
 
 
 def _alignment_preconfirmation_agreement_payload_for_scenario(
@@ -540,6 +560,7 @@ def alignment_response(
         "status": status,
         "assistant_message": assistant_message,
         "needs_user_input": needs_user_input,
+        "decision_options": [],
         "bundle_yaml": bundle_yaml,
         "session_ref": {
             "session_id": "",
@@ -589,6 +610,22 @@ def alignment_agreement_response() -> dict:
         "status": "question",
         "assistant_message": "我会按这个工作协议生成：先做聚焦实现，再收集可复现证据，最后由守门者保守裁决。请回复“确认”后我再生成 Loop 方案。",
         "needs_user_input": True,
+        "decision_options": [
+            {
+                "id": "confirm_agreement",
+                "label": "采用这个方向（推荐）",
+                "description": "按这份工作协议生成 Loop 方案。",
+                "recommended": True,
+                "user_reply": "确认，采用这个方向。",
+            },
+            {
+                "id": "adjust_agreement",
+                "label": "我想调整",
+                "description": "先修改其中一个判断，再生成方案。",
+                "recommended": False,
+                "user_reply": "我想调整这份工作协议：",
+            },
+        ],
         "bundle_yaml": "",
         "session_ref": {
             "session_id": "",

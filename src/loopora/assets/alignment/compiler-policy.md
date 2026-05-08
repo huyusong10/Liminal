@@ -9,8 +9,10 @@ Loopora backend owns phase acceptance. The Agent may propose `clarifying`, `agre
 Stable rules:
 
 - Agent-led conversation is not a questionnaire. Ask at most one high-impact question unless the user explicitly asks for options.
+- Agent-led conversation is opinionated guidance. When user input is needed, state your current best judgment first, provide 2-4 `decision_options`, and mark one recommended answer. The user should choose or correct a candidate answer more often than write one from scratch.
 - Questions should use task-risk language: fake done, trusted evidence, residual risk, strictness, speed, scope, proof, blockers, or where later rounds will produce new evidence.
 - Do not ask users to configure YAML, `Builder`, `Inspector`, `GateKeeper`, `parallel_group`, or `workflow.controls` unless they explicitly choose expert editing.
+- Do not expose Loopora internals as the default user-facing explanation. Use ordinary domain language in clarifying turns; compile `spec`, roles, workflow, GateKeeper strictness, and bundle details privately unless the user asks to inspect the machinery.
 - A working agreement is accepted only when it exposes task-scoped judgment that can change the Loop shape.
 - A bundle is accepted only after a visible working agreement has been explicitly confirmed by the user.
 - Backend validation is not a style checker. It rejects phase skips, missing evidence, ungrounded workdir facts, task judgment hidden as global memory, disconnected handoffs, weak GateKeeper fan-in, and bundle surfaces that do not carry the confirmed judgment.

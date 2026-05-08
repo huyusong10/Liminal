@@ -646,8 +646,9 @@ def _assert_alignment_running_shell(page) -> None:
 def _confirm_alignment_ready_from_browser(page, service: LooporaService) -> dict:
     agreement = _wait_for_alignment_status(service, _latest_alignment_session_id(service), "waiting_user")
     assert agreement["alignment_stage"] == "agreement_ready"
-    page.get_by_test_id("alignment-message-input").fill("确认")
-    page.get_by_test_id("alignment-send-button").click()
+    recommended = page.get_by_test_id("alignment-decision-option").filter(has_text=re.compile("采用这个方向|Use this direction")).first
+    recommended.wait_for(state="visible", timeout=5_000)
+    recommended.click()
     page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
     session = _wait_for_alignment_status(service, _latest_alignment_session_id(service), "ready")
     assert session["validation"]["ok"] is True

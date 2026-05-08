@@ -729,6 +729,9 @@ document.addEventListener("DOMContentLoaded", () => {
     setStatus(statusLabel(status), status === "ready" ? "ready" : (status === "failed" ? "failed" : ""), status);
     sessionMeta.textContent = `${statusLabel(status)} · ${basename(session.workdir)} · ${session.id}`;
     setBusy(isActiveStatus(status));
+    if (!isActiveStatus(status) && status !== "failed") {
+      setLiveDetailsOpen(false);
+    }
     updateChips();
     renderTranscript(session.transcript || [], session);
     syncActiveExecutionCopy(status);
@@ -782,14 +785,83 @@ document.addEventListener("DOMContentLoaded", () => {
     transcriptEl.append(card);
   }
 
+  function normalizeDecisionOptions(options) {
+    if (!Array.isArray(options)) {
+      return [];
+    }
+    return options
+      .filter((option) => option && typeof option === "object")
+      .map((option, index) => ({
+        id: String(option.id || `option_${index + 1}`),
+        label: String(option.label || "").trim(),
+        description: String(option.description || "").trim(),
+        recommended: Boolean(option.recommended),
+        userReply: String(option.user_reply || option.userReply || option.label || "").trim(),
+      }))
+      .filter((option) => option.label && option.userReply)
+      .slice(0, 4);
+  }
+
+  function renderDecisionOptions(container, entry, {canChoose = false} = {}) {
+    const options = normalizeDecisionOptions(entry?.decision_options);
+    if (!options.length) {
+      return;
+    }
+    const group = document.createElement("div");
+    group.className = "alignment-decision-options";
+    group.dataset.testid = "alignment-decision-options";
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", localeText("推荐选择", "Recommended choices"));
+    options.forEach((option) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `alignment-decision-option${option.recommended ? " is-recommended" : ""}`;
+      button.dataset.testid = "alignment-decision-option";
+      button.dataset.optionId = option.id;
+      button.disabled = !canChoose;
+      const badge = option.recommended
+        ? `<span class="alignment-decision-badge">${escapeHtml(localeText("推荐", "Recommended"))}</span>`
+        : "";
+      button.innerHTML = `
+        <span class="alignment-decision-option-title">
+          <strong>${escapeHtml(option.label)}</strong>
+          ${badge}
+        </span>
+        <small>${escapeHtml(option.description)}</small>
+      `;
+      button.addEventListener("click", async () => {
+        if (!canChoose || !currentSession?.id || isActiveStatus(currentSession.status || "")) {
+          return;
+        }
+        showError("");
+        setBusy(true);
+        try {
+          await appendMessage(option.userReply);
+        } catch (error) {
+          showError(error.message || localeText("发送选择失败。", "Failed to send choice."));
+          setBusy(false);
+        }
+      });
+      group.append(button);
+    });
+    container.append(group);
+  }
+
   function renderTranscript(transcript, session = currentSession) {
     transcriptEl.innerHTML = "";
-    transcript.forEach((entry) => {
+    const latestAssistantIndex = [...transcript].map((entry, index) => ({entry, index})).reverse()
+      .find((item) => item.entry?.role === "assistant")?.index ?? -1;
+    transcript.forEach((entry, index) => {
       const bubble = document.createElement("article");
       bubble.className = `alignment-message alignment-message--${entry.role === "user" ? "user" : "assistant"}`;
       bubble.innerHTML = `
         <p>${escapeHtml(entry.content || "")}</p>
       `;
+      if (entry.role === "assistant") {
+        renderDecisionOptions(bubble, entry, {
+          canChoose: index === latestAssistantIndex && !isActiveStatus(session?.status || "") && String(session?.status || "") !== "ready",
+        });
+      }
       transcriptEl.append(bubble);
     });
     renderWorkingCard(session);

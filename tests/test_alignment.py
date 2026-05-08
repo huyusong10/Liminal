@@ -200,7 +200,12 @@ def test_alignment_service_waits_for_user_question(service_factory, sample_workd
     session = _wait_for_status(service, created["id"], "waiting_user")
 
     assert session["transcript"][-1]["role"] == "assistant"
-    assert "做慢" in session["transcript"][-1]["content"]
+    assert "推荐" in session["transcript"][-1]["content"]
+    options = session["transcript"][-1]["decision_options"]
+    assert len(options) >= 2
+    assert options[0]["recommended"] is True
+    assert "优先阻断假完成" in options[0]["label"]
+    assert options[0]["user_reply"]
     assert not Path(session["bundle_path"]).exists()
     assert session["native_resume_available"] is True
     assert session["executor_session_ref"]["session_id"]
@@ -217,6 +222,8 @@ def test_alignment_service_keeps_not_fit_gate_in_dialogue(service_factory, sampl
 
     assert not Path(session["bundle_path"]).exists()
     assert "一次 Agent 执行加一次人工 review" in session["transcript"][-1]["content"]
+    assert session["transcript"][-1]["decision_options"][0]["recommended"] is True
+    assert "Skip Loop" in session["transcript"][-1]["decision_options"][0]["label"]
     assert session["alignment_stage"] == "clarifying"
 
 
@@ -235,6 +242,7 @@ def test_alignment_service_keeps_blocked_not_fit_output_in_dialogue(
     assert not Path(session["bundle_path"]).exists()
     assert session["error_message"] == ""
     assert "反复出现的判断或新证据" in session["transcript"][-1]["content"]
+    assert session["transcript"][-1]["decision_options"][0]["recommended"] is True
     assert session["alignment_stage"] == "clarifying"
     events = service.list_alignment_events(created["id"])
     assert any(event["event_type"] == "alignment_waiting_user" for event in events)
@@ -255,10 +263,13 @@ def test_alignment_service_reframes_mechanical_configuration_questions(
     assistant_message = session["transcript"][-1]["content"]
 
     assert "配置两个 Inspector" not in assistant_message
-    assert "任务风险" in assistant_message
+    assert "推荐" in assistant_message
+    assert session["transcript"][-1]["decision_options"][0]["recommended"] is True
     events = service.list_alignment_events(created["id"])
     assert any(
-        event["event_type"] == "alignment_question_reframed" and "mechanical_configuration_question" in event["payload"].get("issues", []) for event in events
+        event["event_type"] == "alignment_question_reframed"
+        and {"mechanical_configuration_question", "missing_recommended_decision_options"}.issubset(set(event["payload"].get("issues", [])))
+        for event in events
     )
 
 
@@ -276,10 +287,14 @@ def test_alignment_service_reframes_generic_preference_questions(
     assistant_message = session["transcript"][-1]["content"]
 
     assert "你有什么偏好" not in assistant_message
-    assert "抽象偏好调查" in assistant_message
-    assert "任务风险" in assistant_message
+    assert "推荐" in assistant_message
+    assert session["transcript"][-1]["decision_options"][0]["recommended"] is True
     events = service.list_alignment_events(created["id"])
-    assert any(event["event_type"] == "alignment_question_reframed" and "generic_alignment_question" in event["payload"].get("issues", []) for event in events)
+    assert any(
+        event["event_type"] == "alignment_question_reframed"
+        and {"generic_alignment_question", "missing_recommended_decision_options"}.issubset(set(event["payload"].get("issues", [])))
+        for event in events
+    )
 
 
 def test_alignment_service_reframes_clarifying_questionnaires(
@@ -296,10 +311,14 @@ def test_alignment_service_reframes_clarifying_questionnaires(
     assistant_message = session["transcript"][-1]["content"]
 
     assert "1. 你想完成什么任务" not in assistant_message
-    assert "长问卷" in assistant_message
-    assert "一个会改变 Loop 的点" in assistant_message
+    assert "推荐" in assistant_message
+    assert session["transcript"][-1]["decision_options"][0]["recommended"] is True
     events = service.list_alignment_events(created["id"])
-    assert any(event["event_type"] == "alignment_question_reframed" and "questionnaire_overload" in event["payload"].get("issues", []) for event in events)
+    assert any(
+        event["event_type"] == "alignment_question_reframed"
+        and {"questionnaire_overload", "missing_recommended_decision_options"}.issubset(set(event["payload"].get("issues", [])))
+        for event in events
+    )
 
 
 def test_alignment_service_materializes_visible_working_agreement(
@@ -325,6 +344,8 @@ def test_alignment_service_materializes_visible_working_agreement(
     assert "Workflow shape:" in visible_agreement
     assert "Proven, Weak, Unproven, Blocking" in visible_agreement
     assert visible_agreement != "Please confirm."
+    assert session["transcript"][-1]["decision_options"][0]["recommended"] is True
+    assert "Use this direction" in session["transcript"][-1]["decision_options"][0]["label"]
 
 
 def test_alignment_service_materializes_chinese_working_agreement(
@@ -346,6 +367,8 @@ def test_alignment_service_materializes_chinese_working_agreement(
     assert "判断取舍：" in visible_agreement
     assert "workflow 形状：" in visible_agreement
     assert visible_agreement != "Please confirm."
+    assert session["transcript"][-1]["decision_options"][0]["recommended"] is True
+    assert "采用这个方向" in session["transcript"][-1]["decision_options"][0]["label"]
 
 
 def test_alignment_service_treats_confirmation_with_correction_as_adjustment(
@@ -463,10 +486,15 @@ def test_alignment_service_rewrites_english_clarifying_message_for_chinese_user(
     session = _wait_for_status(service, created["id"], "waiting_user")
 
     assistant_message = session["transcript"][-1]["content"]
-    assert "我需要继续用中文对齐" in assistant_message
+    assert "推荐判断" in assistant_message
     assert "What evidence" not in assistant_message
     events = service.list_alignment_events(created["id"])
-    assert any(event["event_type"] == "alignment_language_mismatch" and event["payload"].get("missing") == ["assistant_message"] for event in events)
+    assert session["transcript"][-1]["decision_options"][0]["recommended"] is True
+    assert any(
+        event["event_type"] == "alignment_question_reframed"
+        and "missing_recommended_decision_options" in event["payload"].get("issues", [])
+        for event in events
+    )
 
 
 def test_alignment_service_blocks_chinese_bundle_with_english_evidence(
@@ -634,6 +662,8 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
         "Allowed candidate phase: bundle, or clarifying if a human-required judgment gap is discovered",
         "The Agent drives the semantic conversation. Loopora backend only accepts or rejects candidate phases.",
         "Agent-led conversation is not a questionnaire",
+        "`decision_options`",
+        "state your current best judgment first",
         "Repairable issues may be fixed by the Agent",
         "Human-required issues must go back to conversation",
         "Loopora Product Primer",

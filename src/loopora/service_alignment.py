@@ -359,6 +359,21 @@ ALIGNMENT_RESPONSE_SCHEMA: dict[str, Any] = {
         },
         "assistant_message": {"type": "string"},
         "needs_user_input": {"type": "boolean"},
+        "decision_options": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "id": {"type": "string"},
+                    "label": {"type": "string"},
+                    "description": {"type": "string"},
+                    "recommended": {"type": "boolean"},
+                    "user_reply": {"type": "string"},
+                },
+                "required": ["id", "label", "description", "recommended", "user_reply"],
+            },
+        },
         "bundle_yaml": {"type": "string"},
         "session_ref": {
             "type": "object",
@@ -416,6 +431,7 @@ ALIGNMENT_RESPONSE_SCHEMA: dict[str, Any] = {
         "status",
         "assistant_message",
         "needs_user_input",
+        "decision_options",
         "bundle_yaml",
         "session_ref",
         "alignment_phase",
@@ -1167,13 +1183,13 @@ class ServiceAlignmentMixin:
                 )
                 session = self.get_alignment_session(session_id)
                 session = self._apply_alignment_output_stage(session_id, session, output)
-                assistant_message, bundle_yaml = self._alignment_output_message_and_bundle(
+                assistant_message, bundle_yaml, decision_options = self._alignment_output_message_bundle_and_options(
                     session_id,
                     session,
                     output,
                 )
                 if assistant_message:
-                    self._record_alignment_assistant_message(session_id, session, assistant_message)
+                    self._record_alignment_assistant_message(session_id, session, assistant_message, decision_options=decision_options)
 
                 if bundle_yaml:
                     next_state = self._handle_alignment_bundle_candidate(session_id, bundle_yaml)
@@ -1227,7 +1243,7 @@ class ServiceAlignmentMixin:
         phase = str(output.get("alignment_phase", "") or "").strip().lower()
         return status == "blocked" or phase == "blocked"
 
-    def _alignment_output_message_and_bundle(self, session_id: str, session: dict, output: dict) -> tuple[str, str]:
+    def _alignment_output_message_bundle_and_options(self, session_id: str, session: dict, output: dict) -> tuple[str, str, list[dict]]:
         assistant_message = str(output.get("assistant_message", "") or "").strip()
         bundle_yaml = str(output.get("bundle_yaml", "") or "").strip()
         stage_error = self._alignment_bundle_stage_error(session, output) if bundle_yaml else ""
@@ -1239,14 +1255,17 @@ class ServiceAlignmentMixin:
                     {"missing": ["assistant_message"], "surface": "assistant_message"},
                 )
                 assistant_message = self._fallback_alignment_assistant_message(output, has_bundle=bool(bundle_yaml))
-            return assistant_message, bundle_yaml
+                output["decision_options"] = self._default_alignment_decision_options(session)
+            decision_options = self._visible_alignment_decision_options(session, output, has_bundle=bool(bundle_yaml))
+            return assistant_message, bundle_yaml, decision_options
         output["needs_user_input"] = True
         self.repository.append_alignment_event(
             session_id,
             "alignment_stage_blocked",
             {"status": "waiting_user", "error": stage_error},
         )
-        return stage_error, ""
+        output["decision_options"] = self._default_alignment_decision_options(session)
+        return stage_error, "", self._visible_alignment_decision_options(session, output, has_bundle=False)
 
     @classmethod
     def _alignment_assistant_message_language_issue(cls, session: dict, assistant_message: str) -> bool:
@@ -1260,15 +1279,29 @@ class ServiceAlignmentMixin:
             return "我需要继续用中文对齐；请先确认一个会改变 Loop 形状的点：这次更怕结果看起来完成但证据不足，还是推进太慢？"
         return "我需要继续用中文对齐后再继续。"
 
-    def _record_alignment_assistant_message(self, session_id: str, session: dict, assistant_message: str) -> None:
+    def _record_alignment_assistant_message(
+        self,
+        session_id: str,
+        session: dict,
+        assistant_message: str,
+        *,
+        decision_options: list[dict] | None = None,
+    ) -> None:
         transcript = list(session.get("transcript") or [])
-        transcript.append({"role": "assistant", "content": assistant_message, "created_at": utc_now()})
+        entry = {"role": "assistant", "content": assistant_message, "created_at": utc_now()}
+        normalized_options = self._normalize_alignment_decision_options(decision_options)
+        if normalized_options:
+            entry["decision_options"] = normalized_options
+        transcript.append(entry)
         self.repository.update_alignment_session(session_id, transcript=transcript)
         self._write_alignment_transcript_log(self.get_alignment_session(session_id))
+        event_payload = {"role": "assistant", "content": assistant_message}
+        if normalized_options:
+            event_payload["decision_options"] = normalized_options
         self.repository.append_alignment_event(
             session_id,
             "alignment_message",
-            {"role": "assistant", "content": assistant_message},
+            event_payload,
         )
 
     def _handle_alignment_bundle_candidate(
@@ -1517,6 +1550,7 @@ class ServiceAlignmentMixin:
             )
             output["needs_user_input"] = True
             output["bundle_yaml"] = ""
+            output["decision_options"] = self._agreement_confirmation_decision_options(session)
             return self._decorate_alignment_session(updated)
         if phase == "clarifying" and session.get("alignment_stage") not in ALIGNMENT_CONFIRMED_STAGES:
             updated = self.repository.update_alignment_session(session_id, alignment_stage="clarifying")
@@ -1524,16 +1558,15 @@ class ServiceAlignmentMixin:
             if question_issues:
                 if self._alignment_prefers_chinese(session):
                     output["assistant_message"] = (
-                        "我还不能把对齐变成长问卷、抽象偏好调查、角色配置或 YAML 配置选择；"
-                        "先只用任务风险语言确认一个会改变 Loop 的点："
-                        "你更担心结果看起来完成但证据不足，还是推进太慢？"
+                        "我先给一个推荐判断：默认应该优先阻断“看起来完成但证据不足”的结果，"
+                        "这样后续运行不会靠漂亮叙事过关。你可以直接选推荐，也可以改成更偏速度的方向。"
                     )
                 else:
                     output["assistant_message"] = (
-                        "I can't turn alignment into a long questionnaire, abstract preference survey, role setup, "
-                        "or YAML configuration choice. Answer one task-risk question that changes the Loop shape: "
-                        "are you more worried about a result that looks done without evidence, or about moving too slowly?"
+                        "My recommended default is to block results that look done but lack evidence, so the run cannot "
+                        "pass on a polished story alone. You can choose that recommendation or switch toward speed."
                     )
+                output["decision_options"] = self._default_alignment_decision_options(session)
                 output["needs_user_input"] = True
                 output["bundle_yaml"] = ""
                 self.repository.append_alignment_event(
@@ -1605,6 +1638,180 @@ class ServiceAlignmentMixin:
                 f"the user's language: {labels}. Please rewrite those judgments."
             )
         return fallback_zh.format(missing=labels)
+
+    @classmethod
+    def _visible_alignment_decision_options(cls, session: dict, output: dict, *, has_bundle: bool) -> list[dict]:
+        if has_bundle:
+            return []
+        phase = str(output.get("alignment_phase", "") or "").strip().lower()
+        status = str(output.get("status", "") or "").strip().lower()
+        if not bool(output.get("needs_user_input")) and phase != "blocked" and status != "blocked":
+            return []
+        options = cls._normalize_alignment_decision_options(output.get("decision_options"))
+        if options:
+            return options
+        if phase == "agreement":
+            return cls._agreement_confirmation_decision_options(session)
+        if phase == "blocked" or status == "blocked":
+            return cls._not_fit_alignment_decision_options(session)
+        return cls._default_alignment_decision_options(session)
+
+    @classmethod
+    def _normalize_alignment_decision_options(cls, raw_options: object) -> list[dict]:
+        if not isinstance(raw_options, list):
+            return []
+        options: list[dict] = []
+        seen_ids: set[str] = set()
+        for index, item in enumerate(raw_options[:4], start=1):
+            if not isinstance(item, dict):
+                continue
+            label = cls._agreement_text_snippet(item.get("label"), limit=80)
+            description = cls._agreement_text_snippet(item.get("description"), limit=220)
+            user_reply = cls._agreement_text_snippet(item.get("user_reply"), limit=260)
+            if not label or not user_reply:
+                continue
+            option_id = str(item.get("id") or f"option_{index}").strip()
+            option_id = re.sub(r"[^A-Za-z0-9_.:-]+", "-", option_id).strip("-") or f"option_{index}"
+            if option_id in seen_ids:
+                option_id = f"{option_id}-{index}"
+            seen_ids.add(option_id)
+            options.append(
+                {
+                    "id": option_id,
+                    "label": label,
+                    "description": description,
+                    "recommended": bool(item.get("recommended")),
+                    "user_reply": user_reply,
+                }
+            )
+        return options
+
+    @classmethod
+    def _alignment_has_recommended_decision_options(cls, output: dict) -> bool:
+        options = cls._normalize_alignment_decision_options(output.get("decision_options"))
+        return len(options) >= 2 and any(bool(option.get("recommended")) for option in options)
+
+    @staticmethod
+    def _default_alignment_decision_options(session: dict) -> list[dict]:
+        if ServiceAlignmentMixin._alignment_prefers_chinese(session):
+            return [
+                {
+                    "id": "evidence_first",
+                    "label": "优先阻断假完成（推荐）",
+                    "description": "少做一点也可以，但必须证明核心路径真的成立。",
+                    "recommended": True,
+                    "user_reply": "采用推荐：优先阻断看起来完成但证据不足的结果，少而真实也可以。",
+                },
+                {
+                    "id": "speed_first",
+                    "label": "优先快速推进",
+                    "description": "先交一个更务实的首版，允许部分残余风险保持可见。",
+                    "recommended": False,
+                    "user_reply": "我选择优先快速推进，可以接受部分残余风险保持可见。",
+                },
+                {
+                    "id": "add_judgment",
+                    "label": "我补充判断",
+                    "description": "我想说明另一种更重要的完成标准或风险。",
+                    "recommended": False,
+                    "user_reply": "我想补充另一种判断：",
+                },
+            ]
+        return [
+            {
+                "id": "evidence_first",
+                "label": "Block fake done (Recommended)",
+                "description": "A smaller result is acceptable, but the core path must be proven.",
+                "recommended": True,
+                "user_reply": "Use the recommendation: block results that look done but lack evidence, even if the first version is smaller.",
+            },
+            {
+                "id": "speed_first",
+                "label": "Move faster",
+                "description": "Ship a more pragmatic first pass and keep residual risks visible.",
+                "recommended": False,
+                "user_reply": "I choose speed first and can accept visible residual risks.",
+            },
+            {
+                "id": "add_judgment",
+                "label": "I'll add judgment",
+                "description": "I want to name a different completion standard or risk.",
+                "recommended": False,
+                "user_reply": "I want to add another judgment:",
+            },
+        ]
+
+    @staticmethod
+    def _agreement_confirmation_decision_options(session: dict) -> list[dict]:
+        if ServiceAlignmentMixin._alignment_prefers_chinese(session):
+            return [
+                {
+                    "id": "confirm_agreement",
+                    "label": "采用这个方向（推荐）",
+                    "description": "按这份工作协议生成 Loop 方案。",
+                    "recommended": True,
+                    "user_reply": "确认，采用这个方向。",
+                },
+                {
+                    "id": "adjust_agreement",
+                    "label": "我想调整",
+                    "description": "先修改其中一个判断，再生成方案。",
+                    "recommended": False,
+                    "user_reply": "我想调整这份工作协议：",
+                },
+            ]
+        return [
+            {
+                "id": "confirm_agreement",
+                "label": "Use this direction (Recommended)",
+                "description": "Generate the Loop plan from this working agreement.",
+                "recommended": True,
+                "user_reply": "Confirm; use this direction.",
+            },
+            {
+                "id": "adjust_agreement",
+                "label": "I want changes",
+                "description": "Revise one judgment before generating the plan.",
+                "recommended": False,
+                "user_reply": "I want to adjust this working agreement:",
+            },
+        ]
+
+    @staticmethod
+    def _not_fit_alignment_decision_options(session: dict) -> list[dict]:
+        if ServiceAlignmentMixin._alignment_prefers_chinese(session):
+            return [
+                {
+                    "id": "skip_loop",
+                    "label": "先不生成 Loop（推荐）",
+                    "description": "这更像一次性任务，不需要额外编排。",
+                    "recommended": True,
+                    "user_reply": "同意，先不生成 Loop 方案。",
+                },
+                {
+                    "id": "still_compile",
+                    "label": "仍然编排",
+                    "description": "我会说明需要继承的反复判断或新证据。",
+                    "recommended": False,
+                    "user_reply": "仍然需要编排，因为这套判断需要被后续运行继承：",
+                },
+            ]
+        return [
+            {
+                "id": "skip_loop",
+                "label": "Skip Loop for now (Recommended)",
+                "description": "This looks like a one-off task that does not need governance.",
+                "recommended": True,
+                "user_reply": "Agreed, do not generate a Loop plan for now.",
+            },
+            {
+                "id": "still_compile",
+                "label": "Still compose it",
+                "description": "I will explain the repeated judgment or new evidence this run must inherit.",
+                "recommended": False,
+                "user_reply": "I still need a Loop because this judgment should be inherited by the run:",
+            },
+        ]
 
     @staticmethod
     def _alignment_clarifying_question_issues(output: dict) -> list[str]:
@@ -1709,6 +1916,8 @@ class ServiceAlignmentMixin:
         )
         if ServiceAlignmentMixin._has_any_marker(normalized, generic_patterns):
             issues.append("generic_alignment_question")
+        if not ServiceAlignmentMixin._alignment_has_recommended_decision_options(output):
+            issues.append("missing_recommended_decision_options")
         return issues
 
     @staticmethod
@@ -3675,6 +3884,7 @@ You must return one JSON object matching the provided schema:
 - `status`: "question" if you need user input, "bundle" if `bundle_yaml` is complete, or "blocked" if you cannot proceed. If the task may not fit Loopora, still ask what repeated judgment, new evidence, or fake-done risk would justify a Loop; do not treat not-fit as a terminal provider failure.
 - `assistant_message`: a concise user-facing reply or question.
 - `needs_user_input`: true only when the user should answer before a bundle can be generated.
+- `decision_options`: when `needs_user_input` is true and you are asking the user to choose, provide 2-4 user-facing options with `id`, `label`, `description`, `recommended`, and `user_reply`. At least one option must be recommended. `user_reply` is the exact concise reply Loopora may send when the user clicks the option. Use an empty array when no user choice is needed.
 - `bundle_yaml`: a complete single-file Loopora YAML bundle when ready; otherwise an empty string.
 - `session_ref`: always include an object with string fields `session_id`, `thread_id`, `conversation_id`, `provider`, and `raw_json`; use empty strings when you do not have a value.
 - `alignment_phase`: one of "clarifying", "agreement", "confirmed", "bundle", or "blocked".
@@ -3696,6 +3906,8 @@ Important output discipline:
 - Role prompts and posture must match archetype responsibility: Builder must describe construction or implementation work, Inspector must describe inspection / review / verification work, Guide must describe narrowing, redirection, or repair guidance, GateKeeper must describe final judgment, blocking, or closure, and Custom must describe low-permission specialized review or advisory responsibility. Evidence language alone is not enough if it could fit any role.
 - Shape evidence so Loopora can separate run lifecycle from task verdict: describe what should count as Proven, Weak, Unproven, Blocking, or Residual risk for this task, and make Builder / Inspector / Guide / GateKeeper / Custom posture use those distinctions when they affect behavior.
 - Preserve task-scoped dialogue. Ask focused questions that change the bundle shape, success criteria, evidence strategy, role posture, workflow shape, or information flow.
+- User-facing clarification must be opinionated guidance, not a naked question. First state your best current judgment in the user's domain language, then mark one recommended answer, then offer 2-4 concrete choices in `decision_options`. The user should usually choose or correct your recommendation, not invent the answer from a blank page.
+- Do not lead default users through Loopora internals. Avoid user-facing words like `bundle`, `Builder`, `Inspector`, `GateKeeper`, YAML, or workflow controls in ordinary clarifying turns unless the user explicitly asks for expert editing. Compile those mechanics privately.
 - Keep readiness evidence task-scoped. Do not ask the user to confirm global persona, permanent preference memory, or a cross-task user profile as the source of judgment.
 - Do not ask abstract preference or quality-style questions unless the answer is framed as a concrete task tradeoff that changes `spec`, role posture, workflow, or GateKeeper strictness.
 - Ask in task-risk language, not configuration language. Do not ask the user whether to configure `Builder`, `Inspector`, `GateKeeper`, `parallel_group`, `workflow.controls`, or YAML fields unless the user explicitly enters expert editing mode.

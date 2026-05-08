@@ -45,6 +45,13 @@ A working agreement is ready only when it includes:
 - if project-local governance markers exist, role responsibilities or validation expectations that make Builder / Inspector / Custom / GateKeeper respect those markers
 - `open_questions` empty, no-open-questions, or explicit-confirmation-only; unresolved bundle-shaping choices must be asked next
 
+Clarifying turns before the agreement should also pass a user-guidance bar:
+
+- the assistant states a concrete recommended judgment before asking the user to choose
+- `decision_options` gives 2-4 concise choices, with one recommended option when a default is appropriate
+- the choices use the user's task language rather than exposing YAML, role, or workflow mechanics
+- clicking the recommended option would produce a complete enough user reply for the next compiler step
+
 Use bounded parallel inspection when separate evidence responsibilities should inspect the same Builder output without turning the workflow into an arbitrary DAG.
 
 ## Bundle quality bar
@@ -93,6 +100,8 @@ Reject these patterns:
 
 - generic project-manager wording that could fit any task
 - long questionnaire turns that ask for many missing dimensions instead of the next Loop-shaping answer
+- naked clarifying questions that ask the user to invent a judgment without a recommended answer or structured choices
+- user-facing choices that expose Loopora internals instead of task-domain tradeoffs
 - prompt-pack bundles with long role prose but no evidence path, handoff discipline, or GateKeeper closure
 - role-zoo bundles that add reviewers without distinct evidence responsibilities
 - loop-script bundles that repeat steps without explaining new evidence or stop conditions

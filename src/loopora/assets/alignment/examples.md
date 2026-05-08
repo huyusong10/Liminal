@@ -14,7 +14,11 @@ Weak response:
 
 Better response:
 
-> 先确认这是否真的需要 Loopora：如果只让 Agent 做一次、你最后 review 一遍，会漏掉哪类需要多轮证据和 GateKeeper 判断的问题？这套“什么算真实学习产品”的判断是否需要被 run 继承、导出或审计，而不是只留在这次聊天里？如果确实要用 Loopora，再定它应该保护哪种“真实完成”：1. 可运行首版产品；2. 课程/内容结构设计；3. 先做技术骨架？另外你最怕哪种假完成：页面好看但不能学习、功能很多但都很浅，还是后续很难扩展？
+> 我先按“做一个真正能完成学习闭环的网站”来理解，而不是只做展示页。我的推荐是第一版少而真实：学习者能选择内容、完成一次练习、得到反馈，并看到一点进度；页面好看但不能完成这条路径，应当算没完成。你可以直接选推荐，也可以改方向：
+>
+> 1. 学习闭环优先（推荐）：少做功能，但主路径必须能跑通并被证明。
+> 2. 展示原型优先：先要视觉和方向感，可以接受学习功能较浅。
+> 3. 内容体系优先：先搭课程 / 词汇 / 练习结构，交互可以后补。
 
 After the user says they want a complete first product, comprehensive path, fewer but solid features, browser evidence, no visual-only completion, and a strict GateKeeper that can leave minor polish risk visible but must block unproven learning paths, the working agreement can say:
 
@@ -32,7 +36,7 @@ Bad response:
 
 Better response:
 
-> 还不能直接生成，因为 CRM 的完成标准会强烈影响 workflow。先确认一个会改变方案的问题：这次你最怕的是销售流程跑不通、数据权限错、还是报表看起来有但不能指导行动？
+> 我不建议直接生成，因为 CRM 最容易“页面像系统，但业务判断没被证明”。默认推荐先防数据权限和销售主流程假完成：能创建、归属、推进线索，并证明不同角色看不到不该看的数据。你可以选：A. 权限和主流程优先（推荐）；B. 报表可信度优先；C. 先做可演示原型。
 
 ## Not-fit gate example
 
@@ -46,7 +50,7 @@ Bad response:
 
 Better response:
 
-> 这个请求看起来不需要 Loopora：一次 Agent 修改加一次 review 通常就够，而且下一轮不太会产生新的治理证据。为了避免把小任务包装成 loop script，我先不生成 bundle。除非你想让这次 README 修改代表一套会复用的文档验收规则，或担心后续多轮会出现假完成、证据缺口、风格漂移等问题；如果是这样，请说明哪类反复判断需要被 run 继承。
+> 这个请求看起来不需要编排成 Loop：一次修改加一次 review 通常就够，下一轮也不太会产生新的证据。我的推荐是先不生成方案。你可以选：A. 先不生成 Loop（推荐）；B. 仍然编排，因为这次要沉淀一套可复用的文档验收判断；C. 我补充会反复出现的风险。
 
 ## Anti-pattern example: role zoo / prompt pack
 
@@ -60,7 +64,7 @@ Bad response:
 
 Better response:
 
-> 多角色和长 prompt 本身不会让 Loop 更稳，可能只是 role zoo 或 prompt pack。先确认一个会改变 workflow 的点：除了 Builder 之外，哪两类证据责任必须独立检视同一个产物？例如契约是否满足、真实运行证据是否成立、回归风险是否被证明，还是权限 / 安全边界必须阻断？
+> 我不建议靠“更多角色 + 更长 prompt”来变稳，因为这可能只是形式变复杂。推荐默认只增加真正独立的证据责任：一类看任务契约有没有满足，一类看真实运行证据是否成立。你可以选：A. 契约 + 运行证据双检视（推荐）；B. 回归风险优先；C. 权限 / 安全边界优先。
 
 ## Anti-pattern example: personality memory
 
@@ -164,7 +168,7 @@ User:
 
 Better response:
 
-> 这类任务适合 `Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper`：Builder 先做可运行页面，Contract Inspector 看报表口径、筛选和权限是否符合任务契约，Evidence Inspector 独立跑浏览器路径或数据检查证明报表确实可信。两个 Inspector 并行看同一个 Builder handoff，GateKeeper 只在两边证据都足够时通过。最终证据桶里，数据对账和真实浏览器路径才可能成为 Proven；只有 UI 截图通常只是 Weak；没有数据校验是 Unproven；权限或口径错误是 Blocking。再确认一个会改变 spec 的点：你更信任哪类证据，真实浏览器操作、数据 fixture 对账，还是项目已有测试？
+> 我建议默认不要让 UI 截图单独过关。这个报表页面应该先证明两件事：页面能跑，数据口径也对。推荐证据是“真实浏览器操作 + 数据对账”；只有截图通常只能算弱证据。你可以选：A. 浏览器路径 + 数据对账（推荐）；B. 项目已有测试优先；C. 先做页面主路径，数据证明后补。
 
 ## Long-chain multi-Builder example
 

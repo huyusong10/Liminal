@@ -2097,6 +2097,8 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert ".alignment-chat {" in alignment_css
     assert ".bundle-chat-shell {" in alignment_css
     assert ".alignment-working-card {" in alignment_css
+    assert ".alignment-decision-options {" in alignment_css
+    assert ".alignment-decision-option {" in alignment_css
     assert ".alignment-history-item.is-running" in alignment_css
     assert "alignmentPulse" not in alignment_css
     assert "alignmentTrace" not in alignment_css
@@ -2105,6 +2107,8 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     alignment_js = alignment_js_response.text
     assert "/api/alignments/workdir-context" in alignment_js
     assert "source_option_id" in alignment_js
+    assert "alignment-decision-options" in alignment_js
+    assert "decision_options" in alignment_js
     workflow_css_response = client.get("/static/pages/workflow_editor.css")
     assert workflow_css_response.status_code == 200
     workflow_css = workflow_css_response.text
