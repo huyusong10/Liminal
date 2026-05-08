@@ -235,7 +235,8 @@ Stable commitments:
 - long-running task orchestration should live outside a single AI Agent conversation
 - Loops remain inspectable and file-backed
 - bundle import/export stays explicit and local
-- runs must produce evidence, not only logs
+- runs must produce evidence, not only logs: ledger, coverage, manifest, and task verdict artifacts stay traceable from the result view
+- accepting a result or improving a Loop from run evidence must stay tied to the concrete evidence verdict, not to hidden prompt drift
 - bundle changes should stay explicit through import/export, not hidden prompt drift
 
 ## Development

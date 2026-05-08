@@ -587,7 +587,7 @@
       closeRunStream();
       setObservationState("finished");
     });
-    ["run_started", "checks_resolved", "role_request_prepared", "step_context_prepared", "role_execution_summary", "step_handoff_written", "control_triggered", "control_completed", "control_failed", "control_skipped", "iteration_summary_written", "role_degraded", "challenger_done", "stop_requested", "run_aborted", "workspace_guard_triggered"].forEach((eventName) => {
+    ["run_started", "checks_resolved", "role_request_prepared", "step_context_prepared", "role_execution_summary", "step_handoff_written", "control_triggered", "control_completed", "control_failed", "control_skipped", "iteration_summary_written", "role_degraded", "challenger_done", "stop_requested", "run_result_accepted", "run_aborted", "workspace_guard_triggered"].forEach((eventName) => {
       eventSource.addEventListener(eventName, (message) => {
         handleStreamEvent(message, {
           console: true,

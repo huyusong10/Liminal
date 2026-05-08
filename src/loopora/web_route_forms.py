@@ -64,6 +64,11 @@ def _register_improvement_form_routes(app: FastAPI, ctx: WebRouteContext) -> Non
         new_run = ctx.svc().rerun(run["loop_id"], background=True)
         return RedirectResponse(url=f"/runs/{new_run['id']}", status_code=303)
 
+    @app.post("/runs/{run_id}/accept")
+    async def accept_run_from_run_detail(run_id: str):
+        ctx.svc().accept_run_result(run_id)
+        return RedirectResponse(url=f"/runs/{run_id}", status_code=303)
+
 
 def _register_loop_form_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/loops/new/manual")
@@ -108,9 +113,7 @@ def _register_orchestration_form_routes(app: FastAPI, ctx: WebRouteContext) -> N
         form = await request.form()
         values = _normalize_orchestration_form(form)
         try:
-            orchestration = ctx.svc().create_orchestration(
-                **_orchestration_payload_from_mapping(form, default_to_preset=False)
-            )
+            orchestration = ctx.svc().create_orchestration(**_orchestration_payload_from_mapping(form, default_to_preset=False))
             return RedirectResponse(url=f"/orchestrations/{orchestration['id']}/edit?saved=1", status_code=303)
         except (LooporaError, WorkflowError, FileExistsError, OSError, ValueError) as exc:
             return ctx.render_new_orchestration(request, values=values, form_error=str(exc))

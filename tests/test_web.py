@@ -18,15 +18,11 @@ from loopora.web_streaming import MAX_EVENT_CURSOR_ID
 from loopora.web_url_utils import safe_attachment_filename, safe_local_return_path, with_query_params
 import loopora.web as web_module
 from loopora.web import build_app
-from loopora.web_overviews import _format_timeline_event
+from loopora.web_overviews import _build_run_summary_snapshot, _decorate_loop_overview, _format_timeline_event
 
 
 def _read_service_log_records() -> list[dict]:
-    return [
-        json.loads(line)
-        for line in (app_home() / "logs" / "service.log").read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    return [json.loads(line) for line in (app_home() / "logs" / "service.log").read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
@@ -55,6 +51,14 @@ def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
             "payload": {"status": "succeeded", "reason": "rounds_completed"},
         }
     )
+    accepted = _format_timeline_event(
+        {
+            "id": 4,
+            "event_type": "run_result_accepted",
+            "created_at": "2026-05-05T00:00:03Z",
+            "payload": {"status": "succeeded", "task_verdict_status": "passed"},
+        }
+    )
 
     assert role_summary["title"] == "Builder completed"
     assert role_summary["detail"] == "attempts=2, degraded, 12ms"
@@ -62,6 +66,47 @@ def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
     assert control_event["detail"] == "no_evidence_progress -> inspector"
     assert run_finished["title"] == "Run succeeded"
     assert run_finished["detail"] == "planned rounds completed"
+    assert accepted["title"] == "Conclusion accepted"
+    assert accepted["detail"] == "status=succeeded, task_verdict_status=passed"
+
+
+def test_loop_overview_preserves_residual_risk_task_verdict() -> None:
+    decorated = _decorate_loop_overview(
+        {
+            "id": "loop_1",
+            "latest_run_id": "run_1",
+            "latest_status": "succeeded",
+            "latest_task_verdict_json": {
+                "status": "passed_with_residual_risk",
+                "source": "gatekeeper",
+                "summary": "Accepted a visible follow-up risk.",
+                "buckets": {"residual_risk": [{"label": "follow-up"}]},
+            },
+            "workflow_json": {},
+        }
+    )
+
+    assert decorated["card_hint_en"] == "The latest task verdict passed with residual risk."
+    assert decorated["card_hint_zh"] == "最近一次 Loop 裁决带残余风险通过。"
+
+    summary = _build_run_summary_snapshot(
+        {
+            "status": "succeeded",
+            "current_iter": 0,
+            "summary_md": "",
+            "last_verdict_json": {},
+            "task_verdict": {
+                "status": "passed_with_residual_risk",
+                "source": "gatekeeper",
+                "summary": "",
+                "buckets": {"residual_risk": [{"label": "follow-up"}]},
+            },
+        }
+    )
+
+    assert summary["verdict_title_en"] == "Task verdict: passed with residual risk"
+    assert summary["verdict_title_zh"] == "Loop 裁决：有残余风险地通过"
+    assert summary["verdict_note_en"] == "follow-up"
 
 
 def test_web_url_helpers_keep_redirects_and_filenames_local() -> None:
@@ -133,6 +178,8 @@ def _assert_run_artifact_catalog(client: TestClient, run_id: str) -> None:
     assert any(item["id"] == "summary" and item["available"] for item in artifact_payload)
     assert any(item["id"] == "evidence-ledger" and item["available"] for item in artifact_payload)
     assert any(item["id"] == "evidence-coverage" and item["available"] for item in artifact_payload)
+    assert any(item["id"] == "evidence-manifest" and item["available"] for item in artifact_payload)
+    assert any(item["id"] == "task-verdict" and item["available"] for item in artifact_payload)
 
     artifacts_by_id = {item["id"]: item for item in artifact_payload}
     assert artifacts_by_id["original-spec"]["label_zh"] == "原始 Loop 契约"
@@ -151,6 +198,8 @@ def _assert_run_artifact_catalog(client: TestClient, run_id: str) -> None:
         "timeline-metrics",
         "evidence-ledger",
         "evidence-coverage",
+        "evidence-manifest",
+        "task-verdict",
     ):
         zh_metadata = f"{artifacts_by_id[artifact_id]['label_zh']} {artifacts_by_id[artifact_id]['description_zh']}"
         assert "Spec" not in zh_metadata
@@ -184,6 +233,15 @@ def _assert_attachment_download(response, *, filename: str) -> None:
     assert filename in response.headers["content-disposition"]
 
 
+def _assert_acceptance_evidence_payload(payload: dict) -> None:
+    assert payload["task_verdict_path"] == "evidence/task_verdict.json"
+    assert payload["coverage_path"] == "evidence/coverage.json"
+    assert payload["manifest_path"] == "evidence/manifest.json"
+    assert payload["coverage_status"] in {"covered", "weak", "partial", "blocked", "pending"}
+    assert payload["evidence_count"] > 0
+    assert set(payload["evidence_bucket_counts"]) >= {"proven", "weak", "unproven", "blocking", "residual_risk"}
+
+
 def _assert_run_artifact_previews(client: TestClient, run_id: str, sample_spec_text: str) -> None:
     missing_artifact = client.get(f"/api/runs/{run_id}/artifacts/missing-artifact/download")
     assert missing_artifact.status_code == 404
@@ -192,9 +250,11 @@ def _assert_run_artifact_previews(client: TestClient, run_id: str, sample_spec_t
     _assert_attachment_download(summary_download, filename="summary.md")
     _assert_artifact_file(client, run_id, "original-spec", expected_content=sample_spec_text)
     _assert_artifact_file(client, run_id, "summary", content_fragment="Loopora Run Summary")
-    _assert_artifact_file(client, run_id, "latest-state", content_fragment="\"latest_iteration\"")
+    _assert_artifact_file(client, run_id, "latest-state", content_fragment='"latest_iteration"')
     _assert_artifact_file(client, run_id, "evidence-ledger", content_fragment="gatekeeper")
-    _assert_artifact_file(client, run_id, "evidence-coverage", content_fragment="\"targets\"")
+    _assert_artifact_file(client, run_id, "evidence-coverage", content_fragment='"targets"')
+    _assert_artifact_file(client, run_id, "evidence-manifest", content_fragment='"verification_status"')
+    _assert_artifact_file(client, run_id, "task-verdict", content_fragment='"status"')
 
 
 def test_run_artifact_download_rejects_symlink_escaping_loopora_root(
@@ -474,6 +534,7 @@ def test_api_run_key_takeaways_returns_iteration_role_conclusions(
     assert payload["run_status"] == "succeeded"
     assert payload["task_verdict"]["status"] == "passed"
     assert payload["task_verdict"]["source"] == "gatekeeper"
+    assert payload["task_verdict_path"] == "evidence/task_verdict.json"
     assert set(payload["evidence_buckets"]) == {"proven", "weak", "unproven", "blocking", "residual_risk"}
     assert payload["iteration_count"] >= 1
     assert payload["role_conclusion_count"] >= 2
@@ -501,6 +562,18 @@ def test_api_run_key_takeaways_returns_iteration_role_conclusions(
     assert coverage["latest_gatekeeper"]["evidence_refs"]
     assert coverage["evidence_kind_counts"]["inspection"] >= 1
     assert coverage["evidence_kind_counts"]["verdict"] >= 1
+    manifest = payload["evidence_manifest"]
+    assert manifest["manifest_path"] == "evidence/manifest.json"
+    assert manifest["claim_count"] == payload["evidence_count"]
+    assert manifest["artifact_backed_claim_count"] == manifest["claim_count"]
+    assert manifest["run_artifact_claim_count"] >= 1
+    assert set(manifest) >= {
+        "direct_proof_claim_count",
+        "workspace_artifact_claim_count",
+        "ledger_only_claim_count",
+        "unverified_claim_count",
+        "problem_count",
+    }
 
 
 def test_api_run_key_takeaways_tolerates_invalid_utf8_json_artifacts(
@@ -571,10 +644,13 @@ def test_minimal_run_takeaway_projection_keeps_status_verdict_and_empty_evidence
 
     assert projection["run_status"] == "succeeded"
     assert projection["task_verdict"]["status"] == "insufficient_evidence"
+    assert projection["task_verdict_path"] == ""
     assert projection["evidence_buckets"]["unproven"] == [{"label": "manual review"}]
     assert projection["build_dir"] == str(workdir.resolve())
     assert projection["log_dir"] == str(runs_dir.resolve())
     assert projection["evidence_coverage"]["status"] == "pending"
+    assert projection["evidence_manifest"]["claim_count"] == 0
+    assert projection["evidence_manifest"]["manifest_path"] == ""
     assert projection["evidence_count"] == 0
     assert projection["iteration_count"] == 0
     assert projection["source_event_id"] == 42
@@ -692,6 +768,111 @@ def test_api_run_observation_snapshot_uses_persisted_takeaway_projection(
     assert marker not in json.dumps(snapshot_payload["key_takeaways"], ensure_ascii=False)
     assert live_response.status_code == 200
     assert marker in json.dumps(live_response.json(), ensure_ascii=False)
+
+
+def test_api_run_observation_snapshot_normalizes_legacy_takeaway_projection_shape(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Legacy Snapshot Projection Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    legacy_event = service.repository.append_event(
+        run["id"],
+        "codex_event",
+        {"type": "stdout", "message": "legacy projection cutoff"},
+        role="generator",
+    )
+    service.repository.record_run_takeaway_projection(
+        run["id"],
+        legacy_event["id"],
+        {
+            "run_status": "succeeded",
+            "task_verdict": {"status": "passed", "source": "gatekeeper", "summary": "legacy shape", "buckets": {}},
+            "iterations": [],
+        },
+    )
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/api/runs/{run['id']}/observation-snapshot")
+
+    assert response.status_code == 200
+    key_takeaways = response.json()["key_takeaways"]
+    assert key_takeaways["source_event_id"] == legacy_event["id"]
+    assert key_takeaways["task_verdict_path"] == ""
+    assert key_takeaways["evidence_buckets"] == {}
+    assert key_takeaways["evidence_coverage"]["status"] == "pending"
+    assert key_takeaways["evidence_coverage"]["coverage_path"] == ""
+    assert key_takeaways["evidence_manifest"]["manifest_path"] == ""
+    assert key_takeaways["evidence_manifest"]["claim_count"] == 0
+    assert key_takeaways["evidence_count"] == 0
+
+
+@pytest.mark.parametrize("event_type", ("control_completed", "control_failed"))
+def test_control_events_refresh_persisted_takeaway_projection(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+    event_type: str,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Control Projection Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    handoff_path = next(Path(run["runs_dir"]).glob("iterations/iter_*/steps/*/handoff.json"))
+    handoff = json.loads(handoff_path.read_text(encoding="utf-8"))
+    control_marker = f"{event_type}-snapshot-marker"
+    later_marker = f"{event_type}-later-marker"
+    handoff["summary"] = control_marker
+    handoff_path.write_text(json.dumps(handoff, ensure_ascii=False), encoding="utf-8")
+    control_event = service.append_run_event(
+        run["id"],
+        event_type,
+        {"control_id": "audit_control", "signal": "no_evidence_progress", "evidence_refs": []},
+    )
+    handoff["summary"] = later_marker
+    handoff_path.write_text(json.dumps(handoff, ensure_ascii=False), encoding="utf-8")
+    late_event = service.repository.append_event(
+        run["id"],
+        "codex_event",
+        {"type": "stdout", "message": "late non-projection event"},
+        role="generator",
+    )
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/api/runs/{run['id']}/observation-snapshot")
+
+    assert response.status_code == 200
+    payload = response.json()
+    key_takeaways_text = json.dumps(payload["key_takeaways"], ensure_ascii=False)
+    assert payload["latest_event_id"] == late_event["id"]
+    assert payload["key_takeaways"]["source_event_id"] == control_event["id"]
+    assert control_marker in key_takeaways_text
+    assert later_marker not in key_takeaways_text
 
 
 def test_run_takeaway_projection_backfills_existing_terminal_runs(
@@ -1121,14 +1302,8 @@ def test_api_local_asset_diagnostics_reports_orphans_and_missing_dirs(
     assert any(item["session_id"] == "align_orphan" for item in payload["orphan_alignment_dirs"])
     assert any(item["bundle_id"] == "bundle_orphan" for item in payload["orphan_bundle_dirs"])
     assert any(item["run_id"] == "run_orphan" and item["source"] == "recent_workdir" for item in payload["orphan_run_dirs"])
-    assert any(
-        item["resource_type"] == "bundle" and item["resource_id"] == "bundle_missing_dir"
-        for item in payload["record_without_dir"]
-    )
-    assert any(
-        item["resource_type"] == "run" and item["resource_id"] == run["id"]
-        for item in payload["record_without_dir"]
-    )
+    assert any(item["resource_type"] == "bundle" and item["resource_id"] == "bundle_missing_dir" for item in payload["record_without_dir"])
+    assert any(item["resource_type"] == "run" and item["resource_id"] == run["id"] for item in payload["record_without_dir"])
 
 
 def test_api_run_stream_emits_redacted_stream_error_on_backend_failure() -> None:
@@ -1164,8 +1339,7 @@ def test_api_run_stream_emits_redacted_stream_error_on_backend_failure() -> None
         "retryable": True,
     }
     assert any(
-        record.get("event") == "web.run_stream.failed"
-        and (record.get("error") or {}).get("message") == "database unavailable"
+        record.get("event") == "web.run_stream.failed" and (record.get("error") or {}).get("message") == "database unavailable"
         for record in _read_service_log_records()
     )
 
@@ -1199,11 +1373,7 @@ def test_api_run_stream_logs_invalid_resume_cursor_and_keeps_request_cursor() ->
         assert "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text()) == ""
 
     assert captured["after_id"] == 7
-    record = next(
-        item
-        for item in _read_service_log_records()
-        if item["event"] == "web.run_stream.resume_cursor_invalid"
-    )
+    record = next(item for item in _read_service_log_records() if item["event"] == "web.run_stream.resume_cursor_invalid")
     assert record["run_id"] == "run_test"
     assert record["context"]["after_id"] == 7
     assert record["context"]["latest_event_id"] == 10
@@ -1239,11 +1409,7 @@ def test_api_run_stream_ignores_resume_cursor_beyond_current_run_events() -> Non
         assert "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text()) == ""
 
     assert captured["after_id"] == 7
-    record = next(
-        item
-        for item in _read_service_log_records()
-        if item["event"] == "web.run_stream.resume_cursor_invalid"
-    )
+    record = next(item for item in _read_service_log_records() if item["event"] == "web.run_stream.resume_cursor_invalid")
     assert record["run_id"] == "run_test"
     assert record["context"]["after_id"] == 7
     assert record["context"]["latest_event_id"] == 10
@@ -1259,12 +1425,7 @@ def test_web_logs_completed_requests(service_factory) -> None:
 
     assert response.status_code == 200
     records = _read_service_log_records()
-    record = next(
-        item
-        for item in records
-        if item["event"] == "web.request.completed"
-        and item["context"]["request_path"] == "/tutorial"
-    )
+    record = next(item for item in records if item["event"] == "web.request.completed" and item["context"]["request_path"] == "/tutorial")
     assert record["context"]["status_code"] == 200
     assert record["context"]["duration_ms"] >= 0
 
@@ -1326,8 +1487,32 @@ def test_run_detail_separates_status_verdict_and_reruns_terminal_run(
     assert 'data-testid="run-status-card"' in page_response.text
     assert 'data-testid="run-task-verdict-card"' in page_response.text
     assert 'data-testid="run-latest-event-card"' in page_response.text
+    assert 'data-testid="run-export-loop-button"' in page_response.text
+    assert f"/bundles/derive/export?loop_id={loop['id']}" in page_response.text
+    assert 'data-testid="run-accept-result-button"' in page_response.text
     assert 'data-testid="run-rerun-button"' in page_response.text
     assert 'id="stop-run"' not in page_response.text
+
+    export_response = client.get(f"/bundles/derive/export?loop_id={loop['id']}")
+    assert export_response.status_code == 200
+    assert export_response.headers["content-type"].startswith("application/yaml")
+    assert "Rerun From Detail Loop" in export_response.text
+
+    accept_response = client.post(f"/runs/{run['id']}/accept", follow_redirects=False)
+    assert accept_response.status_code == 303
+    assert accept_response.headers["location"] == f"/runs/{run['id']}"
+    accepted_events = service.recent_run_events(run["id"], event_types={"run_result_accepted"})
+    assert accepted_events
+    assert accepted_events[-1]["payload"]["status"] == run["status"]
+    assert accepted_events[-1]["payload"]["task_verdict_status"]
+    _assert_acceptance_evidence_payload(accepted_events[-1]["payload"])
+    snapshot_response = client.get(f"/api/runs/{run['id']}/observation-snapshot")
+    assert snapshot_response.status_code == 200
+    snapshot_payload = snapshot_response.json()
+    accepted_timeline_events = [event for event in snapshot_payload["timeline_events"] if event["event_type"] == "run_result_accepted"]
+    assert accepted_timeline_events
+    assert accepted_timeline_events[-1]["title"] == "Conclusion accepted"
+    assert snapshot_payload["key_takeaways"]["source_event_id"] <= snapshot_payload["latest_event_id"]
 
     rerun_response = client.post(f"/runs/{run['id']}/rerun", follow_redirects=False)
 
@@ -1343,6 +1528,34 @@ def test_run_detail_separates_status_verdict_and_reruns_terminal_run(
             break
         time.sleep(0.05)
     assert service.get_run(new_run_id)["status"] in {"succeeded", "failed", "stopped"}
+
+
+def test_run_accept_result_rejects_active_run(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Active Accept Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    client = TestClient(build_app(service=service))
+
+    response = client.post(f"/runs/{run['id']}/accept")
+
+    assert response.status_code == 409
+    assert "cannot accept run result in status" in response.json()["error"]
 
 
 def test_api_loop_creation_supports_provider_specific_defaults(
@@ -2437,19 +2650,19 @@ Focus on scoped release work with tighter release constraints.
             "executor_kind": "codex",
             "executor_mode": "command",
             "command_cli": "codex",
-                "command_args_text": "\n".join(
-                    [
-                        "exec",
-                        "--json",
-                        "--cd",
-                        "{workdir}",
-                        "--output-schema",
-                        "{schema_path}",
-                        "--output-last-message",
-                        "{output_path}",
-                        "{prompt}",
-                    ]
-                ),
+            "command_args_text": "\n".join(
+                [
+                    "exec",
+                    "--json",
+                    "--cd",
+                    "{workdir}",
+                    "--output-schema",
+                    "{schema_path}",
+                    "--output-last-message",
+                    "{output_path}",
+                    "{prompt}",
+                ]
+            ),
             "model": "gpt-5.4",
             "reasoning_effort": "",
         },
@@ -2750,11 +2963,7 @@ def test_bundle_derive_form_encodes_query_values(service_factory) -> None:
 
     assert response.status_code == 303
     assert response.headers["location"] == (
-        "/bundles/derive/export?"
-        "loop_id=loop%26id%3Dshadow&"
-        "name=Bundle+%26+Review&"
-        "description=Use+A%26B+evidence.&"
-        "collaboration_summary=No+query+leakage."
+        "/bundles/derive/export?loop_id=loop%26id%3Dshadow&name=Bundle+%26+Review&description=Use+A%26B+evidence.&collaboration_summary=No+query+leakage."
     )
 
 
@@ -3579,8 +3788,8 @@ def test_network_mode_auth_page_uses_request_locale_and_shared_styles(service_fa
     assert ".auth-shell {" in css.text
     assert ".auth-card {" in css.text
     assert ".auth-copy-stack {" in css.text
-    assert "[data-theme=\"dark\"] .auth-card {" in css.text
-    assert "html[data-theme=\"dark\"] .auth-logo {" in css.text
+    assert '[data-theme="dark"] .auth-card {' in css.text
+    assert 'html[data-theme="dark"] .auth-logo {' in css.text
 
 
 def test_preferred_locale_from_accept_language_respects_q_values_and_supported_locales() -> None:

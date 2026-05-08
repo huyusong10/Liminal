@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from loopora.diagnostics import get_logger, log_exception
+from loopora.run_artifacts import RunArtifactLayout
 from loopora.task_verdicts import build_task_verdict
 from loopora.utils import utc_now, write_json
 
@@ -46,6 +47,17 @@ class ServiceRunFinalizationMixin:
             write_json(run_dir / "gatekeeper_verdict.json", verdict)
         write_json(run_dir / "verifier_verdict.json", verdict)
 
+    def _persist_task_verdict_file(self, run_dir: Path, task_verdict: dict) -> None:
+        try:
+            write_json(RunArtifactLayout(run_dir).task_verdict_path, task_verdict)
+        except OSError:
+            log_exception(
+                logger,
+                "service.run.task_verdict.persist_failed",
+                "Failed to persist run task verdict artifact",
+                runs_dir=run_dir,
+            )
+
     def _append_run_aborted_event(
         self,
         run_id: str,
@@ -76,13 +88,12 @@ class ServiceRunFinalizationMixin:
             {
                 **existing_run,
                 "status": request.status,
-                "last_verdict_json": request.last_verdict
-                if request.last_verdict is not None
-                else existing_run.get("last_verdict_json"),
+                "last_verdict_json": request.last_verdict if request.last_verdict is not None else existing_run.get("last_verdict_json"),
             },
             run_dir=request.run_dir,
             final_reason=request.final_reason,
         )
+        self._persist_task_verdict_file(request.run_dir, task_verdict)
         result = self.repository.update_run(
             request.run_id,
             status=request.status,
@@ -103,11 +114,7 @@ class ServiceRunFinalizationMixin:
         error_text: str,
         hydrate: bool = False,
     ) -> dict:
-        summary = (
-            "# Loopora Run Summary\n\n"
-            "Execution crashed unexpectedly.\n\n"
-            f"Reason: `{error_text}`.\n"
-        )
+        summary = f"# Loopora Run Summary\n\nExecution crashed unexpectedly.\n\nReason: `{error_text}`.\n"
         self._persist_summary_file(run_dir, summary)
         try:
             task_verdict = build_task_verdict(
@@ -115,6 +122,7 @@ class ServiceRunFinalizationMixin:
                 run_dir=run_dir,
                 final_reason="crashed",
             )
+            self._persist_task_verdict_file(run_dir, task_verdict)
             failed = self.repository.update_run(
                 run_id,
                 status="failed",

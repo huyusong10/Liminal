@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from loopora.evidence_gate import concrete_evidence_claim_count, has_measured_gate_evidence
 from loopora.specs import resolve_role_note
 
 from loopora.run_artifacts import RunArtifactLayout, artifact_ref
@@ -36,8 +37,14 @@ class StepContextPacketRequest:
     previous_iteration_summary: dict | None
     previous_composite: float | None
     stagnation_mode: str
+    evidence_progress_mode: str = "none"
+    covered_check_count: int = 0
+    missing_check_count: int = 0
+    consecutive_no_required_coverage_delta: int = 0
     evidence_items: list[dict] | None = None
     evidence_known_ids: list[str] | None = None
+    evidence_manifest_summary: dict | None = None
+    evidence_manifest_claims: list[dict] | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +83,18 @@ ARTIFACT_REF_SCHEMA = {
         "relative_path": {"type": "string"},
         "workspace_path": {"type": "string"},
         "absolute_path": {"type": "string"},
+    },
+    "additionalProperties": False,
+}
+
+EVIDENCE_COVERAGE_RESULT_SCHEMA = {
+    "type": "object",
+    "required": ["target_id", "status", "evidence_refs", "note"],
+    "properties": {
+        "target_id": {"type": "string"},
+        "status": {"type": "string"},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}},
+        "note": {"type": "string"},
     },
     "additionalProperties": False,
 }
@@ -135,6 +154,9 @@ EVIDENCE_ITEM_SCHEMA = {
         "result",
         "verifies",
         "related_evidence_ids",
+        "coverage_results",
+        "measured_evidence",
+        "concrete_evidence_claim_count",
         "residual_risk",
         "artifact_refs",
     ],
@@ -155,8 +177,63 @@ EVIDENCE_ITEM_SCHEMA = {
         "result": {"type": "string"},
         "verifies": {"type": "array", "items": {"type": "string"}},
         "related_evidence_ids": {"type": "array", "items": {"type": "string"}},
+        "coverage_results": {"type": "array", "items": EVIDENCE_COVERAGE_RESULT_SCHEMA},
+        "measured_evidence": {"type": "boolean"},
+        "concrete_evidence_claim_count": {"type": "integer"},
         "residual_risk": {"type": "string"},
         "artifact_refs": {"type": "array", "items": ARTIFACT_REF_SCHEMA},
+    },
+    "additionalProperties": False,
+}
+
+EVIDENCE_MANIFEST_SUMMARY_SCHEMA = {
+    "type": "object",
+    "required": [
+        "claim_count",
+        "direct_proof_claim_count",
+        "workspace_artifact_claim_count",
+        "run_artifact_claim_count",
+        "ledger_only_claim_count",
+        "unverified_claim_count",
+        "problem_count",
+    ],
+    "properties": {
+        "claim_count": {"type": "integer"},
+        "direct_proof_claim_count": {"type": "integer"},
+        "workspace_artifact_claim_count": {"type": "integer"},
+        "run_artifact_claim_count": {"type": "integer"},
+        "ledger_only_claim_count": {"type": "integer"},
+        "unverified_claim_count": {"type": "integer"},
+        "problem_count": {"type": "integer"},
+    },
+    "additionalProperties": False,
+}
+
+EVIDENCE_MANIFEST_CLAIM_SCHEMA = {
+    "type": "object",
+    "required": [
+        "id",
+        "verification_status",
+        "measured_evidence",
+        "concrete_evidence_claim_count",
+        "artifact_count",
+        "artifact_backed",
+        "workspace_backed",
+        "reproducible",
+        "coverage_targets",
+        "problem_codes",
+    ],
+    "properties": {
+        "id": {"type": "string"},
+        "verification_status": {"type": "string"},
+        "measured_evidence": {"type": "boolean"},
+        "concrete_evidence_claim_count": {"type": "integer"},
+        "artifact_count": {"type": "integer"},
+        "artifact_backed": {"type": "boolean"},
+        "workspace_backed": {"type": "boolean"},
+        "reproducible": {"type": "boolean"},
+        "coverage_targets": {"type": "array", "items": {"type": "string"}},
+        "problem_codes": {"type": "array", "items": {"type": "string"}},
     },
     "additionalProperties": False,
 }
@@ -207,6 +284,10 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "previous_iteration_exists",
                 "previous_composite",
                 "stagnation_mode",
+                "evidence_progress_mode",
+                "covered_check_count",
+                "missing_check_count",
+                "consecutive_no_required_coverage_delta",
             ],
             "properties": {
                 "iter_index": {"type": "integer"},
@@ -214,6 +295,10 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "previous_iteration_exists": {"type": "boolean"},
                 "previous_composite": {"type": ["number", "null"]},
                 "stagnation_mode": {"type": "string"},
+                "evidence_progress_mode": {"type": "string"},
+                "covered_check_count": {"type": "integer"},
+                "missing_check_count": {"type": "integer"},
+                "consecutive_no_required_coverage_delta": {"type": "integer"},
             },
             "additionalProperties": False,
         },
@@ -278,13 +363,23 @@ STEP_CONTEXT_PACKET_SCHEMA = {
         },
         "evidence": {
             "type": "object",
-            "required": ["ledger_path", "manifest_path", "coverage_path", "items", "known_ids"],
+            "required": [
+                "ledger_path",
+                "manifest_path",
+                "coverage_path",
+                "items",
+                "known_ids",
+                "manifest_summary",
+                "manifest_claims",
+            ],
             "properties": {
                 "ledger_path": {"type": "string"},
                 "manifest_path": {"type": "string"},
                 "coverage_path": {"type": "string"},
                 "items": {"type": "array", "items": EVIDENCE_ITEM_SCHEMA},
                 "known_ids": {"type": "array", "items": {"type": "string"}},
+                "manifest_summary": EVIDENCE_MANIFEST_SUMMARY_SCHEMA,
+                "manifest_claims": {"type": "array", "items": EVIDENCE_MANIFEST_CLAIM_SCHEMA},
             },
             "additionalProperties": False,
         },
@@ -340,12 +435,25 @@ ITERATION_SUMMARY_SCHEMA = {
         },
         "stagnation": {
             "type": "object",
-            "required": ["mode", "recent_composites", "recent_deltas", "consecutive_low_delta"],
+            "required": [
+                "mode",
+                "evidence_progress_mode",
+                "recent_composites",
+                "recent_deltas",
+                "consecutive_low_delta",
+                "covered_check_count",
+                "missing_check_count",
+                "consecutive_no_required_coverage_delta",
+            ],
             "properties": {
                 "mode": {"type": "string"},
+                "evidence_progress_mode": {"type": "string"},
                 "recent_composites": {"type": "array", "items": {"type": "number"}},
                 "recent_deltas": {"type": "array", "items": {"type": "number"}},
                 "consecutive_low_delta": {"type": "integer"},
+                "covered_check_count": {"type": "integer"},
+                "missing_check_count": {"type": "integer"},
+                "consecutive_no_required_coverage_delta": {"type": "integer"},
             },
             "additionalProperties": False,
         },
@@ -498,6 +606,10 @@ def build_step_context_packet(request: StepContextPacketRequest) -> dict:
             "previous_iteration_exists": request.iter_id > 0,
             "previous_composite": request.previous_composite,
             "stagnation_mode": str(request.stagnation_mode or "none"),
+            "evidence_progress_mode": str(request.evidence_progress_mode or "none"),
+            "covered_check_count": _int_value(request.covered_check_count),
+            "missing_check_count": _int_value(request.missing_check_count),
+            "consecutive_no_required_coverage_delta": _int_value(request.consecutive_no_required_coverage_delta),
         },
         "current_step": {
             "step_id": str(step["id"]),
@@ -524,8 +636,10 @@ def build_step_context_packet(request: StepContextPacketRequest) -> dict:
             "ledger_path": layout.relative(layout.evidence_ledger_path),
             "manifest_path": layout.relative(layout.evidence_manifest_path),
             "coverage_path": layout.relative(layout.evidence_coverage_path),
-            "items": list(request.evidence_items or []),
+            "items": _normalize_evidence_items(request.evidence_items),
             "known_ids": list(request.evidence_known_ids or []),
+            "manifest_summary": _normalize_manifest_summary(request.evidence_manifest_summary),
+            "manifest_claims": _normalize_manifest_claims(request.evidence_manifest_claims),
         },
         "artifacts": [
             artifact_ref(layout, layout.run_contract_path, kind="contract", label="run-contract"),
@@ -562,17 +676,14 @@ def build_step_handoff(result: StepResultContext) -> dict:
         summary = _clean_text(output.get("tester_observations")) or "Inspector collected workspace evidence."
         blocking_items = _inspector_blockers(output)
         recommended_next_action = (
-            "Address the failing checks with the strongest direct evidence."
-            if blocking_items
-            else "Pass the evidence bundle to GateKeeper for a verdict."
+            "Address the failing checks with the strongest direct evidence." if blocking_items else "Pass the evidence bundle to GateKeeper for a verdict."
         )
         status = "blocked" if blocking_items else "completed"
     elif archetype == "gatekeeper":
         summary = _clean_text(output.get("decision_summary")) or "GateKeeper evaluated the current evidence."
         blocking_items = _gatekeeper_blockers(output)
         recommended_next_action = (
-            _clean_text(output.get("feedback_to_builder") or output.get("feedback_to_generator"))
-            or "Continue only after the blocking issues are resolved."
+            _clean_text(output.get("feedback_to_builder") or output.get("feedback_to_generator")) or "Continue only after the blocking issues are resolved."
         )
         status = "passed" if bool(output.get("passed")) else "blocked"
     elif archetype == "guide":
@@ -581,7 +692,9 @@ def build_step_handoff(result: StepResultContext) -> dict:
         risk_note = _clean_text(analysis.get("risk_note"))
         if risk_note:
             blocking_items.append(risk_note)
-        recommended_next_action = _clean_text(output.get("seed_question") or analysis.get("recommended_shift")) or "Use the guidance as the next experiment seed."
+        recommended_next_action = (
+            _clean_text(output.get("seed_question") or analysis.get("recommended_shift")) or "Use the guidance as the next experiment seed."
+        )
         status = "advisory"
     else:
         summary = _clean_text(output.get("summary") or output.get("handoff_note")) or "Custom role prepared a scoped handoff."
@@ -703,9 +816,7 @@ def build_step_evidence_entry(request: StepEvidenceEntryRequest) -> dict:
         if isinstance(coverage_result, dict):
             related_evidence_ids.extend(_string_list(coverage_result.get("evidence_refs")))
     if evidence_entry_id(result.iter_id, step_order, step["id"]) in related_evidence_ids:
-        related_evidence_ids = [
-            item for item in related_evidence_ids if item != evidence_entry_id(result.iter_id, step_order, step["id"])
-        ]
+        related_evidence_ids = [item for item in related_evidence_ids if item != evidence_entry_id(result.iter_id, step_order, step["id"])]
     evidence_claims = _string_list(output.get("evidence_claims"))
     claim = _clean_text(output.get("decision_summary") if archetype == "gatekeeper" else handoff.get("summary"))
     if evidence_claims:
@@ -737,6 +848,9 @@ def build_step_evidence_entry(request: StepEvidenceEntryRequest) -> dict:
         "result": _clean_text(handoff.get("status")) or "completed",
         "verifies": verifies,
         "related_evidence_ids": related_evidence_ids,
+        "coverage_results": _evidence_coverage_results(output.get("coverage_results")),
+        "measured_evidence": has_measured_gate_evidence(output.get("metric_scores"), output.get("metrics")),
+        "concrete_evidence_claim_count": concrete_evidence_claim_count(evidence_claims),
         "residual_risk": residual_risk,
         "artifact_refs": list(handoff.get("artifact_refs") or []),
     }
@@ -808,6 +922,27 @@ def _coverage_result_verify_refs(value: object) -> list[str]:
     return refs
 
 
+def _evidence_coverage_results(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    results: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        target_id = str(item.get("target_id") or "").strip()
+        if not target_id or ":" in target_id:
+            continue
+        results.append(
+            {
+                "target_id": target_id,
+                "status": _clean_text(item.get("status")) or "unknown",
+                "evidence_refs": _string_list(item.get("evidence_refs"))[:20],
+                "note": _clean_text(item.get("note"))[:400],
+            }
+        )
+    return results[:20]
+
+
 def _evidence_residual_risk(archetype: str, output: dict, handoff: dict) -> str:
     risks: list[str] = []
     risks.extend(_string_list(output.get("residual_risks")))
@@ -834,29 +969,16 @@ def build_iteration_summary(context: IterationSummaryContext) -> dict:
         {},
     )
     latest_by_step = {
-        item["step"]["id"]: layout.relative(
-            layout.step_handoff_path(iter_id, int(item["step_order"]), item["step"]["id"])
-        )
-        for item in step_results
+        item["step"]["id"]: layout.relative(layout.step_handoff_path(iter_id, int(item["step_order"]), item["step"]["id"])) for item in step_results
     }
     latest_by_role = {
-        item["role"]["id"]: layout.relative(
-            layout.step_handoff_path(iter_id, int(item["step_order"]), item["step"]["id"])
-        )
-        for item in step_results
+        item["role"]["id"]: layout.relative(layout.step_handoff_path(iter_id, int(item["step_order"]), item["step"]["id"])) for item in step_results
     }
     latest_by_archetype = {
-        item["role"]["archetype"]: layout.relative(
-            layout.step_handoff_path(iter_id, int(item["step_order"]), item["step"]["id"])
-        )
-        for item in step_results
+        item["role"]["archetype"]: layout.relative(layout.step_handoff_path(iter_id, int(item["step_order"]), item["step"]["id"])) for item in step_results
     }
     composite = gatekeeper_output.get("composite_score")
-    delta = (
-        round(float(composite) - float(context.previous_composite), 6)
-        if composite is not None and context.previous_composite is not None
-        else None
-    )
+    delta = round(float(composite) - float(context.previous_composite), 6) if composite is not None and context.previous_composite is not None else None
     return {
         "phase": "complete",
         "iter": int(iter_id),
@@ -882,9 +1004,13 @@ def build_iteration_summary(context: IterationSummaryContext) -> dict:
         },
         "stagnation": {
             "mode": str(stagnation.get("stagnation_mode", "none")),
+            "evidence_progress_mode": str(stagnation.get("evidence_progress_mode", "none") or "none"),
             "recent_composites": [float(value) for value in list(stagnation.get("recent_composites", [])) if value is not None],
             "recent_deltas": [float(value) for value in list(stagnation.get("recent_deltas", [])) if value is not None],
             "consecutive_low_delta": int(stagnation.get("consecutive_low_delta", 0) or 0),
+            "covered_check_count": _int_value(stagnation.get("latest_covered_check_count")),
+            "missing_check_count": _int_value(stagnation.get("latest_missing_check_count")),
+            "consecutive_no_required_coverage_delta": _int_value(stagnation.get("consecutive_no_required_coverage_delta")),
         },
         "latest_refs": {
             "summary_path": layout.relative(layout.iteration_summary_path(iter_id)),
@@ -1031,18 +1157,31 @@ def system_prompt_prefix(archetype: str) -> str:
 
 def output_contract_prompt(archetype: str) -> str:
     if archetype == "builder":
-        return "Output contract: return JSON with attempted, abandoned, assumption, summary, and changed_files."
+        return (
+            "Output contract: return JSON with attempted, abandoned, assumption, summary, changed_files, "
+            "proof_files, proof_artifacts, and artifact_paths. Use empty arrays for proof_files, "
+            "proof_artifacts, and artifact_paths when no proof artifact was created."
+        )
     if archetype == "inspector":
         return (
             "Output contract: return JSON with execution_summary, check_results, dynamic_checks, tester_observations, "
             "and coverage_results. Use an empty coverage_results list unless you can explicitly verify or reject coverage target ids. "
+            "Inside execution_summary, return total_checks, passed, failed, errored, and total_duration_ms. "
+            "For every check_results item and dynamic_checks item, return id, title, status, and notes. "
+            "For every coverage_results item, return target_id, status, evidence_refs, and note. "
             "Use notes to distinguish Proven, Weak, Unproven, Blocking, and Residual risk evidence."
         )
     if archetype == "gatekeeper":
         return (
-            "Output contract: return JSON with passed, decision_summary, feedback_to_builder, blocking_issues, "
-            "metrics, failed_check_ids, priority_failures, composite_score, evidence_refs, and evidence_claims. "
-            "A pass must cite upstream evidence_refs from the Evidence ledger. If this is the first gate in the workflow, "
+            "Output contract: return JSON with passed, decision_summary, composite_score, metrics, metric_scores, "
+            "blocking_issues, hard_constraint_violations, failed_check_ids, priority_failures, feedback_to_builder, "
+            "feedback_to_generator, evidence_refs, evidence_claims, residual_risks, and coverage_results. "
+            "Use empty arrays for metrics, blocking_issues, hard_constraint_violations, failed_check_ids, "
+            "priority_failures, evidence_refs, evidence_claims, residual_risks, and coverage_results when there are no items. "
+            "Metrics rows must include name, value, threshold, and passed. Inside metric_scores, provide exactly "
+            "check_pass_rate and quality_score, each with value, threshold, and passed. Priority failures must include error_code and summary. "
+            "For every coverage_results item, return target_id, status, evidence_refs, and note. "
+            "A pass must cite supporting upstream evidence_refs from the Evidence ledger; a plain Builder handoff is not support unless it carries a proof artifact or measured evidence. If this is the first gate in the workflow, "
             "claims alone are not enough; provide concrete metric_scores tied to the evidence you inspected. "
             "The decision_summary should separate run status from task verdict and name any Weak, Unproven, Blocking, or Residual risk evidence."
         )
@@ -1099,6 +1238,13 @@ def _combine_role_guidance(spec_role_note: str, role_posture: str) -> str:
     return "\n\n".join(parts).strip()
 
 
+def _int_value(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def render_iteration_section(packet: dict) -> str:
     iteration = packet["iteration"]
     current_step = packet["current_step"]
@@ -1132,7 +1278,10 @@ def render_iteration_section(packet: dict) -> str:
         f"- Input policy: {json.dumps(current_step.get('inputs') or {}, ensure_ascii=False)}\n"
         f"- Action policy: {json.dumps(action_policy, ensure_ascii=False)}\n"
         f"{control_lines}"
-        f"- Stagnation mode: {iteration['stagnation_mode']}\n\n"
+        f"- Stagnation mode: {iteration['stagnation_mode']}\n"
+        f"- Evidence progress mode: {iteration['evidence_progress_mode']}\n"
+        f"- Required coverage: {iteration['covered_check_count']} covered, {iteration['missing_check_count']} missing\n"
+        f"- Consecutive iterations without required coverage delta: {iteration['consecutive_no_required_coverage_delta']}\n\n"
         f"{previous_line}"
     )
 
@@ -1176,6 +1325,9 @@ def render_previous_iteration_summary(summary: dict | None) -> str:
         f"- Score delta: {summary['score']['delta']}\n"
         f"- Passed: {summary['score']['passed']}\n"
         f"- Stagnation mode: {summary['stagnation']['mode']}\n"
+        f"- Evidence progress mode: {summary['stagnation']['evidence_progress_mode']}\n"
+        f"- Required coverage: {summary['stagnation']['covered_check_count']} covered, {summary['stagnation']['missing_check_count']} missing\n"
+        f"- Consecutive iterations without required coverage delta: {summary['stagnation']['consecutive_no_required_coverage_delta']}\n"
         f"- Step count: {len(summary['workflow'])}"
     ]
     for handoff in list(summary.get("step_handoffs", []))[:6]:
@@ -1195,6 +1347,8 @@ def render_evidence_section(evidence: dict) -> str:
     ledger_path = str(evidence.get("ledger_path") or "").strip()
     manifest_path = str(evidence.get("manifest_path") or "").strip()
     coverage_path = str(evidence.get("coverage_path") or "").strip()
+    manifest_summary = evidence.get("manifest_summary") if isinstance(evidence.get("manifest_summary"), dict) else {}
+    manifest_claims = _manifest_claims_by_id(evidence.get("manifest_claims"))
     lines = ["Evidence ledger:"]
     if ledger_path:
         lines.append(f"- Path: {ledger_path}")
@@ -1202,6 +1356,9 @@ def render_evidence_section(evidence: dict) -> str:
         lines.append(f"- Manifest: {manifest_path}")
     if coverage_path:
         lines.append(f"- Coverage: {coverage_path}")
+    summary_line = _manifest_summary_prompt_line(manifest_summary)
+    if summary_line:
+        lines.append(summary_line)
     known_ids = [str(item).strip() for item in list(evidence.get("known_ids") or []) if str(item).strip()]
     if known_ids:
         lines.append(f"- Known ids: {json.dumps(known_ids[-40:], ensure_ascii=False)}")
@@ -1209,19 +1366,138 @@ def render_evidence_section(evidence: dict) -> str:
         lines.append("- No evidence items have been written yet.")
         return "\n".join(lines)
     for item in items[-12:]:
+        lines.extend(_evidence_item_prompt_lines(item, manifest_claims))
+    return "\n".join(lines)
+
+
+def _evidence_item_prompt_lines(item: object, manifest_claims: dict[str, dict]) -> list[str]:
+    if not isinstance(item, dict):
+        return []
+    lines = [f"- {item.get('id', '-')}: {item.get('role_name', '-')} ({item.get('archetype', '-')}) ::{item.get('result', '-')} :: {item.get('claim', '-')}"]
+    lines.extend(_manifest_claim_prompt_lines(manifest_claims.get(str(item.get("id") or "").strip())))
+    related = item.get("related_evidence_ids") if isinstance(item.get("related_evidence_ids"), list) else []
+    if related:
+        lines.append(f"  related={json.dumps(related, ensure_ascii=False)}")
+    coverage_results = _evidence_item_prompt_coverage_results(item.get("coverage_results"))
+    if coverage_results:
+        lines.append(f"  coverage_results={json.dumps(coverage_results, ensure_ascii=False)}")
+    artifacts = _artifact_ref_prompt_paths(item.get("artifact_refs"))
+    if artifacts:
+        lines.append(f"  artifacts={json.dumps(artifacts, ensure_ascii=False)}")
+    return lines
+
+
+def _evidence_item_prompt_coverage_results(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict] = []
+    for item in value:
         if not isinstance(item, dict):
             continue
-        lines.append(
-            f"- {item.get('id', '-')}: {item.get('role_name', '-')} ({item.get('archetype', '-')}) "
-            f"::{item.get('result', '-')} :: {item.get('claim', '-')}"
+        target_id = str(item.get("target_id") or "").strip()
+        if not target_id:
+            continue
+        rows.append(
+            {
+                "target_id": target_id,
+                "status": str(item.get("status") or "").strip(),
+                "evidence_refs": _string_list(item.get("evidence_refs"))[:8],
+            }
         )
-        related = item.get("related_evidence_ids") if isinstance(item.get("related_evidence_ids"), list) else []
-        if related:
-            lines.append(f"  related={json.dumps(related, ensure_ascii=False)}")
-        artifacts = _artifact_ref_prompt_paths(item.get("artifact_refs"))
-        if artifacts:
-            lines.append(f"  artifacts={json.dumps(artifacts, ensure_ascii=False)}")
-    return "\n".join(lines)
+    return rows[:8]
+
+
+def _manifest_claims_by_id(value: object) -> dict[str, dict]:
+    return {str(claim.get("id") or "").strip(): claim for claim in list(value or []) if isinstance(claim, dict) and str(claim.get("id") or "").strip()}
+
+
+def _normalize_evidence_items(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    items: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        normalized = dict(item)
+        normalized["coverage_results"] = _evidence_coverage_results(normalized.get("coverage_results"))
+        items.append(normalized)
+    return items
+
+
+def _manifest_summary_prompt_line(summary: dict) -> str:
+    if not summary:
+        return ""
+    return (
+        "- Proof strength: "
+        f"claims={_int_value(summary.get('claim_count'))}, "
+        f"direct_proof={_int_value(summary.get('direct_proof_claim_count'))}, "
+        f"workspace_artifact={_int_value(summary.get('workspace_artifact_claim_count'))}, "
+        f"run_artifact={_int_value(summary.get('run_artifact_claim_count'))}, "
+        f"ledger_only={_int_value(summary.get('ledger_only_claim_count'))}, "
+        f"unverified={_int_value(summary.get('unverified_claim_count'))}, "
+        f"problems={_int_value(summary.get('problem_count'))}"
+    )
+
+
+def _manifest_claim_prompt_lines(claim: dict | None) -> list[str]:
+    if not isinstance(claim, dict):
+        return []
+    lines = [
+        "  "
+        f"proof_status={claim.get('verification_status') or 'unknown'} "
+        f"measured={_prompt_bool(claim.get('measured_evidence'))} "
+        f"concrete_claims={_int_value(claim.get('concrete_evidence_claim_count'))} "
+        f"artifact_backed={_prompt_bool(claim.get('artifact_backed'))} "
+        f"workspace_backed={_prompt_bool(claim.get('workspace_backed'))} "
+        f"reproducible={_prompt_bool(claim.get('reproducible'))} "
+        f"coverage_targets={json.dumps(list(claim.get('coverage_targets') or [])[:8], ensure_ascii=False)}"
+    ]
+    problem_codes = [str(code).strip() for code in list(claim.get("problem_codes") or []) if str(code).strip()]
+    if problem_codes:
+        lines.append(f"  proof_problems={json.dumps(problem_codes[:8], ensure_ascii=False)}")
+    return lines
+
+
+def _normalize_manifest_summary(value: object) -> dict:
+    source = value if isinstance(value, dict) else {}
+    return {
+        "claim_count": _int_value(source.get("claim_count")),
+        "direct_proof_claim_count": _int_value(source.get("direct_proof_claim_count")),
+        "workspace_artifact_claim_count": _int_value(source.get("workspace_artifact_claim_count")),
+        "run_artifact_claim_count": _int_value(source.get("run_artifact_claim_count")),
+        "ledger_only_claim_count": _int_value(source.get("ledger_only_claim_count")),
+        "unverified_claim_count": _int_value(source.get("unverified_claim_count")),
+        "problem_count": _int_value(source.get("problem_count")),
+    }
+
+
+def _normalize_manifest_claims(value: object) -> list[dict]:
+    rows: list[dict] = []
+    for claim in list(value or []):
+        if not isinstance(claim, dict):
+            continue
+        claim_id = str(claim.get("id") or "").strip()
+        if not claim_id:
+            continue
+        rows.append(
+            {
+                "id": claim_id,
+                "verification_status": str(claim.get("verification_status") or "ledger_only").strip(),
+                "measured_evidence": bool(claim.get("measured_evidence")),
+                "concrete_evidence_claim_count": _int_value(claim.get("concrete_evidence_claim_count")),
+                "artifact_count": _int_value(claim.get("artifact_count")),
+                "artifact_backed": bool(claim.get("artifact_backed")),
+                "workspace_backed": bool(claim.get("workspace_backed")),
+                "reproducible": bool(claim.get("reproducible")),
+                "coverage_targets": [str(item).strip() for item in list(claim.get("coverage_targets") or []) if str(item).strip()][:20],
+                "problem_codes": [str(item).strip() for item in list(claim.get("problem_codes") or []) if str(item).strip()][:20],
+            }
+        )
+    return rows[:40]
+
+
+def _prompt_bool(value: object) -> str:
+    return "true" if bool(value) else "false"
 
 
 def _artifact_ref_prompt_paths(value: object) -> list[str]:
@@ -1237,12 +1513,16 @@ def _artifact_ref_prompt_paths(value: object) -> list[str]:
         label = str(ref.get("label") or ref.get("kind") or "artifact").strip()
         workspace_path = str(ref.get("workspace_path") or "").strip()
         relative_path = str(ref.get("relative_path") or "").strip()
+        absolute_path = str(ref.get("absolute_path") or "").strip()
         if not workspace_path and not relative_path:
             continue
         if workspace_path and relative_path and workspace_path != relative_path:
-            paths.append(f"{label}: {workspace_path} (run-local: {relative_path})")
+            path_text = f"{label}: {workspace_path} (run-local: {relative_path})"
         else:
-            paths.append(f"{label}: {workspace_path or relative_path}")
+            path_text = f"{label}: {workspace_path or relative_path}"
+        if absolute_path:
+            path_text = f"{path_text} (absolute: {absolute_path})"
+        paths.append(path_text)
         if len(paths) >= 4:
             break
     return paths
@@ -1253,10 +1533,14 @@ def render_artifact_refs(refs: list[dict]) -> str:
     for ref in refs:
         workspace_path = str(ref.get("workspace_path") or ref.get("relative_path") or "").strip()
         relative_path = str(ref.get("relative_path") or "").strip()
+        absolute_path = str(ref.get("absolute_path") or "").strip()
         if relative_path and workspace_path and workspace_path != relative_path:
-            lines.append(f"- {ref['label']}: {workspace_path} (run-local: {relative_path})")
+            path_text = f"- {ref['label']}: {workspace_path} (run-local: {relative_path})"
         else:
-            lines.append(f"- {ref['label']}: {workspace_path or relative_path}")
+            path_text = f"- {ref['label']}: {workspace_path or relative_path}"
+        if absolute_path:
+            path_text = f"{path_text} (absolute: {absolute_path})"
+        lines.append(path_text)
     return "\n".join(lines)
 
 
@@ -1289,9 +1573,5 @@ def _gatekeeper_blockers(output: dict) -> list[str]:
     blockers = [item for item in _string_list(output.get("failed_check_ids")) if item]
     priority_failures = output.get("priority_failures")
     if isinstance(priority_failures, list):
-        blockers.extend(
-            str(item.get("summary") or item.get("error_code") or "").strip()
-            for item in priority_failures
-            if isinstance(item, dict)
-        )
+        blockers.extend(str(item.get("summary") or item.get("error_code") or "").strip() for item in priority_failures if isinstance(item, dict))
     return [item for item in blockers if item]

@@ -186,8 +186,19 @@ const takeaways = context.window.LooporaRunDetailTakeaways.createTakeawayProject
   formatAbsoluteDate: () => "date",
 });
 const snapshot = {
-  task_verdict: {status: "passed", summary: "ok", buckets: {proven: [{text: "done"}]}},
+  task_verdict: {
+    status: "passed",
+    summary: "ok",
+    buckets: {
+      proven: [
+        {text: "done", evidence_refs: ["ev_001"], artifact_refs: [{kind: "workspace", workspace_path: "proof.md"}]},
+        {text: "same proof", evidence_refs: ["ev_001"], artifact_refs: [{kind: "workspace", workspace_path: "proof.md"}]},
+      ],
+    },
+  },
+  task_verdict_path: "evidence/task_verdict.json",
   evidence_coverage: {coverage_path: "evidence/coverage.json", evidence_count: 1, summary: {reason: "covered"}},
+  evidence_manifest: {manifest_path: "evidence/manifest.json", claim_count: 2, direct_proof_claim_count: 1, workspace_artifact_claim_count: 0, run_artifact_claim_count: 1, ledger_only_claim_count: 1, unverified_claim_count: 0},
   iterations: [{iter: 0, display_iter: 1, status: "passed", role_count: 1, roles: []}],
 };
 if (!takeaways.evidenceOutcome(snapshot, run).title.includes("Passed")) {
@@ -195,6 +206,49 @@ if (!takeaways.evidenceOutcome(snapshot, run).title.includes("Passed")) {
 }
 if (!takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("View trace")) {
   throw new Error("takeaway coverage html projection failed");
+}
+if (!takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("View verdict")) {
+  throw new Error("takeaway task verdict html projection failed");
+}
+if (!takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("View manifest") || !takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("Direct 1")) {
+  throw new Error("takeaway manifest html projection failed");
+}
+if (!takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("1 evidence ref") || !takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("1 artifact")) {
+  throw new Error("takeaway bucket trace count projection failed");
+}
+const stalledIterationHtml = takeaways.renderTakeawayIterationCard({
+  iter: 1,
+  display_iter: 2,
+  status: "blocked",
+  summary: "Evidence did not move.",
+  composite_score: 0.7,
+  evidence_progress_mode: "stalled",
+  covered_check_count: 0,
+  missing_check_count: 2,
+  consecutive_no_required_coverage_delta: 1,
+  role_count: 1,
+  roles: [],
+}, {evidence_count: 4});
+if (!stalledIterationHtml.includes("Evidence progress stalled") || !stalledIterationHtml.includes("Coverage 0 covered / 2 missing")) {
+  throw new Error(`takeaway evidence-progress projection failed: ${stalledIterationHtml}`);
+}
+const residualSnapshot = {
+  task_verdict: {
+    status: "passed_with_residual_risk",
+    summary: "",
+    buckets: {proven: [{text: "done"}], residual_risk: [{text: "manual billing export remains"}]},
+  },
+  evidence_coverage: {coverage_path: "evidence/coverage.json", residual_risk_count: 1, summary: {reason: "accepted risk"}},
+  evidence_manifest: {},
+  iterations: [],
+};
+const residualOutcome = takeaways.evidenceOutcome(residualSnapshot, run);
+if (residualOutcome.soft || !residualOutcome.title.includes("Passed with residual risk") || !residualOutcome.detail.includes("manual billing export")) {
+  throw new Error(`residual-risk takeaway outcome failed: ${JSON.stringify(residualOutcome)}`);
+}
+const residualCoverageHtml = takeaways.evidenceCoverageHtml(residualSnapshot, "run_1");
+if (!residualCoverageHtml.includes("Residual risk") || !residualCoverageHtml.includes("manual billing export")) {
+  throw new Error("residual-risk evidence card projection failed");
 }
 const zhTakeaways = context.window.LooporaRunDetailTakeaways.createTakeawayProjector({
   localeText: (zh, _en) => zh,
@@ -210,9 +264,27 @@ const render = context.window.LooporaRunDetailRender.createRenderProjector({
   timelineProjector: timeline,
   formatAbsoluteDate: () => "date",
 });
-const verdictSummary = render.summarizeTaskVerdict({status: "passed", source: "gatekeeper", buckets: {proven: [{}]}});
-if (!verdictSummary.title.includes("Passed") || !verdictSummary.meta.includes("proven 1")) {
+const verdictSummary = render.summarizeTaskVerdict({
+  status: "passed_with_residual_risk",
+  source: "gatekeeper",
+  buckets: {proven: [{}], weak: [{}], unproven: [], blocking: [], residual_risk: [{text: "manual billing export remains"}, {}]},
+});
+if (
+  !verdictSummary.title.includes("Passed with residual risk") ||
+  !verdictSummary.detail.includes("manual billing export remains") ||
+  !verdictSummary.meta.includes("proven 1") ||
+  !verdictSummary.meta.includes("weak 1") ||
+  !verdictSummary.meta.includes("residual risk 2")
+) {
   throw new Error(`render verdict projection failed: ${JSON.stringify(verdictSummary)}`);
+}
+const passedSummary = render.summarizeTaskVerdict({
+  status: "passed",
+  source: "gatekeeper",
+  buckets: {proven: [{text: "main flow verified"}]},
+});
+if (!passedSummary.detail.includes("main flow verified") || passedSummary.detail.includes("No evidence-based task verdict")) {
+  throw new Error(`render passed fallback failed: ${JSON.stringify(passedSummary)}`);
 }
 const latestSummary = render.summarizeLatestEvent([{event_type: "run_finished", created_at: "2026-04-30T00:00:00Z", payload: {status: "succeeded"}}]);
 if (!latestSummary.title.includes("Run finished") || latestSummary.meta !== "date") {
@@ -557,8 +629,8 @@ def test_index_page_renders_with_saved_loops(
     assert 'href="/loops/new/bundle"' in response.text
     assert 'action="/loops/new/bundle"' not in response.text
     assert "data-open-card=" in response.text
-    assert "id=\"confirm-modal\"" in response.text
-    assert "id=\"loops-empty-state\" hidden" in response.text
+    assert 'id="confirm-modal"' in response.text
+    assert 'id="loops-empty-state" hidden' in response.text
 
     zh_response = client.get("/", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
@@ -661,9 +733,7 @@ def test_run_detail_places_takeaways_and_console_before_timeline(
         "/static/pages/run_detail_render.js?v=",
         "/static/pages/run_detail.js?v=",
     ]
-    assert [response.text.index(script) for script in script_order] == sorted(
-        response.text.index(script) for script in script_order
-    )
+    assert [response.text.index(script) for script in script_order] == sorted(response.text.index(script) for script in script_order)
     assert "window.LOOPORA_RUN_DETAIL" in response.text
     assert "timelineEvents" not in response.text
     assert "consoleEvents" not in response.text
@@ -673,9 +743,12 @@ def test_run_detail_places_takeaways_and_console_before_timeline(
     _assert_has_testid(response.text, "run-evidence-outcome")
     _assert_has_testid(response.text, "run-observation-status")
     assert 'data-observation-state="loading"' in response.text
+    _assert_has_testid(response.text, "run-export-loop-button")
+    assert f"/bundles/derive/export?loop_id={loop['id']}" in response.text
+    _assert_has_testid(response.text, "run-accept-result-button")
     _assert_has_testid(response.text, "run-improve-chat-button")
     _assert_has_testid(response.text, "run-evidence-improve-button")
-    assert f'/runs/{run["id"]}/revise' in response.text
+    assert f"/runs/{run['id']}/revise" in response.text
     _assert_testids_in_order(
         response.text,
         "run-takeaway-panel",
@@ -959,7 +1032,7 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     response = client.get("/tools")
 
     assert response.status_code == 200
-    assert '<title>Tools</title>' in response.text
+    assert "<title>Tools</title>" in response.text
     assert "/static/pages/tools.js?v=" in response.text
     assert "handy side tools" in response.text
     assert "wake-lock-toggle" in response.text
@@ -969,7 +1042,10 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     assert 'data-testid="local-assets-details"' in response.text
     assert "Prevent sleep while running" in response.text
     assert "help-dot--tips" in response.text
-    assert 'aria-label="Show tip: The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock."' in response.text
+    assert (
+        'aria-label="Show tip: The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock."'
+        in response.text
+    )
     assert ">i</button>" in response.text
     assert "Alignment skill install" not in response.text
     assert "loopora-task-alignment" not in response.text
@@ -978,10 +1054,13 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
 
     zh_response = client.get("/tools", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert zh_response.status_code == 200
-    assert '<title>工具</title>' in zh_response.text
+    assert "<title>工具</title>" in zh_response.text
     assert "运行辅助和本机维护" in zh_response.text
     assert "下载技能包" not in zh_response.text
-    assert 'aria-label="查看提示：只会在检测到有运行正在执行时请求浏览器保持屏幕唤醒，没有运行中的 Loop 会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收防休眠锁，页面也会在重新可见后自动重试。"' in zh_response.text
+    assert (
+        'aria-label="查看提示：只会在检测到有运行正在执行时请求浏览器保持屏幕唤醒，没有运行中的 Loop 会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收防休眠锁，页面也会在重新可见后自动重试。"'
+        in zh_response.text
+    )
 
 
 def _assert_new_loop_choice_page(html: str) -> None:
@@ -1000,7 +1079,7 @@ def _assert_new_loop_choice_page(html: str) -> None:
     assert "/static/pages/alignment.css?v=" in html
     assert 'href="/loops/new/bundle"' in html
     assert 'href="/loops/new/manual#manual-loop-form"' in html
-    assert '<title>Create Loop</title>' in html
+    assert "<title>Create Loop</title>" in html
 
 
 def _assert_bundle_compose_page(html: str) -> None:
@@ -1072,7 +1151,7 @@ def _assert_bundle_compose_page(html: str) -> None:
     assert 'data-compose-mode="bundle"' in html
     assert 'placeholder="Leave blank for Codex CLI default"' in html
     assert "{resume_session_id}" in html
-    assert '<title>Loop Composer</title>' in html
+    assert "<title>Loop Composer</title>" in html
 
 
 def _assert_prefilled_bundle_compose_page(html: str) -> None:
@@ -1131,19 +1210,19 @@ def _assert_manual_compose_page(html: str) -> None:
     assert re.search(r'data-compose-mode-section="import"[^>]*hidden', html)
     assert 'data-compose-mode-section="manual"' in html
     assert 'data-testid="alignment-preview-tab-yaml"' not in html
-    assert "name=\"executor_kind\"" not in html
-    assert "name=\"executor_mode\"" not in html
-    assert "name=\"orchestration_id\"" in html
-    assert "name=\"completion_mode\"" in html
+    assert 'name="executor_kind"' not in html
+    assert 'name="executor_mode"' not in html
+    assert 'name="orchestration_id"' in html
+    assert 'name="completion_mode"' in html
     assert 'action="/loops/new/manual/import-bundle"' in html
     assert 'name="bundle_yaml"' in html
     assert 'name="replace_bundle_id"' in html
-    assert "name=\"iteration_interval_seconds\"" in html
+    assert 'name="iteration_interval_seconds"' in html
     for spec_editor_marker in (
-        "id=\"edit-spec\"",
-        "id=\"toggle-spec-preview\"",
-        "id=\"spec-editor-input\"",
-        "id=\"spec-preview-content\"",
+        'id="edit-spec"',
+        'id="toggle-spec-preview"',
+        'id="spec-editor-input"',
+        'id="spec-preview-content"',
     ):
         assert spec_editor_marker in html
     for present_text in (
@@ -1152,7 +1231,7 @@ def _assert_manual_compose_page(html: str) -> None:
         "Manual Expert Mode",
         'class="panel-header workflow-editor-header"',
         'class="card-actions card-actions-compact"',
-        '<title>Create Loop Manually</title>',
+        "<title>Create Loop Manually</title>",
         'data-label-zh="守门裁决"',
         ">GateKeeper</option>",
         ">Rounds</option>",
@@ -1171,7 +1250,7 @@ def _assert_manual_compose_page(html: str) -> None:
 
 
 def _assert_zh_manual_compose_page(html: str) -> None:
-    assert '<title>手动编排 Loop</title>' in html
+    assert "<title>手动编排 Loop</title>" in html
     assert "手动编排" in html
     assert 'aria-label="查看提示：' in html
     zh_completion_mode = html.split('id="completion-mode-input"', 1)[1].split("</select>", 1)[0]
@@ -1194,9 +1273,7 @@ def test_new_loop_page_uses_page_scoped_script(service_factory) -> None:
     assert bundle_response.status_code == 200
     _assert_bundle_compose_page(bundle_response.text)
 
-    prefilled_bundle_response = client.get(
-        "/loops/new/bundle?alignment_message=Advance%20this%20Loop&alignment_workdir=%2Ftmp%2Floopora-demo"
-    )
+    prefilled_bundle_response = client.get("/loops/new/bundle?alignment_message=Advance%20this%20Loop&alignment_workdir=%2Ftmp%2Floopora-demo")
     assert prefilled_bundle_response.status_code == 200
     _assert_prefilled_bundle_compose_page(prefilled_bundle_response.text)
 
@@ -1359,7 +1436,7 @@ def _assert_orchestrations_list_page(html: str) -> None:
         "orchestration-loop-diagram",
     )
     for expected in (
-        '<title>Orchestrations</title>',
+        "<title>Orchestrations</title>",
         "Orchestrations",
         'data-open-card="/orchestrations/builtin:build_then_parallel_review/edit"',
         'class="page-stack page-stack--catalog"',
@@ -1391,7 +1468,7 @@ def _assert_orchestrations_list_page(html: str) -> None:
 
 
 def _assert_zh_orchestrations_list_page(html: str) -> None:
-    assert '<title>流程编排</title>' in html
+    assert "<title>流程编排</title>" in html
     assert 'aria-label="查看提示：内置预设本身是只读的；打开后可以查看结构，并从这个默认流程派生一个新的自定义编排。"' in html
 
 
@@ -1406,7 +1483,7 @@ def _assert_new_orchestration_page(html: str) -> None:
         'class="workflow-editor-section workflow-steps-panel"',
         'class="workflow-toolbar workflow-toolbar-compact"',
         "role-definitions-json",
-        '<title>Save orchestration</title>',
+        "<title>Save orchestration</title>",
         'data-label-zh="空白开始"',
     ):
         assert expected in html
@@ -1443,7 +1520,7 @@ def _assert_new_orchestration_page(html: str) -> None:
 
 
 def _assert_zh_new_orchestration_page(html: str) -> None:
-    assert '<title>保存编排</title>' in html
+    assert "<title>保存编排</title>" in html
     assert 'data-label-zh="空白开始"' in html
     assert ">空白开始</option>" in html
     assert 'data-label-zh="构建后并行检视"' in html
@@ -1560,7 +1637,7 @@ def _assert_role_definitions_list_page(html: str) -> None:
         "gatekeeper-role-tip",
     )
     for expected in (
-        '<title>Role Definitions</title>',
+        "<title>Role Definitions</title>",
         "Role Definitions",
         "Release Builder",
         "/roles/new",
@@ -1586,7 +1663,7 @@ def _assert_role_definitions_list_page(html: str) -> None:
 
 
 def _assert_zh_role_definitions_list_page(html: str) -> None:
-    assert '<title>角色定义</title>' in html
+    assert "<title>角色定义</title>" in html
     assert 'aria-label="查看提示：内置模板本身是只读的；打开后会以它为基础派生一个新的团队角色版本，而不是直接修改默认模板。"' in html
     assert 'aria-label="查看提示：' in html
 
@@ -1621,7 +1698,7 @@ def _assert_new_role_definition_page(html: str) -> None:
         "Custom Command",
         "Pushes the implementation forward",
         "Use it where the workflow needs actual workspace edits",
-        '<title>Save role</title>',
+        "<title>Save role</title>",
         'aria-label="Execution mode switch"',
         'id="role-definition-archetype-summary">',
         '<span data-lang="zh">直接推进实现，适合把 Loop 契约和交接记录落成真实代码与文件改动。</span>',
@@ -1635,7 +1712,7 @@ def _assert_new_role_definition_page(html: str) -> None:
 
 def _assert_zh_new_role_definition_page(html: str) -> None:
     for expected in (
-        '<title>保存角色</title>',
+        "<title>保存角色</title>",
         'aria-label="执行模式切换"',
         "直接推进实现",
         'data-label-zh="构建者"',
@@ -1730,6 +1807,9 @@ def _assert_bundle_detail_page(html: str, bundle_id: str) -> None:
     _assert_has_testids(
         html,
         "bundle-detail-page",
+        "bundle-governance-projection",
+        "bundle-traceability-map",
+        "bundle-diagnostics-strip",
         "bundle-detail-form",
         "bundle-spec-preview",
         "bundle-yaml-preview",
@@ -1748,6 +1828,8 @@ def _assert_bundle_detail_page(html: str, bundle_id: str) -> None:
         "Expert details: source file and YAML",
         "bundle-surface-grid",
         "bundle-surface-card--wide",
+        "spec.markdown#Fake Done",
+        "workflow.collaboration_intent",
     ):
         assert expected in html
     assert 'style="margin-top: 1rem;"' not in html
@@ -1820,6 +1902,46 @@ def test_bundle_detail_page_tolerates_unreadable_spec_file(
     assert "bundle spec file could not be read" in response.text
 
 
+def test_bundle_detail_page_projects_non_blocking_workflow_diagnostics(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Weak Bundle Detail Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    bundle = service.derive_bundle_from_loop(
+        loop["id"],
+        name="Weak Bundle Detail",
+        description="Bundle detail diagnostic projection test.",
+        collaboration_summary="Prefer evidence and visible proof.",
+    )
+    for step in bundle["workflow"]["steps"]:
+        if step["id"] == "gatekeeper_step":
+            step.pop("inputs", None)
+    imported = service.import_bundle_text(bundle_to_yaml(bundle))
+    client = TestClient(build_app(service=service))
+
+    response = client.get(f"/bundles/{imported['id']}")
+
+    assert response.status_code == 200
+    _assert_has_testids(response.text, "bundle-governance-projection", "bundle-diagnostic-row")
+    assert "gatekeeper_missing_handoff_fan_in" in response.text
+    assert "gatekeeper_missing_evidence_fan_in" in response.text
+    assert "workflow.steps[].inputs.evidence_query" in response.text
+
+
 def test_index_page_uses_bundle_delete_for_bundle_managed_loops(
     service_factory,
     sample_spec_file: Path,
@@ -1855,7 +1977,7 @@ def test_index_page_uses_bundle_delete_for_bundle_managed_loops(
 
     assert response.status_code == 200
     assert f'data-delete-bundle="{imported["id"]}"' in response.text
-    assert 'Delete Plan' in response.text
+    assert "Delete Plan" in response.text
     assert "managed by plan" in response.text
     zh_response = client.get("/", headers={"accept-language": "zh-CN,zh;q=0.9"})
     assert "删除方案包" in zh_response.text
@@ -1863,7 +1985,7 @@ def test_index_page_uses_bundle_delete_for_bundle_managed_loops(
 
 
 def _assert_tutorial_page(html: str) -> None:
-    assert '<title>Tutorial</title>' in html
+    assert "<title>Tutorial</title>" in html
     _assert_has_testids(
         html,
         "tutorial-page",
@@ -1981,8 +2103,13 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     run_detail_css_response = client.get("/static/pages/run_detail.css")
     assert run_detail_css_response.status_code == 200
     run_detail_css = run_detail_css_response.text
-    assert re.search(r"\.stage-loop-shell\.is-empty \.stage-loop-connector,\s*\.stage-loop-shell\.is-empty \.stage-loop-arcs\s*{[\s\S]*?display:\s*none;", run_detail_css)
-    assert re.search(r"\.stage-loop-shell\.is-empty \.stage-loop-track::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::after\s*{[\s\S]*?display:\s*none;", run_detail_css)
+    assert re.search(
+        r"\.stage-loop-shell\.is-empty \.stage-loop-connector,\s*\.stage-loop-shell\.is-empty \.stage-loop-arcs\s*{[\s\S]*?display:\s*none;", run_detail_css
+    )
+    assert re.search(
+        r"\.stage-loop-shell\.is-empty \.stage-loop-track::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::before,\s*\.stage-loop-shell\.is-empty \.stage-loop-steps::after\s*{[\s\S]*?display:\s*none;",
+        run_detail_css,
+    )
     assert "body:not(.ui-mounted)" not in css
     assert "body.ui-mounted .hero" not in css
 
@@ -1994,7 +2121,7 @@ def test_role_definition_script_keeps_bilingual_text_updates_safe() -> None:
     assert "replaceChildren(zhNode, enNode)" in script
     assert "function setBilingualHtml" not in script
     assert "setBilingualHtml(" not in script
-    assert "innerHTML = `<span data-lang=\"zh\"" not in script
+    assert 'innerHTML = `<span data-lang="zh"' not in script
 
 
 def test_static_app_js_bootstraps_theme_and_locale_without_mount_flash(service_factory) -> None:

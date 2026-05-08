@@ -37,7 +37,7 @@ A working agreement is ready only when it includes:
 - if the workflow is a 5+ role or multi-Builder long chain, why each phase creates a new artifact, proof target, handoff, or review boundary instead of role-zoo complexity
 - an explicit reason when the workflow chooses parallel inspection or avoids it
 - role-to-role and iteration-to-iteration information flow when the workflow has more than one reviewer or repair pass
-- an agreement-to-bundle traceability check: every confirmed judgment item can be mapped to `collaboration_summary`, `spec.markdown`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, or GateKeeper evidence rules
+- an agreement-to-bundle traceability check: every confirmed judgment item can be mapped to `collaboration_summary`, `spec.markdown`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, workflow controls, or GateKeeper evidence rules; metadata and loop names do not count
 - a private complete-run rehearsal: Builder, Inspector / Custom review, optional Guide repair direction, any second Builder pass, GateKeeper verdict, and user evidence audit can all be followed through explicit handoffs, evidence queries, and evidence buckets
 - a private failed-round pressure test: at least one plausible fake-done, weak-proof, drift, or residual-risk failure would be exposed, repaired, or blocked by the proposed `spec`, roles, workflow, handoffs, evidence queries, and GateKeeper rules
 - if `workflow.controls` exist, the specific error risk each control reduces

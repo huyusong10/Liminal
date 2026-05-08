@@ -104,7 +104,8 @@ class ServiceRunPromptMixin:
             f"Checks:\n{self._render_checks(compiled_spec['checks'])}\n\n"
             f"Constraints:\n{constraints}\n\n"
             f"{role_note}"
-            "Return JSON with attempted, abandoned, assumption, summary, and changed_files."
+            "Return JSON with attempted, abandoned, assumption, summary, changed_files, proof_files, proof_artifacts, and artifact_paths. "
+            "Use empty arrays for proof_files, proof_artifacts, and artifact_paths when no proof artifact was created."
         )
 
     def _generator_prior_iteration_feedback(
@@ -125,32 +126,23 @@ class ServiceRunPromptMixin:
             )
         if previous_tester_result:
             failed_items = list(previous_tester_result.get("failed_items", []))
-            lines.append(
-                f"- Tester observations: {self._truncate_text(previous_tester_result.get('tester_observations'), 220) or 'none'}"
-            )
+            lines.append(f"- Tester observations: {self._truncate_text(previous_tester_result.get('tester_observations'), 220) or 'none'}")
             lines.append(f"- Non-passing items last round: {self._format_failure_refs(failed_items)}")
         if previous_verifier_result:
-            lines.append(
-                f"- Verifier decision: {self._truncate_text(previous_verifier_result.get('decision_summary'), 240) or 'none'}"
-            )
-            lines.append(
-                f"- Previous composite score: `{previous_verifier_result.get('composite_score', 'n/a')}`"
-            )
+            lines.append(f"- Verifier decision: {self._truncate_text(previous_verifier_result.get('decision_summary'), 240) or 'none'}")
+            lines.append(f"- Previous composite score: `{previous_verifier_result.get('composite_score', 'n/a')}`")
             lines.append(
                 "- Failed checks last round: "
                 f"{self._format_inline_code_list(list(previous_verifier_result.get('failed_check_titles', []) or previous_verifier_result.get('failed_check_ids', [])), empty='none', limit=4)}"
             )
             lines.append(
-                "- Next actions from verifier: "
-                f"{self._format_inline_code_list(list(previous_verifier_result.get('next_actions', [])), empty='none', limit=4)}"
+                f"- Next actions from verifier: {self._format_inline_code_list(list(previous_verifier_result.get('next_actions', [])), empty='none', limit=4)}"
             )
         if previous_challenger_result:
             lines.append(
                 f"- Challenger recommended shift: {self._truncate_text((previous_challenger_result.get('analysis') or {}).get('recommended_shift'), 220) or 'none'}"
             )
-            lines.append(
-                f"- Challenger seed question: {self._truncate_text(previous_challenger_result.get('seed_question'), 220) or 'none'}"
-            )
+            lines.append(f"- Challenger seed question: {self._truncate_text(previous_challenger_result.get('seed_question'), 220) or 'none'}")
         lines.append("Use this evidence as your starting point for the next focused improvement. Do not restart from scratch.")
         return "\n".join(lines) + "\n\n"
 
@@ -170,8 +162,11 @@ class ServiceRunPromptMixin:
             f"Mode: {mode}\n"
             f"Checks:\n{checks}\n\n"
             f"{role_note}"
+            "Inside `execution_summary`, return `total_checks`, `passed`, `failed`, `errored`, and `total_duration_ms`.\n"
             "For every `check_results` item and every `dynamic_checks` item, return `id`, `title`, `status`, and `notes`.\n"
-            "Return JSON with execution_summary, check_results, dynamic_checks, and tester_observations."
+            "Return `coverage_results` as an empty list unless you can explicitly verify or reject Fake Done or Evidence Preferences coverage targets; "
+            "entries must include target_id, status, evidence_refs, and note.\n"
+            "Return JSON with execution_summary, check_results, dynamic_checks, tester_observations, and coverage_results."
         )
 
     def _verifier_prompt(self, compiled_spec: dict, tester_output: dict, iter_id: int, mode: str) -> str:
@@ -193,12 +188,16 @@ class ServiceRunPromptMixin:
             f"Constraints:\n{constraints}\n\n"
             f"{role_note}"
             f"Tester output:\n{json.dumps(tester_output, ensure_ascii=False, indent=2)}\n\n"
+            "Return `metrics` as rows with `name`, `value`, `threshold`, and `passed`.\n"
             "Inside `metric_scores`, provide exactly `check_pass_rate` and `quality_score`, each with `value`, `threshold`, and `passed`.\n"
             "For every `priority_failures` item, return `error_code` and `summary`.\n"
-            "When passing, cite concrete Evidence ledger item ids in `evidence_refs`. "
+            "For every `coverage_results` item, return `target_id`, `status`, `evidence_refs`, and `note`.\n"
+            "When passing, cite concrete supporting Evidence ledger item ids in `evidence_refs`; a plain Builder handoff is not support unless it carries a proof artifact or measured evidence. "
             "If this GateKeeper step is the first evidence reader, prose claims alone are not enough; include measured `metric_scores` and put concise proof statements in `evidence_claims`.\n"
-            "Return JSON with passed, composite_score, metric_scores, hard_constraint_violations, "
-            "failed_check_ids, priority_failures, feedback_to_generator, evidence_refs, and evidence_claims."
+            "Return `metrics`, `blocking_issues`, `hard_constraint_violations`, `failed_check_ids`, `priority_failures`, `evidence_refs`, `evidence_claims`, `residual_risks`, and `coverage_results` as arrays; "
+            "use empty arrays when there are no items.\n"
+            "Return JSON with passed, decision_summary, composite_score, metrics, metric_scores, blocking_issues, "
+            "hard_constraint_violations, failed_check_ids, priority_failures, feedback_to_builder, feedback_to_generator, evidence_refs, evidence_claims, residual_risks, and coverage_results."
         )
 
     def _challenger_prompt(self, compiled_spec: dict, stagnation: dict, iter_id: int) -> str:
@@ -286,13 +285,25 @@ def _generator_prompt_request_from_args(
 
 GENERATOR_SCHEMA = {
     "type": "object",
-    "required": ["attempted", "abandoned", "assumption", "summary", "changed_files"],
+    "required": [
+        "attempted",
+        "abandoned",
+        "assumption",
+        "summary",
+        "changed_files",
+        "proof_files",
+        "proof_artifacts",
+        "artifact_paths",
+    ],
     "properties": {
         "attempted": {"type": "string"},
         "abandoned": {"type": "string"},
         "assumption": {"type": "string"},
         "summary": {"type": "string"},
         "changed_files": {"type": "array", "items": {"type": "string"}},
+        "proof_files": {"type": "array", "items": {"type": "string"}},
+        "proof_artifacts": {"type": "array", "items": {"type": "string"}},
+        "artifact_paths": {"type": "array", "items": {"type": "string"}},
     },
     "additionalProperties": False,
 }
@@ -319,6 +330,21 @@ CHECK_PLANNER_SCHEMA = {
         "generation_notes": {"type": "string"},
     },
     "additionalProperties": False,
+}
+
+COVERAGE_RESULT_ARRAY_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "required": ["target_id", "status", "evidence_refs", "note"],
+        "properties": {
+            "target_id": {"type": "string"},
+            "status": {"type": "string"},
+            "evidence_refs": {"type": "array", "items": {"type": "string"}},
+            "note": {"type": "string"},
+        },
+        "additionalProperties": False,
+    },
 }
 
 TESTER_SCHEMA = {
@@ -366,20 +392,7 @@ TESTER_SCHEMA = {
             },
         },
         "tester_observations": {"type": "string"},
-        "coverage_results": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "required": ["target_id", "status", "evidence_refs", "note"],
-                "properties": {
-                    "target_id": {"type": "string"},
-                    "status": {"type": "string"},
-                    "evidence_refs": {"type": "array", "items": {"type": "string"}},
-                    "note": {"type": "string"},
-                },
-                "additionalProperties": False,
-            },
-        },
+        "coverage_results": COVERAGE_RESULT_ARRAY_SCHEMA,
     },
     "additionalProperties": False,
 }
@@ -400,6 +413,8 @@ VERIFIER_SCHEMA = {
         "feedback_to_generator",
         "evidence_refs",
         "evidence_claims",
+        "residual_risks",
+        "coverage_results",
     ],
     "properties": {
         "passed": {"type": "boolean"},
@@ -465,6 +480,8 @@ VERIFIER_SCHEMA = {
         "feedback_to_generator": {"type": "string"},
         "evidence_refs": {"type": "array", "items": {"type": "string"}},
         "evidence_claims": {"type": "array", "items": {"type": "string"}},
+        "residual_risks": {"type": "array", "items": {"type": "string"}},
+        "coverage_results": COVERAGE_RESULT_ARRAY_SCHEMA,
     },
     "additionalProperties": False,
 }

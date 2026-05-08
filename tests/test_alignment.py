@@ -111,11 +111,7 @@ def test_alignment_executor_events_redact_sensitive_values_before_persistence(
                 "codex_event",
                 {
                     "type": "command",
-                    "message": (
-                        "codex exec --token leak-command-token\n"
-                        "Authorization: Bearer leak-bearer-token\n"
-                        "Cookie: sid=leak-cookie-token"
-                    ),
+                    "message": ("codex exec --token leak-command-token\nAuthorization: Bearer leak-bearer-token\nCookie: sid=leak-cookie-token"),
                     "auth_token": "leak-field-token",
                     "prompt": "leak-prompt-body",
                     "json_schema": {"secret": "leak-schema-body"},
@@ -134,9 +130,7 @@ def test_alignment_executor_events_redact_sensitive_values_before_persistence(
     session = _wait_for_status(service, created["id"], "waiting_user")
 
     event = next(
-        event
-        for event in service.list_alignment_events(session["id"])
-        if event["event_type"] == "codex_event" and event["payload"].get("type") == "command"
+        event for event in service.list_alignment_events(session["id"]) if event["event_type"] == "codex_event" and event["payload"].get("type") == "command"
     )
     artifact_events = (Path(session["artifact_dir"]) / "events" / "events.jsonl").read_text(encoding="utf-8")
     stdout_text = (Path(session["artifact_dir"]) / "invocations" / "0001" / "stdout.log").read_text(encoding="utf-8")
@@ -264,9 +258,7 @@ def test_alignment_service_reframes_mechanical_configuration_questions(
     assert "任务风险" in assistant_message
     events = service.list_alignment_events(created["id"])
     assert any(
-        event["event_type"] == "alignment_question_reframed"
-        and "mechanical_configuration_question" in event["payload"].get("issues", [])
-        for event in events
+        event["event_type"] == "alignment_question_reframed" and "mechanical_configuration_question" in event["payload"].get("issues", []) for event in events
     )
 
 
@@ -287,11 +279,7 @@ def test_alignment_service_reframes_generic_preference_questions(
     assert "抽象偏好调查" in assistant_message
     assert "任务风险" in assistant_message
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_question_reframed"
-        and "generic_alignment_question" in event["payload"].get("issues", [])
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_question_reframed" and "generic_alignment_question" in event["payload"].get("issues", []) for event in events)
 
 
 def test_alignment_service_reframes_clarifying_questionnaires(
@@ -311,11 +299,7 @@ def test_alignment_service_reframes_clarifying_questionnaires(
     assert "长问卷" in assistant_message
     assert "一个会改变 Loop 的点" in assistant_message
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_question_reframed"
-        and "questionnaire_overload" in event["payload"].get("issues", [])
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_question_reframed" and "questionnaire_overload" in event["payload"].get("issues", []) for event in events)
 
 
 def test_alignment_service_materializes_visible_working_agreement(
@@ -463,11 +447,7 @@ def test_alignment_service_blocks_chinese_agreement_with_english_evidence(
     assert not session["working_agreement"]
     assert "需要使用中文" in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_language_mismatch"
-        and "agreement_summary" in event["payload"].get("missing", [])
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_language_mismatch" and "agreement_summary" in event["payload"].get("missing", []) for event in events)
 
 
 def test_alignment_service_rewrites_english_clarifying_message_for_chinese_user(
@@ -486,11 +466,7 @@ def test_alignment_service_rewrites_english_clarifying_message_for_chinese_user(
     assert "我需要继续用中文对齐" in assistant_message
     assert "What evidence" not in assistant_message
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_language_mismatch"
-        and event["payload"].get("missing") == ["assistant_message"]
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_language_mismatch" and event["payload"].get("missing") == ["assistant_message"] for event in events)
 
 
 def test_alignment_service_blocks_chinese_bundle_with_english_evidence(
@@ -510,11 +486,7 @@ def test_alignment_service_blocks_chinese_bundle_with_english_evidence(
     assert not Path(session["bundle_path"]).exists()
     assert "需要使用中文" in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_stage_blocked"
-        and "agreement_summary" in event["payload"].get("error", "")
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_stage_blocked" and "agreement_summary" in event["payload"].get("error", "") for event in events)
 
 
 def test_alignment_service_rewrites_english_bundle_message_for_chinese_user(
@@ -533,11 +505,7 @@ def test_alignment_service_rewrites_english_bundle_message_for_chinese_user(
     assert session["transcript"][-1]["content"] == "已整理成一个可导入的 Loopora bundle。"
     assert "I prepared" not in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_language_mismatch"
-        and event["payload"].get("missing") == ["assistant_message"]
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_language_mismatch" and event["payload"].get("missing") == ["assistant_message"] for event in events)
 
 
 def test_alignment_service_blocks_chinese_bundle_with_english_prose(
@@ -556,9 +524,7 @@ def test_alignment_service_blocks_chinese_bundle_with_english_prose(
     assert "bundle field collaboration_summary must follow Chinese user language" in session["error_message"]
     events = service.list_alignment_events(created["id"])
     assert any(
-        event["event_type"] == "alignment_validation_failed"
-        and "bundle field collaboration_summary" in event["payload"].get("error", "")
-        for event in events
+        event["event_type"] == "alignment_validation_failed" and "bundle field collaboration_summary" in event["payload"].get("error", "") for event in events
     )
 
 
@@ -580,9 +546,7 @@ def test_alignment_service_blocks_chinese_bundle_with_english_visible_names(
     assert "bundle role_definition builder.name must follow Chinese user language" in session["error_message"]
     events = service.list_alignment_events(created["id"])
     assert any(
-        event["event_type"] == "alignment_validation_failed"
-        and "bundle role_definition builder.name" in event["payload"].get("error", "")
-        for event in events
+        event["event_type"] == "alignment_validation_failed" and "bundle role_definition builder.name" in event["payload"].get("error", "") for event in events
     )
 
 
@@ -602,11 +566,7 @@ def test_alignment_service_blocks_agreement_with_incomplete_checklist(
     assert not session["working_agreement"]
     assert "workflow_shape" in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_checklist_incomplete"
-        and "workflow_shape" in event["payload"].get("missing", [])
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_checklist_incomplete" and "workflow_shape" in event["payload"].get("missing", []) for event in events)
 
 
 def test_alignment_service_blocks_agreement_with_unresolved_open_questions(
@@ -625,11 +585,7 @@ def test_alignment_service_blocks_agreement_with_unresolved_open_questions(
     assert not session["working_agreement"]
     assert "open_questions" in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_evidence_incomplete"
-        and "open_questions" in event["payload"].get("missing", [])
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_evidence_incomplete" and "open_questions" in event["payload"].get("missing", []) for event in events)
 
 
 def test_alignment_service_blocks_agreement_without_evidence_bucket_projection(
@@ -648,11 +604,7 @@ def test_alignment_service_blocks_agreement_without_evidence_bucket_projection(
     assert not session["working_agreement"]
     assert "evidence_buckets" in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_evidence_incomplete"
-        and "evidence_buckets" in event["payload"].get("missing", [])
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_evidence_incomplete" and "evidence_buckets" in event["payload"].get("missing", []) for event in events)
 
 
 def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, sample_workdir: Path) -> None:
@@ -717,6 +669,10 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
         "future-human-judgment projection",
         "private agreement-to-bundle traceability checklist",
         "If a judgment only appears in `agreement_summary`",
+        "Metadata and loop names are not enough to prove traceability",
+        "metadata and loop names do not count",
+        "workflow controls carry judgment order",
+        "workflow controls, or GateKeeper evidence rules",
         "optional Guide / Custom responsibility when used",
         "AGENTS.md exists: yes",
         "design/README.md exists: yes",
@@ -795,10 +751,7 @@ def test_alignment_bundle_source_file_rejects_invalid_utf8(service_factory, samp
     synced_session = service.get_alignment_session(preview_session["id"])
     assert synced_session["status"] == "failed"
     assert "UTF-8 encoded YAML" in synced_session["error_message"]
-    assert any(
-        event["event_type"] == "alignment_bundle_sync_failed"
-        for event in service.list_alignment_events(preview_session["id"])
-    )
+    assert any(event["event_type"] == "alignment_bundle_sync_failed" for event in service.list_alignment_events(preview_session["id"]))
 
     import_session = _confirm_alignment_agreement(
         service,
@@ -816,10 +769,7 @@ def test_alignment_bundle_source_file_rejects_invalid_utf8(service_factory, samp
     import_failed_session = service.get_alignment_session(import_session["id"])
     assert import_failed_session["status"] == "ready"
     assert "UTF-8 encoded YAML" in import_failed_session["error_message"]
-    assert any(
-        event["event_type"] == "alignment_import_failed"
-        for event in service.list_alignment_events(import_session["id"])
-    )
+    assert any(event["event_type"] == "alignment_import_failed" for event in service.list_alignment_events(import_session["id"]))
 
 
 def test_alignment_message_after_corrupt_ready_bundle_keeps_session_usable(
@@ -890,11 +840,37 @@ def test_alignment_service_blocks_bundle_without_loop_fit_readiness_evidence(
     assert not Path(session["bundle_path"]).exists()
     assert "loop_fit" in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_stage_blocked"
-        and "loop_fit" in event["payload"].get("error", "")
-        for event in events
+    assert any(event["event_type"] == "alignment_stage_blocked" and "loop_fit" in event["payload"].get("error", "") for event in events)
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "alignment_contradictory_loop_fit_readiness_evidence",
+        "alignment_single_pass_sufficient_loop_fit_readiness_evidence",
+        "alignment_benchmark_only_loop_fit_readiness_evidence",
+        "alignment_chinese_direct_chat_loop_fit_readiness_evidence",
+    ],
+)
+def test_alignment_service_blocks_agreement_that_contradicts_loop_fit(
+    service_factory,
+    sample_workdir: Path,
+    scenario: str,
+) -> None:
+    service = service_factory(scenario=scenario)
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a task that may only need one Agent pass.",
     )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert "loop_fit" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(event["event_type"] == "alignment_stage_blocked" and "loop_fit" in event["payload"].get("error", "") for event in events)
 
 
 def test_alignment_service_accepts_nonempty_loop_fit_readiness_evidence_without_keyword_gate(
@@ -968,11 +944,7 @@ def test_alignment_service_blocks_bundle_without_residual_risk_readiness_evidenc
     assert not Path(session["bundle_path"]).exists()
     assert "residual_risk_policy" in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_stage_blocked"
-        and "residual_risk_policy" in event["payload"].get("error", "")
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_stage_blocked" and "residual_risk_policy" in event["payload"].get("error", "") for event in events)
 
 
 def test_alignment_service_accepts_nonempty_residual_risk_readiness_evidence_without_keyword_gate(
@@ -1047,11 +1019,98 @@ def test_alignment_service_blocks_bundle_observed_stack_claims_not_in_workdir_sn
     assert not session["validation"]["ok"]
     assert "bundle field spec.markdown must not claim an observed workdir stack" in session["error_message"]
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_validation_failed"
-        and "bundle field spec.markdown" in event["payload"].get("error", "")
-        for event in events
+    assert any(event["event_type"] == "alignment_validation_failed" and "bundle field spec.markdown" in event["payload"].get("error", "") for event in events)
+
+
+def test_alignment_service_blocks_governance_markers_without_role_responsibilities(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_governance_markers_listed_without_responsibilities")
+    (sample_workdir / "AGENTS.md").write_text("Project rules.\n", encoding="utf-8")
+    (sample_workdir / "design").mkdir()
+    (sample_workdir / "design" / "README.md").write_text("# Design\n", encoding="utf-8")
+    (sample_workdir / "tests").mkdir()
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience that must respect local project governance markers.",
     )
+    session = _confirm_alignment_agreement(service, created["id"], "failed")
+
+    assert not session["validation"]["ok"]
+    assert "project-local governance markers" in session["error_message"]
+    assert "Builder reading" in session["error_message"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_validation_failed" and "project-local governance markers" in event["payload"].get("error", "") for event in events
+    )
+
+
+def test_alignment_traceability_checks_governance_markers_across_readiness_evidence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(
+        alignment_bundle_yaml(str(sample_workdir)).replace(
+            "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+            "Workdir Snapshot detected AGENTS.md and tests/. Ship the focused starter experience.",
+        )
+    )
+    session = {
+        "working_agreement": {
+            "readiness_evidence": {
+                "evidence_preferences": "AGENTS.md and tests/ are project-local governance markers that must shape runtime evidence.",
+            }
+        }
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert any("project-local governance markers" in issue for issue in issues)
+
+
+def test_alignment_traceability_ignores_metadata_and_loop_names(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
+    bundle["metadata"]["name"] = "browsertrace"
+    bundle["metadata"]["description"] = "browsertrace"
+    bundle["loop"]["name"] = "browsertrace"
+    session = {
+        "working_agreement": {
+            "readiness_evidence": {
+                "evidence_preferences": "browsertrace",
+            }
+        }
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert any("evidence_preferences missing browsertrace" in issue for issue in issues)
+
+
+def test_alignment_traceability_counts_workflow_step_inputs_as_runtime_surface(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
+    bundle["workflow"]["steps"][0]["inputs"] = {"evidence_query": {"target_ids": ["browsertrace"]}}
+    session = {
+        "working_agreement": {
+            "readiness_evidence": {
+                "evidence_preferences": "browsertrace",
+            }
+        }
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert not any("evidence_preferences" in issue for issue in issues)
 
 
 def test_alignment_service_blocks_generated_bundle_lineage_metadata(
@@ -1069,11 +1128,7 @@ def test_alignment_service_blocks_generated_bundle_lineage_metadata(
     assert session["validation"]["ok"] is False
     assert "must omit metadata.source_bundle_id and metadata.revision" in session["error_message"]
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_validation_failed"
-        and "source context is temporary" in event["payload"].get("error", "")
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_validation_failed" and "source context is temporary" in event["payload"].get("error", "") for event in events)
 
 
 def test_alignment_service_blocks_markdown_fenced_bundle_yaml(
@@ -1092,11 +1147,49 @@ def test_alignment_service_blocks_markdown_fenced_bundle_yaml(
     assert "must be one raw YAML document" in session["error_message"]
     assert "must start with version: 1" in session["error_message"]
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_validation_failed"
-        and "markdown-fenced output" in event["payload"].get("error", "")
-        for event in events
+    assert any(event["event_type"] == "alignment_validation_failed" and "markdown-fenced output" in event["payload"].get("error", "") for event in events)
+
+
+def test_alignment_service_blocks_bundle_that_drops_confirmed_agreement_specifics(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_refund_agreement_generic_bundle")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a governed refund self-service flow.",
     )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "failed")
+
+    assert session["validation"]["ok"] is False
+    assert "confirmed working agreement evidence" in session["error_message"]
+    assert "refund" in session["error_message"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_validation_failed" and "confirmed working agreement evidence" in event["payload"].get("error", "") for event in events
+    )
+
+
+def test_alignment_service_blocks_chinese_bundle_that_drops_confirmed_agreement_specifics(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_chinese_refund_agreement_generic_bundle")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="请编排一个受治理的退款自助流程。",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "failed")
+
+    assert session["validation"]["ok"] is False
+    assert "confirmed working agreement evidence" in session["error_message"]
+    assert "退款" in session["error_message"]
 
 
 @pytest.mark.parametrize(
@@ -1153,10 +1246,7 @@ def test_alignment_service_blocks_global_persona_readiness_evidence(
     events = service.list_alignment_events(created["id"])
     assert any(
         event["event_type"] in {"alignment_evidence_incomplete", "alignment_stage_blocked"}
-        and (
-            "task_scoped_judgment" in event["payload"].get("missing", [])
-            or "task_scoped_judgment" in event["payload"].get("error", "")
-        )
+        and ("task_scoped_judgment" in event["payload"].get("missing", []) or "task_scoped_judgment" in event["payload"].get("error", ""))
         for event in events
     )
 
@@ -1269,9 +1359,7 @@ def test_alignment_service_repairs_semantically_incomplete_bundle_once(service_f
 
     assert session["repair_attempts"] == 1
     assert session["validation"]["ok"] is True
-    failed_events = [
-        event for event in service.list_alignment_events(created["id"]) if event["event_type"] == "alignment_validation_failed"
-    ]
+    failed_events = [event for event in service.list_alignment_events(created["id"]) if event["event_type"] == "alignment_validation_failed"]
     assert failed_events
     assert "semantic lint" in failed_events[0]["payload"]["error"]
 
@@ -1329,11 +1417,7 @@ def test_alignment_service_blocks_custom_executor_bundle_that_drops_session_sett
     assert "must preserve selected Web executor settings" in session["error_message"]
     assert "loop.executor_kind" in session["error_message"]
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_validation_failed"
-        and "command/custom sessions" in event["payload"].get("error", "")
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_validation_failed" and "command/custom sessions" in event["payload"].get("error", "") for event in events)
 
 
 def test_alignment_api_covers_session_events_bundle_and_import(
@@ -1389,10 +1473,7 @@ def test_alignment_api_covers_session_events_bundle_and_import(
     assert sync_payload["ok"] is True
     assert sync_payload["metadata"]["name"] == "Synced Starter Bundle"
     assert sync_payload["session"]["status"] == "ready"
-    assert any(
-        event["event_type"] == "alignment_bundle_synced"
-        for event in service.list_alignment_events(session_id)
-    )
+    assert any(event["event_type"] == "alignment_bundle_synced" for event in service.list_alignment_events(session_id))
 
     import_response = client.post(
         f"/api/alignments/sessions/{session_id}/import",
@@ -1436,9 +1517,7 @@ def test_alignment_stream_emits_redacted_stream_error_on_backend_failure(caplog)
         "retryable": True,
     }
     assert any(
-        getattr(record, "event", "") == "web.alignment_stream.failed"
-        and record.exc_info
-        and "alignment database unavailable" in str(record.exc_info[1])
+        getattr(record, "event", "") == "web.alignment_stream.failed" and record.exc_info and "alignment database unavailable" in str(record.exc_info[1])
         for record in caplog.records
     )
 
@@ -1477,11 +1556,14 @@ def test_alignment_stream_logs_invalid_resume_cursor_and_keeps_request_cursor(ca
 
     client = TestClient(build_app(service=CursorAwareService()))
 
-    with caplog.at_level(logging.WARNING, logger="loopora.web"), client.stream(
-        "GET",
-        "/api/alignments/sessions/session_test/stream?after_id=7",
-        headers={"Last-Event-ID": str(MAX_EVENT_CURSOR_ID + 1)},
-    ) as response:
+    with (
+        caplog.at_level(logging.WARNING, logger="loopora.web"),
+        client.stream(
+            "GET",
+            "/api/alignments/sessions/session_test/stream?after_id=7",
+            headers={"Last-Event-ID": str(MAX_EVENT_CURSOR_ID + 1)},
+        ) as response,
+    ):
         assert response.status_code == 200
         assert "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text()) == ""
 
@@ -1608,8 +1690,7 @@ def test_alignment_improvement_session_requires_completion_mode_delta_for_rounds
     assert "conversion to evidence-backed GateKeeper task verdicts" in prompt_text
     events = service.list_alignment_events(created["id"])
     assert any(
-        event["event_type"] == "alignment_improvement_incomplete"
-        and "improvement_completion_mode_delta" in event["payload"].get("missing", [])
+        event["event_type"] == "alignment_improvement_incomplete" and "improvement_completion_mode_delta" in event["payload"].get("missing", [])
         for event in events
     )
 
@@ -1665,8 +1746,7 @@ def test_alignment_improvement_bundle_rejects_reusing_source_bundle_id(
     issues = service._alignment_improvement_bundle_issues(session, bundle)
 
     assert (
-        "improvement bundle must not reuse the source bundle id as metadata.bundle_id; "
-        "leave bundle_id empty or choose a new standalone candidate id"
+        "improvement bundle must not reuse the source bundle id as metadata.bundle_id; leave bundle_id empty or choose a new standalone candidate id"
     ) in issues
 
 
@@ -1736,11 +1816,7 @@ def test_alignment_improvement_session_blocks_vague_improvement_agreement(
 
     assert session["alignment_stage"] == "clarifying"
     events = service.list_alignment_events(created["id"])
-    assert any(
-        event["event_type"] == "alignment_improvement_incomplete"
-        and "improvement_delta" in event["payload"].get("missing", [])
-        for event in events
-    )
+    assert any(event["event_type"] == "alignment_improvement_incomplete" and "improvement_delta" in event["payload"].get("missing", []) for event in events)
 
 
 def test_alignment_improvement_session_can_start_from_run_evidence(
@@ -1781,8 +1857,24 @@ def test_alignment_improvement_session_can_start_from_run_evidence(
     assert agreement["source"]["source_type"] == "run"
     assert agreement["source"]["source_bundle_id"] == source["id"]
     assert agreement["source"]["source_run_id"] == run["id"]
+    assert agreement["source"]["run_status"] == run["status"]
+    assert agreement["source"]["artifact_paths"]["task_verdict"] == "evidence/task_verdict.json"
+    assert agreement["source"]["artifact_paths"]["evidence_ledger"] == "evidence/ledger.jsonl"
+    assert agreement["source"]["artifact_paths"]["evidence_coverage"] == "evidence/coverage.json"
+    assert agreement["source"]["artifact_paths"]["evidence_manifest"] == "evidence/manifest.json"
     assert "coverage_summary" in agreement["source"]
+    assert any(item["artifact_refs"] for item in agreement["source"]["evidence_summary"])
+    assert agreement["source"]["task_verdict"]["status"]
     assert "gatekeeper_verdict" in agreement["source"]
+    assert agreement["source"]["gatekeeper_verdict"]["decision_summary"]
+    context_text = alignment_module.ServiceAlignmentMixin._alignment_improvement_context_text(session)
+    assert f"Source run status: {run['status']}" in context_text
+    assert "Artifact paths:" in context_text
+    assert "evidence/task_verdict.json" in context_text
+    assert "Task verdict:" in context_text
+    assert agreement["source"]["task_verdict"]["status"] in context_text
+    assert "GateKeeper verdict:" in context_text
+    assert "decision_summary" in context_text
     preview = service.get_alignment_bundle(session["id"])
     assert preview["ok"] is True
     assert preview["bundle"]["metadata"]["source_bundle_id"] == ""
@@ -1817,6 +1909,8 @@ def test_alignment_run_revision_tolerates_corrupt_evidence_ledger(
     assert agreement["mode"] == "improvement"
     assert agreement["source"]["source_type"] == "run"
     assert agreement["source"]["source_run_id"] == run["id"]
+    assert agreement["source"]["artifact_paths"]["task_verdict"] == "evidence/task_verdict.json"
+    assert agreement["source"]["artifact_paths"]["evidence_ledger"] == "evidence/ledger.jsonl"
     assert agreement["source"]["evidence_summary"] == []
     preview = service.get_alignment_bundle(session["id"])
     assert preview["ok"] is True
@@ -1857,9 +1951,7 @@ def test_alignment_api_creates_improvement_sessions_from_bundle_and_run(
     bundle_response = client.post(f"/api/bundles/{source['id']}/revise", json={"start_immediately": False})
     assert bundle_response.status_code == 201
     bundle_payload = bundle_response.json()
-    assert bundle_payload["redirect_url"] == (
-        f"/loops/new/bundle?alignment_session_id={bundle_payload['session']['id']}"
-    )
+    assert bundle_payload["redirect_url"] == (f"/loops/new/bundle?alignment_session_id={bundle_payload['session']['id']}")
     assert bundle_payload["session"]["working_agreement"]["mode"] == "improvement"
     assert bundle_payload["session"]["working_agreement"]["source"]["source_type"] == "bundle"
     assert bundle_payload["session"]["working_agreement"]["source"]["source_bundle_id"] == source["id"]
@@ -1956,8 +2048,7 @@ def test_alignment_cancel_signal_failure_writes_structured_diagnostics(
     assert diagnostic_event["payload"]["owner_id"] == session["id"]
     assert diagnostic_event["payload"]["error_type"] == "OSError"
     assert any(
-        getattr(record, "event", "") == "service.cleanup.failed"
-        and (getattr(record, "context", {}) or {}).get("operation") == "alignment_cancel_signal"
+        getattr(record, "event", "") == "service.cleanup.failed" and (getattr(record, "context", {}) or {}).get("operation") == "alignment_cancel_signal"
         for record in caplog.records
     )
 
@@ -2042,11 +2133,7 @@ def test_alignment_legacy_migration_failure_writes_structured_diagnostics(
         migrated = service.get_alignment_session(session_id)
 
     assert Path(migrated["bundle_path"]).name == "bundle.yml"
-    diagnostic_event = next(
-        event
-        for event in service.list_alignment_events(session_id)
-        if event["event_type"] == "alignment_legacy_artifact_migration_failed"
-    )
+    diagnostic_event = next(event for event in service.list_alignment_events(session_id) if event["event_type"] == "alignment_legacy_artifact_migration_failed")
     assert diagnostic_event["payload"]["operation"] == "alignment_legacy_artifact_migration"
     assert diagnostic_event["payload"]["resource_type"] == "path"
     assert diagnostic_event["payload"]["resource_id"].endswith("stale.tmp")
@@ -2081,10 +2168,7 @@ def test_alignment_delete_logs_session_dir_cleanup_failure(
         deleted = service.delete_alignment_session(session["id"])
 
     assert deleted is True
-    artifact_events = [
-        json.loads(line)
-        for line in (Path(session["artifact_dir"]) / "events" / "events.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
+    artifact_events = [json.loads(line) for line in (Path(session["artifact_dir"]) / "events" / "events.jsonl").read_text(encoding="utf-8").splitlines()]
     diagnostic_event = next(event for event in artifact_events if event["event_type"] == "alignment_session_cleanup_failed")
     assert diagnostic_event["payload"]["operation"] == "alignment_session_delete"
     assert diagnostic_event["payload"]["resource_type"] == "path"
@@ -2092,8 +2176,7 @@ def test_alignment_delete_logs_session_dir_cleanup_failure(
     diagnostics = service.local_asset_diagnostics()
     assert any(item["session_id"] == session["id"] for item in diagnostics["orphan_alignment_dirs"])
     assert any(
-        getattr(record, "event", "") == "service.cleanup.failed"
-        and (getattr(record, "context", {}) or {}).get("operation") == "alignment_session_delete"
+        getattr(record, "event", "") == "service.cleanup.failed" and (getattr(record, "context", {}) or {}).get("operation") == "alignment_session_delete"
         for record in caplog.records
     )
 
@@ -2126,9 +2209,7 @@ def test_alignment_delete_logs_cleanup_diagnostic_callback_failure(
 
     assert deleted is True
     operations = [
-        (getattr(record, "context", {}) or {}).get("operation")
-        for record in caplog.records
-        if getattr(record, "event", "") == "service.cleanup.failed"
+        (getattr(record, "context", {}) or {}).get("operation") for record in caplog.records if getattr(record, "event", "") == "service.cleanup.failed"
     ]
     assert "alignment_session_delete" in operations
     assert "alignment_session_delete_diagnostic_callback" in operations

@@ -13,6 +13,7 @@ TIMELINE_EVENT_TYPES = {
     "iteration_wait_finished",
     "workspace_guard_triggered",
     "stop_requested",
+    "run_result_accepted",
     "run_aborted",
     "run_finished",
 }
@@ -35,6 +36,8 @@ PROGRESS_EVENT_TYPES = {
 TAKEAWAY_PROJECTION_EVENT_TYPES = {
     "checks_resolved",
     "step_handoff_written",
+    "control_completed",
+    "control_failed",
     "iteration_summary_written",
     "workspace_guard_triggered",
     "run_aborted",

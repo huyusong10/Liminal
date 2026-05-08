@@ -235,7 +235,8 @@ Loopora 仍处于实验阶段，并坚持 local-first。
 - 长期任务编排应该存在于单次 AI Agent 对话之外
 - Loop 保持可检查、文件化
 - bundle 导入 / 导出保持显式、本地
-- run 必须产生证据，而不只是日志
+- run 必须产生证据，而不只是日志：ledger、coverage、manifest 和 task verdict artifacts 都能从结果页追查
+- 接受结果或基于运行证据改进 Loop，都必须绑定到具体证据裁决，而不是隐藏的 prompt 漂移
 - bundle 改动应通过导入 / 导出显式发生，而不是隐藏的 prompt 漂移
 
 ## 开发

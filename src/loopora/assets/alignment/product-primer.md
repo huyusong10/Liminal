@@ -270,10 +270,10 @@ Use this agreement-to-bundle traceability checklist:
 | Loopora fit and readable governance story | `collaboration_summary` |
 | task scope, success surface, fake-done risks, evidence preferences, residual-risk policy, judgment tradeoffs | `spec.markdown` |
 | Builder / Inspector / Guide / GateKeeper / Custom responsibilities and role-level tradeoffs | `role_definitions[].prompt_markdown` and `posture_notes` |
-| judgment order, repair timing, stop decisions, handoffs, evidence queries, memory policy | `workflow.collaboration_intent` and step `inputs` |
+| judgment order, repair timing, stop decisions, handoffs, evidence queries, memory policy, controlled error triggers | `workflow.collaboration_intent`, step `inputs`, and workflow controls |
 | final acceptance and evidence-bucket policy | GateKeeper posture, handoffs, evidence queries, and verdict rules |
 
-If a judgment item only appears in the working agreement, readiness evidence, transcript, or hidden reasoning, the Loop is not compiled yet. Ask one focused question or revise `collaboration_summary`, `spec`, role posture, workflow inputs, evidence queries, or GateKeeper rules before continuing.
+If a judgment item only appears in the working agreement, readiness evidence, transcript, metadata / loop names, or hidden reasoning, the Loop is not compiled yet. Ask one focused question or revise `collaboration_summary`, `spec`, role posture, workflow inputs, workflow controls, evidence queries, or GateKeeper rules before continuing.
 
 ## Pressure-test the candidate Loop
 

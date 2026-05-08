@@ -23,11 +23,13 @@ LEGACY_RUNTIME_ROLE_TO_ARCHETYPE = {
 class RunTakeawayProjection(TypedDict):
     run_status: str
     task_verdict: dict[str, Any]
+    task_verdict_path: str
     evidence_buckets: dict[str, Any]
     build_dir: str
     log_dir: str
     evidence_count: int
     evidence_coverage: dict[str, Any]
+    evidence_manifest: dict[str, Any]
     iteration_count: int
     role_conclusion_count: int
     latest_display_iter: int | None
@@ -123,9 +125,7 @@ def build_role_takeaway_from_handoff(handoff: Mapping[str, object], *, composite
         runtime_role=source.get("runtime_role"),
     )
     blocking_items = [
-        clean_takeaway_text(item, max_length=520)
-        for item in list(handoff.get("blocking_items") or [])
-        if clean_takeaway_text(item, max_length=520)
+        clean_takeaway_text(item, max_length=520) for item in list(handoff.get("blocking_items") or []) if clean_takeaway_text(item, max_length=520)
     ]
     next_action = clean_takeaway_text(handoff.get("recommended_next_action"), max_length=520)
     return {
@@ -138,11 +138,7 @@ def build_role_takeaway_from_handoff(handoff: Mapping[str, object], *, composite
         "summary": clean_takeaway_text(handoff.get("summary"), max_length=1200),
         "blocking_item": " · ".join(blocking_items),
         "next_action": next_action,
-        "evidence_refs": [
-            str(item).strip()
-            for item in list(handoff.get("evidence_refs") or [])
-            if str(item).strip()
-        ],
+        "evidence_refs": [str(item).strip() for item in list(handoff.get("evidence_refs") or []) if str(item).strip()],
         "composite_score": composite_score,
     }
 
@@ -226,14 +222,11 @@ def _build_structured_iteration_takeaway(
     current_iter_id: int | None,
 ) -> dict:
     score_payload = summary_payload.get("score") if isinstance(summary_payload.get("score"), Mapping) else {}
+    stagnation_payload = summary_payload.get("stagnation") if isinstance(summary_payload.get("stagnation"), Mapping) else {}
     composite_score = score_payload.get("composite")
     roles = [build_role_takeaway_from_handoff(handoff, composite_score=composite_score) for handoff in handoffs]
     primary_role = _primary_role_takeaway(roles)
-    summary_text = (
-        primary_role.get("summary")
-        if isinstance(primary_role, Mapping)
-        else ""
-    ) or clean_takeaway_text(run.get("summary_md"), max_length=220)
+    summary_text = (primary_role.get("summary") if isinstance(primary_role, Mapping) else "") or clean_takeaway_text(run.get("summary_md"), max_length=220)
     return {
         "iter": iter_id,
         "display_iter": display_iter(iter_id),
@@ -248,6 +241,14 @@ def _build_structured_iteration_takeaway(
         "summary": summary_text,
         "timestamp": str(summary_payload.get("timestamp") or "").strip(),
         "composite_score": composite_score,
+        "stagnation_mode": str(stagnation_payload.get("mode") or "none"),
+        "evidence_progress_mode": str(stagnation_payload.get("evidence_progress_mode") or "none"),
+        "covered_check_count": _int_value(stagnation_payload.get("covered_check_count"), default=0),
+        "missing_check_count": _int_value(stagnation_payload.get("missing_check_count"), default=0),
+        "consecutive_no_required_coverage_delta": _int_value(
+            stagnation_payload.get("consecutive_no_required_coverage_delta"),
+            default=0,
+        ),
         "role_count": len(roles),
         "roles": roles,
     }
@@ -299,6 +300,11 @@ def build_legacy_iteration_takeaway(run: dict) -> dict | None:
         "summary": excerpt or clean_takeaway_text(verdict.get("decision_summary"), max_length=220),
         "timestamp": "",
         "composite_score": verdict.get("composite_score"),
+        "stagnation_mode": "none",
+        "evidence_progress_mode": "none",
+        "covered_check_count": 0,
+        "missing_check_count": 0,
+        "consecutive_no_required_coverage_delta": 0,
         "role_count": len(roles),
         "roles": roles,
     }
@@ -308,17 +314,13 @@ def _legacy_verdict(run: Mapping[str, Any], runs_dir: Path | None) -> Mapping[st
     verdict = run.get("last_verdict_json") if isinstance(run.get("last_verdict_json"), Mapping) else {}
     if verdict or runs_dir is None:
         return verdict
-    return safe_read_json_file(runs_dir / "verifier_verdict.json") or safe_read_json_file(
-        runs_dir / "gatekeeper_verdict.json"
-    ) or {}
+    return safe_read_json_file(runs_dir / "verifier_verdict.json") or safe_read_json_file(runs_dir / "gatekeeper_verdict.json") or {}
 
 
 def _legacy_failure_roles(verdict: Mapping[str, Any]) -> list[dict]:
     priority_failures = verdict.get("priority_failures") if isinstance(verdict.get("priority_failures"), list) else []
     return [
-        _legacy_failure_role(failure, index=index, verdict=verdict)
-        for index, failure in enumerate(priority_failures, start=1)
-        if isinstance(failure, Mapping)
+        _legacy_failure_role(failure, index=index, verdict=verdict) for index, failure in enumerate(priority_failures, start=1) if isinstance(failure, Mapping)
     ]
 
 
@@ -368,9 +370,8 @@ def _legacy_gatekeeper_role(verdict: Mapping[str, Any], *, step_order: int, exce
 
 
 def _legacy_blocking_note(verdict: Mapping[str, Any]) -> str:
-    return (
-        clean_takeaway_text((verdict.get("blocking_issues") or [""])[0], max_length=140)
-        or clean_takeaway_text((verdict.get("hard_constraint_violations") or [""])[0], max_length=140)
+    return clean_takeaway_text((verdict.get("blocking_issues") or [""])[0], max_length=140) or clean_takeaway_text(
+        (verdict.get("hard_constraint_violations") or [""])[0], max_length=140
     )
 
 
@@ -420,6 +421,22 @@ def empty_evidence_coverage() -> dict[str, Any]:
     }
 
 
+def empty_evidence_manifest() -> dict[str, Any]:
+    return {
+        "manifest_path": "",
+        "claim_count": 0,
+        "artifact_backed_claim_count": 0,
+        "workspace_backed_claim_count": 0,
+        "direct_proof_claim_count": 0,
+        "workspace_artifact_claim_count": 0,
+        "run_artifact_claim_count": 0,
+        "ledger_only_claim_count": 0,
+        "unverified_claim_count": 0,
+        "problem_count": 0,
+        "problems": [],
+    }
+
+
 def build_minimal_run_takeaway_projection(
     run: Mapping[str, Any],
     *,
@@ -429,11 +446,13 @@ def build_minimal_run_takeaway_projection(
     projection: RunTakeawayProjection = {
         "run_status": str(run.get("run_status") or run.get("status") or "").strip(),
         "task_verdict": dict(task_verdict),
+        "task_verdict_path": "",
         "evidence_buckets": dict(task_verdict.get("buckets") or {}) if isinstance(task_verdict, Mapping) else {},
         "build_dir": str(Path(str(run.get("workdir") or "")).expanduser().resolve()) if run.get("workdir") else "",
         "log_dir": str(Path(str(run.get("runs_dir") or "")).expanduser().resolve()) if run.get("runs_dir") else "",
         "evidence_count": 0,
         "evidence_coverage": empty_evidence_coverage(),
+        "evidence_manifest": empty_evidence_manifest(),
         "iteration_count": 0,
         "role_conclusion_count": 0,
         "latest_display_iter": None,
@@ -444,6 +463,74 @@ def build_minimal_run_takeaway_projection(
     if source_event_id is not None:
         projection["source_event_id"] = int(source_event_id or 0)
     return projection
+
+
+def normalize_run_takeaway_projection_shape(
+    run: Mapping[str, Any],
+    projection: Mapping[str, Any],
+    *,
+    source_event_id: int | None = None,
+) -> RunTakeawayProjection:
+    normalized = build_minimal_run_takeaway_projection(
+        run,
+        source_event_id=source_event_id if source_event_id is not None else _int_value(projection.get("source_event_id"), default=None),
+    )
+    _apply_takeaway_scalar_projection_fields(normalized, projection)
+    _apply_takeaway_task_verdict_projection_fields(normalized, projection)
+    _apply_takeaway_evidence_projection_fields(normalized, projection)
+    _apply_takeaway_iteration_projection_fields(normalized, projection)
+    return normalized
+
+
+def _apply_takeaway_scalar_projection_fields(normalized: RunTakeawayProjection, projection: Mapping[str, Any]) -> None:
+    if projection.get("run_status") is not None:
+        normalized["run_status"] = str(projection.get("run_status") or "").strip()
+    if projection.get("build_dir") is not None:
+        normalized["build_dir"] = str(projection.get("build_dir") or "")
+    if projection.get("log_dir") is not None:
+        normalized["log_dir"] = str(projection.get("log_dir") or "")
+    if projection.get("latest_status") is not None:
+        normalized["latest_status"] = str(projection.get("latest_status") or "")
+    if projection.get("latest_summary") is not None:
+        normalized["latest_summary"] = str(projection.get("latest_summary") or "")
+    if projection.get("task_verdict_path") is not None:
+        normalized["task_verdict_path"] = str(projection.get("task_verdict_path") or "")
+    if projection.get("source_event_id") is not None:
+        normalized["source_event_id"] = _int_value(projection.get("source_event_id"), default=0) or 0
+
+
+def _apply_takeaway_task_verdict_projection_fields(normalized: RunTakeawayProjection, projection: Mapping[str, Any]) -> None:
+    if isinstance(projection.get("task_verdict"), Mapping):
+        normalized["task_verdict"] = dict(projection.get("task_verdict") or {})
+        normalized["evidence_buckets"] = (
+            dict(normalized["task_verdict"].get("buckets") or {}) if isinstance(normalized["task_verdict"].get("buckets"), Mapping) else {}
+        )
+    if isinstance(projection.get("evidence_buckets"), Mapping):
+        normalized["evidence_buckets"] = dict(projection.get("evidence_buckets") or {})
+
+
+def _apply_takeaway_evidence_projection_fields(normalized: RunTakeawayProjection, projection: Mapping[str, Any]) -> None:
+    normalized["evidence_count"] = _int_value(projection.get("evidence_count"), default=normalized["evidence_count"]) or 0
+    if isinstance(projection.get("evidence_coverage"), Mapping):
+        normalized["evidence_coverage"] = {**empty_evidence_coverage(), **dict(projection.get("evidence_coverage") or {})}
+    if isinstance(projection.get("evidence_manifest"), Mapping):
+        normalized["evidence_manifest"] = {**empty_evidence_manifest(), **dict(projection.get("evidence_manifest") or {})}
+
+
+def _apply_takeaway_iteration_projection_fields(normalized: RunTakeawayProjection, projection: Mapping[str, Any]) -> None:
+    normalized["iteration_count"] = _int_value(projection.get("iteration_count"), default=normalized["iteration_count"]) or 0
+    normalized["role_conclusion_count"] = _int_value(projection.get("role_conclusion_count"), default=normalized["role_conclusion_count"]) or 0
+    normalized["latest_display_iter"] = _int_value(projection.get("latest_display_iter"), default=normalized["latest_display_iter"])
+    if isinstance(projection.get("iterations"), list):
+        normalized["iterations"] = [dict(item) for item in projection.get("iterations") or [] if isinstance(item, Mapping)]
+
+
+def build_task_verdict_artifact_path(run: dict) -> str:
+    runs_dir_value = str(run.get("runs_dir") or "").strip()
+    if not runs_dir_value:
+        return ""
+    layout = RunArtifactLayout(Path(runs_dir_value))
+    return layout.relative(layout.task_verdict_path) if layout.task_verdict_path.exists() else ""
 
 
 def build_evidence_coverage(run: dict) -> dict[str, Any]:
@@ -459,6 +546,39 @@ def build_evidence_coverage(run: dict) -> dict[str, Any]:
     )
 
 
+def build_evidence_manifest(run: dict) -> dict[str, Any]:
+    runs_dir_value = str(run.get("runs_dir") or "").strip()
+    if not runs_dir_value:
+        return empty_evidence_manifest()
+
+    layout = RunArtifactLayout(Path(runs_dir_value))
+    manifest = safe_read_json_file(layout.evidence_manifest_path)
+    if not manifest:
+        return empty_evidence_manifest()
+    problems = [dict(item) for item in list(manifest.get("problems") or []) if isinstance(item, Mapping)]
+    return {
+        "manifest_path": str(manifest.get("manifest_path") or layout.relative(layout.evidence_manifest_path)),
+        "claim_count": _int_value(manifest.get("claim_count"), default=0) or 0,
+        "artifact_backed_claim_count": _int_value(manifest.get("artifact_backed_claim_count"), default=0) or 0,
+        "workspace_backed_claim_count": _int_value(manifest.get("workspace_backed_claim_count"), default=0) or 0,
+        "direct_proof_claim_count": _int_value(manifest.get("direct_proof_claim_count"), default=0) or 0,
+        "workspace_artifact_claim_count": _int_value(manifest.get("workspace_artifact_claim_count"), default=0) or 0,
+        "run_artifact_claim_count": _int_value(manifest.get("run_artifact_claim_count"), default=0) or 0,
+        "ledger_only_claim_count": _int_value(manifest.get("ledger_only_claim_count"), default=0) or 0,
+        "unverified_claim_count": _int_value(manifest.get("unverified_claim_count"), default=0) or 0,
+        "problem_count": len(problems),
+        "problems": [
+            {
+                "code": str(item.get("code") or "").strip(),
+                "claim_id": str(item.get("claim_id") or "").strip(),
+                "severity": str(item.get("severity") or "").strip(),
+                "message": str(item.get("message") or "").strip(),
+            }
+            for item in problems[:4]
+        ],
+    }
+
+
 def build_run_key_takeaways(run: dict) -> RunTakeawayProjection:
     iterations = build_structured_iteration_takeaways(run)
     if not iterations:
@@ -472,11 +592,14 @@ def build_run_key_takeaways(run: dict) -> RunTakeawayProjection:
     if runs_dir_value:
         evidence_count = len(read_jsonl(RunArtifactLayout(Path(runs_dir_value)).evidence_ledger_path))
     evidence_coverage = build_evidence_coverage(run)
+    evidence_manifest = build_evidence_manifest(run)
     projection = build_minimal_run_takeaway_projection(run)
     projection.update(
         {
+            "task_verdict_path": build_task_verdict_artifact_path(run),
             "evidence_count": evidence_count,
             "evidence_coverage": evidence_coverage,
+            "evidence_manifest": evidence_manifest,
             "iteration_count": len(iterations),
             "role_conclusion_count": sum(len(list(iteration.get("roles") or [])) for iteration in iterations),
             "latest_display_iter": latest.get("display_iter") if latest else None,
@@ -490,5 +613,6 @@ def build_run_key_takeaways(run: dict) -> RunTakeawayProjection:
 
 _build_run_key_takeaways = build_run_key_takeaways
 _build_evidence_coverage = build_evidence_coverage
+_build_evidence_manifest = build_evidence_manifest
 _display_iter = display_iter
 _summary_excerpt = summary_excerpt

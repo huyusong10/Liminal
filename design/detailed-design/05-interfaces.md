@@ -172,13 +172,17 @@ run 详情页依赖两类稳定接口：
 - snapshot 必须由 service/repository 只读边界构建，route 只做 HTTP 包装和 timeline 展示格式化；接口层不得再次拼装 key takeaways。
 - snapshot 必须基于同一次只读 cutoff 构建：读取 run row、当前 `latest_event_id`、timeline / console / progress 投影必须共享同一个观察上界；返回数组里的每条事件都必须满足 `event.id <= latest_event_id`。
 - `key_takeaways` 属于 snapshot 观察投影的一部分，必须来自持久化 takeaway projection，并带有不超过本次 cutoff 的真实 `source_event_id`。snapshot 不得现场读取 artifact 文件生成关键结论；没有可用 projection 时可退化为 run status 最小结论，`source_event_id` 设为本次 cutoff。
-- 最小 takeaway projection 仍必须保持完整观察 shape：`run_status`、`task_verdict`、`evidence_buckets`、`evidence_coverage`、`iterations` 和目录字段都存在；缺少证据时使用空覆盖投影，而不是让调用方猜测字段是否存在。
+- 最小 takeaway projection 仍必须保持完整观察 shape：`run_status`、`task_verdict`、`task_verdict_path`、`evidence_buckets`、`evidence_coverage`、`evidence_manifest`、`iterations` 和目录字段都存在；缺少证据时使用空 task verdict artifact path、空覆盖 / 空 manifest 投影，而不是让调用方猜测字段是否存在。
+- snapshot 读取到旧版持久化 takeaway projection 时，可以只做 shape 归一化和默认字段补齐；不得为补字段现场重读 artifacts 或改变原 projection 的 `source_event_id` 语义。
+- 每轮 takeaway 卡片应展示 evidence progress 信号；当 required coverage 停滞或仍有缺口时，用户不需要打开 raw JSON 就能看到 covered / missing check count 和无覆盖增量。
 - `GET /api/runs/{run_id}/key-takeaways` 仍表示“当前最新”结论，可以读取最新 artifacts 现算；它和 snapshot projection 的职责不同，不受 snapshot cutoff 约束。
 - 页面先拉 snapshot，再用 `latest_event_id` 建立 SSE；cutoff 后追加的事件必须能通过 `/events` 或 `/stream?after_id=<latest_event_id>` 继续读取，重复事件按 event `id` 去重。
 - `/events` 和 `/stream` 的 `after_id` 必须是非负且处于该 run 当前持久化 event id 范围内的游标；`/events` 的 `limit` 必须处于受限正整数范围内，越界请求返回 4xx，不得把非法游标传给存储层形成异常或无界读取。SSE `Last-Event-ID` 只是恢复提示，非法或超过当前 `latest_event_id` 时必须忽略并保留请求游标。
 - snapshot 拉取失败只降低观察面质量，不改变 run 生命周期事实。页面必须保留最小 run 信息，并继续从最后已知 `latest_event_id` 或 `0` 建立 SSE。
 - run detail 页面通过稳定锚点 `data-testid="run-observation-status"` 暴露观察链路状态；`data-observation-state` 只表达观察质量，取值为 `loading / ready / degraded / stream-stale / stream-error / finished`，不得被 service 层当作 run status。
 - run detail 首屏通过稳定锚点 `run-status-card`、`run-task-verdict-card`、`run-latest-event-card` 分开展示生命周期状态、Loop 裁决和最近里程碑；测试应依赖这些语义锚点，不依赖具体文案或布局。
+- run detail 必须从结果页直接暴露当前 Loop 的导出入口，让用户在查看 evidence verdict 后可以把本次判断结构带走、复用或丢弃，而不需要先跳转到专家 bundle 列表。
+- run detail 的接受动作只记录用户接受当前证据结论的事件，不改变 run status、task verdict、bundle lineage 或 Loop 定义；它是用户决策出口，不是新的自动演化状态。接受事件必须带上当时可用的 task verdict、coverage、manifest artifact path 和证据桶计数，让后续审计能知道用户接受的是哪份证据结论。
 - 默认 run detail 文案应把中间执行阶段表达为 Loop steps / middle steps；`workflow`、ledger、raw output 等专家词只作为追查或专家路径语言，不能取代首屏证据与裁决心智。
 - run detail 前端渲染 timeline、console、progress 与 key takeaways 时，来自 run event、snapshot 或 projection 的动态文本必须在进入 `innerHTML` 拼接前转义；允许服务端已消毒的 markdown HTML 作为专用 HTML 投影，但不得把未转义的事件 payload 当作可信 HTML。
 - SSE `stream_error` 和连接错误只影响观察链路状态。活动 run 可以有限退避重连；终态 run 不因 stream 失败重新连接。

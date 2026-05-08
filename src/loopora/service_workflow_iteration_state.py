@@ -12,7 +12,7 @@ from loopora.run_artifacts import append_jsonl_with_mirrors, write_json_with_mir
 from loopora.service_run_finalization import TerminalRunFinalizationRequest
 from loopora.service_workflow_support import IterationContextPersistRequest, StepOutputsWriteRequest, WorkflowSummaryRequest
 from loopora.stagnation import StagnationUpdateRequest, update_stagnation
-from loopora.utils import append_jsonl, utc_now
+from loopora.utils import append_jsonl, read_json, utc_now
 
 logger = get_logger(__name__)
 
@@ -152,6 +152,7 @@ class ServiceWorkflowIterationStateMixin:
                 regression_window=request.run["regression_window"],
             )
         )
+        stagnation = self._update_evidence_progress_stagnation(request, stagnation)
         write_json_with_mirrors(
             request.layout.timeline_stagnation_path,
             stagnation,
@@ -176,11 +177,41 @@ class ServiceWorkflowIterationStateMixin:
                 "evidence_refs": request.normalized_output.get("evidence_refs", []),
                 "evidence_gate_status": request.normalized_output.get("evidence_gate_status", ""),
                 "stagnation_mode": stagnation["stagnation_mode"],
+                "evidence_progress_mode": stagnation.get("evidence_progress_mode", "none"),
+                "covered_check_count": stagnation.get("latest_covered_check_count", 0),
+                "missing_check_count": stagnation.get("latest_missing_check_count", 0),
             },
             mirror_paths=[request.layout.legacy_metrics_path],
         )
         self.repository.update_run(request.run_id, last_verdict=request.normalized_output)
         return stagnation
+
+    @staticmethod
+    def _update_evidence_progress_stagnation(
+        request: GatekeeperIterationRecordRequest,
+        stagnation: dict,
+    ) -> dict:
+        try:
+            coverage = read_json(request.layout.evidence_coverage_path)
+        except (OSError, UnicodeError, ValueError):
+            coverage = {}
+        if not isinstance(coverage, dict):
+            coverage = {}
+        covered_checks = int(coverage.get("covered_check_count") or 0)
+        missing_checks = int(coverage.get("missing_check_count") or 0)
+        recent_counts = list(stagnation.get("recent_covered_check_counts", []))
+        no_progress = bool(recent_counts) and covered_checks <= int(recent_counts[-1] or 0)
+        consecutive_no_progress = int(stagnation.get("consecutive_no_required_coverage_delta") or 0)
+        consecutive_no_progress = consecutive_no_progress + 1 if no_progress and missing_checks > 0 else 0
+        evidence_progress_mode = "stalled" if missing_checks > 0 and consecutive_no_progress >= int(request.run.get("trigger_window") or 1) else "none"
+        return {
+            **stagnation,
+            "recent_covered_check_counts": [*recent_counts, covered_checks][-20:],
+            "latest_covered_check_count": covered_checks,
+            "latest_missing_check_count": missing_checks,
+            "consecutive_no_required_coverage_delta": consecutive_no_progress,
+            "evidence_progress_mode": evidence_progress_mode,
+        }
 
     def _write_workflow_step_result(
         self,
@@ -225,9 +256,7 @@ class ServiceWorkflowIterationStateMixin:
                 "step_order": request.step_order,
                 "role_name": request.role["name"],
                 "archetype": request.role["archetype"],
-                "handoff_path": request.layout.relative(
-                    request.layout.step_handoff_path(request.iter_id, request.step_order, request.step["id"])
-                ),
+                "handoff_path": request.layout.relative(request.layout.step_handoff_path(request.iter_id, request.step_order, request.step["id"])),
                 "evidence_ledger_path": request.layout.relative(request.layout.evidence_ledger_path),
                 "evidence_coverage_path": coverage_projection.get("coverage_path", ""),
                 "evidence_manifest_path": manifest_projection.get("manifest_path", ""),

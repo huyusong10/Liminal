@@ -116,7 +116,7 @@ class CalculatorPrototypeExecutor(FakeCodexExecutor):
                 "changed_files": ["index.html"],
             }
 
-        if request.role == "tester":
+        if request.role_archetype == "inspector":
             return {
                 "execution_summary": {
                     "total_checks": 2,
@@ -1578,9 +1578,7 @@ def test_new_loop_page_can_edit_spec_in_a_markdown_workbench_modal(tmp_path: Pat
         page.get_by_test_id("spec-editor-preview-toggle-button").click()
         assert page.locator("#spec-editor-source-panel").is_hidden()
         assert page.locator("#spec-editor-preview-panel").is_visible()
-        page.wait_for_function(
-            "() => document.getElementById('spec-preview-content')?.textContent.includes('Updated from the modal.')"
-        )
+        page.wait_for_function("() => document.getElementById('spec-preview-content')?.textContent.includes('Updated from the modal.')")
         preview_html = page.locator("#spec-preview-content").inner_html()
         assert "<script>" not in preview_html
         assert "Updated from the modal." in preview_html
@@ -1718,9 +1716,7 @@ def test_run_detail_marks_snapshot_failure_as_degraded(tmp_path: Path) -> None:
 
             page.route("**/api/runs/*/stream*", delayed_stream)
             page.goto(f"{base_url}/runs/{run['id']}", wait_until="domcontentloaded")
-            page.wait_for_function(
-                "() => document.querySelector('[data-testid=\"run-observation-status\"]')?.dataset.observationState === 'degraded'"
-            )
+            page.wait_for_function("() => document.querySelector('[data-testid=\"run-observation-status\"]')?.dataset.observationState === 'degraded'")
             assert page.get_by_test_id("run-observation-status").is_visible()
         finally:
             page.close()
@@ -1794,16 +1790,12 @@ def test_role_definition_page_localizes_archetype_options_without_mixed_labels(t
 
         open_nav_preferences(page)
         page.locator('button[data-set-locale="en"]').click()
-        page.wait_for_function(
-            "() => document.querySelector('#role-definition-archetype-input option[value=\"inspector\"]')?.textContent === 'Inspector'"
-        )
+        page.wait_for_function("() => document.querySelector('#role-definition-archetype-input option[value=\"inspector\"]')?.textContent === 'Inspector'")
         assert page.locator('#role-definition-archetype-input option[value="inspector"]').text_content() == "Inspector"
 
         open_nav_preferences(page)
         page.locator('button[data-set-locale="zh"]').click()
-        page.wait_for_function(
-            "() => document.querySelector('#role-definition-archetype-input option[value=\"inspector\"]')?.textContent === '巡检者'"
-        )
+        page.wait_for_function("() => document.querySelector('#role-definition-archetype-input option[value=\"inspector\"]')?.textContent === '巡检者'")
         assert page.locator('#role-definition-archetype-input option[value="inspector"]').text_content() == "巡检者"
 
 
@@ -1823,9 +1815,7 @@ def test_role_definition_page_updates_template_guidance_and_builtin_prompt_with_
         open_nav_preferences(page)
         page.locator('button[data-set-locale="zh"]').click()
         page.select_option("#role-definition-archetype-input", "gatekeeper")
-        page.wait_for_function(
-            "() => document.querySelector('#role-definition-archetype-summary')?.textContent.includes('负责做放行判断')"
-        )
+        page.wait_for_function("() => document.querySelector('#role-definition-archetype-summary')?.textContent.includes('负责做放行判断')")
 
         assert "负责做放行判断" in (page.locator("#role-definition-archetype-summary").text_content() or "")
         assert "建议只放一个" in (page.locator("#role-definition-archetype-recommendation").text_content() or "")
@@ -1837,9 +1827,7 @@ def test_role_definition_page_updates_template_guidance_and_builtin_prompt_with_
 
         open_nav_preferences(page)
         page.locator('button[data-set-locale="en"]').click()
-        page.wait_for_function(
-            "() => document.querySelector('#role-definition-archetype-summary')?.textContent.includes('Owns the pass/fail decision')"
-        )
+        page.wait_for_function("() => document.querySelector('#role-definition-archetype-summary')?.textContent.includes('Owns the pass/fail decision')")
 
         assert page.locator('#role-definition-archetype-input option[value="gatekeeper"]').text_content() == "GateKeeper"
         assert "Owns the pass/fail decision" in (page.locator("#role-definition-archetype-summary").text_content() or "")
@@ -1967,9 +1955,7 @@ def _assert_new_orchestration_editor_interactions(page, base_url: str) -> None:
         )
     )
     page.locator('input[name="name"]').click()
-    page.wait_for_function(
-        "() => JSON.parse(document.querySelector('#workflow-controls-json-input').value)[0].max_fires_per_run === 'not-a-number'"
-    )
+    page.wait_for_function("() => JSON.parse(document.querySelector('#workflow-controls-json-input').value)[0].max_fires_per_run === 'not-a-number'")
 
     page.locator('input[name="name"]').fill("Invalid Control Limit")
     page.locator("#workflow-controls-json-input").fill(
@@ -1987,9 +1973,7 @@ def _assert_new_orchestration_editor_interactions(page, base_url: str) -> None:
         )
     )
     page.locator('input[name="name"]').click()
-    page.wait_for_function(
-        "() => JSON.parse(document.querySelector('#workflow-controls-json-input').value)[0].max_fires_per_run === 0"
-    )
+    page.wait_for_function("() => JSON.parse(document.querySelector('#workflow-controls-json-input').value)[0].max_fires_per_run === 0")
     assert "0" in (page.get_by_test_id("workflow-control-row").locator(".workflow-chip").last.text_content() or "")
     page.get_by_test_id("save-orchestration-button").click()
     page.wait_for_selector("#form-error:not([hidden])")

@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from loopora.context_flow import IterationSummaryContext, build_iteration_summary, derive_latest_state
+from loopora.evidence_gate import concrete_evidence_claim_count, has_measured_gate_evidence
+from loopora.evidence_support import (
+    NON_SUPPORTING_EVIDENCE_RESULTS,
+    evidence_item_is_non_supporting_gatekeeper_ref,
+    evidence_item_is_supporting_gatekeeper_ref,
+)
 from loopora.run_artifacts import RunArtifactLayout, append_jsonl_with_mirrors
 from loopora.service_prompts import BUILDER_SCHEMA, CUSTOM_SCHEMA, GATEKEEPER_SCHEMA, GUIDE_SCHEMA, INSPECTOR_SCHEMA
 from loopora.utils import read_json, utc_now, write_json
@@ -23,22 +29,6 @@ def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
-
-
-def _has_measured_gate_evidence(metric_scores: object, metrics: object) -> bool:
-    if isinstance(metric_scores, dict):
-        for value in metric_scores.values():
-            if not isinstance(value, dict):
-                continue
-            if isinstance(value.get("value"), (int, float)) and isinstance(value.get("threshold"), (int, float)):
-                return True
-    if isinstance(metrics, list):
-        for value in metrics:
-            if not isinstance(value, dict):
-                continue
-            if isinstance(value.get("value"), (int, float)) and isinstance(value.get("threshold"), (int, float)):
-                return True
-    return False
 
 
 @dataclass(frozen=True)
@@ -187,36 +177,61 @@ def _supporting_upstream_refs(evidence_refs: list[str], context: GatekeeperEvide
     return [
         item
         for item in evidence_refs
-        if item != context.current_id
-        and item in context.known_ids
-        and str(context.known_by_id.get(item, {}).get("archetype") or "").strip().lower() != "gatekeeper"
+        if item != context.current_id and item in context.known_ids and evidence_item_is_supporting_gatekeeper_ref(context.known_by_id.get(item, {}))
     ]
 
 
+def _non_supporting_upstream_refs(evidence_refs: list[str], context: GatekeeperEvidenceContext) -> list[str]:
+    refs: list[str] = []
+    for item in evidence_refs:
+        if item == context.current_id or item not in context.known_ids:
+            continue
+        evidence_item = context.known_by_id.get(item, {})
+        if evidence_item_is_non_supporting_gatekeeper_ref(evidence_item):
+            refs.append(item)
+    return refs
+
+
+def _blocking_non_supporting_upstream_refs(evidence_refs: list[str], context: GatekeeperEvidenceContext) -> list[str]:
+    refs: list[str] = []
+    for item in evidence_refs:
+        if item == context.current_id or item not in context.known_ids:
+            continue
+        evidence_item = context.known_by_id.get(item, {})
+        if str(evidence_item.get("result") or "").strip().lower() in NON_SUPPORTING_EVIDENCE_RESULTS:
+            refs.append(item)
+    return refs
+
+
 def _invalid_ref_blocker(invalid_refs: list[str]) -> str:
-    return (
-        "gatekeeper_evidence_refs_unknown: "
-        + ", ".join(invalid_refs[:4])
-        + ("..." if len(invalid_refs) > 4 else "")
-    )
+    return "gatekeeper_evidence_refs_unknown: " + ", ".join(invalid_refs[:4]) + ("..." if len(invalid_refs) > 4 else "")
 
 
 def _apply_gatekeeper_evidence_gate(state: GatekeeperEvidenceGateState) -> list[str]:
     if not state.result["passed"]:
         return state.evidence_refs
-    has_measured_evidence = _has_measured_gate_evidence(state.metric_scores, state.result.get("metrics"))
-    concrete_claims = [item for item in state.evidence_claims if len(item) >= 24]
+    has_measured_evidence = has_measured_gate_evidence(state.metric_scores, state.result.get("metrics"))
+    concrete_claims = concrete_evidence_claim_count(state.evidence_claims)
     evidence_refs = state.evidence_refs
-    if not evidence_refs and state.context.current_id and concrete_claims and has_measured_evidence:
+    if not evidence_refs and state.context.current_id and concrete_claims > 0 and has_measured_evidence:
         evidence_refs = [state.context.current_id]
 
     invalid_refs = _invalid_evidence_refs(evidence_refs, state.context)
     supporting_refs = _supporting_upstream_refs(evidence_refs, state.context)
+    blocking_non_supporting_refs = _blocking_non_supporting_upstream_refs(evidence_refs, state.context)
     if invalid_refs:
         state.blocking_issues.append(_invalid_ref_blocker(invalid_refs))
         state.result["passed"] = False
+    elif evidence_refs and not supporting_refs and blocking_non_supporting_refs:
+        state.blocking_issues.append("gatekeeper_pass_refs_not_supporting_evidence")
+        state.result["passed"] = False
+    elif not supporting_refs and concrete_claims > 0 and has_measured_evidence and state.context.current_id:
+        evidence_refs = list(dict.fromkeys([*evidence_refs, state.context.current_id]))
     elif not evidence_refs:
         state.blocking_issues.append("gatekeeper_pass_requires_evidence_refs")
+        state.result["passed"] = False
+    elif not supporting_refs and _non_supporting_upstream_refs(evidence_refs, state.context):
+        state.blocking_issues.append("gatekeeper_pass_refs_not_supporting_evidence")
         state.result["passed"] = False
     elif not supporting_refs and not has_measured_evidence:
         state.blocking_issues.append("gatekeeper_pass_requires_upstream_or_measured_evidence")
@@ -242,9 +257,9 @@ def _populate_gatekeeper_result(result: dict, fields: GatekeeperResultFields) ->
     result["composite_score"] = float(fields.composite_score or 0.0)
     result["evidence_refs"] = fields.evidence_refs
     result["evidence_claims"] = fields.evidence_claims
-    result["evidence_gate_status"] = "passed" if result["passed"] else (
-        "blocked" if fields.blocking_issues else "not_passed"
-    )
+    result["residual_risks"] = _string_list(result.get("residual_risks"))
+    result["coverage_results"] = [item for item in list(result.get("coverage_results") or []) if isinstance(item, dict)]
+    result["evidence_gate_status"] = "passed" if result["passed"] else ("blocked" if fields.blocking_issues else "not_passed")
     result.setdefault("failed_check_ids", [])
     result.setdefault("priority_failures", [])
     return result
@@ -345,9 +360,7 @@ class ServiceWorkflowSupportMixin:
                 "inputs": dict(request.step.get("inputs") or {}),
                 "action_policy": dict(request.step.get("action_policy") or {}),
                 "control_id": str(request.step.get("control_id") or ""),
-                "control": dict(request.step.get("control") or {})
-                if isinstance(request.step.get("control"), dict)
-                else {},
+                "control": dict(request.step.get("control") or {}) if isinstance(request.step.get("control"), dict) else {},
             },
         )
         write_json(
@@ -434,9 +447,13 @@ class ServiceWorkflowSupportMixin:
             },
             "stagnation": {
                 "mode": stagnation.get("stagnation_mode", "none"),
+                "evidence_progress_mode": stagnation.get("evidence_progress_mode", "none"),
                 "recent_composites": list(stagnation.get("recent_composites", [])),
                 "recent_deltas": list(stagnation.get("recent_deltas", [])),
                 "consecutive_low_delta": stagnation.get("consecutive_low_delta", 0),
+                "covered_check_count": int(stagnation.get("latest_covered_check_count") or 0),
+                "missing_check_count": int(stagnation.get("latest_missing_check_count") or 0),
+                "consecutive_no_required_coverage_delta": int(stagnation.get("consecutive_no_required_coverage_delta") or 0),
             },
         }
         entry["generator"] = entry["builder"]
@@ -485,6 +502,9 @@ class ServiceWorkflowSupportMixin:
             f"- Score delta vs previous iteration: {delta_text}",
             f"- Passed: `{gatekeeper_output.get('passed', False)}`",
             f"- Stagnation mode: `{request.stagnation.get('stagnation_mode', 'none')}`",
+            f"- Evidence progress mode: `{request.stagnation.get('evidence_progress_mode', 'none')}`",
+            f"- Required coverage: `{int(request.stagnation.get('latest_covered_check_count') or 0)} covered, "
+            f"{int(request.stagnation.get('latest_missing_check_count') or 0)} missing`",
             "",
             status_line,
         ]

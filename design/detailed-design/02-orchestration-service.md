@@ -91,6 +91,7 @@
 - Step 可通过 `inputs` 显式裁剪角色间 handoff、evidence ledger 摘要和轮次间记忆；裁剪只影响当前 prompt，不删除 canonical artifact
 - Workflow control 可在 `no_evidence_progress / role_timeout / step_failed / gatekeeper_rejected` 信号出现时调用既有 Inspector、Guide 或 GateKeeper 做控制检查
 - Control invocation 不改变 canonical workflow 顺序，不直接调用 Builder 写入工作区；它只能产生 evidence、handoff、blocker 或修复建议
+- required coverage 停滞是运行上下文，不只是后台诊断：当系统发现多轮后 required `Done When` 覆盖没有增长且仍有缺口时，`StepContextPacket` 与 `IterationSummary` 必须把 evidence progress mode、covered / missing check count 和连续无覆盖增量暴露给后续角色。
 - 运行入口必须重新校验冻结 workflow controls；损坏或越界的 control 配置不得被默认值掩盖后继续执行
 - 每次 control 触发、完成、失败或跳过都必须写入 run event stream；完成时必须写入 `evidence_kind=control` 的 ledger item
 - 汇聚结构化结果与人类可读摘要
@@ -110,12 +111,15 @@
 - run status 只回答系统生命周期：running / succeeded / failed / stopped / timed out。
 - task verdict 回答任务语义：passed / failed / insufficient evidence / passed with residual risk / not evaluated。
 - 任何界面或 API 都不能把 `succeeded` 直接解释成 Loop 通过。
+- GateKeeper 通过且最新 GateKeeper 裁决明确接受有意义的残余风险时，task verdict 必须使用 `passed_with_residual_risk`，不能压平成普通 `passed`；历史失败迭代留下的风险信号仍可展示在 evidence bucket，但不能单独提升最终通过状态。
+- GateKeeper 通过不能越过 required coverage target：若 `Done When` 或 GateKeeper finish 等 required target 仍 missing / weak，或当前 run 的 coverage projection 缺失 / 不可读，task verdict 必须是 `insufficient_evidence`；若 required target 被阻断，task verdict 必须是 `failed`。这只改变任务裁决投影，不把 run lifecycle 的 `succeeded` 或 raw GateKeeper `passed=true` 解释成证明完成。legacy run 可继续按兼容模式展示旧 verdict。
 - GateKeeper 是 `gatekeeper` 模式下产生强 task verdict 的默认入口；`rounds` 模式若没有裁决 evidence，必须清楚表达“运行完成但任务未被证明”。
 
 GateKeeper evidence gate：
 
 - GateKeeper 的 `passed=true` 不是充分条件。
-- 新 run 的 GateKeeper verdict 必须引用已有 evidence item，或提供可落账的具体 `evidence_claims`，否则服务层必须把该 verdict 改写为未通过。
+- 新 run 的 GateKeeper verdict 必须引用已有 supporting evidence item；若 GateKeeper 是首个证据读取者，只能在同时提供可落账的具体 `evidence_claims` 与带数值阈值的 measured evidence 时引用自身 evidence item，否则服务层必须把该 verdict 改写为未通过。
+- 被引用的上游 evidence 必须是支持性证据；Inspector / Custom / control 这类取证或只读检视输出可作为支持，Builder 只有在提供当前仍可访问的 proof artifact 或 measured evidence 时才可作为支持。普通 Builder handoff、已丢失 proof artifact 的 Builder evidence、GateKeeper verdict、blocked / failed / rejected 上游 evidence 都不能作为通过依据；如果 GateKeeper 通过只引用这些非支持 evidence，服务层必须把该 verdict 改写为未通过。
 - 未通过的 evidence gate 必须进入 `blocking_issues / hard_constraint_violations`，使 run 在 `gatekeeper` completion mode 下继续迭代或最终失败。
 - coverage projection 可以把 `Fake Done` 与 `Evidence Preferences` 缺口标记为 `weak`；这不改变当前 GateKeeper evidence gate 的硬失败边界。
 - 旧 run / legacy verdict 可以继续展示原文本，但不能被解释成同等级的强门禁通过。

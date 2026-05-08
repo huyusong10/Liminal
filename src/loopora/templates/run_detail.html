@@ -44,7 +44,17 @@
       <span data-lang="zh">返回 Loop</span>
       <span data-lang="en">Back to loop</span>
     </a>
+    <a class="ghost-button" href="{{ export_bundle_url }}" data-testid="run-export-loop-button">
+      <span data-lang="zh">导出 Loop</span>
+      <span data-lang="en">Export Loop</span>
+    </a>
     {% if run.status in ["succeeded", "failed", "stopped"] %}
+    <form method="post" action="/runs/{{ run.id }}/accept" class="inline-form">
+      <button class="secondary-button" type="submit" data-testid="run-accept-result-button">
+        <span data-lang="zh">接受结论</span>
+        <span data-lang="en">Accept conclusion</span>
+      </button>
+    </form>
     <form method="post" action="/runs/{{ run.id }}/rerun" class="inline-form">
       <button class="primary-button" type="submit" data-testid="run-rerun-button">
         <span data-lang="zh">重新运行</span>

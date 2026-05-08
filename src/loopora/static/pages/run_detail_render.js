@@ -20,18 +20,63 @@
       const buckets = taskVerdict.buckets || {};
       const bucketMeta = [
         `${localeText("已证明", "proven")} ${Array.isArray(buckets.proven) ? buckets.proven.length : 0}`,
+        `${localeText("弱证据", "weak")} ${Array.isArray(buckets.weak) ? buckets.weak.length : 0}`,
         `${localeText("未证明", "unproven")} ${Array.isArray(buckets.unproven) ? buckets.unproven.length : 0}`,
         `${localeText("阻断", "blocking")} ${Array.isArray(buckets.blocking) ? buckets.blocking.length : 0}`,
+        `${localeText("残余风险", "residual risk")} ${Array.isArray(buckets.residual_risk) ? buckets.residual_risk.length : 0}`,
       ].join(" · ");
       const title = takeawayProjector.taskVerdictStatusLabel
         ? takeawayProjector.taskVerdictStatusLabel(status)
         : status;
-      const detail = taskVerdict.summary || localeText(
+      const detail = taskVerdict.summary || taskVerdictFallbackDetail(status, buckets);
+      const meta = `${localeText("来源", "Source")} ${taskVerdict.source || "-"} · ${bucketMeta}`;
+      return {title, detail, meta, status};
+    }
+
+    function taskVerdictFallbackDetail(status, buckets) {
+      if (status === "passed") {
+        return firstBucketText(buckets, "proven") || localeText(
+          "证据支持本次 Loop 结论。",
+          "Evidence supports the task conclusion."
+        );
+      }
+      if (status === "passed_with_residual_risk") {
+        return firstBucketText(buckets, "residual_risk") || localeText(
+          "证据支持本次 Loop 结论，但仍保留了已接受的可见残余风险。",
+          "Evidence supports the task conclusion, with accepted residual risk still visible."
+        );
+      }
+      if (status === "failed") {
+        return firstBucketText(buckets, "blocking") || localeText(
+          "阻断项仍然存在，优先查看证据桶。",
+          "Blockers remain. Start with the evidence buckets."
+        );
+      }
+      if (status === "insufficient_evidence") {
+        return firstBucketText(buckets, "unproven", "weak") || localeText(
+          "运行已到边界，但证据还不足以证明 Loop 通过。",
+          "The run reached its boundary, but evidence is not strong enough for a task pass."
+        );
+      }
+      return localeText(
         "还没有可用的证据裁决。",
         "No evidence-based task verdict is available yet."
       );
-      const meta = `${localeText("来源", "Source")} ${taskVerdict.source || "-"} · ${bucketMeta}`;
-      return {title, detail, meta, status};
+    }
+
+    function firstBucketText(buckets, ...bucketNames) {
+      for (const bucketName of bucketNames) {
+        const items = Array.isArray(buckets?.[bucketName]) ? buckets[bucketName] : [];
+        const item = items[0];
+        if (!item) {
+          continue;
+        }
+        const text = item.text || item.label || item.reason || "";
+        if (String(text).trim()) {
+          return String(text).trim();
+        }
+      }
+      return "";
     }
 
     function taskVerdictTone(status) {

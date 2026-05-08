@@ -12,6 +12,7 @@ An improvement session may include:
 - a source bundle id
 - run evidence summaries
 - evidence coverage gaps
+- the evidence-based task verdict projection
 - a GateKeeper verdict
 - the user's critique or desired change
 
@@ -26,6 +27,7 @@ Treat those inputs as context for producing a better complete bundle, not as a s
 - If the source Loop used a non-GateKeeper completion mode, treat conversion to evidence-backed GateKeeper task verdicts as an explicit governance delta; do not silently describe that as preserving the source completion behavior.
 - Prefer a complete coherent bundle over single-field edits.
 - When evidence is present, translate evidence gaps into bundle changes.
+- Treat the task verdict projection as the user-facing conclusion. Raw GateKeeper verdicts explain the latest judge output, but coverage gates and residual-risk buckets may make the final task verdict stricter.
 - Translate evidence buckets into governance changes: Weak evidence should tighten evidence expectations, Unproven surfaces should update `spec` or Inspector duties, Blocking findings should become guardrails or GateKeeper blockers, and accepted Residual risk should stay visible rather than disappearing into prose.
 - Before producing the improved YAML, privately pressure-test the revised candidate against a plausible repeat of the source failure or critique. If the new `spec`, role posture, workflow, handoffs, evidence queries, and GateKeeper rules would not expose, repair, or block that failure, revise the bundle delta or ask one focused question.
 - Ask a focused question only when the critique cannot determine the bundle shape.

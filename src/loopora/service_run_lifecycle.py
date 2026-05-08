@@ -13,7 +13,7 @@ from loopora.db_event_records import RunObservationSnapshotRowsRequest
 from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.file_previews import preview_existing_path
 from loopora.run_observation_events import PROGRESS_EVENT_TYPES, TAKEAWAY_PROJECTION_EVENT_TYPES, TIMELINE_EVENT_TYPES
-from loopora.run_takeaways import build_minimal_run_takeaway_projection, build_run_key_takeaways
+from loopora.run_takeaways import build_minimal_run_takeaway_projection, build_run_key_takeaways, normalize_run_takeaway_projection_shape
 from loopora.service_cleanup_diagnostics import best_effort_rmtree, record_cleanup_failure
 from loopora.service_run_finalization import TerminalRunFinalizationRequest
 from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError, TERMINAL_RUN_STATUSES
@@ -66,9 +66,7 @@ class ServiceRunLifecycleMixin:
                     continue
                 hydrated = self._hydrate_run_files(run)
                 payload = (
-                    build_run_key_takeaways(hydrated)
-                    if trigger_event_id
-                    else self._minimal_run_takeaway_projection(hydrated, source_event_id=source_event_id)
+                    build_run_key_takeaways(hydrated) if trigger_event_id else self._minimal_run_takeaway_projection(hydrated, source_event_id=source_event_id)
                 )
                 self.repository.record_run_takeaway_projection(run_id, source_event_id, payload)
             except Exception as exc:  # noqa: BLE001 - projection backfill is best-effort startup repair.
@@ -141,6 +139,55 @@ class ServiceRunLifecycleMixin:
         )
         return run
 
+    def accept_run_result(self, run_id: str) -> dict:
+        run = self.get_run(run_id)
+        if run["status"] not in TERMINAL_RUN_STATUSES:
+            raise LooporaConflictError(f"cannot accept run result in status {run['status']}")
+        task_verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), dict) else {}
+        acceptance_evidence = self._run_acceptance_evidence_payload(run)
+        event = self.append_run_event(
+            run_id,
+            "run_result_accepted",
+            {
+                "status": run["status"],
+                "task_verdict_status": str(task_verdict.get("status") or ""),
+                "task_verdict_source": str(task_verdict.get("source") or ""),
+                **acceptance_evidence,
+            },
+        )
+        return {
+            "id": run_id,
+            "status": run["status"],
+            "task_verdict": task_verdict,
+            "event_id": event.get("id"),
+        }
+
+    def _run_acceptance_evidence_payload(self, run: dict) -> dict:
+        try:
+            takeaways = build_run_key_takeaways(self._hydrate_run_files(run))
+        except Exception as exc:  # noqa: BLE001 - acceptance must still record the user action if artifacts are damaged.
+            log_exception(
+                logger,
+                "service.run.acceptance_evidence_payload_failed",
+                "Failed to build run acceptance evidence payload",
+                error=exc,
+                **self._run_log_context(run),
+            )
+            return {}
+        evidence_coverage = takeaways.get("evidence_coverage") if isinstance(takeaways.get("evidence_coverage"), dict) else {}
+        evidence_manifest = takeaways.get("evidence_manifest") if isinstance(takeaways.get("evidence_manifest"), dict) else {}
+        buckets = takeaways.get("evidence_buckets") if isinstance(takeaways.get("evidence_buckets"), dict) else {}
+        return {
+            "task_verdict_path": str(takeaways.get("task_verdict_path") or ""),
+            "coverage_path": str(evidence_coverage.get("coverage_path") or ""),
+            "coverage_status": str(evidence_coverage.get("status") or ""),
+            "manifest_path": str(evidence_manifest.get("manifest_path") or ""),
+            "evidence_count": int(takeaways.get("evidence_count") or 0),
+            "evidence_bucket_counts": {
+                bucket: len(items) for bucket, items in buckets.items() if isinstance(bucket, str) and isinstance(items, list)
+            },
+        }
+
     def recent_run_events(
         self,
         run_id: str,
@@ -183,6 +230,8 @@ class ServiceRunLifecycleMixin:
         key_takeaways = snapshot.get("key_takeaway_projection")
         if not isinstance(key_takeaways, dict) or not key_takeaways:
             key_takeaways = build_minimal_run_takeaway_projection(run, source_event_id=snapshot["latest_event_id"])
+        else:
+            key_takeaways = normalize_run_takeaway_projection_shape(run, key_takeaways)
         key_takeaways["source_event_id"] = min(
             int(key_takeaways.get("source_event_id") or 0),
             int(snapshot["latest_event_id"] or 0),
@@ -242,9 +291,7 @@ class ServiceRunLifecycleMixin:
         if not allow_bundle_owned and hasattr(self, "_bundle_record_for_loop_id"):
             bundle = self._bundle_record_for_loop_id(loop_id)
             if bundle:
-                raise LooporaConflictError(
-                    f"loop {loop_id} is managed by bundle {bundle['id']}; delete the bundle instead"
-                )
+                raise LooporaConflictError(f"loop {loop_id} is managed by bundle {bundle['id']}; delete the bundle instead")
         loop = self.get_loop(loop_id)
         active_runs = [run["id"] for run in loop["runs"] if run["status"] in {"queued", "running"}]
         if active_runs:
@@ -305,10 +352,7 @@ class ServiceRunLifecycleMixin:
                 "Recovered stale run during service startup",
                 **self._run_log_context(run, runner_pid=run.get("runner_pid"), status=run.get("status")),
             )
-            summary = (
-                "# Loopora Run Summary\n\n"
-                "This run was marked stopped when Loopora restarted because its previous worker process was no longer alive.\n"
-            )
+            summary = "# Loopora Run Summary\n\nThis run was marked stopped when Loopora restarted because its previous worker process was no longer alive.\n"
             self._persist_summary_file(Path(run["runs_dir"]), summary)
             self.repository.update_run(
                 run["id"],
@@ -333,9 +377,7 @@ class ServiceRunLifecycleMixin:
     def _startup_stale_run_is_recoverable(self, run: dict) -> bool:
         if run.get("runner_pid"):
             return True
-        updated_at = self._parse_run_timestamp(
-            run.get("updated_at") or run.get("started_at") or run.get("queued_at")
-        )
+        updated_at = self._parse_run_timestamp(run.get("updated_at") or run.get("started_at") or run.get("queued_at"))
         if updated_at is None:
             return False
         age_seconds = time.time() - updated_at.timestamp()
@@ -363,10 +405,7 @@ class ServiceRunLifecycleMixin:
                 updated_at=run.get("updated_at"),
             ),
         )
-        summary = (
-            "# Loopora Run Summary\n\n"
-            "This run was marked failed because the local worker stopped unexpectedly before it could finish cleanly.\n"
-        )
+        summary = "# Loopora Run Summary\n\nThis run was marked failed because the local worker stopped unexpectedly before it could finish cleanly.\n"
         child_pid = run.get("child_pid")
         if child_pid and self._pid_exists(child_pid):
             try:
@@ -408,9 +447,7 @@ class ServiceRunLifecycleMixin:
             return False
         if run.get("runner_pid") not in {None, os.getpid()}:
             return False
-        updated_at = self._parse_run_timestamp(
-            run.get("updated_at") or run.get("started_at") or run.get("queued_at")
-        )
+        updated_at = self._parse_run_timestamp(run.get("updated_at") or run.get("started_at") or run.get("queued_at"))
         if updated_at is None:
             return False
         age_seconds = time.time() - updated_at.timestamp()

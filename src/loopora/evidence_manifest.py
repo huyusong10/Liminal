@@ -31,9 +31,7 @@ def build_evidence_manifest_projection(
         if isinstance(target, Mapping) and str(target.get("id") or "").strip()
     }
     claims = [
-        _claim_manifest(item, layout=layout, targets_by_id=targets_by_id)
-        for item in read_jsonl(layout.evidence_ledger_path)
-        if isinstance(item, Mapping)
+        _claim_manifest(item, layout=layout, targets_by_id=targets_by_id) for item in read_jsonl(layout.evidence_ledger_path) if isinstance(item, Mapping)
     ]
     target_index = _target_index(targets_by_id, claims)
     return {
@@ -48,6 +46,8 @@ def build_evidence_manifest_projection(
         "artifact_backed_claim_count": sum(1 for claim in claims if claim["artifact_backed"]),
         "workspace_backed_claim_count": sum(1 for claim in claims if claim["workspace_backed"]),
         "direct_proof_claim_count": sum(1 for claim in claims if claim["verification_status"] == "direct_proof"),
+        "workspace_artifact_claim_count": sum(1 for claim in claims if claim["verification_status"] == "workspace_artifact"),
+        "run_artifact_claim_count": sum(1 for claim in claims if claim["verification_status"] == "run_artifact"),
         "ledger_only_claim_count": sum(1 for claim in claims if claim["verification_status"] == "ledger_only"),
         "unverified_claim_count": sum(1 for claim in claims if claim["verification_status"] == "unverified"),
         "claims": claims,
@@ -85,17 +85,16 @@ def _claim_manifest(item: Mapping[str, Any], *, layout: RunArtifactLayout, targe
         "method": str(item.get("method") or "").strip(),
         "result": str(item.get("result") or "").strip(),
         "verifies": [str(value).strip() for value in list(item.get("verifies") or []) if str(value).strip()],
+        "coverage_results": _manifest_coverage_results(item.get("coverage_results")),
         "coverage_targets": coverage_targets,
-        "related_evidence_ids": [
-            str(value).strip()
-            for value in list(item.get("related_evidence_ids") or [])
-            if str(value).strip()
-        ][:20],
+        "related_evidence_ids": [str(value).strip() for value in list(item.get("related_evidence_ids") or []) if str(value).strip()][:20],
         "artifact_refs": artifact_refs,
         "artifact_count": len(artifact_refs),
         "workspace_artifact_count": sum(1 for ref in artifact_refs if ref.get("kind") == "workspace"),
         "artifact_backed": artifact_backed,
         "workspace_backed": workspace_backed,
+        "measured_evidence": bool(item.get("measured_evidence")),
+        "concrete_evidence_claim_count": _safe_int(item.get("concrete_evidence_claim_count")),
         "verification_status": verification_status,
         "reproducible": verification_status in {"direct_proof", "workspace_artifact"},
         "residual_risk": str(item.get("residual_risk") or "").strip(),
@@ -138,6 +137,23 @@ def _artifact_file_state(absolute_path: str) -> dict:
 def _coverage_target_refs(item: Mapping[str, Any], targets_by_id: Mapping[str, Mapping[str, Any]]) -> list[dict]:
     refs = []
     seen: set[str] = set()
+    for coverage_result in _manifest_coverage_results(item.get("coverage_results")):
+        target_id = coverage_result["target_id"]
+        if target_id in seen:
+            continue
+        seen.add(target_id)
+        target = targets_by_id.get(target_id, {})
+        refs.append(
+            {
+                "id": target_id,
+                "kind": str(target.get("kind") or "").strip(),
+                "label": str(target.get("label") or target_id).strip(),
+                "reported_status": coverage_result["status"],
+                "coverage_status": str(target.get("status") or "missing").strip(),
+                "required": bool(target.get("required")),
+                "evidence_refs": coverage_result["evidence_refs"],
+            }
+        )
     for verify_ref in list(item.get("verifies") or []):
         parsed = parse_target_verify_ref(verify_ref)
         if not parsed:
@@ -155,9 +171,31 @@ def _coverage_target_refs(item: Mapping[str, Any], targets_by_id: Mapping[str, M
                 "reported_status": str(reported_status or "unknown").strip(),
                 "coverage_status": str(target.get("status") or "missing").strip(),
                 "required": bool(target.get("required")),
+                "evidence_refs": [],
             }
         )
     return refs
+
+
+def _manifest_coverage_results(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    results: list[dict] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        target_id = str(item.get("target_id") or "").strip()
+        if not target_id or ":" in target_id:
+            continue
+        results.append(
+            {
+                "target_id": target_id,
+                "status": str(item.get("status") or "unknown").strip() or "unknown",
+                "evidence_refs": [str(value).strip() for value in list(item.get("evidence_refs") or []) if str(value).strip()][:20],
+                "note": str(item.get("note") or "").strip()[:400],
+            }
+        )
+    return results[:20]
 
 
 def _verification_status(
@@ -188,6 +226,11 @@ def _is_proof_ref(ref: Mapping[str, Any]) -> bool:
 def _target_index(targets_by_id: Mapping[str, Mapping[str, Any]], claims: list[dict]) -> list[dict]:
     claims_by_target: dict[str, list[str]] = {}
     artifacts_by_target: dict[str, list[dict]] = {}
+    claims_by_id = {str(claim.get("id") or "").strip(): claim for claim in claims if str(claim.get("id") or "").strip()}
+    for target_id, target in targets_by_id.items():
+        target_artifacts = [ref for ref in list(target.get("artifact_refs") or []) if isinstance(ref, Mapping)]
+        if target_artifacts:
+            artifacts_by_target.setdefault(target_id, []).extend(dict(ref) for ref in target_artifacts[:8])
     for claim in claims:
         claim_id = str(claim.get("id") or "").strip()
         for target_ref in claim.get("coverage_targets") or []:
@@ -198,6 +241,12 @@ def _target_index(targets_by_id: Mapping[str, Mapping[str, Any]], claims: list[d
             artifacts_by_target.setdefault(target_id, []).extend(list(claim.get("artifact_refs") or [])[:4])
     rows = []
     for target_id, target in targets_by_id.items():
+        for evidence_ref in list(target.get("evidence_refs") or []):
+            claim = claims_by_id.get(str(evidence_ref or "").strip())
+            if not claim:
+                continue
+            claims_by_target.setdefault(target_id, []).append(str(claim.get("id") or "").strip())
+            artifacts_by_target.setdefault(target_id, []).extend(list(claim.get("artifact_refs") or [])[:4])
         rows.append(
             {
                 "id": target_id,
@@ -206,10 +255,29 @@ def _target_index(targets_by_id: Mapping[str, Mapping[str, Any]], claims: list[d
                 "status": str(target.get("status") or "missing").strip(),
                 "required": bool(target.get("required")),
                 "claim_refs": list(dict.fromkeys(claims_by_target.get(target_id, []))),
-                "artifact_refs": artifacts_by_target.get(target_id, [])[:8],
+                "artifact_refs": _dedupe_artifact_refs(artifacts_by_target.get(target_id, []))[:8],
             }
         )
     return rows
+
+
+def _dedupe_artifact_refs(value: object) -> list[dict]:
+    refs: list[dict] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for ref in list(value or []):
+        if not isinstance(ref, Mapping):
+            continue
+        key = (
+            str(ref.get("label") or "").strip(),
+            str(ref.get("absolute_path") or "").strip(),
+            str(ref.get("workspace_path") or "").strip(),
+            str(ref.get("relative_path") or "").strip(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        refs.append(dict(ref))
+    return refs
 
 
 def _manifest_problems(claims: list[dict]) -> list[dict]:
@@ -226,9 +294,7 @@ def _manifest_problems(claims: list[dict]) -> list[dict]:
                 }
             )
         missing_artifacts = [
-            str(ref.get("label") or ref.get("relative_path") or "").strip()
-            for ref in claim.get("artifact_refs") or []
-            if not ref.get("exists")
+            str(ref.get("label") or ref.get("relative_path") or "").strip() for ref in claim.get("artifact_refs") or [] if not ref.get("exists")
         ]
         if missing_artifacts:
             problems.append(

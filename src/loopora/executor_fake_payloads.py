@@ -152,13 +152,7 @@ def _alignment_preconfirmation_scenario_payload(scenario: str, *, workdir: str) 
     elif scenario == "alignment_generic_preference_question":
         assistant_message = "你有什么偏好？你想要高质量还是快一点？"
     elif scenario == "alignment_questionnaire_overload":
-        assistant_message = (
-            "请先回答这些问题：\n"
-            "1. 你想完成什么任务？\n"
-            "2. 你希望什么证据能证明完成？\n"
-            "3. 你能接受哪些残余风险？\n"
-            "4. 你希望角色怎么分工？"
-        )
+        assistant_message = "请先回答这些问题：\n1. 你想完成什么任务？\n2. 你希望什么证据能证明完成？\n3. 你能接受哪些残余风险？\n4. 你希望角色怎么分工？"
     elif scenario == "alignment_english_clarifying_message_for_chinese_user":
         assistant_message = "What evidence should prove completion before I compile the Loop?"
     elif scenario == "alignment_premature_bundle":
@@ -185,6 +179,10 @@ def _alignment_preconfirmation_agreement_payload_for_scenario(
 ) -> dict:
     if is_improvement and scenario != "alignment_improvement_missing_delta":
         payload = alignment_chinese_improvement_agreement_response() if prefers_chinese else alignment_improvement_agreement_response()
+    elif scenario == "alignment_chinese_refund_agreement_generic_bundle":
+        payload = alignment_chinese_refund_agreement_response()
+    elif scenario == "alignment_refund_agreement_generic_bundle":
+        payload = alignment_refund_agreement_response()
     else:
         payload = alignment_chinese_agreement_response() if prefers_chinese else alignment_agreement_response()
     if scenario == "alignment_hidden_agreement_message":
@@ -193,9 +191,7 @@ def _alignment_preconfirmation_agreement_payload_for_scenario(
         payload["readiness_checklist"]["workflow_shape"] = False
         payload["assistant_message"] = "请确认这份还没完成 workflow 判断的协议。"
     elif scenario == "alignment_unresolved_open_questions":
-        payload["readiness_evidence"]["open_questions"] = (
-            "Need the user to decide whether browser evidence or test output should persuade GateKeeper."
-        )
+        payload["readiness_evidence"]["open_questions"] = "Need the user to decide whether browser evidence or test output should persuade GateKeeper."
         payload["assistant_message"] = "Please confirm; the evidence choice is still open."
     elif scenario == "alignment_english_agreement_for_chinese_user":
         payload = alignment_agreement_response()
@@ -205,11 +201,40 @@ def _alignment_preconfirmation_agreement_payload_for_scenario(
             "This is not one Agent pass plus human review because the judgment should survive one chat "
             "as run evidence, export, reuse, and audit material for future rounds."
         )
-    elif scenario == "alignment_missing_evidence_bucket_readiness_evidence":
+    _apply_alignment_agreement_readiness_override(payload, scenario)
+    return payload
+
+
+def _apply_alignment_agreement_readiness_override(payload: dict, scenario: str) -> None:
+    if scenario == "alignment_missing_evidence_bucket_readiness_evidence":
         payload["readiness_evidence"]["evidence_preferences"] = (
             "The strongest evidence is direct command output, tests, or concrete artifacts created by the project."
         )
-    return payload
+    elif scenario == "alignment_governance_markers_listed_without_responsibilities":
+        payload["readiness_evidence"]["workdir_facts"] = (
+            "Workdir Snapshot observed project-local governance markers: AGENTS.md, design/README.md, design/, and tests/. "
+            "Their contents are unknown, but the Loop must route them into runtime responsibilities."
+        )
+
+
+def _alignment_workdir_fact_bundle_payload(scenario: str, *, workdir: str) -> dict | None:
+    if scenario == "alignment_bundle_unsupported_observed_workdir_claim":
+        return alignment_response(
+            status="bundle",
+            assistant_message="I prepared a bundle with an unsupported observed workdir claim.",
+            needs_user_input=False,
+            bundle_yaml=alignment_bundle_yaml_with_unsupported_observed_workdir_claim(workdir),
+            phase="bundle",
+        )
+    if scenario == "alignment_governance_markers_listed_without_responsibilities":
+        return alignment_response(
+            status="bundle",
+            assistant_message="I prepared a bundle that lists governance markers but does not route responsibilities.",
+            needs_user_input=False,
+            bundle_yaml=alignment_bundle_yaml_with_governance_markers_listed_as_facts(workdir),
+            phase="bundle",
+        )
+    return None
 
 
 def _alignment_bundle_payload_for_scenario(
@@ -219,6 +244,9 @@ def _alignment_bundle_payload_for_scenario(
     workdir: str,
 ) -> dict | None:
     payload: dict | None = None
+    payload = _alignment_workdir_fact_bundle_payload(scenario, workdir=workdir)
+    if payload is not None:
+        return payload
     if scenario == "alignment_invalid":
         payload = alignment_response(
             status="bundle",
@@ -241,14 +269,6 @@ def _alignment_bundle_payload_for_scenario(
             assistant_message="我先给出一个语义不完整的 bundle。",
             needs_user_input=False,
             bundle_yaml=alignment_bundle_yaml_without_semantics(workdir),
-            phase="bundle",
-        )
-    elif scenario == "alignment_bundle_unsupported_observed_workdir_claim":
-        payload = alignment_response(
-            status="bundle",
-            assistant_message="I prepared a bundle with an unsupported observed workdir claim.",
-            needs_user_input=False,
-            bundle_yaml=alignment_bundle_yaml_with_unsupported_observed_workdir_claim(workdir),
             phase="bundle",
         )
     elif scenario == "alignment_chinese_readiness_evidence":
@@ -370,6 +390,26 @@ def _alignment_readiness_issue_for_scenario(scenario: str) -> tuple[str, str, st
             "",
             "我生成了 bundle，但没有说明为什么需要 Loopora。",
         ),
+        "alignment_contradictory_loop_fit_readiness_evidence": (
+            "loop_fit",
+            "One Agent pass plus one human review is enough, no later round would produce new evidence, and the judgment does not need to survive this chat.",
+            "我生成了 bundle，但 Loopora fit 证据承认这其实不需要 Loopora。",
+        ),
+        "alignment_single_pass_sufficient_loop_fit_readiness_evidence": (
+            "loop_fit",
+            "A single implementation pass plus human review is sufficient for this task; no governed Loop should be needed.",
+            "我生成了 bundle，但 Loopora fit 证据承认单轮实现已经足够。",
+        ),
+        "alignment_benchmark_only_loop_fit_readiness_evidence": (
+            "loop_fit",
+            "The stable benchmark is sufficient and benchmark-only validation is the whole judgment for this task.",
+            "我生成了 bundle，但 Loopora fit 证据承认 benchmark-only 验证已经足够。",
+        ),
+        "alignment_chinese_direct_chat_loop_fit_readiness_evidence": (
+            "loop_fit",
+            "直接对话就够了，判断只需要本次聊天，不需要 Loopora。",
+            "我生成了 bundle，但 Loopora fit 证据承认直接对话已经足够。",
+        ),
         "alignment_vague_loop_fit_readiness_evidence": (
             "loop_fit",
             "This is a complex and important task with many parts to handle well.",
@@ -479,19 +519,23 @@ def alignment_response(
         "workflow_shape": ready,
         "explicit_confirmation": ready,
     }
-    evidence = alignment_readiness_evidence() if ready else {
-        "loop_fit": "",
-        "task_scope": "",
-        "success_surface": "",
-        "fake_done_risks": "",
-        "evidence_preferences": "",
-        "residual_risk_policy": "",
-        "judgment_tradeoffs": "",
-        "role_posture": "",
-        "workflow_shape": "",
-        "workdir_facts": "",
-        "open_questions": "Need more task-shaping answers before compiling the loop plan.",
-    }
+    evidence = (
+        alignment_readiness_evidence()
+        if ready
+        else {
+            "loop_fit": "",
+            "task_scope": "",
+            "success_surface": "",
+            "fake_done_risks": "",
+            "evidence_preferences": "",
+            "residual_risk_policy": "",
+            "judgment_tradeoffs": "",
+            "role_posture": "",
+            "workflow_shape": "",
+            "workdir_facts": "",
+            "open_questions": "Need more task-shaping answers before compiling the loop plan.",
+        }
+    )
     return {
         "status": status,
         "assistant_message": assistant_message,
@@ -520,11 +564,7 @@ def alignment_default_bundle_response(
 ) -> dict:
     payload = alignment_response(
         status="bundle",
-        assistant_message=(
-            "已整理成一个可导入的 Loopora bundle。"
-            if prefers_chinese
-            else "I prepared an importable Loopora bundle."
-        ),
+        assistant_message=("已整理成一个可导入的 Loopora bundle。" if prefers_chinese else "I prepared an importable Loopora bundle."),
         needs_user_input=False,
         bundle_yaml=alignment_chinese_bundle_yaml(workdir) if prefers_chinese else alignment_bundle_yaml(workdir),
         phase="bundle",
@@ -538,17 +578,9 @@ def alignment_default_bundle_response(
             if prefers_chinese
             else "Preserve the source Loop's stable intent while changing evidence, role posture, and GateKeeper judgment from feedback."
         )
-        payload["readiness_evidence"] = (
-            alignment_chinese_improvement_readiness_evidence()
-            if prefers_chinese
-            else alignment_improvement_readiness_evidence()
-        )
+        payload["readiness_evidence"] = alignment_chinese_improvement_readiness_evidence() if prefers_chinese else alignment_improvement_readiness_evidence()
         if not use_generic_bundle:
-            payload["bundle_yaml"] = (
-                alignment_chinese_improvement_bundle_yaml(workdir)
-                if prefers_chinese
-                else alignment_improvement_bundle_yaml(workdir)
-            )
+            payload["bundle_yaml"] = alignment_chinese_improvement_bundle_yaml(workdir) if prefers_chinese else alignment_improvement_bundle_yaml(workdir)
     return payload
 
 
@@ -578,24 +610,22 @@ def alignment_agreement_response() -> dict:
             "workflow_shape": True,
             "explicit_confirmation": False,
         },
-        "readiness_evidence": alignment_readiness_evidence(
-            open_questions="Waiting for explicit user confirmation of the working agreement."
-        ),
+        "readiness_evidence": alignment_readiness_evidence(open_questions="Waiting for explicit user confirmation of the working agreement."),
     }
 
 
 def alignment_chinese_agreement_response() -> dict:
     payload = alignment_agreement_response()
     payload["agreement_summary"] = "使用聚焦 Builder、证据 Inspector 和严格 GateKeeper 来推进这个 Loop。"
-    payload["readiness_evidence"] = alignment_chinese_readiness_evidence(
-        open_questions="等待用户明确确认这份工作协议。"
-    )
+    payload["readiness_evidence"] = alignment_chinese_readiness_evidence(open_questions="等待用户明确确认这份工作协议。")
     return payload
 
 
 def alignment_improvement_agreement_response() -> dict:
     payload = alignment_agreement_response()
-    payload["assistant_message"] = "Please confirm this improvement agreement; I will preserve the stable source Loop and revise only the feedback-driven governance surfaces."
+    payload["assistant_message"] = (
+        "Please confirm this improvement agreement; I will preserve the stable source Loop and revise only the feedback-driven governance surfaces."
+    )
     payload["agreement_summary"] = (
         "Preserve the existing Loop's stable task intent and workdir, then change the evidence, role posture, and GateKeeper strictness that feedback shows are weak."
     )
@@ -609,9 +639,80 @@ def alignment_chinese_improvement_agreement_response() -> dict:
     payload = alignment_chinese_agreement_response()
     payload["assistant_message"] = "请确认这份改进协议；我会保留既有 Loop 的稳定意图，只修订反馈指向的治理面。"
     payload["agreement_summary"] = "保留既有 Loop 的稳定任务意图和 workdir，并基于反馈改进证据、角色姿态和 GateKeeper 严格度。"
-    payload["readiness_evidence"] = alignment_chinese_improvement_readiness_evidence(
-        open_questions="等待用户明确确认这份改进协议。"
+    payload["readiness_evidence"] = alignment_chinese_improvement_readiness_evidence(open_questions="等待用户明确确认这份改进协议。")
+    return payload
+
+
+def alignment_refund_agreement_response() -> dict:
+    payload = alignment_agreement_response()
+    payload["assistant_message"] = (
+        "Please confirm this refund working agreement; I will compile authorization, eligibility, "
+        "audit, provider failure, and support handoff judgment into the Loop."
     )
+    payload["agreement_summary"] = (
+        "Govern the refund self-service flow around authorization, eligibility, audit trail, provider failure, "
+        "double-refund blocking, and support handoff evidence."
+    )
+    payload["readiness_evidence"] = {
+        "loop_fit": (
+            "The refund task fits Loopora because later rounds must produce new authorization, eligibility, "
+            "provider failure, audit trail, and support handoff evidence before GateKeeper can close."
+        ),
+        "task_scope": (
+            "Scope is a refund self-service flow for customer admins: authorized admins request eligible refunds, "
+            "while disputed, closed-accounting, partial-refund, and double-refund cases are controlled."
+        ),
+        "success_surface": (
+            "Success means an eligible refund can be requested by an authorized admin, recorded with an audit trail, "
+            "and traced by support or finance from durable evidence."
+        ),
+        "fake_done_risks": (
+            "Reject pages, buttons, mocked eligibility, or happy-path-only tests that do not prove refund authorization, "
+            "auditability, provider failure handling, and double-refund prevention."
+        ),
+        "evidence_preferences": (
+            "Trusted proof is permission checks, eligibility cases, payment-provider failure behavior, audit records, "
+            "support handoff artifacts, and final Proven / Weak / Unproven / Blocking / Residual risk buckets."
+        ),
+        "residual_risk_policy": (
+            "Rare provider edge cases may remain only when visible and assigned; unauthorized refunds, missing audit trails, "
+            "silent provider failure, and double refunds must block closure."
+        ),
+        "judgment_tradeoffs": (
+            "Prefer a rough but proven refund path over a polished billing screen; reject speed or UI completeness "
+            "when it hides authorization, audit, provider, or support risk."
+        ),
+        "role_posture": (
+            "Builder implements refund safety, Inspector tries to disprove authorization and audit claims, "
+            "Guide narrows repair if evidence is weak, and GateKeeper blocks unauthorized or double-refund risk."
+        ),
+        "workflow_shape": (
+            "Builder -> Inspector -> Guide repair -> Builder -> GateKeeper fits because refund drift must surface "
+            "through evidence before the final GateKeeper verdict."
+        ),
+        "workdir_facts": ("Observed workdir facts are limited to the target path; billing, payment, and audit code locations must be verified during the run."),
+        "open_questions": "Waiting for explicit user confirmation of the working agreement.",
+    }
+    return payload
+
+
+def alignment_chinese_refund_agreement_response() -> dict:
+    payload = alignment_chinese_agreement_response()
+    payload["assistant_message"] = "请确认退款自助流程工作协议；确认后我会编译授权、资格、审计和支付失败证据。"
+    payload["agreement_summary"] = "围绕退款自助流程治理授权、退款资格、审计记录、支付失败、重复退款阻断和客服交接证据。"
+    payload["readiness_evidence"] = {
+        "loop_fit": "退款任务适合 Loopora，因为后续轮次必须产生新的授权、退款资格、审计记录、支付失败和客服交接证据，而不是一次回答。",
+        "task_scope": "范围是客户管理员的退款自助流程：授权管理员申请符合资格的退款，并控制争议订单、已关账发票、部分退款和重复退款。",
+        "success_surface": "成功意味着授权管理员能申请符合资格的退款，系统记录审计轨迹，客服或财务能追踪退款决定。",
+        "fake_done_risks": "拒绝只有页面、按钮、模拟资格或 happy path 测试，却没有证明退款授权、审计、支付失败处理和重复退款防护的结果。",
+        "evidence_preferences": "可信证据包括授权检查、退款资格用例、支付服务失败行为、审计记录、客服交接产物，以及最终已证明、弱证据、未证明、阻断和残余风险证据桶。",
+        "residual_risk_policy": "少见支付服务边缘情况只有在可见并分配后才可接受；未授权退款、缺失审计、静默支付失败和重复退款必须阻断。",
+        "judgment_tradeoffs": "优先选择粗糙但已证明的退款路径，而不是漂亮但未证明授权、审计、支付或客服风险的账单界面。",
+        "role_posture": "Builder 实现退款安全，Inspector 反证授权和审计声明，Guide 在证据薄弱时收窄修复，GateKeeper 阻断未授权或重复退款风险。",
+        "workflow_shape": "Builder -> Inspector -> Guide 修复 -> Builder -> GateKeeper 适合退款任务，因为退款偏差必须在最终裁决前通过证据暴露。",
+        "workdir_facts": "已观察到的工作区事实只限目标路径；退款、支付、审计代码位置必须在运行中验证。",
+        "open_questions": "等待用户明确确认这份工作协议。",
+    }
     return payload
 
 
@@ -879,17 +980,13 @@ def alignment_chinese_bundle_yaml(workdir: str) -> str:
     yaml_text = alignment_bundle_yaml(workdir)
     replacements = {
         '  name: "Aligned Starter Bundle"': '  name: "对齐 Starter Bundle"',
-        '  description: "Bundle generated by the Web alignment flow."': (
-            '  description: "由 Web alignment flow 生成的 bundle。"'
-        ),
+        '  description: "Bundle generated by the Web alignment flow."': ('  description: "由 Web alignment flow 生成的 bundle。"'),
         (
             "  Project the working agreement into a spec task contract for the focused starter slice, role handoffs from Builder / Inspectors / GateKeeper, and a workflow that routes evidence before final judgment. Prefer a smaller proven flow over polished but unproven breadth, and let GateKeeper reject speed or surface completeness when evidence is weak. GateKeeper closes only when the spec, role evidence, and workflow handoffs prove the task is truly done. Evidence projection must distinguish Proven direct run proof, Weak indirect evidence, Unproven promised surfaces, Blocking fake-done findings, and visible Residual risk.\n"
         ): (
             "  将工作协议投影到 spec 任务契约、Builder / Inspector / GateKeeper 角色交接，以及先汇集证据再裁决的 workflow。优先选择小而已证明的主流程，而不是打磨充分但未证明的宽泛功能；证据薄弱时让 GateKeeper 拒绝速度或表面完整性。GateKeeper 只有在任务契约、角色证据和 workflow handoff 都证明真实完成时才收束。证据投影必须区分已证明的直接运行证据、弱证据、未证明的承诺面、阻断类假完成，以及可见残余风险。\n"
         ),
-        (
-            "    Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow."
-        ): (
+        ("    Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow."): (
             "    在目标 workdir 中交付聚焦的 starter experience，用小而可维护的改动保住主流程，并留下能让 Inspector 和 GateKeeper 验证真实完成的证据路径。"
         ),
         "    - The primary user flow works end to end.": "    - 主流程可以端到端运行。",
@@ -898,9 +995,7 @@ def alignment_chinese_bundle_yaml(workdir: str) -> str:
         (
             "    - The primary user flow is understandable, maintainable, and easy to extend after the first pass."
         ): "    - 主流程可理解、可维护，并且首轮后容易继续扩展。",
-        "    - Do not pass with only a happy-path claim and no reproducible evidence.": (
-            "    - 只有 happy path 声称、没有可复现证据时不得通过。"
-        ),
+        "    - Do not pass with only a happy-path claim and no reproducible evidence.": ("    - 只有 happy path 声称、没有可复现证据时不得通过。"),
         "    - Do not pass if the implementation lacks a handoff that explains what evidence was collected.": (
             "    - 缺少说明已收集证据的 handoff 时不得通过。"
         ),
@@ -913,9 +1008,7 @@ def alignment_chinese_bundle_yaml(workdir: str) -> str:
         "    - Final evidence should be bucketed as Proven, Weak, Unproven, Blocking, or Residual risk instead of flattened into one summary.": (
             "    - 最终证据应区分为已证明、弱证据、未证明、阻断或残余风险，而不是压平成一段总结。"
         ),
-        (
-            "    Accept minor polish gaps only when they are explicitly named; fail closed on unproven primary-flow behavior or weak verification evidence."
-        ): (
+        ("    Accept minor polish gaps only when they are explicitly named; fail closed on unproven primary-flow behavior or weak verification evidence."): (
             "    只有明确点名的轻微 polish 缺口可以保留；主流程行为未证明或验证证据薄弱时必须 fail closed。"
         ),
         '    name: "Focused Builder"': '    name: "聚焦 Builder"',
@@ -923,30 +1016,20 @@ def alignment_chinese_bundle_yaml(workdir: str) -> str:
         '    name: "Evidence Inspector"': '    name: "证据 Inspector"',
         '    name: "Conservative GateKeeper"': '    name: "审慎 GateKeeper"',
         "    Prefer a small maintainable patch over broad rewrites.": "    优先小而可维护的 patch，不做宽泛重写。",
-        "    Collect reproducible evidence and call out missing proof plainly.": (
-            "    收集可复现证据，并直接指出缺失的证明。"
-        ),
+        "    Collect reproducible evidence and call out missing proof plainly.": ("    收集可复现证据，并直接指出缺失的证明。"),
         "    Fail closed when Done When, fake-done risks, and evidence preferences are not all satisfied.": (
             "    Done When、fake-done 风险和证据偏好没有同时满足时必须 fail closed。"
         ),
-        '    description: "Implements the smallest maintainable change."': (
-            '    description: "实现最小且可维护的变更。"'
-        ),
+        '    description: "Implements the smallest maintainable change."': ('    description: "实现最小且可维护的变更。"'),
         '    description: "Checks the task contract, guardrails, fake-done risks, and residual-risk stance."': (
             '    description: "检查任务契约、guardrails、fake-done 风险和残余风险姿态。"'
         ),
-        '    description: "Collects reproducible evidence before sign-off."': (
-            '    description: "在签字前收集可复现证据。"'
-        ),
+        '    description: "Collects reproducible evidence before sign-off."': ('    description: "在签字前收集可复现证据。"'),
         '    description: "Fails closed when evidence is weak."': '    description: "证据薄弱时 fail closed。"',
         (
             "      Build the focused starter slice carefully and keep the repo coherent. Leave a handoff that names the changed behavior, the verification evidence, and any blocker that should stop Inspector or GateKeeper."
-        ): (
-            "      谨慎实现聚焦 starter slice，并保持 repo 一致。留下 handoff，点名变更行为、验证证据，以及应该阻止 Inspector 或 GateKeeper 的 blocker。"
-        ),
-        (
-            "      Keep implementation narrow and leave the workspace easier to verify; prefer concrete evidence over broad feature spread."
-        ): (
+        ): ("      谨慎实现聚焦 starter slice，并保持 repo 一致。留下 handoff，点名变更行为、验证证据，以及应该阻止 Inspector 或 GateKeeper 的 blocker。"),
+        ("      Keep implementation narrow and leave the workspace easier to verify; prefer concrete evidence over broad feature spread."): (
             "      保持实现收窄，让 workspace 更容易验证；优先具体证据和清晰 handoff，而不是铺开很多无法证明的功能。"
         ),
         (
@@ -956,27 +1039,17 @@ def alignment_chinese_bundle_yaml(workdir: str) -> str:
         ),
         (
             "      Prefer contract-level proof over broad confidence; block when the delivered slice does not match the agreed scope or leaves fake-done risk unresolved."
-        ): (
-            "      优先契约级证明，而不是泛泛信心；交付 slice 不符合约定范围或 fake-done 风险未解决时必须 block。"
-        ),
+        ): ("      优先契约级证明，而不是泛泛信心；交付 slice 不符合约定范围或 fake-done 风险未解决时必须 block。"),
         (
             "      Inspect from direct evidence, project-owned commands, and concrete artifacts. Your handoff must identify the strongest proof, missing proof, and any blocker that should prevent GateKeeper from finishing."
-        ): (
-            "      从直接证据、项目内命令和具体产物检查。你的 handoff 必须指出最强证明、缺失证明，以及应阻止 GateKeeper 收束的 blocker。"
-        ),
+        ): ("      从直接证据、项目内命令和具体产物检查。你的 handoff 必须指出最强证明、缺失证明，以及应阻止 GateKeeper 收束的 blocker。"),
         (
             "      Prefer reproducible run output and concrete artifacts; block vague completion claims, screenshots without context, or unverified happy paths."
-        ): (
-            "      优先可复现运行输出和具体产物；阻断空泛完成声称、缺上下文截图或未验证 happy path，并说明哪类证据还缺失。"
-        ),
+        ): ("      优先可复现运行输出和具体产物；阻断空泛完成声称、缺上下文截图或未验证 happy path，并说明哪类证据还缺失。"),
         (
             "      Decide from direct evidence and do not accept vague completion claims. Finish only when the Builder and Inspector handoffs prove the task contract; otherwise block with the smallest next repair."
-        ): (
-            "      只根据直接证据裁决，不接受空泛完成声称。只有 Builder 和 Inspector handoff 证明任务契约时才 finish；否则用最小下一步修复来 block。"
-        ),
-        (
-            "      Close only when the task and verification evidence agree; fail closed when handoff evidence is missing or weak."
-        ): (
+        ): ("      只根据直接证据裁决，不接受空泛完成声称。只有 Builder 和 Inspector handoff 证明任务契约时才 finish；否则用最小下一步修复来 block。"),
+        ("      Close only when the task and verification evidence agree; fail closed when handoff evidence is missing or weak."): (
             "      只有任务和验证证据一致时才收束；handoff evidence 缺失、薄弱或没有覆盖主流程时必须 fail closed。"
         ),
         (
@@ -994,9 +1067,7 @@ def alignment_chinese_bundle_yaml_with_english_visible_names(workdir: str) -> st
     yaml_text = alignment_chinese_bundle_yaml(workdir)
     replacements = {
         '  name: "对齐 Starter Bundle"': '  name: "Aligned Starter Bundle"',
-        '  description: "由 Web alignment flow 生成的 bundle。"': (
-            '  description: "Bundle generated by the Web alignment flow."'
-        ),
+        '  description: "由 Web alignment flow 生成的 bundle。"': ('  description: "Bundle generated by the Web alignment flow."'),
         '    name: "聚焦 Builder"': '    name: "Focused Builder"',
         '    name: "契约 Inspector"': '    name: "Contract Inspector"',
         '    name: "证据 Inspector"': '    name: "Evidence Inspector"',
@@ -1009,62 +1080,79 @@ def alignment_chinese_bundle_yaml_with_english_visible_names(workdir: str) -> st
 
 def alignment_improvement_bundle_yaml(workdir: str) -> str:
     yaml_text = alignment_bundle_yaml(workdir)
-    return yaml_text.replace(
-        (
-            "  Project the working agreement into a spec task contract for the focused starter slice, "
-            "role handoffs from Builder / Inspectors / GateKeeper, and a workflow that routes evidence "
-            "before final judgment. Prefer a smaller proven flow over polished but unproven breadth, "
-            "and let GateKeeper reject speed or surface completeness when evidence is weak. GateKeeper "
-            "closes only when the spec, role evidence, and workflow handoffs prove the task is truly done. "
-            "Evidence projection must distinguish Proven direct run proof, Weak indirect evidence, Unproven "
-            "promised surfaces, Blocking fake-done findings, and visible Residual risk.\n"
-        ),
-        (
-            "  Preserve the source Loop's stable task intent, workdir, and useful role posture while "
-            "changing the feedback-driven governance delta across spec, roles, workflow, evidence "
-            "expectations, and GateKeeper strictness. Run evidence, coverage, evidence summary, and "
-            "GateKeeper verdict should drive which claims become Proven, Weak, Unproven, Blocking, "
-            "or visible Residual risk.\n"
-        ),
-    ).replace(
-        "    - Prefer project-owned checks, direct run output, and concrete artifacts before screenshots or claims.\n",
-        "    - Preserve source intent, but tighten evidence expectations from feedback, run evidence, coverage, and GateKeeper verdict before screenshots or claims.\n",
-    ).replace(
-        '  collaboration_intent: "Build one focused starter slice, inspect the contract and evidence in parallel so weak evidence, drift, or fake done surface early, then let GateKeeper finish only when both inspection branches support the task contract."',
-        '  collaboration_intent: "Preserve the source Loop shape where it still fits, but route the feedback-driven evidence delta through parallel contract and evidence review so evidence gaps surface early before GateKeeper closes."',
+    return (
+        yaml_text.replace(
+            (
+                "  Project the working agreement into a spec task contract for the focused starter slice, "
+                "role handoffs from Builder / Inspectors / GateKeeper, and a workflow that routes evidence "
+                "before final judgment. Prefer a smaller proven flow over polished but unproven breadth, "
+                "and let GateKeeper reject speed or surface completeness when evidence is weak. GateKeeper "
+                "closes only when the spec, role evidence, and workflow handoffs prove the task is truly done. "
+                "Evidence projection must distinguish Proven direct run proof, Weak indirect evidence, Unproven "
+                "promised surfaces, Blocking fake-done findings, and visible Residual risk.\n"
+            ),
+            (
+                "  Preserve the source Loop's stable task intent, workdir, and useful role posture while "
+                "changing the feedback-driven governance delta across spec, roles, workflow, evidence "
+                "expectations, and GateKeeper strictness. Run evidence, coverage, evidence summary, and "
+                "GateKeeper verdict should drive which claims become Proven, Weak, Unproven, Blocking, "
+                "or visible Residual risk.\n"
+            ),
+        )
+        .replace(
+            "    - Prefer project-owned checks, direct run output, and concrete artifacts before screenshots or claims.\n",
+            "    - Preserve source intent, but tighten evidence expectations from feedback, run evidence, coverage, and GateKeeper verdict before screenshots or claims.\n",
+        )
+        .replace(
+            '  collaboration_intent: "Build one focused starter slice, inspect the contract and evidence in parallel so weak evidence, drift, or fake done surface early, then let GateKeeper finish only when both inspection branches support the task contract."',
+            '  collaboration_intent: "Preserve the source Loop shape where it still fits, but route the feedback-driven evidence delta through parallel contract and evidence review so evidence gaps surface early before GateKeeper closes."',
+        )
     )
 
 
 def alignment_chinese_improvement_bundle_yaml(workdir: str) -> str:
     yaml_text = alignment_chinese_bundle_yaml(workdir)
-    return yaml_text.replace(
-        (
-            "  将工作协议投影到 spec 任务契约、Builder / Inspector / GateKeeper 角色交接，以及先汇集证据再裁决的 workflow。"
-            "优先选择小而已证明的主流程，而不是打磨充分但未证明的宽泛功能；证据薄弱时让 GateKeeper 拒绝速度或表面完整性。"
-            "GateKeeper 只有在任务契约、角色证据和 workflow handoff 都证明真实完成时才收束。"
-            "证据投影必须区分已证明的直接运行证据、弱证据、未证明的承诺面、阻断类假完成，以及可见残余风险。\n"
-        ),
-        (
-            "  保留来源 Loop 的稳定任务意图、workdir 和有用角色姿态，同时把反馈驱动的治理变化投影到 spec、roles、workflow、证据期望和 GateKeeper 严格度。"
-            "运行证据、coverage、evidence summary 和 GateKeeper verdict 应决定哪些 claim 进入已证明、弱证据、未证明、阻断或可见残余风险。\n"
-        ),
-    ).replace(
-        "    - 优先使用项目内检查、直接运行输出和具体产物，而不是截图或口头声称。\n",
-        "    - 保留来源意图，但根据反馈、运行证据、coverage 和 GateKeeper verdict 收紧证据期望，而不是依赖截图或口头声称。\n",
-    ).replace(
-        '  collaboration_intent: "先构建一个聚焦 starter slice，再并行检查契约和证据，让证据薄弱、偏差或假完成提前暴露；只有两条检查分支都支持任务契约时，GateKeeper 才能 finish。"',
-        '  collaboration_intent: "保留来源 Loop 中仍然有效的形状，但把反馈驱动的证据变化通过并行契约和证据 review 暴露出来，再路由到 GateKeeper 收束。"',
+    return (
+        yaml_text.replace(
+            (
+                "  将工作协议投影到 spec 任务契约、Builder / Inspector / GateKeeper 角色交接，以及先汇集证据再裁决的 workflow。"
+                "优先选择小而已证明的主流程，而不是打磨充分但未证明的宽泛功能；证据薄弱时让 GateKeeper 拒绝速度或表面完整性。"
+                "GateKeeper 只有在任务契约、角色证据和 workflow handoff 都证明真实完成时才收束。"
+                "证据投影必须区分已证明的直接运行证据、弱证据、未证明的承诺面、阻断类假完成，以及可见残余风险。\n"
+            ),
+            (
+                "  保留来源 Loop 的稳定任务意图、workdir 和有用角色姿态，同时把反馈驱动的治理变化投影到 spec、roles、workflow、证据期望和 GateKeeper 严格度。"
+                "运行证据、coverage、evidence summary 和 GateKeeper verdict 应决定哪些 claim 进入已证明、弱证据、未证明、阻断或可见残余风险。\n"
+            ),
+        )
+        .replace(
+            "    - 优先使用项目内检查、直接运行输出和具体产物，而不是截图或口头声称。\n",
+            "    - 保留来源意图，但根据反馈、运行证据、coverage 和 GateKeeper verdict 收紧证据期望，而不是依赖截图或口头声称。\n",
+        )
+        .replace(
+            '  collaboration_intent: "先构建一个聚焦 starter slice，再并行检查契约和证据，让证据薄弱、偏差或假完成提前暴露；只有两条检查分支都支持任务契约时，GateKeeper 才能 finish。"',
+            '  collaboration_intent: "保留来源 Loop 中仍然有效的形状，但把反馈驱动的证据变化通过并行契约和证据 review 暴露出来，再路由到 GateKeeper 收束。"',
+        )
     )
 
 
 def alignment_bundle_yaml_with_unsupported_observed_workdir_claim(workdir: str) -> str:
     yaml_text = alignment_bundle_yaml(workdir)
     return yaml_text.replace(
-        (
-            "    Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow."
-        ),
+        ("    Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow."),
         (
             "    Observed Workdir Snapshot shows a React frontend app with npm build scripts. "
+            "Ship the focused starter experience with small, maintainable changes."
+        ),
+    )
+
+
+def alignment_bundle_yaml_with_governance_markers_listed_as_facts(workdir: str) -> str:
+    yaml_text = alignment_bundle_yaml(workdir)
+    return yaml_text.replace(
+        ("    Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow."),
+        (
+            "    Workdir Snapshot detected AGENTS.md, design/README.md, design/, and tests/. "
             "Ship the focused starter experience with small, maintainable changes."
         ),
     )
@@ -1073,9 +1161,7 @@ def alignment_bundle_yaml_with_unsupported_observed_workdir_claim(workdir: str) 
 def alignment_bundle_yaml_with_lineage_metadata(workdir: str) -> str:
     return alignment_bundle_yaml(workdir).replace(
         '  description: "Bundle generated by the Web alignment flow."\n',
-        '  description: "Bundle generated by the Web alignment flow."\n'
-        '  source_bundle_id: "source_bundle_old"\n'
-        "  revision: 2\n",
+        '  description: "Bundle generated by the Web alignment flow."\n  source_bundle_id: "source_bundle_old"\n  revision: 2\n',
         1,
     )
 
@@ -1124,6 +1210,9 @@ def _builder_payload(iter_id: int) -> dict:
         "assumption": "The highest-impact gain is still the primary path with evidence Inspector can verify.",
         "summary": "Applied a focused change strategy and left the proof surface for Inspector and GateKeeper.",
         "changed_files": [],
+        "proof_files": [],
+        "proof_artifacts": [],
+        "artifact_paths": [],
     }
 
 
@@ -1212,10 +1301,14 @@ def _fake_check_notes(check: dict, status: str) -> str:
 
 
 def _verifier_payload(scenario: str, iter_id: int, request, check_count: int) -> dict:
-    tester_output = request.extra_context.get("inspector_output") or request.extra_context.get("tester_output") or {
-        "execution_summary": {"total_checks": check_count, "passed": 0},
-        "check_results": [],
-    }
+    tester_output = (
+        request.extra_context.get("inspector_output")
+        or request.extra_context.get("tester_output")
+        or {
+            "execution_summary": {"total_checks": check_count, "passed": 0},
+            "check_results": [],
+        }
+    )
     total_checks = max(tester_output["execution_summary"]["total_checks"], 1)
     passed_checks = tester_output["execution_summary"]["passed"]
     composite = 0.62 if scenario == "plateau" and iter_id < 2 else 0.621 if scenario == "plateau" else round(min(0.45 + iter_id * 0.25, 1.0), 3)
@@ -1270,6 +1363,8 @@ def _verifier_payload(scenario: str, iter_id: int, request, check_count: int) ->
         "feedback_to_generator": "Repair the smallest Blocking or Unproven gap without lowering the frozen contract.",
         "evidence_refs": evidence_refs if passed else [],
         "evidence_claims": evidence_claims,
+        "residual_risks": [],
+        "coverage_results": [],
     }
 
 
@@ -1281,20 +1376,10 @@ def _fake_gatekeeper_evidence_claims(
 ) -> list[str]:
     if passed:
         joined_refs = ", ".join(evidence_refs) if evidence_refs else "measured gate metrics"
-        return [
-            (
-                "Proven: GateKeeper cited upstream evidence refs "
-                f"({joined_refs}) and kept run status separate from task verdict."
-            )
-        ]
+        return [(f"Proven: GateKeeper cited upstream evidence refs ({joined_refs}) and kept run status separate from task verdict.")]
     if failed_check_ids:
         joined_checks = ", ".join(failed_check_ids[:4])
-        return [
-            (
-                "Blocking: compiled checks remain unpassed "
-                f"({joined_checks}), so the task contract cannot be lowered to close the run."
-            )
-        ]
+        return [(f"Blocking: compiled checks remain unpassed ({joined_checks}), so the task contract cannot be lowered to close the run.")]
     return ["Unproven: quality evidence is still below the GateKeeper threshold."]
 
 
@@ -1303,7 +1388,11 @@ def _evidence_refs(request) -> list[str]:
     evidence_items = []
     if isinstance(context_packet, dict):
         evidence_items = list((context_packet.get("evidence") or {}).get("items") or [])
-    return [str(item.get("id")) for item in evidence_items if isinstance(item, dict) and str(item.get("id") or "").strip()][-3:]
+    return [
+        str(item.get("id"))
+        for item in evidence_items
+        if isinstance(item, dict) and str(item.get("id") or "").strip() and str(item.get("archetype") or "").strip().lower() != "gatekeeper"
+    ][-3:]
 
 
 def _challenger_payload(iter_id: int, request) -> dict:

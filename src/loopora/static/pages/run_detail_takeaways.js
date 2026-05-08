@@ -81,14 +81,17 @@
     }
 
     function evidenceBucketCount(snapshot, bucketName) {
+      return bucketItems(snapshot, bucketName).length;
+    }
+
+    function bucketItems(snapshot, bucketName) {
       const buckets = snapshot?.task_verdict?.buckets || snapshot?.evidence_buckets || {};
-      return Array.isArray(buckets[bucketName]) ? buckets[bucketName].length : 0;
+      return Array.isArray(buckets[bucketName]) ? buckets[bucketName] : [];
     }
 
     function firstBucketText(snapshot, ...bucketNames) {
-      const buckets = snapshot?.task_verdict?.buckets || snapshot?.evidence_buckets || {};
       for (const bucketName of bucketNames) {
-        const items = Array.isArray(buckets[bucketName]) ? buckets[bucketName] : [];
+        const items = bucketItems(snapshot, bucketName);
         const item = items[0];
         if (!item) {
           continue;
@@ -99,6 +102,43 @@
         }
       }
       return "";
+    }
+
+    function bucketTraceText(snapshot, bucketName) {
+      const evidenceRefs = new Set();
+      const artifactRefs = new Set();
+      for (const item of bucketItems(snapshot, bucketName)) {
+        if (Array.isArray(item?.evidence_refs)) {
+          item.evidence_refs.forEach((ref) => {
+            const value = String(ref || "").trim();
+            if (value) {
+              evidenceRefs.add(value);
+            }
+          });
+        }
+        if (Array.isArray(item?.artifact_refs)) {
+          item.artifact_refs.forEach((ref) => {
+            const value = String(ref?.workspace_path || ref?.relative_path || ref?.absolute_path || ref?.label || JSON.stringify(ref || {})).trim();
+            if (value) {
+              artifactRefs.add(value);
+            }
+          });
+        }
+      }
+      const bits = [];
+      if (evidenceRefs.size) {
+        bits.push(localeText(`证据引用 ${evidenceRefs.size} 条`, `${evidenceRefs.size} evidence ref${evidenceRefs.size === 1 ? "" : "s"}`));
+      }
+      if (artifactRefs.size) {
+        bits.push(localeText(`产物 ${artifactRefs.size} 个`, `${artifactRefs.size} artifact${artifactRefs.size === 1 ? "" : "s"}`));
+      }
+      return bits.join(" · ");
+    }
+
+    function bucketDetailText(snapshot, bucketName, fallback = "") {
+      return [firstBucketText(snapshot, bucketName) || fallback, bucketTraceText(snapshot, bucketName)]
+        .filter(Boolean)
+        .join(" · ");
     }
 
     function taskVerdictStatusLabel(status) {
@@ -126,10 +166,13 @@
 
     function evidenceCoverageHtml(snapshot, runId) {
       const coverage = snapshot?.evidence_coverage || {};
+      const manifest = snapshot?.evidence_manifest || {};
       const evidenceCount = Number(coverage.evidence_count || snapshot?.evidence_count || 0);
       const checkCount = Number(coverage.check_count || 0);
       const coveredChecks = Number(coverage.covered_check_count || 0);
       const coveragePath = String(coverage.coverage_path || "");
+      const manifestPath = String(manifest.manifest_path || "");
+      const taskVerdictPath = String(snapshot?.task_verdict_path || "");
       const gatekeeperRefs = Array.isArray(coverage.latest_gatekeeper?.evidence_refs)
         ? coverage.latest_gatekeeper.evidence_refs.length
         : 0;
@@ -138,22 +181,47 @@
       const traceAction = coveragePath
         ? `<a class="takeaway-evidence-link" href="/api/runs/${encodeURIComponent(runId)}/artifacts/evidence-coverage" target="_blank" rel="noreferrer">${escapeHtml(localeText("查看证据链", "View trace"))}</a>`
         : "";
+      const manifestAction = manifestPath
+        ? `<a class="takeaway-evidence-link" href="/api/runs/${encodeURIComponent(runId)}/artifacts/evidence-manifest" target="_blank" rel="noreferrer">${escapeHtml(localeText("查看证据清单", "View manifest"))}</a>`
+        : "";
+      const verdictAction = taskVerdictPath
+        ? `<a class="takeaway-evidence-link" href="/api/runs/${encodeURIComponent(runId)}/artifacts/task-verdict" target="_blank" rel="noreferrer">${escapeHtml(localeText("查看裁决", "View verdict"))}</a>`
+        : "";
       const statusDetail = statusReason
         ? statusReason
         : coverage.ledger_path
           ? localeText(`${evidenceCount} 条证据 · 账本 ${coverage.ledger_path}`, `${evidenceCount} evidence item${evidenceCount === 1 ? "" : "s"} · Ledger ${coverage.ledger_path}`)
           : localeText("运行开始后会写入证据账本。", "The ledger appears after the run starts.");
+      const claimCount = Number(manifest.claim_count || 0);
+      const directProofCount = Number(manifest.direct_proof_claim_count || 0);
+      const workspaceArtifactCount = Number(manifest.workspace_artifact_claim_count || 0);
+      const runArtifactCount = Number(manifest.run_artifact_claim_count || 0);
+      const ledgerOnlyCount = Number(manifest.ledger_only_claim_count || 0);
+      const unverifiedCount = Number(manifest.unverified_claim_count || 0);
+      const proofDetail = manifestPath
+        ? localeText(
+          `直接证明 ${directProofCount} · 工作区产物 ${workspaceArtifactCount} · 运行产物 ${runArtifactCount} · 仅账本 ${ledgerOnlyCount} · 未验证 ${unverifiedCount}`,
+          `Direct ${directProofCount} · workspace ${workspaceArtifactCount} · run artifact ${runArtifactCount} · ledger-only ${ledgerOnlyCount} · unverified ${unverifiedCount}`
+        )
+        : localeText("证据清单会在证据账本落账后生成。", "The evidence manifest appears after ledger claims are written.");
       const provenCount = evidenceBucketCount(snapshot, "proven");
       const weakBucketCount = evidenceBucketCount(snapshot, "weak");
       const unprovenCount = evidenceBucketCount(snapshot, "unproven");
       const blockingCount = evidenceBucketCount(snapshot, "blocking");
       const riskCount = evidenceBucketCount(snapshot, "residual_risk") || Number(coverage.residual_risk_count || 0);
       return [
-        evidenceCoverageCard("裁决状态", "Verdict status", taskVerdictStatusLabel(snapshot?.task_verdict?.status), statusDetail, traceAction),
-        evidenceCoverageCard("已证明", "Proven", String(provenCount || coveredChecks || 0), firstBucketText(snapshot, "proven") || (checkCount ? `${coveredChecks}/${checkCount}` : "")),
-        evidenceCoverageCard("偏弱", "Weak", String(weakBucketCount), firstBucketText(snapshot, "weak")),
-        evidenceCoverageCard("未证明", "Unproven", String(unprovenCount), firstBucketText(snapshot, "unproven") || primaryGap?.text || ""),
-        evidenceCoverageCard("阻断 / 风险", "Blockers / risk", `${blockingCount}/${riskCount}`, firstBucketText(snapshot, "blocking", "residual_risk") || (gatekeeperRefs ? localeText("守门者已引用上游证据。", "GateKeeper cited upstream evidence.") : "")),
+        evidenceCoverageCard("裁决状态", "Verdict status", taskVerdictStatusLabel(snapshot?.task_verdict?.status), statusDetail, `${verdictAction}${traceAction}`),
+        evidenceCoverageCard("证明强度", "Proof strength", claimCount ? `${directProofCount}/${claimCount}` : "-", proofDetail, manifestAction),
+        evidenceCoverageCard("已证明", "Proven", String(provenCount || coveredChecks || 0), bucketDetailText(snapshot, "proven", checkCount ? `${coveredChecks}/${checkCount}` : "")),
+        evidenceCoverageCard("偏弱", "Weak", String(weakBucketCount), bucketDetailText(snapshot, "weak")),
+        evidenceCoverageCard("未证明", "Unproven", String(unprovenCount), bucketDetailText(snapshot, "unproven", primaryGap?.text || "")),
+        evidenceCoverageCard(
+          "阻断",
+          "Blocking",
+          String(blockingCount),
+          bucketDetailText(snapshot, "blocking", gatekeeperRefs ? localeText("守门者已引用上游证据。", "GateKeeper cited upstream evidence.") : "")
+        ),
+        evidenceCoverageCard("残余风险", "Residual risk", String(riskCount), bucketDetailText(snapshot, "residual_risk")),
       ].join("");
     }
 
@@ -166,9 +234,19 @@
       const missingCount = Number(coverage.missing_target_count || 0);
       const blockedCount = Number(coverage.blocked_target_count || 0);
       const primaryGap = Array.isArray(coverage.top_gaps) && coverage.top_gaps.length ? coverage.top_gaps[0] : null;
-      if (taskStatus === "passed" || taskStatus === "passed_with_residual_risk") {
+      if (taskStatus === "passed_with_residual_risk") {
         return {
-          soft: taskStatus === "passed",
+          soft: false,
+          title: taskVerdictStatusLabel(taskStatus),
+          detail: taskVerdict.summary || firstBucketText(snapshot, "residual_risk") || localeText(
+            "Loop 裁决已通过，但仍保留可见且已接受的残余风险。",
+            "The task verdict passed, with accepted residual risk still visible."
+          ),
+        };
+      }
+      if (taskStatus === "passed") {
+        return {
+          soft: true,
           title: taskVerdictStatusLabel(taskStatus),
           detail: taskVerdict.summary || localeText(
             "Loop 裁决由证据桶支撑；可继续查看已证明 / 残余风险的明细。",
@@ -210,6 +288,19 @@
       const bits = [];
       if (iteration?.composite_score !== null && iteration?.composite_score !== undefined) {
         bits.push(localeText(`综合分 ${formatScore(iteration.composite_score)}`, `Composite ${formatScore(iteration.composite_score)}`));
+      }
+      const evidenceProgressMode = String(iteration?.evidence_progress_mode || "none");
+      const coveredChecks = Number(iteration?.covered_check_count || 0);
+      const missingChecks = Number(iteration?.missing_check_count || 0);
+      const noCoverageDelta = Number(iteration?.consecutive_no_required_coverage_delta || 0);
+      if (evidenceProgressMode !== "none") {
+        bits.push(localeText("证据进展停滞", "Evidence progress stalled"));
+      }
+      if (coveredChecks || missingChecks) {
+        bits.push(localeText(`覆盖 ${coveredChecks} 已证明 / ${missingChecks} 缺口`, `Coverage ${coveredChecks} covered / ${missingChecks} missing`));
+      }
+      if (noCoverageDelta > 0) {
+        bits.push(localeText(`${noCoverageDelta} 轮无新增覆盖`, `${noCoverageDelta} no-coverage-delta iter${noCoverageDelta === 1 ? "" : "s"}`));
       }
       if (iteration?.role_count) {
         bits.push(localeText(`${iteration.role_count} 条角色结论`, `${iteration.role_count} role conclusion${iteration.role_count === 1 ? "" : "s"}`));

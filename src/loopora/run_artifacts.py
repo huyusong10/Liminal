@@ -116,6 +116,14 @@ RUN_ARTIFACT_SPECS = (
         "description_zh": "从证据账本和覆盖投影派生的 claim、producer、proof artifact 与可复验状态索引。",
         "description_en": "A derived claim, producer, proof artifact, and verification-state index rebuilt from the evidence ledger and coverage projection.",
     },
+    {
+        "id": "task-verdict",
+        "relative_path": "evidence/task_verdict.json",
+        "label_zh": "任务裁决",
+        "label_en": "Task verdict",
+        "description_zh": "终态任务裁决，说明证据是否足以支持通过、拒绝或保留残余风险。",
+        "description_en": "The final task verdict explaining whether evidence supports a pass, rejection, or accepted residual risk.",
+    },
 )
 
 STEP_ARTIFACT_FILENAMES = {
@@ -274,6 +282,10 @@ class RunArtifactLayout:
     @property
     def evidence_manifest_path(self) -> Path:
         return self.evidence_dir / "manifest.json"
+
+    @property
+    def task_verdict_path(self) -> Path:
+        return self.evidence_dir / "task_verdict.json"
 
     @property
     def iterations_dir(self) -> Path:

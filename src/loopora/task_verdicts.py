@@ -22,6 +22,19 @@ TARGET_STATUS_BUCKETS = {
     "weak": "weak",
     "blocked": "blocking",
 }
+NO_RESIDUAL_RISK_MARKERS = {
+    "none",
+    "n/a",
+    "na",
+    "no residual risk",
+    "no blocking residual risk",
+    "no blocking residual risk was reported by gatekeeper",
+    "no meaningful residual risk",
+    "无",
+    "无残余风险",
+    "没有残余风险",
+    "没有阻断残余风险",
+}
 
 
 def hydrate_run_status_and_task_verdict(run: dict) -> dict:
@@ -58,7 +71,7 @@ def build_task_verdict(
     source = "legacy" if legacy else "run_status"
     status = "not_evaluated"
 
-    gatekeeper_status = _status_from_gatekeeper(raw_verdict, buckets)
+    gatekeeper_status = _status_from_gatekeeper(raw_verdict, buckets, coverage, require_coverage=not legacy)
     if gatekeeper_status:
         status = gatekeeper_status
         source = "legacy" if legacy else "gatekeeper"
@@ -144,6 +157,7 @@ def _target_bucket_item(target: Mapping[str, Any]) -> dict:
         "text": _clean_text(target.get("text"), max_length=240),
         "reason": _clean_text(target.get("reason"), max_length=240),
         "evidence_refs": [str(ref) for ref in list(target.get("evidence_refs") or []) if str(ref).strip()],
+        "artifact_refs": list(target.get("artifact_refs") or [])[:12],
         "required": bool(target.get("required")),
     }
 
@@ -172,14 +186,69 @@ def _append_legacy_evidence_buckets(buckets: dict[str, list[dict]], verdict: Map
         buckets["proven"].append({"label": ref, "reason": "Referenced by the latest raw verdict."})
 
 
-def _status_from_gatekeeper(verdict: Mapping[str, Any], buckets: Mapping[str, list[dict]]) -> str:
+def _status_from_gatekeeper(
+    verdict: Mapping[str, Any],
+    buckets: Mapping[str, list[dict]],
+    coverage: Mapping[str, Any],
+    *,
+    require_coverage: bool,
+) -> str:
     if not verdict:
         return ""
     if verdict.get("passed") is True:
-        return "passed"
+        return _passed_gatekeeper_status(verdict, coverage, require_coverage=require_coverage)
     if verdict.get("passed") is False:
         return "failed" if buckets.get("blocking") or _verdict_blockers(verdict) else "insufficient_evidence"
     return ""
+
+
+def _passed_gatekeeper_status(verdict: Mapping[str, Any], coverage: Mapping[str, Any], *, require_coverage: bool) -> str:
+    required_coverage_status = _required_coverage_status(coverage)
+    if required_coverage_status == "blocked":
+        return "failed"
+    if required_coverage_status == "incomplete" or (require_coverage and required_coverage_status == "unknown"):
+        return "insufficient_evidence"
+    if _gatekeeper_reports_meaningful_residual_risk(verdict, coverage):
+        return "passed_with_residual_risk"
+    return "passed"
+
+
+def _gatekeeper_reports_meaningful_residual_risk(
+    verdict: Mapping[str, Any],
+    coverage: Mapping[str, Any],
+) -> bool:
+    risks: list[str] = []
+    risks.extend(_string_list(verdict.get("residual_risks")))
+    risks.extend(_string_list(verdict.get("residual_risk")))
+    latest_gatekeeper = coverage.get("latest_gatekeeper")
+    if isinstance(latest_gatekeeper, Mapping):
+        risks.extend(_string_list(latest_gatekeeper.get("residual_risk")))
+    return any(_is_meaningful_gatekeeper_residual_risk(risk) for risk in risks)
+
+
+def _required_coverage_status(coverage: Mapping[str, Any]) -> str:
+    targets = coverage.get("targets")
+    if not isinstance(targets, list):
+        return "unknown"
+    required_targets = [target for target in targets if isinstance(target, Mapping) and target.get("required")]
+    if not required_targets:
+        return "unknown"
+    statuses = {str(target.get("status") or "missing").strip().lower() for target in required_targets}
+    if "blocked" in statuses:
+        return "blocked"
+    if any(status != "covered" for status in statuses):
+        return "incomplete"
+    return "covered"
+
+
+def _is_meaningful_gatekeeper_residual_risk(value: object) -> bool:
+    text = _clean_text(value, max_length=240)
+    normalized = text.lower().strip(" .。")
+    if not normalized:
+        return False
+    if normalized in NO_RESIDUAL_RISK_MARKERS:
+        return False
+    return not (normalized.startswith("no ") and "residual risk" in normalized)
 
 
 def _summary_for(
@@ -189,15 +258,12 @@ def _summary_for(
     verdict: Mapping[str, Any],
     coverage: Mapping[str, Any],
 ) -> str:
-    summary = ""
+    coverage_summary = coverage.get("summary") if isinstance(coverage.get("summary"), Mapping) else {}
+    coverage_reason = _clean_text(coverage_summary.get("reason"), max_length=600)
+    if verdict.get("passed") is True and status in {"failed", "insufficient_evidence"} and coverage_reason:
+        return coverage_reason
     decision_summary = _clean_text(verdict.get("decision_summary"), max_length=600)
-    if decision_summary:
-        summary = decision_summary
-    else:
-        coverage_summary = coverage.get("summary") if isinstance(coverage.get("summary"), Mapping) else {}
-        coverage_reason = _clean_text(coverage_summary.get("reason"), max_length=600)
-        summary = coverage_reason or _fallback_summary_for(status, source, run_status)
-    return summary
+    return decision_summary or (coverage_reason or _fallback_summary_for(status, source, run_status))
 
 
 def _fallback_summary_for(status: str, source: str, run_status: str) -> str:
@@ -205,9 +271,7 @@ def _fallback_summary_for(status: str, source: str, run_status: str) -> str:
         "passed": "GateKeeper found sufficient evidence for the task.",
         "passed_with_residual_risk": "GateKeeper passed the task with residual risk still visible.",
         "failed": "The latest judgment reported blocking evidence against the task.",
-        "insufficient_evidence": (
-            "The run reached its lifecycle boundary, but the evidence is not strong enough for a task pass."
-        ),
+        "insufficient_evidence": ("The run reached its lifecycle boundary, but the evidence is not strong enough for a task pass."),
     }
     if source == "legacy":
         return "This legacy run has no persisted task verdict; Loopora derived a compatibility verdict on read."

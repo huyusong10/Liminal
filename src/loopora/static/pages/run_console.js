@@ -292,6 +292,15 @@ document.addEventListener("DOMContentLoaded", () => {
         text: prettyJson(payload),
       })];
     }
+    if (event.event_type === "run_result_accepted") {
+      return [buildConsoleEntry(event, {
+        tone: "success",
+        channel: "state",
+        filterKey: "result",
+        summary: localeText("已接受结论", "Conclusion accepted"),
+        text: prettyJson(payload),
+      })];
+    }
     if (event.event_type === "run_finished") {
       return [buildConsoleEntry(event, {
         tone: payload.status === "succeeded" ? "success" : "warning",
@@ -654,6 +663,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "role_degraded",
     "challenger_done",
     "stop_requested",
+    "run_result_accepted",
     "run_aborted",
     "workspace_guard_triggered",
   ];

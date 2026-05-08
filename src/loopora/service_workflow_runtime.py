@@ -16,7 +16,7 @@ from loopora.recovery import RetryConfig
 from loopora.run_artifacts import RunArtifactLayout, read_jsonl
 from loopora.service_role_execution import RoleExecutionRequest
 from loopora.service_types import LooporaError
-from loopora.utils import write_json
+from loopora.utils import read_json, write_json
 from loopora.workflows import WorkflowError, default_step_action_policy, role_uses_execution_snapshot
 
 
@@ -46,6 +46,10 @@ class WorkflowStepRuntimeRequest:
     previous_session_refs_by_step: dict[str, dict]
     previous_composite: float | None
     stagnation_mode: str
+    evidence_progress_mode: str
+    covered_check_count: int
+    missing_check_count: int
+    consecutive_no_required_coverage_delta: int
     retry_config: RetryConfig
 
 
@@ -58,6 +62,86 @@ class StepPromptBuildRequest:
     current_outputs_by_role: dict[str, dict]
     current_outputs_by_archetype: dict[str, dict]
     previous_outputs_by_archetype: dict[str, dict]
+
+
+def _manifest_prompt_context(layout: RunArtifactLayout, known_ids: list[str]) -> tuple[dict, list[dict]]:
+    summary = _empty_manifest_prompt_summary()
+    try:
+        manifest = read_json(layout.evidence_manifest_path)
+    except (OSError, UnicodeError, ValueError):
+        return summary, []
+    if not isinstance(manifest, dict):
+        return summary, []
+    allowed_ids = {str(item).strip() for item in known_ids if str(item).strip()}
+    problem_codes_by_claim: dict[str, list[str]] = {}
+    for problem in list(manifest.get("problems") or []):
+        if not isinstance(problem, dict):
+            continue
+        claim_id = str(problem.get("claim_id") or "").strip()
+        code = str(problem.get("code") or "").strip()
+        if claim_id and code:
+            problem_codes_by_claim.setdefault(claim_id, []).append(code)
+    claims = []
+    for claim in list(manifest.get("claims") or []):
+        if not isinstance(claim, dict):
+            continue
+        claim_id = str(claim.get("id") or "").strip()
+        if not claim_id or claim_id not in allowed_ids:
+            continue
+        claims.append(
+            {
+                "id": claim_id,
+                "verification_status": str(claim.get("verification_status") or "ledger_only").strip(),
+                "measured_evidence": bool(claim.get("measured_evidence")),
+                "concrete_evidence_claim_count": _safe_int(claim.get("concrete_evidence_claim_count")),
+                "artifact_count": _safe_int(claim.get("artifact_count")),
+                "artifact_backed": bool(claim.get("artifact_backed")),
+                "workspace_backed": bool(claim.get("workspace_backed")),
+                "reproducible": bool(claim.get("reproducible")),
+                "coverage_targets": _claim_target_ids(claim),
+                "problem_codes": problem_codes_by_claim.get(claim_id, [])[:8],
+            }
+        )
+    summary = {
+        "claim_count": len(claims),
+        "direct_proof_claim_count": sum(1 for claim in claims if claim["verification_status"] == "direct_proof"),
+        "workspace_artifact_claim_count": sum(1 for claim in claims if claim["verification_status"] == "workspace_artifact"),
+        "run_artifact_claim_count": sum(1 for claim in claims if claim["verification_status"] == "run_artifact"),
+        "ledger_only_claim_count": sum(1 for claim in claims if claim["verification_status"] == "ledger_only"),
+        "unverified_claim_count": sum(1 for claim in claims if claim["verification_status"] == "unverified"),
+        "problem_count": sum(len(claim["problem_codes"]) for claim in claims),
+    }
+    return summary, claims[-40:]
+
+
+def _empty_manifest_prompt_summary() -> dict:
+    return {
+        "claim_count": 0,
+        "direct_proof_claim_count": 0,
+        "workspace_artifact_claim_count": 0,
+        "run_artifact_claim_count": 0,
+        "ledger_only_claim_count": 0,
+        "unverified_claim_count": 0,
+        "problem_count": 0,
+    }
+
+
+def _claim_target_ids(claim: dict) -> list[str]:
+    target_ids = []
+    for target in list(claim.get("coverage_targets") or []):
+        if not isinstance(target, dict):
+            continue
+        target_id = str(target.get("id") or "").strip()
+        if target_id:
+            target_ids.append(target_id)
+    return target_ids[:20]
+
+
+def _safe_int(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 class ServiceWorkflowRuntimeMixin:
@@ -83,11 +167,7 @@ class ServiceWorkflowRuntimeMixin:
         selectors = [str(item).strip() for item in list(inputs.get("handoffs_from") or []) if str(item).strip()]
         if not selectors:
             return list(handoffs)
-        return [
-            handoff
-            for handoff in handoffs
-            if any(self._matches_handoff_selector(handoff, selector) for selector in selectors)
-        ]
+        return [handoff for handoff in handoffs if any(self._matches_handoff_selector(handoff, selector) for selector in selectors)]
 
     def _iteration_memory_for_step(
         self,
@@ -132,6 +212,15 @@ class ServiceWorkflowRuntimeMixin:
         limit = max(1, min(limit, 100))
         return filtered[-limit:]
 
+    def _step_declares_evidence_query(self, step: dict) -> bool:
+        inputs = self._step_inputs(step)
+        query = inputs.get("evidence_query")
+        return isinstance(query, dict) and bool(query)
+
+    @staticmethod
+    def _evidence_known_ids(evidence_items: list[dict]) -> list[str]:
+        return [str(item.get("id")) for item in evidence_items if isinstance(item, dict) and str(item.get("id") or "").strip()]
+
     def _run_workflow_step(
         self,
         request: WorkflowStepRuntimeRequest,
@@ -154,11 +243,6 @@ class ServiceWorkflowRuntimeMixin:
         runtime_role = self._runtime_role_key(role)
         all_evidence_items = read_jsonl(layout.evidence_ledger_path)
         evidence_items = all_evidence_items[-40:]
-        evidence_known_ids = [
-            str(item.get("id"))
-            for item in all_evidence_items
-            if isinstance(item, dict) and str(item.get("id") or "").strip()
-        ]
         current_handoffs_for_step = self._filter_handoffs_for_step(step, runtime_request.current_handoffs)
         (
             previous_iteration_same_step_for_step,
@@ -171,6 +255,8 @@ class ServiceWorkflowRuntimeMixin:
             previous_iteration_summary=runtime_request.previous_iteration_summary,
         )
         evidence_items = self._filter_evidence_for_step(step, evidence_items)
+        evidence_known_ids = self._evidence_known_ids(evidence_items if self._step_declares_evidence_query(step) else all_evidence_items)
+        evidence_manifest_summary, evidence_manifest_claims = _manifest_prompt_context(layout, evidence_known_ids)
         context_packet = build_step_context_packet(
             StepContextPacketRequest(
                 run_contract=runtime_request.run_contract,
@@ -187,8 +273,14 @@ class ServiceWorkflowRuntimeMixin:
                 previous_iteration_summary=previous_iteration_summary_for_step,
                 previous_composite=runtime_request.previous_composite,
                 stagnation_mode=runtime_request.stagnation_mode,
+                evidence_progress_mode=runtime_request.evidence_progress_mode,
+                covered_check_count=runtime_request.covered_check_count,
+                missing_check_count=runtime_request.missing_check_count,
+                consecutive_no_required_coverage_delta=runtime_request.consecutive_no_required_coverage_delta,
                 evidence_items=evidence_items,
                 evidence_known_ids=evidence_known_ids,
+                evidence_manifest_summary=evidence_manifest_summary,
+                evidence_manifest_claims=evidence_manifest_claims,
             )
         )
         context_path = layout.step_context_path(iter_id, step_order, step["id"])
@@ -220,11 +312,7 @@ class ServiceWorkflowRuntimeMixin:
             packet=context_packet,
             compiled_spec=runtime_request.compiled_spec,
         )
-        resume_session_ref = (
-            runtime_request.previous_session_refs_by_step.get(step["id"])
-            if execution_settings["inherit_session"]
-            else None
-        )
+        resume_session_ref = runtime_request.previous_session_refs_by_step.get(step["id"]) if execution_settings["inherit_session"] else None
         role_request = RoleRequest(
             run_id=run["id"],
             role=runtime_role,
@@ -281,6 +369,10 @@ class ServiceWorkflowRuntimeMixin:
                 "previous_guide_result": runtime_request.previous_outputs_by_archetype.get("guide"),
                 "previous_challenger_result": runtime_request.previous_outputs_by_archetype.get("guide"),
                 "stagnation_mode": runtime_request.stagnation_mode,
+                "evidence_progress_mode": runtime_request.evidence_progress_mode,
+                "covered_check_count": runtime_request.covered_check_count,
+                "missing_check_count": runtime_request.missing_check_count,
+                "consecutive_no_required_coverage_delta": runtime_request.consecutive_no_required_coverage_delta,
             },
         )
         self._record_role_request(run["id"], role_request)
@@ -301,9 +393,9 @@ class ServiceWorkflowRuntimeMixin:
                     role=runtime_role,
                 ),
                 lambda: self.repository.should_stop(run["id"]),
-                lambda pid: self.repository.update_run(run["id"], child_pid=pid)
-                if pid is not None
-                else self.repository.update_run(run["id"], clear_child_pid=True),
+                lambda pid: (
+                    self.repository.update_run(run["id"], child_pid=pid) if pid is not None else self.repository.update_run(run["id"], clear_child_pid=True)
+                ),
             )
 
         output = self._execute_role(
@@ -418,9 +510,7 @@ class ServiceWorkflowRuntimeMixin:
                 "contract": {
                     "path": "contract/run_contract.json",
                     "goal": str(request.compiled_spec.get("goal") or "").strip(),
-                    "constraints": str(
-                        request.compiled_spec.get("constraints") or "No explicit constraints were provided."
-                    ).strip(),
+                    "constraints": str(request.compiled_spec.get("constraints") or "No explicit constraints were provided.").strip(),
                     "check_mode": str(request.compiled_spec.get("check_mode") or "specified"),
                     "check_count": len(request.compiled_spec.get("checks") or []),
                     "completion_mode": "gatekeeper",
@@ -438,6 +528,10 @@ class ServiceWorkflowRuntimeMixin:
                     "previous_iteration_exists": bool(request.previous_outputs_by_archetype),
                     "previous_composite": None,
                     "stagnation_mode": "none",
+                    "evidence_progress_mode": "none",
+                    "covered_check_count": 0,
+                    "missing_check_count": 0,
+                    "consecutive_no_required_coverage_delta": 0,
                 },
                 "current_step": {
                     "step_id": request.role.get("id") or request.role["name"],

@@ -112,9 +112,10 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 - 当 Builder 排在另一个 Builder 之后，若中间存在 Inspector、Custom 或 Guide，后一个 Builder 必须显式读取对应 handoff；若两个 Builder 直接相邻，也应通过 task-specific role posture 或 step input 说明阶段边界，避免依赖 ambient context。
 - Guide step 是只读的方向转换步骤，不会因当前未停滞而被服务层自动跳过。若 workflow 显式安排 Guide，它必须通过 `inputs.handoffs_from` / `inputs.evidence_query` 读取上游审查、阻断或未证明证据；条件式 Guide 应通过 `controls[]` 表达。
 - `inputs.handoffs_from` 可按 step id、role id、runtime role、archetype 或 role name 选择当前轮上游 handoff。
-- `inputs.evidence_query` 可按 evidence 生产角色、验证目标和数量上限裁剪 evidence ledger 摘要；完整 ledger 仍是 canonical source。
+- `inputs.evidence_query` 可按 evidence 生产角色、验证目标和数量上限裁剪 evidence ledger 摘要；显式声明时，下游 prompt 中可引用的 evidence ids 也必须跟随裁剪结果，避免角色绕过 workflow 信息流引用未路由证据。完整 ledger 仍是 canonical source。
 - `inputs.iteration_memory` 可选择 `default / none / same_step / same_role / summary_only`，用于控制轮次间信息传递。
 - `controls[].when.signal` v1 只允许 `no_evidence_progress / role_timeout / step_failed / gatekeeper_rejected`。
+- `no_evidence_progress` 不只表示 composite score 停滞；当多轮后 required `Done When` coverage count 没有增加且仍有缺失 check 时，也应触发同一控制信号，让系统尽早暴露“故事在动但证明没动”。
 - control 只能调用当前 workflow 中已有的 Inspector、Guide 或 GateKeeper；不能调用 Builder，避免自动修复污染工作区。
 - control invocation 是控制检查调用，不插入 canonical workflow 顺序；它只产生 evidence、handoff、blocker 或修复建议。
 - `controls[].max_fires_per_run` 必须是 `1..20` 的有界正整数；显式 `0` 不能在 Web 编辑器、bundle projection 或运行装配中被默认值隐藏。
@@ -178,7 +179,9 @@ workflow 保存前必须满足：
 - `rounds` completion mode 允许没有 GateKeeper。
 - 只有 GateKeeper step 可以声明 `on_pass=finish_run`。
 - evidence ledger item 必须标记证据类型，例如 `handoff`、`inspection`、`verdict`、`advisory` 或 `observation`。
-- GateKeeper 输出通过时必须引用上游 `evidence_refs`；如果 GateKeeper 是本轮第一个证据读取者，则必须提供可度量 `metric_scores` 和具体 `evidence_claims`。自然语言 claims 单独不能结束 run。
+- GateKeeper 输出通过时必须引用上游支持性 `evidence_refs`；Inspector / Custom / control 输出可以作为取证或检视支持，Builder handoff 只有在携带 proof artifact 或 measured evidence 时才可以作为支持。普通 Builder 自述、GateKeeper verdict、blocked / failed / rejected 的上游 evidence 不能作为通过依据。如果 GateKeeper 是本轮第一个证据读取者，则必须提供可度量 `metric_scores` 和具体 `evidence_claims`。自然语言 claims 单独不能结束 run。
+- GateKeeper 输出契约必须包含 `residual_risks` 数组；无残余风险时返回空数组，有可接受残余风险时逐项命名。通过态的有意义 residual risk 会进入 task verdict 的 `passed_with_residual_risk`，不能只藏在 `decision_summary` 自由文本里。
+- GateKeeper 与 Inspector 一样可以通过 `coverage_results` 明确覆盖或拒绝 coverage target；这主要用于 Fake Done 与 Evidence Preferences 这类裁决期风险 / 证据偏好。ledger item 必须保留每条 `coverage_results` 的 `target_id / status / evidence_refs / note`，不能只把 refs 压平成 item 级关系。positive coverage 必须由当前支持性 item、measured evidence，或当前 target 自己的 `coverage_results.evidence_refs` 指向的支持性 evidence 支撑，否则 projection 只能标记为 weak。schema、prompt 与 ledger `verifies` 必须保持一致，不能提示模型输出一个会被 schema 拒绝的字段。
 - `custom` role 可以进入编排，但不能成为收敛裁决入口。
 - 并行组必须是连续 step，且每组至少 2 个 step。
 - 并行组内第一阶段只允许 `inspector` 与 `custom`，不允许 `builder`、`gatekeeper` 或 `guide`，避免并发写入和并发收敛污染 run 状态。
@@ -236,8 +239,10 @@ step 级执行附加项只影响当前 step：
 
 - 首轮必须显式声明没有上一轮结果。
 - 后续轮次必须显式声明轮次编号和上一轮关键结果。
+- 后续轮次必须显式继承 evidence progress 状态：当 required coverage 没有新增证明且仍有缺口时，当前 step prompt 与上一轮 summary 都应暴露 `evidence_progress_mode`、covered / missing check count 和连续无覆盖增量，避免模型只看到分数变化而看不到“故事在动但证明没动”。
 - 系统安全边界、输出契约和 context packet shape 不能被自定义 prompt 绕开。
-- evidence ledger 摘要只传递近期 item、已知 evidence id 列表和 ledger 路径，避免把证据账本全文复制进每个 prompt。
+- evidence ledger 摘要只传递近期 item、已知 evidence id 列表、ledger 路径和当前 step 可引用 claims 的 manifest proof-strength 摘要，避免把证据账本或 manifest 全文复制进每个 prompt。服务层校验 GateKeeper `evidence_refs` 时必须回到 canonical ledger 补全已允许 id 的完整 evidence item；不能因为 prompt 摘要裁剪掉旧 item 就把仍在信息流权限内的 evidence ref 误判为未知或非支持。
+- `inputs.evidence_query` 裁剪 evidence 时，prompt 中的 known ids、manifest claim rows 与 proof-strength summary 都必须跟随同一可引用集合；proof-strength 不得泄露裁剪外证据，也不得让 UI 事后投影成为 GateKeeper 决策时看不到的事实。
 - `inputs` 只能裁剪当前 prompt 的可见上下文，不能改变 run 的 canonical evidence ledger、step output、handoff 或 iteration summary。
 - Guide 的运行时 prompt 与输出契约必须把 Blocking、Unproven 或停滞信号转成最小修复 / 收窄方向；Weak 证据只有在会改变裁决时才优先补强，Residual risk 必须保持可见。
 - control prompt 必须显式说明触发信号、原因、读取的 evidence refs 和模式；它产生的 ledger item 使用 `evidence_kind=control`。
@@ -258,6 +263,8 @@ step 级执行附加项只影响当前 step：
 | `IterationSummary` | 汇总本轮 handoff、得分、停滞状态与 latest refs | 作为下一轮统一回看入口 |
 
 `artifact_refs` 必须同时提供 run 内相对路径与 workspace 可直达路径，保证角色能定位 `.loopora/runs/...` 下的冻结产物。
+Builder 输出契约必须允许并要求空数组形式的 `proof_files`、`proof_artifacts` 与 `artifact_paths`，让实际 proof artifact 能稳定进入 evidence ledger / manifest，而不是依赖未声明的额外字段。
+运行期角色 prompt 与结构化输出 schema 必须枚举相同的顶层必填字段；数组型证据、反馈或度量字段即使为空也应明确返回空数组，避免真实执行器按 prompt 省略 schema 所需字段。
 
 信息流分两层：
 

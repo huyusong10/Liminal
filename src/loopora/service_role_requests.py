@@ -47,6 +47,9 @@ def _add_contract_context_summary(summary: dict[str, object], extra_context: dic
             "iter_index": iteration.get("iter_index"),
             "step_order": current_step.get("step_order"),
             "previous_iteration_exists": iteration.get("previous_iteration_exists"),
+            "evidence_progress_mode": iteration.get("evidence_progress_mode"),
+            "covered_check_count": iteration.get("covered_check_count"),
+            "missing_check_count": iteration.get("missing_check_count"),
             "completed_steps_this_iteration": len(upstream.get("completed_steps_this_iteration", [])),
         }
 
@@ -125,14 +128,21 @@ def _add_runtime_context_summary(summary: dict[str, object], extra_context: dict
     previous_iteration_summary = extra_context.get("previous_iteration_summary")
     if isinstance(previous_iteration_summary, dict):
         score = _dict_context(previous_iteration_summary.get("score"))
+        stagnation = _dict_context(previous_iteration_summary.get("stagnation"))
         summary["previous_iteration_summary"] = {
             "iter": previous_iteration_summary.get("iter"),
             "composite": score.get("composite"),
             "passed": score.get("passed"),
+            "evidence_progress_mode": stagnation.get("evidence_progress_mode"),
+            "covered_check_count": stagnation.get("covered_check_count"),
+            "missing_check_count": stagnation.get("missing_check_count"),
         }
     stagnation_mode = extra_context.get("stagnation_mode")
     if stagnation_mode is not None:
         summary["stagnation_mode"] = stagnation_mode
+    evidence_progress_mode = extra_context.get("evidence_progress_mode")
+    if evidence_progress_mode is not None:
+        summary["evidence_progress_mode"] = evidence_progress_mode
 
 
 class ServiceRoleRequestMixin:

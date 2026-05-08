@@ -32,9 +32,7 @@ def _register_home_and_create_pages(app: FastAPI, ctx: WebRouteContext) -> None:
         loops = [_decorate_loop_overview(loop) for loop in ctx.svc().list_loops()]
         active_loops = [loop for loop in loops if loop.get("latest_status") in {"queued", "running"}]
         active_loop_ids = {loop.get("id") for loop in active_loops}
-        recent_loops = [
-            loop for loop in loops if loop.get("latest_run_id") and loop.get("id") not in active_loop_ids
-        ][:6]
+        recent_loops = [loop for loop in loops if loop.get("latest_run_id") and loop.get("id") not in active_loop_ids][:6]
         return ctx.templates.TemplateResponse(
             request,
             "index.html",
@@ -163,12 +161,14 @@ def _register_loop_run_pages(app: FastAPI, ctx: WebRouteContext) -> None:
     async def run_detail(request: Request, run_id: str) -> HTMLResponse:
         locale = _preferred_request_locale(request)
         run = ctx.svc().get_run(run_id)
+        export_bundle_url = f"/bundles/derive/export?{urlencode({'loop_id': run['loop_id']})}"
         return ctx.templates.TemplateResponse(
             request,
             "run_detail.html",
             {
                 "request": request,
                 "run": run,
+                "export_bundle_url": export_bundle_url,
                 "page_locale": locale,
                 "progress_stages": _progress_stage_seed(run),
                 "access_state": ctx.access_state,

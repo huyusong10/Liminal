@@ -95,7 +95,7 @@ run 目录使用统一 canonical layout：
 |--------|----------|------|
 | stop flag | 用户请求停止 | 活动 run 可被外部打断并收敛 |
 | retry / degrade | 角色执行失败或不稳定 | 失败会转化为明确事件与结果，而不是悬空状态 |
-| stagnation detection | 多轮效果停滞或回退 | 系统能触发额外引导分支，而不是无限重复主路径 |
+| stagnation detection | 多轮效果停滞、回退或 required evidence coverage 没有推进 | 系统能触发额外引导分支，而不是无限重复主路径 |
 | stale/orphan recovery | 进程异常退出或状态失联 | 重启后会先把活动状态收敛为可理解状态 |
 | workspace safety guard | 检测到破坏性工作区改动 | 用户项目安全优先于继续执行 |
 | cleanup diagnostics | 非关键补偿清理失败 | 主操作语义保持兼容，同时留下结构化诊断 |

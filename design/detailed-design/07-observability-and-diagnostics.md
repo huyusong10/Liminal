@@ -30,17 +30,26 @@
 - evidence ledger 的 canonical 文件是 `evidence/ledger.jsonl`；它不是 timeline、metrics 或 raw output 的复制品。
 - evidence coverage 的 canonical artifact 是 `evidence/coverage.json`，但它是 derived projection；任何冲突都以 `contract/compiled_spec.json`、`evidence/ledger.jsonl` 和 GateKeeper verdict 为准。
 - evidence manifest 的 canonical artifact 是 `evidence/manifest.json`，它把每个 evidence claim 的 producer、method、verifies、artifact refs、coverage targets 与可复验状态压缩到一个索引里；它只派生自 ledger、coverage 与 run contract，不能引入新的证明事实。
+- task verdict 的冻结 artifact 是 `evidence/task_verdict.json`；它保存终态时 DB/API 使用的同一份裁决投影，并作为 `task-verdict` run artifact 和 key takeaway 的 `task_verdict_path` 暴露，便于用户离线复盘 run status、coverage、manifest 与最终 Loop 裁决之间的差异。
 - coverage target 由后端从 `# Done When`、`# Fake Done`、`# Evidence Preferences` 与 GateKeeper 收束方式派生；用户界面不要求用户手工维护 target。
-- 每个 evidence item 至少要能表达 claim、method、result、artifact refs、produced by、verifies 与 residual risk。
-- evidence manifest 中的 claim 至少要表达：claim id、producer、method、result、verifies、coverage targets、artifact refs、verification status 与 residual risk。`verification status` 只能说明证据是否 artifact-backed / workspace-backed / ledger-only / unverified，不替代 GateKeeper verdict。
+- 每个 evidence item 至少要能表达 claim、method、result、artifact refs、produced by、verifies、coverage results 与 residual risk。
+- evidence manifest 中的 claim 至少要表达：claim id、producer、method、result、verifies、coverage targets、artifact refs、verification status、measured evidence 标记、具体 evidence claim 数量与 residual risk。`verification status` 只能说明证据是否 direct proof / workspace artifact / run artifact / ledger-only / unverified，不替代 GateKeeper verdict。manifest summary 必须分别计数 direct proof、workspace artifact 与 run artifact claims，避免把角色输出 artifact 伪装成同等级 proof。
+- evidence manifest 的 target index 必须同时读取 ledger item 的直接 target verifies、coverage target 的 `evidence_refs` 与 coverage target 的 `artifact_refs`；像 `gatekeeper.finish` 这类 derived target 也必须能从 target 反查到对应 claim，而不是只停留在 coverage projection。target 已有支持性 proof artifact 时，manifest target index 应优先展示该 artifact，而不是报告 coverage 的角色输出文件。
 - evidence item 的 `verifies` 可以引用 coverage target；旧的 `check_results:<check_id>:<status>` 仍兼容，新的 target 引用使用稳定 id，例如 `target:done_when.check_001:covered`。
+- positive target coverage 不是自述即证明：`covered` 只有在当前 item 本身是支持性证据、当前 item 提供 measured evidence，或该 target 自己的 `coverage_results.evidence_refs` 指向支持性证据时才投影为 covered；旧 ledger 没有 `coverage_results` 时才回退使用 item 级 `related_evidence_ids`。否则只能投影为 weak，避免普通 Builder 自述或 GateKeeper 口头覆盖把 `Done When` / Fake Done / Evidence Preference 伪装成已证明。
+- target coverage 若通过 `coverage_results.evidence_refs` 被支持，应把 target 的 `evidence_refs` 与 `artifact_refs` 指向该 target 自己的支持性 evidence artifacts，而不是复用同一个 item 中其他 target 的 refs，也不是只指向报告 coverage 的 GateKeeper / wrapper output；用户从 task verdict bucket 追查时应先看到实际 proof artifact。
 - evidence item 的 artifact refs 不只指向角色 raw / normalized output 和 metadata；当结构化输出声明工作区产物或 proof 文件（例如 Builder `changed_files`）时，应同步投影为 workspace artifact refs，使证据能追到真实文件而不是只追到角色自述。
 - Step handoff 可以摘要证据，但必须通过 `evidence_refs` 指回 ledger item；面向用户的结论不能只停留在自由文本。
 - 并行检视组中的多个 evidence producer 共享同一上游快照；ledger 按 workflow step 顺序落账，并保留各自的 `step_id / role_id / archetype / iter`。
-- GateKeeper pass 必须能回到 evidence ledger；没有 evidence refs 或可落账 evidence claims 的 pass 不能成为新 run 的强收敛条件。
+- GateKeeper pass 必须能回到 evidence ledger；没有 evidence refs、只引用普通 Builder handoff、GateKeeper verdict、blocked / failed / rejected 上游 evidence，或缺少可落账 evidence claims 的 pass 不能成为新 run 的强收敛条件。Inspector / Custom / control 输出可以作为取证或检视支持；Builder 只有在携带当前仍可访问的 proof artifact 或 measured evidence 时才算支持，已丢失的 proof artifact 只能进入 weak / non-supporting 路径。若 GateKeeper 是首个证据读取者，ledger item 必须落账 measured evidence 标记与具体 claim 数量；coverage projection 重算 `gatekeeper.finish` 时必须独立区分 supporting / non-supporting 上游 refs 与 measured self evidence，不能把只引用阻断证据、普通 Builder handoff、丢失 proof artifact 或 GateKeeper 自述的 GateKeeper pass 投影成 covered。
 - `Fake Done` 与 `Evidence Preferences` 在第一阶段属于 advisory coverage；缺口会让 projection 标记为 weak，但不扩大当前 GateKeeper 硬失败条件。
 - run status 与 task verdict 必须分开投影。`run_finished` 或 `succeeded` 只能说明系统生命周期，不代表任务已经通过。
-- 面向用户的 evidence projection 应优先使用稳定语义桶：已证明、证据薄弱、未证明、阻断问题、残余风险。完整 ledger 与 manifest 仍通过追查入口访问。
+- GateKeeper 支持带残余风险的通过：当最新 GateKeeper 裁决明确接受有意义的 residual risk，task verdict projection 必须显示 `passed_with_residual_risk`，让用户知道这是“可见风险下通过”而不是无条件通过；历史风险信号可以留在 evidence bucket，但不能单独改变最终通过状态。
+- GateKeeper 的结构化 verdict 必须把可接受残余风险写入 `residual_risks`，并由 ledger item 的 `residual_risk`、coverage `latest_gatekeeper.residual_risk` 与 task verdict residual bucket 串联展示。`decision_summary` 可以解释风险，但不能成为唯一机器可读来源。
+- task verdict projection 必须把 required coverage target 作为通过锚点：GateKeeper 可以结束 run lifecycle，但若 required target 仍未证明或被阻断，用户看到的任务裁决必须保持 `insufficient_evidence` 或 `failed`。
+- task verdict bucket item 若来自 coverage target，必须保留该 target 的 `evidence_refs` 与可用 `artifact_refs`，让用户能从已证明、弱证据、未证明或阻断桶继续追到 ledger 与 proof artifact。
+- 面向用户的 evidence projection 应优先使用稳定语义桶：已证明、证据薄弱、未证明、阻断问题、残余风险。紧凑裁决摘要也不能省略弱证据或残余风险计数；残余风险必须作为独立信号展示，不能被压进阻断计数里。完整 ledger 与 manifest 仍通过追查入口访问。
+- run key takeaway projection 必须把 task verdict artifact path 和 evidence manifest 的证明强度摘要带到首屏证据面：至少提供最终裁决 artifact、coverage trace、manifest 追查入口，并区分 direct proof、workspace artifact、run artifact、ledger-only 与 unverified claim 计数。证据桶卡片应在 bucket item 暴露 refs 时显示轻量 evidence / artifact trace count，避免首屏只剩桶数量。coverage 只说明目标覆盖状态，不能替代 proof artifact 强度。每轮 iteration takeaway 还必须暴露 evidence progress 状态：当 required coverage 停滞或仍有缺口时，首屏应能看到 covered / missing check count 与无覆盖增量信号，而不必先下载 raw artifact。
 - Web 终端必须把关键系统动作白盒化投影出来，不能只展示底层命令输出。
 - run event 写入边界必须在数据库和 `timeline/events.jsonl` mirror 前做最终脱敏；完整 prompt、JSON schema、token / secret 参数值、认证头和 Cookie 不得进入 event stream、数据库镜像或 `timeline/events.jsonl`。command 事件只能展示脱敏命令预览。
 - alignment event 写入边界必须提供同等级保护；Web alignment 的 DB event、SSE/API payload 和 `events/events.jsonl` 只能保存脱敏后的轻量预览，完整 prompt、JSON schema、bundle YAML、token / secret 参数值、认证头和 Cookie 不得进入该观察面。
@@ -54,9 +63,10 @@
 - 观察状态不是 run 生命周期事实源。终态 run 到达后观察状态可以收敛为 `finished`，但不能把 `ready / degraded / stream-stale` 映射成 run succeeded / failed / stopped。
 - 面向用户的 run 详情页应优先消费 run artifacts 中已经冻结的 handoff、iteration summary 与 coverage projection 来生成“关键结论”，默认只展示简洁状态与主要原因；完整 target、ledger 和 artifact 链路通过白盒追溯入口查看。
 - 当新的 `step_handoff_written`、`control_completed`、`control_failed`、`iteration_summary_written` 或 `run_finished` 事件到达时，run 详情页里的“关键结论”必须在当前会话内自动拉取最新 artifacts 并刷新；不能要求用户手动刷新整页后才能看到最新轮次结论。
-- 提供给角色 prompt 的 artifact refs 必须能从 workspace 直接定位到 `.loopora/runs/...` 下的真实文件；指向工作区 proof / changed file 的 refs 也必须带 workspace-relative 与 absolute path。不能只暴露对 run 目录内部才有意义的短相对路径。prompt 中的 evidence section 必须同时暴露 ledger、manifest 与 coverage 路径，便于后续角色追查 claim 与 proof artifact 的绑定。
+- 提供给角色 prompt 的 artifact refs 必须能从 workspace 直接定位到 `.loopora/runs/...` 下的真实文件；指向工作区 proof / changed file 的 refs 也必须带 workspace-relative 与 absolute path。不能只暴露对 run 目录内部才有意义的短相对路径。prompt 中的 evidence section 必须同时暴露 ledger、manifest 与 coverage 路径，以及当前可引用 evidence claim 的 proof status，便于后续角色在裁决时追查 claim 与 proof artifact 的绑定。
+- 为控制上下文体积，prompt 可以只展示近期 evidence item、已允许 id 列表和裁剪后的 manifest proof-strength rows；但 runtime evidence gate 和 coverage / manifest projection 必须以 canonical ledger item 为准补全 cited ref 的 producer、result、proof artifact 与 support status。裁剪摘要是上下文优化，不得改变 evidence ref 的验证语义。
 - 当角色尝试获取浏览器或截图证据失败时，诊断线索必须保留在 run event stream 与 step handoff 中，便于后续角色区分“产品问题”与“宿主环境阻断”。
-- run 详情页的运行状态、Loop 裁决与结果是 Loopora 的输出边界。系统应提供清楚的证据、artifact、再次运行、修改 Loop、导出和停止入口；用户如何基于这些材料调整 Loop 属于用户主动编排场景，不形成系统持有的演化历史。
+- run 详情页的运行状态、Loop 裁决与结果是 Loopora 的输出边界。系统应提供清楚的证据、artifact、再次运行、修改 Loop、导出和停止入口；用户如何基于这些材料调整 Loop 属于用户主动编排场景，不形成系统持有的演化历史。用户接受结论时只追加观察事件，但该事件必须引用当时可用的 verdict / coverage / manifest artifact path 与证据桶计数，避免“接受”脱离具体证据结论。
 
 ## 2.1 默认 CI 与浏览器回归
 

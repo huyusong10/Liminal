@@ -105,6 +105,12 @@
       if (event.event_type === "stop_requested") {
         return {title: localeText("已请求停止", "Stop requested"), detail: ""};
       }
+      if (event.event_type === "run_result_accepted") {
+        return {
+          title: localeText("已接受结论", "Conclusion accepted"),
+          detail: String(payload.task_verdict_status || payload.status || ""),
+        };
+      }
       if (event.event_type === "run_aborted") {
         return {
           title: localeText("运行中止", "Run aborted"),

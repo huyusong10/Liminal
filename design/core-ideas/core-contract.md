@@ -40,6 +40,8 @@ Rules:
   evidence quality as new runs.
 - Run status and task verdict are separate projections. A run can finish normally
   while the task remains unproven, rejected, or accepted only with residual risk.
+- Task verdict cannot pass while required coverage targets from the frozen spec or
+  GateKeeper finish path remain missing, weak, or blocked.
 
 User-facing evidence summaries should prefer these stable buckets over raw ledger
 language:
@@ -63,7 +65,7 @@ Core flow inspection should follow this path, in order:
 | Run | Did execution freeze the Loop contract and produce structured handoffs? | Run contract, step context packets, step handoffs |
 | Automatic iteration | Did the system advance through roles and workflow because each round produced new evidence, handoff, or verdict context? | Iteration summaries, workflow events, step handoffs |
 | Evidence | Can the run answer what was proven and what remains unproven? | Evidence ledger, artifact refs, coverage projection |
-| GateKeeper | Did finish require cited evidence rather than model self-report? | GateKeeper verdict envelope and runtime evidence gate |
+| GateKeeper | Did finish require cited supporting evidence rather than model self-report or blocked upstream evidence? | GateKeeper verdict envelope and runtime evidence gate |
 | Run status | Can the user tell whether the run finished, failed, stopped, or timed out? | Run record status, terminal events, failure / stop reason |
 | Task verdict | Can the user inspect what the evidence proved, failed to prove, and why the task passed or did not pass? | Evidence summary, verdict context, ledger and artifact links |
 | User decision | Can the user choose the next action without Loopora silently owning evolution history? | Result page actions such as accept, rerun, revise Loop, export, or stop |

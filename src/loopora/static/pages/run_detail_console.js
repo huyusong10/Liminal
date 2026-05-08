@@ -155,6 +155,15 @@
           text: prettyConsoleJson(payload),
         })];
       }
+      if (event.event_type === "run_result_accepted") {
+        return [buildConsoleEntry(event, {
+          tone: "success",
+          channel: "state",
+          filterKey: "result",
+          summary: localeText("已接受结论", "Conclusion accepted"),
+          text: prettyConsoleJson(payload),
+        })];
+      }
       if (event.event_type === "run_finished") {
         return [buildConsoleEntry(event, {
           tone: payload.status === "succeeded" ? "success" : "warning",

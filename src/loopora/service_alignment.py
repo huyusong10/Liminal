@@ -11,6 +11,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from loopora.alignment_semantics import text_mentions_loop_fit_contradiction
 from loopora.alignment_guidance import load_alignment_guidance_assets
 from loopora.branding import APP_STATE_DIRNAME, state_dir_for_workdir
 from loopora.bundles import (
@@ -63,6 +64,274 @@ ALIGNMENT_READINESS_EVIDENCE_KEYS = [
     "workflow_shape",
     "workdir_facts",
 ]
+ALIGNMENT_AGREEMENT_TRACEABILITY_KEYS = [
+    "loop_fit",
+    "task_scope",
+    "success_surface",
+    "fake_done_risks",
+    "evidence_preferences",
+    "residual_risk_policy",
+    "judgment_tradeoffs",
+    "role_posture",
+    "workflow_shape",
+    "workdir_facts",
+]
+ALIGNMENT_TRACEABILITY_GENERIC_TERMS = {
+    "agent",
+    "agents",
+    "alignment",
+    "and",
+    "answer",
+    "answers",
+    "any",
+    "artifact",
+    "artifacts",
+    "assumptions",
+    "behavior",
+    "before",
+    "because",
+    "block",
+    "blocked",
+    "blocker",
+    "blockers",
+    "blocking",
+    "bug",
+    "bugs",
+    "builder",
+    "buckets",
+    "built",
+    "bundle",
+    "bundles",
+    "candidate",
+    "carefully",
+    "case",
+    "cases",
+    "change",
+    "changes",
+    "check",
+    "checks",
+    "claims",
+    "clear",
+    "close",
+    "closed",
+    "closes",
+    "closure",
+    "collects",
+    "collaboration",
+    "command",
+    "complete",
+    "completed",
+    "completion",
+    "complex",
+    "concrete",
+    "context",
+    "correct",
+    "created",
+    "current",
+    "direct",
+    "distinguish",
+    "drift",
+    "during",
+    "done",
+    "early",
+    "enough",
+    "error",
+    "evidence",
+    "exact",
+    "existing",
+    "expected",
+    "experience",
+    "exercise",
+    "exposed",
+    "fail",
+    "failed",
+    "fails",
+    "facts",
+    "fake-done",
+    "final",
+    "fit",
+    "fits",
+    "flow",
+    "focused",
+    "from",
+    "future",
+    "gains",
+    "gaps",
+    "gatekeeper",
+    "gated",
+    "generic",
+    "goal",
+    "good",
+    "handle",
+    "handoff",
+    "handoffs",
+    "happy-path-only",
+    "hide",
+    "hides",
+    "important",
+    "inspected",
+    "inspector",
+    "inspectors",
+    "judge",
+    "judged",
+    "judgment",
+    "keeps",
+    "limited",
+    "local",
+    "loop",
+    "loopora",
+    "making",
+    "means",
+    "minor",
+    "missing",
+    "must",
+    "named",
+    "narrow",
+    "new",
+    "observed",
+    "observable",
+    "open",
+    "open-ended",
+    "only",
+    "one-pass",
+    "output",
+    "over",
+    "pass",
+    "patch",
+    "path",
+    "polish",
+    "polished-looking",
+    "posture",
+    "prefer",
+    "preference",
+    "preferences",
+    "primary",
+    "primary-flow",
+    "produce",
+    "project",
+    "project-owned",
+    "proof",
+    "prove",
+    "proven",
+    "provided",
+    "ready",
+    "real",
+    "reject",
+    "remain",
+    "reproducible",
+    "result",
+    "residual",
+    "revised",
+    "review",
+    "risk",
+    "risks",
+    "role",
+    "roles",
+    "round",
+    "rounds",
+    "run",
+    "scope",
+    "should",
+    "slice",
+    "smaller",
+    "snapshot",
+    "specific",
+    "speed",
+    "stack",
+    "standalone",
+    "starter",
+    "strongest",
+    "success",
+    "surface",
+    "task",
+    "tasks",
+    "target",
+    "test",
+    "tests",
+    "that",
+    "the",
+    "them",
+    "then",
+    "they",
+    "through",
+    "true",
+    "unknown",
+    "until",
+    "unproven",
+    "useful",
+    "user",
+    "user-facing",
+    "vague",
+    "verifiable",
+    "verify",
+    "verified",
+    "verification",
+    "wants",
+    "weak",
+    "when",
+    "while",
+    "with",
+    "without",
+    "work",
+    "workflow",
+    "workdir",
+    "works",
+}
+ALIGNMENT_TRACEABILITY_GENERIC_CJK_TERMS = {
+    "以及",
+    "因为",
+    "如果",
+    "任务",
+    "证据",
+    "角色",
+    "流程",
+    "风险",
+    "判断",
+    "工作",
+    "用户",
+    "确认",
+    "运行",
+    "检查",
+    "证明",
+    "验证",
+    "阻断",
+    "完成",
+    "成功",
+    "失败",
+    "必须",
+    "优先",
+    "方案",
+    "服务",
+    "选择",
+    "使用",
+    "测试",
+    "命令",
+    "产物",
+    "主流程",
+    "主流",
+    "而不",
+    "起来",
+    "真实",
+    "结果",
+    "输出",
+    "项目",
+    "路径",
+    "规则",
+    "未知",
+    "修复",
+    "改进",
+    "可见",
+    "收束",
+    "交接",
+    "构建",
+    "裁决",
+    "质量",
+    "偏差",
+    "具体",
+    "技术",
+    "复退",
+}
+ALIGNMENT_TRACEABILITY_CJK_STOP_CHARS = frozenset("的一是在和与或及并但而为由让把被只已未就才需能会应可其此个这那")
 ALIGNMENT_LANGUAGE_NEUTRAL_CONFIRMATIONS = {
     "确认",
     "已确认",
@@ -530,6 +799,7 @@ class ServiceAlignmentMixin:
             self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_language_issues(session, bundle))
             self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_workdir_fact_issues(session, bundle))
             self._extend_unique_alignment_issues(semantic_issues, self._alignment_improvement_bundle_issues(session, bundle))
+            self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_agreement_traceability_issues(session, bundle))
             if semantic_issues:
                 raise LooporaError("bundle semantic lint failed: " + "; ".join(semantic_issues))
             normalized_yaml = bundle_to_yaml(bundle)
@@ -661,8 +931,7 @@ class ServiceAlignmentMixin:
         return self._create_revision_alignment_session(
             RevisionAlignmentSessionRequest(
                 seed_bundle=seed_bundle,
-                message=request.message
-                or "请先阅读这份已有 Loop 方案，和我对话改进它。先指出你需要确认的最小问题，不要直接生成。",
+                message=request.message or "请先阅读这份已有 Loop 方案，和我对话改进它。先指出你需要确认的最小问题，不要直接生成。",
                 start_immediately=request.start_immediately,
                 source_context={
                     "mode": "improvement",
@@ -671,7 +940,9 @@ class ServiceAlignmentMixin:
                     "source_run_id": "",
                     "source_completion_mode": str(source_bundle.get("loop", {}).get("completion_mode", "") or ""),
                     "reason": "improve_imported_bundle",
+                    "run_status": "",
                     "evidence_summary": [],
+                    "task_verdict": {},
                     "gatekeeper_verdict": {},
                 },
                 linked_bundle_id=bundle_id,
@@ -703,8 +974,7 @@ class ServiceAlignmentMixin:
         return self._create_revision_alignment_session(
             RevisionAlignmentSessionRequest(
                 seed_bundle=seed_bundle,
-                message=request.message
-                or "请基于这次运行的证据和守门裁决，和我对话改进 Loop 方案。先说明最可能要改的治理点，再问我最小必要问题。",
+                message=request.message or "请基于这次运行的证据和守门裁决，和我对话改进 Loop 方案。先说明最可能要改的治理点，再问我最小必要问题。",
                 start_immediately=request.start_immediately,
                 source_context={
                     "mode": "improvement",
@@ -713,9 +983,12 @@ class ServiceAlignmentMixin:
                     "source_run_id": run_id,
                     "source_completion_mode": str(source_bundle.get("loop", {}).get("completion_mode", "") or ""),
                     "reason": "improve_from_run_evidence",
+                    "run_status": str(run.get("status") or ""),
+                    "artifact_paths": self._alignment_run_artifact_paths(run),
                     "coverage_summary": self._alignment_run_coverage_summary(run),
                     "evidence_summary": self._alignment_run_evidence_summary(run),
-                    "gatekeeper_verdict": run.get("last_verdict") or {},
+                    "task_verdict": run.get("task_verdict") or {},
+                    "gatekeeper_verdict": run.get("last_verdict_json") or {},
                 },
                 linked_bundle_id=source_bundle_id,
                 linked_run_id=run_id,
@@ -780,6 +1053,20 @@ class ServiceAlignmentMixin:
         seed["metadata"] = metadata
         return seed
 
+    def _alignment_run_artifact_paths(self, run: dict) -> dict:
+        layout = self._run_artifact_layout(Path(run["runs_dir"]))
+
+        def relative_if_exists(path: Path) -> str:
+            return layout.relative(path) if path.exists() else ""
+
+        return {
+            "runs_dir": str(layout.run_dir),
+            "task_verdict": relative_if_exists(layout.task_verdict_path),
+            "evidence_ledger": relative_if_exists(layout.evidence_ledger_path),
+            "evidence_coverage": relative_if_exists(layout.evidence_coverage_path),
+            "evidence_manifest": relative_if_exists(layout.evidence_manifest_path),
+        }
+
     def _alignment_run_evidence_summary(self, run: dict, *, limit: int = 8) -> list[dict]:
         layout = self._run_artifact_layout(Path(run["runs_dir"]))
         if not layout.evidence_ledger_path.exists():
@@ -794,6 +1081,7 @@ class ServiceAlignmentMixin:
                 "result": str(item.get("result") or ""),
                 "residual_risk": str(item.get("residual_risk") or "")[:300],
                 "verifies": list(item.get("verifies") or [])[:8],
+                "artifact_refs": [dict(ref) for ref in list(item.get("artifact_refs") or []) if isinstance(ref, dict)][:6],
             }
             for item in read_jsonl(layout.evidence_ledger_path)
         ]
@@ -917,10 +1205,7 @@ class ServiceAlignmentMixin:
         if has_bundle:
             return "已整理成一个可导入的 Loopora bundle。"
         if bool(output.get("needs_user_input")):
-            return (
-                "我需要继续用中文对齐；请先确认一个会改变 Loop 形状的点："
-                "这次更怕结果看起来完成但证据不足，还是推进太慢？"
-            )
+            return "我需要继续用中文对齐；请先确认一个会改变 Loop 形状的点：这次更怕结果看起来完成但证据不足，还是推进太慢？"
         return "我需要继续用中文对齐后再继续。"
 
     def _record_alignment_assistant_message(self, session_id: str, session: dict, assistant_message: str) -> None:
@@ -1088,9 +1373,11 @@ class ServiceAlignmentMixin:
             request,
             emit_alignment_event,
             lambda: self.repository.alignment_should_stop(session_id),
-            lambda pid: self.repository.update_alignment_session(session_id, active_child_pid=pid)
-            if pid is not None
-            else self.repository.update_alignment_session(session_id, clear_active_child_pid=True),
+            lambda pid: (
+                self.repository.update_alignment_session(session_id, active_child_pid=pid)
+                if pid is not None
+                else self.repository.update_alignment_session(session_id, clear_active_child_pid=True)
+            ),
         )
 
     def _persist_alignment_executor_session_ref(self, session_id: str, request: RoleRequest, output: dict) -> None:
@@ -1424,8 +1711,7 @@ class ServiceAlignmentMixin:
                 "我还需要先完成需求对齐，再生成 Loop 方案。请先确认边界、成功标准和协作方式。"
                 if prefers_chinese
                 else (
-                    "I need to finish alignment before generating the Loop plan. Please confirm the boundary, "
-                    "success criteria, and collaboration shape first."
+                    "I need to finish alignment before generating the Loop plan. Please confirm the boundary, success criteria, and collaboration shape first."
                 )
             )
         elif not agreement_summary:
@@ -1445,20 +1731,14 @@ class ServiceAlignmentMixin:
             error = (
                 f"我还不能直接生成 Loop 方案；对齐检查还缺：{labels}。请先补齐这些信息。"
                 if prefers_chinese
-                else (
-                    "I can't generate the Loop plan yet; these readiness checks are incomplete: "
-                    f"{labels}. Please fill in this information first."
-                )
+                else (f"I can't generate the Loop plan yet; these readiness checks are incomplete: {labels}. Please fill in this information first.")
             )
         elif evidence_issues:
             labels = ", ".join(evidence_issues)
             error = (
                 f"我还不能直接生成 Loop 方案；这些对齐证据还不够具体：{labels}。请先补齐这些信息。"
                 if prefers_chinese
-                else (
-                    "I can't generate the Loop plan yet; this readiness evidence is not specific enough: "
-                    f"{labels}. Please fill in this information first."
-                )
+                else (f"I can't generate the Loop plan yet; this readiness evidence is not specific enough: {labels}. Please fill in this information first.")
             )
         elif improvement_issues:
             labels = ", ".join(improvement_issues)
@@ -1466,8 +1746,7 @@ class ServiceAlignmentMixin:
                 f"我还不能直接生成 Loop 方案；这些改进判断还不够具体：{labels}。请先补齐这些信息。"
                 if prefers_chinese
                 else (
-                    "I can't generate the Loop plan yet; these improvement judgments are not specific enough: "
-                    f"{labels}. Please fill in this information first."
+                    f"I can't generate the Loop plan yet; these improvement judgments are not specific enough: {labels}. Please fill in this information first."
                 )
             )
         elif language_issues:
@@ -1526,10 +1805,7 @@ class ServiceAlignmentMixin:
                     mismatches.append(f"{surface_name}.{field_name}")
         if not mismatches:
             return []
-        return [
-            "alignment bundle must preserve selected Web executor settings for command/custom sessions: "
-            + ", ".join(mismatches[:8])
-        ]
+        return ["alignment bundle must preserve selected Web executor settings for command/custom sessions: " + ", ".join(mismatches[:8])]
 
     @classmethod
     def _alignment_bundle_language_issues(cls, session: dict, bundle: dict) -> list[str]:
@@ -1544,16 +1820,10 @@ class ServiceAlignmentMixin:
             "loop.name": loop.get("name"),
             "collaboration_summary": bundle.get("collaboration_summary"),
             "spec.markdown": (bundle.get("spec") or {}).get("markdown") if isinstance(bundle.get("spec"), dict) else "",
-            "workflow.collaboration_intent": (
-                (bundle.get("workflow") or {}).get("collaboration_intent")
-                if isinstance(bundle.get("workflow"), dict)
-                else ""
-            ),
+            "workflow.collaboration_intent": ((bundle.get("workflow") or {}).get("collaboration_intent") if isinstance(bundle.get("workflow"), dict) else ""),
         }
         issues.extend(
-            f"bundle field {field_name} must follow Chinese user language"
-            for field_name, value in field_values.items()
-            if not cls._text_has_cjk(value)
+            f"bundle field {field_name} must follow Chinese user language" for field_name, value in field_values.items() if not cls._text_has_cjk(value)
         )
         for role in bundle.get("role_definitions", []):
             if not isinstance(role, dict):
@@ -1572,11 +1842,7 @@ class ServiceAlignmentMixin:
         fields: dict[str, object] = {
             "collaboration_summary": bundle.get("collaboration_summary"),
             "spec.markdown": (bundle.get("spec") or {}).get("markdown") if isinstance(bundle.get("spec"), dict) else "",
-            "workflow.collaboration_intent": (
-                (bundle.get("workflow") or {}).get("collaboration_intent")
-                if isinstance(bundle.get("workflow"), dict)
-                else ""
-            ),
+            "workflow.collaboration_intent": ((bundle.get("workflow") or {}).get("collaboration_intent") if isinstance(bundle.get("workflow"), dict) else ""),
         }
         for role in bundle.get("role_definitions", []):
             if not isinstance(role, dict):
@@ -1665,11 +1931,10 @@ class ServiceAlignmentMixin:
         generated_bundle_id = str(bundle.get("metadata", {}).get("bundle_id") or "").strip()
         if source_bundle_id and generated_bundle_id == source_bundle_id:
             issues.append(
-                "improvement bundle must not reuse the source bundle id as metadata.bundle_id; "
-                "leave bundle_id empty or choose a new standalone candidate id"
+                "improvement bundle must not reuse the source bundle id as metadata.bundle_id; leave bundle_id empty or choose a new standalone candidate id"
             )
         has_run_context = str(source.get("source_type") or "") == "run" and (
-            source.get("coverage_summary") or source.get("evidence_summary") or source.get("gatekeeper_verdict")
+            source.get("coverage_summary") or source.get("evidence_summary") or source.get("task_verdict") or source.get("gatekeeper_verdict")
         )
         if has_run_context and not cls._has_any_marker(
             text,
@@ -1718,6 +1983,138 @@ class ServiceAlignmentMixin:
                 issues.append("improvement bundle must state the source completion-mode governance delta")
         return issues
 
+    @classmethod
+    def _alignment_bundle_agreement_traceability_issues(cls, session: dict, bundle: dict) -> list[str]:
+        agreement = session.get("working_agreement") if isinstance(session.get("working_agreement"), dict) else {}
+        evidence = agreement.get("readiness_evidence") if isinstance(agreement.get("readiness_evidence"), dict) else {}
+        if not evidence:
+            return []
+        bundle_text = cls._alignment_bundle_agreement_projection_text(bundle)
+        normalized_bundle_text = cls._normalize_traceability_text(bundle_text)
+        repeated_cjk_terms = cls._agreement_repeated_cjk_traceability_terms(evidence.values())
+        issues: list[str] = []
+        for key in ALIGNMENT_AGREEMENT_TRACEABILITY_KEYS:
+            if key == "loop_fit":
+                continue
+            terms = cls._agreement_traceability_terms(evidence.get(key))
+            terms.extend(term for term in repeated_cjk_terms if term in str(evidence.get(key) or "") and term not in terms)
+            if key == "workdir_facts":
+                terms = [term for term in terms if "/" in term or "." in term]
+            if not terms:
+                continue
+            matched = [term for term in terms if cls._traceability_term_is_present(term, normalized_bundle_text=normalized_bundle_text)]
+            required_matches = 1 if len(terms) < 4 else 2
+            if len(matched) >= required_matches:
+                continue
+            issues.append(f"alignment bundle must project confirmed working agreement evidence into runnable surfaces: {key} missing {', '.join(terms[:5])}")
+        issues.extend(cls._alignment_governance_marker_responsibility_issues(evidence, normalized_bundle_text=normalized_bundle_text))
+        return issues
+
+    @classmethod
+    def _alignment_governance_marker_responsibility_issues(cls, evidence: dict, *, normalized_bundle_text: str) -> list[str]:
+        agreement_evidence_text = cls._normalize_traceability_text(" ".join(str(value or "") for value in evidence.values()))
+        governance_markers = ("agents.md", "design/readme.md", "design/", "tests/")
+        if not any(marker in agreement_evidence_text for marker in governance_markers):
+            return []
+        if cls._governance_marker_responsibilities_present(normalized_bundle_text):
+            return []
+        return [
+            "alignment bundle must convert project-local governance markers into Builder reading, "
+            "Inspector or Custom verification, and GateKeeper gating responsibilities"
+        ]
+
+    @staticmethod
+    def _governance_marker_responsibilities_present(text: str) -> bool:
+        builder_reads = bool(
+            re.search(r"\b(?:builder|generator)\b", text)
+            and re.search(r"\b(?:read|reads|consult|consults|follow|follows|respect|respects)\b|读取|查阅|遵守|遵循", text)
+        )
+        review_checks = bool(
+            re.search(r"\b(?:inspector|custom|review|reviewer)\b|检查|审查|验证", text)
+            and re.search(r"\b(?:verify|verifies|check|checks|review|reviews|validate|validates|test|tests)\b|检查|审查|验证|测试", text)
+        )
+        gatekeeper_gates = bool(
+            re.search(r"\b(?:gatekeeper|gate keeper|verifier)\b|守门|裁决", text)
+            and re.search(
+                r"\b(?:weak|unproven|blocking|block|blocks|missing|skipped|fail closed|reject|rejects)\b|弱证据|未证明|阻断|缺少|跳过|拒绝",
+                text,
+            )
+        )
+        return builder_reads and review_checks and gatekeeper_gates
+
+    @classmethod
+    def _agreement_traceability_terms(cls, value: object) -> list[str]:
+        text = str(value or "")
+        if not text.strip():
+            return []
+        lowered_text = text.lower()
+        markers = (
+            "AGENTS.md",
+            "design/README.md",
+            "design/",
+            "tests/",
+            "package.json",
+            "pyproject.toml",
+        )
+        terms: list[str] = [marker.lower() for marker in markers if marker.lower() in lowered_text]
+        normalized = cls._normalize_traceability_text(text)
+        for raw_term in re.findall(r"[a-z0-9][a-z0-9_.-]{3,}", normalized):
+            term = raw_term.strip("._-")
+            if not term or term in ALIGNMENT_TRACEABILITY_GENERIC_TERMS:
+                continue
+            if re.fullmatch(r"\d+", term):
+                continue
+            if term not in terms:
+                terms.append(term)
+        return terms[:12]
+
+    @classmethod
+    def _agreement_repeated_cjk_traceability_terms(cls, values: object) -> list[str]:
+        counts: dict[str, int] = {}
+        order: dict[str, int] = {}
+        for value in list(values or []):
+            seen_in_value: set[str] = set()
+            for term in cls._agreement_cjk_traceability_terms(value):
+                if term in seen_in_value:
+                    continue
+                seen_in_value.add(term)
+                counts[term] = counts.get(term, 0) + 1
+                if term not in order:
+                    order[term] = len(order)
+        return [term for term, count in sorted(counts.items(), key=lambda item: (-item[1], order[item[0]])) if count >= 3][:12]
+
+    @staticmethod
+    def _agreement_cjk_traceability_terms(value: object) -> list[str]:
+        terms: list[str] = []
+        for raw_sequence in re.findall(r"[\u4e00-\u9fff]{2,}", str(value or "")):
+            sequence = raw_sequence.strip("".join(ALIGNMENT_TRACEABILITY_CJK_STOP_CHARS))
+            if len(sequence) < 2:
+                continue
+            if (
+                2 <= len(sequence) <= 4
+                and sequence not in ALIGNMENT_TRACEABILITY_GENERIC_CJK_TERMS
+                and not any(char in ALIGNMENT_TRACEABILITY_CJK_STOP_CHARS for char in sequence)
+            ):
+                terms.append(sequence)
+            for index in range(0, len(sequence) - 1, 2):
+                term = sequence[index : index + 2]
+                if term not in ALIGNMENT_TRACEABILITY_GENERIC_CJK_TERMS and not any(char in ALIGNMENT_TRACEABILITY_CJK_STOP_CHARS for char in term):
+                    terms.append(term)
+        return list(dict.fromkeys(terms))
+
+    @staticmethod
+    def _normalize_traceability_text(value: object) -> str:
+        return re.sub(r"\s+", " ", str(value or "").lower()).strip()
+
+    @staticmethod
+    def _traceability_term_is_present(term: str, *, normalized_bundle_text: str) -> bool:
+        value = str(term or "").strip().lower()
+        if not value:
+            return False
+        if "/" in value or "." in value:
+            return value in normalized_bundle_text
+        return bool(re.search(rf"(?<![a-z0-9]){re.escape(value)}(?![a-z0-9])", normalized_bundle_text))
+
     @staticmethod
     def _alignment_bundle_visible_text(bundle: dict) -> str:
         metadata = bundle.get("metadata") if isinstance(bundle.get("metadata"), dict) else {}
@@ -1743,6 +2140,41 @@ class ServiceAlignmentMixin:
                     str(role.get("posture_notes", "") or ""),
                 ]
             )
+        return "\n".join(parts)
+
+    @staticmethod
+    def _alignment_bundle_agreement_projection_text(bundle: dict) -> str:
+        spec = bundle.get("spec") if isinstance(bundle.get("spec"), dict) else {}
+        workflow = bundle.get("workflow") if isinstance(bundle.get("workflow"), dict) else {}
+        parts = [
+            str(bundle.get("collaboration_summary", "") or ""),
+            str(spec.get("markdown", "") or "") if isinstance(spec, dict) else "",
+            str(workflow.get("collaboration_intent", "") or "") if isinstance(workflow, dict) else "",
+        ]
+        for role in bundle.get("role_definitions", []):
+            if not isinstance(role, dict):
+                continue
+            parts.extend(
+                [
+                    str(role.get("description", "") or ""),
+                    str(role.get("prompt_markdown", "") or ""),
+                    str(role.get("posture_notes", "") or ""),
+                ]
+            )
+        if isinstance(workflow, dict):
+            workflow_projection = {
+                "steps": [
+                    {
+                        "inputs": step.get("inputs") if isinstance(step.get("inputs"), dict) else {},
+                        "action_policy": step.get("action_policy") if isinstance(step.get("action_policy"), dict) else {},
+                        "control": step.get("control") if isinstance(step.get("control"), dict) else {},
+                    }
+                    for step in list(workflow.get("steps") or [])
+                    if isinstance(step, dict)
+                ],
+                "controls": list(workflow.get("controls") or []) if isinstance(workflow.get("controls"), list) else [],
+            }
+            parts.append(json.dumps(workflow_projection, ensure_ascii=False, sort_keys=True))
         return "\n".join(parts)
 
     @staticmethod
@@ -1956,9 +2388,15 @@ class ServiceAlignmentMixin:
     @staticmethod
     def _readiness_evidence_semantic_issue(key: str, text: str, *, workdir_snapshot: str = "") -> bool:
         normalized = str(text or "").lower()
+        if key == "loop_fit":
+            return ServiceAlignmentMixin._loop_fit_evidence_contradiction_issue(normalized)
         if key == "workdir_facts":
             return ServiceAlignmentMixin._workdir_facts_evidence_issue(normalized, workdir_snapshot=workdir_snapshot)
         return False
+
+    @staticmethod
+    def _loop_fit_evidence_contradiction_issue(value: str) -> bool:
+        return text_mentions_loop_fit_contradiction(value)
 
     @staticmethod
     def _alignment_improvement_readiness_issues(session: dict, output: dict) -> list[str]:
@@ -2025,7 +2463,7 @@ class ServiceAlignmentMixin:
             issues.append("improvement_surface")
         source = previous_agreement.get("source") if isinstance(previous_agreement.get("source"), dict) else {}
         has_run_context = str(source.get("source_type") or "") == "run" and (
-            source.get("coverage_summary") or source.get("evidence_summary") or source.get("gatekeeper_verdict")
+            source.get("coverage_summary") or source.get("evidence_summary") or source.get("task_verdict") or source.get("gatekeeper_verdict")
         )
         if has_run_context and not ServiceAlignmentMixin._has_any_marker(
             combined,
@@ -2310,6 +2748,7 @@ class ServiceAlignmentMixin:
             self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_language_issues(session, bundle))
             self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_workdir_fact_issues(session, bundle))
             self._extend_unique_alignment_issues(semantic_issues, self._alignment_improvement_bundle_issues(session, bundle))
+            self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_agreement_traceability_issues(session, bundle))
             if semantic_issues:
                 raise LooporaError("bundle semantic lint failed: " + "; ".join(semantic_issues))
             normalized_yaml = bundle_to_yaml(bundle)
@@ -2391,8 +2830,7 @@ class ServiceAlignmentMixin:
         text = "\n".join(
             str(item.get("content", "") or "")
             for item in (session.get("transcript") or [])
-            if item.get("role") == "user"
-            and not ServiceAlignmentMixin._message_is_language_neutral_confirmation(item.get("content"))
+            if item.get("role") == "user" and not ServiceAlignmentMixin._message_is_language_neutral_confirmation(item.get("content"))
         )
         return ServiceAlignmentMixin._text_has_cjk(text)
 
@@ -2457,7 +2895,9 @@ class ServiceAlignmentMixin:
         source = agreement.get("source") if isinstance(agreement.get("source"), dict) else {}
         evidence_items = source.get("evidence_summary") if isinstance(source.get("evidence_summary"), list) else []
         evidence_text = json.dumps(evidence_items[:8], ensure_ascii=False, indent=2)
+        artifact_paths_text = json.dumps(source.get("artifact_paths") or {}, ensure_ascii=False, indent=2)
         coverage_text = json.dumps(source.get("coverage_summary") or {}, ensure_ascii=False, indent=2)
+        task_verdict_text = json.dumps(source.get("task_verdict") or {}, ensure_ascii=False, indent=2)
         verdict_text = json.dumps(source.get("gatekeeper_verdict") or {}, ensure_ascii=False, indent=2)
         return f"""
 ## Bundle Improvement Context
@@ -2466,6 +2906,7 @@ This alignment session starts from an existing Loopora bundle. Help the user imp
 
 - Source type: {source.get("source_type", "")}
 - Source run id: {source.get("source_run_id", "")}
+- Source run status: {source.get("run_status", "")}
 - Source completion mode: {source.get("source_completion_mode", "")}
 - Reason: {source.get("reason", "")}
 
@@ -2479,9 +2920,19 @@ Rules:
 - If run evidence is present, cite it in reasoning and translate it into bundle changes, not just code advice.
 - This is an optional Web capability for user-directed improvement. Do not describe it as Loopora's required lifecycle or as a built-in stage after every run.
 
+Artifact paths:
+```json
+{artifact_paths_text}
+```
+
 Coverage summary:
 ```json
 {coverage_text}
+```
+
+Task verdict:
+```json
+{task_verdict_text}
 ```
 
 Recent evidence summary:
@@ -2715,7 +3166,7 @@ Important output discipline:
 - Loopora compiles `spec.markdown` during validation: `# Done When`, `# Success Surface`, `# Fake Done`, and `# Evidence Preferences` must use top-level `-` bullets when present; Web alignment bundles must also explain `# Residual Risk`; `# Role Notes` must use `## <Role Name> Notes` subheadings.
 - Project the confirmed working agreement into the bundle surfaces: `collaboration_summary` must tell the readable governance story, `spec.markdown` must carry concrete task scope, success, fake-done, evidence, residual-risk policy, and judgment tradeoffs, `role_definitions` must carry Builder / Inspector / Guide / GateKeeper / Custom posture when those archetypes are present, and `workflow.collaboration_intent` plus step `inputs` must carry judgment order and evidence flow. `spec.markdown` `# Task` must describe the concrete user-facing task instead of generic phrases like "requested behavior", "do the task", or "the alignment agreement".
 - Use a future-human-judgment projection: proof demands and user-facing rejection criteria go to `spec`, correction responsibilities and role-level tradeoffs go to `role_definitions`, timing / stop decisions and strict-vs-pragmatic closure choices go to `workflow`, and durable proof expectations go to handoffs, evidence queries, and GateKeeper verdicts. `collaboration_summary` must explain this projection across `spec`, `roles`, and `workflow`.
-- Before presenting a working agreement or bundle, run a private agreement-to-bundle traceability checklist: every confirmed judgment item must have a concrete destination in `collaboration_summary`, `spec.markdown`, `role_definitions[].prompt_markdown` / `posture_notes`, `workflow.collaboration_intent`, step `inputs`, or GateKeeper evidence rules. If a judgment only appears in `agreement_summary`, `readiness_evidence`, the transcript, or hidden reasoning, ask one focused question or revise the bundle surfaces before continuing.
+- Before presenting a working agreement or bundle, run a private agreement-to-bundle traceability checklist: every confirmed judgment item must have a concrete destination in `collaboration_summary`, `spec.markdown`, `role_definitions[].prompt_markdown` / `posture_notes`, `workflow.collaboration_intent`, step `inputs`, workflow controls, or GateKeeper evidence rules. Metadata and loop names are not enough to prove traceability. If a judgment only appears in `agreement_summary`, `readiness_evidence`, the transcript, metadata / loop names, or hidden reasoning, ask one focused question or revise the bundle surfaces before continuing.
 - Role prompts and posture must match archetype responsibility: Builder must describe construction or implementation work, Inspector must describe inspection / review / verification work, Guide must describe narrowing, redirection, or repair guidance, GateKeeper must describe final judgment, blocking, or closure, and Custom must describe low-permission specialized review or advisory responsibility. Evidence language alone is not enough if it could fit any role.
 - Shape evidence so Loopora can separate run lifecycle from task verdict: describe what should count as Proven, Weak, Unproven, Blocking, or Residual risk for this task, and make Builder / Inspector / Guide / GateKeeper / Custom posture use those distinctions when they affect behavior.
 - Preserve task-scoped dialogue. Ask focused questions that change the bundle shape, success criteria, evidence strategy, role posture, workflow shape, or information flow.

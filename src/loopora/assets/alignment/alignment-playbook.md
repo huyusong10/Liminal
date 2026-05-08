@@ -143,7 +143,7 @@ Do not generate a bundle when any of these are missing:
 - whether bounded parallel inspection is needed or deliberately avoided
 - what information flow prevents prompt flooding or evidence loss
 - how GateKeeper should distinguish Proven, Weak, Unproven, Blocking, and Residual risk evidence
-- whether the agreement-to-bundle traceability checklist is satisfied: every confirmed judgment item has a concrete bundle destination in `collaboration_summary`, `spec.markdown`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, or GateKeeper evidence rules
+- whether the agreement-to-bundle traceability checklist is satisfied: every confirmed judgment item has a concrete bundle destination in `collaboration_summary`, `spec.markdown`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, workflow controls, or GateKeeper evidence rules; metadata and loop names are not enough
 - whether one complete intended run path has been privately rehearsed: Builder output, Inspector / Custom review, optional Guide repair direction, any second Builder pass, GateKeeper verdict, and user evidence audit must all be connected through explicit handoffs, evidence queries, and evidence buckets
 - whether one plausible failed future round has been privately pressure-tested against the candidate Loop: a fake-done, weak-proof, drift, missing-coverage, or unacceptable residual-risk result must be exposed, repaired, or blocked by the proposed `spec`, roles, workflow, handoffs, evidence queries, and GateKeeper rules
 

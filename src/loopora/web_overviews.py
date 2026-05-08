@@ -18,6 +18,7 @@ from loopora.workflows import display_name_for_archetype, normalize_role_display
 SIMPLE_TIMELINE_TITLES = {
     "run_started": "Run started",
     "stop_requested": "Stop requested",
+    "run_result_accepted": "Conclusion accepted",
 }
 
 CONTROL_TIMELINE_TITLES = {
@@ -148,6 +149,20 @@ def _format_run_finished(payload: Mapping[str, object], _role: object, _event_ty
     return title, detail
 
 
+def _format_run_result_accepted(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
+    status = str(payload.get("status") or "").strip()
+    task_status = str(payload.get("task_verdict_status") or "").strip()
+    detail = ", ".join(
+        part
+        for part in (
+            f"status={status}" if status else "",
+            f"task_verdict_status={task_status}" if task_status else "",
+        )
+        if part
+    )
+    return "Conclusion accepted", detail
+
+
 TIMELINE_EVENT_FORMATTERS = {
     "checks_resolved": _format_checks_resolved,
     "role_request_prepared": _format_role_request_prepared,
@@ -162,6 +177,7 @@ TIMELINE_EVENT_FORMATTERS = {
     "run_aborted": _format_run_aborted,
     "workspace_guard_triggered": _format_workspace_guard_triggered,
     "run_finished": _format_run_finished,
+    "run_result_accepted": _format_run_result_accepted,
     **{event_type: _format_control_event for event_type in CONTROL_TIMELINE_TITLES},
 }
 
@@ -189,10 +205,7 @@ def _workflow_role_executor_summary(workflow: Mapping[str, object] | None, *, fa
         counts[label] = counts.get(label, 0) + 1
     if not counts:
         return "-"
-    return " · ".join(
-        f"{label} x{count}" if count > 1 else label
-        for label, count in counts.items()
-    )
+    return " · ".join(f"{label} x{count}" if count > 1 else label for label, count in counts.items())
 
 
 def _decorate_loop_overview(loop: dict) -> dict:
@@ -211,7 +224,9 @@ def _decorate_loop_overview(loop: dict) -> dict:
         "stopped": ("最近一次运行已停止。", "The latest run was stopped."),
     }
     hint_zh, hint_en = hints.get(latest_status, hints["draft"])
-    if latest_status == "succeeded" and task_status in {"passed", "passed_with_residual_risk"}:
+    if latest_status == "succeeded" and task_status == "passed_with_residual_risk":
+        hint_zh, hint_en = ("最近一次 Loop 裁决带残余风险通过。", "The latest task verdict passed with residual risk.")
+    elif latest_status == "succeeded" and task_status == "passed":
         hint_zh, hint_en = ("最近一次 Loop 裁决已通过。", "The latest task verdict passed.")
     bundle = loop.get("bundle") if isinstance(loop.get("bundle"), Mapping) else None
     managed_by_bundle = bool(bundle and bundle.get("id"))
@@ -245,11 +260,7 @@ def _progress_stage_seed(run: Mapping[str, object] | None) -> list[dict[str, str
     workflow = run.get("workflow_json") if isinstance(run, Mapping) else {}
     roles = workflow.get("roles", []) if isinstance(workflow, Mapping) else []
     steps = workflow.get("steps", []) if isinstance(workflow, Mapping) else []
-    role_by_id = {
-        str(role.get("id") or "").strip(): role
-        for role in roles
-        if isinstance(role, Mapping) and str(role.get("id") or "").strip()
-    }
+    role_by_id = {str(role.get("id") or "").strip(): role for role in roles if isinstance(role, Mapping) and str(role.get("id") or "").strip()}
 
     stages = [
         {
@@ -298,21 +309,42 @@ def _build_run_summary_snapshot(run: dict) -> dict:
     failed_count = len(buckets.get("blocking") or raw_verdict.get("failed_check_ids") or [])
     composite_score = raw_verdict.get("composite_score")
     task_status = str(task_verdict.get("status") or "not_evaluated")
-    if task_status in {"passed", "passed_with_residual_risk"}:
+    if task_status == "passed":
         verdict_title = ("Loop 裁决：已通过", "Task verdict: passed")
-        verdict_note = (task_verdict.get("summary") or "证据支持本次 Loop 结论。", task_verdict.get("summary") or "Evidence supports the task conclusion.")
+        verdict_note = (
+            task_verdict.get("summary") or _first_task_bucket_text(buckets, "proven") or "证据支持本次 Loop 结论。",
+            task_verdict.get("summary") or _first_task_bucket_text(buckets, "proven") or "Evidence supports the task conclusion.",
+        )
+    elif task_status == "passed_with_residual_risk":
+        verdict_title = ("Loop 裁决：有残余风险地通过", "Task verdict: passed with residual risk")
+        verdict_note = (
+            task_verdict.get("summary") or _first_task_bucket_text(buckets, "residual_risk") or "证据支持本次 Loop 结论，但仍保留了已接受的可见残余风险。",
+            task_verdict.get("summary")
+            or _first_task_bucket_text(buckets, "residual_risk")
+            or "Evidence supports the task conclusion, with accepted residual risk still visible.",
+        )
     elif task_status == "failed":
         verdict_title = ("Loop 裁决：未通过", "Task verdict: failed")
         verdict_note = (
-            task_verdict.get("summary") or f"还有 {failed_count} 个阻断项，优先看证据桶。",
-            task_verdict.get("summary") or f"{failed_count} blocker(s) remain. Start with the evidence buckets.",
+            task_verdict.get("summary") or _first_task_bucket_text(buckets, "blocking") or f"还有 {failed_count} 个阻断项，优先看证据桶。",
+            task_verdict.get("summary")
+            or _first_task_bucket_text(buckets, "blocking")
+            or f"{failed_count} blocker(s) remain. Start with the evidence buckets.",
         )
     elif task_status == "insufficient_evidence":
         verdict_title = ("Loop 裁决：证据不足", "Task verdict: insufficient evidence")
-        verdict_note = (task_verdict.get("summary") or "运行已到边界，但证据还不足以证明 Loop 通过。", task_verdict.get("summary") or "The run reached its boundary, but evidence is not strong enough for a task pass.")
+        verdict_note = (
+            task_verdict.get("summary") or _first_task_bucket_text(buckets, "unproven", "weak") or "运行已到边界，但证据还不足以证明 Loop 通过。",
+            task_verdict.get("summary")
+            or _first_task_bucket_text(buckets, "unproven", "weak")
+            or "The run reached its boundary, but evidence is not strong enough for a task pass.",
+        )
     else:
         verdict_title = ("Loop 裁决：未评估", "Task verdict: not evaluated")
-        verdict_note = (task_verdict.get("summary") or "还没有可用的证据裁决。", task_verdict.get("summary") or "No evidence-based task verdict is available yet.")
+        verdict_note = (
+            task_verdict.get("summary") or "还没有可用的证据裁决。",
+            task_verdict.get("summary") or "No evidence-based task verdict is available yet.",
+        )
 
     status_notes = {
         "queued": ("运行已创建，正在等待执行。", "The run is created and waiting to start."),
@@ -339,6 +371,23 @@ def _build_run_summary_snapshot(run: dict) -> dict:
         "failed_count": failed_count,
         "composite_score": composite_score,
     }
+
+
+def _first_task_bucket_text(buckets: Mapping[str, object], *bucket_names: str) -> str:
+    for bucket_name in bucket_names:
+        items = buckets.get(bucket_name)
+        if not isinstance(items, list) or not items:
+            continue
+        item = items[0]
+        if not isinstance(item, Mapping):
+            if str(item).strip():
+                return str(item).strip()
+            continue
+        for key in ("text", "label", "reason"):
+            text = str(item.get(key) or "").strip()
+            if text:
+                return text
+    return ""
 
 
 __all__ = [

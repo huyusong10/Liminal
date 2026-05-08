@@ -68,6 +68,12 @@ class WebRouteBundlePagesMixin:
             for key in form_values:
                 if key in values:
                     form_values[key] = values[key]
+        control_summary = self.svc()._bundle_control_summary(exported_bundle)
+        traceability = control_summary.get("traceability") if isinstance(control_summary, dict) else {}
+        traceability = traceability if isinstance(traceability, dict) else {}
+        diagnostics = control_summary.get("diagnostics") if isinstance(control_summary, dict) else []
+        traceability_items = [dict(item) for item in list(traceability.get("items") or []) if isinstance(item, dict)]
+        diagnostic_warnings = [dict(item) for item in list(diagnostics or []) if isinstance(item, dict) and str(item.get("severity") or "").strip() != "info"]
         return self.templates.TemplateResponse(
             request,
             "bundle_detail.html",
@@ -77,7 +83,10 @@ class WebRouteBundlePagesMixin:
                 "form_values": form_values,
                 "form_error": form_error or spec_read_error,
                 "bundle_yaml": bundle_yaml,
-                "control_summary": self.svc()._bundle_control_summary(exported_bundle),
+                "control_summary": control_summary,
+                "bundle_traceability": traceability,
+                "bundle_traceability_items": traceability_items,
+                "bundle_diagnostic_warnings": diagnostic_warnings,
                 "spec_rendered_html": render_safe_markdown_html(str(form_values.get("spec_markdown", ""))),
                 "access_state": self.access_state,
             },
