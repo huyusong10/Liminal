@@ -1,25 +1,5 @@
 /* Alignment creation page styles split from the global app shell. */
 
-@keyframes alignmentPulse {
-  0%, 100% {
-    opacity: 0.52;
-    transform: scale(0.92);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.08);
-  }
-}
-
-@keyframes alignmentTrace {
-  from {
-    transform: translateX(-42%);
-  }
-  to {
-    transform: translateX(42%);
-  }
-}
-
 @keyframes alignmentDotRise {
   0%, 80%, 100% {
     opacity: 0.4;
@@ -91,7 +71,6 @@
   border-radius: 999px;
   background: currentColor;
   box-shadow: 0 0 0 5px rgba(var(--accent-rgb, 0, 113, 227), 0.1);
-  animation: alignmentPulse 1.25s ease-in-out infinite;
 }
 
 .alignment-start-grid,
@@ -565,7 +544,6 @@ html[data-locale="zh"] .alignment-role-title em {
   align-self: stretch;
   border-radius: 999px;
   background: linear-gradient(180deg, var(--accent), var(--accent-2));
-  animation: alignmentPulse 1.5s ease-in-out infinite;
 }
 
 .bundle-chat-shell .alignment-history-item.is-running {
@@ -635,7 +613,6 @@ html[data-locale="zh"] .alignment-role-title em {
 
 .alignment-history-item.is-running .alignment-history-status-dot {
   display: inline-block;
-  animation: alignmentPulse 1.25s ease-in-out infinite;
 }
 
 .alignment-history-delete {
@@ -822,18 +799,6 @@ html[data-locale="zh"] .alignment-role-title em {
   color: var(--ink);
 }
 
-.alignment-working-card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  width: 68%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
-  opacity: 0.55;
-  transform: translateX(-42%);
-  animation: alignmentTrace 2.2s ease-in-out infinite alternate;
-  pointer-events: none;
-}
-
 .alignment-working-beacon {
   position: relative;
   z-index: 1;
@@ -842,7 +807,6 @@ html[data-locale="zh"] .alignment-role-title em {
   border-radius: 999px;
   background: var(--accent);
   box-shadow: 0 0 0 5px rgba(var(--accent-rgb, 0, 113, 227), 0.1);
-  animation: alignmentPulse 1.25s ease-in-out infinite;
 }
 
 .alignment-working-copy {
@@ -945,7 +909,6 @@ html[data-locale="zh"] .alignment-role-title em {
 
 .alignment-live-summary.is-active .alignment-live-summary-indicator {
   display: inline-block;
-  animation: alignmentPulse 1.25s ease-in-out infinite;
 }
 
 .alignment-live-summary-label,
@@ -1155,6 +1118,64 @@ html[data-locale="zh"] .alignment-role-title em {
 .alignment-tool-panel h3 {
   margin: 0;
   font-size: 1rem;
+}
+
+.alignment-workdir-context {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(var(--outline-rgb), 0.12);
+  border-radius: var(--radius-md);
+  background: rgba(var(--surface-rgb), 0.74);
+}
+
+.alignment-workdir-context-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.alignment-workdir-context-options {
+  display: grid;
+  gap: 8px;
+}
+
+.alignment-workdir-context-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(var(--outline-rgb), 0.1);
+  border-radius: var(--radius-sm);
+  background: rgba(var(--glass-rgb), 0.58);
+  cursor: pointer;
+}
+
+.alignment-workdir-context-option:has(input:checked) {
+  border-color: rgba(var(--accent-rgb, 0, 113, 227), 0.32);
+  background: rgba(var(--accent-rgb, 0, 113, 227), 0.08);
+}
+
+.alignment-workdir-context-option input {
+  margin-top: 3px;
+}
+
+.alignment-workdir-context-option strong,
+.alignment-workdir-context-option small {
+  display: block;
+  min-width: 0;
+}
+
+.alignment-workdir-context-option strong {
+  font-size: 0.9rem;
+}
+
+.alignment-workdir-context-option small {
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.42;
 }
 
 .alignment-tool-panel label,

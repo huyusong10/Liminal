@@ -6,6 +6,7 @@ import re
 import shutil
 import signal
 import threading
+from contextlib import suppress
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
@@ -451,6 +452,7 @@ class AlignmentSessionCreateRequest:
     workdir: Path
     message: str = ""
     start_immediately: bool = True
+    source_option_id: str = ""
     executor_settings: AlignmentExecutorSettingsRequest = field(default_factory=_default_alignment_executor_settings)
 
 
@@ -494,6 +496,7 @@ def _coerce_alignment_session_create_request(
         workdir=workdir if isinstance(workdir, Path) else Path(str(workdir)),
         message=str(raw_request.get("message", "") or ""),
         start_immediately=bool(raw_request.get("start_immediately", True)),
+        source_option_id=str(raw_request.get("source_option_id", "") or "").strip(),
         executor_settings=_alignment_executor_settings_from_raw(raw_request),
     )
 
@@ -536,6 +539,7 @@ class ServiceAlignmentMixin:
         if not workdir.exists() or not workdir.is_dir():
             raise LooporaError(f"workdir does not exist: {workdir}")
         settings = self._normalize_alignment_executor_settings(request.executor_settings)
+        source_seed = self._resolve_alignment_source_option(workdir, request.source_option_id)
         session_id = make_id("align")
         session_dir = self._alignment_session_dir(workdir, session_id)
         paths = self._alignment_artifact_paths_from_root(session_dir)
@@ -553,11 +557,17 @@ class ServiceAlignmentMixin:
                 "transcript": transcript,
                 "validation": {},
                 "alignment_stage": "clarifying",
-                "working_agreement": {},
+                "working_agreement": source_seed.get("working_agreement") or {},
                 "executor_session_ref": {},
+                "linked_bundle_id": source_seed.get("linked_bundle_id", ""),
+                "linked_loop_id": source_seed.get("linked_loop_id", ""),
+                "linked_run_id": source_seed.get("linked_run_id", ""),
                 **settings,
             }
         )
+        seed_bundle = source_seed.get("seed_bundle")
+        if isinstance(seed_bundle, dict) and seed_bundle:
+            paths["bundle"].write_text(bundle_to_yaml(seed_bundle), encoding="utf-8")
         self.repository.append_alignment_event(
             session_id,
             "alignment_session_created",
@@ -567,6 +577,9 @@ class ServiceAlignmentMixin:
                 "executor_kind": session["executor_kind"],
             },
         )
+        source_event = source_seed.get("event")
+        if isinstance(source_event, dict) and source_event:
+            self.repository.append_alignment_event(session_id, "alignment_source_context_selected", source_event)
         self._write_alignment_transcript_log(self.get_alignment_session(session_id))
         if normalized_message and request.start_immediately:
             self.start_alignment_session_async(session_id)
@@ -734,6 +747,45 @@ class ServiceAlignmentMixin:
     def list_alignment_events(self, session_id: str, *, after_id: int = 0, limit: int = 200) -> list[dict]:
         self.get_alignment_session(session_id)
         return self.repository.list_alignment_events(session_id, after_id=after_id, limit=limit)
+
+    def get_alignment_workdir_context(self, workdir: Path) -> dict:
+        root = workdir.expanduser().resolve()
+        if not root.exists() or not root.is_dir():
+            raise LooporaError(f"workdir does not exist: {root}")
+        options: list[dict] = []
+        seen_option_ids: set[str] = set()
+        seen_bundle_paths = self._collect_alignment_session_context_options(root, options, seen_option_ids)
+        seen_spec_paths = self._collect_alignment_loop_context_options(root, options, seen_option_ids)
+        state_dir = state_dir_for_workdir(root)
+        self._collect_alignment_filesystem_context_options(
+            state_dir,
+            options,
+            seen_option_ids,
+            seen_bundle_paths=seen_bundle_paths,
+            seen_spec_paths=seen_spec_paths,
+        )
+        self._add_alignment_context_option(
+            {
+                "option_id": "regenerate",
+                "action": "regenerate",
+                "source_type": "none",
+                "label_zh": "重新生成",
+                "label_en": "Start fresh",
+                "description_zh": "忽略这个目录里已有的 Loopora 产物，从当前消息重新编排。",
+                "description_en": "Ignore existing Loopora artifacts in this workdir and compose from the new message.",
+            },
+            options,
+            seen_option_ids,
+        )
+        has_sources = any(str(option.get("action") or "") != "regenerate" for option in options)
+        return {
+            "workdir": str(root),
+            "state_dir": str(state_dir),
+            "has_loopora_state": state_dir.exists(),
+            "requires_choice": has_sources,
+            "recommended_option_id": "" if has_sources else "regenerate",
+            "options": options[:20],
+        }
 
     def get_alignment_bundle(self, session_id: str) -> dict:
         session = self.get_alignment_session(session_id)
@@ -2847,6 +2899,440 @@ class ServiceAlignmentMixin:
         return normalized in ALIGNMENT_LANGUAGE_NEUTRAL_CONFIRMATIONS
 
     @staticmethod
+    def _add_alignment_context_option(option: dict, options: list[dict], seen_option_ids: set[str]) -> None:
+        option_id = str(option.get("option_id") or "").strip()
+        if not option_id or option_id in seen_option_ids:
+            return
+        seen_option_ids.add(option_id)
+        options.append(option)
+
+    def _collect_alignment_session_context_options(self, root: Path, options: list[dict], seen_option_ids: set[str]) -> set[str]:
+        seen_bundle_paths: set[str] = set()
+        for session in self.repository.list_alignment_sessions(limit=100):
+            if not self._same_alignment_workdir(session.get("workdir"), root):
+                continue
+            for option in self._alignment_session_context_options(session):
+                self._add_alignment_context_option(option, options, seen_option_ids)
+                bundle_path = str(option.get("bundle_path") or "").strip()
+                if bundle_path:
+                    seen_bundle_paths.add(str(Path(bundle_path).expanduser().resolve()))
+        return seen_bundle_paths
+
+    def _collect_alignment_loop_context_options(self, root: Path, options: list[dict], seen_option_ids: set[str]) -> set[str]:
+        seen_spec_paths: set[str] = set()
+        for loop in self.list_loops():
+            if not self._same_alignment_workdir(loop.get("workdir"), root):
+                continue
+            spec_path = str(loop.get("spec_path") or "").strip()
+            if spec_path:
+                seen_spec_paths.add(str(Path(spec_path).expanduser().resolve()))
+            latest_run_id = str(loop.get("latest_run_id") or "").strip()
+            if latest_run_id:
+                with suppress(LooporaError):
+                    self._add_alignment_context_option(
+                        self._alignment_run_context_option(self.get_run(latest_run_id), loop=loop),
+                        options,
+                        seen_option_ids,
+                    )
+            bundle = loop.get("bundle") if isinstance(loop.get("bundle"), dict) else {}
+            bundle_id = str(bundle.get("id") or "").strip()
+            option = (
+                self._alignment_bundle_context_option(bundle_id, loop=loop, bundle=bundle)
+                if bundle_id
+                else self._alignment_loop_context_option(loop)
+            )
+            self._add_alignment_context_option(option, options, seen_option_ids)
+        return seen_spec_paths
+
+    def _collect_alignment_filesystem_context_options(
+        self,
+        state_dir: Path,
+        options: list[dict],
+        seen_option_ids: set[str],
+        *,
+        seen_bundle_paths: set[str],
+        seen_spec_paths: set[str],
+    ) -> None:
+        if not state_dir.exists():
+            return
+        for bundle_path in sorted((state_dir / "alignment_sessions").glob("*/artifacts/bundle.yml"))[:20]:
+            resolved_bundle_path = str(bundle_path.expanduser().resolve())
+            if resolved_bundle_path in seen_bundle_paths:
+                continue
+            seen_bundle_paths.add(resolved_bundle_path)
+            self._add_alignment_context_option(
+                self._alignment_file_bundle_context_option(
+                    source_session_id=bundle_path.parent.parent.name,
+                    bundle_path=bundle_path,
+                ),
+                options,
+                seen_option_ids,
+            )
+        for spec_path in self._alignment_workdir_spec_candidates(state_dir):
+            resolved_spec = str(spec_path.expanduser().resolve())
+            if resolved_spec in seen_spec_paths:
+                continue
+            seen_spec_paths.add(resolved_spec)
+            self._add_alignment_context_option(self._alignment_spec_file_context_option(spec_path), options, seen_option_ids)
+
+    @staticmethod
+    def _same_alignment_workdir(candidate: object, expected: Path) -> bool:
+        candidate_text = str(candidate or "").strip()
+        if not candidate_text:
+            return False
+        try:
+            return Path(candidate_text).expanduser().resolve() == expected.expanduser().resolve()
+        except OSError:
+            return False
+
+    @staticmethod
+    def _alignment_source_option_id(source_type: str, identifier: object) -> str:
+        normalized_identifier = str(identifier or "").strip()
+        if source_type == "spec_file":
+            digest = sha256(normalized_identifier.encode("utf-8")).hexdigest()[:16]
+            return f"spec_file:{digest}"
+        safe_identifier = re.sub(r"[^A-Za-z0-9_.:-]+", "-", normalized_identifier).strip("-")
+        return f"{source_type}:{safe_identifier}"
+
+    @staticmethod
+    def _alignment_context_title_from_session(session: dict) -> str:
+        for entry in session.get("transcript") or []:
+            if not isinstance(entry, dict) or entry.get("role") != "user":
+                continue
+            content = str(entry.get("content", "") or "").strip()
+            if content:
+                return content[:80]
+        return str(session.get("id") or "alignment session")
+
+    @classmethod
+    def _alignment_session_context_options(cls, session: dict) -> list[dict]:
+        session_id = str(session.get("id") or "").strip()
+        if not session_id:
+            return []
+        title = cls._alignment_context_title_from_session(session)
+        status = str(session.get("status") or "")
+        options: list[dict] = []
+        if status in {"idle", "running", "waiting_user", "ready", "failed"}:
+            options.append(
+                {
+                    "option_id": cls._alignment_source_option_id("continue_session", session_id),
+                    "action": "continue_session",
+                    "source_type": "alignment_session",
+                    "session_id": session_id,
+                    "status": status,
+                    "updated_at": session.get("updated_at", ""),
+                    "label_zh": f"继续对话：{title}",
+                    "label_en": f"Continue chat: {title}",
+                    "description_zh": "回到这个已有对话，并把下一条消息追加到同一个 session。",
+                    "description_en": "Return to this chat and append the next message to the same session.",
+                }
+            )
+        bundle_path = Path(str(session.get("bundle_path") or ""))
+        if status == "ready" and bundle_path.exists():
+            options.append(
+                {
+                    "option_id": cls._alignment_source_option_id("alignment_session", session_id),
+                    "action": "improve",
+                    "source_type": "alignment_session",
+                    "source_alignment_session_id": session_id,
+                    "status": status,
+                    "bundle_path": str(bundle_path),
+                    "updated_at": session.get("updated_at", ""),
+                    "label_zh": f"基于 READY 方案改进：{title}",
+                    "label_en": f"Improve READY plan: {title}",
+                    "description_zh": "把这个 session 的 READY bundle 和对话摘要作为新对话的来源上下文。",
+                    "description_en": "Use this session's READY bundle and conversation summary as source context for a new chat.",
+                }
+            )
+        return options
+
+    @classmethod
+    def _alignment_file_bundle_context_option(cls, *, source_session_id: str, bundle_path: Path) -> dict:
+        return {
+            "option_id": cls._alignment_source_option_id("alignment_session_file", bundle_path),
+            "action": "improve",
+            "source_type": "alignment_session_file",
+            "source_alignment_session_id": source_session_id,
+            "bundle_path": str(bundle_path),
+            "label_zh": f"基于本地 READY 方案改进：{source_session_id}",
+            "label_en": f"Improve local READY plan: {source_session_id}",
+            "description_zh": "读取同目录 .loopora 中的 READY bundle 文件作为来源上下文。",
+            "description_en": "Read the READY bundle file from this workdir's .loopora state as source context.",
+        }
+
+    @classmethod
+    def _alignment_bundle_context_option(cls, bundle_id: str, *, loop: dict, bundle: dict) -> dict:
+        name = str(bundle.get("name") or loop.get("name") or bundle_id)
+        return {
+            "option_id": cls._alignment_source_option_id("bundle", bundle_id),
+            "action": "improve",
+            "source_type": "bundle",
+            "source_bundle_id": bundle_id,
+            "source_loop_id": str(loop.get("id") or ""),
+            "label_zh": f"基于已有方案改进：{name}",
+            "label_en": f"Improve existing plan: {name}",
+            "description_zh": "使用已导入 bundle 的 spec、roles 和 workflow 作为候选基础。",
+            "description_en": "Use the imported bundle's spec, roles, and workflow as the candidate base.",
+        }
+
+    @classmethod
+    def _alignment_loop_context_option(cls, loop: dict) -> dict:
+        loop_id = str(loop.get("id") or "").strip()
+        name = str(loop.get("name") or loop_id)
+        return {
+            "option_id": cls._alignment_source_option_id("loop", loop_id),
+            "action": "improve",
+            "source_type": "loop",
+            "source_loop_id": loop_id,
+            "label_zh": f"基于已有 Loop 改进：{name}",
+            "label_en": f"Improve existing Loop: {name}",
+            "description_zh": "从这个 Loop 的已保存 spec、roles 和 workflow 派生候选方案。",
+            "description_en": "Derive a candidate plan from this Loop's saved spec, roles, and workflow.",
+        }
+
+    @classmethod
+    def _alignment_run_context_option(cls, run: dict, *, loop: dict) -> dict:
+        run_id = str(run.get("id") or "").strip()
+        loop_name = str(loop.get("name") or run.get("loop_id") or "")
+        return {
+            "option_id": cls._alignment_source_option_id("run", run_id),
+            "action": "improve",
+            "source_type": "run",
+            "source_run_id": run_id,
+            "source_loop_id": str(run.get("loop_id") or loop.get("id") or ""),
+            "status": str(run.get("status") or ""),
+            "label_zh": f"基于最近运行证据改进：{loop_name}",
+            "label_en": f"Improve from latest run evidence: {loop_name}",
+            "description_zh": "把最近一次 run 的 task verdict、coverage、GateKeeper 裁决和证据路径作为改进依据。",
+            "description_en": "Use the latest run's task verdict, coverage, GateKeeper verdict, and evidence refs as improvement input.",
+        }
+
+    @classmethod
+    def _alignment_spec_file_context_option(cls, spec_path: Path) -> dict:
+        return {
+            "option_id": cls._alignment_source_option_id("spec_file", spec_path),
+            "action": "start_from_spec",
+            "source_type": "spec_file",
+            "spec_path": str(spec_path),
+            "label_zh": f"从已有 spec 开始：{spec_path.name}",
+            "label_en": f"Start from existing spec: {spec_path.name}",
+            "description_zh": "把这份 spec 作为任务契约线索，但仍通过对话补齐 roles、workflow 和证据裁决。",
+            "description_en": "Use this spec as task-contract context while the chat still fills roles, workflow, and verdict evidence.",
+        }
+
+    @staticmethod
+    def _alignment_workdir_spec_candidates(state_dir: Path) -> list[Path]:
+        candidates: list[Path] = []
+        root_spec = state_dir / "spec.md"
+        if root_spec.is_file():
+            candidates.append(root_spec)
+        loops_dir = state_dir / "loops"
+        if loops_dir.is_dir():
+            candidates.extend(path for path in sorted(loops_dir.glob("*/spec.md")) if path.is_file())
+        return candidates[:20]
+
+    @staticmethod
+    def _bounded_alignment_file_text(path: Path, *, limit: int = 16000) -> str:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            return f"Source file could not be read: {exc}"
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "\n\n[Loopora truncated this source context for prompt size.]"
+
+    @staticmethod
+    def _alignment_transcript_source_summary(session: dict) -> list[dict]:
+        entries = [entry for entry in (session.get("transcript") or []) if isinstance(entry, dict)]
+        summary: list[dict] = []
+        for entry in entries[-8:]:
+            content = str(entry.get("content", "") or "").strip()
+            if not content:
+                continue
+            summary.append(
+                {
+                    "role": str(entry.get("role") or ""),
+                    "content": content[:600],
+                    "created_at": entry.get("created_at", ""),
+                }
+            )
+        return summary
+
+    def _resolve_alignment_source_option(self, workdir: Path, source_option_id: str) -> dict:
+        option_id = str(source_option_id or "").strip()
+        if not option_id or option_id == "regenerate":
+            return {}
+        context = self.get_alignment_workdir_context(workdir)
+        option = next((item for item in context["options"] if item.get("option_id") == option_id), None)
+        if not option:
+            raise LooporaError("selected workdir context is no longer available")
+        if option.get("action") == "continue_session":
+            raise LooporaConflictError("continue_session options must restore the existing session instead of creating a new one")
+        source_type = str(option.get("source_type") or "")
+        if source_type == "bundle":
+            return self._source_seed_from_bundle_option(option)
+        if source_type == "run":
+            return self._source_seed_from_run_option(option)
+        if source_type == "loop":
+            return self._source_seed_from_loop_option(option)
+        if source_type in {"alignment_session", "alignment_session_file"}:
+            return self._source_seed_from_alignment_session_option(option)
+        if source_type == "spec_file":
+            return self._source_seed_from_spec_file_option(option)
+        raise LooporaError(f"unsupported workdir context source: {source_type}")
+
+    def _source_seed_from_bundle_option(self, option: dict) -> dict:
+        bundle_id = str(option.get("source_bundle_id") or "").strip()
+        source_bundle = self.export_bundle(bundle_id)
+        source = {
+            "mode": "improvement",
+            "source_type": "bundle",
+            "source_bundle_id": bundle_id,
+            "source_loop_id": str(option.get("source_loop_id") or source_bundle.get("loop_id") or ""),
+            "source_run_id": "",
+            "source_completion_mode": str(source_bundle.get("loop", {}).get("completion_mode", "") or ""),
+            "reason": "improve_from_workdir_context",
+            "run_status": "",
+            "evidence_summary": [],
+            "task_verdict": {},
+            "gatekeeper_verdict": {},
+        }
+        return self._alignment_source_seed_payload(source, seed_bundle=self._revision_seed_bundle(source_bundle), linked_bundle_id=bundle_id)
+
+    def _source_seed_from_run_option(self, option: dict) -> dict:
+        run_id = str(option.get("source_run_id") or "").strip()
+        run = self.get_run(run_id)
+        loop = self.get_loop(run["loop_id"])
+        source_bundle_id = str((loop.get("bundle") or {}).get("id") or "").strip()
+        if source_bundle_id:
+            source_bundle = self.export_bundle(source_bundle_id)
+        else:
+            source_bundle = self.derive_bundle_from_loop(
+                run["loop_id"],
+                name=str(loop.get("name") or "Run improvement base"),
+                description="Derived as the improvement base for a run selected from workdir context.",
+                collaboration_summary="Improvement base derived from the current loop.",
+            )
+        source = {
+            "mode": "improvement",
+            "source_type": "run",
+            "source_bundle_id": source_bundle_id,
+            "source_loop_id": str(run.get("loop_id") or ""),
+            "source_run_id": run_id,
+            "source_completion_mode": str(source_bundle.get("loop", {}).get("completion_mode", "") or ""),
+            "reason": "improve_from_workdir_run_evidence",
+            "run_status": str(run.get("status") or ""),
+            "artifact_paths": self._alignment_run_artifact_paths(run),
+            "coverage_summary": self._alignment_run_coverage_summary(run),
+            "evidence_summary": self._alignment_run_evidence_summary(run),
+            "task_verdict": run.get("task_verdict") or {},
+            "gatekeeper_verdict": run.get("last_verdict_json") or {},
+        }
+        return self._alignment_source_seed_payload(
+            source,
+            seed_bundle=self._revision_seed_bundle(source_bundle),
+            linked_bundle_id=source_bundle_id,
+            linked_loop_id=str(run.get("loop_id") or ""),
+            linked_run_id=run_id,
+        )
+
+    def _source_seed_from_loop_option(self, option: dict) -> dict:
+        loop_id = str(option.get("source_loop_id") or "").strip()
+        loop = self.get_loop(loop_id)
+        source_bundle = self.derive_bundle_from_loop(
+            loop_id,
+            name=str(loop.get("name") or "Loop improvement base"),
+            description="Derived as the improvement base for a Loop selected from workdir context.",
+            collaboration_summary="Improvement base derived from the current loop.",
+        )
+        source = {
+            "mode": "improvement",
+            "source_type": "loop",
+            "source_bundle_id": "",
+            "source_loop_id": loop_id,
+            "source_run_id": "",
+            "source_completion_mode": str(source_bundle.get("loop", {}).get("completion_mode", "") or ""),
+            "reason": "improve_from_workdir_loop",
+            "source_loop_name": str(loop.get("name") or ""),
+            "run_status": "",
+            "evidence_summary": [],
+            "task_verdict": {},
+            "gatekeeper_verdict": {},
+        }
+        return self._alignment_source_seed_payload(source, seed_bundle=self._revision_seed_bundle(source_bundle), linked_loop_id=loop_id)
+
+    def _source_seed_from_alignment_session_option(self, option: dict) -> dict:
+        source_session_id = str(option.get("source_alignment_session_id") or "").strip()
+        bundle_path = Path(str(option.get("bundle_path") or ""))
+        try:
+            source_session = self.get_alignment_session(source_session_id)
+        except LooporaError:
+            source_session = {}
+        source_bundle = load_bundle_text(read_bundle_file_text(bundle_path))
+        source = {
+            "mode": "improvement",
+            "source_type": str(option.get("source_type") or "alignment_session"),
+            "source_alignment_session_id": source_session_id,
+            "source_bundle_id": "",
+            "source_loop_id": "",
+            "source_run_id": "",
+            "source_completion_mode": str(source_bundle.get("loop", {}).get("completion_mode", "") or ""),
+            "reason": "improve_from_workdir_alignment_session",
+            "source_status": str(source_session.get("status") or option.get("status") or ""),
+            "source_bundle_path": str(bundle_path),
+            "transcript_summary": self._alignment_transcript_source_summary(source_session) if source_session else [],
+            "run_status": "",
+            "evidence_summary": [],
+            "task_verdict": {},
+            "gatekeeper_verdict": {},
+        }
+        return self._alignment_source_seed_payload(source, seed_bundle=self._revision_seed_bundle(source_bundle))
+
+    def _source_seed_from_spec_file_option(self, option: dict) -> dict:
+        spec_path = Path(str(option.get("spec_path") or ""))
+        source = {
+            "mode": "selected_source",
+            "source_type": "spec_file",
+            "spec_path": str(spec_path),
+            "reason": "start_from_workdir_spec",
+            "spec_markdown": self._bounded_alignment_file_text(spec_path),
+            "artifact_paths": {"spec": str(spec_path)},
+        }
+        return self._alignment_source_seed_payload(source)
+
+    @staticmethod
+    def _alignment_source_seed_payload(
+        source: dict,
+        *,
+        seed_bundle: dict | None = None,
+        linked_bundle_id: str = "",
+        linked_loop_id: str = "",
+        linked_run_id: str = "",
+    ) -> dict:
+        working_agreement = {
+            "mode": str(source.get("mode") or "selected_source"),
+            "source": source,
+        }
+        if isinstance(seed_bundle, dict) and seed_bundle:
+            working_agreement["seed_bundle_metadata"] = seed_bundle.get("metadata", {})
+        return {
+            "working_agreement": working_agreement,
+            "seed_bundle": seed_bundle or {},
+            "linked_bundle_id": linked_bundle_id,
+            "linked_loop_id": linked_loop_id,
+            "linked_run_id": linked_run_id,
+            "event": {
+                "source_type": source.get("source_type", ""),
+                "source_bundle_id": source.get("source_bundle_id", ""),
+                "source_loop_id": source.get("source_loop_id", ""),
+                "source_run_id": source.get("source_run_id", ""),
+                "source_alignment_session_id": source.get("source_alignment_session_id", ""),
+                "spec_path": source.get("spec_path", ""),
+                "reason": source.get("reason", ""),
+            },
+        }
+
+    @staticmethod
     def _alignment_workdir_snapshot(workdir: Path) -> str:
         try:
             root = workdir.expanduser().resolve()
@@ -2890,21 +3376,60 @@ class ServiceAlignmentMixin:
     @staticmethod
     def _alignment_improvement_context_text(session: dict) -> str:
         agreement = session.get("working_agreement") if isinstance(session.get("working_agreement"), dict) else {}
-        if str(agreement.get("mode") or "") != "improvement":
+        mode = str(agreement.get("mode") or "")
+        if mode not in {"improvement", "selected_source"}:
             return ""
         source = agreement.get("source") if isinstance(agreement.get("source"), dict) else {}
+        artifact_paths_text = json.dumps(source.get("artifact_paths") or {}, ensure_ascii=False, indent=2)
+        transcript_summary_text = json.dumps(source.get("transcript_summary") or [], ensure_ascii=False, indent=2)
+        spec_markdown = str(source.get("spec_markdown") or "")
+        selected_context = f"""
+## Selected Loopora Source Context
+
+The user explicitly selected this source after choosing the workdir. Use it as conversation context, not as system-level lineage.
+
+- Source type: {source.get("source_type", "")}
+- Source alignment session id: {source.get("source_alignment_session_id", "")}
+- Source bundle id: {source.get("source_bundle_id", "")}
+- Source loop id: {source.get("source_loop_id", "")}
+- Source run id: {source.get("source_run_id", "")}
+- Source spec path: {source.get("spec_path", "")}
+- Reason: {source.get("reason", "")}
+
+Artifact refs:
+```json
+{artifact_paths_text}
+```
+
+Source transcript summary:
+```json
+{transcript_summary_text}
+```
+""".strip()
+        if spec_markdown:
+            selected_context += f"""
+
+Selected spec markdown:
+```markdown
+{spec_markdown}
+```
+""".rstrip()
+        if mode == "selected_source":
+            return selected_context
         evidence_items = source.get("evidence_summary") if isinstance(source.get("evidence_summary"), list) else []
         evidence_text = json.dumps(evidence_items[:8], ensure_ascii=False, indent=2)
-        artifact_paths_text = json.dumps(source.get("artifact_paths") or {}, ensure_ascii=False, indent=2)
         coverage_text = json.dumps(source.get("coverage_summary") or {}, ensure_ascii=False, indent=2)
         task_verdict_text = json.dumps(source.get("task_verdict") or {}, ensure_ascii=False, indent=2)
         verdict_text = json.dumps(source.get("gatekeeper_verdict") or {}, ensure_ascii=False, indent=2)
-        return f"""
+        improvement_context = f"""
 ## Bundle Improvement Context
 
-This alignment session starts from an existing Loopora bundle. Help the user improve the candidate bundle through dialogue, but do not present this as a required product lifecycle stage.
+This alignment session starts from a user-selected Loopora source. Help the user improve the candidate bundle through dialogue, but do not present this as a required product lifecycle stage.
 
 - Source type: {source.get("source_type", "")}
+- Source alignment session id: {source.get("source_alignment_session_id", "")}
+- Source bundle id: {source.get("source_bundle_id", "")}
+- Source loop id: {source.get("source_loop_id", "")}
 - Source run id: {source.get("source_run_id", "")}
 - Source run status: {source.get("run_status", "")}
 - Source completion mode: {source.get("source_completion_mode", "")}
@@ -2945,6 +3470,7 @@ GateKeeper verdict:
 {verdict_text}
 ```
 """.strip()
+        return selected_context + "\n\n" + improvement_context
 
     @staticmethod
     def _alignment_manifest_payload(session: dict) -> dict:

@@ -1965,6 +1965,115 @@ def test_alignment_api_creates_improvement_sessions_from_bundle_and_run(
     assert run_payload["session"]["working_agreement"]["source"]["source_run_id"] == run["id"]
 
 
+def test_alignment_workdir_context_discovers_spec_and_requires_explicit_selection(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    state_dir = sample_workdir / ".loopora"
+    state_dir.mkdir()
+    spec_path = state_dir / "spec.md"
+    spec_path.write_text("# Task\n\n编排一个英语学习网站。\n", encoding="utf-8")
+    invocation_dir = state_dir / "alignment_sessions" / "align_old" / "invocations" / "0001"
+    invocation_dir.mkdir(parents=True)
+    (invocation_dir / "stdout.log").write_text("secret execution log\n", encoding="utf-8")
+
+    context = service.get_alignment_workdir_context(sample_workdir)
+
+    assert context["requires_choice"] is True
+    spec_option = next(option for option in context["options"] if option["source_type"] == "spec_file")
+    assert spec_option["spec_path"] == str(spec_path)
+    assert any(option["action"] == "regenerate" for option in context["options"])
+
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="继续把这个目录编排成 Loop。",
+        source_option_id=spec_option["option_id"],
+        start_immediately=False,
+    )
+
+    agreement = session["working_agreement"]
+    assert agreement["mode"] == "selected_source"
+    assert agreement["source"]["source_type"] == "spec_file"
+    assert "英语学习网站" in agreement["source"]["spec_markdown"]
+    prompt = service._build_alignment_prompt(session, mode="normal")
+    assert "Selected Loopora Source Context" in prompt
+    assert "英语学习网站" in prompt
+    assert "secret execution log" not in prompt
+
+    continue_option = {
+        "option_id": alignment_module.ServiceAlignmentMixin._alignment_source_option_id("continue_session", session["id"])
+    }
+    with pytest.raises(alignment_module.LooporaConflictError):
+        service.create_alignment_session(
+            workdir=sample_workdir,
+            message="不要新建，继续旧对话。",
+            source_option_id=continue_option["option_id"],
+            start_immediately=False,
+        )
+
+
+def test_alignment_workdir_context_seeds_selected_existing_bundle(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    source = _create_alignment_improvement_source_bundle(service, sample_spec_file, sample_workdir)
+    context = service.get_alignment_workdir_context(sample_workdir)
+    bundle_option = next(option for option in context["options"] if option.get("source_bundle_id") == source["id"])
+
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="在这个已有方案上继续改进证据路径。",
+        source_option_id=bundle_option["option_id"],
+        start_immediately=False,
+    )
+
+    agreement = session["working_agreement"]
+    assert agreement["mode"] == "improvement"
+    assert agreement["source"]["source_type"] == "bundle"
+    assert agreement["source"]["source_bundle_id"] == source["id"]
+    assert session["linked_bundle_id"] == source["id"]
+    assert Path(session["bundle_path"]).exists()
+    preview = service.get_alignment_bundle(session["id"])
+    assert preview["ok"] is True
+    assert preview["bundle"]["metadata"]["source_bundle_id"] == ""
+    prompt = service._build_alignment_prompt(session, mode="normal")
+    assert "Selected Loopora Source Context" in prompt
+    assert "Current Bundle" in prompt
+
+
+def test_alignment_workdir_context_api_creates_selected_source_session(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    state_dir = sample_workdir / ".loopora"
+    state_dir.mkdir()
+    spec_path = state_dir / "spec.md"
+    spec_path.write_text("# Task\n\n整理一个可验证的改进 Loop。\n", encoding="utf-8")
+    client = TestClient(build_app(service=service))
+
+    context_response = client.post("/api/alignments/workdir-context", json={"workdir": str(sample_workdir)})
+    assert context_response.status_code == 200
+    context_payload = context_response.json()
+    spec_option = next(option for option in context_payload["options"] if option["source_type"] == "spec_file")
+
+    create_response = client.post(
+        "/api/alignments/sessions",
+        json={
+            "workdir": str(sample_workdir),
+            "message": "基于已有 spec 继续对齐。",
+            "source_option_id": spec_option["option_id"],
+        },
+    )
+    assert create_response.status_code == 201
+    session = create_response.json()["session"]
+    assert session["working_agreement"]["mode"] == "selected_source"
+    assert session["working_agreement"]["source"]["spec_path"] == str(spec_path)
+
+
 def test_alignment_service_lazily_migrates_legacy_flat_artifacts(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     session_id = "align_legacy"

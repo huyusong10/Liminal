@@ -17,6 +17,7 @@ from loopora.web_streaming import MAX_EVENT_CURSOR_ID, parse_sse_last_event_id, 
 
 def register_alignment_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     _register_alignment_improvement_routes(app, ctx)
+    _register_alignment_workdir_context_route(app, ctx)
     _register_alignment_session_routes(app, ctx)
     _register_alignment_stream_route(app, ctx)
     _register_alignment_bundle_routes(app, ctx)
@@ -42,6 +43,16 @@ def _register_alignment_improvement_routes(app: FastAPI, ctx: WebRouteContext) -
         )
 
 
+def _register_alignment_workdir_context_route(app: FastAPI, ctx: WebRouteContext) -> None:
+    @app.post("/api/alignments/workdir-context")
+    async def api_alignment_workdir_context(request: Request) -> JSONResponse:
+        payload = await ctx.read_json_mapping(request)
+        workdir_text = str(payload.get("workdir", "")).strip()
+        if not workdir_text:
+            return ctx.json_error("workdir is required")
+        return JSONResponse(ctx.svc().get_alignment_workdir_context(Path(workdir_text)))
+
+
 def _register_alignment_session_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.post("/api/alignments/sessions")
     async def api_create_alignment_session(request: Request) -> JSONResponse:
@@ -59,6 +70,7 @@ def _register_alignment_session_routes(app: FastAPI, ctx: WebRouteContext) -> No
             command_args_text=str(payload.get("command_args_text", "")),
             model=str(payload.get("model", "")).strip(),
             reasoning_effort=str(payload.get("reasoning_effort", "")).strip(),
+            source_option_id=str(payload.get("source_option_id", "")).strip(),
             start_immediately=True,
         )
         return JSONResponse({"session": session}, status_code=201)

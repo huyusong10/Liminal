@@ -63,6 +63,8 @@ Web 创建入口拆成三条路由：
 补充规则：
 
 - Workdir 仍是必填运行环境字段，但默认隐藏在轻量 chip 背后的设置浮层里；用户未选择 workdir 就发送时，页面应保留输入内容并打开 workdir 设置提示。
+- 选择 workdir 后，页面应检查该目录下已有的 Loopora 产物，并在启动新对话前把选择权交还给用户：继续已有 alignment session、基于已有 Loop / bundle / run / spec 改进，或重新生成并忽略旧产物。系统不得因为 `.loopora` 存在就静默继承上下文。
+- workdir 上下文选择只影响 Web alignment 的对话期输入；它不创建 bundle 版本历史、lineage、diff 或回滚语义。用户选择“重新生成”时，旧产物只能作为存在性提醒或完全忽略，不能被注入为事实来源。
 - 模型、推理强度、自定义命令参数属于 Agent 设置，默认隐藏在弹层或抽屉里，不作为独立“高级”入口暴露。预设模式的模型可留空，语义是继承当前 Agent CLI 默认模型，而不是由 Loopora 固定某个易过期模型名。
 - 执行工具配置语义与角色定义页一致：预设模式只暴露模型与推理强度；自定义命令模式直接维护 CLI 与参数模板，并让模型 / 推理强度成为不可编辑参考；`Custom Command` 只支持自定义命令，OpenCode 默认推理强度为空。
 - “已有 bundle YAML / 文件”的导入路径属于 `/loops/new/manual` 的导入模式，不进入对话消息流，避免把生成式对齐和专家手工导入混在同一内容面。
@@ -95,11 +97,22 @@ alignment session 是 Web 内置对齐流程的最小状态单元。
 | working agreement | 最近一次等待确认或已确认的工作协议摘要、checklist 与 readiness evidence，包括 Loopora fit 判断 |
 | executor session ref | 后端 CLI 原生 session / rollout 引用，用于后续对话继承上下文 |
 | linked bundle / loop / run | 导入并运行后关联到现有对象 |
-| source context | 可选对话改进入口的临时输入，来自当前 bundle 或 run evidence；默认创建 Loop 路径不依赖它，且不形成系统级 lineage |
+| source context | 可选对话改进或 workdir 上下文选择的临时输入，来自用户显式选择的 alignment session、bundle、loop、run evidence 或 spec；默认创建 Loop 路径不依赖它，且不形成系统级 lineage |
 
 Web alignment 写出的最终 `bundle.yml` 必须是 standalone candidate：即使 session 带有 source context，生成结果也不得写入 `metadata.source_bundle_id` 或显式 `metadata.revision`，改进入口也不得把来源 bundle id 复用为 `metadata.bundle_id`。后端校验在原始 YAML 层阻断 lineage 字段，并在 improvement context 中阻断来源 id 复用；普通导入路径仍可兼容 legacy revision 并在导入后忽略 lineage。
 
 从 run evidence 发起的改进 source context 必须包含 run status、evidence artifact paths、evidence coverage summary、最终 task verdict projection、recent evidence summary 与 raw GateKeeper verdict；recent evidence summary 应保留可用 artifact refs。改进 Agent 应以 task verdict 作为用户可见结论，以 raw GateKeeper verdict 作为解释材料；不能只看 raw verdict 而忽略 run lifecycle、coverage gate 或 residual-risk bucket 后得到的最终裁决。
+
+从 workdir 选择发现的 source context 必须由用户显式选择，并且只能引用同一 workdir 下可重新发现的 Loopora 产物。后端在 session 创建时重新解析所选 option，而不是信任前端传入的任意路径或原始内容。可注入给 Agent 的上下文分层如下：
+
+| 来源 | 对话期注入 |
+|------|------------|
+| existing alignment session | source session 状态、轻量 transcript 摘要、READY bundle 路径；若存在 READY bundle，可作为当前候选 bundle 种子 |
+| bundle / loop | standalone seed bundle、source id、completion mode、workdir、保留与改进边界要求 |
+| run | seed bundle 加 run status、task verdict、coverage、GateKeeper verdict 与 evidence artifact refs |
+| spec file | spec 路径、受限 raw spec 内容或摘要，以及该 spec 只是起点而不是完整 workflow 的说明 |
+
+source context 不能注入 `.loopora/invocations`、stdout/stderr、完整事件日志、token、认证头、Cookie 或其他调试材料。若同一目录存在多个候选来源，页面必须让用户选择其一；未选择时不能悄悄挑选最新产物启动。
 
 Session artifact 必须落在目标 workdir 下，并按事实源、事件流和调试材料分区：
 
@@ -255,7 +268,10 @@ bundle 检查器必须复用现有 bundle 契约校验。
 - 原始 live events / CLI 输出应放在“执行详情”折叠区里，用户主动展开后再查看。
 - 执行详情展开不应让主对话流、composer 或 READY artifact 大幅重新排版；可使用固定高度浮层、抽屉或等价稳定布局。
 - 失败卡片应给出后续动作：继续修复、查看执行详情、调整 Agent 设置；不能只把原始红色错误长期压在页面上。
-- 前端必须从 session status 派生统一执行态；`running / validating / repairing` 同步驱动顶部状态、左侧历史项、主消息流工作中占位、composer 停止动作和执行详情摘要。
+- 前端必须从 session status 派生统一执行态；`running / validating / repairing` 同步驱动左侧历史项、主消息流工作中占位、composer 停止动作、状态 chip 和执行详情入口。
+- 执行中的主反馈只保留在主消息流工作中占位。顶部会话 meta、左侧历史项、composer 状态 chip 和执行详情入口只能作为辅助状态或导航入口，不应重复展示同一段“Agent 正在执行 / 正在处理 / 耗时”文案。
+- 左侧历史项必须继续标出 active alignment session，便于用户从最近对话中识别仍在进行的任务；该标识不展示具体耗时。
+- 执行详情入口默认只表达 live event 可展开，不复述主工作中占位的执行文案；展开后展示原始事件与调试材料。
 - 执行中反馈只能表达真实生命周期和耗时，不得伪造百分比进度；如果后端没有阶段事件，只展示当前阶段与 live event 入口。
 - 执行动效应轻量且可降级；在 reduced motion 下保留状态文字、状态点和可停止入口，不依赖动画本身传达语义。
 
@@ -324,6 +340,7 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 | API | 语义 |
 |-----|------|
 | `POST /api/alignments/sessions` | 创建 session，可带首条用户需求并立即启动 |
+| `POST /api/alignments/workdir-context` | 检查目标 workdir 的可选 Loopora 来源，返回继续 / 改进 / 重新生成选项 |
 | `GET /api/alignments/sessions` | 返回最近 alignment sessions，用于历史对话列表 |
 | `GET /api/alignments/sessions/{id}` | 读取 session、状态、transcript 与校验摘要 |
 | `DELETE /api/alignments/sessions/{id}` | 删除非活动 alignment session、事件和临时 artifact |
@@ -341,6 +358,8 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 稳定规则：
 
 - 这些 API 归属于 Web 内置入口；不要求 CLI 提供同构命令。
+- `/api/alignments/workdir-context` 只返回轻量选项和 artifact refs，不返回 raw prompt、stdout/stderr、完整 transcript、完整 bundle YAML 或完整 spec；真正注入上下文发生在用户选择 option 并创建 session 时。
+- `POST /api/alignments/sessions` 可携带 workdir context option id。服务端必须重新扫描同一 workdir 并解析该 option；无法重新发现、跨 workdir、引用不安全路径或要求继续已有 session 却走新建接口时应返回 4xx。选择已有 session 的“继续”语义由前端恢复该 session 并追加消息，不应创建另一个隐式 session。
 - `GET /api/alignments/sessions/{id}` 返回的 `working_agreement` 可以包含 `readiness_checklist` 与 `readiness_evidence`；旧 session 没有 evidence 或缺少新增 evidence 维度时仍可读取，但新 Web alignment 生成前必须具备完整 evidence，包括 Loopora fit 和残余风险策略。
 - alignment session 列表和事件读取接口的分页参数必须有明确上界；事件 `after_id` 必须是非负游标，`limit` 必须是受限正整数，越界请求返回 4xx。
 - `/api/alignments/*/import` 必须复用现有 bundle import 服务，不直接绕过 bundle 生命周期物化底层资产。

@@ -105,6 +105,7 @@ bundle 生命周期服务于 Loop 编排和交换：
 - bundle 文件导入与预览只接受 UTF-8 YAML；编码或 YAML 解析失败属于输入错误，不得越过领域错误处理导致 CLI / API 崩溃。
 - 从现有 loop 复制出候选 bundle 时，结果必须回到单文件 YAML，并被视为独立候选，而不是被写入系统级 lineage。
 - 用户如何基于证据迭代 bundle 属于系统外部行为；Loopora 可提供从已有 bundle 或 run evidence 发起的对话改进入口，但该入口只产出独立候选 bundle，不成为 bundle 生命周期的必经阶段。
+- 当用户在同一 workdir 再次进入 Web alignment 时，Loopora 可以发现同目录 `.loopora` 中的历史 alignment、Loop、run 或 spec 产物，并让用户选择继续、改进或重新生成。这个选择只提供编译期 source context；它不改变 bundle 是 standalone 交换单元的规则，也不把目录中的旧产物变成默认 lineage。
 - READY 预览与 bundle detail 不展示系统级版本历史、surface diff 或回滚入口；若需要比较，属于用户主动导出后在系统外完成的判断。bundle detail 仍必须保留当前 bundle projection 的 agreement-to-surface traceability 和非阻断 diagnostics，让用户在运行或改进前能继续审计弱 workflow。
 - 方案包兼容入口可以展示失败模式、证据风格、workflow 形状和 GateKeeper 严格度，但这些内容必须来自 bundle projection，不能成为独立标签系统，也不能取代已有 Loop 高频浏览入口。
 

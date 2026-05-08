@@ -69,11 +69,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const importRunButton = document.getElementById("alignment-import-run-button");
   const sourceOpenButton = document.getElementById("alignment-source-open-button");
   const sourceSyncButton = document.getElementById("alignment-source-sync-button");
+  const workdirContext = document.getElementById("alignment-workdir-context");
+  const workdirContextStatus = document.getElementById("alignment-workdir-context-status");
+  const workdirContextOptions = document.getElementById("alignment-workdir-context-options");
 
   const ACTIVE_STATUSES = new Set(["running", "validating", "repairing"]);
   const SESSION_STORAGE_KEY = "loopora:alignment-session:v1";
   const EVENT_TYPES = [
     "alignment_session_created",
+    "alignment_source_context_selected",
     "alignment_started",
     "alignment_user_message",
     "alignment_message",
@@ -102,13 +106,19 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentSession = null;
   let eventSource = null;
   let latestEventId = 0;
-  let thinkingStartedAt = 0;
-  let thinkingTimer = null;
   let submitPending = false;
   let cancelPending = false;
   let errorTimer = null;
   const commandDrafts = new Map();
   let lastExecutorKind = executorInput?.value || "codex";
+  let workdirContextState = {
+    workdir: "",
+    options: [],
+    requiresChoice: false,
+    selectedOptionId: "",
+    loaded: false,
+  };
+  let workdirContextTimer = null;
 
   function localeText(zh, en) {
     return window.LooporaUI.pickText({zh, en});
@@ -194,25 +204,24 @@ document.addEventListener("DOMContentLoaded", () => {
     return ACTIVE_STATUSES.has(String(status || ""));
   }
 
-  function activeStatusCopy(status, seconds = null) {
-    const elapsed = seconds === null ? "" : ` ${seconds}s`;
+  function activeStatusCopy(status) {
     const labels = {
       running: {
         label: localeText("Agent 正在执行", "Agent running"),
-        meta: localeText(`${executorLabel()} 正在处理${elapsed}`, `${executorLabel()} is working${elapsed}`),
+        meta: localeText(`${executorLabel()} 正在处理`, `${executorLabel()} is working`),
       },
       validating: {
         label: localeText("正在校验 Loop", "Validating Loop"),
-        meta: localeText(`检查方案契约与运行面${elapsed}`, `Checking plan contract and runtime surface${elapsed}`),
+        meta: localeText("检查方案契约与运行面", "Checking plan contract and runtime surface"),
       },
       repairing: {
         label: localeText("正在自动修复", "Repairing plan"),
-        meta: localeText(`根据校验结果修复${elapsed}`, `Repairing from validation results${elapsed}`),
+        meta: localeText("根据校验结果修复", "Repairing from validation results"),
       },
     };
     return labels[String(status || "")] || {
       label: statusLabel(status),
-      meta: seconds === null ? "" : localeText(`已执行 ${seconds}s`, `Running ${seconds}s`),
+      meta: "",
     };
   }
 
@@ -233,7 +242,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const active = isActiveStatus(status);
     liveToggle.classList.toggle("is-active", active);
     liveToggle.dataset.status = status;
-    liveSummaryLabel.textContent = active ? activeStatusCopy(status).label : localeText("执行详情", "Execution details");
+    liveSummaryLabel.textContent = localeText("执行详情", "Execution details");
     liveSummaryMeta.textContent = active
       ? localeText("实时事件流", "Live event stream")
       : (latestEventId ? localeText(`最近事件 #${latestEventId}`, `Latest event #${latestEventId}`) : "");
@@ -311,6 +320,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function openTools(panelName = "workdir") {
     if (panelName === "workdir") {
       syncWorkdirInputFromSession();
+      loadWorkdirContext().catch(() => {});
     }
     toolsMenu.hidden = false;
     toolsMenu.dataset.activePanel = panelName;
@@ -346,8 +356,10 @@ document.addEventListener("DOMContentLoaded", () => {
     latestEventId = 0;
     submitPending = false;
     cancelPending = false;
+    workdirContextState = {workdir: "", options: [], requiresChoice: false, selectedOptionId: "", loaded: false};
     forgetSession();
     closeTools();
+    renderWorkdirContext();
     setLiveDetailsOpen(false);
     consoleOutput.innerHTML = "";
     transcriptEl.innerHTML = "";
@@ -374,7 +386,7 @@ document.addEventListener("DOMContentLoaded", () => {
     emptyState.hidden = false;
     shell?.classList.remove("has-session", "has-artifact");
     setStatus(localeText("未开始", "Idle"));
-    updateThinkingStatus("");
+    syncActiveExecutionCopy("");
     updateChips();
     setBusy(false);
     showError("");
@@ -554,9 +566,118 @@ document.addEventListener("DOMContentLoaded", () => {
     return payload;
   }
 
+  function selectedWorkdirContextOption() {
+    return (workdirContextState.options || []).find((option) => option.option_id === workdirContextState.selectedOptionId) || null;
+  }
+
+  function shouldRequireWorkdirContextChoice() {
+    const currentWorkdir = workdirInput.value.trim();
+    return Boolean(
+      currentWorkdir
+      && workdirContextState.loaded
+      && workdirContextState.workdir === currentWorkdir
+      && workdirContextState.requiresChoice
+      && !workdirContextState.selectedOptionId
+    );
+  }
+
+  function renderWorkdirContext() {
+    if (!workdirContext || !workdirContextOptions || !workdirContextStatus) {
+      return;
+    }
+    const options = workdirContextState.options || [];
+    const visibleOptions = options.filter((option) => option.action !== "regenerate");
+    if (!workdirContextState.workdir || (!workdirContextState.requiresChoice && visibleOptions.length === 0)) {
+      workdirContext.hidden = true;
+      workdirContextOptions.innerHTML = "";
+      workdirContextStatus.textContent = "";
+      return;
+    }
+    workdirContext.hidden = false;
+    workdirContextStatus.textContent = workdirContextState.requiresChoice
+      ? localeText("请选择启动方式", "Choose how to start")
+      : localeText("未发现可继承产物", "No reusable artifacts found");
+    const renderedOptions = options.filter((option) => option.action !== "regenerate" || workdirContextState.requiresChoice);
+    workdirContextOptions.innerHTML = renderedOptions.map((option) => {
+      const optionId = escapeHtml(option.option_id || "");
+      const checked = option.option_id === workdirContextState.selectedOptionId ? " checked" : "";
+      const label = escapeHtml(localeText(option.label_zh || "", option.label_en || option.label_zh || ""));
+      const description = escapeHtml(localeText(option.description_zh || "", option.description_en || option.description_zh || ""));
+      return `
+        <label class="alignment-workdir-context-option" data-testid="alignment-workdir-context-option">
+          <input type="radio" name="alignment_source_option" value="${optionId}"${checked} />
+          <span>
+            <strong>${label}</strong>
+            <small>${description}</small>
+          </span>
+        </label>
+      `;
+    }).join("");
+    workdirContextOptions.querySelectorAll("input[name='alignment_source_option']").forEach((input) => {
+      input.addEventListener("change", () => {
+        workdirContextState.selectedOptionId = input.value;
+        renderWorkdirContext();
+        showError("");
+      });
+    });
+  }
+
+  async function loadWorkdirContext({force = false} = {}) {
+    const workdir = workdirInput.value.trim();
+    if (!workdir) {
+      workdirContextState = {workdir: "", options: [], requiresChoice: false, selectedOptionId: "", loaded: false};
+      renderWorkdirContext();
+      return;
+    }
+    if (!force && workdirContextState.loaded && workdirContextState.workdir === workdir) {
+      renderWorkdirContext();
+      return;
+    }
+    if (workdirContext && workdirContextStatus) {
+      workdirContext.hidden = false;
+      workdirContextStatus.textContent = localeText("正在检查…", "Checking...");
+    }
+    try {
+      const payload = await fetchJson("/api/alignments/workdir-context", {
+        method: "POST",
+        body: JSON.stringify({workdir}),
+      });
+      const nextOptions = Array.isArray(payload.options) ? payload.options : [];
+      const keepSelection = workdirContextState.workdir === workdir
+        && nextOptions.some((option) => option.option_id === workdirContextState.selectedOptionId);
+      workdirContextState = {
+        workdir,
+        options: nextOptions,
+        requiresChoice: Boolean(payload.requires_choice),
+        selectedOptionId: keepSelection ? workdirContextState.selectedOptionId : "",
+        loaded: true,
+      };
+      if (!workdirContextState.requiresChoice) {
+        workdirContextState.selectedOptionId = payload.recommended_option_id || "";
+      }
+      renderWorkdirContext();
+    } catch (error) {
+      workdirContextState = {workdir, options: [], requiresChoice: false, selectedOptionId: "", loaded: false};
+      if (workdirContext && workdirContextStatus) {
+        workdirContext.hidden = false;
+        workdirContextStatus.textContent = error.message || localeText("检查失败", "Check failed");
+      }
+      if (workdirContextOptions) {
+        workdirContextOptions.innerHTML = "";
+      }
+    }
+  }
+
+  function scheduleWorkdirContextLoad() {
+    clearTimeout(workdirContextTimer);
+    workdirContextTimer = window.setTimeout(() => {
+      loadWorkdirContext().catch(() => {});
+    }, 300);
+  }
+
   function collectStartPayload() {
     const commandMode = isCommandMode();
-    return {
+    const payload = {
       executor_kind: executorInput.value,
       executor_mode: commandMode ? "command" : "preset",
       workdir: workdirInput.value.trim(),
@@ -566,47 +687,31 @@ document.addEventListener("DOMContentLoaded", () => {
       command_cli: commandMode ? commandCliInput.value.trim() : "",
       command_args_text: commandMode ? commandArgsInput.value : "",
     };
+    const selectedOption = selectedWorkdirContextOption();
+    if (selectedOption && selectedOption.action !== "regenerate" && selectedOption.action !== "continue_session") {
+      payload.source_option_id = selectedOption.option_id;
+    }
+    return payload;
   }
 
-  function updateThinkingStatus(status) {
-    if (!thinkingStatus) {
-      return;
-    }
-    if (!isActiveStatus(status)) {
+  function syncActiveExecutionCopy(status) {
+    if (thinkingStatus) {
       thinkingStatus.hidden = true;
       thinkingStatus.textContent = "";
-      thinkingStartedAt = 0;
-      if (thinkingTimer) {
-        clearInterval(thinkingTimer);
-        thinkingTimer = null;
-      }
+    }
+    const statusText = String(currentSession?.status || status);
+    setLiveSummaryStatus(statusText);
+    if (!isActiveStatus(statusText)) {
       return;
     }
-    if (!thinkingStartedAt) {
-      thinkingStartedAt = Date.now();
+    const copy = activeStatusCopy(statusText);
+    const workingTitle = transcriptEl.querySelector("[data-working-title]");
+    const workingMeta = transcriptEl.querySelector("[data-working-meta]");
+    if (workingTitle) {
+      workingTitle.textContent = copy.label;
     }
-    const render = () => {
-      const seconds = Math.max(0, Math.floor((Date.now() - thinkingStartedAt) / 1000));
-      const statusText = String(currentSession?.status || status);
-      const copy = activeStatusCopy(statusText, seconds);
-      thinkingStatus.hidden = false;
-      thinkingStatus.textContent = copy.meta;
-      setLiveSummaryStatus(statusText);
-      if (liveSummaryMeta && isActiveStatus(statusText)) {
-        liveSummaryMeta.textContent = copy.meta;
-      }
-      const workingTitle = transcriptEl.querySelector("[data-working-title]");
-      const workingMeta = transcriptEl.querySelector("[data-working-meta]");
-      if (workingTitle) {
-        workingTitle.textContent = copy.label;
-      }
-      if (workingMeta) {
-        workingMeta.textContent = copy.meta;
-      }
-    };
-    render();
-    if (!thinkingTimer) {
-      thinkingTimer = window.setInterval(render, 1000);
+    if (workingMeta) {
+      workingMeta.textContent = copy.meta;
     }
   }
 
@@ -624,9 +729,9 @@ document.addEventListener("DOMContentLoaded", () => {
     setStatus(statusLabel(status), status === "ready" ? "ready" : (status === "failed" ? "failed" : ""), status);
     sessionMeta.textContent = `${statusLabel(status)} · ${basename(session.workdir)} · ${session.id}`;
     setBusy(isActiveStatus(status));
-    updateThinkingStatus(status);
     updateChips();
     renderTranscript(session.transcript || [], session);
+    syncActiveExecutionCopy(status);
     if (status === "ready") {
       loadReadyBundle({reveal: options.revealReady !== false}).catch((error) => {
         renderBundleLoadError(error.message || localeText("无法加载 Loop 方案。", "Unable to load the loop plan."));
@@ -661,8 +766,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!isActiveStatus(status)) {
       return;
     }
-    const elapsed = thinkingStartedAt ? Math.max(0, Math.floor((Date.now() - thinkingStartedAt) / 1000)) : 0;
-    const copy = activeStatusCopy(status, elapsed);
+    const copy = activeStatusCopy(status);
     const card = document.createElement("article");
     card.className = "alignment-working-card";
     card.dataset.testid = "alignment-working-card";
@@ -1464,6 +1568,28 @@ document.addEventListener("DOMContentLoaded", () => {
       openTools("workdir");
       return;
     }
+    await loadWorkdirContext();
+    if (shouldRequireWorkdirContextChoice()) {
+      showError(localeText("这个目录已有 Loopora 产物，请先选择继续、改进或重新生成。", "This workdir has Loopora artifacts. Choose continue, improve, or start fresh first."));
+      openTools("workdir");
+      return;
+    }
+    const selectedOption = selectedWorkdirContextOption();
+    if (selectedOption?.action === "continue_session" && selectedOption.session_id) {
+      setBusy(true);
+      try {
+        await restoreSession(selectedOption.session_id);
+        if (!isActiveStatus(currentSession?.status || "")) {
+          await appendMessage(message);
+          messageInput.value = "";
+        }
+        closeTools();
+      } catch (error) {
+        showError(error.message || localeText("继续已有对话失败。", "Failed to continue the existing chat."));
+        setBusy(false);
+      }
+      return;
+    }
     setBusy(true);
     try {
       await createSession(payload);
@@ -1488,7 +1614,18 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   messageInput.addEventListener("input", () => showError(""));
-  workdirInput.addEventListener("input", () => showError(""));
+  workdirInput.addEventListener("input", () => {
+    showError("");
+    workdirContextState = {
+      workdir: workdirInput.value.trim(),
+      options: [],
+      requiresChoice: false,
+      selectedOptionId: "",
+      loaded: false,
+    };
+    renderWorkdirContext();
+    scheduleWorkdirContextLoad();
+  });
   cancelButton.addEventListener("click", () => {
     cancelCurrentSession().catch(() => {});
   });

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import textwrap
 import threading
@@ -620,14 +621,19 @@ def _prepare_alignment_request_from_browser(page, base_url: str, workdir: Path) 
 
 def _assert_alignment_running_shell(page) -> None:
     page.get_by_test_id("alignment-chat").wait_for(state="visible", timeout=5_000)
-    page.get_by_test_id("alignment-thinking-status").wait_for(state="visible", timeout=2_000)
+    assert page.get_by_test_id("alignment-thinking-status").is_hidden()
     page.get_by_test_id("alignment-working-card").wait_for(state="visible", timeout=2_000)
     assert page.get_by_test_id("alignment-status-pill").get_attribute("data-status") in {"running", "validating", "repairing"}
     assert page.get_by_test_id("alignment-send-button").get_attribute("data-action") == "cancel"
     assert page.get_by_test_id("alignment-live-toggle").get_attribute("data-status") in {"running", "validating", "repairing"}
     page.locator('[data-testid="alignment-history-item"].is-running').wait_for(state="visible", timeout=5_000)
+    running_history_text = page.locator('[data-testid="alignment-history-item"].is-running').first.text_content() or ""
+    assert re.search(r"\b\d+\s*s\b", running_history_text) is None
     assert page.get_by_test_id("alignment-live-details").is_visible()
     assert page.get_by_test_id("alignment-live-body").is_hidden()
+    live_toggle_text = page.get_by_test_id("alignment-live-toggle").text_content() or ""
+    assert "正在处理" not in live_toggle_text
+    assert "Agent 正在执行" not in live_toggle_text
     before_toggle = page.get_by_test_id("alignment-start-form").bounding_box()
     page.get_by_test_id("alignment-live-toggle").click()
     page.get_by_test_id("alignment-live-body").wait_for(state="visible", timeout=5_000)
@@ -714,6 +720,39 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
             _assert_alignment_artifacts_and_transcript(page, session)
             _assert_alignment_preview_surfaces_remain_stable(page)
             _import_alignment_preview_and_assert_run(page, service, session)
+        finally:
+            page.close()
+
+
+def test_bundle_chat_requires_workdir_context_choice_when_loopora_state_exists(tmp_path: Path) -> None:
+    service, workdir = _browser_alignment_service(tmp_path, "context-choice-workdir", role_delay=0.0)
+    state_dir = state_dir_for_workdir(workdir)
+    state_dir.mkdir()
+    (state_dir / "spec.md").write_text("# Task\n\n编排一个同目录已有 spec 的 Loop。\n", encoding="utf-8")
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        page = browser.new_page(viewport={"width": 1280, "height": 920})
+        try:
+            page.goto(f"{base_url}/loops/new/bundle", wait_until="networkidle")
+            page.get_by_test_id("alignment-message-input").fill("继续这个目录中的工作流。")
+            page.evaluate("document.getElementById('alignment-workdir-chip').click()")
+            page.get_by_test_id("alignment-tools-menu").wait_for(state="visible", timeout=5_000)
+            page.get_by_test_id("alignment-workdir").fill(str(workdir))
+            page.locator('[data-testid="alignment-workdir-context-option"]').first.wait_for(state="visible", timeout=5_000)
+            assert page.locator('input[name="alignment_source_option"]').count() >= 2
+
+            page.get_by_test_id("alignment-tools-close").click()
+            page.get_by_test_id("alignment-tools-menu").wait_for(state="hidden", timeout=5_000)
+            page.evaluate("document.getElementById('alignment-start-form').requestSubmit()")
+            page.locator("#alignment-error").wait_for(state="visible", timeout=5_000)
+            assert service.list_alignment_sessions(limit=10) == []
+
+            page.get_by_test_id("alignment-tools-menu").wait_for(state="visible", timeout=5_000)
+            page.locator('input[name="alignment_source_option"][value="regenerate"]').check()
+            page.evaluate("document.getElementById('alignment-start-form').requestSubmit()")
+            page.get_by_test_id("alignment-chat").wait_for(state="visible", timeout=5_000)
+            session = _wait_for_alignment_status(service, _latest_alignment_session_id(service), "waiting_user")
+            assert session["working_agreement"].get("mode") != "selected_source"
         finally:
             page.close()
 
