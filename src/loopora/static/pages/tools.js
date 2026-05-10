@@ -11,7 +11,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const localAssetsStatusBox = document.getElementById("local-assets-status");
   const localAssetsCountNodes = Array.from(document.querySelectorAll("[data-local-assets-count]"));
   const localAssetsDetails = document.getElementById("local-assets-details");
+  const agentAdapterStatusBox = document.getElementById("agent-adapter-status");
+  const agentAdapterWorkdirInput = document.getElementById("agent-adapter-workdir");
+  const agentAdapterRefreshButton = document.querySelector("[data-testid='agent-adapter-refresh']");
+  const agentAdapterCards = Array.from(document.querySelectorAll("[data-agent-adapter]"));
+  const agentAdapterStatusNodes = Array.from(document.querySelectorAll("[data-agent-adapter-status]"));
+  const agentAdapterInstallButtons = Array.from(document.querySelectorAll("[data-agent-adapter-install]"));
+  const agentAdapterUninstallButtons = Array.from(document.querySelectorAll("[data-agent-adapter-uninstall]"));
   const WAKE_LOCK_PREF_KEY = "loopora:tools:wake-lock-enabled";
+  const AGENT_ADAPTER_WORKDIR_PREF_KEY = "loopora:tools:agent-adapter-workdir";
   let wakeLockSentinel = null;
   let runtimeActivity = {
     running_count: 0,
@@ -282,6 +290,148 @@ document.addEventListener("DOMContentLoaded", () => {
     showStatus(localAssetsStatusBox, "");
   }
 
+  function agentAdapterStatusLabel(status) {
+    const labels = {
+      installed: localeText("已安装", "Installed"),
+      not_installed: localeText("未安装", "Not installed"),
+      needs_update: localeText("需要更新", "Needs update"),
+      error: localeText("不可判断", "Needs attention"),
+      not_implemented: localeText("未实现", "Not implemented"),
+    };
+    return labels[status] || localeText("未知状态", "Unknown");
+  }
+
+  function agentAdapterPillClass(status) {
+    if (status === "installed") {
+      return "wake-lock-pill wake-lock-pill-held";
+    }
+    if (status === "needs_update") {
+      return "wake-lock-pill wake-lock-pill-queued";
+    }
+    if (status === "error") {
+      return "wake-lock-pill wake-lock-pill-warning";
+    }
+    return "wake-lock-pill wake-lock-pill-neutral";
+  }
+
+  function renderAgentAdapters(payload) {
+    const adapters = Array.isArray(payload?.adapters) ? payload.adapters : [payload].filter(Boolean);
+    const byKind = new Map(adapters.map((item) => [String(item?.adapter || ""), item]));
+    for (const node of agentAdapterStatusNodes) {
+      const adapter = String(node.dataset.agentAdapterStatus || "");
+      const item = byKind.get(adapter);
+      const status = String(item?.status || (adapter === "codex" ? "not_installed" : "not_implemented"));
+      node.dataset.agentAdapterState = status;
+      updateNodeTextAndClass(node, agentAdapterStatusLabel(status), agentAdapterPillClass(status));
+    }
+    for (const card of agentAdapterCards) {
+      const adapter = String(card.dataset.agentAdapter || "");
+      const item = byKind.get(adapter);
+      const status = String(item?.status || (adapter === "codex" ? "not_installed" : "not_implemented"));
+      card.dataset.agentAdapterState = status;
+      card.classList.toggle("is-disabled", status === "not_implemented");
+      card.classList.toggle("is-error", status === "error");
+    }
+    for (const button of agentAdapterInstallButtons) {
+      const adapter = String(button.dataset.agentAdapterInstall || "");
+      const item = byKind.get(adapter);
+      button.disabled = item?.implemented === false;
+    }
+    for (const button of agentAdapterUninstallButtons) {
+      const adapter = String(button.dataset.agentAdapterUninstall || "");
+      const item = byKind.get(adapter);
+      button.disabled = item?.implemented === false || item?.status === "not_installed";
+    }
+  }
+
+  function readAgentAdapterWorkdirPreference() {
+    try {
+      return window.localStorage.getItem(AGENT_ADAPTER_WORKDIR_PREF_KEY) || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function persistAgentAdapterWorkdirPreference(value) {
+    try {
+      window.localStorage.setItem(AGENT_ADAPTER_WORKDIR_PREF_KEY, value);
+    } catch (_) {
+      // Ignore storage failures.
+    }
+  }
+
+  function agentAdapterWorkdir() {
+    return String(agentAdapterWorkdirInput?.value || "").trim();
+  }
+
+  function agentAdapterStatusUrl() {
+    const workdir = agentAdapterWorkdir();
+    if (!workdir) {
+      return "/api/agent-adapters";
+    }
+    return `/api/agent-adapters?workdir=${encodeURIComponent(workdir)}`;
+  }
+
+  function agentAdapterMutationBody() {
+    const workdir = agentAdapterWorkdir();
+    return JSON.stringify(workdir ? {workdir} : {});
+  }
+
+  async function refreshAgentAdapters(options = {}) {
+    const quiet = options.quiet ?? false;
+    const {response, payload} = await fetchJson(agentAdapterStatusUrl());
+    if (!response.ok) {
+      if (!quiet) {
+        showStatus(agentAdapterStatusBox, payload.error || localeText("无法读取 Agent 接入状态。", "Unable to load Agent entry status."), "error");
+      }
+      return;
+    }
+    renderAgentAdapters(payload);
+    showStatus(agentAdapterStatusBox, "");
+  }
+
+  async function mutateAgentAdapter(adapter, action, trigger) {
+    const originalDisabled = trigger.disabled;
+    let applied = false;
+    trigger.disabled = true;
+    showStatus(
+      agentAdapterStatusBox,
+      action === "install"
+        ? localeText("正在安装 Codex 接入…", "Installing Codex entry…")
+        : localeText("正在卸载 Codex 接入…", "Uninstalling Codex entry…"),
+    );
+    try {
+      const {response, payload} = await fetchJson(`/api/agent-adapters/${encodeURIComponent(adapter)}/${action}`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: agentAdapterMutationBody(),
+      });
+      if (!response.ok) {
+        throw new Error(payload.error || "failed");
+      }
+      renderAgentAdapters(payload);
+      applied = true;
+      showStatus(
+        agentAdapterStatusBox,
+        action === "install"
+          ? localeText("Codex 接入已安装或更新。", "Codex entry is installed or updated.")
+          : localeText("Codex 接入已卸载。", "Codex entry is uninstalled."),
+        "success",
+      );
+      await refreshAgentAdapters({quiet: true});
+    } catch (error) {
+      showStatus(
+        agentAdapterStatusBox,
+        error?.message || localeText("Agent 接入操作失败。", "Agent entry action failed."),
+        "error",
+      );
+    } finally {
+      if (!applied) {
+        trigger.disabled = originalDisabled;
+      }
+    }
+  }
+
   function readWakeLockPreference() {
     try {
       return window.localStorage.getItem(WAKE_LOCK_PREF_KEY) === "1";
@@ -545,6 +695,38 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  for (const button of agentAdapterInstallButtons) {
+    button.addEventListener("click", () => {
+      mutateAgentAdapter(String(button.dataset.agentAdapterInstall || ""), "install", button);
+    });
+  }
+
+  for (const button of agentAdapterUninstallButtons) {
+    button.addEventListener("click", () => {
+      mutateAgentAdapter(String(button.dataset.agentAdapterUninstall || ""), "uninstall", button);
+    });
+  }
+
+  if (agentAdapterWorkdirInput) {
+    agentAdapterWorkdirInput.value = readAgentAdapterWorkdirPreference();
+    agentAdapterWorkdirInput.addEventListener("change", () => {
+      persistAgentAdapterWorkdirPreference(agentAdapterWorkdir());
+      refreshAgentAdapters().catch(() => {});
+    });
+    agentAdapterWorkdirInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        persistAgentAdapterWorkdirPreference(agentAdapterWorkdir());
+        refreshAgentAdapters().catch(() => {});
+      }
+    });
+  }
+
+  agentAdapterRefreshButton?.addEventListener("click", () => {
+    persistAgentAdapterWorkdirPreference(agentAdapterWorkdir());
+    refreshAgentAdapters().catch(() => {});
+  });
+
   wakeLockToggle.addEventListener("change", async () => {
     persistWakeLockPreference(wakeLockToggle.checked);
     await syncWakeLock();
@@ -559,6 +741,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   refreshRuntimeActivity({quiet: true});
+  refreshAgentAdapters({quiet: true}).catch(() => {});
   refreshLocalAssetDiagnostics({quiet: true}).catch(() => {});
   window.setInterval(() => {
     refreshRuntimeActivity({quiet: true}).catch(() => {});
@@ -568,6 +751,7 @@ document.addEventListener("DOMContentLoaded", () => {
     updateWakeLockRuntimePill();
     updateWakeLockHoldPill();
     renderRuntimeRuns();
+    refreshAgentAdapters({quiet: true}).catch(() => {});
     refreshLocalAssetDiagnostics({quiet: true}).catch(() => {});
     syncWakeLock().catch(() => {});
   });

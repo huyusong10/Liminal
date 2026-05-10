@@ -840,7 +840,7 @@ class ServiceAlignmentMixin:
         session = self.get_alignment_session(session_id)
         if session["status"] in ALIGNMENT_ACTIVE_STATUSES:
             raise LooporaConflictError("cannot sync bundle while alignment session is active")
-        if session["status"] not in {"ready", "failed"}:
+        if session["status"] not in {"idle", "ready", "failed"}:
             raise LooporaConflictError(f"cannot sync bundle in status {session['status']}")
         bundle_path = Path(session["bundle_path"])
         if not bundle_path.exists():
@@ -918,7 +918,7 @@ class ServiceAlignmentMixin:
         preview["yaml"] = normalized_yaml
         return preview
 
-    def import_alignment_bundle(self, session_id: str, *, start_immediately: bool = True) -> dict:
+    def import_alignment_bundle(self, session_id: str, *, start_immediately: bool = True, execute_async: bool = True) -> dict:
         session = self.get_alignment_session(session_id)
         if session["status"] != "ready":
             raise LooporaConflictError(f"alignment session is not READY: {session['status']}")
@@ -957,7 +957,8 @@ class ServiceAlignmentMixin:
         if start_immediately:
             try:
                 run = self.start_run(bundle["loop_id"])
-                self.start_run_async(run["id"])
+                if execute_async:
+                    self.start_run_async(run["id"])
             except LooporaError as exc:
                 self.repository.update_alignment_session(session_id, error_message=str(exc))
                 self.repository.append_alignment_event(

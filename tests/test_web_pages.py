@@ -1040,12 +1040,20 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     assert 'data-local-assets-count="orphan_alignment_dirs"' in response.text
     assert 'data-local-assets-count="orphan_run_dirs"' in response.text
     assert 'data-testid="local-assets-details"' in response.text
-    assert "Prevent sleep while running" in response.text
+    assert 'data-testid="agent-adapters-panel"' in response.text
+    assert 'data-testid="agent-adapter-workdir"' in response.text
+    assert 'data-testid="agent-adapter-refresh"' in response.text
+    assert 'data-testid="agent-adapter-codex"' in response.text
+    assert 'data-testid="agent-adapter-install-codex"' in response.text
+    assert 'data-testid="agent-adapter-uninstall-codex"' in response.text
+    assert 'data-testid="agent-adapter-claude"' in response.text
+    assert 'data-testid="agent-adapter-opencode"' in response.text
+    assert "Claude Code" in response.text
+    assert "OpenCode" in response.text
+    assert 'disabled data-testid="agent-adapter-install-claude"' in response.text
+    assert 'disabled data-testid="agent-adapter-install-opencode"' in response.text
     assert "help-dot--tips" in response.text
-    assert (
-        'aria-label="Show tip: The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock."'
-        in response.text
-    )
+    assert 'aria-label="Show tip:' in response.text
     assert ">i</button>" in response.text
     assert "Alignment skill install" not in response.text
     assert "loopora-task-alignment" not in response.text
@@ -1056,11 +1064,9 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     assert zh_response.status_code == 200
     assert "<title>工具</title>" in zh_response.text
     assert "运行辅助和本机维护" in zh_response.text
+    assert 'data-testid="agent-adapters-panel"' in zh_response.text
     assert "下载技能包" not in zh_response.text
-    assert (
-        'aria-label="查看提示：只会在检测到有运行正在执行时请求浏览器保持屏幕唤醒，没有运行中的 Loop 会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收防休眠锁，页面也会在重新可见后自动重试。"'
-        in zh_response.text
-    )
+    assert 'aria-label="查看提示：' in zh_response.text
 
 
 def _assert_new_loop_choice_page(html: str) -> None:

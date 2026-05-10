@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-"""Scenario-driven heavy real-provider coverage for the curated tutorial workflows.
+"""Scenario-driven heavy real-provider experiments for curated tutorial workflows.
 
 These tests preserve their workspaces and Loopora run artifacts under
-artifacts/real_search_loop_e2e so humans can inspect the final work later.
+artifacts/real_search_loop_e2e so humans can inspect the final work later. They
+are intentionally outside the minimal L3 release gate.
 """
 
 import json
@@ -26,7 +27,7 @@ from loopora.settings import AppSettings
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = ROOT / "tests" / "fixtures"
 RESULTS_ROOT = ROOT / "artifacts" / "real_search_loop_e2e"
-REAL_CLI_ENV = "LOOPORA_ENABLE_REAL_CLI_E2E"
+REAL_WORKFLOW_EXPERIMENT_ENV = "LOOPORA_ENABLE_REAL_WORKFLOW_EXPERIMENTS"
 REAL_CLI_TIMEOUT_ENV = "LOOPORA_REAL_CLI_TIMEOUT_SECONDS"
 REAL_CLI_CODEX_MODEL_ENV = "LOOPORA_REAL_CLI_CODEX_MODEL"
 REAL_SEARCH_RUN_ID_ENV = "LOOPORA_REAL_SEARCH_RUN_ID"
@@ -112,8 +113,8 @@ def _provider_model(provider: str) -> str:
 
 
 def _require_real_provider(provider: str) -> None:
-    if os.environ.get(REAL_CLI_ENV) != "1":
-        pytest.skip(f"set {REAL_CLI_ENV}=1 to run the heavy real-provider workflow suite")
+    if os.environ.get(REAL_WORKFLOW_EXPERIMENT_ENV) != "1":
+        pytest.skip(f"set {REAL_WORKFLOW_EXPERIMENT_ENV}=1 to run the heavy real-provider workflow experiment suite")
     cli_name = executor_profile(provider).cli_name
     if shutil.which(cli_name) is None:
         pytest.skip(f"{provider} CLI ({cli_name}) is unavailable in PATH")
@@ -303,7 +304,7 @@ def test_suite_output_root_is_stable_for_one_pytest_process(monkeypatch, tmp_pat
     assert first.name == "20260101T000000Z"
 
 
-@pytest.mark.real_cli
+@pytest.mark.real_workflow_experiment
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case.slug)
 def test_real_search_rollout_examples_preserve_artifacts(case: SearchLoopCase) -> None:
     case_root, workspace, run = _start_real_case(case)

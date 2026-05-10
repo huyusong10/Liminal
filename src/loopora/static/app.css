@@ -2952,6 +2952,85 @@ html[data-locale="zh"] .callout {
   flex-wrap: wrap;
 }
 
+/* ── Agent Adapter Panel ── */
+
+.agent-adapter-target {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  max-width: 760px;
+}
+
+.agent-adapter-target label {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.agent-adapter-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.agent-adapter-card {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: rgba(var(--glass-rgb), 0.58);
+}
+
+.agent-adapter-card.is-disabled {
+  opacity: 0.72;
+}
+
+.agent-adapter-card.is-error {
+  border-color: rgba(171, 47, 42, 0.22);
+  background: rgba(171, 47, 42, 0.035);
+}
+
+.agent-adapter-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agent-adapter-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.agent-adapter-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agent-adapter-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-adapter-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 960px) {
+  .agent-adapter-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── Wake Lock Panel ── */
 
 .wake-lock-panel {

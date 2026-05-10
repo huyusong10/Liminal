@@ -121,6 +121,8 @@ fake executor 的职责是模拟边界，不是复制真实 provider 行为。
 
 因为 fake executor 的结构化输出会被编排测试、证据账本和本地演示直接消费，它的 canned payload 仍必须保留最小运行期语义：角色输出不能暗示可以降低已冻结的 Task / Done When / checks / guardrails；GateKeeper 成功样例必须来自 evidence refs 或可测量 evidence claims，而不是 run 生命周期本身；失败样例应把缺口表达为 weak / unproven / blocking evidence，而不是把“未通过”伪装成普通完成状态。
 
+真实 provider L3 只验证 executor 边界：真实 CLI 能启动、返回结构化输出、写入 run artifact，并在同一 step 的后续轮次使用正确 resume 形状。复杂任务质量、alignment 追问质量、GateKeeper 证据门禁和多 workflow 语义应主要由 L1/L2 的确定性 fake executor、契约测试和必要的人工场景验证；它们不应默认进入 provider L3 发布阻断。
+
 ## 10. Change Triggers
 
 以下变化需要更新本文档：

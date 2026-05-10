@@ -51,6 +51,108 @@
   </div>
 </section>
 
+<section class="panel" data-testid="agent-adapters-panel">
+  <header class="panel-header">
+    <div>
+      <h2><span data-lang="zh">Coding Agent 接入</span><span data-lang="en">Coding Agent entry</span></h2>
+      <p class="tools-copy">
+        <span data-lang="zh">把 Loopora 接到当前项目的 Agent 入口；运行和证据仍由 Loopora Core 管理。</span>
+        <span data-lang="en">Connect Loopora to this project's Agent entry while Loopora Core keeps run and evidence state.</span>
+      </p>
+    </div>
+  </header>
+  <div class="agent-adapter-target">
+    <label for="agent-adapter-workdir">
+      <span data-lang="zh">目标项目目录</span>
+      <span data-lang="en">Target project directory</span>
+    </label>
+    <div class="input-with-action">
+      <input
+        id="agent-adapter-workdir"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="{{ '留空则使用服务当前目录' if page_locale == 'zh' else 'Leave blank to use the server current directory' }}"
+        data-testid="agent-adapter-workdir"
+      />
+      <button class="ghost-button" type="button" data-testid="agent-adapter-refresh">
+        <span data-lang="zh">刷新</span>
+        <span data-lang="en">Refresh</span>
+      </button>
+    </div>
+  </div>
+  <div class="agent-adapter-grid" id="agent-adapter-grid" data-testid="agent-adapter-grid">
+    <article class="agent-adapter-card" data-agent-adapter="codex" data-testid="agent-adapter-codex">
+      <div class="agent-adapter-copy">
+        <div class="agent-adapter-head">
+          <strong>Codex</strong>
+          <span class="wake-lock-pill wake-lock-pill-neutral" data-agent-adapter-status="codex">
+            <span data-lang="zh">正在读取…</span>
+            <span data-lang="en">Loading…</span>
+          </span>
+        </div>
+        <p>
+          <span data-lang="zh">安装项目级入口，供 Codex 触发 /loopora-gen 和 /loopora-loop。</span>
+          <span data-lang="en">Installs project-level entries for /loopora-gen and /loopora-loop in Codex.</span>
+        </p>
+      </div>
+      <div class="agent-adapter-actions">
+        <button class="secondary-button" type="button" data-agent-adapter-install="codex" data-testid="agent-adapter-install-codex">
+          <span data-lang="zh">安装 / 更新</span>
+          <span data-lang="en">Install / Update</span>
+        </button>
+        <button class="ghost-button" type="button" data-agent-adapter-uninstall="codex" data-testid="agent-adapter-uninstall-codex">
+          <span data-lang="zh">卸载</span>
+          <span data-lang="en">Uninstall</span>
+        </button>
+      </div>
+    </article>
+    <article class="agent-adapter-card is-disabled" data-agent-adapter="claude" data-testid="agent-adapter-claude">
+      <div class="agent-adapter-copy">
+        <div class="agent-adapter-head">
+          <strong>Claude Code</strong>
+          <span class="wake-lock-pill wake-lock-pill-neutral" data-agent-adapter-status="claude">
+            <span data-lang="zh">未实现</span>
+            <span data-lang="en">Not implemented</span>
+          </span>
+        </div>
+        <p>
+          <span data-lang="zh">入口已预留，第一阶段不生成 Claude Code 文件。</span>
+          <span data-lang="en">Reserved for a later phase; no Claude Code files are generated yet.</span>
+        </p>
+      </div>
+      <div class="agent-adapter-actions">
+        <button class="secondary-button" type="button" disabled data-testid="agent-adapter-install-claude">
+          <span data-lang="zh">即将支持</span>
+          <span data-lang="en">Coming soon</span>
+        </button>
+      </div>
+    </article>
+    <article class="agent-adapter-card is-disabled" data-agent-adapter="opencode" data-testid="agent-adapter-opencode">
+      <div class="agent-adapter-copy">
+        <div class="agent-adapter-head">
+          <strong>OpenCode</strong>
+          <span class="wake-lock-pill wake-lock-pill-neutral" data-agent-adapter-status="opencode">
+            <span data-lang="zh">未实现</span>
+            <span data-lang="en">Not implemented</span>
+          </span>
+        </div>
+        <p>
+          <span data-lang="zh">入口已预留，第一阶段不生成 OpenCode 文件。</span>
+          <span data-lang="en">Reserved for a later phase; no OpenCode files are generated yet.</span>
+        </p>
+      </div>
+      <div class="agent-adapter-actions">
+        <button class="secondary-button" type="button" disabled data-testid="agent-adapter-install-opencode">
+          <span data-lang="zh">即将支持</span>
+          <span data-lang="en">Coming soon</span>
+        </button>
+      </div>
+    </article>
+  </div>
+  <div class="field-status" id="agent-adapter-status" data-testid="agent-adapter-status" hidden></div>
+</section>
+
 <section class="panel" data-testid="local-assets-diagnostics-panel">
   <header class="panel-header">
     <div>

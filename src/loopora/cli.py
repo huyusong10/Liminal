@@ -3,6 +3,7 @@ from __future__ import annotations
 import typer
 
 from loopora.branding import APP_NAME
+from loopora.cli_agent_adapter_commands import register_agent_adapter_commands
 from loopora.cli_bundle_commands import register_bundle_commands
 from loopora.cli_diagnose_commands import register_diagnose_commands
 from loopora.cli_shared import spawn_background_worker as _spawn_background_worker
@@ -22,6 +23,9 @@ bundles_app = typer.Typer(help="Import and manage YAML bundles")
 spec_app = typer.Typer(help="Work with Markdown loop specs")
 prompts_app = typer.Typer(help="Validate and inspect prompt templates")
 diagnose_app = typer.Typer(help="Inspect local diagnostics and repair safe historical issues")
+init_app = typer.Typer(help="Install Coding Agent adapters")
+uninstall_app = typer.Typer(help="Remove Loopora-managed Coding Agent adapters")
+agent_app = typer.Typer(help="Runtime entries used by Coding Agent adapters")
 
 app.add_typer(loops_app, name="loops")
 app.add_typer(orchestrations_app, name="orchestrations")
@@ -30,6 +34,9 @@ app.add_typer(bundles_app, name="bundles")
 app.add_typer(spec_app, name="spec")
 app.add_typer(prompts_app, name="prompts")
 app.add_typer(diagnose_app, name="diagnose")
+app.add_typer(init_app, name="init")
+app.add_typer(uninstall_app, name="uninstall")
+app.add_typer(agent_app, name="agent")
 
 register_root_commands(app)
 register_loop_commands(loops_app)
@@ -39,5 +46,6 @@ register_bundle_commands(bundles_app)
 register_spec_commands(spec_app)
 register_prompt_commands(prompts_app)
 register_diagnose_commands(diagnose_app)
+register_agent_adapter_commands(init_app, uninstall_app, agent_app)
 
 __all__ = ["_spawn_background_worker", "app", "create_service"]

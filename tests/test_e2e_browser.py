@@ -24,6 +24,7 @@ from loopora.settings import AppSettings, app_home
 from loopora.web import build_app
 
 playwright = pytest.importorskip("playwright.sync_api")
+pytestmark = pytest.mark.browser_e2e
 
 
 CALCULATOR_HTML = """<!DOCTYPE html>
@@ -1022,6 +1023,77 @@ Keep diagnostics reachable.
             page.locator('[data-local-assets-kind="orphan_alignment_dirs"] [data-testid="local-assets-reveal-button"]').first.click()
             page.get_by_test_id("local-assets-status").wait_for(state="visible", timeout=5_000)
             assert captured_reveal_paths[-1] == str(orphan_alignment_dir)
+        finally:
+            page.close()
+
+
+def _wait_for_path_state(path: Path, *, exists: bool, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists() is exists:
+            return
+        time.sleep(0.05)
+    state = "exist" if exists else "be removed"
+    raise AssertionError(f"Timed out waiting for {path} to {state}")
+
+
+def test_tools_agent_adapter_installs_uninstalls_target_project_from_browser(tmp_path: Path) -> None:
+    workdir = tmp_path / "agent-adapter-workdir"
+    workdir.mkdir()
+    user_agents = workdir / "AGENTS.md"
+    user_codex_config = workdir / ".codex" / "config.toml"
+    user_agents.write_text("# User rules stay untouched\n", encoding="utf-8")
+    user_codex_config.parent.mkdir()
+    user_codex_config.write_text('model = "user-model"\n', encoding="utf-8")
+    gen_skill = workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md"
+    loop_skill = workdir / ".agents" / "skills" / "loopora-loop" / "SKILL.md"
+    repository = LooporaRepository(tmp_path / "app.db")
+    settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
+    service = LooporaService(repository=repository, settings=settings)
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        try:
+            page.goto(f"{base_url}/tools", wait_until="networkidle")
+            page.get_by_test_id("agent-adapter-workdir").fill(str(workdir))
+            page.get_by_test_id("agent-adapter-refresh").click()
+            playwright.expect(page.locator('[data-agent-adapter-status="codex"]')).to_have_attribute(
+                "data-agent-adapter-state",
+                "not_installed",
+                timeout=5_000,
+            )
+
+            page.get_by_test_id("agent-adapter-install-codex").click()
+            _wait_for_path_state(gen_skill, exists=True)
+            _wait_for_path_state(loop_skill, exists=True)
+            playwright.expect(page.locator('[data-agent-adapter-status="codex"]')).to_have_attribute(
+                "data-agent-adapter-state",
+                "installed",
+                timeout=5_000,
+            )
+            assert user_agents.read_text(encoding="utf-8") == "# User rules stay untouched\n"
+            assert user_codex_config.read_text(encoding="utf-8") == 'model = "user-model"\n'
+
+            page.get_by_test_id("agent-adapter-uninstall-codex").click()
+            _wait_for_path_state(gen_skill, exists=False)
+            _wait_for_path_state(loop_skill, exists=False)
+            playwright.expect(page.locator('[data-agent-adapter-status="codex"]')).to_have_attribute(
+                "data-agent-adapter-state",
+                "not_installed",
+                timeout=5_000,
+            )
+
+            gen_skill.parent.mkdir(parents=True, exist_ok=True)
+            gen_skill.write_text("# User-owned Codex skill\n", encoding="utf-8")
+            page.get_by_test_id("agent-adapter-refresh").click()
+            playwright.expect(page.locator('[data-agent-adapter-status="codex"]')).to_have_attribute(
+                "data-agent-adapter-state",
+                "error",
+                timeout=5_000,
+            )
+            page.get_by_test_id("agent-adapter-install-codex").click()
+            page.get_by_test_id("agent-adapter-status").wait_for(state="visible", timeout=5_000)
+            assert gen_skill.read_text(encoding="utf-8") == "# User-owned Codex skill\n"
         finally:
             page.close()
 

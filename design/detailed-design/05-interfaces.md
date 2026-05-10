@@ -108,6 +108,29 @@ CLI 的稳定入口是 Python package metadata 暴露的 `loopora` console scrip
 - packaging 契约测试必须保护 console script 名称和入口对象，避免发布包或源码安装丢失 `loopora` 命令。
 - CLI 命令回调可以保留公开 option / argument 的完整参数面，用来稳定 help、解析、completion 与脚本兼容性；内部创建、派生、运行等 helper 不应继续复制长参数列表，应通过 typed request object 或同等结构化输入承载。
 
+## 3.3 Agent-first Adapter 入口
+
+Agent-first 入口必须仍然遵守“接口层 -> Core”的依赖方向。CLI 和 Web 可以安装、卸载和展示 Coding Agent adapter，但不得各自实现一套宿主文件逻辑。
+
+第一阶段稳定入口：
+
+| 入口 | 语义 |
+|------|------|
+| `loopora init codex` | 在当前项目安装或更新 Codex 项目级 Loopora entry |
+| `loopora uninstall codex` | 只删除 Loopora 管理的 Codex adapter 文件或 manifest |
+| `loopora agent codex gen` | Codex skill 使用的底层入口，把候选 bundle 交给 Core 校验为 READY，并返回候选 Loop URL |
+| `loopora agent codex loop` | Codex skill 使用的底层入口，查找当前 session / workdir 的 READY bundle，启动或复用 run，并返回 URL |
+| Web Tools Codex card | 调用同一 adapter service/helper 展示目标项目 status，并触发 install/uninstall |
+
+稳定规则：
+
+- 必须坚持 `/loopora-gen -> READY preview -> /loopora-loop`。缺少 READY bundle 时，`loopora agent codex loop` 返回明确错误，提示先 gen。
+- Codex adapter 只负责宿主入口和 binding，不复制 bundle validation、alignment import、run lifecycle 或 Web serve 逻辑。
+- Claude Code / OpenCode 可以出现在类型、API 投影和 Web UI 中，但第一阶段状态必须是未实现，不能生成假入口。
+- Web status 只展示 `not_installed / installed / needs_update / error / not_implemented` 这类 adapter 投影，不把它们写成 Loop 或 run 状态。
+- Web Tools 必须能显式选择目标项目目录来执行 adapter status / install / uninstall；没有输入时可以投影服务进程当前目录，但浏览器自动化必须能用临时真实项目证明文件边界。
+- Codex 项目文件 ownership 由 `10-agent-adapters.md` 定义；接口层不得覆盖用户 `AGENTS.md`、`.codex/config.toml` 或其他宿主配置。
+
 ## 4. 跨入口一致性
 
 以下能力必须跨入口保持同一语义：

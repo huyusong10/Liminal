@@ -6,12 +6,34 @@ The test suite protects behavior contracts, not implementation shape.
 
 | Layer | Scope | Preferred anchors |
 | --- | --- | --- |
-| Contract | Spec compilation, bundle lifecycle, workflow normalization, run evidence, GateKeeper completion | Public return values, stable IDs, canonical artifacts, status semantics |
-| API | HTTP request and response behavior for the same contracts | Status codes, structured response fields, stable error semantics |
-| Page smoke | Server-rendered entry points and first-paint shell behavior | Routes, stable `data-testid` hooks, core links, locale initialization |
-| Browser E2E | User journeys that require a real browser or client-side state | Accessible controls, visible outcomes, persisted state |
-| Real CLI | Opt-in provider and fixture validation | Provider capability, degradation visibility, preserved artifacts |
+| L1 Contract / API | Spec compilation, bundle lifecycle, workflow normalization, run evidence, GateKeeper completion, adapter ownership | Public return values, stable IDs, canonical artifacts, status semantics, status codes, structured error semantics |
+| L2 Browser / Local Integration | User journeys that require a real browser, client-side state, or local in-process service behavior | Accessible controls, visible outcomes, persisted state, files written under a real temporary workdir |
+| L3 Real Environment | Opt-in release gates against real provider CLIs, real Agent host entry, or real `loopora serve` process | Provider/host capability, degradation visibility, preserved artifacts, observable user journeys |
 | Scenarios | Manual exploratory journeys for a few core flows | Stable user goals, evidence boundaries, cross-entry consistency |
+
+## Required Gates
+
+| Gate | When | Command shape |
+| --- | --- | --- |
+| L1 | Every code change before commit | `uv run ruff check .` and focused `uv run pytest ...` for touched contract/API files |
+| L2 | Every feature that changes a user journey, Web behavior, local files, or cross-entry state | Focused browser/local integration tests, then the default `uv run pytest -q` when feasible |
+| L3 | Before release or before merging a feature that depends on real external hosts | Opt-in real-environment markers such as `real_cli`, `real_agent`, and `release_web` with required environment variables |
+
+L3 tests may skip on ordinary developer machines, but their skip reason must name the missing environment switch or command template. Passing L1/L2 only means the feature is structurally correct in Loopora; L3 is the final proof that the real host/browser path still works.
+
+Current L3 switches:
+
+- Real provider CLI loop: set `LOOPORA_ENABLE_REAL_CLI_E2E=1` and, when needed, provider/model target variables used by `tests/test_real_cli_integration.py`.
+- Real Coding Agent adapter: set `LOOPORA_ENABLE_REAL_AGENT_E2E=1` and `LOOPORA_REAL_AGENT_COMMAND_TEMPLATE` with placeholders `{workdir}`, `{prompt_file}`, `{bundle_file}`. The command should drive the real Agent host from that workdir.
+- Real Web process: set `LOOPORA_ENABLE_RELEASE_WEB_E2E=1` to start a real `loopora serve` process and run the browser Tools adapter journey.
+- Heavy real workflow experiments: set `LOOPORA_ENABLE_REAL_WORKFLOW_EXPERIMENTS=1` when explicitly running `real_workflow_experiment` tests such as the preserved search rollout examples. These are not part of the minimal L3 release gate.
+
+L3 uses a minimum coverage model:
+
+- One real provider CLI smoke proves process launch, structured output parsing, artifact persistence, and resume command shape. It does not try to prove that a model can finish a large product task.
+- One real Agent-host smoke proves the installed Codex entry can drive `/loopora-gen` before `/loopora-loop`; the test prompt must not disclose the underlying `loopora agent codex ...` commands, and the managed entry must leave an invocation-source trail in the Core binding. Its candidate bundle uses a deterministic custom executor so the test does not leave a long-running model task behind.
+- One real Web-process smoke proves browser control of adapter status / install / update / uninstall and visible disabled/error states against a real `loopora serve`.
+- Larger realistic tasks may live as manual scenarios or `real_workflow_experiment` tests, but they should not be the default release blocker unless the feature being released is specifically about that workflow.
 
 ## Guardrails
 
@@ -24,3 +46,4 @@ The test suite protects behavior contracts, not implementation shape.
 - Keep legacy compatibility coverage separate from new-path quality assertions.
 - Prefer one high-value journey over many tests that mirror individual implementation branches.
 - Keep `tests/scenarios/` small; merge adjacent UI flows into one journey instead of adding one file per page tweak.
+- When adding or pruning tests, keep the highest-value assertion at each layer and delete branch-mirror tests that only restate implementation details.
