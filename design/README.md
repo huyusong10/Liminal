@@ -64,7 +64,7 @@
 | 细节设计 | `detailed-design/07-observability-and-diagnostics.md` | 统一日志契约、事件命名与分级规则 | `src/loopora/diagnostics.py`, `src/loopora/settings.py`, `src/loopora/db.py`, `src/loopora/service.py`, `src/loopora/web.py`, `src/loopora/cli.py` |
 | 细节设计 | `detailed-design/08-bundles-and-alignment.md` | bundle 生命周期、专家交换格式与 task-scoped alignment 落点 | `src/loopora/bundles.py`, `src/loopora/service_bundle_assets.py`, `src/loopora/service_alignment.py`, `src/loopora/assets/alignment/` |
 | 细节设计 | `detailed-design/09-web-bundle-alignment.md` | Web 内置任务对齐入口、alignment session、READY 预览与创建运行 | `src/loopora/web_route_*.py`, `src/loopora/templates/`, `src/loopora/static/`, `src/loopora/executor.py`, `src/loopora/bundles.py` |
-| 细节设计 | `detailed-design/10-agent-adapters.md` | Agent-first Codex adapter、安装卸载 ownership、`/loopora-gen` 与 `/loopora-loop` 入口边界 | `src/loopora/agent_adapters.py`, `src/loopora/service_agent_adapters.py`, `src/loopora/cli_agent_adapter_commands.py`, `src/loopora/web_route_agent_adapters_api.py`, `src/loopora/templates/tools.html`, `src/loopora/static/pages/tools.js` |
+| 细节设计 | `detailed-design/10-agent-adapters.md` | Agent-first Coding Agent adapter、安装卸载 ownership、`/loopora-gen` 与 `/loopora-loop` 入口边界 | `src/loopora/agent_adapters.py`, `src/loopora/service_agent_adapters.py`, `src/loopora/cli_agent_adapter_commands.py`, `src/loopora/web_route_agent_adapters_api.py`, `src/loopora/templates/tools.html`, `src/loopora/static/pages/tools.js` |
 
 ## 5. 读者约定
 

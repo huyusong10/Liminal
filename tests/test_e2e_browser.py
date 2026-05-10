@@ -1037,16 +1037,68 @@ def _wait_for_path_state(path: Path, *, exists: bool, timeout: float = 5.0) -> N
     raise AssertionError(f"Timed out waiting for {path} to {state}")
 
 
+def _exercise_browser_adapter_install_uninstall(page, adapter: str, gen_skill: Path, loop_skill: Path) -> None:
+    playwright.expect(page.locator(f'[data-agent-adapter-status="{adapter}"]')).to_have_attribute(
+        "data-agent-adapter-state",
+        "not_installed",
+        timeout=5_000,
+    )
+    page.get_by_test_id(f"agent-adapter-install-{adapter}").click()
+    _wait_for_path_state(gen_skill, exists=True)
+    _wait_for_path_state(loop_skill, exists=True)
+    playwright.expect(page.locator(f'[data-agent-adapter-status="{adapter}"]')).to_have_attribute(
+        "data-agent-adapter-state",
+        "installed",
+        timeout=5_000,
+    )
+    page.get_by_test_id(f"agent-adapter-uninstall-{adapter}").click()
+    _wait_for_path_state(gen_skill, exists=False)
+    _wait_for_path_state(loop_skill, exists=False)
+    playwright.expect(page.locator(f'[data-agent-adapter-status="{adapter}"]')).to_have_attribute(
+        "data-agent-adapter-state",
+        "not_installed",
+        timeout=5_000,
+    )
+
+
+def _exercise_browser_adapter_conflict(page, adapter: str, gen_skill: Path, content: str) -> None:
+    gen_skill.parent.mkdir(parents=True, exist_ok=True)
+    gen_skill.write_text(content, encoding="utf-8")
+    page.get_by_test_id("agent-adapter-refresh").click()
+    playwright.expect(page.locator(f'[data-agent-adapter-status="{adapter}"]')).to_have_attribute(
+        "data-agent-adapter-state",
+        "error",
+        timeout=5_000,
+    )
+    page.get_by_test_id(f"agent-adapter-install-{adapter}").click()
+    page.get_by_test_id("agent-adapter-status").wait_for(state="visible", timeout=5_000)
+    assert gen_skill.read_text(encoding="utf-8") == content
+
+
 def test_tools_agent_adapter_installs_uninstalls_target_project_from_browser(tmp_path: Path) -> None:
     workdir = tmp_path / "agent-adapter-workdir"
     workdir.mkdir()
     user_agents = workdir / "AGENTS.md"
     user_codex_config = workdir / ".codex" / "config.toml"
+    user_claude_md = workdir / "CLAUDE.md"
+    user_claude_settings = workdir / ".claude" / "settings.json"
+    user_opencode_json = workdir / "opencode.json"
+    user_opencode_project_json = workdir / ".opencode" / "opencode.jsonc"
     user_agents.write_text("# User rules stay untouched\n", encoding="utf-8")
     user_codex_config.parent.mkdir()
     user_codex_config.write_text('model = "user-model"\n', encoding="utf-8")
+    user_claude_settings.parent.mkdir()
+    user_claude_md.write_text("# User Claude rules stay untouched\n", encoding="utf-8")
+    user_claude_settings.write_text('{"permissions": {"allow": []}}\n', encoding="utf-8")
+    user_opencode_project_json.parent.mkdir()
+    user_opencode_json.write_text('{"model": "user/model"}\n', encoding="utf-8")
+    user_opencode_project_json.write_text('{"permission": {"bash": "ask"}}\n', encoding="utf-8")
     gen_skill = workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md"
     loop_skill = workdir / ".agents" / "skills" / "loopora-loop" / "SKILL.md"
+    claude_gen_skill = workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md"
+    claude_loop_skill = workdir / ".claude" / "skills" / "loopora-loop" / "SKILL.md"
+    opencode_gen_command = workdir / ".opencode" / "commands" / "loopora-gen.md"
+    opencode_loop_command = workdir / ".opencode" / "commands" / "loopora-loop.md"
     repository = LooporaRepository(tmp_path / "app.db")
     settings = AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2)
     service = LooporaService(repository=repository, settings=settings)
@@ -1057,43 +1109,23 @@ def test_tools_agent_adapter_installs_uninstalls_target_project_from_browser(tmp
             page.goto(f"{base_url}/tools", wait_until="networkidle")
             page.get_by_test_id("agent-adapter-workdir").fill(str(workdir))
             page.get_by_test_id("agent-adapter-refresh").click()
-            playwright.expect(page.locator('[data-agent-adapter-status="codex"]')).to_have_attribute(
-                "data-agent-adapter-state",
-                "not_installed",
-                timeout=5_000,
-            )
-
-            page.get_by_test_id("agent-adapter-install-codex").click()
-            _wait_for_path_state(gen_skill, exists=True)
-            _wait_for_path_state(loop_skill, exists=True)
-            playwright.expect(page.locator('[data-agent-adapter-status="codex"]')).to_have_attribute(
-                "data-agent-adapter-state",
-                "installed",
-                timeout=5_000,
-            )
+            _exercise_browser_adapter_install_uninstall(page, "codex", gen_skill, loop_skill)
             assert user_agents.read_text(encoding="utf-8") == "# User rules stay untouched\n"
             assert user_codex_config.read_text(encoding="utf-8") == 'model = "user-model"\n'
+            assert user_claude_md.read_text(encoding="utf-8") == "# User Claude rules stay untouched\n"
+            assert user_claude_settings.read_text(encoding="utf-8") == '{"permissions": {"allow": []}}\n'
+            assert user_opencode_json.read_text(encoding="utf-8") == '{"model": "user/model"}\n'
+            assert user_opencode_project_json.read_text(encoding="utf-8") == '{"permission": {"bash": "ask"}}\n'
 
-            page.get_by_test_id("agent-adapter-uninstall-codex").click()
-            _wait_for_path_state(gen_skill, exists=False)
-            _wait_for_path_state(loop_skill, exists=False)
-            playwright.expect(page.locator('[data-agent-adapter-status="codex"]')).to_have_attribute(
-                "data-agent-adapter-state",
-                "not_installed",
-                timeout=5_000,
-            )
+            _exercise_browser_adapter_install_uninstall(page, "claude", claude_gen_skill, claude_loop_skill)
+            assert user_claude_md.read_text(encoding="utf-8") == "# User Claude rules stay untouched\n"
+            assert user_claude_settings.read_text(encoding="utf-8") == '{"permissions": {"allow": []}}\n'
 
-            gen_skill.parent.mkdir(parents=True, exist_ok=True)
-            gen_skill.write_text("# User-owned Codex skill\n", encoding="utf-8")
-            page.get_by_test_id("agent-adapter-refresh").click()
-            playwright.expect(page.locator('[data-agent-adapter-status="codex"]')).to_have_attribute(
-                "data-agent-adapter-state",
-                "error",
-                timeout=5_000,
-            )
-            page.get_by_test_id("agent-adapter-install-codex").click()
-            page.get_by_test_id("agent-adapter-status").wait_for(state="visible", timeout=5_000)
-            assert gen_skill.read_text(encoding="utf-8") == "# User-owned Codex skill\n"
+            _exercise_browser_adapter_install_uninstall(page, "opencode", opencode_gen_command, opencode_loop_command)
+            assert user_opencode_json.read_text(encoding="utf-8") == '{"model": "user/model"}\n'
+            assert user_opencode_project_json.read_text(encoding="utf-8") == '{"permission": {"bash": "ask"}}\n'
+
+            _exercise_browser_adapter_conflict(page, "codex", gen_skill, "# User-owned Codex skill\n")
         finally:
             page.close()
 

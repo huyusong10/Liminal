@@ -1047,11 +1047,13 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     assert 'data-testid="agent-adapter-install-codex"' in response.text
     assert 'data-testid="agent-adapter-uninstall-codex"' in response.text
     assert 'data-testid="agent-adapter-claude"' in response.text
+    assert 'data-testid="agent-adapter-install-claude"' in response.text
+    assert 'data-testid="agent-adapter-uninstall-claude"' in response.text
     assert 'data-testid="agent-adapter-opencode"' in response.text
+    assert 'data-testid="agent-adapter-install-opencode"' in response.text
+    assert 'data-testid="agent-adapter-uninstall-opencode"' in response.text
     assert "Claude Code" in response.text
     assert "OpenCode" in response.text
-    assert 'disabled data-testid="agent-adapter-install-claude"' in response.text
-    assert 'disabled data-testid="agent-adapter-install-opencode"' in response.text
     assert "help-dot--tips" in response.text
     assert 'aria-label="Show tip:' in response.text
     assert ">i</button>" in response.text

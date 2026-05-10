@@ -24,15 +24,15 @@ L3 tests may skip on ordinary developer machines, but their skip reason must nam
 Current L3 switches:
 
 - Real provider CLI loop: set `LOOPORA_ENABLE_REAL_CLI_E2E=1` and, when needed, provider/model target variables used by `tests/test_real_cli_integration.py`.
-- Real Coding Agent adapter: set `LOOPORA_ENABLE_REAL_AGENT_E2E=1` and `LOOPORA_REAL_AGENT_COMMAND_TEMPLATE` with placeholders `{workdir}`, `{prompt_file}`, `{bundle_file}`. The command should drive the real Agent host from that workdir.
+- Real Coding Agent adapter: set `LOOPORA_ENABLE_REAL_AGENT_E2E=1`. For Codex, set `LOOPORA_REAL_AGENT_COMMAND_TEMPLATE`; for Claude Code, set `LOOPORA_REAL_CLAUDE_AGENT_COMMAND_TEMPLATE`; for OpenCode, set `LOOPORA_REAL_OPENCODE_AGENT_COMMAND_TEMPLATE`. All templates support `{workdir}`, `{prompt_file}`, `{bundle_file}`. Use `LOOPORA_REAL_AGENT_TARGETS=codex,claude,opencode` to choose hosts.
 - Real Web process: set `LOOPORA_ENABLE_RELEASE_WEB_E2E=1` to start a real `loopora serve` process and run the browser Tools adapter journey.
 - Heavy real workflow experiments: set `LOOPORA_ENABLE_REAL_WORKFLOW_EXPERIMENTS=1` when explicitly running `real_workflow_experiment` tests such as the preserved search rollout examples. These are not part of the minimal L3 release gate.
 
 L3 uses a minimum coverage model:
 
 - One real provider CLI smoke proves process launch, structured output parsing, artifact persistence, and resume command shape. It does not try to prove that a model can finish a large product task.
-- One real Agent-host smoke proves the installed Codex entry can drive `/loopora-gen` before `/loopora-loop`; the test prompt must not disclose the underlying `loopora agent codex ...` commands, and the managed entry must leave an invocation-source trail in the Core binding. Its candidate bundle uses a deterministic custom executor so the test does not leave a long-running model task behind.
-- One real Web-process smoke proves browser control of adapter status / install / update / uninstall and visible disabled/error states against a real `loopora serve`.
+- One real Agent-host smoke per selected implemented host proves the installed Codex, Claude Code, or OpenCode entry can drive `/loopora-gen` before `/loopora-loop`; the test prompt must not disclose the underlying `loopora agent <adapter> ...` commands, and the managed entry must leave an invocation-source trail in the Core binding through its provenance markers. Its candidate bundle uses a deterministic custom executor so the test does not leave a long-running model task behind.
+- One real Web-process smoke proves browser control of Codex / Claude Code / OpenCode adapter status / install / update / uninstall and visible error states against a real `loopora serve`.
 - Larger realistic tasks may live as manual scenarios or `real_workflow_experiment` tests, but they should not be the default release blocker unless the feature being released is specifically about that workflow.
 
 ## Guardrails

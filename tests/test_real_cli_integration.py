@@ -318,10 +318,11 @@ def test_real_cli_provider_adapter_minimal_bundle_runs_and_resumes(tmp_path: Pat
     queued_run = service.start_run(bundle["loop_id"])
     service.start_run_async(queued_run["id"])
     final_run = _wait_for_terminal_run(service, queued_run["id"], timeout_seconds=timeout_seconds)
+    final_summary = _summary_text(Path(final_run["runs_dir"]))
+    assert final_run["status"] == "succeeded", final_summary
     artifacts = _collect_artifacts(provider, workdir, final_run)
     summary = _summary_text(artifacts.run_dir)
 
-    assert artifacts.run["status"] == "succeeded", summary
     assert artifacts.terminal_event["payload"]["status"] == "succeeded", summary
     assert artifacts.terminal_event["payload"].get("reason") == "rounds_completed", summary
     assert not any(event["event_type"] == "run_aborted" for event in artifacts.events), summary

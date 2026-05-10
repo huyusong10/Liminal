@@ -8,6 +8,7 @@ from loopora.agent_adapters import (
     agent_adapter_status,
     list_agent_adapter_statuses,
     install_agent_adapter,
+    normalize_agent_adapter_kind,
     read_agent_binding,
     uninstall_agent_adapter,
     write_agent_binding,
@@ -42,8 +43,8 @@ class ServiceAgentAdapterMixin:
         return uninstall_agent_adapter(adapter, workdir or Path.cwd())
 
     def create_agent_bundle_candidate(self, request: AgentBundleCandidateRequest) -> dict[str, Any]:
-        adapter = request.adapter
-        if adapter != "codex":
+        adapter = normalize_agent_adapter_kind(request.adapter)
+        if adapter not in {"codex", "claude", "opencode"}:
             raise LooporaError(f"{adapter} adapter is not implemented yet")
         root = Path(request.workdir).expanduser().resolve()
         raw_yaml = str(request.bundle_yaml or "")
@@ -60,7 +61,7 @@ class ServiceAgentAdapterMixin:
             workdir=root,
             message=request.message,
             start_immediately=not bool(raw_yaml.strip()),
-            executor_kind="codex",
+            executor_kind=adapter,
             executor_mode="preset",
             command_cli="",
             command_args_text="",
@@ -73,9 +74,9 @@ class ServiceAgentAdapterMixin:
             candidate_path.write_text(raw_yaml.rstrip() + "\n", encoding="utf-8")
             preview = self.sync_alignment_bundle_from_file(session["id"])
             session = preview["session"]
-        existing_binding = read_agent_binding("codex", root, context_id=request.context_id)
+        existing_binding = read_agent_binding(adapter, root, context_id=request.context_id)
         binding = write_agent_binding(
-            "codex",
+            adapter,
             root,
             {
                 "alignment_session_id": session["id"],
@@ -92,7 +93,7 @@ class ServiceAgentAdapterMixin:
             context_id=request.context_id,
         )
         return {
-            "adapter": "codex",
+            "adapter": adapter,
             "workdir": str(root),
             "status": session["status"],
             "ready": session["status"] == "ready",
@@ -110,12 +111,15 @@ class ServiceAgentAdapterMixin:
         entry_source: str = "",
         execute_async: bool = True,
     ) -> dict[str, Any]:
-        if adapter != "codex":
+        adapter = normalize_agent_adapter_kind(adapter)
+        if adapter not in {"codex", "claude", "opencode"}:
             raise LooporaError(f"{adapter} adapter is not implemented yet")
         root = Path(workdir).expanduser().resolve()
-        binding = read_agent_binding("codex", root, context_id=context_id)
+        binding = read_agent_binding(adapter, root, context_id=context_id)
         if not binding:
-            raise LooporaConflictError("no READY Loopora bundle is associated with this Codex session/workdir; run /loopora-gen first")
+            raise LooporaConflictError(
+                f"no READY Loopora bundle is associated with this {_adapter_label_for_error(adapter)} session/workdir; run /loopora-gen first"
+            )
 
         session_id = str(binding.get("alignment_session_id") or "").strip()
         if not session_id:
@@ -124,7 +128,7 @@ class ServiceAgentAdapterMixin:
         run = self._agent_bound_run(session)
         if run is not None:
             binding = write_agent_binding(
-                "codex",
+                adapter,
                 root,
                 {
                     **binding,
@@ -139,7 +143,7 @@ class ServiceAgentAdapterMixin:
                 },
                 context_id=context_id,
             )
-            return self._agent_loop_result(root, session, binding, run=run, started_new_run=False)
+            return self._agent_loop_result(adapter, root, session, binding, {"run": run, "started_new_run": False})
 
         if session["status"] == "ready":
             imported = self.import_alignment_bundle(session_id, start_immediately=True, execute_async=execute_async)
@@ -148,7 +152,7 @@ class ServiceAgentAdapterMixin:
             if not isinstance(run, dict):
                 raise LooporaError("Loopora did not return a run for the READY bundle")
             binding = write_agent_binding(
-                "codex",
+                adapter,
                 root,
                 {
                     **binding,
@@ -165,7 +169,7 @@ class ServiceAgentAdapterMixin:
                 },
                 context_id=context_id,
             )
-            return self._agent_loop_result(root, session, binding, run=run, started_new_run=True)
+            return self._agent_loop_result(adapter, root, session, binding, {"run": run, "started_new_run": True})
 
         if session["status"] == "imported" and session.get("linked_loop_id"):
             run = self.start_run(str(session["linked_loop_id"]))
@@ -183,7 +187,7 @@ class ServiceAgentAdapterMixin:
             )
             session = self.get_alignment_session(session_id)
             binding = write_agent_binding(
-                "codex",
+                adapter,
                 root,
                 {
                     **binding,
@@ -198,10 +202,10 @@ class ServiceAgentAdapterMixin:
                 },
                 context_id=context_id,
             )
-            return self._agent_loop_result(root, session, binding, run=run, started_new_run=True)
+            return self._agent_loop_result(adapter, root, session, binding, {"run": run, "started_new_run": True})
 
         raise LooporaConflictError(
-            f"Codex session has no READY Loopora bundle (current status: {session['status']}); run /loopora-gen first"
+            f"{_adapter_label_for_error(adapter)} session has no READY Loopora bundle (current status: {session['status']}); run /loopora-gen first"
         )
 
     def _agent_bound_run(self, session: dict) -> dict | None:
@@ -217,16 +221,17 @@ class ServiceAgentAdapterMixin:
         return run
 
     @staticmethod
-    def _agent_loop_result(root: Path, session: dict, binding: dict, *, run: dict, started_new_run: bool) -> dict[str, Any]:
+    def _agent_loop_result(adapter: str, root: Path, session: dict, binding: dict, run_result: dict[str, Any]) -> dict[str, Any]:
+        run = run_result["run"]
         return {
-            "adapter": "codex",
+            "adapter": adapter,
             "workdir": str(root),
             "status": session["status"],
             "session": session,
             "binding": binding,
             "run": run,
             "run_path": f"/runs/{run['id']}",
-            "started_new_run": started_new_run,
+            "started_new_run": bool(run_result["started_new_run"]),
         }
 
     @staticmethod
@@ -245,3 +250,11 @@ class ServiceAgentAdapterMixin:
         ]
         next_invocations.append({"action": action, "entry_source": source, "at": utc_now()})
         return next_invocations[-20:]
+
+
+def _adapter_label_for_error(adapter: str) -> str:
+    return {
+        "codex": "Codex",
+        "claude": "Claude Code",
+        "opencode": "OpenCode",
+    }.get(adapter, adapter)

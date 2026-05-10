@@ -117,19 +117,23 @@ Agent-first 入口必须仍然遵守“接口层 -> Core”的依赖方向。CLI
 | 入口 | 语义 |
 |------|------|
 | `loopora init codex` | 在当前项目安装或更新 Codex 项目级 Loopora entry |
+| `loopora init claude` | 在当前项目安装或更新 Claude Code 项目级 Loopora entry |
+| `loopora init opencode` | 在当前项目安装或更新 OpenCode 项目级 Loopora entry |
 | `loopora uninstall codex` | 只删除 Loopora 管理的 Codex adapter 文件或 manifest |
-| `loopora agent codex gen` | Codex skill 使用的底层入口，把候选 bundle 交给 Core 校验为 READY，并返回候选 Loop URL |
-| `loopora agent codex loop` | Codex skill 使用的底层入口，查找当前 session / workdir 的 READY bundle，启动或复用 run，并返回 URL |
-| Web Tools Codex card | 调用同一 adapter service/helper 展示目标项目 status，并触发 install/uninstall |
+| `loopora uninstall claude` | 只删除 Loopora 管理的 Claude Code adapter 文件或 manifest |
+| `loopora uninstall opencode` | 只删除 Loopora 管理的 OpenCode adapter 文件或 manifest |
+| `loopora agent codex gen` / `loopora agent claude gen` / `loopora agent opencode gen` | 宿主 entry 使用的底层入口，把候选 bundle 交给 Core 校验为 READY，并返回候选 Loop URL |
+| `loopora agent codex loop` / `loopora agent claude loop` / `loopora agent opencode loop` | 宿主 entry 使用的底层入口，查找当前 session / workdir 的 READY bundle，启动或复用 run，并返回 URL |
+| Web Tools Codex / Claude Code / OpenCode card | 调用同一 adapter service/helper 展示目标项目 status，并触发 install/uninstall |
 
 稳定规则：
 
-- 必须坚持 `/loopora-gen -> READY preview -> /loopora-loop`。缺少 READY bundle 时，`loopora agent codex loop` 返回明确错误，提示先 gen。
-- Codex adapter 只负责宿主入口和 binding，不复制 bundle validation、alignment import、run lifecycle 或 Web serve 逻辑。
-- Claude Code / OpenCode 可以出现在类型、API 投影和 Web UI 中，但第一阶段状态必须是未实现，不能生成假入口。
+- 必须坚持 `/loopora-gen -> READY preview -> /loopora-loop`。缺少 READY bundle 时，`loopora agent <adapter> loop` 返回明确错误，提示先 gen。
+- Codex / Claude Code / OpenCode adapter 只负责宿主入口和 binding，不复制 bundle validation、alignment import、run lifecycle 或 Web serve 逻辑。
+- 未实现平台可以出现在类型、API 投影和 Web UI 中，但状态必须是未实现，不能生成假入口。
 - Web status 只展示 `not_installed / installed / needs_update / error / not_implemented` 这类 adapter 投影，不把它们写成 Loop 或 run 状态。
 - Web Tools 必须能显式选择目标项目目录来执行 adapter status / install / uninstall；没有输入时可以投影服务进程当前目录，但浏览器自动化必须能用临时真实项目证明文件边界。
-- Codex 项目文件 ownership 由 `10-agent-adapters.md` 定义；接口层不得覆盖用户 `AGENTS.md`、`.codex/config.toml` 或其他宿主配置。
+- Agent adapter 项目文件 ownership 由 `10-agent-adapters.md` 定义；接口层不得覆盖用户 `AGENTS.md`、`CLAUDE.md`、`.codex/config.toml`、`.claude/settings.json`、`opencode.json`、`.opencode/opencode.json*` 或其他宿主配置。
 
 ## 4. 跨入口一致性
 

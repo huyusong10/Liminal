@@ -107,45 +107,53 @@
         </button>
       </div>
     </article>
-    <article class="agent-adapter-card is-disabled" data-agent-adapter="claude" data-testid="agent-adapter-claude">
+    <article class="agent-adapter-card" data-agent-adapter="claude" data-testid="agent-adapter-claude">
       <div class="agent-adapter-copy">
         <div class="agent-adapter-head">
           <strong>Claude Code</strong>
           <span class="wake-lock-pill wake-lock-pill-neutral" data-agent-adapter-status="claude">
-            <span data-lang="zh">未实现</span>
-            <span data-lang="en">Not implemented</span>
+            <span data-lang="zh">正在读取…</span>
+            <span data-lang="en">Loading…</span>
           </span>
         </div>
         <p>
-          <span data-lang="zh">入口已预留，第一阶段不生成 Claude Code 文件。</span>
-          <span data-lang="en">Reserved for a later phase; no Claude Code files are generated yet.</span>
+          <span data-lang="zh">安装项目级入口，供 Claude Code 触发 /loopora-gen 和 /loopora-loop。</span>
+          <span data-lang="en">Installs project-level entries for /loopora-gen and /loopora-loop in Claude Code.</span>
         </p>
       </div>
       <div class="agent-adapter-actions">
-        <button class="secondary-button" type="button" disabled data-testid="agent-adapter-install-claude">
-          <span data-lang="zh">即将支持</span>
-          <span data-lang="en">Coming soon</span>
+        <button class="secondary-button" type="button" data-agent-adapter-install="claude" data-testid="agent-adapter-install-claude">
+          <span data-lang="zh">安装 / 更新</span>
+          <span data-lang="en">Install / Update</span>
+        </button>
+        <button class="ghost-button" type="button" data-agent-adapter-uninstall="claude" data-testid="agent-adapter-uninstall-claude">
+          <span data-lang="zh">卸载</span>
+          <span data-lang="en">Uninstall</span>
         </button>
       </div>
     </article>
-    <article class="agent-adapter-card is-disabled" data-agent-adapter="opencode" data-testid="agent-adapter-opencode">
+    <article class="agent-adapter-card" data-agent-adapter="opencode" data-testid="agent-adapter-opencode">
       <div class="agent-adapter-copy">
         <div class="agent-adapter-head">
           <strong>OpenCode</strong>
           <span class="wake-lock-pill wake-lock-pill-neutral" data-agent-adapter-status="opencode">
-            <span data-lang="zh">未实现</span>
-            <span data-lang="en">Not implemented</span>
+            <span data-lang="zh">正在读取…</span>
+            <span data-lang="en">Loading…</span>
           </span>
         </div>
         <p>
-          <span data-lang="zh">入口已预留，第一阶段不生成 OpenCode 文件。</span>
-          <span data-lang="en">Reserved for a later phase; no OpenCode files are generated yet.</span>
+          <span data-lang="zh">安装项目级命令，供 OpenCode 触发 /loopora-gen 和 /loopora-loop。</span>
+          <span data-lang="en">Installs project-level commands for /loopora-gen and /loopora-loop in OpenCode.</span>
         </p>
       </div>
       <div class="agent-adapter-actions">
-        <button class="secondary-button" type="button" disabled data-testid="agent-adapter-install-opencode">
-          <span data-lang="zh">即将支持</span>
-          <span data-lang="en">Coming soon</span>
+        <button class="secondary-button" type="button" data-agent-adapter-install="opencode" data-testid="agent-adapter-install-opencode">
+          <span data-lang="zh">安装 / 更新</span>
+          <span data-lang="en">Install / Update</span>
+        </button>
+        <button class="ghost-button" type="button" data-agent-adapter-uninstall="opencode" data-testid="agent-adapter-uninstall-opencode">
+          <span data-lang="zh">卸载</span>
+          <span data-lang="en">Uninstall</span>
         </button>
       </div>
     </article>

@@ -11,10 +11,29 @@ from loopora.service_types import LooporaConflictError, LooporaError
 from loopora.utils import utc_now
 
 AGENT_ADAPTER_KINDS = ("codex", "claude", "opencode")
-IMPLEMENTED_AGENT_ADAPTERS = {"codex"}
-CODEX_ADAPTER_VERSION = 1
-MANAGED_MARKER = "LOOPORA-MANAGED: codex-adapter"
-MANIFEST_RELATIVE_PATH = ".loopora/adapters/codex/manifest.json"
+IMPLEMENTED_AGENT_ADAPTERS = {"codex", "claude", "opencode"}
+ADAPTER_VERSION = 1
+CODEX_ADAPTER_VERSION = ADAPTER_VERSION
+CLAUDE_ADAPTER_VERSION = ADAPTER_VERSION
+OPENCODE_ADAPTER_VERSION = ADAPTER_VERSION
+CODEX_MANAGED_MARKER = "LOOPORA-MANAGED: codex-adapter"
+CLAUDE_MANAGED_MARKER = "LOOPORA-MANAGED: claude-code-adapter"
+OPENCODE_MANAGED_MARKER = "LOOPORA-MANAGED: opencode-adapter"
+MANAGED_MARKERS = {
+    "codex": CODEX_MANAGED_MARKER,
+    "claude": CLAUDE_MANAGED_MARKER,
+    "opencode": OPENCODE_MANAGED_MARKER,
+}
+MANAGED_MARKER = CODEX_MANAGED_MARKER
+CODEX_MANIFEST_RELATIVE_PATH = ".loopora/adapters/codex/manifest.json"
+CLAUDE_MANIFEST_RELATIVE_PATH = ".loopora/adapters/claude/manifest.json"
+OPENCODE_MANIFEST_RELATIVE_PATH = ".loopora/adapters/opencode/manifest.json"
+MANIFEST_RELATIVE_PATHS = {
+    "codex": CODEX_MANIFEST_RELATIVE_PATH,
+    "claude": CLAUDE_MANIFEST_RELATIVE_PATH,
+    "opencode": OPENCODE_MANIFEST_RELATIVE_PATH,
+}
+MANIFEST_RELATIVE_PATH = CODEX_MANIFEST_RELATIVE_PATH
 
 
 def normalize_agent_adapter_kind(value: str | None) -> str:
@@ -51,16 +70,17 @@ def agent_adapter_status(adapter: str, workdir: Path | str | None) -> dict[str, 
     root = resolve_adapter_project_root(workdir)
     if kind not in IMPLEMENTED_AGENT_ADAPTERS:
         return _not_implemented_status(kind, root)
-    return _codex_adapter_status(root)
+    return _managed_adapter_status(kind, root)
 
 
 def install_agent_adapter(adapter: str, workdir: Path | str | None) -> dict[str, Any]:
     kind = normalize_agent_adapter_kind(adapter)
     root = resolve_adapter_project_root(workdir)
-    if kind != "codex":
+    if kind not in IMPLEMENTED_AGENT_ADAPTERS:
         raise LooporaError(f"{_adapter_label(kind)} adapter is not implemented yet")
-    templates = _codex_managed_templates()
-    _assert_codex_targets_are_replaceable(root, templates)
+    templates = _managed_templates(kind)
+    marker = _managed_marker(kind)
+    _assert_targets_are_replaceable(kind, root, templates)
     written: list[dict[str, str]] = []
     for relative_path, content in templates.items():
         target = root / relative_path
@@ -74,30 +94,33 @@ def install_agent_adapter(adapter: str, workdir: Path | str | None) -> dict[str,
                 "sha256": _sha256_text(content),
             }
         )
-    manifest = _codex_manifest_payload(root, written)
-    manifest_path = root / MANIFEST_RELATIVE_PATH
+    manifest = _manifest_payload(kind, root, written)
+    manifest_path = root / _manifest_relative_path(kind)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    existing_manifest, _ = _read_codex_manifest(root)
+    existing_manifest, _ = _read_manifest(kind, root)
     if existing_manifest != manifest:
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    status = _codex_adapter_status(root)
+    status = _managed_adapter_status(kind, root)
     return {
-        "adapter": "codex",
+        "adapter": kind,
+        "label": _adapter_label(kind),
         "workdir": str(root),
         "status": status["status"],
         "manifest_path": str(manifest_path),
         "managed_files": status["managed_files"],
+        "managed_marker": marker,
     }
 
 
 def uninstall_agent_adapter(adapter: str, workdir: Path | str | None) -> dict[str, Any]:
     kind = normalize_agent_adapter_kind(adapter)
     root = resolve_adapter_project_root(workdir)
-    if kind != "codex":
+    if kind not in IMPLEMENTED_AGENT_ADAPTERS:
         raise LooporaError(f"{_adapter_label(kind)} adapter is not implemented yet")
 
-    templates = _codex_managed_templates()
-    manifest_payload, manifest_error = _read_codex_manifest(root)
+    templates = _managed_templates(kind)
+    marker = _managed_marker(kind)
+    manifest_payload, manifest_error = _read_manifest(kind, root)
     manifest_paths = _manifest_paths(manifest_payload) if isinstance(manifest_payload, dict) else []
     managed_paths = sorted(set(manifest_paths) | set(templates))
 
@@ -115,25 +138,26 @@ def uninstall_agent_adapter(adapter: str, workdir: Path | str | None) -> dict[st
         manifest_hash = _manifest_hash_for_path(manifest_payload, relative_path) if isinstance(manifest_payload, dict) else ""
         template_hash = _sha256_text(templates.get(relative_path, ""))
         content_hash = _sha256_text(content)
-        if MANAGED_MARKER in content or content_hash in {manifest_hash, template_hash}:
+        if marker in content or content_hash in {manifest_hash, template_hash}:
             target.unlink()
             removed.append(relative_path)
             _remove_empty_parents(root, target.parent)
         else:
             kept.append({"path": relative_path, "reason": "not_loopora_managed"})
 
-    manifest_path = root / MANIFEST_RELATIVE_PATH
+    manifest_path = root / _manifest_relative_path(kind)
     if manifest_path.exists():
         try:
             manifest_path.unlink()
             _remove_empty_parents(root, manifest_path.parent)
         except OSError as exc:
-            kept.append({"path": MANIFEST_RELATIVE_PATH, "reason": f"remove_failed: {exc}"})
+            kept.append({"path": _manifest_relative_path(kind), "reason": f"remove_failed: {exc}"})
 
     return {
-        "adapter": "codex",
+        "adapter": kind,
+        "label": _adapter_label(kind),
         "workdir": str(root),
-        "status": _codex_adapter_status(root)["status"],
+        "status": _managed_adapter_status(kind, root)["status"],
         "removed_files": removed,
         "kept_files": kept,
         "manifest_error": manifest_error,
@@ -158,20 +182,24 @@ def agent_context_key(adapter: str, workdir: Path | str, *, context_id: str = ""
     explicit = (
         str(context_id or "").strip()
         or os.environ.get("LOOPORA_AGENT_SESSION_ID", "").strip()
-        or os.environ.get("CODEX_SESSION_ID", "").strip()
-        or os.environ.get("CODEX_THREAD_ID", "").strip()
+        or _adapter_session_env(kind)
     )
     source = explicit or f"workdir:{root}"
     return hashlib.sha256(f"{kind}:{source}".encode()).hexdigest()[:20]
 
 
-def agent_context_source(*, context_id: str = "") -> str:
+def agent_context_source(adapter: str, *, context_id: str = "") -> str:
+    kind = normalize_agent_adapter_kind(adapter)
     if str(context_id or "").strip():
         return "explicit"
     if os.environ.get("LOOPORA_AGENT_SESSION_ID", "").strip():
         return "loopora_env"
-    if os.environ.get("CODEX_SESSION_ID", "").strip() or os.environ.get("CODEX_THREAD_ID", "").strip():
+    if kind == "codex" and _adapter_session_env(kind):
         return "codex_env"
+    if kind == "claude" and _adapter_session_env(kind):
+        return "claude_env"
+    if kind == "opencode" and _adapter_session_env(kind):
+        return "opencode_env"
     return "workdir"
 
 
@@ -188,7 +216,7 @@ def write_agent_binding(
         "adapter": normalize_agent_adapter_kind(adapter),
         "workdir": str(resolve_adapter_project_root(workdir)),
         "context_key": path.stem,
-        "context_source": agent_context_source(context_id=context_id),
+        "context_source": agent_context_source(adapter, context_id=context_id),
         "updated_at": utc_now(),
         **payload,
     }
@@ -224,19 +252,19 @@ def _not_implemented_status(kind: str, root: Path) -> dict[str, Any]:
     }
 
 
-def _codex_adapter_status(root: Path) -> dict[str, Any]:
-    templates = _codex_managed_templates()
-    manifest_payload, manifest_error = _read_codex_manifest(root)
-    manifest_path = root / MANIFEST_RELATIVE_PATH
+def _managed_adapter_status(kind: str, root: Path) -> dict[str, Any]:
+    templates = _managed_templates(kind)
+    manifest_payload, manifest_error = _read_manifest(kind, root)
+    manifest_path = root / _manifest_relative_path(kind)
     managed_files = []
     if manifest_error:
         return {
-            "adapter": "codex",
-            "label": "Codex",
+            "adapter": kind,
+            "label": _adapter_label(kind),
             "workdir": str(root),
             "implemented": True,
             "status": "error",
-            "summary": "Cannot read Loopora Codex adapter manifest",
+            "summary": f"Cannot read Loopora {_adapter_label(kind)} adapter manifest",
             "managed_files": [],
             "manifest_path": str(manifest_path),
             "error": manifest_error,
@@ -250,7 +278,7 @@ def _codex_adapter_status(root: Path) -> dict[str, Any]:
     managed_marker_found = False
     for relative_path in paths:
         expected = templates.get(relative_path, "")
-        file_state = _codex_file_status(root, relative_path, expected, manifest_payload=manifest_payload, manifest_exists=manifest_exists)
+        file_state = _managed_file_status(kind, root, relative_path, expected, manifest_context=(manifest_payload, manifest_exists))
         file_payload = file_state["payload"]
         installed_count += int(file_state["current"])
         needs_update = needs_update or bool(file_state["needs_update"])
@@ -261,27 +289,27 @@ def _codex_adapter_status(root: Path) -> dict[str, Any]:
 
     if unmanaged_conflicts:
         status = "error"
-        summary = "Codex adapter files exist but ownership is unclear"
+        summary = f"{_adapter_label(kind)} adapter files exist but ownership is unclear"
         error = "unmanaged files: " + ", ".join(unmanaged_conflicts)
     elif manifest_exists and needs_update:
         status = "needs_update"
-        summary = "Codex adapter is installed but needs update"
+        summary = f"{_adapter_label(kind)} adapter is installed but needs update"
         error = ""
     elif manifest_exists and installed_count == len(templates):
         status = "installed"
-        summary = "Codex adapter is installed"
+        summary = f"{_adapter_label(kind)} adapter is installed"
         error = ""
     elif not manifest_exists and (installed_count == len(templates) or managed_marker_found):
         status = "needs_update"
-        summary = "Codex adapter files exist but manifest is missing"
+        summary = f"{_adapter_label(kind)} adapter files exist but manifest is missing"
         error = ""
     else:
         status = "not_installed"
-        summary = "Codex adapter is not installed"
+        summary = f"{_adapter_label(kind)} adapter is not installed"
         error = ""
     return {
-        "adapter": "codex",
-        "label": "Codex",
+        "adapter": kind,
+        "label": _adapter_label(kind),
         "workdir": str(root),
         "implemented": True,
         "status": status,
@@ -292,14 +320,15 @@ def _codex_adapter_status(root: Path) -> dict[str, Any]:
     }
 
 
-def _codex_file_status(
+def _managed_file_status(
+    kind: str,
     root: Path,
     relative_path: str,
     expected: str,
     *,
-    manifest_payload: dict[str, Any] | None,
-    manifest_exists: bool,
+    manifest_context: tuple[dict[str, Any] | None, bool],
 ) -> dict[str, Any]:
+    manifest_payload, manifest_exists = manifest_context
     target = root / relative_path
     expected_hash = _sha256_text(expected) if expected else ""
     payload: dict[str, Any] = {
@@ -339,17 +368,17 @@ def _codex_file_status(
             "payload": payload,
             "current": True,
             "needs_update": False,
-            "managed_marker": MANAGED_MARKER in content,
+            "managed_marker": _managed_marker(kind) in content,
             "unmanaged_conflict": False,
         }
     manifest_hash = _manifest_hash_for_path(manifest_payload, relative_path) if manifest_exists else ""
-    if MANAGED_MARKER in content or (manifest_hash and actual_hash == manifest_hash):
+    if _managed_marker(kind) in content or (manifest_hash and actual_hash == manifest_hash):
         payload["state"] = "needs_update"
         return {
             "payload": payload,
             "current": False,
             "needs_update": True,
-            "managed_marker": MANAGED_MARKER in content,
+            "managed_marker": _managed_marker(kind) in content,
             "unmanaged_conflict": False,
         }
     payload["state"] = "unmanaged_conflict"
@@ -362,22 +391,23 @@ def _codex_file_status(
     }
 
 
-def _codex_manifest_payload(root: Path, managed_files: list[dict[str, str]]) -> dict[str, Any]:
-    existing_manifest, _ = _read_codex_manifest(root)
+def _manifest_payload(kind: str, root: Path, managed_files: list[dict[str, str]]) -> dict[str, Any]:
+    existing_manifest, _ = _read_manifest(kind, root)
     installed_at = ""
     if isinstance(existing_manifest, dict):
         installed_at = str(existing_manifest.get("installed_at") or "").strip()
     return {
-        "adapter": "codex",
-        "version": CODEX_ADAPTER_VERSION,
+        "adapter": kind,
+        "version": ADAPTER_VERSION,
         "installed_at": installed_at or utc_now(),
         "managed_files": managed_files,
     }
 
 
-def _assert_codex_targets_are_replaceable(root: Path, templates: dict[str, str]) -> None:
+def _assert_targets_are_replaceable(kind: str, root: Path, templates: dict[str, str]) -> None:
     conflicts = []
-    manifest_payload, _ = _read_codex_manifest(root)
+    manifest_payload, _ = _read_manifest(kind, root)
+    marker = _managed_marker(kind)
     for relative_path, content in templates.items():
         target = root / relative_path
         if not target.exists():
@@ -389,25 +419,25 @@ def _assert_codex_targets_are_replaceable(root: Path, templates: dict[str, str])
             continue
         manifest_hash = _manifest_hash_for_path(manifest_payload, relative_path) if isinstance(manifest_payload, dict) else ""
         existing_hash = _sha256_text(existing)
-        if existing == content or MANAGED_MARKER in existing or (manifest_hash and existing_hash == manifest_hash):
+        if existing == content or marker in existing or (manifest_hash and existing_hash == manifest_hash):
             continue
         conflicts.append(relative_path)
     if conflicts:
         raise LooporaConflictError(
-            "refusing to overwrite non-Loopora Codex adapter files: " + ", ".join(conflicts)
+            f"refusing to overwrite non-Loopora {_adapter_label(kind)} adapter files: " + ", ".join(conflicts)
         )
 
 
-def _read_codex_manifest(root: Path) -> tuple[dict[str, Any] | None, str]:
-    path = root / MANIFEST_RELATIVE_PATH
+def _read_manifest(kind: str, root: Path) -> tuple[dict[str, Any] | None, str]:
+    path = root / _manifest_relative_path(kind)
     if not path.exists():
         return None, ""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return None, str(exc)
-    if not isinstance(payload, dict) or payload.get("adapter") != "codex":
-        return None, "manifest is not a Codex adapter manifest"
+    if not isinstance(payload, dict) or payload.get("adapter") != kind:
+        return None, f"manifest is not a {_adapter_label(kind)} adapter manifest"
     return payload, ""
 
 
@@ -442,7 +472,7 @@ def _sha256_text(value: str) -> str:
 
 
 def _remove_empty_parents(root: Path, directory: Path) -> None:
-    stop_dirs = {root, root / ".agents", root / ".loopora"}
+    stop_dirs = {root, root / ".agents", root / ".claude", root / ".opencode", root / ".loopora"}
     current = directory
     while current != current.parent and current not in stop_dirs:
         try:
@@ -460,10 +490,52 @@ def _adapter_label(kind: str) -> str:
     }.get(kind, kind)
 
 
+def _adapter_session_env(kind: str) -> str:
+    if kind == "codex":
+        return os.environ.get("CODEX_SESSION_ID", "").strip() or os.environ.get("CODEX_THREAD_ID", "").strip()
+    if kind == "claude":
+        return os.environ.get("CLAUDE_SESSION_ID", "").strip()
+    if kind == "opencode":
+        return os.environ.get("OPENCODE_SESSION_ID", "").strip()
+    return ""
+
+
+def _managed_marker(kind: str) -> str:
+    return MANAGED_MARKERS[kind]
+
+
+def _manifest_relative_path(kind: str) -> str:
+    return MANIFEST_RELATIVE_PATHS[kind]
+
+
+def _managed_templates(kind: str) -> dict[str, str]:
+    if kind == "codex":
+        return _codex_managed_templates()
+    if kind == "claude":
+        return _claude_managed_templates()
+    if kind == "opencode":
+        return _opencode_managed_templates()
+    raise LooporaError(f"{_adapter_label(kind)} adapter is not implemented yet")
+
+
 def _codex_managed_templates() -> dict[str, str]:
     return {
         ".agents/skills/loopora-gen/SKILL.md": _codex_loopora_gen_skill(),
         ".agents/skills/loopora-loop/SKILL.md": _codex_loopora_loop_skill(),
+    }
+
+
+def _claude_managed_templates() -> dict[str, str]:
+    return {
+        ".claude/skills/loopora-gen/SKILL.md": _claude_loopora_gen_skill(),
+        ".claude/skills/loopora-loop/SKILL.md": _claude_loopora_loop_skill(),
+    }
+
+
+def _opencode_managed_templates() -> dict[str, str]:
+    return {
+        ".opencode/commands/loopora-gen.md": _opencode_loopora_gen_command(),
+        ".opencode/commands/loopora-loop.md": _opencode_loopora_loop_command(),
     }
 
 
@@ -487,10 +559,12 @@ Compile the current coding task into a Loopora candidate Loop. Do not start a ru
 4. Run:
 
 ```bash
-loopora agent codex gen --workdir "$PWD" --message "<short task summary>" --bundle-file <candidate-yaml-path> --entry-source codex_project_skill
+LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex gen --workdir "$PWD" --message "<short task summary>" --bundle-file <candidate-yaml-path> --entry-source codex_project_skill
 ```
 
 5. Report the returned candidate Loop URL. If validation fails, report the Loopora error and fix the YAML before trying again.
+
+Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source`; those markers bind this invocation to Loopora's Core evidence trail.
 
 ## Boundaries
 
@@ -518,10 +592,156 @@ Start or reuse the Loopora-managed run for the READY bundle associated with this
 Run:
 
 ```bash
-loopora agent codex loop --workdir "$PWD" --entry-source codex_project_skill
+LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex loop --workdir "$PWD" --entry-source codex_project_skill
 ```
 
 Then report the returned run or Loop URL and continue work under the Loopora governance context shown there.
+
+Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source`; those markers prove this run came from the Loopora-managed Codex entry.
+
+## Boundaries
+
+- If the command says no READY bundle is associated with this session/workdir, tell the user to run `/loopora-gen` first.
+- Do not create a bundle implicitly from `/loopora-loop`.
+- Do not bypass Loopora's bundle import, run lifecycle, evidence ledger, or GateKeeper verdict.
+"""
+
+
+def _claude_loopora_gen_skill() -> str:
+    return f"""---
+name: loopora-gen
+description: "Generate a Loopora candidate Loop from the current Claude Code task without starting a run. Invoke manually as /loopora-gen."
+disable-model-invocation: true
+allowed-tools: "Bash(loopora agent claude gen *) Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen *)"
+---
+
+<!-- {CLAUDE_MANAGED_MARKER} version={CLAUDE_ADAPTER_VERSION} file=loopora-gen -->
+
+# Loopora Gen
+
+Compile the current Claude Code task into a Loopora candidate Loop. Do not start a run.
+
+## Required path
+
+1. Summarize the current task, workdir, constraints, local governance files, fake-done risks, evidence expectations, and residual-risk policy from the current Claude Code context.
+2. Create a complete Loopora `version: 1` bundle YAML for that task. The bundle must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. If the current task explicitly provides a candidate bundle YAML path, submit that file instead of reauthoring it.
+3. Save newly authored candidate YAML to a temporary file under `.loopora/agent_inbox/claude/`; if a candidate path was explicitly provided, use that path.
+4. Run:
+
+```bash
+LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen --workdir "$PWD" --context-id "${{CLAUDE_SESSION_ID}}" --message "<short task summary>" --bundle-file <candidate-yaml-path> --entry-source claude_project_skill
+```
+
+5. Report the returned candidate Loop URL. If validation fails, report the Loopora error and fix the YAML before trying again.
+
+Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`, and `--entry-source`; those markers bind the current Claude Code session to Loopora's Core evidence trail.
+
+## Boundaries
+
+- `/loopora-gen` never starts a run.
+- READY is decided by Loopora Core validation, not by Claude Code prose.
+- If the task does not need a long-running evidence-governed Loop, explain that before generating.
+- If `loopora agent claude gen` returns a non-READY Web alignment URL, tell the user it needs Web confirmation or more alignment before `/loopora-loop`.
+"""
+
+
+def _claude_loopora_loop_skill() -> str:
+    return f"""---
+name: loopora-loop
+description: "Start or reuse the Loopora-managed run for the READY bundle associated with this Claude Code task. Invoke manually after /loopora-gen."
+disable-model-invocation: true
+allowed-tools: "Bash(loopora agent claude loop *) Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude loop *)"
+---
+
+<!-- {CLAUDE_MANAGED_MARKER} version={CLAUDE_ADAPTER_VERSION} file=loopora-loop -->
+
+# Loopora Loop
+
+Start or reuse the Loopora-managed run for the READY bundle associated with this Claude Code session or workdir.
+
+## Required path
+
+Run:
+
+```bash
+LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude loop --workdir "$PWD" --context-id "${{CLAUDE_SESSION_ID}}" --entry-source claude_project_skill
+```
+
+Then report the returned run or Loop URL and continue work under the Loopora governance context shown there.
+
+Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`, and `--entry-source`; those markers prove this run came from the Loopora-managed Claude Code entry.
+
+## Boundaries
+
+- If the command says no READY bundle is associated with this session/workdir, tell the user to run `/loopora-gen` first.
+- Do not create a bundle implicitly from `/loopora-loop`.
+- Do not bypass Loopora's bundle import, run lifecycle, evidence ledger, or GateKeeper verdict.
+"""
+
+
+def _opencode_loopora_gen_command() -> str:
+    return f"""---
+description: Generate a Loopora candidate Loop from the current OpenCode task without starting a run.
+agent: build
+---
+
+<!-- {OPENCODE_MANAGED_MARKER} version={OPENCODE_ADAPTER_VERSION} file=loopora-gen -->
+
+# Loopora Gen
+
+Compile the current OpenCode task into a Loopora candidate Loop. Do not start a run.
+
+## Arguments
+
+`$ARGUMENTS` may contain an existing candidate bundle YAML path. If it does, submit that file instead of authoring a different bundle.
+
+## Required path
+
+1. Summarize the current task, workdir, constraints, local governance files, fake-done risks, evidence expectations, and residual-risk policy from the current OpenCode context.
+2. Create a complete Loopora `version: 1` bundle YAML for that task. The bundle must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. If `$ARGUMENTS` provides a candidate path, use that path.
+3. Save newly authored candidate YAML to a temporary file under `.loopora/agent_inbox/opencode/`; if a candidate path was provided, use that path.
+4. Run:
+
+```bash
+LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command loopora agent opencode gen --workdir "$PWD" --context-id "${{OPENCODE_SESSION_ID:-}}" --message "<short task summary>" --bundle-file <candidate-yaml-path> --entry-source opencode_project_command
+```
+
+5. Report the returned candidate Loop URL. If validation fails, report the Loopora error and fix the YAML before trying again.
+
+Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`, and `--entry-source`; those markers bind this invocation to Loopora's Core evidence trail. If OpenCode does not expose `OPENCODE_SESSION_ID`, keep the flag as shown and Loopora will fall back to workdir binding.
+
+## Boundaries
+
+- `/loopora-gen` never starts a run.
+- READY is decided by Loopora Core validation, not by OpenCode prose.
+- If the task does not need a long-running evidence-governed Loop, explain that before generating.
+- If `loopora agent opencode gen` returns a non-READY Web alignment URL, tell the user it needs Web confirmation or more alignment before `/loopora-loop`.
+"""
+
+
+def _opencode_loopora_loop_command() -> str:
+    return f"""---
+description: Start or reuse the Loopora-managed run for the READY bundle associated with this OpenCode task.
+agent: build
+---
+
+<!-- {OPENCODE_MANAGED_MARKER} version={OPENCODE_ADAPTER_VERSION} file=loopora-loop -->
+
+# Loopora Loop
+
+Start or reuse the Loopora-managed run for the READY bundle associated with this OpenCode session or workdir.
+
+## Required path
+
+Run:
+
+```bash
+LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command loopora agent opencode loop --workdir "$PWD" --context-id "${{OPENCODE_SESSION_ID:-}}" --entry-source opencode_project_command
+```
+
+Then report the returned run or Loop URL and continue work under the Loopora governance context shown there.
+
+Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`, and `--entry-source`; those markers prove this run came from the Loopora-managed OpenCode command.
 
 ## Boundaries
 

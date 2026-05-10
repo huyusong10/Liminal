@@ -26,18 +26,45 @@ pytestmark = pytest.mark.real_agent
 
 ENABLE_ENV = "LOOPORA_ENABLE_REAL_AGENT_E2E"
 COMMAND_TEMPLATE_ENV = "LOOPORA_REAL_AGENT_COMMAND_TEMPLATE"
+CLAUDE_COMMAND_TEMPLATE_ENV = "LOOPORA_REAL_CLAUDE_AGENT_COMMAND_TEMPLATE"
+OPENCODE_COMMAND_TEMPLATE_ENV = "LOOPORA_REAL_OPENCODE_AGENT_COMMAND_TEMPLATE"
+TARGETS_ENV = "LOOPORA_REAL_AGENT_TARGETS"
 TIMEOUT_ENV = "LOOPORA_REAL_AGENT_TIMEOUT_SECONDS"
+AGENT_TARGETS = ("codex", "claude", "opencode")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 
 
-def _require_real_agent_template() -> str:
+def _selected_real_agent_targets() -> set[str]:
+    raw = str(os.environ.get(TARGETS_ENV, "") or "").strip()
+    if not raw:
+        return set(AGENT_TARGETS)
+    selected = {item.strip().lower().replace("_", "-") for item in raw.split(",") if item.strip()}
+    aliases = {"claude-code": "claude", "claudecode": "claude", "open-code": "opencode"}
+    normalized = {aliases.get(item, item) for item in selected}
+    invalid = sorted(normalized - set(AGENT_TARGETS))
+    if invalid:
+        raise AssertionError(f"unsupported {TARGETS_ENV} entries: {', '.join(invalid)}")
+    return normalized
+
+
+def _template_env_for_adapter(adapter: str) -> str:
+    return {
+        "claude": CLAUDE_COMMAND_TEMPLATE_ENV,
+        "opencode": OPENCODE_COMMAND_TEMPLATE_ENV,
+    }.get(adapter, COMMAND_TEMPLATE_ENV)
+
+
+def _require_real_agent_template(adapter: str) -> str:
     if os.environ.get(ENABLE_ENV) != "1":
         pytest.skip(f"set {ENABLE_ENV}=1 to run the real Agent adapter release gate")
-    template = os.environ.get(COMMAND_TEMPLATE_ENV, "").strip()
+    if adapter not in _selected_real_agent_targets():
+        pytest.skip(f"{adapter} is not enabled by {TARGETS_ENV}")
+    env_name = _template_env_for_adapter(adapter)
+    template = os.environ.get(env_name, "").strip()
     if not template:
         pytest.skip(
-            f"set {COMMAND_TEMPLATE_ENV} to a shell command template for the real Agent host; "
+            f"set {env_name} to a shell command template for the real {adapter} Agent host; "
             "available placeholders: {workdir}, {prompt_file}, {bundle_file}"
         )
     return template
@@ -101,21 +128,21 @@ def _terminate_pid_file(pid_file: Path) -> None:
     os.kill(pid, signal.SIGKILL)
 
 
-def _binding_payloads(workdir: Path) -> list[dict]:
-    bindings_dir = state_dir_for_workdir(workdir) / "agent_adapters" / "codex" / "bindings"
+def _binding_payloads(adapter: str, workdir: Path) -> list[dict]:
+    bindings_dir = state_dir_for_workdir(workdir) / "agent_adapters" / adapter / "bindings"
     return [json.loads(path.read_text(encoding="utf-8")) for path in sorted(bindings_dir.glob("*.json"))]
 
 
-def _wait_for_run_binding(workdir: Path, *, timeout: float) -> dict:
+def _wait_for_run_binding(adapter: str, workdir: Path, *, timeout: float) -> dict:
     deadline = time.monotonic() + timeout
     last_payloads: list[dict] = []
     while time.monotonic() < deadline:
-        last_payloads = _binding_payloads(workdir)
+        last_payloads = _binding_payloads(adapter, workdir)
         for payload in last_payloads:
             if str(payload.get("linked_run_id") or "").strip():
                 return payload
         time.sleep(0.5)
-    raise AssertionError(f"Timed out waiting for a Codex adapter run binding; last payloads={last_payloads!r}")
+    raise AssertionError(f"Timed out waiting for a {adapter} adapter run binding; last payloads={last_payloads!r}")
 
 
 def _loopora_service(loopora_home: Path) -> LooporaService:
@@ -197,7 +224,38 @@ print(json.dumps({"type": "stdout", "message": f"loopora-agent-release-executor 
     return script
 
 
-def _agent_release_bundle_yaml(workdir: Path, executor_script: Path) -> str:
+def _agent_label(adapter: str) -> str:
+    return {
+        "codex": "Codex",
+        "claude": "Claude Code",
+        "opencode": "OpenCode",
+    }.get(adapter, adapter)
+
+
+def _entry_source(adapter: str) -> str:
+    if adapter == "opencode":
+        return "opencode_project_command"
+    return f"{adapter}_project_skill"
+
+
+def _entry_file_hint(adapter: str) -> str:
+    if adapter == "claude":
+        return ".claude/skills/loopora-gen/SKILL.md and .claude/skills/loopora-loop/SKILL.md"
+    if adapter == "opencode":
+        return ".opencode/commands/loopora-gen.md and .opencode/commands/loopora-loop.md"
+    return ".agents/skills/loopora-gen/SKILL.md and .agents/skills/loopora-loop/SKILL.md"
+
+
+def _assert_managed_gen_before_loop(adapter: str, entry_invocations: list[dict]) -> None:
+    expected_source = _entry_source(adapter)
+    normalized = [(item.get("action"), item.get("entry_source")) for item in entry_invocations if isinstance(item, dict)]
+    managed_gen_indexes = [index for index, item in enumerate(normalized) if item == ("gen", expected_source)]
+    assert managed_gen_indexes, normalized
+    assert any(item == ("loop", expected_source) for item in normalized[managed_gen_indexes[0] + 1 :]), normalized
+    assert normalized[-1] == ("loop", expected_source)
+
+
+def _agent_release_bundle_yaml(workdir: Path, executor_script: Path, *, adapter: str) -> str:
     def role_execution(role: str) -> dict:
         return {
             "executor_kind": "custom",
@@ -220,10 +278,10 @@ def _agent_release_bundle_yaml(workdir: Path, executor_script: Path) -> str:
         "version": 1,
         "metadata": {
             "name": "Agent Adapter Release Gate",
-            "description": "Deterministic bundle used by the real Codex host L3 gate.",
+            "description": f"Deterministic bundle used by the real {_agent_label(adapter)} host L3 gate.",
         },
         "collaboration_summary": (
-            "Use deterministic proof evidence to show that Codex can drive Loopora's installed Agent entry and that /loopora-loop "
+            f"Use deterministic proof evidence to show that {_agent_label(adapter)} can drive Loopora's installed Agent entry and that /loopora-loop "
             "starts a Loopora-managed run without depending on another long-running model task; GateKeeper makes the final judgment from inspector evidence."
         ),
         "loop": {
@@ -243,7 +301,7 @@ def _agent_release_bundle_yaml(workdir: Path, executor_script: Path) -> str:
         "spec": {
             "markdown": """# Task
 
-Prepare a verifiable release gate showing that a user can invoke Loopora from Codex and receive a managed run URL.
+Prepare a verifiable release gate showing that a user can invoke Loopora from the Coding Agent and receive a managed run URL.
 
 # Done When
 
@@ -252,11 +310,11 @@ Prepare a verifiable release gate showing that a user can invoke Loopora from Co
 
 # Success Surface
 
-- The release gate proves Codex can call Loopora Agent entry points and observe a Loopora-managed run URL.
+- The release gate proves the Coding Agent can call Loopora Agent entry points and observe a Loopora-managed run URL.
 
 # Guardrails
 
-- Do not edit user-owned Codex or Loopora configuration.
+- Do not edit user-owned Agent host or Loopora configuration.
 
 # Fake Done
 
@@ -331,8 +389,9 @@ This gate does not prove product task quality; it only proves the Agent adapter 
     return bundle_to_yaml(bundle)
 
 
-def test_real_codex_host_can_drive_loopora_gen_then_loop(tmp_path: Path, monkeypatch) -> None:
-    template = _require_real_agent_template()
+@pytest.mark.parametrize("adapter", AGENT_TARGETS)
+def test_real_agent_host_can_drive_loopora_gen_then_loop(adapter: str, tmp_path: Path, monkeypatch) -> None:
+    template = _require_real_agent_template(adapter)
     timeout = float(os.environ.get(TIMEOUT_ENV, "180"))
     loopora_home = tmp_path / "loopora-home"
     monkeypatch.setenv("LOOPORA_HOME", str(loopora_home))
@@ -347,21 +406,23 @@ def test_real_codex_host_can_drive_loopora_gen_then_loop(tmp_path: Path, monkeyp
     env["LOOPORA_AGENT_WEB_PORT"] = str(agent_web_port)
     env["LOOPORA_AGENT_WEB_PID_FILE"] = str(agent_web_pid_file)
 
-    workdir = tmp_path / "real-agent-workdir"
+    workdir = tmp_path / f"real-{adapter}-agent-workdir"
     workdir.mkdir()
     (workdir / "README.md").write_text("# Real Agent adapter release fixture\n", encoding="utf-8")
     executor_script = _write_custom_executor(workdir)
     bundle_file = workdir / "loopora-agent-candidate.yml"
-    bundle_file.write_text(_agent_release_bundle_yaml(workdir, executor_script), encoding="utf-8")
+    bundle_file.write_text(_agent_release_bundle_yaml(workdir, executor_script, adapter=adapter), encoding="utf-8")
     prompt_file = workdir / "loopora-agent-release-prompt.md"
     prompt_file.write_text(
         f"""# Loopora Agent Adapter Release Gate
 
-Use the Loopora Codex project entry installed in this workdir. If this non-interactive host does not expose native slash commands, inspect the installed project skill entry files and follow their instructions.
+Use the Loopora {_agent_label(adapter)} project entry installed in this workdir. If this non-interactive host does not expose native slash commands directly, inspect the installed project entry files and follow their instructions.
 
 Current task: prove the installed Loopora Agent entry can generate a READY candidate and then start a managed run.
 
 A deterministic candidate bundle YAML is available at `{bundle_file}`. Use that file as the candidate bundle for `/loopora-gen`; do not author a different bundle.
+
+Before invoking anything, read these installed project entry files: `{_entry_file_hint(adapter)}`. Use them as the only source for shell command syntax, and preserve their provenance markers exactly.
 
 Required order:
 
@@ -377,7 +438,7 @@ Do not invent a direct Loopora CLI command from this prompt; follow the installe
 
     try:
         install = subprocess.run(
-            ["loopora", "init", "codex", "--workdir", str(workdir)],
+            ["loopora", "init", adapter, "--workdir", str(workdir)],
             cwd=workdir,
             env=env,
             text=True,
@@ -395,16 +456,13 @@ Do not invent a direct Loopora CLI command from this prompt; follow the installe
         completed = subprocess.run(command, cwd=workdir, env=env, shell=True, text=True, capture_output=True, timeout=timeout, check=False)
         assert completed.returncode == 0, completed.stderr or completed.stdout
         _wait_for_agent_web(agent_web_url, timeout=10)
-        binding = _wait_for_run_binding(workdir, timeout=30)
-        assert binding["adapter"] == "codex"
+        binding = _wait_for_run_binding(adapter, workdir, timeout=30)
+        assert binding["adapter"] == adapter
         assert binding["linked_run_id"]
         assert str(binding["run_path"]).startswith("/runs/")
         entry_invocations = binding.get("entry_invocations")
         assert isinstance(entry_invocations, list)
-        assert [(item.get("action"), item.get("entry_source")) for item in entry_invocations[-2:]] == [
-            ("gen", "codex_project_skill"),
-            ("loop", "codex_project_skill"),
-        ]
+        _assert_managed_gen_before_loop(adapter, entry_invocations)
         final_run = _wait_for_terminal_run(loopora_home, str(binding["linked_run_id"]), timeout=30)
         assert final_run["status"] == "succeeded"
     finally:

@@ -317,17 +317,18 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderAgentAdapters(payload) {
     const adapters = Array.isArray(payload?.adapters) ? payload.adapters : [payload].filter(Boolean);
     const byKind = new Map(adapters.map((item) => [String(item?.adapter || ""), item]));
+    const implementedFallbacks = new Set(["codex", "claude", "opencode"]);
     for (const node of agentAdapterStatusNodes) {
       const adapter = String(node.dataset.agentAdapterStatus || "");
       const item = byKind.get(adapter);
-      const status = String(item?.status || (adapter === "codex" ? "not_installed" : "not_implemented"));
+      const status = String(item?.status || (implementedFallbacks.has(adapter) ? "not_installed" : "not_implemented"));
       node.dataset.agentAdapterState = status;
       updateNodeTextAndClass(node, agentAdapterStatusLabel(status), agentAdapterPillClass(status));
     }
     for (const card of agentAdapterCards) {
       const adapter = String(card.dataset.agentAdapter || "");
       const item = byKind.get(adapter);
-      const status = String(item?.status || (adapter === "codex" ? "not_installed" : "not_implemented"));
+      const status = String(item?.status || (implementedFallbacks.has(adapter) ? "not_installed" : "not_implemented"));
       card.dataset.agentAdapterState = status;
       card.classList.toggle("is-disabled", status === "not_implemented");
       card.classList.toggle("is-error", status === "error");
@@ -342,6 +343,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const item = byKind.get(adapter);
       button.disabled = item?.implemented === false || item?.status === "not_installed";
     }
+  }
+
+  function agentAdapterLabel(adapter) {
+    const labels = {
+      codex: "Codex",
+      claude: "Claude Code",
+      opencode: "OpenCode",
+    };
+    return labels[adapter] || adapter || "Agent";
   }
 
   function readAgentAdapterWorkdirPreference() {
@@ -394,11 +404,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const originalDisabled = trigger.disabled;
     let applied = false;
     trigger.disabled = true;
+    const label = agentAdapterLabel(adapter);
     showStatus(
       agentAdapterStatusBox,
       action === "install"
-        ? localeText("正在安装 Codex 接入…", "Installing Codex entry…")
-        : localeText("正在卸载 Codex 接入…", "Uninstalling Codex entry…"),
+        ? localeText(`正在安装 ${label} 接入…`, `Installing ${label} entry…`)
+        : localeText(`正在卸载 ${label} 接入…`, `Uninstalling ${label} entry…`),
     );
     try {
       const {response, payload} = await fetchJson(`/api/agent-adapters/${encodeURIComponent(adapter)}/${action}`, {
@@ -414,8 +425,8 @@ document.addEventListener("DOMContentLoaded", () => {
       showStatus(
         agentAdapterStatusBox,
         action === "install"
-          ? localeText("Codex 接入已安装或更新。", "Codex entry is installed or updated.")
-          : localeText("Codex 接入已卸载。", "Codex entry is uninstalled."),
+          ? localeText(`${label} 接入已安装或更新。`, `${label} entry is installed or updated.`)
+          : localeText(`${label} 接入已卸载。`, `${label} entry is uninstalled.`),
         "success",
       );
       await refreshAgentAdapters({quiet: true});

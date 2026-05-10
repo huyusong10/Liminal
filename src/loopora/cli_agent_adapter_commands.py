@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Annotated
 
@@ -16,7 +17,7 @@ AdapterWorkdirOption = Annotated[
 ]
 ContextIdOption = Annotated[
     str,
-    typer.Option("--context-id", help="Optional host session/thread identity. Defaults to Loopora or Codex session env vars, then workdir."),
+    typer.Option("--context-id", help="Optional host session/thread identity. Defaults to Loopora, Codex, Claude Code, or OpenCode session env vars, then workdir."),
 ]
 EntrySourceOption = Annotated[
     str,
@@ -24,7 +25,7 @@ EntrySourceOption = Annotated[
 ]
 BundleFileOption = Annotated[
     Path | None,
-    typer.Option("--bundle-file", exists=True, file_okay=True, dir_okay=False, help="Candidate Loopora bundle YAML produced by Codex."),
+    typer.Option("--bundle-file", exists=True, file_okay=True, dir_okay=False, help="Candidate Loopora bundle YAML produced by the Coding Agent."),
 ]
 AdapterMessageOption = Annotated[str, typer.Option("--message", help="Short task summary for the candidate Loop.")]
 NoWebOption = Annotated[bool, typer.Option("--no-web", hidden=True, help="Skip local Web service startup.")]
@@ -44,30 +45,64 @@ def _register_init_commands(init_app: typer.Typer) -> None:
     @init_app.command("codex")
     def init_codex(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
         """Install or update the project-level Codex adapter."""
-        try:
-            result = get_service().install_agent_adapter("codex", workdir=workdir)
-            _print_adapter_mutation_result(result, action="installed", json_output=json_output)
-        except LooporaError as exc:
-            handle_error(exc)
+        _install_adapter("codex", workdir=workdir, json_output=json_output)
+
+    @init_app.command("claude")
+    def init_claude(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
+        """Install or update the project-level Claude Code adapter."""
+        _install_adapter("claude", workdir=workdir, json_output=json_output)
+
+    @init_app.command("opencode")
+    def init_opencode(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
+        """Install or update the project-level OpenCode adapter."""
+        _install_adapter("opencode", workdir=workdir, json_output=json_output)
+
+
+def _install_adapter(adapter: str, *, workdir: Path, json_output: bool) -> None:
+    try:
+        result = get_service().install_agent_adapter(adapter, workdir=workdir)
+        _print_adapter_mutation_result(result, action="installed", json_output=json_output)
+    except LooporaError as exc:
+        handle_error(exc)
 
 
 def _register_uninstall_commands(uninstall_app: typer.Typer) -> None:
     @uninstall_app.command("codex")
     def uninstall_codex(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
         """Remove Loopora-managed Codex adapter files."""
-        try:
-            result = get_service().uninstall_agent_adapter("codex", workdir=workdir)
-            _print_adapter_mutation_result(result, action="uninstalled", json_output=json_output)
-        except LooporaError as exc:
-            handle_error(exc)
+        _uninstall_adapter("codex", workdir=workdir, json_output=json_output)
+
+    @uninstall_app.command("claude")
+    def uninstall_claude(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
+        """Remove Loopora-managed Claude Code adapter files."""
+        _uninstall_adapter("claude", workdir=workdir, json_output=json_output)
+
+    @uninstall_app.command("opencode")
+    def uninstall_opencode(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
+        """Remove Loopora-managed OpenCode adapter files."""
+        _uninstall_adapter("opencode", workdir=workdir, json_output=json_output)
+
+
+def _uninstall_adapter(adapter: str, *, workdir: Path, json_output: bool) -> None:
+    try:
+        result = get_service().uninstall_agent_adapter(adapter, workdir=workdir)
+        _print_adapter_mutation_result(result, action="uninstalled", json_output=json_output)
+    except LooporaError as exc:
+        handle_error(exc)
 
 
 def _register_agent_runtime_commands(agent_app: typer.Typer) -> None:
-    codex_app = typer.Typer(help="Codex adapter runtime entries used by Loopora project skills")
-    agent_app.add_typer(codex_app, name="codex")
+    _register_agent_runtime_for(agent_app, adapter="codex", help_text="Codex adapter runtime entries used by Loopora project skills")
+    _register_agent_runtime_for(agent_app, adapter="claude", help_text="Claude Code adapter runtime entries used by Loopora project skills")
+    _register_agent_runtime_for(agent_app, adapter="opencode", help_text="OpenCode adapter runtime entries used by Loopora project commands")
 
-    @codex_app.command("gen")
-    def codex_gen(
+
+def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_text: str) -> None:
+    adapter_app = typer.Typer(help=help_text)
+    agent_app.add_typer(adapter_app, name=adapter)
+
+    @adapter_app.command("gen")
+    def agent_gen(
         workdir: AdapterWorkdirOption = Path("."),
         message: AdapterMessageOption = "",
         bundle_file: BundleFileOption = None,
@@ -76,37 +111,43 @@ def _register_agent_runtime_commands(agent_app: typer.Typer) -> None:
         json_output: JsonOutputOption = False,
         no_web: NoWebOption = False,
     ) -> None:
-        """Validate a Codex-generated candidate bundle and return the READY preview URL."""
+        """Validate a generated candidate bundle and return the READY preview URL."""
         try:
             request = AgentBundleCandidateRequest(
-                adapter="codex",
+                adapter=adapter,
                 workdir=workdir,
                 message=message,
                 bundle_file=bundle_file,
                 context_id=context_id,
-                entry_source=entry_source,
+                entry_source=_resolved_entry_source(entry_source),
             )
             result = get_service().create_agent_bundle_candidate(request)
             _attach_web_url(result, path_key="preview_path", url_key="preview_url", no_web=no_web)
-            _print_codex_gen_result(result, json_output=json_output)
+            _print_agent_gen_result(result, json_output=json_output)
         except LooporaError as exc:
             handle_error(exc)
 
-    @codex_app.command("loop")
-    def codex_loop(
+    @adapter_app.command("loop")
+    def agent_loop(
         workdir: AdapterWorkdirOption = Path("."),
         context_id: ContextIdOption = "",
         entry_source: EntrySourceOption = "",
         json_output: JsonOutputOption = False,
         no_web: NoWebOption = False,
     ) -> None:
-        """Start or reuse the Loopora run associated with the current Codex READY bundle."""
+        """Start or reuse the Loopora run associated with the current READY bundle."""
         try:
             service = get_service()
-            result = service.start_agent_loop("codex", workdir=workdir, context_id=context_id, entry_source=entry_source, execute_async=False)
+            result = service.start_agent_loop(
+                adapter,
+                workdir=workdir,
+                context_id=context_id,
+                entry_source=_resolved_entry_source(entry_source),
+                execute_async=False,
+            )
             _spawn_agent_loop_worker_if_needed(service, result)
             _attach_web_url(result, path_key="run_path", url_key="run_url", no_web=no_web)
-            _print_codex_loop_result(result, json_output=json_output)
+            _print_agent_loop_result(result, json_output=json_output)
         except LooporaError as exc:
             handle_error(exc)
 
@@ -123,6 +164,10 @@ def _attach_web_url(result: dict, *, path_key: str, url_key: str, no_web: bool) 
     result[url_key] = web_url_for_path(path, web=web)
 
 
+def _resolved_entry_source(entry_source: str) -> str:
+    return str(entry_source or "").strip() or os.environ.get("LOOPORA_AGENT_ENTRY_SOURCE", "").strip()
+
+
 def _spawn_agent_loop_worker_if_needed(service, result: dict) -> None:
     if not result.get("started_new_run"):
         return
@@ -137,7 +182,8 @@ def _print_adapter_mutation_result(result: dict, *, action: str, json_output: bo
     if json_output:
         echo_json(result)
         return
-    typer.echo(f"Codex adapter {action}: {result['status']}")
+    label = str(result.get("label") or _adapter_label(str(result.get("adapter") or "")))
+    typer.echo(f"{label} adapter {action}: {result['status']}")
     typer.echo(f"workdir: {result['workdir']}")
     managed_files = result.get("managed_files")
     if isinstance(managed_files, list):
@@ -157,7 +203,7 @@ def _print_adapter_mutation_result(result: dict, *, action: str, json_output: bo
                 typer.echo(f"- {item.get('path')}: {item.get('reason')}")
 
 
-def _print_codex_gen_result(result: dict, *, json_output: bool) -> None:
+def _print_agent_gen_result(result: dict, *, json_output: bool) -> None:
     if json_output:
         echo_json(result)
         return
@@ -169,7 +215,7 @@ def _print_codex_gen_result(result: dict, *, json_output: bool) -> None:
     typer.echo(f"candidate_url: {result.get('preview_url') or result.get('preview_path')}")
 
 
-def _print_codex_loop_result(result: dict, *, json_output: bool) -> None:
+def _print_agent_loop_result(result: dict, *, json_output: bool) -> None:
     if json_output:
         echo_json(result)
         return
@@ -177,3 +223,11 @@ def _print_codex_loop_result(result: dict, *, json_output: bool) -> None:
     typer.echo(f"Loopora run: {run.get('id')}")
     typer.echo(f"run_status: {run.get('status')}")
     typer.echo(f"run_url: {result.get('run_url') or result.get('run_path')}")
+
+
+def _adapter_label(adapter: str) -> str:
+    return {
+        "codex": "Codex",
+        "claude": "Claude Code",
+        "opencode": "OpenCode",
+    }.get(adapter, adapter or "Agent")

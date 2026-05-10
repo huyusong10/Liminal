@@ -29,6 +29,69 @@ def _codex_skill_paths(workdir: Path) -> dict[str, Path]:
     }
 
 
+def _claude_skill_paths(workdir: Path) -> dict[str, Path]:
+    return {
+        "gen": workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md",
+        "loop": workdir / ".claude" / "skills" / "loopora-loop" / "SKILL.md",
+    }
+
+
+def _opencode_command_paths(workdir: Path) -> dict[str, Path]:
+    return {
+        "gen": workdir / ".opencode" / "commands" / "loopora-gen.md",
+        "loop": workdir / ".opencode" / "commands" / "loopora-loop.md",
+    }
+
+
+def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) -> tuple[Path, str]:
+    gen_skill = skill_paths["gen"].read_text(encoding="utf-8")
+    loop_skill = skill_paths["loop"].read_text(encoding="utf-8")
+    assert "LOOPORA-MANAGED: claude-code-adapter" in gen_skill
+    assert "disable-model-invocation: true" in gen_skill
+    assert "allowed-tools:" in gen_skill
+    assert "LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill" in gen_skill
+    assert 'loopora agent claude gen --workdir "$PWD"' in gen_skill
+    assert '--context-id "${CLAUDE_SESSION_ID}"' in gen_skill
+    assert "--entry-source claude_project_skill" in gen_skill
+    assert "LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill" in loop_skill
+    assert 'loopora agent claude loop --workdir "$PWD"' in loop_skill
+    assert '--context-id "${CLAUDE_SESSION_ID}"' in loop_skill
+    assert "--entry-source claude_project_skill" in loop_skill
+    manifest_path = workdir / ".loopora" / "adapters" / "claude" / "manifest.json"
+    assert manifest_path.exists()
+    first_manifest = manifest_path.read_text(encoding="utf-8")
+    assert {item["path"] for item in json.loads(first_manifest)["managed_files"]} == {
+        ".claude/skills/loopora-gen/SKILL.md",
+        ".claude/skills/loopora-loop/SKILL.md",
+    }
+    return manifest_path, first_manifest
+
+
+def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Path]) -> tuple[Path, str]:
+    gen_command = command_paths["gen"].read_text(encoding="utf-8")
+    loop_command = command_paths["loop"].read_text(encoding="utf-8")
+    assert "LOOPORA-MANAGED: opencode-adapter" in gen_command
+    assert "description:" in gen_command
+    assert "agent: build" in gen_command
+    assert "$ARGUMENTS" in gen_command
+    assert "LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command" in gen_command
+    assert 'loopora agent opencode gen --workdir "$PWD"' in gen_command
+    assert '--context-id "${OPENCODE_SESSION_ID:-}"' in gen_command
+    assert "--entry-source opencode_project_command" in gen_command
+    assert "LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command" in loop_command
+    assert 'loopora agent opencode loop --workdir "$PWD"' in loop_command
+    assert '--context-id "${OPENCODE_SESSION_ID:-}"' in loop_command
+    assert "--entry-source opencode_project_command" in loop_command
+    manifest_path = workdir / ".loopora" / "adapters" / "opencode" / "manifest.json"
+    assert manifest_path.exists()
+    first_manifest = manifest_path.read_text(encoding="utf-8")
+    assert {item["path"] for item in json.loads(first_manifest)["managed_files"]} == {
+        ".opencode/commands/loopora-gen.md",
+        ".opencode/commands/loopora-loop.md",
+    }
+    return manifest_path, first_manifest
+
+
 def test_cli_codex_adapter_install_uninstall_are_idempotent(tmp_path: Path) -> None:
     workdir = tmp_path / "project"
     workdir.mkdir()
@@ -44,10 +107,12 @@ def test_cli_codex_adapter_install_uninstall_are_idempotent(tmp_path: Path) -> N
     loop_skill = skill_paths["loop"].read_text(encoding="utf-8")
     assert "LOOPORA-MANAGED: codex-adapter" in gen_skill
     assert "name: loopora-gen" in gen_skill
+    assert "LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill" in gen_skill
     assert 'loopora agent codex gen --workdir "$PWD"' in gen_skill
     assert "--bundle-file" in gen_skill
     assert "--entry-source codex_project_skill" in gen_skill
     assert "name: loopora-loop" in loop_skill
+    assert "LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill" in loop_skill
     assert 'loopora agent codex loop --workdir "$PWD"' in loop_skill
     assert "--entry-source codex_project_skill" in loop_skill
     manifest_path = workdir / ".loopora" / "adapters" / "codex" / "manifest.json"
@@ -89,6 +154,116 @@ def test_cli_codex_loop_requires_ready_bundle(tmp_path: Path) -> None:
     assert "/loopora-gen" in _error_text(result)
 
 
+def test_cli_claude_adapter_install_uninstall_are_idempotent_and_preserve_user_config(tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    claude_md = workdir / "CLAUDE.md"
+    claude_settings = workdir / ".claude" / "settings.json"
+    claude_command = workdir / ".claude" / "commands" / "loopora-gen.md"
+    claude_settings.parent.mkdir()
+    claude_command.parent.mkdir()
+    claude_md.write_text("# User Claude instructions\n", encoding="utf-8")
+    claude_settings.write_text('{"permissions": {"allow": []}}\n', encoding="utf-8")
+    claude_command.write_text("# User-owned command\n", encoding="utf-8")
+    runner = CliRunner()
+
+    first_install = runner.invoke(cli.app, ["init", "claude", "--workdir", str(workdir), "--json"])
+
+    assert first_install.exit_code == 0, first_install.stdout
+    assert json.loads(first_install.stdout)["status"] == "installed"
+    skill_paths = _claude_skill_paths(workdir)
+    assert skill_paths["gen"].exists()
+    assert skill_paths["loop"].exists()
+    manifest_path, first_manifest = _assert_claude_managed_install(workdir, skill_paths)
+    assert claude_md.read_text(encoding="utf-8") == "# User Claude instructions\n"
+    assert claude_settings.read_text(encoding="utf-8") == '{"permissions": {"allow": []}}\n'
+    assert claude_command.read_text(encoding="utf-8") == "# User-owned command\n"
+
+    second_install = runner.invoke(cli.app, ["init", "claude", "--workdir", str(workdir), "--json"])
+
+    assert second_install.exit_code == 0, second_install.stdout
+    assert manifest_path.read_text(encoding="utf-8") == first_manifest
+
+    first_uninstall = runner.invoke(cli.app, ["uninstall", "claude", "--workdir", str(workdir), "--json"])
+    second_uninstall = runner.invoke(cli.app, ["uninstall", "claude", "--workdir", str(workdir), "--json"])
+
+    assert first_uninstall.exit_code == 0, first_uninstall.stdout
+    assert second_uninstall.exit_code == 0, second_uninstall.stdout
+    assert json.loads(first_uninstall.stdout)["status"] == "not_installed"
+    assert json.loads(second_uninstall.stdout)["status"] == "not_installed"
+    assert not skill_paths["gen"].exists()
+    assert not skill_paths["loop"].exists()
+    assert claude_md.exists()
+    assert claude_settings.exists()
+    assert claude_command.exists()
+
+
+def test_cli_claude_loop_requires_ready_bundle(tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    runner = CliRunner()
+
+    result = runner.invoke(cli.app, ["agent", "claude", "loop", "--workdir", str(workdir), "--no-web"])
+
+    assert result.exit_code == 1
+    assert "/loopora-gen" in _error_text(result)
+
+
+def test_cli_opencode_adapter_install_uninstall_are_idempotent_and_preserve_user_config(tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    opencode_json = workdir / "opencode.json"
+    opencode_project_json = workdir / ".opencode" / "opencode.jsonc"
+    opencode_agent = workdir / ".opencode" / "agents" / "review.md"
+    opencode_project_json.parent.mkdir()
+    opencode_agent.parent.mkdir()
+    opencode_json.write_text('{"model": "user/model"}\n', encoding="utf-8")
+    opencode_project_json.write_text('{"permission": {"bash": "ask"}}\n', encoding="utf-8")
+    opencode_agent.write_text("# User-owned OpenCode agent\n", encoding="utf-8")
+    runner = CliRunner()
+
+    first_install = runner.invoke(cli.app, ["init", "opencode", "--workdir", str(workdir), "--json"])
+
+    assert first_install.exit_code == 0, first_install.stdout
+    assert json.loads(first_install.stdout)["status"] == "installed"
+    command_paths = _opencode_command_paths(workdir)
+    assert command_paths["gen"].exists()
+    assert command_paths["loop"].exists()
+    manifest_path, first_manifest = _assert_opencode_managed_install(workdir, command_paths)
+    assert opencode_json.read_text(encoding="utf-8") == '{"model": "user/model"}\n'
+    assert opencode_project_json.read_text(encoding="utf-8") == '{"permission": {"bash": "ask"}}\n'
+    assert opencode_agent.read_text(encoding="utf-8") == "# User-owned OpenCode agent\n"
+
+    second_install = runner.invoke(cli.app, ["init", "opencode", "--workdir", str(workdir), "--json"])
+
+    assert second_install.exit_code == 0, second_install.stdout
+    assert manifest_path.read_text(encoding="utf-8") == first_manifest
+
+    first_uninstall = runner.invoke(cli.app, ["uninstall", "opencode", "--workdir", str(workdir), "--json"])
+    second_uninstall = runner.invoke(cli.app, ["uninstall", "opencode", "--workdir", str(workdir), "--json"])
+
+    assert first_uninstall.exit_code == 0, first_uninstall.stdout
+    assert second_uninstall.exit_code == 0, second_uninstall.stdout
+    assert json.loads(first_uninstall.stdout)["status"] == "not_installed"
+    assert json.loads(second_uninstall.stdout)["status"] == "not_installed"
+    assert not command_paths["gen"].exists()
+    assert not command_paths["loop"].exists()
+    assert opencode_json.exists()
+    assert opencode_project_json.exists()
+    assert opencode_agent.exists()
+
+
+def test_cli_opencode_loop_requires_ready_bundle(tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    runner = CliRunner()
+
+    result = runner.invoke(cli.app, ["agent", "opencode", "loop", "--workdir", str(workdir), "--no-web"])
+
+    assert result.exit_code == 1
+    assert "/loopora-gen" in _error_text(result)
+
+
 def test_cli_codex_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path, sample_workdir: Path) -> None:
     bundle_file = tmp_path / "bundle.yml"
     bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
@@ -115,6 +290,109 @@ def test_cli_codex_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path,
     payload = json.loads(result.stdout)
     assert payload["ready"] is True
     assert payload["status"] == "ready"
+    assert payload["preview_url"].startswith("/loops/new/bundle?alignment_session_id=")
+    assert "run" not in payload
+
+
+def test_cli_claude_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path, sample_workdir: Path) -> None:
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "claude",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "Prepare a governed implementation loop.",
+            "--bundle-file",
+            str(bundle_file),
+            "--context-id",
+            "claude-session-a",
+            "--entry-source",
+            "claude_project_skill",
+            "--no-web",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["adapter"] == "claude"
+    assert payload["ready"] is True
+    assert payload["status"] == "ready"
+    assert payload["binding"]["context_source"] == "explicit"
+    assert payload["binding"]["entry_invocations"][-1]["entry_source"] == "claude_project_skill"
+    assert payload["preview_url"].startswith("/loops/new/bundle?alignment_session_id=")
+    assert "run" not in payload
+
+
+def test_cli_agent_runtime_accepts_managed_entry_source_from_env(monkeypatch, tmp_path: Path, sample_workdir: Path) -> None:
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    monkeypatch.setenv("LOOPORA_AGENT_ENTRY_SOURCE", "claude_project_skill")
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "claude",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "Prepare a governed implementation loop.",
+            "--bundle-file",
+            str(bundle_file),
+            "--context-id",
+            "claude-session-a",
+            "--no-web",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["binding"]["entry_invocations"][-1]["entry_source"] == "claude_project_skill"
+
+
+def test_cli_opencode_gen_accepts_ready_bundle_without_starting_run(monkeypatch, tmp_path: Path, sample_workdir: Path) -> None:
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    monkeypatch.setenv("CODEX_SESSION_ID", "codex-thread-must-not-bind-opencode")
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "opencode",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "Prepare a governed implementation loop.",
+            "--bundle-file",
+            str(bundle_file),
+            "--entry-source",
+            "opencode_project_command",
+            "--no-web",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["adapter"] == "opencode"
+    assert payload["ready"] is True
+    assert payload["status"] == "ready"
+    assert payload["binding"]["context_source"] == "workdir"
+    assert payload["binding"]["entry_invocations"][-1]["entry_source"] == "opencode_project_command"
     assert payload["preview_url"].startswith("/loops/new/bundle?alignment_session_id=")
     assert "run" not in payload
 
@@ -147,6 +425,32 @@ def test_codex_adapter_refuses_unowned_target_files(service_factory, tmp_path: P
         service.install_agent_adapter("codex", workdir=workdir)
 
     assert custom_skill.read_text(encoding="utf-8") == "# User-owned skill\n"
+
+
+def test_claude_adapter_refuses_unowned_target_files(service_factory, tmp_path: Path) -> None:
+    service = service_factory(scenario="success")
+    workdir = tmp_path / "project"
+    custom_skill = workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md"
+    custom_skill.parent.mkdir(parents=True)
+    custom_skill.write_text("# User-owned Claude skill\n", encoding="utf-8")
+
+    with pytest.raises(LooporaConflictError):
+        service.install_agent_adapter("claude", workdir=workdir)
+
+    assert custom_skill.read_text(encoding="utf-8") == "# User-owned Claude skill\n"
+
+
+def test_opencode_adapter_refuses_unowned_target_files(service_factory, tmp_path: Path) -> None:
+    service = service_factory(scenario="success")
+    workdir = tmp_path / "project"
+    custom_command = workdir / ".opencode" / "commands" / "loopora-gen.md"
+    custom_command.parent.mkdir(parents=True)
+    custom_command.write_text("# User-owned OpenCode command\n", encoding="utf-8")
+
+    with pytest.raises(LooporaConflictError):
+        service.install_agent_adapter("opencode", workdir=workdir)
+
+    assert custom_command.read_text(encoding="utf-8") == "# User-owned OpenCode command\n"
 
 
 def test_codex_adapter_status_reports_needs_update_for_managed_drift(service_factory, tmp_path: Path) -> None:
@@ -182,6 +486,36 @@ def test_codex_adapter_status_reports_error_for_manifest_tracked_user_edit_witho
     assert skill_path.read_text(encoding="utf-8") == "# User edited this file after install\n"
 
 
+def test_claude_adapter_status_reports_needs_update_for_managed_drift(service_factory, tmp_path: Path) -> None:
+    service = service_factory(scenario="success")
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+
+    service.install_agent_adapter("claude", workdir=workdir)
+    skill_path = workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md"
+    skill_path.write_text(skill_path.read_text(encoding="utf-8") + "\n<!-- locally stale managed file -->\n", encoding="utf-8")
+
+    status = service.get_agent_adapter("claude", workdir=workdir)
+
+    assert status["status"] == "needs_update"
+    assert any(item["path"].endswith("loopora-gen/SKILL.md") and item["state"] == "needs_update" for item in status["managed_files"])
+
+
+def test_opencode_adapter_status_reports_needs_update_for_managed_drift(service_factory, tmp_path: Path) -> None:
+    service = service_factory(scenario="success")
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+
+    service.install_agent_adapter("opencode", workdir=workdir)
+    command_path = workdir / ".opencode" / "commands" / "loopora-gen.md"
+    command_path.write_text(command_path.read_text(encoding="utf-8") + "\n<!-- locally stale managed file -->\n", encoding="utf-8")
+
+    status = service.get_agent_adapter("opencode", workdir=workdir)
+
+    assert status["status"] == "needs_update"
+    assert any(item["path"].endswith("loopora-gen.md") and item["state"] == "needs_update" for item in status["managed_files"])
+
+
 def test_codex_agent_gen_validates_ready_bundle_and_loop_starts_run(
     service_factory,
     tmp_path: Path,
@@ -215,6 +549,75 @@ def test_codex_agent_gen_validates_ready_bundle_and_loop_starts_run(
     assert started["session"]["status"] == "running_loop"
     assert [item["action"] for item in started["binding"]["entry_invocations"][-2:]] == ["gen", "loop"]
     assert {item["entry_source"] for item in started["binding"]["entry_invocations"][-2:]} == {"codex_project_skill"}
+
+
+def test_claude_agent_gen_validates_ready_bundle_and_loop_starts_run(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="claude",
+            workdir=sample_workdir,
+            message="Ship the focused starter experience.",
+            bundle_file=bundle_file,
+            context_id="claude-session-a",
+            entry_source="claude_project_skill",
+        )
+    )
+
+    assert generated["adapter"] == "claude"
+    assert generated["ready"] is True
+    assert generated["binding"]["context_source"] == "explicit"
+    assert generated["binding"]["entry_invocations"][-1]["entry_source"] == "claude_project_skill"
+
+    started = service.start_agent_loop("claude", workdir=sample_workdir, context_id="claude-session-a", entry_source="claude_project_skill", execute_async=False)
+
+    assert started["adapter"] == "claude"
+    assert started["run"]["id"]
+    assert started["started_new_run"] is True
+    assert [item["action"] for item in started["binding"]["entry_invocations"][-2:]] == ["gen", "loop"]
+    assert {item["entry_source"] for item in started["binding"]["entry_invocations"][-2:]} == {"claude_project_skill"}
+
+
+def test_opencode_agent_gen_validates_ready_bundle_and_loop_starts_run(
+    service_factory,
+    monkeypatch,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    monkeypatch.setenv("CODEX_SESSION_ID", "codex-thread-must-not-bind-opencode")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="opencode",
+            workdir=sample_workdir,
+            message="Ship the focused starter experience.",
+            bundle_file=bundle_file,
+            entry_source="opencode_project_command",
+        )
+    )
+
+    assert generated["adapter"] == "opencode"
+    assert generated["ready"] is True
+    assert generated["binding"]["context_source"] == "workdir"
+    assert generated["binding"]["entry_invocations"][-1]["entry_source"] == "opencode_project_command"
+
+    started = service.start_agent_loop("opencode", workdir=sample_workdir, entry_source="opencode_project_command", execute_async=False)
+
+    assert started["adapter"] == "opencode"
+    assert started["run"]["id"]
+    assert started["started_new_run"] is True
+    assert [item["action"] for item in started["binding"]["entry_invocations"][-2:]] == ["gen", "loop"]
+    assert {item["entry_source"] for item in started["binding"]["entry_invocations"][-2:]} == {"opencode_project_command"}
 
 
 def test_codex_agent_binding_is_scoped_by_host_context(service_factory, tmp_path: Path, sample_workdir: Path) -> None:
@@ -289,7 +692,7 @@ def test_cli_codex_loop_spawns_background_worker(monkeypatch, tmp_path: Path) ->
     assert "run_url: /runs/run_agent" in result.stdout
 
 
-def test_agent_adapter_web_api_reports_status_and_mutates_codex(service_factory, tmp_path: Path) -> None:
+def test_agent_adapter_web_api_reports_status_and_mutates_implemented_hosts(service_factory, tmp_path: Path) -> None:
     service = service_factory(scenario="success")
     client = TestClient(build_app(service=service))
     workdir = tmp_path / "project"
@@ -301,8 +704,8 @@ def test_agent_adapter_web_api_reports_status_and_mutates_codex(service_factory,
     statuses = {item["adapter"]: item["status"] for item in payload["adapters"]}
     assert statuses == {
         "codex": "not_installed",
-        "claude": "not_implemented",
-        "opencode": "not_implemented",
+        "claude": "not_installed",
+        "opencode": "not_installed",
     }
 
     install_response = client.post("/api/agent-adapters/codex/install", json={"workdir": str(workdir)})
@@ -315,17 +718,15 @@ def test_agent_adapter_web_api_reports_status_and_mutates_codex(service_factory,
     assert uninstall_response.json()["status"] == "not_installed"
     assert not (workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md").exists()
 
+    claude_install_response = client.post("/api/agent-adapters/claude/install", json={"workdir": str(workdir)})
+    assert claude_install_response.status_code == 200
+    assert claude_install_response.json()["status"] == "installed"
+    assert (workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md").exists()
 
-def test_agent_adapter_web_api_keeps_future_hosts_not_implemented(service_factory, tmp_path: Path) -> None:
-    service = service_factory(scenario="success")
-    client = TestClient(build_app(service=service))
-    workdir = tmp_path / "project"
-    workdir.mkdir()
-
-    response = client.post("/api/agent-adapters/claude/install", json={"workdir": str(workdir)})
-
-    assert response.status_code == 400
-    assert "not implemented" in response.json()["error"]
+    opencode_install_response = client.post("/api/agent-adapters/opencode/install", json={"workdir": str(workdir)})
+    assert opencode_install_response.status_code == 200
+    assert opencode_install_response.json()["status"] == "installed"
+    assert (workdir / ".opencode" / "commands" / "loopora-gen.md").exists()
 
 
 def test_agent_adapter_web_api_reports_invalid_json(service_factory) -> None:

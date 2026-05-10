@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 import socket
 import subprocess
@@ -18,6 +19,65 @@ ENABLE_ENV = "LOOPORA_ENABLE_RELEASE_WEB_E2E"
 TIMEOUT_ENV = "LOOPORA_RELEASE_WEB_TIMEOUT_SECONDS"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
+
+
+@dataclass(frozen=True)
+class AdapterPaths:
+    workdir: Path
+    gen_skill: Path
+    loop_skill: Path | None = None
+
+
+@dataclass(frozen=True)
+class ReleaseWebAdapterFixtures:
+    workdir: Path
+    codex_paths: AdapterPaths
+    claude_paths: AdapterPaths
+    opencode_paths: AdapterPaths
+    codex_conflict: AdapterPaths
+    claude_conflict: AdapterPaths
+    opencode_conflict: AdapterPaths
+
+
+def _release_web_adapter_fixtures(tmp_path: Path) -> ReleaseWebAdapterFixtures:
+    workdir = tmp_path / "release-web-workdir"
+    workdir.mkdir()
+    conflict_workdir = tmp_path / "release-web-conflict-workdir"
+    conflict_workdir.mkdir()
+    claude_conflict_workdir = tmp_path / "release-web-claude-conflict-workdir"
+    claude_conflict_workdir.mkdir()
+    opencode_conflict_workdir = tmp_path / "release-web-opencode-conflict-workdir"
+    opencode_conflict_workdir.mkdir()
+    conflict_skill = conflict_workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md"
+    conflict_skill.parent.mkdir(parents=True)
+    conflict_skill.write_text("# User-owned codex Loopora-looking skill\n", encoding="utf-8")
+    claude_conflict_skill = claude_conflict_workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md"
+    claude_conflict_skill.parent.mkdir(parents=True)
+    claude_conflict_skill.write_text("# User-owned claude Loopora-looking skill\n", encoding="utf-8")
+    opencode_conflict_command = opencode_conflict_workdir / ".opencode" / "commands" / "loopora-gen.md"
+    opencode_conflict_command.parent.mkdir(parents=True)
+    opencode_conflict_command.write_text("# User-owned opencode Loopora-looking skill\n", encoding="utf-8")
+    return ReleaseWebAdapterFixtures(
+        workdir=workdir,
+        codex_paths=AdapterPaths(
+            workdir=workdir,
+            gen_skill=workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md",
+            loop_skill=workdir / ".agents" / "skills" / "loopora-loop" / "SKILL.md",
+        ),
+        claude_paths=AdapterPaths(
+            workdir=workdir,
+            gen_skill=workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md",
+            loop_skill=workdir / ".claude" / "skills" / "loopora-loop" / "SKILL.md",
+        ),
+        opencode_paths=AdapterPaths(
+            workdir=workdir,
+            gen_skill=workdir / ".opencode" / "commands" / "loopora-gen.md",
+            loop_skill=workdir / ".opencode" / "commands" / "loopora-loop.md",
+        ),
+        codex_conflict=AdapterPaths(workdir=conflict_workdir, gen_skill=conflict_skill),
+        claude_conflict=AdapterPaths(workdir=claude_conflict_workdir, gen_skill=claude_conflict_skill),
+        opencode_conflict=AdapterPaths(workdir=opencode_conflict_workdir, gen_skill=opencode_conflict_command),
+    )
 
 
 def _require_release_web_enabled() -> None:
@@ -72,46 +132,40 @@ def _select_adapter_workdir(page, workdir: Path) -> None:
     page.get_by_test_id("agent-adapter-refresh").click()
 
 
-def _assert_future_adapters_are_reserved(sync_api, page) -> None:
-    _expect_adapter_state(sync_api, page, "claude", "not_implemented")
-    _expect_adapter_state(sync_api, page, "opencode", "not_implemented")
-    assert page.get_by_test_id("agent-adapter-install-claude").is_disabled()
-    assert page.get_by_test_id("agent-adapter-install-opencode").is_disabled()
+def _exercise_adapter_install_update_uninstall(sync_api, page, *, adapter: str, paths: AdapterPaths) -> None:
+    if paths.loop_skill is None:
+        raise AssertionError("loop skill path is required for install/update/uninstall coverage")
+    _select_adapter_workdir(page, paths.workdir)
+    _expect_adapter_state(sync_api, page, adapter, "not_installed")
 
+    page.get_by_test_id(f"agent-adapter-install-{adapter}").click()
+    _wait_for_path_state(paths.gen_skill, exists=True)
+    _wait_for_path_state(paths.loop_skill, exists=True)
+    _expect_adapter_state(sync_api, page, adapter, "installed")
 
-def _exercise_codex_install_update_uninstall(sync_api, page, *, workdir: Path, gen_skill: Path, loop_skill: Path) -> None:
-    _select_adapter_workdir(page, workdir)
-    _assert_future_adapters_are_reserved(sync_api, page)
-    _expect_adapter_state(sync_api, page, "codex", "not_installed")
-
-    page.get_by_test_id("agent-adapter-install-codex").click()
-    _wait_for_path_state(gen_skill, exists=True)
-    _wait_for_path_state(loop_skill, exists=True)
-    _expect_adapter_state(sync_api, page, "codex", "installed")
-
-    gen_skill.write_text(gen_skill.read_text(encoding="utf-8") + "\n<!-- managed drift for release web gate -->\n", encoding="utf-8")
+    paths.gen_skill.write_text(paths.gen_skill.read_text(encoding="utf-8") + "\n<!-- managed drift for release web gate -->\n", encoding="utf-8")
     page.get_by_test_id("agent-adapter-refresh").click()
-    _expect_adapter_state(sync_api, page, "codex", "needs_update")
+    _expect_adapter_state(sync_api, page, adapter, "needs_update")
 
-    page.get_by_test_id("agent-adapter-install-codex").click()
-    _expect_adapter_state(sync_api, page, "codex", "installed")
-    assert "managed drift for release web gate" not in gen_skill.read_text(encoding="utf-8")
+    page.get_by_test_id(f"agent-adapter-install-{adapter}").click()
+    _expect_adapter_state(sync_api, page, adapter, "installed")
+    assert "managed drift for release web gate" not in paths.gen_skill.read_text(encoding="utf-8")
 
-    page.get_by_test_id("agent-adapter-uninstall-codex").click()
-    _wait_for_path_state(gen_skill, exists=False)
-    _wait_for_path_state(loop_skill, exists=False)
-    _expect_adapter_state(sync_api, page, "codex", "not_installed")
+    page.get_by_test_id(f"agent-adapter-uninstall-{adapter}").click()
+    _wait_for_path_state(paths.gen_skill, exists=False)
+    _wait_for_path_state(paths.loop_skill, exists=False)
+    _expect_adapter_state(sync_api, page, adapter, "not_installed")
 
 
-def _exercise_codex_conflict_error(sync_api, page, *, workdir: Path, conflict_skill: Path) -> None:
-    _select_adapter_workdir(page, workdir)
-    _expect_adapter_state(sync_api, page, "codex", "error")
-    page.get_by_test_id("agent-adapter-install-codex").click()
+def _exercise_adapter_conflict_error(sync_api, page, *, adapter: str, paths: AdapterPaths) -> None:
+    _select_adapter_workdir(page, paths.workdir)
+    _expect_adapter_state(sync_api, page, adapter, "error")
+    page.get_by_test_id(f"agent-adapter-install-{adapter}").click()
     sync_api.expect(page.get_by_test_id("agent-adapter-status")).to_be_visible(timeout=5_000)
-    assert conflict_skill.read_text(encoding="utf-8") == "# User-owned Loopora-looking skill\n"
+    assert paths.gen_skill.read_text(encoding="utf-8") == f"# User-owned {adapter} Loopora-looking skill\n"
 
 
-def test_release_web_tools_can_manage_codex_adapter_in_real_server(tmp_path: Path, monkeypatch) -> None:
+def test_release_web_tools_can_manage_agent_adapters_in_real_server(tmp_path: Path, monkeypatch) -> None:
     _require_release_web_enabled()
     sync_api = pytest.importorskip("playwright.sync_api")
     timeout = float(os.environ.get(TIMEOUT_ENV, "30"))
@@ -130,15 +184,7 @@ def test_release_web_tools_can_manage_codex_adapter_in_real_server(tmp_path: Pat
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    workdir = tmp_path / "release-web-workdir"
-    workdir.mkdir()
-    conflict_workdir = tmp_path / "release-web-conflict-workdir"
-    conflict_workdir.mkdir()
-    gen_skill = workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md"
-    loop_skill = workdir / ".agents" / "skills" / "loopora-loop" / "SKILL.md"
-    conflict_skill = conflict_workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md"
-    conflict_skill.parent.mkdir(parents=True)
-    conflict_skill.write_text("# User-owned Loopora-looking skill\n", encoding="utf-8")
+    fixtures = _release_web_adapter_fixtures(tmp_path)
 
     try:
         _wait_for_loopora_server(base_url, process, timeout=timeout)
@@ -147,8 +193,27 @@ def test_release_web_tools_can_manage_codex_adapter_in_real_server(tmp_path: Pat
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             try:
                 page.goto(f"{base_url}/tools", wait_until="networkidle")
-                _exercise_codex_install_update_uninstall(sync_api, page, workdir=workdir, gen_skill=gen_skill, loop_skill=loop_skill)
-                _exercise_codex_conflict_error(sync_api, page, workdir=conflict_workdir, conflict_skill=conflict_skill)
+                _exercise_adapter_install_update_uninstall(
+                    sync_api,
+                    page,
+                    adapter="codex",
+                    paths=fixtures.codex_paths,
+                )
+                _exercise_adapter_install_update_uninstall(
+                    sync_api,
+                    page,
+                    adapter="claude",
+                    paths=fixtures.claude_paths,
+                )
+                _exercise_adapter_install_update_uninstall(
+                    sync_api,
+                    page,
+                    adapter="opencode",
+                    paths=fixtures.opencode_paths,
+                )
+                _exercise_adapter_conflict_error(sync_api, page, adapter="codex", paths=fixtures.codex_conflict)
+                _exercise_adapter_conflict_error(sync_api, page, adapter="claude", paths=fixtures.claude_conflict)
+                _exercise_adapter_conflict_error(sync_api, page, adapter="opencode", paths=fixtures.opencode_conflict)
             finally:
                 page.close()
                 browser.close()
