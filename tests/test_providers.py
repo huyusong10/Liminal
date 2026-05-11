@@ -125,7 +125,7 @@ def test_claude_exec_args_map_xhigh_to_max(tmp_path: Path) -> None:
     request = _request(tmp_path, executor_kind="claude", model="sonnet", reasoning_effort="xhigh")
     args = build_claude_exec_args(request)
 
-    assert args[:6] == ["claude", "--setting-sources", "local,project", "-p", "--output-format", "stream-json"]
+    assert args[:6] == ["claude", "--setting-sources", "user,project,local", "-p", "--output-format", "stream-json"]
     assert "--json-schema" in args
     assert "--model" in args
     assert "--effort" in args
@@ -159,7 +159,7 @@ def test_claude_exec_args_omit_model_when_blank(tmp_path: Path) -> None:
     request = _request(tmp_path, executor_kind="claude", model="", reasoning_effort="medium")
     args = build_claude_exec_args(request)
 
-    assert args[:6] == ["claude", "--setting-sources", "local,project", "-p", "--output-format", "stream-json"]
+    assert args[:6] == ["claude", "--setting-sources", "user,project,local", "-p", "--output-format", "stream-json"]
     assert "--json-schema" in args
     assert "--model" not in args
     assert "--effort" in args

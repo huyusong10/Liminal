@@ -68,7 +68,7 @@
         <span data-lang="en">Improve plan with evidence</span>
       </button>
     </form>
-    {% if run.status in ["queued", "running"] %}
+    {% if run.status in ["queued", "running", "awaiting_agent"] %}
     <button class="ghost-button" id="stop-run">
       <span data-lang="zh">停止运行</span>
       <span data-lang="en">Stop run</span>

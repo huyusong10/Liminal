@@ -111,6 +111,7 @@ class ServiceAgentAdapterMixin:
         entry_source: str = "",
         execute_async: bool = True,
     ) -> dict[str, Any]:
+        execute_async = bool(execute_async)
         adapter = normalize_agent_adapter_kind(adapter)
         if adapter not in {"codex", "claude", "opencode"}:
             raise LooporaError(f"{adapter} adapter is not implemented yet")
@@ -127,14 +128,20 @@ class ServiceAgentAdapterMixin:
         session = self.get_alignment_session(session_id)
         run = self._agent_bound_run(session)
         if run is not None:
+            native = (
+                {"run": run, "next_step": None, "complete": True}
+                if run["status"] in TERMINAL_RUN_STATUSES
+                else self.prepare_agent_native_run(adapter, run["id"], entry_source=entry_source)
+            )
             binding = write_agent_binding(
                 adapter,
                 root,
                 {
                     **binding,
                     "alignment_status": session["status"],
-                    "linked_run_id": run["id"],
-                    "run_path": f"/runs/{run['id']}",
+                    "linked_run_id": native["run"]["id"],
+                    "run_path": f"/runs/{native['run']['id']}",
+                    "execution_plane": "agent_native",
                     "entry_invocations": self._append_agent_entry_invocation(
                         binding,
                         action="loop",
@@ -143,14 +150,26 @@ class ServiceAgentAdapterMixin:
                 },
                 context_id=context_id,
             )
-            return self._agent_loop_result(adapter, root, session, binding, {"run": run, "started_new_run": False})
+            return self._agent_loop_result(
+                adapter,
+                root,
+                session,
+                binding,
+                {
+                    "run": native["run"],
+                    "started_new_run": False,
+                    "next_step": native.get("next_step"),
+                    "complete": native.get("complete", False),
+                },
+            )
 
         if session["status"] == "ready":
-            imported = self.import_alignment_bundle(session_id, start_immediately=True, execute_async=execute_async)
+            imported = self.import_alignment_bundle(session_id, start_immediately=True, execute_async=False)
             session = imported["session"]
             run = imported.get("run")
             if not isinstance(run, dict):
                 raise LooporaError("Loopora did not return a run for the READY bundle")
+            native = self.prepare_agent_native_run(adapter, run["id"], entry_source=entry_source)
             binding = write_agent_binding(
                 adapter,
                 root,
@@ -159,8 +178,9 @@ class ServiceAgentAdapterMixin:
                     "alignment_status": session["status"],
                     "linked_bundle_id": imported["bundle"]["id"],
                     "linked_loop_id": imported["bundle"].get("loop_id", ""),
-                    "linked_run_id": run["id"],
-                    "run_path": f"/runs/{run['id']}",
+                    "linked_run_id": native["run"]["id"],
+                    "run_path": f"/runs/{native['run']['id']}",
+                    "execution_plane": "agent_native",
                     "entry_invocations": self._append_agent_entry_invocation(
                         binding,
                         action="loop",
@@ -169,16 +189,26 @@ class ServiceAgentAdapterMixin:
                 },
                 context_id=context_id,
             )
-            return self._agent_loop_result(adapter, root, session, binding, {"run": run, "started_new_run": True})
+            return self._agent_loop_result(
+                adapter,
+                root,
+                session,
+                binding,
+                {
+                    "run": native["run"],
+                    "started_new_run": True,
+                    "next_step": native.get("next_step"),
+                    "complete": native.get("complete", False),
+                },
+            )
 
         if session["status"] == "imported" and session.get("linked_loop_id"):
             run = self.start_run(str(session["linked_loop_id"]))
-            if execute_async:
-                self.start_run_async(run["id"])
+            native = self.prepare_agent_native_run(adapter, run["id"], entry_source=entry_source)
             self.repository.update_alignment_session(
                 session_id,
                 status="running_loop",
-                linked_run_id=run["id"],
+                linked_run_id=native["run"]["id"],
             )
             self.repository.append_alignment_event(
                 session_id,
@@ -192,8 +222,9 @@ class ServiceAgentAdapterMixin:
                 {
                     **binding,
                     "alignment_status": session["status"],
-                    "linked_run_id": run["id"],
-                    "run_path": f"/runs/{run['id']}",
+                    "linked_run_id": native["run"]["id"],
+                    "run_path": f"/runs/{native['run']['id']}",
+                    "execution_plane": "agent_native",
                     "entry_invocations": self._append_agent_entry_invocation(
                         binding,
                         action="loop",
@@ -202,7 +233,18 @@ class ServiceAgentAdapterMixin:
                 },
                 context_id=context_id,
             )
-            return self._agent_loop_result(adapter, root, session, binding, {"run": run, "started_new_run": True})
+            return self._agent_loop_result(
+                adapter,
+                root,
+                session,
+                binding,
+                {
+                    "run": native["run"],
+                    "started_new_run": True,
+                    "next_step": native.get("next_step"),
+                    "complete": native.get("complete", False),
+                },
+            )
 
         raise LooporaConflictError(
             f"{_adapter_label_for_error(adapter)} session has no READY Loopora bundle (current status: {session['status']}); run /loopora-gen first"
@@ -232,6 +274,9 @@ class ServiceAgentAdapterMixin:
             "run": run,
             "run_path": f"/runs/{run['id']}",
             "started_new_run": bool(run_result["started_new_run"]),
+            "execution_plane": "agent_native",
+            "next_step": run_result.get("next_step"),
+            "complete": bool(run_result.get("complete", False)),
         }
 
     @staticmethod

@@ -123,17 +123,23 @@ Agent-first 入口必须仍然遵守“接口层 -> Core”的依赖方向。CLI
 | `loopora uninstall claude` | 只删除 Loopora 管理的 Claude Code adapter 文件或 manifest |
 | `loopora uninstall opencode` | 只删除 Loopora 管理的 OpenCode adapter 文件或 manifest |
 | `loopora agent codex gen` / `loopora agent claude gen` / `loopora agent opencode gen` | 宿主 entry 使用的底层入口，把候选 bundle 交给 Core 校验为 READY，并返回候选 Loop URL |
-| `loopora agent codex loop` / `loopora agent claude loop` / `loopora agent opencode loop` | 宿主 entry 使用的底层入口，查找当前 session / workdir 的 READY bundle，启动或复用 run，并返回 URL |
+| `loopora agent codex loop` / `loopora agent claude loop` / `loopora agent opencode loop` | 宿主 entry 使用的底层入口，查找当前 session / workdir 的 READY bundle，创建或复用 agent-native run，并返回 run URL 与首个可执行 step capsule |
+| `loopora agent codex next` / `loopora agent claude next` / `loopora agent opencode next` | 宿主 entry 使用的底层入口，领取当前 run 的下一个 step capsule；只分发上下文、输出契约和提交提示，不启动宿主 CLI |
+| `loopora agent codex submit` / `loopora agent claude submit` / `loopora agent opencode submit` | 宿主 entry 使用的底层入口，把宿主原生 Agent / subagent 完成的 wrapper result 与 dispatch proof 提交回 Core，推进证据、handoff、裁决和 run 状态 |
 | Web Tools Codex / Claude Code / OpenCode card | 调用同一 adapter service/helper 展示目标项目 status，并触发 install/uninstall |
 
 稳定规则：
 
 - 必须坚持 `/loopora-gen -> READY preview -> /loopora-loop`。缺少 READY bundle 时，`loopora agent <adapter> loop` 返回明确错误，提示先 gen。
-- Codex / Claude Code / OpenCode adapter 只负责宿主入口和 binding，不复制 bundle validation、alignment import、run lifecycle 或 Web serve 逻辑。
+- Codex / Claude Code / OpenCode adapter 只负责宿主入口和 binding，不复制 bundle validation、alignment import、run lifecycle、step context assembly、evidence ledger 或 Web serve 逻辑。
+- Agent-first 默认执行平面是 `agent_native`：Loopora Core 冻结 run、维护 `awaiting_agent` 状态、分发 step capsule 并接收带 `loopora_host_dispatch` 的结构化 wrapper result；宿主 Agent 用自身 slash command、skill、subagent、task 或等价机制完成具体角色工作。
+- Agent-first adapter 不得在 `/loopora-loop`、`next` 或 `submit` 内部再启动 `codex`、`claude`、`opencode` CLI。需要无人值守自动跑完整 run 时，应走明确的 headless run / executor 路径，而不是假装成宿主 Agent-first。
+- `loopora agent <adapter> loop` 可以领取首个 step，后续由宿主 entry 循环调用 `submit -> next`；重复调用必须复用同一 READY bundle / active run，不创建相互竞争的 run。
+- `loopora agent <adapter> submit` 只接受当前 capsule 对应的结构化输出和匹配的 host dispatch proof；缺失 step、step 不匹配、run 已终态、dispatch proof 缺失 / inline / agent 不匹配，或输出不满足角色契约时返回领域错误，不让宿主 entry 猜测内部状态。
 - 未实现平台可以出现在类型、API 投影和 Web UI 中，但状态必须是未实现，不能生成假入口。
 - Web status 只展示 `not_installed / installed / needs_update / error / not_implemented` 这类 adapter 投影，不把它们写成 Loop 或 run 状态。
 - Web Tools 必须能显式选择目标项目目录来执行 adapter status / install / uninstall；没有输入时可以投影服务进程当前目录，但浏览器自动化必须能用临时真实项目证明文件边界。
-- Agent adapter 项目文件 ownership 由 `10-agent-adapters.md` 定义；接口层不得覆盖用户 `AGENTS.md`、`CLAUDE.md`、`.codex/config.toml`、`.claude/settings.json`、`opencode.json`、`.opencode/opencode.json*` 或其他宿主配置。
+- Agent adapter 项目文件 ownership 由 `10-agent-adapters.md` 定义；接口层不得覆盖用户 `AGENTS.md`、`CLAUDE.md`、`.codex/config.toml`、`opencode.json`、`.opencode/opencode.json*` 或其他宿主配置。Claude Code 的 `.claude/settings.json` 只允许通过 adapter service/helper 合并或删除 Loopora 自己的 SessionStart hook handler。
 
 ## 4. 跨入口一致性
 

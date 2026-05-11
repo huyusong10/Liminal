@@ -65,6 +65,8 @@ workflow `version` 目前只支持整数 `1`。缺失或空值可按当前版本
 
 role 不表达本次 step 的写入、只读、收束或控制权限。权限随 workflow step 冻结，使同一 role 可以在不同步骤里承担不同行动边界，并让用户从流程图审计“哪一步会动手、哪一步只判断”。
 
+`executor_kind` / `executor_mode` 是运行期执行偏好，不是产品入口契约。Agent-first adapter 创建的 run 使用 `agent_native` execution plane 时，这些字段用于选择或提示宿主原生角色入口；不得被解释为“在宿主 Agent 内再启动同名 Agent CLI”。显式 headless run 才会把这些字段交给 executor subsystem。
+
 每个 step 至少表达：
 
 | 字段 | 含义 |
@@ -168,6 +170,7 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 - 已保存 role definition 的 archetype 固定；更新入口不能改变它。
 - 预设执行配置中的 `model` 是可选 pin；空值表示使用所选 Agent CLI 的当前默认模型，只有用户、导入资产或 step 覆盖显式填写时才固定模型。
 - `custom` 执行器保存前必须处于 `command` 模式。
+- Codex / Claude Code / OpenCode 的 Agent-first 入口优先把 workflow role 映射到宿主原生 skill / command / subagent / task。只有明确 headless 自动化路径才使用上表的 CLI 执行器。
 
 ## 6. 验证规则
 
@@ -236,6 +239,8 @@ step 级执行附加项只影响当前 step：
 
 `系统安全约束 -> 输出契约 -> 用户 prompt -> run contract 摘要 -> 当前角色 note -> 当前轮次 / step 说明 -> step input policy -> 被选中的上游 handoff -> 被选中的上一轮信息 -> 被选中的 evidence ledger 摘要 -> artifact refs`
 
+在 `agent_native` execution plane 中，Core 对同一协议生成 step capsule。capsule 至少表达当前 run / step 标识、角色职责、role dispatch contract、行动边界、上下文 artifact、输出契约、可引用 evidence 范围和提交入口；它不是另一个聊天界面，也不包含宿主私有 prompt 包。宿主 Agent 负责把 capsule 交给 `role_dispatch.target_agent` 指定的原生角色机制执行，并把带 `loopora_host_dispatch` 证明块的结构化结果提交回 Loopora。
+
 稳定规则：
 
 - 首轮必须显式声明没有上一轮结果。
@@ -251,6 +256,8 @@ step 级执行附加项只影响当前 step：
 - 所有运行期 archetype 的 system prompt 前缀都必须提醒角色：run contract 已冻结；若发现 `Task / Done When / Guardrails` 过窄、过松或冲突，应作为 evidence gap / blocker / Loop 调整建议暴露，而不能在 run 内静默降级或改写。
 - step `action_policy` 可以收窄或授予当前调用的行动边界，但不能让角色越过系统安全约束、workspace guard 或 completion mode 语义。
 - 当环境阻断浏览器、截图或桌面控制能力时，prompt 应引导角色切换到可重复 fallback 证据，并把环境限制写入 handoff。
+- agent-native step result 与 headless executor result 进入同一结构化归一化、evidence ledger 和 GateKeeper 裁决边界；接口差异不能改变证据事实源。
+- agent-native submit 的 wrapper 中，`result` 承载角色输出契约，`loopora_host_dispatch` 承载宿主原生 role agent / task agent 派发证明；Core 必须拒绝缺失证明、inline 执行声明或 agent 名称不匹配的 submit。
 
 ## 9. Context Protocol
 

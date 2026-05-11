@@ -4,6 +4,7 @@ from loopora.recovery import RecoveryResult
 
 COMPLETION_MODES = ("gatekeeper", "rounds")
 TERMINAL_RUN_STATUSES = frozenset({"succeeded", "failed", "stopped"})
+ACTIVE_RUN_STATUSES = frozenset({"queued", "running", "awaiting_agent"})
 
 
 class LooporaError(RuntimeError):

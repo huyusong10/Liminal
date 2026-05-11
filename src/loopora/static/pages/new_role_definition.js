@@ -265,7 +265,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const args = [
         profile.cli_name,
         "--setting-sources",
-        "local,project",
+        "user,project,local",
         "-p",
         "--output-format",
         "stream-json",

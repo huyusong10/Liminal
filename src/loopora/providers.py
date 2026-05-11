@@ -99,7 +99,7 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
         command_required_placeholders=("{prompt}", "{json_schema}"),
         command_args_template=(
             "--setting-sources",
-            "local,project",
+            "user,project,local",
             "-p",
             "--output-format",
             "stream-json",

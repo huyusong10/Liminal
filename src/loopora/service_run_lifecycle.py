@@ -16,7 +16,7 @@ from loopora.run_observation_events import PROGRESS_EVENT_TYPES, TAKEAWAY_PROJEC
 from loopora.run_takeaways import build_minimal_run_takeaway_projection, build_run_key_takeaways, normalize_run_takeaway_projection_shape
 from loopora.service_cleanup_diagnostics import best_effort_rmtree, record_cleanup_failure
 from loopora.service_run_finalization import TerminalRunFinalizationRequest
-from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError, TERMINAL_RUN_STATUSES
+from loopora.service_types import ACTIVE_RUN_STATUSES, LooporaConflictError, LooporaError, LooporaNotFoundError, TERMINAL_RUN_STATUSES
 from loopora.utils import utc_now
 
 logger = get_logger(__name__)
@@ -122,13 +122,28 @@ class ServiceRunLifecycleMixin:
         current = self.repository.get_run(run_id)
         if not current:
             raise LooporaNotFoundError(f"unknown run: {run_id}")
-        if current["status"] not in {"queued", "running"}:
+        if current["status"] not in ACTIVE_RUN_STATUSES:
             raise LooporaConflictError(f"cannot stop run in status {current['status']}")
 
         run = self.repository.request_stop(run_id)
         if not run:
             raise LooporaNotFoundError(f"unknown run: {run_id}")
         self.append_run_event(run_id, "stop_requested", {"status": run["status"]})
+        if str(run.get("status") or "") == "awaiting_agent":
+            summary = "# Loopora Run Summary\n\nStopped while waiting for host Agent step submission.\n"
+            stopped = self._finalize_terminal_run(
+                TerminalRunFinalizationRequest(
+                    run_id=run_id,
+                    run_dir=Path(run["runs_dir"]),
+                    status="stopped",
+                    summary=summary,
+                    final_reason="stopped",
+                    hydrate=True,
+                )
+            )
+            self.repository.release_run_slot(run_id)
+            self.append_run_event(run_id, "run_finished", {"status": "stopped"})
+            return stopped
         self.repository.send_stop_signal(run_id)
         log_event(
             logger,
@@ -245,6 +260,7 @@ class ServiceRunLifecycleMixin:
         loop_name_by_id = {loop["id"]: loop["name"] for loop in self.repository.list_loops()}
         running_count = 0
         queued_count = 0
+        awaiting_agent_count = 0
         runs = []
         for run in active_runs:
             status = str(run.get("status") or "").strip()
@@ -252,6 +268,8 @@ class ServiceRunLifecycleMixin:
                 running_count += 1
             elif status == "queued":
                 queued_count += 1
+            elif status == "awaiting_agent":
+                awaiting_agent_count += 1
             runs.append(
                 {
                     "id": run["id"],
@@ -267,6 +285,7 @@ class ServiceRunLifecycleMixin:
         return {
             "running_count": running_count,
             "queued_count": queued_count,
+            "awaiting_agent_count": awaiting_agent_count,
             "has_running_runs": running_count > 0,
             "has_active_runs": bool(active_runs),
             "runs": runs,
@@ -293,7 +312,7 @@ class ServiceRunLifecycleMixin:
             if bundle:
                 raise LooporaConflictError(f"loop {loop_id} is managed by bundle {bundle['id']}; delete the bundle instead")
         loop = self.get_loop(loop_id)
-        active_runs = [run["id"] for run in loop["runs"] if run["status"] in {"queued", "running"}]
+        active_runs = [run["id"] for run in loop["runs"] if run["status"] in ACTIVE_RUN_STATUSES]
         if active_runs:
             raise LooporaConflictError(f"cannot delete loop with active runs: {', '.join(active_runs)}")
 
@@ -375,6 +394,8 @@ class ServiceRunLifecycleMixin:
         return bool(pid and self._pid_exists(pid))
 
     def _startup_stale_run_is_recoverable(self, run: dict) -> bool:
+        if run.get("status") == "awaiting_agent":
+            return False
         if run.get("runner_pid"):
             return True
         updated_at = self._parse_run_timestamp(run.get("updated_at") or run.get("started_at") or run.get("queued_at"))

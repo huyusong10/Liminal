@@ -70,13 +70,29 @@ def _require_real_agent_template(adapter: str) -> str:
     return template
 
 
-def _write_loopora_wrapper(tmp_path: Path) -> Path:
+def _write_nested_agent_sentinels(tmp_path: Path) -> tuple[Path, Path]:
+    sentinel_dir = tmp_path / "nested-agent-sentinels"
+    sentinel_dir.mkdir()
+    log_path = tmp_path / "nested-agent-sentinel.log"
+    for name in AGENT_TARGETS:
+        script = sentinel_dir / name
+        script.write_text(
+            "#!/bin/sh\n"
+            f'echo "$0 $@" >> {shlex.quote(str(log_path))}\n'
+            "exit 86\n",
+            encoding="utf-8",
+        )
+        script.chmod(0o755)
+    return sentinel_dir, log_path
+
+
+def _write_loopora_wrapper(tmp_path: Path, *, sentinel_dir: Path) -> Path:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     wrapper = bin_dir / "loopora"
     wrapper.write_text(
         "#!/bin/sh\n"
-        f'PYTHONPATH="{SRC_ROOT}${{PYTHONPATH:+:$PYTHONPATH}}" exec "{sys.executable}" -m loopora "$@"\n',
+        f'PATH="{sentinel_dir}:$PATH" PYTHONPATH="{SRC_ROOT}${{PYTHONPATH:+:$PYTHONPATH}}" exec "{sys.executable}" -m loopora "$@"\n',
         encoding="utf-8",
     )
     wrapper.chmod(0o755)
@@ -161,7 +177,7 @@ def _wait_for_terminal_run(loopora_home: Path, run_id: str, *, timeout: float) -
             return run
         time.sleep(0.5)
     run = service.get_run(run_id)
-    if run["status"] in {"queued", "running"}:
+    if run["status"] in {"queued", "running", "awaiting_agent"}:
         service.stop_run(run_id)
     raise AssertionError(f"Timed out waiting for Agent-started run {run_id} to finish; last status={run['status']}")
 
@@ -178,33 +194,18 @@ import sys
 role = sys.argv[1]
 output_path = Path(sys.argv[2])
 _prompt = sys.argv[3]
-if role == "inspector":
-    payload = {
-        "execution_summary": {"total_checks": 1, "passed": 1, "failed": 0, "errored": 0, "total_duration_ms": 1},
-        "check_results": [
-            {
-                "id": "agent_adapter_release_executor",
-                "title": "Agent adapter deterministic executor",
-                "status": "passed",
-                "notes": "The deterministic custom executor produced structured output.",
-            }
-        ],
-        "dynamic_checks": [],
-        "tester_observations": "The Agent adapter release gate has deterministic inspection evidence.",
-        "coverage_results": [],
-    }
-elif role == "gatekeeper":
+if role == "gatekeeper":
     payload = {
         "passed": True,
-        "decision_summary": "Agent adapter release gate passed with supporting inspector evidence.",
+        "decision_summary": "Agent adapter release gate passed with supporting upstream Builder evidence.",
         "feedback_to_builder": "",
         "blocking_issues": [],
         "metrics": [{"name": "quality_score", "value": 1.0, "threshold": 0.9, "passed": True}],
         "failed_check_ids": [],
         "priority_failures": [],
         "composite_score": 1.0,
-        "evidence_refs": ["ev_000_01_inspector_step"],
-        "evidence_claims": ["The inspector evidence confirms the deterministic executor path."],
+        "evidence_refs": ["ev_000_00_builder_step"],
+        "evidence_claims": ["The upstream Builder evidence confirms the managed run binding and structured result."],
         "residual_risks": [],
         "coverage_results": [],
     }
@@ -282,7 +283,7 @@ def _agent_release_bundle_yaml(workdir: Path, executor_script: Path, *, adapter:
         },
         "collaboration_summary": (
             f"Use deterministic proof evidence to show that {_agent_label(adapter)} can drive Loopora's installed Agent entry and that /loopora-loop "
-            "starts a Loopora-managed run without depending on another long-running model task; GateKeeper makes the final judgment from inspector evidence."
+            "starts a Loopora-managed run without depending on another long-running model task; GateKeeper makes the final judgment from upstream Builder evidence."
         ),
         "loop": {
             "name": "Agent Adapter Release Gate",
@@ -305,12 +306,12 @@ Prepare a verifiable release gate showing that a user can invoke Loopora from th
 
 # Done When
 
-- The custom executor writes a structured Builder result.
-- The run reaches a terminal state after `/loopora-loop`.
+- The Agent entry creates a managed run binding with a run URL.
+- The Builder step writes a structured result that GateKeeper can inspect.
 
 # Success Surface
 
-- The release gate proves the Coding Agent can call Loopora Agent entry points and observe a Loopora-managed run URL.
+- The release gate proves the Coding Agent can call Loopora Agent entry points, observe a Loopora-managed run URL, and submit Agent-native step results.
 
 # Guardrails
 
@@ -322,11 +323,11 @@ Prepare a verifiable release gate showing that a user can invoke Loopora from th
 
 # Evidence Preferences
 
-- Prefer the deterministic inspector evidence generated inside the Loopora run.
+- Prefer deterministic upstream evidence generated inside the Loopora run.
 
 # Residual Risk
 
-This gate does not prove product task quality; it only proves the Agent adapter entry boundary.
+This gate does not prove product task quality; it only proves the Agent adapter entry boundary. The outer L3 harness, not this Loop contract, asserts the final run status after GateKeeper submission.
 """,
         },
         "role_definitions": [
@@ -341,23 +342,13 @@ This gate does not prove product task quality; it only proves the Agent adapter 
                 **role_execution("builder"),
             },
             {
-                "key": "inspector",
-                "name": "Agent Release Inspector",
-                "description": "Produces deterministic inspection evidence.",
-                "archetype": "inspector",
-                "prompt_ref": "inspector.md",
-                "prompt_markdown": builtin_prompt_markdown("inspector.md"),
-                "posture_notes": "Confirm the deterministic executor wrote structured evidence.",
-                **role_execution("inspector"),
-            },
-            {
                 "key": "gatekeeper",
                 "name": "Agent Release GateKeeper",
                 "description": "Closes the deterministic Agent adapter gate.",
                 "archetype": "gatekeeper",
                 "prompt_ref": "gatekeeper.md",
                 "prompt_markdown": builtin_prompt_markdown("gatekeeper.md"),
-                "posture_notes": "Pass only when inspector evidence is present.",
+                "posture_notes": "Pass only when upstream Builder evidence is present.",
                 **role_execution("gatekeeper"),
             },
         ],
@@ -367,21 +358,15 @@ This gate does not prove product task quality; it only proves the Agent adapter 
             "collaboration_intent": "Use deterministic evidence, handoff, and GateKeeper closure after the real Agent host invokes /loopora-loop.",
             "roles": [
                 {"id": "builder", "role_definition_key": "builder"},
-                {"id": "inspector", "role_definition_key": "inspector"},
                 {"id": "gatekeeper", "role_definition_key": "gatekeeper"},
             ],
             "steps": [
                 {"id": "builder_step", "role_id": "builder"},
                 {
-                    "id": "inspector_step",
-                    "role_id": "inspector",
-                    "inputs": {"handoffs_from": ["builder_step"], "evidence_query": {"archetypes": ["builder"], "limit": 4}},
-                },
-                {
                     "id": "gatekeeper_step",
                     "role_id": "gatekeeper",
                     "on_pass": "finish_run",
-                    "inputs": {"handoffs_from": ["builder_step", "inspector_step"], "evidence_query": {"archetypes": ["builder", "inspector"], "limit": 8}},
+                    "inputs": {"handoffs_from": ["builder_step"], "evidence_query": {"archetypes": ["builder"], "limit": 4}},
                 },
             ],
         },
@@ -395,7 +380,8 @@ def test_real_agent_host_can_drive_loopora_gen_then_loop(adapter: str, tmp_path:
     timeout = float(os.environ.get(TIMEOUT_ENV, "180"))
     loopora_home = tmp_path / "loopora-home"
     monkeypatch.setenv("LOOPORA_HOME", str(loopora_home))
-    bin_dir = _write_loopora_wrapper(tmp_path)
+    sentinel_dir, sentinel_log = _write_nested_agent_sentinels(tmp_path)
+    bin_dir = _write_loopora_wrapper(tmp_path, sentinel_dir=sentinel_dir)
     env = os.environ.copy()
     env["LOOPORA_HOME"] = str(loopora_home)
     env["PYTHONPATH"] = f"{SRC_ROOT}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
@@ -428,10 +414,15 @@ Required order:
 
 1. Invoke `/loopora-gen` or the installed `loopora-gen` project entry semantics.
 2. Only after the candidate is READY, invoke `/loopora-loop` or the installed `loopora-loop` project entry semantics.
-3. Return a short summary with the candidate URL and run URL.
+3. Continue the installed Agent-native loop path until Loopora returns `complete: true`. For each returned step capsule, use the host's native role/subagent mechanism named by `role_dispatch.target_agent`, write one wrapper JSON result with `loopora_host_dispatch` and `result`, follow any `evidence_rules`, `evidence_ref_contract`, and `role_dispatch`, and submit it as instructed by the installed entry.
+4. Return a short summary with the candidate URL, run URL, and terminal run status.
+
+The Loopora bundle intentionally does not make "the run is terminal" a task-level Done When item; this pytest harness checks terminal status after the host finishes the Agent-native loop.
+For every result file, use the installed entry's wrapper format: top-level `loopora_host_dispatch` plus top-level `result`. The `result` object must use the exact top-level keys required by the step capsule's `output_schema`. For GateKeeper, write `passed`, `decision_summary`, `metrics`, `metric_scores`, `evidence_refs`, `evidence_claims`, and the other schema fields inside `result`; do not use a `verdict` or `task_verdict` envelope. In `loopora_host_dispatch`, set both `target_agent` and `actual_agent` to the exact `role_dispatch.target_agent`, set `dispatch_mode` to `host_subagent`, `host_task`, or `host_agent`, and set `inline` to false. Every `evidence_refs` list, including inside `coverage_results`, must contain only exact strings copied from `known_evidence_ids`. If `known_evidence_ids` contains only `ev_000_00_builder_step`, use only `ev_000_00_builder_step`; do not invent suffixes such as `_binding`, `_output`, `_preference`, or `_fake_done_risk`. Artifact labels and file names belong in evidence_claims or notes.
 
 Do not edit user-owned config files.
 Do not invent a direct Loopora CLI command from this prompt; follow the installed project entry instructions when a shell command is needed.
+Do not invoke codex, claude, or opencode from inside this Agent session; this release gate must prove the host Agent itself performs the role work.
 """,
         encoding="utf-8",
     )
@@ -465,5 +456,6 @@ Do not invent a direct Loopora CLI command from this prompt; follow the installe
         _assert_managed_gen_before_loop(adapter, entry_invocations)
         final_run = _wait_for_terminal_run(loopora_home, str(binding["linked_run_id"]), timeout=30)
         assert final_run["status"] == "succeeded"
+        assert not sentinel_log.exists(), sentinel_log.read_text(encoding="utf-8") if sentinel_log.exists() else ""
     finally:
         _terminate_pid_file(agent_web_pid_file)

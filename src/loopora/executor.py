@@ -247,7 +247,7 @@ def build_codex_exec_args(request: RoleRequest, schema_path: Path) -> list[str]:
 
 def build_claude_exec_args(request: RoleRequest) -> list[str]:
     extra_args = parse_extra_cli_args_text(request.extra_cli_args_text)
-    args = ["claude", "--setting-sources", "local,project"]
+    args = ["claude", "--setting-sources", "user,project,local"]
     if request.inherit_session and request.resume_session_id.strip():
         args.extend(["--resume", request.resume_session_id.strip()])
     args.extend(["-p", "--output-format", "stream-json", "--include-partial-messages"])

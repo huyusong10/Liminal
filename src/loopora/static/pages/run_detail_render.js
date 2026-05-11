@@ -480,7 +480,7 @@
       const liveBadge = document.getElementById("console-live-badge");
       const status = run?.status || initialRun?.status || "queued";
       liveBadge.className = `status-pill progress-status-pill status-${status}`;
-      if (status === "running" || status === "queued") {
+      if (status === "running" || status === "queued" || status === "awaiting_agent") {
         liveBadge.innerHTML = `<span data-lang="zh">实时输出</span><span data-lang="en">Streaming</span>`;
       } else {
         liveBadge.dataset.statusLabel = status;
@@ -652,7 +652,7 @@
       const status = run?.status || "draft";
       const liveWork = progressProjector.describeLiveWork(run);
       const progressLiveCard = document.getElementById("progress-live-card");
-      const progressTone = status === "running"
+      const progressTone = status === "running" || status === "awaiting_agent"
         ? "active"
         : (status === "queued"
           ? "queued"
@@ -678,7 +678,7 @@
       ));
       setTextContentIfChanged("progress-live-detail", liveWork.detail);
       setTextContentIfChanged("progress-stage-label", liveWork.metaLeft);
-      setTextContentIfChanged("progress-caption", status === "running"
+      setTextContentIfChanged("progress-caption", status === "running" || status === "awaiting_agent"
         ? localeText("不再猜一个虚假的百分比，只保留当前阶段和已经走过的阶段耗时痕迹。", "No fake percentage here anymore. This view keeps the current stage and the time traces already left on completed stages.")
         : localeText("这一轮已经收尾，下面保留最终阶段结果和整条路径的耗时痕迹。", "This run has settled, and the stage flow below now shows the final outcome with the time spent along the way."));
 
@@ -708,14 +708,14 @@
       const stage = progressProjector.getCurrentStage(run);
       const focusName = progressProjector.stageDisplayName(stage, run);
       const focusTitle = window.LooporaUI.translateStatus(status);
-      const focusDetail = status === "running"
+      const focusDetail = status === "running" || status === "awaiting_agent"
         ? localeText(`${focusName} 正在处理中；Loop 裁决会在终态后单独收束。`, `${focusName} is in progress; the task verdict settles separately at terminal state.`)
         : localeText(`生命周期状态是 ${window.LooporaUI.translateStatus(status)}，这不等于 Loop 是否通过。`, `Lifecycle status is ${window.LooporaUI.translateStatus(status)}; it is separate from task pass/fail.`);
       const focusMeta = `${localeText("迭代", "Iter")} ${displayIter(run?.current_iter)} · ${localeText("耗时", "Duration")} ${formatDuration(run?.started_at, run?.finished_at)}`;
       document.getElementById("focus-title").textContent = focusTitle;
       document.getElementById("focus-detail").textContent = focusDetail;
       document.getElementById("focus-meta").textContent = focusMeta;
-      document.getElementById("focus-card").className = `highlight-card ${status === "running" ? "tone-active" : "tone-neutral"}`;
+      document.getElementById("focus-card").className = `highlight-card ${status === "running" || status === "awaiting_agent" ? "tone-active" : "tone-neutral"}`;
 
       const verdict = renderProjector.summarizeTaskVerdict(run?.task_verdict);
       document.getElementById("output-title").textContent = verdict.title;

@@ -806,69 +806,61 @@ def _assert_prompt_assets_contract_frozen(prompts: list[str], zh_prompts: list[s
         assert "项目本地指令、design 文档或 tests" in prompt
 
 
-def test_builtin_prompts_define_runtime_evidence_fallback_rules() -> None:
+def _runtime_prompt_assets() -> tuple[dict[str, str], dict[str, str]]:
     prompts_dir = Path(__file__).resolve().parents[1] / "src" / "loopora" / "assets" / "prompts"
-    builder_prompt = (prompts_dir / "builder.md").read_text(encoding="utf-8")
-    builder_zh_prompt = (prompts_dir / "builder.zh.md").read_text(encoding="utf-8")
-    inspector_prompt = (prompts_dir / "inspector.md").read_text(encoding="utf-8")
-    inspector_zh_prompt = (prompts_dir / "inspector.zh.md").read_text(encoding="utf-8")
-    custom_prompt = (prompts_dir / "custom.md").read_text(encoding="utf-8")
-    custom_zh_prompt = (prompts_dir / "custom.zh.md").read_text(encoding="utf-8")
-    guide_prompt = (prompts_dir / "guide.md").read_text(encoding="utf-8")
-    guide_zh_prompt = (prompts_dir / "guide.zh.md").read_text(encoding="utf-8")
-    gatekeeper_prompt = (prompts_dir / "gatekeeper.md").read_text(encoding="utf-8")
-    gatekeeper_zh_prompt = (prompts_dir / "gatekeeper.zh.md").read_text(encoding="utf-8")
-    benchmark_gatekeeper_prompt = (prompts_dir / "gatekeeper-benchmark.md").read_text(encoding="utf-8")
-    benchmark_gatekeeper_zh_prompt = (prompts_dir / "gatekeeper-benchmark.zh.md").read_text(encoding="utf-8")
+    names = ["builder", "inspector", "custom", "guide", "gatekeeper", "gatekeeper-benchmark"]
+    prompts = {name: (prompts_dir / f"{name}.md").read_text(encoding="utf-8") for name in names}
+    zh_prompts = {name: (prompts_dir / f"{name}.zh.md").read_text(encoding="utf-8") for name in names}
+    return prompts, zh_prompts
 
-    assert "smallest repeatable verification artifact" in builder_prompt
-    assert "strongest no-install executable proof" in builder_prompt
-    assert "最小可重复验证产物" in builder_zh_prompt
-    assert "最强免安装可执行证明" in builder_zh_prompt
-    assert "strongest repeatable fallback evidence" in gatekeeper_prompt
-    assert "deterministic local proof" in gatekeeper_prompt
-    assert "最强可重复 fallback 证据" in gatekeeper_zh_prompt
-    assert "确定性本地证明" in gatekeeper_zh_prompt
-    assert "Inspector or Custom review steps will run in parallel" in builder_prompt
-    assert "Inspector 或 Custom review step 并行检视" in builder_zh_prompt
-    assert "parallel review group" in inspector_prompt
-    assert "peer reviewers" in inspector_prompt
-    assert "Custom reviewer" in inspector_prompt
-    assert "并行 review 组" in inspector_zh_prompt
-    assert "其他 reviewer" in inspector_zh_prompt
-    assert "Custom reviewer" in inspector_zh_prompt
-    assert "places you in a parallel review group" in custom_prompt
-    assert "downstream GateKeeper can fan in" in custom_prompt
-    assert "把你放进并行 review 组" in custom_zh_prompt
-    assert "GateKeeper 可以和其他 review 分支一起汇总" in custom_zh_prompt
-    assert "parallel Inspector or Custom review steps" in gatekeeper_prompt
-    assert "all relevant review handoffs" in gatekeeper_prompt
-    assert "并行 Inspector 或 Custom review step" in gatekeeper_zh_prompt
-    assert "相关 review handoff" in gatekeeper_zh_prompt
+
+def _assert_prompt_evidence_fallback_rules(prompts: dict[str, str], zh_prompts: dict[str, str]) -> None:
+    assert "smallest repeatable verification artifact" in prompts["builder"]
+    assert "strongest no-install executable proof" in prompts["builder"]
+    assert "最小可重复验证产物" in zh_prompts["builder"]
+    assert "最强免安装可执行证明" in zh_prompts["builder"]
+    assert "strongest repeatable fallback evidence" in prompts["gatekeeper"]
+    assert "deterministic local proof" in prompts["gatekeeper"]
+    assert "最强可重复 fallback 证据" in zh_prompts["gatekeeper"]
+    assert "确定性本地证明" in zh_prompts["gatekeeper"]
+
+
+def _assert_prompt_parallel_review_rules(prompts: dict[str, str], zh_prompts: dict[str, str]) -> None:
+    assert "Inspector or Custom review steps will run in parallel" in prompts["builder"]
+    assert "Inspector 或 Custom review step 并行检视" in zh_prompts["builder"]
+    assert "parallel review group" in prompts["inspector"]
+    assert "peer reviewers" in prompts["inspector"]
+    assert "Custom reviewer" in prompts["inspector"]
+    assert "并行 review 组" in zh_prompts["inspector"]
+    assert "其他 reviewer" in zh_prompts["inspector"]
+    assert "Custom reviewer" in zh_prompts["inspector"]
+    assert "places you in a parallel review group" in prompts["custom"]
+    assert "downstream GateKeeper can fan in" in prompts["custom"]
+    assert "把你放进并行 review 组" in zh_prompts["custom"]
+    assert "GateKeeper 可以和其他 review 分支一起汇总" in zh_prompts["custom"]
+    assert "parallel Inspector or Custom review steps" in prompts["gatekeeper"]
+    assert "all relevant review handoffs" in prompts["gatekeeper"]
+    assert "并行 Inspector 或 Custom review step" in zh_prompts["gatekeeper"]
+    assert "相关 review handoff" in zh_prompts["gatekeeper"]
+
+
+def _assert_prompt_bucket_rules(prompts: dict[str, str], zh_prompts: dict[str, str]) -> None:
     evidence_bucket_phrase = "Proven / Weak / Unproven / Blocking / Residual risk"
     evidence_bucket_zh_phrase = "已证明 / 弱证据 / 未证明 / 阻断 / 残余风险"
-    prompts = [
-        builder_prompt,
-        inspector_prompt,
-        custom_prompt,
-        guide_prompt,
-        gatekeeper_prompt,
-        benchmark_gatekeeper_prompt,
-    ]
-    zh_prompts = [
-        builder_zh_prompt,
-        inspector_zh_prompt,
-        custom_zh_prompt,
-        guide_zh_prompt,
-        gatekeeper_zh_prompt,
-        benchmark_gatekeeper_zh_prompt,
-    ]
-    for prompt in prompts:
+    for prompt in prompts.values():
         assert evidence_bucket_phrase in prompt
-    for prompt in zh_prompts:
+    for prompt in zh_prompts.values():
         assert evidence_bucket_zh_phrase in prompt
-    assert "run status is not a task pass" in gatekeeper_prompt
-    assert "run 正常结束不等于任务通过" in gatekeeper_zh_prompt
+
+
+def test_builtin_prompts_define_runtime_evidence_fallback_rules() -> None:
+    prompts, zh_prompts = _runtime_prompt_assets()
+
+    _assert_prompt_evidence_fallback_rules(prompts, zh_prompts)
+    _assert_prompt_parallel_review_rules(prompts, zh_prompts)
+    _assert_prompt_bucket_rules(prompts, zh_prompts)
+    assert "run status is not a task pass" in prompts["gatekeeper"]
+    assert "run 正常结束不等于任务通过" in zh_prompts["gatekeeper"]
     assert "downstream review steps run in a parallel_group" in system_prompt_prefix("builder")
     assert "this step is in a parallel_group" in system_prompt_prefix("inspector")
     assert "upstream reviewers ran in a parallel_group" in system_prompt_prefix("gatekeeper")

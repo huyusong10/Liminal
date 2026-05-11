@@ -12,7 +12,7 @@ class RepositoryRunSlotsMixin:
         query = """
             SELECT 1
             FROM loop_runs
-            WHERE workdir = ? AND status IN ('queued', 'running')
+            WHERE workdir = ? AND status IN ('queued', 'running', 'awaiting_agent')
             LIMIT 1
         """
         with self._connect() as connection:

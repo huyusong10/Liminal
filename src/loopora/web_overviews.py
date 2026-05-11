@@ -349,6 +349,7 @@ def _build_run_summary_snapshot(run: dict) -> dict:
     status_notes = {
         "queued": ("运行已创建，正在等待执行。", "The run is created and waiting to start."),
         "running": ("当前运行正在推进，下面的摘要会持续更新。", "This run is in progress and the summary will keep updating."),
+        "awaiting_agent": ("当前运行正在等待宿主 Agent 提交下一步结果。", "This run is waiting for the host Agent to submit the next step result."),
         "succeeded": ("这次运行已顺利结束。", "This run finished successfully."),
         "failed": ("这次运行已失败结束。", "This run finished with a failure."),
         "stopped": ("这次运行已被手动停止。", "This run was stopped manually."),

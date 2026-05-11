@@ -1113,13 +1113,13 @@ def test_tools_agent_adapter_installs_uninstalls_target_project_from_browser(tmp
             assert user_agents.read_text(encoding="utf-8") == "# User rules stay untouched\n"
             assert user_codex_config.read_text(encoding="utf-8") == 'model = "user-model"\n'
             assert user_claude_md.read_text(encoding="utf-8") == "# User Claude rules stay untouched\n"
-            assert user_claude_settings.read_text(encoding="utf-8") == '{"permissions": {"allow": []}}\n'
+            assert json.loads(user_claude_settings.read_text(encoding="utf-8")) == {"permissions": {"allow": []}}
             assert user_opencode_json.read_text(encoding="utf-8") == '{"model": "user/model"}\n'
             assert user_opencode_project_json.read_text(encoding="utf-8") == '{"permission": {"bash": "ask"}}\n'
 
             _exercise_browser_adapter_install_uninstall(page, "claude", claude_gen_skill, claude_loop_skill)
             assert user_claude_md.read_text(encoding="utf-8") == "# User Claude rules stay untouched\n"
-            assert user_claude_settings.read_text(encoding="utf-8") == '{"permissions": {"allow": []}}\n'
+            assert json.loads(user_claude_settings.read_text(encoding="utf-8")) == {"permissions": {"allow": []}}
 
             _exercise_browser_adapter_install_uninstall(page, "opencode", opencode_gen_command, opencode_loop_command)
             assert user_opencode_json.read_text(encoding="utf-8") == '{"model": "user/model"}\n'
@@ -2055,7 +2055,7 @@ def _assert_orchestration_loop_diagram_styles(page, base_url: str) -> None:
     assert 120 <= diagram_styles["svgHeight"] <= 260
 
 
-def _assert_new_orchestration_editor_interactions(page, base_url: str) -> None:
+def _load_repair_loop_starter(page, base_url: str) -> None:
     page.goto(f"{base_url}/orchestrations/new", wait_until="networkidle")
     assert page.get_by_test_id("workflow-step-row").count() == 0
     page.select_option("#workflow-starter-select", "repair_loop")
@@ -2063,6 +2063,8 @@ def _assert_new_orchestration_editor_interactions(page, base_url: str) -> None:
     assert page.get_by_test_id("workflow-step-row").count() == 6
     assert page.get_by_test_id("workflow-loop-parallel-group").count() >= 1
 
+
+def _assert_parallel_group_editor(page) -> None:
     first_inspector_card = page.get_by_test_id("workflow-step-row").nth(1)
     first_inspector_card.locator('[data-testid="workflow-step-settings-button"]').click()
     parallel_group_input = page.locator('[data-testid="workflow-settings-step-parallel-group"]')
@@ -2081,6 +2083,8 @@ def _assert_new_orchestration_editor_interactions(page, base_url: str) -> None:
     assert "parallel:repair_review_alt" in (first_inspector_card.text_content() or "")
     assert "parallel:repair_review_alt" in (second_inspector_card.text_content() or "")
 
+
+def _assert_builder_step_settings_editor(page) -> None:
     builder_card = page.get_by_test_id("workflow-step-row").nth(4)
     builder_card.click(position={"x": 160, "y": 84})
     assert builder_card.get_attribute("data-active") == "true"
@@ -2097,18 +2101,24 @@ def _assert_new_orchestration_editor_interactions(page, base_url: str) -> None:
     assert "gpt-5.4-mini" in (builder_card.text_content() or "")
     assert "--verbose" in (builder_card.text_content() or "")
 
+
+def _assert_loop_pill_selects_step(page) -> None:
     guide_pill = page.get_by_test_id("workflow-loop-pill").filter(has_text="Guide").first
     guide_pill.hover()
     assert page.get_by_test_id("workflow-step-row").nth(3).get_attribute("data-role-active") == "true"
     guide_pill.click()
     assert page.get_by_test_id("workflow-step-row").nth(3).get_attribute("data-active") == "true"
 
+
+def _assert_inspector_inherit_session_default(page) -> None:
     inspector_card = page.get_by_test_id("workflow-step-row").nth(1)
     inspector_card.locator('[data-testid="workflow-step-settings-button"]').click()
     assert page.locator('[data-testid="workflow-settings-step-inherit-session"]').is_checked() is False
     page.click('button[data-close-workflow-settings="1"]')
     page.wait_for_function("() => document.querySelector('[data-testid=\"workflow-step-settings-modal\"]')?.getAttribute('aria-hidden') === 'true'")
 
+
+def _assert_invalid_control_limit_validation(page) -> None:
     page.locator("#workflow-controls-json-input").fill(
         json.dumps(
             [
@@ -2147,6 +2157,15 @@ def _assert_new_orchestration_editor_interactions(page, base_url: str) -> None:
     page.get_by_test_id("save-orchestration-button").click()
     page.wait_for_selector("#form-error:not([hidden])")
     assert "max_fires_per_run" in (page.locator("#form-error").text_content() or "")
+
+
+def _assert_new_orchestration_editor_interactions(page, base_url: str) -> None:
+    _load_repair_loop_starter(page, base_url)
+    _assert_parallel_group_editor(page)
+    _assert_builder_step_settings_editor(page)
+    _assert_loop_pill_selects_step(page)
+    _assert_inspector_inherit_session_default(page)
+    _assert_invalid_control_limit_validation(page)
 
 
 def _assert_builtin_orchestration_step_settings_locked(page, base_url: str) -> None:

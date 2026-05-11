@@ -221,10 +221,10 @@ class ServiceWorkflowRuntimeMixin:
     def _evidence_known_ids(evidence_items: list[dict]) -> list[str]:
         return [str(item.get("id")) for item in evidence_items if isinstance(item, dict) and str(item.get("id") or "").strip()]
 
-    def _run_workflow_step(
+    def _prepare_workflow_step_request(
         self,
         request: WorkflowStepRuntimeRequest,
-    ) -> tuple[dict, dict, dict]:
+    ) -> dict[str, object]:
         runtime_request = request
         run = runtime_request.run
         layout = runtime_request.layout
@@ -376,6 +376,28 @@ class ServiceWorkflowRuntimeMixin:
             },
         )
         self._record_role_request(run["id"], role_request)
+        return {
+            "context_packet": context_packet,
+            "role_request": role_request,
+            "prompt": prompt_text,
+            "output_path": output_path,
+            "runtime_role": runtime_role,
+        }
+
+    def _run_workflow_step(
+        self,
+        request: WorkflowStepRuntimeRequest,
+    ) -> tuple[dict, dict, dict]:
+        runtime_request = request
+        run = runtime_request.run
+        iter_id = runtime_request.iter_id
+        step = runtime_request.step
+        step_order = runtime_request.step_order
+        role = runtime_request.role
+        prepared = self._prepare_workflow_step_request(request)
+        context_packet = prepared["context_packet"]
+        role_request = prepared["role_request"]
+        runtime_role = str(prepared["runtime_role"])
 
         def execute_request() -> dict:
             return runtime_request.executor.execute(

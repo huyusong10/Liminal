@@ -12,7 +12,7 @@ from loopora.utils import utc_now
 
 AGENT_ADAPTER_KINDS = ("codex", "claude", "opencode")
 IMPLEMENTED_AGENT_ADAPTERS = {"codex", "claude", "opencode"}
-ADAPTER_VERSION = 1
+ADAPTER_VERSION = 4
 CODEX_ADAPTER_VERSION = ADAPTER_VERSION
 CLAUDE_ADAPTER_VERSION = ADAPTER_VERSION
 OPENCODE_ADAPTER_VERSION = ADAPTER_VERSION
@@ -34,6 +34,20 @@ MANIFEST_RELATIVE_PATHS = {
     "opencode": OPENCODE_MANIFEST_RELATIVE_PATH,
 }
 MANIFEST_RELATIVE_PATH = CODEX_MANIFEST_RELATIVE_PATH
+CLAUDE_SETTINGS_RELATIVE_PATH = ".claude/settings.json"
+CLAUDE_SESSION_HOOK_RELATIVE_PATH = ".claude/hooks/loopora-session-context.py"
+CLAUDE_SESSION_HOOK_SETTINGS_REF = ".claude/settings.json#hooks.SessionStart.loopora"
+CLAUDE_SESSION_HOOK_COMMAND = 'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/loopora-session-context.py"'
+CLAUDE_SESSION_HOOK_GROUP = {
+    "matcher": "startup|resume|clear|compact",
+    "hooks": [
+        {
+            "type": "command",
+            "command": CLAUDE_SESSION_HOOK_COMMAND,
+            "timeout": 5,
+        }
+    ],
+}
 
 
 def normalize_agent_adapter_kind(value: str | None) -> str:
@@ -81,6 +95,7 @@ def install_agent_adapter(adapter: str, workdir: Path | str | None) -> dict[str,
     templates = _managed_templates(kind)
     marker = _managed_marker(kind)
     _assert_targets_are_replaceable(kind, root, templates)
+    _assert_host_config_is_replaceable(kind, root)
     written: list[dict[str, str]] = []
     for relative_path, content in templates.items():
         target = root / relative_path
@@ -94,6 +109,7 @@ def install_agent_adapter(adapter: str, workdir: Path | str | None) -> dict[str,
                 "sha256": _sha256_text(content),
             }
         )
+    _install_host_config(kind, root)
     manifest = _manifest_payload(kind, root, written)
     manifest_path = root / _manifest_relative_path(kind)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -144,6 +160,8 @@ def uninstall_agent_adapter(adapter: str, workdir: Path | str | None) -> dict[st
             _remove_empty_parents(root, target.parent)
         else:
             kept.append({"path": relative_path, "reason": "not_loopora_managed"})
+
+    removed.extend(_uninstall_host_config(kind, root))
 
     manifest_path = root / _manifest_relative_path(kind)
     if manifest_path.exists():
@@ -287,6 +305,13 @@ def _managed_adapter_status(kind: str, root: Path) -> dict[str, Any]:
             unmanaged_conflicts.append(relative_path)
         managed_files.append(file_payload)
 
+    host_config_state = _host_config_status(kind, root, manifest_exists=manifest_exists)
+    if host_config_state:
+        managed_files.append(host_config_state["payload"])
+        needs_update = needs_update or bool(host_config_state["needs_update"])
+        if host_config_state["unmanaged_conflict"]:
+            unmanaged_conflicts.append(host_config_state["payload"]["path"])
+
     if unmanaged_conflicts:
         status = "error"
         summary = f"{_adapter_label(kind)} adapter files exist but ownership is unclear"
@@ -428,6 +453,188 @@ def _assert_targets_are_replaceable(kind: str, root: Path, templates: dict[str, 
         )
 
 
+def _assert_host_config_is_replaceable(kind: str, root: Path) -> None:
+    if kind != "claude":
+        return
+    settings_path = root / CLAUDE_SETTINGS_RELATIVE_PATH
+    if not settings_path.exists():
+        return
+    _assert_claude_settings_can_merge_loopora_hook(_read_json_object(settings_path, label="Claude Code settings"))
+
+
+def _install_host_config(kind: str, root: Path) -> None:
+    if kind == "claude":
+        _install_claude_session_hook(root)
+
+
+def _uninstall_host_config(kind: str, root: Path) -> list[str]:
+    if kind != "claude":
+        return []
+    return _uninstall_claude_session_hook(root)
+
+
+def _host_config_status(kind: str, root: Path, *, manifest_exists: bool) -> dict[str, Any] | None:
+    if kind != "claude":
+        return None
+    payload: dict[str, Any] = {
+        "path": CLAUDE_SESSION_HOOK_SETTINGS_REF,
+        "exists": (root / CLAUDE_SETTINGS_RELATIVE_PATH).exists(),
+        "expected_sha256": "",
+        "actual_sha256": "",
+        "state": "missing",
+    }
+    try:
+        settings = _read_claude_settings(root)
+    except LooporaError as exc:
+        payload["state"] = "error"
+        payload["error"] = str(exc)
+        return {
+            "payload": payload,
+            "needs_update": False,
+            "unmanaged_conflict": manifest_exists,
+        }
+    try:
+        _assert_claude_settings_can_merge_loopora_hook(settings)
+    except LooporaError as exc:
+        payload["state"] = "error"
+        payload["error"] = str(exc)
+        return {
+            "payload": payload,
+            "needs_update": False,
+            "unmanaged_conflict": manifest_exists,
+        }
+    if _claude_settings_has_loopora_session_hook(settings):
+        payload["state"] = "current"
+        return {
+            "payload": payload,
+            "needs_update": False,
+            "unmanaged_conflict": False,
+        }
+    return {
+        "payload": payload,
+        "needs_update": manifest_exists,
+        "unmanaged_conflict": False,
+    }
+
+
+def _install_claude_session_hook(root: Path) -> None:
+    settings = _read_claude_settings(root)
+    updated = _remove_claude_session_hook(settings)
+    hooks = updated.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        raise LooporaConflictError("refusing to update Claude Code settings because hooks is not an object")
+    session_start = hooks.setdefault("SessionStart", [])
+    if not isinstance(session_start, list):
+        raise LooporaConflictError("refusing to update Claude Code settings because hooks.SessionStart is not a list")
+    session_start.append(json.loads(json.dumps(CLAUDE_SESSION_HOOK_GROUP)))
+    _write_claude_settings(root, updated)
+
+
+def _uninstall_claude_session_hook(root: Path) -> list[str]:
+    settings_path = root / CLAUDE_SETTINGS_RELATIVE_PATH
+    if not settings_path.exists():
+        return []
+    settings = _read_claude_settings(root)
+    updated = _remove_claude_session_hook(settings)
+    if updated == settings:
+        return []
+    if updated:
+        _write_claude_settings(root, updated)
+    else:
+        settings_path.unlink()
+        _remove_empty_parents(root, settings_path.parent)
+    return [CLAUDE_SESSION_HOOK_SETTINGS_REF]
+
+
+def _read_claude_settings(root: Path) -> dict[str, Any]:
+    settings_path = root / CLAUDE_SETTINGS_RELATIVE_PATH
+    if not settings_path.exists():
+        return {}
+    return _read_json_object(settings_path, label="Claude Code settings")
+
+
+def _read_json_object(path: Path, *, label: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise LooporaError(f"{label} is unreadable: {path}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise LooporaConflictError(f"{label} must be a JSON object: {path}")
+    return payload
+
+
+def _assert_claude_settings_can_merge_loopora_hook(settings: dict[str, Any]) -> None:
+    hooks = settings.get("hooks")
+    if hooks is not None and not isinstance(hooks, dict):
+        raise LooporaConflictError("refusing to update Claude Code settings because hooks is not an object")
+    if isinstance(hooks, dict):
+        session_start = hooks.get("SessionStart")
+        if session_start is not None and not isinstance(session_start, list):
+            raise LooporaConflictError("refusing to update Claude Code settings because hooks.SessionStart is not a list")
+
+
+def _write_claude_settings(root: Path, payload: dict[str, Any]) -> None:
+    settings_path = root / CLAUDE_SETTINGS_RELATIVE_PATH
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _remove_claude_session_hook(settings: dict[str, Any]) -> dict[str, Any]:
+    updated = json.loads(json.dumps(settings))
+    hooks = updated.get("hooks")
+    if not isinstance(hooks, dict):
+        return updated
+    session_start = hooks.get("SessionStart")
+    if not isinstance(session_start, list):
+        return updated
+
+    cleaned_groups: list[Any] = []
+    for group in session_start:
+        if not isinstance(group, dict):
+            cleaned_groups.append(group)
+            continue
+        handlers = group.get("hooks")
+        if not isinstance(handlers, list):
+            cleaned_groups.append(group)
+            continue
+        cleaned_handlers = [
+            handler
+            for handler in handlers
+            if not (isinstance(handler, dict) and str(handler.get("command") or "").strip() == CLAUDE_SESSION_HOOK_COMMAND)
+        ]
+        if cleaned_handlers:
+            cleaned_group = dict(group)
+            cleaned_group["hooks"] = cleaned_handlers
+            cleaned_groups.append(cleaned_group)
+
+    if cleaned_groups:
+        hooks["SessionStart"] = cleaned_groups
+    else:
+        hooks.pop("SessionStart", None)
+    if not hooks:
+        updated.pop("hooks", None)
+    return updated
+
+
+def _claude_settings_has_loopora_session_hook(settings: dict[str, Any]) -> bool:
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+    session_start = hooks.get("SessionStart")
+    if not isinstance(session_start, list):
+        return False
+    for group in session_start:
+        if not isinstance(group, dict):
+            continue
+        handlers = group.get("hooks")
+        if not isinstance(handlers, list):
+            continue
+        for handler in handlers:
+            if isinstance(handler, dict) and str(handler.get("command") or "").strip() == CLAUDE_SESSION_HOOK_COMMAND:
+                return True
+    return False
+
+
 def _read_manifest(kind: str, root: Path) -> tuple[dict[str, Any] | None, str]:
     path = root / _manifest_relative_path(kind)
     if not path.exists():
@@ -522,13 +729,26 @@ def _codex_managed_templates() -> dict[str, str]:
     return {
         ".agents/skills/loopora-gen/SKILL.md": _codex_loopora_gen_skill(),
         ".agents/skills/loopora-loop/SKILL.md": _codex_loopora_loop_skill(),
+        ".codex/agents/loopora-builder.toml": _codex_role_agent("builder"),
+        ".codex/agents/loopora-inspector.toml": _codex_role_agent("inspector"),
+        ".codex/agents/loopora-gatekeeper.toml": _codex_role_agent("gatekeeper"),
+        ".codex/agents/loopora-guide.toml": _codex_role_agent("guide"),
+        ".codex/agents/loopora-orchestrator.toml": _codex_role_agent("orchestrator"),
     }
 
 
 def _claude_managed_templates() -> dict[str, str]:
     return {
+        ".claude/commands/loopora-gen.md": _claude_loopora_gen_command(),
+        ".claude/commands/loopora-loop.md": _claude_loopora_loop_command(),
         ".claude/skills/loopora-gen/SKILL.md": _claude_loopora_gen_skill(),
         ".claude/skills/loopora-loop/SKILL.md": _claude_loopora_loop_skill(),
+        CLAUDE_SESSION_HOOK_RELATIVE_PATH: _claude_session_hook_script(),
+        ".claude/agents/loopora-builder.md": _claude_role_agent("builder"),
+        ".claude/agents/loopora-inspector.md": _claude_role_agent("inspector"),
+        ".claude/agents/loopora-gatekeeper.md": _claude_role_agent("gatekeeper"),
+        ".claude/agents/loopora-guide.md": _claude_role_agent("guide"),
+        ".claude/agents/loopora-orchestrator.md": _claude_role_agent("orchestrator"),
     }
 
 
@@ -536,7 +756,214 @@ def _opencode_managed_templates() -> dict[str, str]:
     return {
         ".opencode/commands/loopora-gen.md": _opencode_loopora_gen_command(),
         ".opencode/commands/loopora-loop.md": _opencode_loopora_loop_command(),
+        ".opencode/agents/loopora-builder.md": _opencode_role_agent("builder"),
+        ".opencode/agents/loopora-inspector.md": _opencode_role_agent("inspector"),
+        ".opencode/agents/loopora-gatekeeper.md": _opencode_role_agent("gatekeeper"),
+        ".opencode/agents/loopora-guide.md": _opencode_role_agent("guide"),
+        ".opencode/agents/loopora-orchestrator.md": _opencode_role_agent("orchestrator"),
     }
+
+
+def _role_agent_description(role: str) -> str:
+    return {
+        "builder": "Execute Loopora Builder step capsules, make allowed workspace changes, and return structured proof-oriented output.",
+        "inspector": "Execute Loopora Inspector step capsules, gather evidence, and return structured inspection output.",
+        "gatekeeper": "Execute Loopora GateKeeper step capsules, judge only from routed evidence, and return the final structured verdict.",
+        "guide": "Execute Loopora Guide step capsules, convert blockers or weak evidence into a minimal repair direction, and return structured guidance.",
+        "orchestrator": "Dispatch Loopora step capsules to the required native role agent and preserve verifiable host dispatch metadata.",
+    }.get(role, "Execute a Loopora step capsule and return structured output.")
+
+
+def _role_agent_body(role: str) -> str:
+    if role == "orchestrator":
+        return """You are the Loopora Orchestrator agent.
+
+You do not perform Builder, Inspector, GateKeeper, or Guide work yourself. For each Loopora next_step capsule, read next_step.role_dispatch.target_agent and invoke that exact host-native role agent or task agent. If the host cannot invoke the named agent, stop and report the missing native dispatch capability instead of submitting inline work.
+
+When the role agent returns, preserve its structured result and dispatch metadata. Submit a wrapper JSON with `loopora_host_dispatch` and `result`; the `result` object must match next_step.output_schema exactly, while `loopora_host_dispatch.actual_agent` and `.target_agent` must both equal next_step.role_dispatch.target_agent.
+"""
+    label = role.capitalize() if role != "gatekeeper" else "GateKeeper"
+    return f"""You are the Loopora {label} role agent.
+
+Use only the step capsule provided by Loopora as the stable contract for this invocation. Respect the capsule's action_policy, run contract, output schema, evidence refs, and context paths.
+
+Return exactly one wrapper JSON object with `loopora_host_dispatch` and `result`. The `result` object must match the capsule's output_schema exactly. Do not change the frozen Loopora run contract. If the task contract is wrong or evidence is missing, report that as blocker, weak evidence, or residual risk in the structured output instead of silently relaxing the bar.
+
+The `loopora_host_dispatch` object is your native-dispatch proof. Set `schema_version` to 1, `adapter` to the capsule adapter, `run_id` and `step_id` to the capsule values, `target_agent` and `actual_agent` to the exact agent name that invoked you, `dispatch_mode` to `host_subagent`, `host_task`, or `host_agent`, `inline` to false, and `attestation` to a short statement that the host invoked this named role agent rather than doing the role work inline.
+
+Follow any evidence_rules in the capsule as hard constraints. In particular, every evidence_refs value, including coverage_results evidence_refs, must be an exact string copied from known_evidence_ids. Do not invent, suffix, split, or derive new evidence IDs. A GateKeeper pass must cite supporting upstream evidence already known to Loopora, and Loopora Core derives its own finish coverage after submission. For GateKeeper, use the schema's `passed` boolean and `decision_summary`; do not return a `verdict` / `task_verdict` wrapper. Put artifact labels, filenames, and finer-grained observations in evidence_claims or notes, not in evidence_refs.
+
+Do not launch codex, claude, or opencode from inside this role. The host Agent is already the execution subject; Loopora only needs the wrapper JSON submitted back through loopora agent <adapter> submit.
+"""
+
+
+def _codex_role_agent(role: str) -> str:
+    return f"""# {MANAGED_MARKER} version={CODEX_ADAPTER_VERSION} role={role}
+
+name = "loopora-{role}"
+description = "{_role_agent_description(role)}"
+developer_instructions = \"\"\"
+{_role_agent_body(role).rstrip()}
+\"\"\"
+"""
+
+
+def _claude_role_frontmatter(role: str) -> str:
+    if role == "orchestrator":
+        return """tools: Task, Read, Write, Bash
+maxTurns: 20"""
+    if role == "builder":
+        return """tools: Read, Glob, Grep, Bash, Write, Edit, MultiEdit
+maxTurns: 20"""
+    return """tools: Read, Glob, Grep, Bash
+maxTurns: 12"""
+
+
+def _claude_role_agent(role: str) -> str:
+    return f"""---
+name: loopora-{role}
+description: "{_role_agent_description(role)}"
+{_claude_role_frontmatter(role)}
+---
+
+<!-- {CLAUDE_MANAGED_MARKER} version={CLAUDE_ADAPTER_VERSION} role={role} -->
+
+# Loopora {role.capitalize() if role != "gatekeeper" else "GateKeeper"}
+
+{_role_agent_body(role)}
+"""
+
+
+def _opencode_role_frontmatter(role: str) -> str:
+    if role == "orchestrator":
+        return """mode: subagent
+permission:
+  task:
+    "*": deny
+    loopora-builder: allow
+    loopora-inspector: allow
+    loopora-gatekeeper: allow
+    loopora-guide: allow"""
+    return """mode: subagent
+permission:
+  task: deny"""
+
+
+def _opencode_role_agent(role: str) -> str:
+    return f"""---
+description: "{_role_agent_description(role)}"
+{_opencode_role_frontmatter(role)}
+---
+
+<!-- {OPENCODE_MANAGED_MARKER} version={OPENCODE_ADAPTER_VERSION} role={role} -->
+
+# Loopora {role.capitalize() if role != "gatekeeper" else "GateKeeper"}
+
+{_role_agent_body(role)}
+"""
+
+
+def _claude_session_hook_script() -> str:
+    return f"""#!/usr/bin/env python3
+# {CLAUDE_MANAGED_MARKER} version={CLAUDE_ADAPTER_VERSION} file=loopora-session-context
+from __future__ import annotations
+
+import json
+import os
+import shlex
+import sys
+
+
+def _main() -> int:
+    try:
+        payload = json.loads(sys.stdin.read() or "{{}}")
+    except json.JSONDecodeError:
+        payload = {{}}
+    if not isinstance(payload, dict):
+        payload = {{}}
+
+    session_id = str(payload.get("session_id") or "").strip()
+    transcript_path = str(payload.get("transcript_path") or "").strip()
+    context_id = session_id or transcript_path
+    env_file = os.environ.get("CLAUDE_ENV_FILE", "").strip()
+    if env_file and context_id:
+        with open(env_file, "a", encoding="utf-8") as handle:
+            handle.write(f"export CLAUDE_SESSION_ID={{shlex.quote(context_id)}}\\n")
+            handle.write(f"export LOOPORA_AGENT_SESSION_ID={{shlex.quote(context_id)}}\\n")
+        if transcript_path:
+            with open(env_file, "a", encoding="utf-8") as handle:
+                handle.write(f"export LOOPORA_CLAUDE_TRANSCRIPT_PATH={{shlex.quote(transcript_path)}}\\n")
+
+    output = {{
+        "hookSpecificOutput": {{
+            "hookEventName": "SessionStart",
+            "additionalContext": "Loopora session identity is registered for Loopora-managed commands.",
+        }}
+    }}
+    print(json.dumps(output, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
+"""
+
+
+def _agent_native_loop_body(*, adapter: str, marker_source: str, context_arg: str = "") -> str:
+    context_bits = f" {context_arg}" if context_arg else ""
+    return f"""Start or reuse the Loopora-managed run for the READY bundle associated with this session or workdir.
+
+## Required path
+
+1. Run:
+
+```bash
+LOOPORA_AGENT_ENTRY_SOURCE={marker_source} loopora agent {adapter} loop --workdir "$PWD"{context_bits} --entry-source {marker_source} --json
+```
+
+2. Read the returned JSON. It contains `run_url` and, unless the run is already complete, `next_step`.
+3. Act as the Loopora Orchestrator. Do not perform role work inline. Read `next_step.role_dispatch.target_agent` and invoke that exact host-native role agent / task agent:
+   - builder step -> `loopora-builder`
+   - inspector/custom step -> `loopora-inspector`
+   - gatekeeper step -> `loopora-gatekeeper`
+   - guide step -> `loopora-guide`
+4. Treat `next_step.output_schema`, `next_step.evidence_rules`, `next_step.evidence_ref_contract`, and `next_step.role_dispatch` as the result contract. If the host cannot invoke the required role agent, stop and report that native dispatch is unavailable rather than submitting inline work.
+5. Save one wrapper JSON object under `.loopora/agent_outbox/{adapter}/`, then submit it. The wrapper must have exactly this shape:
+
+```json
+{{
+  "loopora_host_dispatch": {{
+    "schema_version": 1,
+    "adapter": "{adapter}",
+    "run_id": "<run-id>",
+    "step_id": "<step-id>",
+    "target_agent": "<next_step.role_dispatch.target_agent>",
+    "actual_agent": "<same exact agent name>",
+    "dispatch_mode": "host_subagent",
+    "inline": false,
+    "attestation": "The host invoked the named Loopora role agent for this step."
+  }},
+  "result": {{ "...": "must match next_step.output_schema exactly" }}
+}}
+```
+
+For GateKeeper, `result` means `passed`, `decision_summary`, `evidence_refs`, and the other schema fields, not a `verdict` / `task_verdict` envelope. Any `evidence_refs` list must contain only exact IDs copied from `next_step.known_evidence_ids`; never create derived IDs such as `<known-id>_binding` or `<known-id>_output`:
+
+```bash
+LOOPORA_AGENT_ENTRY_SOURCE={marker_source} loopora agent {adapter} submit --workdir "$PWD"{context_bits} --run-id <run-id> --step-id <step-id> --result-file <result-json> --entry-source {marker_source} --json
+```
+
+6. If the submit response returns another `next_step`, repeat native role dispatch and submit. Stop only when `complete` is true or Loopora returns a domain error.
+
+Copy the Loopora commands with `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source`; those markers prove this run came from the Loopora-managed Agent entry.
+
+## Boundaries
+
+- If the command says no READY bundle is associated with this session/workdir, tell the user to run `/loopora-gen` first.
+- Do not create a bundle implicitly from `/loopora-loop`.
+- Do not bypass Loopora's bundle import, run lifecycle, evidence ledger, or GateKeeper verdict.
+- Do not launch `codex`, `claude`, or `opencode` from inside this entry. The current host Agent must dispatch to the named host-native Loopora role agent and submit wrapper JSON to Loopora.
+"""
 
 
 def _codex_loopora_gen_skill() -> str:
@@ -585,25 +1012,7 @@ description: "Use when the user invokes /loopora-loop or asks Codex to start or 
 
 # Loopora Loop
 
-Start or reuse the Loopora-managed run for the READY bundle associated with this Codex session or workdir.
-
-## Required path
-
-Run:
-
-```bash
-LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex loop --workdir "$PWD" --entry-source codex_project_skill
-```
-
-Then report the returned run or Loop URL and continue work under the Loopora governance context shown there.
-
-Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source`; those markers prove this run came from the Loopora-managed Codex entry.
-
-## Boundaries
-
-- If the command says no READY bundle is associated with this session/workdir, tell the user to run `/loopora-gen` first.
-- Do not create a bundle implicitly from `/loopora-loop`.
-- Do not bypass Loopora's bundle import, run lifecycle, evidence ledger, or GateKeeper verdict.
+{_agent_native_loop_body(adapter="codex", marker_source="codex_project_skill").rstrip()}
 """
 
 
@@ -650,32 +1059,42 @@ def _claude_loopora_loop_skill() -> str:
 name: loopora-loop
 description: "Start or reuse the Loopora-managed run for the READY bundle associated with this Claude Code task. Invoke manually after /loopora-gen."
 disable-model-invocation: true
-allowed-tools: "Bash(loopora agent claude loop *) Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude loop *)"
+allowed-tools: "Bash(loopora agent claude loop *) Bash(loopora agent claude next *) Bash(loopora agent claude submit *) Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude *) Task"
 ---
 
 <!-- {CLAUDE_MANAGED_MARKER} version={CLAUDE_ADAPTER_VERSION} file=loopora-loop -->
 
 # Loopora Loop
 
-Start or reuse the Loopora-managed run for the READY bundle associated with this Claude Code session or workdir.
+{_agent_native_loop_body(adapter="claude", marker_source="claude_project_skill", context_arg='--context-id "${CLAUDE_SESSION_ID}"').rstrip()}
+"""
 
-## Required path
 
-Run:
+def _claude_loopora_gen_command() -> str:
+    return f"""---
+description: Generate a Loopora candidate Loop from the current Claude Code task without starting a run.
+allowed-tools: Bash(loopora agent claude gen *), Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen *)
+---
 
-```bash
-LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude loop --workdir "$PWD" --context-id "${{CLAUDE_SESSION_ID}}" --entry-source claude_project_skill
-```
+<!-- {CLAUDE_MANAGED_MARKER} version={CLAUDE_ADAPTER_VERSION} file=loopora-gen-command -->
 
-Then report the returned run or Loop URL and continue work under the Loopora governance context shown there.
+# Loopora Gen
 
-Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`, and `--entry-source`; those markers prove this run came from the Loopora-managed Claude Code entry.
+Follow `.claude/skills/loopora-gen/SKILL.md` in this project. Preserve its `LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill` and `--entry-source claude_project_skill` provenance markers.
+"""
 
-## Boundaries
 
-- If the command says no READY bundle is associated with this session/workdir, tell the user to run `/loopora-gen` first.
-- Do not create a bundle implicitly from `/loopora-loop`.
-- Do not bypass Loopora's bundle import, run lifecycle, evidence ledger, or GateKeeper verdict.
+def _claude_loopora_loop_command() -> str:
+    return f"""---
+description: Start or reuse the Loopora-managed run for the READY bundle associated with this Claude Code task.
+allowed-tools: Bash(loopora agent claude loop *), Bash(loopora agent claude next *), Bash(loopora agent claude submit *), Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude *), Task
+---
+
+<!-- {CLAUDE_MANAGED_MARKER} version={CLAUDE_ADAPTER_VERSION} file=loopora-loop-command -->
+
+# Loopora Loop
+
+{_agent_native_loop_body(adapter="claude", marker_source="claude_project_skill", context_arg='--context-id "${CLAUDE_SESSION_ID}"').rstrip()}
 """
 
 
@@ -722,30 +1141,13 @@ Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`
 def _opencode_loopora_loop_command() -> str:
     return f"""---
 description: Start or reuse the Loopora-managed run for the READY bundle associated with this OpenCode task.
-agent: build
+agent: loopora-orchestrator
+subtask: true
 ---
 
 <!-- {OPENCODE_MANAGED_MARKER} version={OPENCODE_ADAPTER_VERSION} file=loopora-loop -->
 
 # Loopora Loop
 
-Start or reuse the Loopora-managed run for the READY bundle associated with this OpenCode session or workdir.
-
-## Required path
-
-Run:
-
-```bash
-LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command loopora agent opencode loop --workdir "$PWD" --context-id "${{OPENCODE_SESSION_ID:-}}" --entry-source opencode_project_command
-```
-
-Then report the returned run or Loop URL and continue work under the Loopora governance context shown there.
-
-Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`, and `--entry-source`; those markers prove this run came from the Loopora-managed OpenCode command.
-
-## Boundaries
-
-- If the command says no READY bundle is associated with this session/workdir, tell the user to run `/loopora-gen` first.
-- Do not create a bundle implicitly from `/loopora-loop`.
-- Do not bypass Loopora's bundle import, run lifecycle, evidence ledger, or GateKeeper verdict.
+{_agent_native_loop_body(adapter="opencode", marker_source="opencode_project_command", context_arg='--context-id "${OPENCODE_SESSION_ID:-}"').rstrip()}
 """

@@ -119,7 +119,7 @@ class RepositoryRunRecordsMixin:
     def list_active_runs(self) -> list[dict]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM loop_runs WHERE status IN ('queued', 'running') ORDER BY created_at DESC"
+                "SELECT * FROM loop_runs WHERE status IN ('queued', 'running', 'awaiting_agent') ORDER BY created_at DESC"
             ).fetchall()
         return [self._decode_row(row) for row in rows]
 

@@ -30,7 +30,7 @@ def _register_home_and_create_pages(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
         loops = [_decorate_loop_overview(loop) for loop in ctx.svc().list_loops()]
-        active_loops = [loop for loop in loops if loop.get("latest_status") in {"queued", "running"}]
+        active_loops = [loop for loop in loops if loop.get("latest_status") in {"queued", "running", "awaiting_agent"}]
         active_loop_ids = {loop.get("id") for loop in active_loops}
         recent_loops = [loop for loop in loops if loop.get("latest_run_id") and loop.get("id") not in active_loop_ids][:6]
         return ctx.templates.TemplateResponse(

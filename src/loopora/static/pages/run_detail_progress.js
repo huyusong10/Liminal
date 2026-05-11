@@ -360,7 +360,7 @@
     }
 
     function runIsActive(run) {
-      return ["queued", "running"].includes(run?.status || "");
+      return ["queued", "running", "awaiting_agent"].includes(run?.status || "");
     }
 
     function getCurrentStage(run = getCurrentRun()) {
@@ -368,7 +368,7 @@
         return "checks";
       }
       const checksResolved = latestProgressEventOfType("checks_resolved");
-      if (run.status === "queued" || (!checksResolved && runIsActive(run))) {
+      if (run.status === "queued" || run.status === "awaiting_agent" || (!checksResolved && runIsActive(run))) {
         return "checks";
       }
       if (run.status === "succeeded") {
@@ -407,11 +407,15 @@
       } else if (currentStage === "checks" && runIsActive(run)) {
         snapshots.checks = {
           state: "current",
-          stateLabel: run?.status === "queued" ? localeText("排队中", "Queued") : localeText("处理中", "Active"),
+          stateLabel: run?.status === "queued"
+            ? localeText("排队中", "Queued")
+            : (run?.status === "awaiting_agent" ? localeText("等待 Agent", "Awaiting Agent") : localeText("处理中", "Active")),
           durationLabel: formatStageDuration(checksLiveMs) || localeText("刚开始", "Just started"),
           meta: run?.status === "queued"
             ? localeText("等待执行槽", "Waiting for a slot")
-            : localeText("正在整理检查集", "Resolving checks"),
+            : (run?.status === "awaiting_agent"
+              ? localeText("宿主 Agent 正在执行或准备提交下一步结果。", "The host Agent is working on or preparing to submit the next step result.")
+              : localeText("正在整理检查集", "Resolving checks")),
         };
       } else if (runFinished && checksResolvedTs === null) {
         snapshots.checks = {
@@ -436,7 +440,7 @@
         const totalMs = attempts.reduce((total, attempt) => total + attemptDurationMs(attempt), 0);
         const completedCount = attempts.filter((attempt) => Boolean(attempt.handoffAt || attempt.ok === true)).length;
 
-        if (currentStage === stage.key && run?.status === "running") {
+        if (currentStage === stage.key && (run?.status === "running" || run?.status === "awaiting_agent")) {
           const startedAt = parseTimestamp(latestAttempt?.startedAt || currentWorkflowStepEvent(run)?.created_at || run?.started_at);
           const liveMs = startedAt === null ? null : Math.max(0, Date.now() - startedAt);
           snapshots[stage.key] = {
@@ -595,6 +599,15 @@
           duration: snapshots[stage]?.durationLabel || (stageStart ? formatDuration(stageStart.created_at, null) : formatDuration(run?.started_at, null)),
           metaLeft: localeText(`第 ${displayIter(run?.current_iter)} 轮 · ${stageDisplayName(stage, run)}`, `Round ${displayIter(run?.current_iter)} · ${stageDisplayName(stage, run)}`),
           metaRight: latestSignal,
+        };
+      }
+      if (status === "awaiting_agent") {
+        return {
+          title: localeText("等待宿主 Agent 提交结果", "Waiting for host Agent result"),
+          detail: localeText("Loopora 已冻结下一步上下文；宿主 Agent 完成该角色后会把结构化结果提交回来。", "Loopora has frozen the next-step context; the host Agent will submit structured output after completing that role."),
+          duration: snapshots[stage]?.durationLabel || formatDuration(run?.started_at, null),
+          metaLeft: localeText(`第 ${displayIter(run?.current_iter)} 轮 · ${stageDisplayName(stage, run)}`, `Round ${displayIter(run?.current_iter)} · ${stageDisplayName(stage, run)}`),
+          metaRight: formatRelativeAge(run?.updated_at),
         };
       }
       const latestEvent = deps.summarizeLatestEvent ? deps.summarizeLatestEvent() : {

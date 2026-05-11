@@ -99,7 +99,7 @@ def _preflight_loop_delete(repository, bundle_id: str, links: BundleGraphLinks, 
         )
 
     runs = repository.list_runs_for_loop(links.loop_id, limit=5000)
-    active_runs = [str(run["id"]) for run in runs if run.get("status") in {"queued", "running"}]
+    active_runs = [str(run["id"]) for run in runs if run.get("status") in {"queued", "running", "awaiting_agent"}]
     if active_runs:
         raise LooporaConflictError(f"cannot delete bundle with active loop runs: {', '.join(active_runs)}")
 
