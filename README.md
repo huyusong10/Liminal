@@ -15,17 +15,17 @@
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-D66A36">
 </p>
 
+**Loopora compiles repeated human judgment into runnable Loop structure for long-running AI Agent tasks.**
+
 New to Loopora? Start with the philosophy: [Human-Shaped Loop](./docs/human-shaped-loop.md).
 
-Loopora is a local-first platform for composing **human-shaped Loops** for long-running AI Agent tasks.
+## The One-Sentence Pitch
 
-Its core question is simple:
+> Can the judgment a human would repeat later be shaped *before* the loop starts?
 
-> Can the judgment a human would repeat later be shaped before the loop starts?
+If yes, Loopora turns that judgment into a runnable Loop: a task contract, role responsibilities, workflow gates, evidence flow, and a verdict surface that an Agent can iterate inside—without drifting.
 
-If yes, Loopora turns that judgment into a runnable Loop: a task contract, role responsibilities, workflow gates, evidence flow, and a verdict surface that an Agent can iterate inside.
-
-## Do You Need Loopora At All?
+## Do You Need It?
 
 Start with the negative question:
 
@@ -35,37 +35,43 @@ If yes, do not use Loopora. Direct Agent work is cheaper.
 
 Loopora is for the moment when "ask the Agent again" stops being the right abstraction. The missing piece is no longer effort. It is the repeated human judgment that decides whether each round is real progress, fake progress, acceptable risk, or a reason to redirect.
 
-Use a text gate first:
+**The gate:**
 
-1. If one Agent pass plus one review is enough, skip Loopora.
-2. If humans would not keep returning after key rounds, direct Agent work or a simple loop is usually enough.
-3. If future judgment cannot be shaped before the run, keep humans in the live loop.
-4. If future judgment repeats and can be shaped ahead of time, compose a human-shaped Loop.
+| # | Question | If yes... |
+|---|----------|-----------|
+| 1 | One Agent pass + one review enough? | **Skip Loopora.** |
+| 2 | Humans would not keep returning after key rounds? | Direct Agent or a simple loop is enough. |
+| 3 | Future judgment cannot be shaped before the run? | Keep humans in the live loop. |
+| 4 | Future judgment repeats and can be shaped ahead of time? | **Compose a human-shaped Loop.** |
 
-## What Are We Trying To Save?
+## What It Saves
 
-Loopora does not try to save human judgment itself.
-
-It tries to save the repeated moments where humans are pulled back into a long task to ask the same kinds of questions:
+Not judgment itself. It saves the *repeated moments* where humans are pulled back into a long task to ask the same questions:
 
 - Did this round prove the right thing?
 - Is the result truly done, or only locally plausible?
 - Did the Agent silently lower the acceptance standard?
 - Which evidence should be trusted?
-- Which risk is acceptable, and which risk must block?
+- Which risk is acceptable, and which must block?
 - Should the next round build, inspect, repair, narrow scope, or stop?
 
-When those questions repeat, the bottleneck is no longer generation. The bottleneck is repeatedly applying human judgment.
+When those questions repeat, the bottleneck is no longer generation. It is repeatedly applying human judgment.
 
 Loopora moves that judgment earlier:
 
-> human-in-the-loop -> human-shaped loop
+```
+human-in-the-loop  →  human-shaped loop
+```
 
 Humans do not disappear. They move from live per-round correction to Loop design and evidence audit.
 
-## Why Is A Simple Loop Not Enough?
+<p align="center">
+  <img src="./docs/assets/diagrams/time-shift.en.svg" alt="Human judgment moves from live correction to prior loop design" width="1000" />
+</p>
 
-Simple loops extend time. They can be excellent when the task has hard external validation: benchmarks, contract tests, schema checks, lint, type checks, or a proof harness.
+## Why a Simple Loop Is Not Enough
+
+Simple loops extend time. They excel when the task has hard external validation: benchmarks, contract tests, schema checks, lint, type checks, or a proof harness.
 
 But without governance, a loop is a blind box. Early error can be inherited, amplified, and rationalized by later rounds. The result may become more complete, more coherent, and still wrong.
 
@@ -74,29 +80,31 @@ Loopora's goal is not "more rounds." Its goal is slower error accumulation.
 > A loop without governance is a blind box. A governed Loop is an error decelerator.
 
 <p align="center">
+  <img src="./docs/assets/diagrams/error-cascade.en.svg" alt="Early error gets inherited and polished across rounds" width="1000" />
+</p>
+
+<p align="center">
   <img src="./docs/assets/diagrams/governed-loop.en.svg" alt="Comparison between a naive loop and a governed human-shaped Loop" width="1000" />
 </p>
 
-## What Does Loopora Compile?
+## What Loopora Compiles
 
-Loopora's user-facing object is a **Loop**.
-
-A Loop is not a longer prompt. It is the runnable shape of how this task should be judged.
+A **Loop** is not a longer prompt. It is the runnable shape of how this task should be judged.
 
 | Surface | Job |
-| --- | --- |
-| `spec` | Defines scope, success, fake done, guardrails, evidence preference, and residual risk |
-| `roles` | Defines how each AI Agent role should build, inspect, gate, or redirect for this task |
-| `workflow` | Defines order, handoff, evidence routing, automatic iteration, controls, and stop conditions |
-| `evidence` | Records what each run changed, checked, proved, failed to prove, and decided |
+|---------|-----|
+| `spec` | Scope, success, fake done, guardrails, evidence preference, residual risk |
+| `roles` | How each AI Agent role should build, inspect, gate, or redirect |
+| `workflow` | Order, handoff, evidence routing, automatic iteration, controls, stop conditions |
+| `evidence` | What each run changed, checked, proved, failed to prove, and decided |
 
-Internally, Loopora can store or exchange a Loop as a YAML **bundle**. Users do not need to start there. The Web UI helps you describe the task, answer Loop-shaping questions, preview the governance surfaces, and create a run only after the candidate Loop validates.
+Internally, Loopora stores or exchanges a Loop as a YAML **bundle**. Users do not need to start there. The Web UI guides you through task description, Loop-shaping questions, preview of the governance surfaces, and run creation only after the candidate Loop validates.
 
 <p align="center">
   <img src="./docs/assets/diagrams/judgment-compiler.en.svg" alt="Loopora compiles tacit judgment into spec, roles, workflow, evidence, and verdicts" width="1000" />
 </p>
 
-## Why Not Let The Model Learn This?
+## Why Not Let the Model Learn This
 
 The model should learn general capability: coding, reasoning, tool use, planning, language, and broad patterns.
 
@@ -111,9 +119,7 @@ Those judgments should be explicit, previewable, editable, exportable, and dispo
 
 > The model learns general capability. The Loop learns how this task should be judged.
 
-## What Changes In A Real Task?
-
-Suppose you say:
+## A Real Example
 
 > Build an English learning website.
 
@@ -137,39 +143,30 @@ Builder
 
 The Agent can still create, inspect, and repair. The difference is that "done" is no longer whatever the last message can plausibly claim. Done must be supported by the evidence the Loop asked for.
 
-## What Is The Five-Minute Path?
+## Five-Minute Path
 
 Loopora can become powerful, but first use must stay simple:
 
-> describe the task, choose a workdir, confirm the Loop, run it, inspect evidence.
+> describe the task → choose a workdir → confirm the Loop → run → inspect evidence
 
 Advanced features such as parallel Inspectors, evidence routing, workflow controls, trigger rules, and provider-specific execution are compiled into the plan only when they help control long-task error. They are not concepts a new user must configure up front.
 
-In practice, the first path should stay plain and low-friction: describe the task, answer the few questions that change the Loop, preview `spec`, `roles`, and `workflow`, create the run, then inspect evidence and verdict.
+## When Should You Use It
 
-## When Should You Use It?
+Ask in order:
 
-Ask the questions in order:
-
-1. **Would one Agent pass plus one human review be enough?**
-   If yes, skip Loopora.
-
-2. **Would a human otherwise return after meaningful rounds to judge what happened?**
-   If no, a simple loop or direct Agent work may be enough.
-
-3. **Will the next round create new evidence?**
-   If no, more looping only creates drift.
-
-4. **Is the judgment hard to reduce to one stable benchmark?**
-   If it can be benchmarked cleanly, use the benchmark first. Loopora can govern the benchmark path, but should not replace simple proof.
-
-5. **Is fake done likely?**
-   Loopora is most useful when a result can look done while the core loop, root cause, contract, evidence, or risk posture is not solid.
-
-6. **Should this judgment survive one chat?**
-   If the way of judging the task should be inherited by a run, exported, reused, or audited, it may deserve a Loop.
+1. **One Agent pass + one review enough?** If yes, skip.
+2. **Would a human otherwise return after meaningful rounds to judge what happened?** If no, direct Agent or a simple loop may be enough.
+3. **Will the next round create new evidence?** If no, more looping only creates drift.
+4. **Is the judgment hard to reduce to one stable benchmark?** If benchmarkable, use the benchmark first.
+5. **Is fake done likely?** Loopora is most useful when a result can look done while the core loop, root cause, contract, evidence, or risk posture is not solid.
+6. **Should this judgment survive one chat?** If the way of judging the task should be inherited, exported, reused, or audited, it may deserve a Loop.
 
 Loopora is not for "all complex tasks." It is for long tasks where human judgment would repeat, evidence changes across rounds, and fake completion is worth blocking.
+
+<p align="center">
+  <img src="./docs/assets/diagrams/autonomy-multiplication.en.svg" alt="Agent autonomy depends on judgment structure, evidence feedback, and error exposure speed" width="1000" />
+</p>
 
 ## Quick Start
 
@@ -193,16 +190,14 @@ Open [http://127.0.0.1:8742](http://127.0.0.1:8742), choose **Compose**, select 
 
 In the local Web UI:
 
-1. **Loops** is the daily workspace for saved Loops, active Loop activity, and latest runs.
-2. **Compose** opens the chat-first Loop composition workbench.
+1. **Loops** — daily workspace for saved Loops, active activity, and latest runs.
+2. **Compose** — chat-first Loop composition workbench.
 3. Loopora calls your local AI Agent CLI and asks only questions that change the Loop.
 4. READY Loops show the task contract, roles, workflow diagram, and source file action.
 5. **Create and run** materializes the Loop and starts the run.
 6. **Library** keeps plan files, role definitions, and flow library entries for expert reuse.
 
-Manual creation remains available for expert users who already know which `spec`, `roles`, or `workflow` surface they want to edit.
-
-Importing YAML or asking an Agent to improve an existing bundle are also Loop composition scenarios. They are useful, but they are not the main product workflow; after a candidate Loop is validated, it still enters the same run, evidence, and verdict path.
+Manual creation remains available for expert users who already know which `spec`, `roles`, or `workflow` surface they want to edit. Importing YAML or asking an Agent to improve an existing bundle are also composition scenarios; after validation, they enter the same run, evidence, and verdict path.
 
 ## Expert YAML Path
 

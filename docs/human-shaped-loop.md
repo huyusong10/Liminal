@@ -4,293 +4,332 @@
 
 Loopora starts from a very ordinary desire: laziness.
 
-The dream is simple. Before work, you give an Agent a long task. When you come back later, the task is mostly done. It may have some error, but not too much. It may leave residual risk, but it should not package unproven work as done.
+More precisely, it's the unwillingness to sit at your desk, wait for an Agent to finish one round, point out what's wrong, and nudge it to fix it.
 
-That kind of laziness is not about cutting corners. What we want to save is not human judgment itself. We want to save the repeated moments where humans are pulled back into a long task to make the same kind of judgment again.
+The ideal is simple: before work, you hand a long task to an Agent. When you come back, the result is mostly there. It should do a bit more on its own, consider a few more edge cases. It can have error, but it shouldn't drift too far. It can leave residual risk, but it must not package unproven work as done.
 
-To see the problem, start with a real business-shaped task.
+The "laziness" here is not about avoiding judgment. It's about not making the same kind of judgment a dozen times over.
 
-## 1. A Task That Looks Perfect For An Agent
+What we actually want to save are those recurring moments in a long task when a human has to come back, round after round, to correct, verify, accept, or block.
 
-Imagine a B2B SaaS company with too many support tickets about refunds.
+To understand this, don't start with Loopora. Start with a story.
 
-The team wants a self-service refund flow. A customer admin should be able to open the billing page, see whether an order is eligible, request a refund, and get a clear result. If something is risky, the flow should hand off to support.
+## 1. A Case Study: Looks Done, Still Can't Ship
 
-This sounds like a good Agent task:
+### 1.1 A Task That Looks Perfect For An Agent
 
-- there is a product surface to build
-- there are business rules to encode
-- there are tests to add
-- there are edge cases to discover
-- there is enough work that one pass may not be enough
+Imagine a B2B SaaS company whose support team is drowning in refund tickets.
+
+The team decides to build a self-service refund flow: a customer admin opens the billing page, sees whether an order is eligible, submits a refund request, and gets a clear result. If an order looks risky, the flow hands it off to support.
+
+This sounds like a good fit for a Coding Agent:
+
+- there is a product surface to build.
+- there are business rules to encode.
+- there are tests to add.
+- there are edge cases to discover.
+- there is enough work that one pass may not be enough.
 
 So the user says:
 
-> Build a refund self-service flow. Make it safe, test it, and iterate until it is ready.
+> Build a self-service refund flow: a customer admin can request refunds for eligible orders from the billing page; risky orders go to support. Make it safe, add tests, iterate until it's ready to ship.
 
-The first round comes back looking promising. There is a page, a form, a status message, some mocked eligibility logic, and a few tests. The Agent says the core flow is done.
+### 1.2 Round One Returns a Page, a Form, and Some Tests
 
-But a human reviewer cannot just ask whether the page exists. The real questions begin now:
+The first round looks promising: a page, a form, a status message, a few mocked eligibility rules, and passing happy-path tests.
 
-- What did this round actually prove?
-- Is the result truly done, or only locally plausible?
-- Did the Agent quietly switch to an easier acceptance standard?
-- Did it hack around a test instead of solving the real problem?
-- Should the next round continue, stop, narrow scope, or change direction?
-- Can I trust this evidence?
-- Is this residual risk acceptable?
+The Agent says:
 
-That list is the hidden tax of Agent work.
+> Done! I've achieved the goal!
 
-The tiring part is not telling the Agent what to do. The tiring part is returning after every meaningful round to judge what happened.
+Open the app and you see a polished interface, buttons that look clickable, and a workflow that looks legitimate.
 
-If a human must answer those questions after every round, Agent autonomy gets stuck. The Agent can run longer, but the human is still the live governance layer.
+If this were just a demo, the story might end here.
 
-Loopora asks whether those future corrections, doubts, evidence demands, acceptance calls, and blockers can move earlier.
+But if this is supposed to ship as a real product, the real problems are only beginning.
 
-Can they become the shape of the run before the run starts?
+### 1.3 The Gaps Hide Behind the Surface
 
-That is a human-shaped Loop.
+At first glance, the result looks complete. The page is there, the buttons are there, the flow runs.
 
-## 2. Round Two: The Wrong Story Gets Better
+But treat it as a real product, and the gaps surface quickly:
 
-Suppose the human says: continue, make it more complete.
+- It doesn't prove that only authorized customer admins can request refunds.
+- The eligibility check is just mocked rules, not a reliable business path.
+- Happy-path tests pass, but partial refunds, disputed orders, chargebacks, refunds past the window, and closed accounting periods are not covered.
+- It doesn't say what happens when the payment provider fails: how the system records it, what the ledger state is, and how support takes over.
+- It doesn't prove that the audit log is enough for support, finance, or compliance to reconstruct what happened.
 
-The second round improves the UI, adds nicer confirmation states, expands the mock data, and adds tests around the happy path. The result looks more product-like than before.
+Now the human reviewer is not facing an abstract problem. They are facing a concrete shipping decision: can we ship this?
 
-But the business risk has barely moved.
+The answer is no.
 
-The flow still has not proved that only authorized admins can request a refund. It has not shown what happens when an order is partially refunded, disputed, outside the refund window, or tied to an invoice that accounting has already closed. It has not shown what happens when the payment provider fails after the app has already recorded the request. It has not shown whether the audit log is enough for support, finance, or compliance to reconstruct what happened.
+### 1.4 Round Two Looks More Product-Like, and the Real Problems Are Harder to Spot
 
-The Agent did not fail by doing nothing. It failed in a more dangerous way: it made the wrong completion story more coherent.
+So the human says:
 
-A simple loop extends time. If there is no governance structure, early error can be inherited, amplified, and rationalized by later rounds.
+> Not ready. Prove authorization, eligibility, payment failure, and the audit trail first. Only then polish the UI.
+
+Round two adds richer confirmation states, expands mock data, adds more happy-path tests, and improves the UI. The result looks more like a product than before.
+
+But the business risk has barely moved. Many edge cases are still unconsidered:
+
+The flow still doesn't prove that only authorized admins can request refunds. It doesn't say what happens when an order is partially refunded, disputed, charged back, past the refund window, or tied to an invoice that accounting has already closed. It doesn't say what happens when the payment provider fails after the app has already recorded the request. It doesn't prove that the audit log is enough for support, finance, or compliance to reconstruct what happened.
+
+The Agent didn't "do nothing." It did a lot: a more complete page, more states, more tests.
+
+The problem is right here: it polished a completion story that couldn't stand on its own. The danger didn't go away. It just hid behind a more product-like interface and a more confident summary.
+
+### 1.5 The Completion Illusion After More Rounds
+
+If the human doesn't spot these issues and lets the Agent keep running in this direction, it may not suddenly go off the rails. Instead, each round "reasonably" drifts a little further off.
+
+Round one treats "the page submits" as the core completion. Round two polishes the UI along the same misunderstanding. Round three adds more tests, still around the easy happy path. In the end, the result looks more complete, but refund safety is still unproven.
+
+By round three, the Agent may add more page states, more confirmation copy, more happy-path tests. By round four, it may start refactoring code, adding a README, and writing a prettier final summary.
+
+The result looks more and more like a real feature. But on safety, it still hasn't produced enough evidence.
+
+Let's pause the story here. This is not because the Agent isn't diligent, or because we didn't run enough rounds. It's because long Agent workflows hit a deeper bottleneck.
+
+**That bottleneck is not the loop itself, but the missing judgment structure inside it that the Agent can inherit.** Without that structure, more rounds only repeat the same error.
+
+## 2. The Problem Is Not the Loop, but the Missing Judgment Inside It
+
+### 2.1 When Does a Straight Line Become a Loop?
+
+Look back: before round one, things really were a straight line. The user states the goal, the Agent executes, the result comes back.
 
 <p align="center">
-  <img src="./assets/diagrams/error-cascade.en.svg" alt="How early error cascades through a naive loop" width="1000" />
+  <img src="./assets/diagrams/agent-single-pass.en.svg" alt="A single Agent pass looks like a ray" width="1000" />
 </p>
 
-Many systems already extend Agent work with loops: `/goal`, ralph-loop, repeated Agent calls, self-review, checklists, and similar harnesses.
-
-Those methods are useful. They work especially well when the task has clear external validation:
-
-- a benchmark can score the result
-- a contract test can pass or fail
-- schema, lint, or type checks can give hard feedback
-- a proof harness can repeatedly verify the same thing
-
-When judgment has already been externalized into those tools, a simple loop can be enough. The Agent keeps trying, and the external proof path corrects it.
-
-The refund flow is harder because the judgment is not one stable score. Tests matter, but passing a happy-path test does not prove the business flow is safe. A nice UI matters, but polish can hide the fact that refund authorization, auditability, provider failure, and support handoff remain unproven.
-
-The important difference is not whether there is a loop. The important difference is whether the loop has governance.
-
-> A loop without governance is a blind box. A governed Loop is an error decelerator.
-
-Loopora does not promise to eliminate error. Long tasks accumulate error. The goal is to slow that accumulation, expose error earlier, make false completion harder, and give later rounds a better chance to correct course.
+But as soon as the first result needs human review, that straight line closes. The first result triggers human judgment; human judgment becomes the second round's instruction; the second result triggers new judgment, which becomes the third round's instruction. From the first review onward, a long Agent task naturally becomes a loop:
 
 <p align="center">
-  <img src="./assets/diagrams/governed-loop.en.svg" alt="A naive loop compared with a governed human-shaped Loop" width="1000" />
+  <img src="./assets/diagrams/human-review-loop.en.svg" alt="Long Agent tasks naturally become review loops" width="1000" />
 </p>
 
-## 3. What The Human Was Really Supplying
+So the question is not "should we loop?" Loops are already built into long Agent workflows.
 
-When the human rejects the second round, the useful correction is not only:
+The real question is: inside this loop, where must human judgment sit, and where can the Agent run autonomously?
+
+### 2.2 When Humans Step Away, Standards Drift
+
+In ordinary loops, judgment lives in the human's live review of each round. When the human steps away or gets distracted, the Agent fills that gap with its own easier-to-meet standard. It keeps working, keeps explaining why it's doing well, but it's no longer advancing along the standard the human actually cares about.
+
+In the refund story, what the human really needs to judge each round is:
+
+- Is the task actually done?
+- Does it prove refund safety, or only that the page submits?
+- Do tests cover key risks, or only the easiest path?
+- Did the Agent hack around a test instead of solving the real problem?
+- Which risks are acceptable, and which must block and close?
+- Should the next round expand, add evidence first, narrow scope, or stop?
+
+These judgments are the human's most important contribution to the workflow. They decide which direction the Agent should take next, and whether a result can be trusted.
+
+If a human has to come back and answer these questions after every round, the Agent workflow's autonomy stalls. The Agent can explore deeper and run longer, but the human still has to stand by, correcting and ruling.
+
+This is the classic human-in-the-loop workflow: human judgment is irreplaceable, so the human is forced to stay in the loop.
+
+### 2.3 An Ordinary Loop Is Just Opening Blind Boxes
+
+There are already many ways to make an Agent run more rounds: `/goal`, ralph-loop, repeated Agent calls, self-review, checklists, and so on.
+
+Those methods have value. They work especially well when the task has clear external validation:
+
+- a benchmark can score the result.
+- a contract test can pass or fail.
+- schema, lint, and type checks can give hard feedback.
+- a proof harness can repeatedly verify the same thing.
+
+When judgment has already been externalized into these tools, a simple loop is enough. The Agent keeps trying; the external system corrects it.
+
+But the refund flow is harder because its judgment is not a stable score. Tests matter, but passing happy-path tests does not prove the business flow is safe. A nice UI matters, but it can mask the fact that refund authorization, auditability, provider failure, and support handoff remain unproven.
+
+So the key is not the loop itself, but whether the loop has a judgment and evidence structure that can govern it.
+
+A loop without governance is a blind box. It lets the Agent act many times, but it does not reliably answer:
+
+- What counts as truly done for this task?
+- What looks done but is actually fake?
+- Which evidence is strong enough?
+- Which risks can be carried forward, and which must block?
+- If the next round can only change one thing, what should it be?
+- When should the loop continue, and when should it stop?
+
+When these questions are not answered consistently, early error is inherited and refined by later rounds, eventually becoming a more complete, more coherent completion story.
+
+<p align="center">
+  <img src="./assets/diagrams/error-cascade.en.svg" alt="How a naive loop packages early error into a more convincing completion story" width="1000" />
+</p>
+
+Note: these questions are not "requirements details." They are the judgment structure that determines whether a loop can run reliably.
+
+**To see what judgment the loop is missing, go back to the refund story and look at what the human reviewer is actually rejecting each time.**
+
+### 2.4 What Humans Actually Hand to the Agent Is a Way of Judging
+
+When the human rejects round two, the valuable thing is not just the sentence:
 
 > This is not ready.
 
-The useful correction is the judgment behind that sentence.
+The valuable thing is the judgment behind that sentence.
 
-For the refund flow, the human is really saying something like this:
+For the refund flow, the human is really saying:
 
-| Human concern | Task-shaped judgment |
+| What the human is pushing back on | The judgment applied to this task |
 | --- | --- |
-| A page and a form are not enough | Real completion means an eligible refund can move through the business path safely |
-| A mock happy path is not enough | Trusted evidence must cover authorization, eligibility, provider behavior, audit trail, and support handoff |
-| More UI polish may be a distraction | A rough but proven path is better than a polished unproven path |
-| Some gaps can remain visible | A payment-provider edge case may be acceptable if it is documented and handed off |
-| Some gaps must block | Unauthorized refunds, missing audit trails, and double refunds must stop the run |
+| Don't just give me a clickable page | A qualifying order should move safely through the full refund business path, from request through validation, execution, and recording |
+| Don't paper over risk with mock data | Authorization, eligibility, provider failure, audit trail, and support handoff all need evidence |
+| Don't keep polishing the UI yet | A rough but proven path is better than a polished but unproven one |
+| Some tails can be left | A rare provider edge case can be residual risk, but it must be visible and owned |
+| Some gaps must not be left | Unauthorized refunds, double refunds, and missing audit trails must block the run |
 
-That is not a checklist of implementation details. It is a local ordering of tradeoffs.
+This is not an implementation checklist. It is a local way of judging: what to trust first, what to fear first, which evidence counts as hard, and which risks cannot be let through.
 
-In other tasks, the same kind of judgment sounds different:
+In other tasks, the same kind of judgment takes different shapes:
 
-- A has fewer features, but the path is real. B looks complete, but the core loop does not work. A is closer to done.
-- The UI is polished, but the learner cannot complete one learning cycle, so the result must be rejected.
-- The refactor passes tests, but it only moved complexity into another module, so it should not count as good.
-- The bug disappeared on the surface, but the root cause was not proven, so the run should not close.
-- This residual risk is acceptable because it is visible and has a follow-up path.
-- That residual risk must block because it affects permissions, safety, a core journey, or a public contract.
+- A prototype with fewer features but a real core loop is closer to done than one full of fake entry points.
+- A course tool with beautiful pages is not done if a learner cannot complete one learning cycle.
+- A refactor that passes tests but only moved complexity into another module is not good.
+- A bug that disappears on the demo path but whose root cause was not proven should not close.
+- A small performance tail, if already quantified, with a fallback and a follow-up owner, is acceptable.
+- Risks around permissions, security, payments, and data migration must block if there is no evidence.
 
-This kind of judgment is not a scalar. It is closer to an ordering of tradeoffs:
+Tradeoff ordering is only the most visible layer of this way of judging. Humans are not always saying "option A scores 82, option B scores 79." Humans are often saying:
 
-- a real loop is better than a polished fake
-- strong evidence is better than optimistic narrative
-- visible residual risk is better than hidden risk
-- a correct but unfinished direction may be better than a locally complete wrong direction
-- maintainable slow progress may be better than brittle fast passing
+- Truly running through, not just looking good.
+- Hard evidence, not a pleasant summary.
+- A visible tail, not a hidden problem.
+- Right direction but unfinished, sometimes better than locally complete but wrong direction.
+- Maintainable slow progress, sometimes better than a one-time pass that relied on luck.
 
-This is hard to benchmark, but it can be structured.
+This kind of judgment is hard to benchmark, but it can be structured.
 
-## 4. The Core Move: Move Future Correction Earlier
+## 3. Loopora: Move Future Correction Earlier
 
-Loopora is easiest to misunderstand if we start from implementation.
+### 3.1 Put Judgment Before Execution
 
-It is not "a better retry loop." It is not "more roles." It is not "a bigger prompt." It is not "an Agent that runs longer."
+Now Loopora finally deserves the stage.
 
-The deeper move is a time shift:
+It is not "a better retry loop," not "more roles," not "a longer prompt," and not "an Agent that runs longer."
+
+The deeper move is shifting when judgment happens:
 
 > Move future human correction before execution, then make it runnable.
 
-In ordinary human-in-the-loop work, humans participate after the Agent has already produced an intermediate result. They correct the task direction, reject weak evidence, ask for a different proof path, or decide whether the risk is acceptable.
+In traditional human-in-the-loop, the human usually only steps in after the Agent has produced intermediate results: correcting direction, rejecting weak evidence, asking for a different proof path, or deciding whether a risk is acceptable.
 
-Loopora asks: can those future corrections be anticipated? Can the human explain, before the run starts, what kind of result would be fake, which evidence would be trusted, which tradeoffs matter, and which risks must block?
+Loopora asks: can those corrections be anticipated? Can the human explain, before the run starts, what kind of result would be fake, which evidence would be trusted, which tradeoffs matter more, and which risks must block?
 
-If yes, that judgment can become the shape of the loop.
+If yes, that judgment can shape the loop.
 
 <p align="center">
-  <img src="./assets/diagrams/time-shift.en.svg" alt="Human-in-the-loop compared with a human-shaped Loop" width="1000" />
+  <img src="./assets/diagrams/time-shift.en.svg" alt="From a single-pass ray to a human-shaped Loop" width="1000" />
 </p>
 
-This is why "human-shaped Loop" is more precise than "human before the loop." The human is not merely giving instructions earlier. The human is shaping the runtime structure that decides how the Agent moves, observes, repairs, and stops.
+So "human-shaped Loop" is more precise than "human before the loop." The human is not merely giving instructions earlier. The human is shaping the runtime structure itself: how the Agent moves, observes, repairs, and stops.
 
-## 5. The Refund Story As A Human-Shaped Loop
+The key is not placing the human at a specific point in time, but letting human judgment enter the structure before the run starts. Loopora does not promise to eliminate error. What it does is make error surface earlier, make false completion harder to fake, and let the next round's evidence constrain it.
 
-Now replay the refund task with this judgment moved earlier.
+### 3.2 The Same Refund Task, Now as a Human-Shaped Loop
 
-Before the run starts, the user does not need to write a giant workflow spec. But the system should help the user expose the judgments that would otherwise appear later as corrections:
+Replay the refund task, but with that judgment moved earlier.
 
-- **Real completion**: an authorized customer admin can request an eligible refund, the system records the decision, and the result can be traced by support or finance.
-- **Fake completion**: pages, buttons, mock eligibility, and happy-path tests exist, but refund safety is not proven.
+By this point, the loop is not a circle that suddenly appears. It is the real shape of the multi-round human-machine workflow described earlier: Agent acts one round, system or human checks one round, then decides the next. What Loopora changes is the positional relationship inside the loop: the human no longer needs to be pulled back each round to supply judgment. Instead, the human hands judgment to Loopora before the run starts, and Loopora compiles it into a structure the Agent must follow in every subsequent round.
+
+<p align="center">
+  <img src="./assets/diagrams/governed-loop.en.svg" alt="How Loopora changes where humans and Agents sit in the loop" width="1000" />
+</p>
+
+Before the run starts, the user doesn't need to hand-write a giant workflow spec. But the system should help the user expose the judgments that would otherwise appear later as corrections:
+
+- **Real completion**: an authorized customer admin can request an eligible refund; the system records the decision; support or finance can trace the result.
+- **Fake completion**: pages, buttons, mocked eligibility, and happy-path tests all exist, but refund safety is unproven.
 - **Trusted evidence**: permission checks, eligibility cases, payment-provider behavior, audit records, and support handoff artifacts.
 - **Blocking risks**: unauthorized refunds, double refunds, missing audit trails, silent provider failure, or a broken core billing journey.
-- **Acceptable residual risks**: a rare provider edge case, a deferred accounting export, or a manually handled support exception, but only if visible and assigned.
+- **Acceptable residual risks**: a rare provider edge case, a deferred accounting export, or a manually handled support exception, but only if visible and owned.
 
-Those judgments can become a Loop:
+These judgments become the loop's input. Next, Loopora compiles them into runnable structure:
 
-- the Builder implements toward the refund business path, not merely toward a screen
-- the Inspector tries to prove or disprove authorization, eligibility, auditability, provider failure, and handoff
-- a repair round uses that evidence to narrow the next change
-- the GateKeeper can only close from evidence, or from an explicit residual-risk verdict
+- The Builder implements toward the refund business path, not merely toward a screen.
+- The Inspector tries to prove or disprove authorization, eligibility, auditability, provider failure, and handoff.
+- Repair rounds narrow the next change based on evidence.
+- The GateKeeper can only close from evidence, or from an explicit residual-risk verdict.
 
 The human is not supervising every click. The human has shaped what the loop must treat as real, fake, persuasive, risky, and blocking.
 
-Loopora maps that judgment into four surfaces:
+So the refund task is no longer the Agent continuously patching together a completion story on its own. Each round is pulled by the same set of judgments: build around the real refund path, gather evidence around key risks, repair based on evidence, and finally rule based on visible gaps and residual risks.
 
-| Surface | Beginner meaning | Refund-flow example |
-| --- | --- | --- |
-| `spec` | What this task must prove, and what should not count as done | Safe refund path, fake-done risks, blocking business failures |
-| `roles` | Who builds, who doubts, who gathers evidence, who judges | Builder, Inspector, optional repair Guide, GateKeeper |
-| `workflow` | The order of judgment, and when the run continues or stops | Build -> inspect evidence -> repair -> final evidence verdict |
-| `evidence` | The proof, gaps, blockers, and residual risks left by each round | Permission results, eligibility cases, audit trace, provider failure notes |
+### 3.3 Autonomy Depends on a "Trinity"
 
-Users should not need to hand-write these surfaces at the start. The default path should be: describe the task, answer a few Loop-shaping questions, confirm the Loop, run it, and inspect evidence.
-
-Advanced fields, parallel Inspectors, evidence routing, workflow controls, and bundle YAML all serve the same purpose: making human judgment actually constrain the Agent instead of remaining prompt text.
-
-<p align="center">
-  <img src="./assets/diagrams/judgment-compiler.en.svg" alt="Loopora as a task-scoped judgment compiler" width="1000" />
-</p>
-
-## 6. A Multiplication Formula For Agent Autonomy
-
-One useful, imprecise formula for Loopora is:
+A useful, imprecise formula for understanding Loopora:
 
 ```text
 Agent autonomy
 ≈ judgment structure quality × evidence feedback quality × error exposure speed
 ```
 
-The refund story shows why these variables multiply.
+The refund story shows why these three variables multiply.
 
-If judgment structure is poor, the Agent does not know that refund safety is the real target. More evidence may simply prove that the wrong screen works.
+If judgment structure is poor, the Agent doesn't know that refund safety is the real target. More evidence may simply prove that the wrong screen works.
 
-If evidence feedback is weak, a beautiful workflow becomes role theater. GateKeeper can only pass by intuition.
+If evidence feedback is weak, a beautiful workflow becomes role theater, and the GateKeeper can only pass by intuition.
 
-If error exposure is slow, long tasks turn early drift into later context. The longer the loop runs, the more coherent the wrong story becomes.
+If error exposure is slow, long tasks turn early drift into later context. The longer the loop runs, the more coherent the wrong story becomes, and the harder it is to correct.
 
-Loopora tries to improve:
+What Loopora actually tries to improve:
 
-- **Judgment structure quality**: does the system know how this task should be judged, what counts as real completion, what counts as fake completion, which risks are acceptable, and which risks must block?
-- **Evidence feedback quality**: does each round leave evidence that is strong, traceable, and close to the task goal, rather than only natural-language summary?
-- **Error exposure speed**: when the direction is wrong, evidence is weak, standards drift, or the result is fake done, can Inspectors, GateKeeper, benchmarks, artifacts, or review surfaces expose that early?
+- **Judgment structure quality**: does the system know how this task should be judged, what counts as real completion, what counts as fake, which risks are acceptable, and which must block?
+- **Evidence feedback quality**: does each round leave evidence that is strong, traceable, and close to the task goal, rather than only a natural-language summary?
+- **Error exposure speed**: when direction drifts, evidence weakens, standards slip, or the result is fake done, can it be exposed early by Inspectors, GateKeepers, benchmarks, artifacts, or human review?
 
 <p align="center">
-  <img src="./assets/diagrams/autonomy-multiplication.en.svg" alt="Agent autonomy as judgment structure times evidence feedback times error exposure speed" width="1000" />
+  <img src="./assets/diagrams/autonomy-multiplication.en.svg" alt="Agent autonomy equals the product of judgment structure, evidence feedback, and error exposure speed" width="1000" />
 </p>
 
-These variables behave more like multiplication than addition. If any one of them approaches zero, autonomy collapses.
+These variables multiply, not add. If any one approaches zero, autonomy collapses.
 
-So Loopora is not a tool for "more rounds." Its goal is to make each round less self-deceptive: judgment is shaped first, evidence flows back, and error surfaces sooner.
+So Loopora is not a tool for "more rounds." Its goal is to make each round less self-deceptive: judgment takes shape first, evidence flows back, and error surfaces sooner.
 
-Another way to say it:
+Another way to put it:
 
 > Benchmarks let Agents optimize answers. Loopora lets Agents inherit part of human judgment.
 
-When judgment can already be expressed by a benchmark, Loopora should respect that benchmark and pin the evidence path around it. When judgment cannot yet be scored reliably, Loopora should turn it into a judgment protocol: what has priority, what blocks, which evidence is trusted, and which residual risks may be accepted only after they are visible.
+When judgment can already be expressed as a benchmark, Loopora should respect that benchmark and pin the evidence path around it. When judgment cannot yet be reliably scored, Loopora should turn it into a judgment protocol: what has priority, what blocks, which evidence is trusted, and which residual risks can be accepted once they are visible.
 
-## 7. Loopora Is A Task-Scoped Judgment Compiler
+## 4. Compiling Human Judgment into Runnable Structure
 
-Loopora can be described as:
+Loopora's essence can be put like this:
 
-> a task-scoped judgment compiler.
+> Loopora is a task-scoped judgment compiler.
 
-It takes the user's implicit judgment for the current task and compiles it into a Loop that can run, observe, and decide.
+It takes the user's implicit judgment for the current task and compiles it into a runnable, observable, and decidable Loop.
 
-There are two important words here.
+<p align="center">
+  <img src="./assets/diagrams/judgment-compiler.en.svg" alt="Loopora as a task-scoped judgment compiler" width="1000" />
+</p>
 
-The first is **task-scoped**. Loopora is not trying to learn a permanent user personality. Judgment for one task is often local, temporary, and debatable:
+Loopora maps that judgment onto four surfaces:
 
-- This refund flow must be conservative. That does not mean every product task should be conservative.
-- This prototype can accept visual roughness. That does not mean all prototypes can.
-- This benchmark is trustworthy. That does not mean all benchmarks are trustworthy.
-- This residual risk is acceptable here. That does not make it a global preference.
+| Surface | Plain meaning | Refund-flow example |
+| --- | --- | --- |
+| `spec` | What this task must prove, and what should not count as done | Safe refund path, fake-done risks, blocking business failures |
+| `roles` | Who builds, who doubts, who gathers evidence, who judges | Builder, Inspector, optional repair Guide, GateKeeper |
+| `workflow` | The order in which judgment happens, and when to continue or stop | Build -> inspect evidence -> repair -> final evidence verdict |
+| `evidence` | The proof, gaps, blockers, and residual risks left by each round | Permission results, eligibility cases, audit trace, provider failure notes |
 
-Those judgments should not silently disappear into model weights. They should not become a permanent personality memory. They belong in the Agent harness or Loop layer: explicit, local, previewable, editable, exportable, and disposable.
+But to form these four surfaces, the user's implicit way of judging must first be extracted. Loopora doesn't ask the user to hand-write a configuration. It does this through a conversation.
 
-> The model learns general capability. The Loop learns how this task should be judged.
+For the user, the experience should be simple: describe the task, answer a few questions that change the Loop, preview it, run it, then look at evidence and verdicts. Every concept Loopora introduces serves the same purpose: making human judgment actually constrain the Agent, instead of staying as a block of prompt text.
 
-The second word is **compiler**. Loopora is not only asking the user for preferences, and it is not merely writing those preferences into a prompt. Prompts can be forgotten, diluted by context, or interpreted as tone instead of runtime constraint.
-
-Loopora compiles judgment into a runnable structure:
-
-- the task contract says what counts as done and what counts as fake done
-- the roles separate building, doubting, evidence gathering, and judging
-- the workflow decides when judgment happens, when the run continues, and when it stops
-- the evidence records what each round proved and failed to prove
-
-That is why Loopora is not a YAML generator. YAML is just the exchange format. The important thing is the judgment structure behind it.
-
-## 8. Why The Loop Layer Should Learn This
-
-It is tempting to ask: if judgment matters so much, why not teach it to the model?
-
-The answer is that these are different kinds of learning.
-
-Models should learn general capability: language, code, planning, tool use, reasoning patterns, and broad taste. That learning should be reusable across users and tasks.
-
-Loopora learns something narrower and more situated: how this task should be judged this time.
-
-That judgment often has properties that make it a poor fit for model weights:
-
-| Property | Why the Loop layer fits better |
-| --- | --- |
-| Local | The right judgment for one task may be wrong for another task |
-| Temporary | A project can need strictness today and exploration tomorrow |
-| Debatable | The user may revise the judgment after seeing examples |
-| Auditable | The team should inspect what rule closed the run |
-| Reversible | Bad judgment should be editable or discarded, not buried |
-| Evidence-bound | The rule should connect to artifacts and verdicts, not only style |
-
-This is also a governance boundary. If the model "learns" a user's task judgment invisibly, the user loses ownership. If the Loop learns it, the user can preview it, edit it, export it, reuse it, or throw it away.
-
-The Agent becomes more autonomous not because the human vanished, but because the human's local judgment has become part of the execution environment.
-
-## 9. Alignment Helps Users Discover Their Own Judgment
+### 4.1 Alignment Is About How You Judge
 
 One of Loopora's core mechanisms is the alignment conversation.
 
-But this is not ordinary requirement clarification.
+But it is not ordinary requirement clarification.
 
 Ordinary clarification asks:
 
@@ -307,7 +346,7 @@ Loopora alignment asks:
 - Would a strict GateKeeper block the exploration you want?
 - Would a pragmatic GateKeeper let fake done slip through?
 
-This helps users discover their own judgment. Users do not need to name every rule up front. Loopora uses cases and contrasts to make judgment visible.
+This is a mechanism that helps users see their own way of judging. Users don't need to name every rule up front; Loopora uses cases and contrasts to make judgment take shape.
 
 <p align="center">
   <img src="./assets/diagrams/alignment-reveals-judgment.en.svg" alt="Alignment questions reveal tacit judgment before compiling a Loop" width="1000" />
@@ -324,73 +363,128 @@ Good alignment should not rush to produce configuration. It should first form a 
 - Which residual risks are acceptable?
 - Which blockers must stop the run?
 
-Only then should the working agreement compile into a Loop that can be previewed, run, and judged through evidence.
+Only then should the working agreement compile into a Loop, entering preview, run, and evidence verdict.
 
-## 10. Which Tasks Actually Fit Loopora
+When these judgments take shape in alignment, Loopora compiles them into runnable structure—the four surfaces described above.
 
-It is not accurate to say that "creative work, prototypes, refactors, debugging, and fuzzy alignment all fit Loopora." That is too broad.
+### 4.2 Judgment Must Travel With the Task
 
-Task category is not the deciding factor. The deciding factor is whether the task contains human judgment worth externalizing, and whether another round will produce new evidence.
+Loopora is not trying to learn a permanent user personality. Judgment inside one task is often local, temporary, and debatable:
 
-A better fit test is:
+- This refund flow must be conservative. That does not mean every product task should be conservative.
+- This prototype can accept visual roughness. That does not mean all prototypes can.
+- This benchmark is trustworthy. That does not mean all benchmarks are trustworthy.
+- This residual risk is acceptable here. That does not make it a long-term preference.
+
+These judgments should not silently disappear into model weights, nor should they become permanent personality memory. They belong in the Agent harness or Loop layer: explicit, local, previewable, editable, exportable, and disposable.
+
+> The model learns general capability. The Loop learns how this task should be judged.
+
+### 4.3 Prompts Cannot Hold This Kind of Judgment
+
+Loopora is not only asking the user for preferences, nor is it merely writing those preferences into a prompt. Prompts can be forgotten, diluted by context, or interpreted as style preference rather than runtime constraint.
+
+Loopora compiles judgment into runnable structure:
+
+- The task contract writes down what counts as done and what counts as fake done.
+- Role assignments write down who builds, who doubts, who gathers evidence, and who judges.
+- The workflow writes down when to judge, when to continue, and when to stop.
+- Evidence records what each round proved and failed to prove.
+
+### 4.4 Why Not Let the Model Remember It Long-Term?
+
+A natural question: if judgment matters so much, why not teach it to the model?
+
+The answer is: these are different kinds of learning.
+
+The model should learn general capability: language, code, planning, tool use, reasoning patterns, and broad taste. These abilities should be reusable across users and tasks.
+
+Loopora learns something narrower and more situated: how this task should be judged.
+
+This kind of judgment often has properties that make it a better fit for the Loop layer:
+
+| Property | Why the Loop layer fits better |
+| --- | --- |
+| Local | The right judgment for one task may be wrong for another |
+| Temporary | A project can need strictness today and exploration tomorrow |
+| Debatable | The user may revise the judgment after seeing examples |
+| Auditable | The team should inspect what rule closed the run |
+| Reversible | Bad judgment should be editable or discarded, not hidden |
+| Evidence-bound | The rule should connect to artifacts and verdicts, not only style |
+
+This is also a governance boundary. If the model quietly absorbs a user's task judgment, the user loses ownership. If the Loop learns it, the user can preview, edit, export, reuse, or delete it.
+
+The Agent becomes more autonomous not because the human vanished, but because the human's local judgment has entered the execution environment.
+
+### 4.5 Loopora Is an External Harness
+
+Loopora is more like an external runtime harness than a piece of memory inside the model, a longer prompt, or an Agent's own self-checking habit.
+
+This matters. If judgment is hidden inside a prompt, it gets diluted by context as the long task runs. If it is hidden inside the model's long-term memory, the user cannot easily see, edit, or audit it. If it is left entirely to the Agent to declare completion, the most dangerous fake completion is the easiest to package.
+
+Placing Loopora outside the Agent means the task's way of judging can be explicitly visible:
+
+- The user can preview what this Loop is actually pursuing.
+- Inspectors and GateKeepers can work around evidence, not around confident summaries.
+- Each round's gaps, blockers, and residual risks can leave a record.
+- Switch Agents, models, or tools, and the task's judgment structure can stay.
+- If the judgment is wrong, the Loop can be edited, instead of guessing what the model remembered.
+
+So Loopora's externality is not an implementation detail; it is a collaboration philosophy: the model handles general capability, the Agent handles execution, and Loopora keeps this task's judgment standard in a visible, editable, runnable place.
+
+## 5. Tasks That Actually Fit Loopora
+
+### 5.1 Which Tasks Fit?
+
+Don't decide whether a task fits Loopora from its category alone.
+
+Task category is not the deciding factor. The deciding factors are: whether the task contains human judgment worth externalizing ahead of time, and whether the next round will produce new evidence.
+
+A better test is to ask:
 
 1. **Would a human keep returning after key rounds to judge the result?**  
    If one Agent pass plus one human review is enough, skip Loopora.
 
 2. **Will the next round create new evidence?**  
-   If the next round only lets the model continue a story without new proof, artifacts, handoffs, observations, or verdict context, do not open a Loop.
+   If the next round only lets the model continue a story, without new proof paths, artifacts, handoffs, observations, or verdict context, do not open a Loop.
 
 3. **Is the judgment hard to reduce to one stable benchmark?**  
    If it can be benchmarked cleanly, use the benchmark first. Loopora can govern the benchmark path, but it should not replace simple proof.
 
 4. **Is there a fake-done risk?**  
-   Loopora is more useful when a result can look done while the core loop, root cause, contract, evidence, or risk posture is not actually solid.
+   If a result can easily "look done" while the core loop, root cause, contract, evidence, or risk posture is not actually solid, Loopora is more valuable.
 
-5. **Should the judgment survive one chat?**  
-   If the judgment is only needed once, direct chat may be enough. If it should be inherited by a run, tested with evidence, exported, or reused, it may deserve a Loop.
+5. **Is the judgment worth surviving one chat?**  
+   If this way of judging is only needed once, direct chat may be enough. If it should be inherited by a run, tested with evidence, exported, or reused, it may deserve a Loop.
 
 6. **Can the system expose drift if the Loop goes wrong?**  
-   Without Inspectors, GateKeeper, external evidence, or auditable artifacts, a Loop can still become longer drift.
+   Without Inspectors, GateKeepers, external evidence, or auditable artifacts, a Loop can still become longer drift.
 
-With that lens, many scenarios are sometimes good fits and sometimes not:
+Seen through this lens, many scenarios are sometimes good fits and sometimes not:
 
-| Scenario | Usually skip Loopora | Better fit for Loopora |
-| --- | --- | --- |
-| Creative emergence | You only need raw ideas | You need multi-round exploration and judgment about novelty, feasibility, style, or anti-cliche direction |
-| Product prototype | You need a one-off demo or sketch | You need to block "pretty but not real" and let evidence drive the next round |
-| Architecture refactor | The scope is small and one review is enough | The work needs repeated tradeoffs across contract, structure, regression, and residual risk |
-| Debugging / root cause | The bug is clear and directly fixable | Symptoms are mixed, the wrong layer is easy to chase, and evidence should precede action |
-| Fuzzy alignment | You only need short clarification | The clarified judgment should be inherited and tested by a long-running task |
+| Scenario | Usually skip Loopora | Better fit for Loopora | Why |
+| --- | --- | --- | --- |
+| Creative exploration | One-shot generation of 30 event themes, human picks a few to continue | Continuous exploration of a brand campaign, each round judged on novelty, feasibility, brand voice, and avoiding cliché | Left side only needs one generation and human selection; right side's judgment repeats and each round produces new material. |
+| Product prototype | A one-off demo for internal discussion, conveying the rough idea is enough | A self-service refund flow prototype that must prevent "pretty but not real," letting evidence drive the next round | Left side has low fake-done cost; right side, if the core path is not real, gets masked by polish with each iteration. |
+| Architecture refactor | Splitting a small utility function, scope is clear, one review is enough | Refactoring a billing permissions module, requiring repeated tradeoffs across public contracts, regression risk, migration path, and residual risk | Left side has clear boundaries; right side needs re-judging risk, evidence, and compatibility each round. |
+| Debugging / root cause | A button click throws an error, the stack is clear, fix directly | Payment callback drops intermittently, symptoms span services, easy to chase the wrong layer, evidence must precede action | Left side has a direct evidence path; right side needs multi-round hypothesis, observation, and elimination. |
+| Fuzzy alignment | A few short chat rounds to polish page copy | Turning "make it more beginner-friendly" into a long-task constraint, letting the clarified judgment be inherited by subsequent design, implementation, and acceptance | Left side's judgment serves only one conversation; right side's judgment must be inherited by a long task. |
 
-Loopora is not for "all complex tasks." It is for long tasks where human judgment would repeat, evidence changes across rounds, and fake completion is worth blocking.
+Loopora is not for "all complex tasks." It fits long tasks where human judgment would repeat, evidence changes across rounds, and fake completion is worth blocking.
 
-## 11. What Loopora Must Refuse
+## 6. Let the Agent Inherit Judgment, Not Replace It
 
-To preserve this paradigm, Loopora must keep rejecting several easy distortions:
+The future of AI-human collaboration will not advance only along the line of "models getting smarter."
 
-- It is not a prompt pack. Longer prompts do not replace runtime evidence.
-- It is not a role zoo. More roles without distinct evidence responsibility only add theater.
-- It is not a loop script. Repeating commands does not mean judgment is governed.
-- It is not a benchmark grinder. Benchmarks are strong proof paths, not the whole product.
-- It is not a long-term personality memory system. Task-scoped judgment should not become a global personality rule.
-- It is not a general chat interface. Chat is only one way to obtain or revise a Loop.
-- It is not a wrapper that lets the Agent declare itself done. GateKeeper must return to evidence.
+Models will keep improving, but complex tasks will still need human judgment:
 
-Loopora can become more powerful, but it must preserve this boundary: it serves "compose Loop -> run Loop -> automatic iteration with evidence -> run status, task verdict, and result." It should not drift into a generic automation platform.
+- what is worth doing.
+- what counts as truly done.
+- whether evidence is trustworthy.
+- whether risk is acceptable.
+- when to continue, stop, or change direction.
 
-## 12. The Larger Direction
-
-The future of AI collaboration will not only be about making models smarter.
-
-Models will keep improving, but complex work will still need human judgment:
-
-- what is worth doing
-- what counts as truly done
-- whether evidence is trustworthy
-- whether risk is acceptable
-- when to continue, stop, or change direction
-
-The higher-order collaboration pattern is not to bring humans back for every step, and not to pretend humans can disappear. It is to let human judgment participate in a better time shape.
+True high-order collaboration is not pulling humans back for every step, nor pretending humans can disappear. It is letting human judgment participate in a better time shape.
 
 Human-in-the-loop puts humans inside the execution process.
 
@@ -398,14 +492,16 @@ Human-shaped Loop turns human judgment into the shape of the execution process.
 
 Loopora's long-term direction is to let more tasks use this pattern when it fits:
 
-- for quantifiable tasks, pin the evidence path
-- for tasks that cannot be fully quantified, surface the judgment structure
-- for long tasks, slow error propagation
-- for users, move future corrections earlier
-- for Agents, turn "how to judge" from prompt text into runnable governance
+- for quantifiable tasks, pin the evidence path.
+- for tasks that cannot be fully quantified, let the judgment structure take shape.
+- for long tasks, slow error propagation.
+- for users, move future corrections that would repeat earlier.
+- for Agents, turn "how to judge" from a prompt into runnable governance.
 
 In one sentence:
 
 > Loopora is not about making Agents do more rounds. It is about helping Agents avoid self-deception by running inside a Loop that inherits human judgment.
+
+Back to the "laziness" at the beginning—what Loopora wants to save the user from is never judgment itself, but the exhaustion of making the same judgment a dozen times over. When a person's way of judging is compiled into the loop, they don't have to stand by every cycle, yet their judgment still governs each round's direction.
 
 That is the human-shaped Loop.

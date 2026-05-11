@@ -1,71 +1,69 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
-  <title id="title">Task-scoped judgment compiler</title>
-  <desc id="desc">未来的人类纠偏变成可运行的 Loop 结构。</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">Loopora 作为面向任务的判断编译器</title>
+  <desc id="desc">未来的人类纠偏被 Loopora 编译成可运行 Loop，包括 spec、roles、workflow 和 evidence。</desc>
   <defs>
     <filter id="shadow" x="-15%" y="-15%" width="130%" height="130%">
-      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#2c2118" flood-opacity="0.10"/>
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#2c2118" flood-opacity="0.08"/>
     </filter>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 Z" fill="#8d8378"/>
     </marker>
     <pattern id="dots" width="30" height="30" patternUnits="userSpaceOnUse">
-      <circle cx="3" cy="3" r="1.05" fill="#e8dfd3" opacity="0.72"/>
+      <circle cx="3" cy="3" r="1" fill="#e8dfd3" opacity="0.6"/>
     </pattern>
   </defs>
+  <rect width="1200" height="560" rx="28" fill="#faf9f6"/>
+  <rect x="20" y="20" width="1160" height="520" rx="24" fill="url(#dots)" opacity="0.4"/>
 
-  <rect width="1200" height="620" rx="28" fill="#fffdf8"/>
-  <rect x="18" y="18" width="1164" height="584" rx="24" fill="url(#dots)" opacity="0.42"/>
+  <text x="60" y="70" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="32" font-weight="760" fill="#211b15">面向任务的判断编译器</text>
+  <text x="60" y="102" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="500" fill="#6d665d">把未来的人类纠偏，变成可运行的 Loop 结构。</text>
 
-  <text x="60" y="70" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="34" font-weight="820" fill="#211b15">Task-scoped judgment compiler</text>
-  <text x="60" y="106" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="18" font-weight="520" fill="#6d665d">未来的人类纠偏变成可运行的 Loop 结构。</text>
-
+  <!-- 输入 -->
   <g filter="url(#shadow)">
-    <rect x="60" y="165" width="290" height="275" rx="20" fill="#ffffff" stroke="#d9d0c5"/>
-    <rect x="60" y="165" width="7" height="275" rx="3.5" fill="#d66a36"/>
-    <text x="92" y="213" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="27" font-weight="780" fill="#211b15">未来的人类</text>
-    <text x="92" y="246" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="27" font-weight="780" fill="#211b15">纠偏</text>
-    <text x="92" y="299" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="20" font-weight="520" fill="#6d665d">什么是假完成？</text>
-    <text x="92" y="330" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="20" font-weight="520" fill="#6d665d">什么证据可信？</text>
-    <text x="92" y="361" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="20" font-weight="520" fill="#6d665d">什么风险阻断？</text>
-    <text x="92" y="392" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="20" font-weight="520" fill="#6d665d">哪个取舍优先？</text>
+    <rect x="60" y="150" width="280" height="280" rx="20" fill="#ffffff" stroke="#d9d0c5"/>
+    <rect x="60" y="150" width="7" height="280" rx="3.5" fill="#d97706"/>
+    <text x="92" y="200" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="24" font-weight="780" fill="#211b15">未来的纠偏</text>
+    <text x="92" y="248" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="500" fill="#6d665d">什么是假完成？</text>
+    <text x="92" y="280" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="500" fill="#6d665d">什么证据可信？</text>
+    <text x="92" y="312" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="500" fill="#6d665d">什么风险必须阻断？</text>
+    <text x="92" y="344" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="500" fill="#6d665d">哪个取舍优先？</text>
   </g>
 
-  <path d="M350,302 L425,302" fill="none" stroke="#8d8378" stroke-width="3" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M360,290 L420,290" fill="none" stroke="#8d8378" stroke-width="3" stroke-linecap="round" marker-end="url(#arrow)"/>
 
+  <!-- 编译器 -->
   <g filter="url(#shadow)">
-    <rect x="425" y="205" width="300" height="195" rx="28" fill="#ffffff" stroke="#d9d0c5"/>
-    <rect x="447" y="227" width="256" height="151" rx="22" fill="#f8f5ef" stroke="#d9d0c5"/>
-    <text x="575" y="279" text-anchor="middle" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="36" font-weight="840" fill="#211b15">Loopora</text>
-    <text x="575" y="322" text-anchor="middle" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="34" font-weight="820" fill="#211b15">compiler</text>
-    <text x="575" y="354" text-anchor="middle" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="18" font-weight="650" fill="#6d665d">不是 prompt 文案</text>
+    <rect x="440" y="170" width="240" height="240" rx="28" fill="#ffffff" stroke="#d9d0c5"/>
+    <rect x="462" y="192" width="196" height="196" rx="22" fill="#f8f5ef" stroke="#d9d0c5"/>
+    <text x="560" y="268" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="32" font-weight="840" fill="#211b15">Loopora</text>
+    <text x="560" y="308" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="28" font-weight="780" fill="#211b15">编译器</text>
+    <text x="560" y="346" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="650" fill="#6d665d">不是 prompt 文本</text>
   </g>
 
-  <path d="M725,302 L785,302" fill="none" stroke="#8d8378" stroke-width="3" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M700,290 L760,290" fill="none" stroke="#8d8378" stroke-width="3" stroke-linecap="round" marker-end="url(#arrow)"/>
 
+  <!-- 输出 -->
   <g filter="url(#shadow)">
-    <rect x="785" y="140" width="355" height="365" rx="22" fill="#ffffff" stroke="#d9d0c5"/>
-    <rect x="785" y="140" width="7" height="365" rx="3.5" fill="#0d7c66"/>
-    <text x="817" y="188" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="28" font-weight="800" fill="#211b15">可运行 Loop</text>
+    <rect x="780" y="140" width="340" height="300" rx="20" fill="#ffffff" stroke="#d9d0c5"/>
+    <rect x="780" y="140" width="7" height="300" rx="3.5" fill="#0d7c66"/>
+    <text x="812" y="186" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="24" font-weight="800" fill="#211b15">可运行 Loop</text>
 
-    <rect x="815" y="220" width="140" height="105" rx="16" fill="#f4fbf8" stroke="#b8d9cd"/>
-    <text x="835" y="255" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="22" font-weight="800" fill="#0d7c66">spec</text>
-    <text x="835" y="286" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="17" font-weight="520" fill="#6d665d">完成 / 假完成</text>
+    <rect x="810" y="210" width="140" height="90" rx="16" fill="#f4fbf8" stroke="#b8d9cd"/>
+    <text x="830" y="248" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="20" font-weight="800" fill="#0d7c66">spec</text>
+    <text x="830" y="280" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500" fill="#6d665d">完成 / 假完成</text>
 
-    <rect x="975" y="220" width="140" height="105" rx="16" fill="#f2f7ff" stroke="#c7d9f4"/>
-    <text x="995" y="255" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="22" font-weight="800" fill="#2e7fd6">roles</text>
-    <text x="995" y="286" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="17" font-weight="520" fill="#6d665d">构建 / 怀疑</text>
-    <text x="995" y="309" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="17" font-weight="520" fill="#6d665d">裁决</text>
+    <rect x="970" y="210" width="140" height="90" rx="16" fill="#f2f7ff" stroke="#c7d9f4"/>
+    <text x="990" y="248" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="20" font-weight="800" fill="#2563eb">roles</text>
+    <text x="990" y="280" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500" fill="#6d665d">构建 / 怀疑</text>
 
-    <rect x="815" y="345" width="140" height="105" rx="16" fill="#f5f1ff" stroke="#d2c9f4"/>
-    <text x="835" y="380" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="22" font-weight="800" fill="#806eff">workflow</text>
-    <text x="835" y="411" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="17" font-weight="520" fill="#6d665d">继续 / 修复</text>
-    <text x="835" y="434" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="17" font-weight="520" fill="#6d665d">停止</text>
+    <rect x="810" y="320" width="140" height="90" rx="16" fill="#f5f1ff" stroke="#d2c9f4"/>
+    <text x="830" y="358" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="20" font-weight="800" fill="#7c3aed">workflow</text>
+    <text x="830" y="390" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500" fill="#6d665d">继续 / 修复 / 停止</text>
 
-    <rect x="975" y="345" width="140" height="105" rx="16" fill="#fff6df" stroke="#ead8a8"/>
-    <text x="995" y="380" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="22" font-weight="800" fill="#a67027">evidence</text>
-    <text x="995" y="411" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="17" font-weight="520" fill="#6d665d">证明 / 缺口</text>
-    <text x="995" y="434" text-anchor="start" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="17" font-weight="520" fill="#6d665d">残余风险</text>
+    <rect x="970" y="320" width="140" height="90" rx="16" fill="#fff6df" stroke="#ead8a8"/>
+    <text x="990" y="358" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="20" font-weight="800" fill="#b45309">evidence</text>
+    <text x="990" y="390" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" font-weight="500" fill="#6d665d">缺口 / 风险</text>
   </g>
 
-  <text x="600" y="560" text-anchor="middle" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="24" font-weight="760" fill="#6d665d">局部 · 可预览 · 可修改 · 可导出 · 可废弃</text>
+  <text x="600" y="496" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="760" fill="#6d665d">局部 · 可预览 · 可修改 · 可导出 · 可废弃</text>
 </svg>
