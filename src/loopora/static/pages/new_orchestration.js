@@ -46,6 +46,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const settingsStepRoleInput = document.getElementById("workflow-settings-step-role");
   const settingsStepModelInput = document.getElementById("workflow-settings-step-model");
   const settingsStepOnPassInput = document.getElementById("workflow-settings-step-on-pass");
+  const settingsStepParallelGroupInput = document.getElementById("workflow-settings-step-parallel-group");
   const settingsStepInheritSessionInput = document.getElementById("workflow-settings-step-inherit-session");
   const settingsStepExtraCliArgsInput = document.getElementById("workflow-settings-step-extra-cli-args");
   const settingsRoleDefinition = document.getElementById("workflow-settings-role-definition");
@@ -311,6 +312,38 @@ document.addEventListener("DOMContentLoaded", () => {
     return String(archetype || "") === "builder";
   }
 
+  function canStepUseParallelGroup(role) {
+    return ["inspector", "custom"].includes(String(role?.archetype || "").trim());
+  }
+
+  function workflowParallelGroups() {
+    const groups = new Map();
+    (workflowState.steps || []).forEach((step, index) => {
+      const group = String(step.parallel_group || "").trim();
+      if (!group) {
+        return;
+      }
+      const items = groups.get(group) || [];
+      items.push({step, index, role: roleById(step.role_id)});
+      groups.set(group, items);
+    });
+    return groups;
+  }
+
+  function workflowParallelSummary() {
+    const groups = Array.from(workflowParallelGroups().entries()).filter(([, items]) => items.length >= 2);
+    if (!groups.length) {
+      return "";
+    }
+    return groups.map(([group, items]) => {
+      const labels = items.map((item) => {
+        const role = item.role;
+        return role ? displayRoleSnapshotName(role) : item.step.role_id;
+      }).join(" + ");
+      return `${group}: ${labels}`;
+    }).join("; ");
+  }
+
   function normalizeRole(role, index) {
     const archetype = String(role.archetype || "builder").trim() || "builder";
     const rawName = String(role.name || "").trim();
@@ -488,6 +521,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const messages = [];
     const roleIds = new Set();
     const stepIds = new Set();
+    const roleByIdMap = Object.fromEntries(workflowState.roles.map((role) => [role.id, role]));
     if (!workflowState.roles.length) {
       messages.push(localeText("至少需要 1 个角色快照。", "At least one role snapshot is required."));
     }
@@ -513,6 +547,48 @@ document.addEventListener("DOMContentLoaded", () => {
       stepIds.add(step.id);
       if (!step.role_id || !roleIds.has(step.role_id)) {
         messages.push(localeText(`步骤 ${step.id || "(未命名)"} 引用了不存在的角色。`, `Step ${step.id || "(unnamed)"} references an unknown role.`));
+      }
+      const parallelGroup = String(step.parallel_group || "").trim();
+      const role = roleByIdMap[step.role_id];
+      if (parallelGroup && !canStepUseParallelGroup(role)) {
+        messages.push(localeText(
+          `并行检视组 ${parallelGroup} 只能包含 Inspector 或 Custom 步骤。`,
+          `Parallel review group ${parallelGroup} may only contain Inspector or Custom steps.`,
+        ));
+      }
+    });
+    const closedGroups = new Set();
+    let activeGroup = "";
+    const groupCounts = {};
+    workflowState.steps.forEach((step) => {
+      const group = String(step.parallel_group || "").trim();
+      if (group) {
+        groupCounts[group] = (groupCounts[group] || 0) + 1;
+      }
+      if (!group) {
+        if (activeGroup) {
+          closedGroups.add(activeGroup);
+        }
+        activeGroup = "";
+        return;
+      }
+      if (closedGroups.has(group) && group !== activeGroup) {
+        messages.push(localeText(
+          `并行检视组 ${group} 的步骤必须相邻。`,
+          `Parallel review group ${group} steps must be adjacent.`,
+        ));
+      }
+      if (activeGroup && activeGroup !== group) {
+        closedGroups.add(activeGroup);
+      }
+      activeGroup = group;
+    });
+    Object.entries(groupCounts).forEach(([group, count]) => {
+      if (count < 2) {
+        messages.push(localeText(
+          `并行检视组 ${group} 至少需要两个相邻步骤。`,
+          `Parallel review group ${group} needs at least two adjacent steps.`,
+        ));
       }
     });
     (workflowState.controls || []).forEach((control) => {
@@ -545,9 +621,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const messages = workflowValidationMessages();
     if (!messages.length) {
       const warnings = workflowValidationWarnings();
+      const parallelSummary = workflowParallelSummary();
       showStatus(
         workflowValidation,
-        warnings[0] || localeText("步骤结构看起来没问题。", "The step structure looks valid."),
+        warnings[0] || (parallelSummary
+          ? localeText(`步骤结构看起来没问题。并行检视：${parallelSummary}`, `The step structure looks valid. Parallel review: ${parallelSummary}`)
+          : localeText("步骤结构看起来没问题。", "The step structure looks valid.")),
         warnings.length ? "warning" : "success",
       );
       return true;
@@ -782,7 +861,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function syncSettingsFieldState(disabled, roleMissing, isGate) {
+  function syncSettingsFieldState(disabled, roleMissing, isGate, canUseParallelGroup) {
     [
       settingsStepIdInput,
       settingsStepRoleInput,
@@ -796,6 +875,9 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     if (settingsStepOnPassInput) {
       settingsStepOnPassInput.disabled = disabled || roleMissing || !isGate;
+    }
+    if (settingsStepParallelGroupInput) {
+      settingsStepParallelGroupInput.disabled = disabled || roleMissing || !canUseParallelGroup;
     }
   }
 
@@ -823,6 +905,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const definition = role ? roleDefinitionById(role.role_definition_id) : null;
     const isGate = role?.archetype === "gatekeeper";
     const roleMissing = !role;
+    const canUseParallelGroup = canStepUseParallelGroup(role);
 
     settingsModalTitle.textContent = localeText("步骤设置", "Step settings");
     settingsModalDetail.textContent = localeText(
@@ -838,6 +921,7 @@ document.addEventListener("DOMContentLoaded", () => {
     settingsStepIdInput.value = step.id || "";
     settingsStepModelInput.value = step.model || "";
     settingsStepOnPassInput.value = isGate && step.on_pass === "finish_run" ? "finish_run" : "continue";
+    settingsStepParallelGroupInput.value = step.parallel_group || "";
     settingsStepInheritSessionInput.checked = Boolean(step.inherit_session);
     settingsStepExtraCliArgsInput.value = step.extra_cli_args || "";
     settingsRoleDefinition.textContent = role
@@ -856,7 +940,7 @@ document.addEventListener("DOMContentLoaded", () => {
     settingsRoleCommandCliValue.textContent = role ? textOrDash(role.command_cli) : "-";
     settingsRoleCommandArgsValue.textContent = role ? textOrDash(role.command_args_text) : "-";
 
-    syncSettingsFieldState(isReadOnly, roleMissing, isGate);
+    syncSettingsFieldState(isReadOnly, roleMissing, isGate, canUseParallelGroup);
 
     settingsModal.hidden = false;
     settingsModal.setAttribute("aria-hidden", "false");
@@ -1065,11 +1149,24 @@ document.addEventListener("DOMContentLoaded", () => {
       step.inherit_session = Boolean(rawValue);
       return true;
     }
+    if (field === "parallel_group") {
+      const role = roleById(step.role_id);
+      const value = String(rawValue ?? "").trim();
+      if (!value || !canStepUseParallelGroup(role)) {
+        delete step.parallel_group;
+      } else {
+        step.parallel_group = value;
+      }
+      return false;
+    }
     step[field] = String(rawValue ?? "");
     if (field === "role_id") {
       const role = roleById(step.role_id);
       if (!role || role.archetype !== "gatekeeper") {
         step.on_pass = "continue";
+      }
+      if (!canStepUseParallelGroup(role)) {
+        delete step.parallel_group;
       }
       step.inherit_session = defaultInheritSession(role?.archetype);
       activeRoleId = step.role_id;
@@ -1235,7 +1332,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let requiresRender = false;
     if (stepField) {
-      requiresRender = updateStepField(stepField, value) || event.type === "change";
+      requiresRender = updateStepField(stepField, value);
     } else {
       return;
     }

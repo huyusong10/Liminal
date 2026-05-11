@@ -100,6 +100,7 @@
           order: index + 1,
           stepId: String(step.id || `step_${index + 1}`),
           roleId: String(step.role_id || ""),
+          parallelGroup: String(step.parallel_group || "").trim(),
           label,
           shortLabel: shortLabel(label, variant === "editor" ? 18 : 12),
           archetype: String(role.archetype || "custom"),
@@ -111,6 +112,21 @@
         };
       }),
     };
+  }
+
+  function parallelGroups(steps) {
+    const groups = new Map();
+    steps.forEach((step) => {
+      if (!step.parallelGroup) {
+        return;
+      }
+      const items = groups.get(step.parallelGroup) || [];
+      items.push(step);
+      groups.set(step.parallelGroup, items);
+    });
+    return Array.from(groups.entries())
+      .filter(([, items]) => items.length >= 2)
+      .map(([name, items]) => ({name, items}));
   }
 
   function vectorLength(x, y) {
@@ -168,12 +184,16 @@
   }
 
   function stepAriaLabel(step) {
-    return localeText(`第 ${step.order} 步：${step.label}`, `Step ${step.order}: ${step.label}`);
+    const base = localeText(`第 ${step.order} 步：${step.label}`, `Step ${step.order}: ${step.label}`);
+    return step.parallelGroup
+      ? `${base} · ${localeText(`并行检视组 ${step.parallelGroup}`, `Parallel review group ${step.parallelGroup}`)}`
+      : base;
   }
 
   function stepTooltipText(step) {
     return [
       localeText(`第 ${step.order} 步：${step.label}`, `Step ${step.order}: ${step.label}`),
+      step.parallelGroup ? localeText(`并行检视组：${step.parallelGroup}`, `Parallel review group: ${step.parallelGroup}`) : "",
       step.archetype ? localeText(`角色类型：${step.archetype}`, `Archetype: ${step.archetype}`) : "",
       step.description || "",
       step.postureNotes ? localeText(`协作姿态：${step.postureNotes}`, `Posture: ${step.postureNotes}`) : "",
@@ -195,16 +215,29 @@
     const markerId = `workflow-loop-arrow-${markerSequence += 1}`;
     const singleLoopPath = steps.length === 1 ? buildSingleLoop(steps[0], settings) : "";
     const segments = steps.length === 1 ? [] : buildSegments(steps, cx, cy, settings);
+    const groups = parallelGroups(steps);
+    const groupSummary = groups.length ? `
+      <div class="workflow-loop-parallel-groups" aria-label="${escapeHtml(localeText("并行检视组", "Parallel review groups"))}">
+        ${groups.map((group) => `
+          <span class="workflow-loop-parallel-group" data-testid="workflow-loop-parallel-group">
+            <span>${escapeHtml(localeText("并行检视", "Parallel review"))}</span>
+            <strong>${escapeHtml(group.items.map((step) => step.label).join(" + "))}</strong>
+          </span>
+        `).join("")}
+      </div>
+    ` : "";
     const legend = steps.map((step) => `
-      <li class="workflow-loop-pill${step.finishGate ? " is-finish" : ""}" data-testid="workflow-loop-pill" data-active="false" data-role-id="${escapeHtml(step.roleId)}" data-workflow-tooltip="${escapeHtml(stepTooltipText(step))}" tabindex="0" aria-label="${escapeHtml(stepAriaLabel(step))}">
+      <li class="workflow-loop-pill${step.finishGate ? " is-finish" : ""}${step.parallelGroup ? " is-parallel" : ""}" data-testid="workflow-loop-pill" data-active="false" data-role-id="${escapeHtml(step.roleId)}" data-workflow-tooltip="${escapeHtml(stepTooltipText(step))}" tabindex="0" aria-label="${escapeHtml(stepAriaLabel(step))}">
         <span class="workflow-loop-pill-order" style="--workflow-loop-accent:${roleColor(step.archetype)}">${step.order}</span>
         <span>${escapeHtml(step.label)}</span>
+        ${step.parallelGroup ? `<span class="workflow-loop-pill-tag">${escapeHtml(localeText("并行", "parallel"))}</span>` : ""}
       </li>
     `).join("");
     const nodes = steps.map((step) => {
       const anchor = labelAnchor(step, cx);
       return `
-        <g class="workflow-loop-node${step.finishGate ? " is-finish" : ""}" data-testid="workflow-loop-node" data-active="false" data-role-id="${escapeHtml(step.roleId)}" data-workflow-tooltip="${escapeHtml(stepTooltipText(step))}" tabindex="0" focusable="true" role="button" aria-label="${escapeHtml(stepAriaLabel(step))}">
+        <g class="workflow-loop-node${step.finishGate ? " is-finish" : ""}${step.parallelGroup ? " is-parallel" : ""}" data-testid="workflow-loop-node" data-active="false" data-role-id="${escapeHtml(step.roleId)}" data-workflow-tooltip="${escapeHtml(stepTooltipText(step))}" tabindex="0" focusable="true" role="button" aria-label="${escapeHtml(stepAriaLabel(step))}">
+          ${step.parallelGroup ? `<circle class="workflow-loop-node-parallel-ring" cx="${step.x.toFixed(1)}" cy="${step.y.toFixed(1)}" r="${(settings.nodeRadius + 7).toFixed(1)}"></circle>` : ""}
           <circle class="workflow-loop-node-hit" cx="${step.x.toFixed(1)}" cy="${step.y.toFixed(1)}" r="${(settings.nodeRadius + 14).toFixed(1)}"></circle>
           <circle cx="${step.x.toFixed(1)}" cy="${step.y.toFixed(1)}" r="${settings.nodeRadius}" fill="${roleColor(step.archetype)}"></circle>
           <text x="${step.x.toFixed(1)}" y="${(step.y + 1).toFixed(1)}" class="workflow-loop-node-order">${step.order}</text>
@@ -232,6 +265,7 @@
           </g>
           ${nodes}
         </svg>
+        ${groupSummary}
         <ol class="workflow-loop-legend">${legend}</ol>
         <div class="workflow-loop-tooltip" role="tooltip" data-testid="workflow-loop-tooltip" hidden></div>
       </div>

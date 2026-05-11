@@ -107,6 +107,7 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 - command mode 参数模板是每行一个 argv 参数，只能使用 executor 公开声明的运行时占位符；未知 `{name}` 占位符在保存、预览或启动前失败，`{extra_cli_args}` 只能作为独立 argv 插入点。
 - `parallel_group` 第一阶段只支持连续的 Inspector / Custom step，用于 fan-out / fan-in 检视；它不是任意 DAG 语法。
 - 同一 `parallel_group` 内的 step 看到相同的上游快照，不读取彼此输出；组结束后按 workflow 原顺序汇聚 handoff 和 evidence。
+- Web 和运行时 prompt 必须把 `parallel_group` 表达为有界并行检视：用户能在 starter、流程图、step 摘要和 step 设置中看见它；Builder、Inspector / Custom 与 GateKeeper 的系统提示不能暗示同组 reviewer 需要互相等待或覆盖彼此输出。
 - 复杂任务可以编译成长链 workflow：多个窄 Builder 或多个 Builder step 串联推进不同证据阶段，例如设计收敛、后端实现、前端接线、验证补强。长链不新增运行实体，也不表达嵌套循环；它仍是同一轮内的线性 step 序列，由外层 run iteration 负责自动迭代。
 - 长链中的每个 Builder 必须有明确阶段产物、handoff 和下游读取者；若某个 Builder 只重复“继续推进”而没有新的证据责任或交接边界，应合并到相邻 Builder，避免退化成 role zoo 或 loop script。
 - 当 Builder 排在另一个 Builder 之后，若中间存在 Inspector、Custom 或 Guide，后一个 Builder 必须显式读取对应 handoff；若两个 Builder 直接相邻，也应通过 task-specific role posture 或 step input 说明阶段边界，避免依赖 ambient context。

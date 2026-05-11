@@ -1445,6 +1445,7 @@ def _assert_orchestrations_list_page(html: str) -> None:
         "builtin-orchestrations-tip",
         "builtin-orchestration-scenario",
         "orchestration-loop-diagram",
+        "orchestration-parallel-badge",
     )
     for expected in (
         "<title>Orchestrations</title>",
@@ -1460,6 +1461,7 @@ def _assert_orchestrations_list_page(html: str) -> None:
         'tabindex="-1"',
         'aria-hidden="true"',
         'aria-label="Show tip: Built-in starters are read-only.',
+        "Parallel review",
     ):
         assert expected in html
     for removed in (
@@ -1516,6 +1518,7 @@ def _assert_new_orchestration_page(html: str) -> None:
         "workflow-settings-role-name",
         "workflow-settings-step-inherit-session",
         "workflow-settings-step-extra-cli-args",
+        "workflow-settings-step-parallel-group",
     )
     for removed in (
         "data-role-field=",
@@ -1554,6 +1557,7 @@ def _assert_builtin_orchestration_edit_page(html: str) -> None:
         "/orchestrations/new?workflow_preset=build_then_parallel_review",
         "Real scenario example",
         "two independent evidence views",
+        "workflow-settings-step-parallel-group",
         "Build the first inspectable result",
         "# Task",
     ):

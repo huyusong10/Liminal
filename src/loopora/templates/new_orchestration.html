@@ -275,6 +275,19 @@
               <option value="finish_run" data-label-zh="通过后结束流程" data-label-en="Finish run">{{ "通过后结束流程" if page_locale == "zh" else "Finish run" }}</option>
             </select>
           </label>
+          <label>
+            <span><span data-lang="zh">并行检视组</span><span data-lang="en">Parallel review group</span></span>
+            <input
+              id="workflow-settings-step-parallel-group"
+              data-step-field="parallel_group"
+              data-testid="workflow-settings-step-parallel-group"
+              placeholder="inspection_pack"
+            />
+            <p class="workflow-settings-field-note">
+              <span data-lang="zh">仅用于相邻的 Inspector / Custom 只读检视步骤；留空表示线性执行。</span>
+              <span data-lang="en">Only for adjacent read-only Inspector / Custom review steps; leave blank for linear execution.</span>
+            </p>
+          </label>
           <label class="workflow-settings-toggle-row wide">
             <span><span data-lang="zh">继承上一次会话</span><span data-lang="en">Continue previous session</span></span>
             <span class="workflow-settings-toggle-control">

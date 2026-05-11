@@ -143,6 +143,19 @@ def _orchestration_payload_input_from_args(
     return payload_input
 
 
+def _workflow_parallel_groups(workflow: dict | None) -> list[str]:
+    if not isinstance(workflow, dict):
+        return []
+    counts: dict[str, int] = {}
+    for step in list(workflow.get("steps") or []):
+        if not isinstance(step, dict):
+            continue
+        group = str(step.get("parallel_group") or "").strip()
+        if group:
+            counts[group] = counts.get(group, 0) + 1
+    return [group for group, count in counts.items() if count >= 2]
+
+
 class WorkflowAssetCatalog:
     """Owns orchestration and role-definition asset records."""
 
@@ -160,6 +173,7 @@ class WorkflowAssetCatalog:
             workflow = build_preset_workflow(preset_name)
             prompt_files = resolve_prompt_files(workflow)
             copy = workflow_preset_copy(preset_name)
+            parallel_groups = _workflow_parallel_groups(workflow)
             records.append(
                 {
                     "id": f"builtin:{preset_name}",
@@ -183,6 +197,8 @@ class WorkflowAssetCatalog:
                     "editable": False,
                     "deletable": False,
                     "workflow_json": workflow,
+                    "parallel_groups": parallel_groups,
+                    "parallel_group_count": len(parallel_groups),
                     "prompt_files_json": prompt_files,
                     "workflow_warnings": workflow_warnings(workflow),
                 }
@@ -237,6 +253,8 @@ class WorkflowAssetCatalog:
         decorated["editable"] = source == "custom"
         decorated["deletable"] = source == "custom"
         decorated["workflow_warnings"] = workflow_warnings(decorated.get("workflow_json") or {})
+        decorated["parallel_groups"] = _workflow_parallel_groups(decorated.get("workflow_json"))
+        decorated["parallel_group_count"] = len(decorated["parallel_groups"])
         return decorated
 
     def _decorate_role_definition(self, record: dict, *, source: str) -> dict:

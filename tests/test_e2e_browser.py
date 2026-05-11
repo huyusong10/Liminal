@@ -2022,12 +2022,14 @@ def _assert_orchestration_loop_diagram_styles(page, base_url: str) -> None:
     expect_legend = first_diagram.get_by_test_id("workflow-loop-pill")
     assert expect_svg.count() == 1
     assert expect_legend.count() >= 2
+    assert first_diagram.get_by_test_id("workflow-loop-parallel-group").count() >= 1
     diagram_styles = first_diagram.evaluate(
         """(diagram) => {
           const segment = diagram.querySelector(".workflow-loop-segment");
           const node = diagram.querySelector(".workflow-loop-node circle:not(.workflow-loop-node-hit)");
           const label = diagram.querySelector(".workflow-loop-node-label");
           const badge = diagram.querySelector(".workflow-loop-center-badge rect");
+          const parallelRing = diagram.querySelector(".workflow-loop-node.is-parallel .workflow-loop-node-parallel-ring");
           const svg = diagram.querySelector("svg").getBoundingClientRect();
           return {
             segmentStrokeWidth: getComputedStyle(segment).strokeWidth,
@@ -2036,6 +2038,7 @@ def _assert_orchestration_loop_diagram_styles(page, base_url: str) -> None:
             nodeStrokeWidth: getComputedStyle(node).strokeWidth,
             labelFill: getComputedStyle(label).fill,
             badgeFill: getComputedStyle(badge).fill,
+            parallelRingStrokeWidth: getComputedStyle(parallelRing).strokeWidth,
             svgWidth: Math.round(svg.width),
             svgHeight: Math.round(svg.height)
           };
@@ -2047,6 +2050,7 @@ def _assert_orchestration_loop_diagram_styles(page, base_url: str) -> None:
     assert diagram_styles["nodeStrokeWidth"] == "3px"
     assert diagram_styles["labelFill"] != "rgb(0, 0, 0)"
     assert diagram_styles["badgeFill"] != "rgb(0, 0, 0)"
+    assert diagram_styles["parallelRingStrokeWidth"] == "2px"
     assert diagram_styles["svgWidth"] >= 240
     assert 120 <= diagram_styles["svgHeight"] <= 260
 
@@ -2057,6 +2061,25 @@ def _assert_new_orchestration_editor_interactions(page, base_url: str) -> None:
     page.select_option("#workflow-starter-select", "repair_loop")
     page.click("#load-workflow-starter-button")
     assert page.get_by_test_id("workflow-step-row").count() == 6
+    assert page.get_by_test_id("workflow-loop-parallel-group").count() >= 1
+
+    first_inspector_card = page.get_by_test_id("workflow-step-row").nth(1)
+    first_inspector_card.locator('[data-testid="workflow-step-settings-button"]').click()
+    parallel_group_input = page.locator('[data-testid="workflow-settings-step-parallel-group"]')
+    assert parallel_group_input.is_disabled() is False
+    assert parallel_group_input.input_value() == "repair_review"
+    parallel_group_input.fill("repair_review_alt")
+    page.click('button[data-close-workflow-settings="1"]')
+    page.wait_for_function("() => document.querySelector('[data-testid=\"workflow-step-settings-modal\"]')?.getAttribute('aria-hidden') === 'true'")
+    second_inspector_card = page.get_by_test_id("workflow-step-row").nth(2)
+    second_inspector_card.locator('[data-testid="workflow-step-settings-button"]').click()
+    parallel_group_input = page.locator('[data-testid="workflow-settings-step-parallel-group"]')
+    assert parallel_group_input.input_value() == "repair_review"
+    parallel_group_input.fill("repair_review_alt")
+    page.click('button[data-close-workflow-settings="1"]')
+    page.wait_for_function("() => document.querySelector('[data-testid=\"workflow-step-settings-modal\"]')?.getAttribute('aria-hidden') === 'true'")
+    assert "parallel:repair_review_alt" in (first_inspector_card.text_content() or "")
+    assert "parallel:repair_review_alt" in (second_inspector_card.text_content() or "")
 
     builder_card = page.get_by_test_id("workflow-step-row").nth(4)
     builder_card.click(position={"x": 160, "y": 84})
@@ -2070,6 +2093,7 @@ def _assert_new_orchestration_editor_interactions(page, base_url: str) -> None:
     page.locator('[data-testid="workflow-settings-step-model"]').fill("gpt-5.4-mini")
     page.locator('[data-testid="workflow-settings-step-extra-cli-args"]').fill("--verbose")
     page.click('button[data-close-workflow-settings="1"]')
+    page.wait_for_function("() => document.querySelector('[data-testid=\"workflow-step-settings-modal\"]')?.getAttribute('aria-hidden') === 'true'")
     assert "gpt-5.4-mini" in (builder_card.text_content() or "")
     assert "--verbose" in (builder_card.text_content() or "")
 
@@ -2083,6 +2107,7 @@ def _assert_new_orchestration_editor_interactions(page, base_url: str) -> None:
     inspector_card.locator('[data-testid="workflow-step-settings-button"]').click()
     assert page.locator('[data-testid="workflow-settings-step-inherit-session"]').is_checked() is False
     page.click('button[data-close-workflow-settings="1"]')
+    page.wait_for_function("() => document.querySelector('[data-testid=\"workflow-step-settings-modal\"]')?.getAttribute('aria-hidden') === 'true'")
 
     page.locator("#workflow-controls-json-input").fill(
         json.dumps(

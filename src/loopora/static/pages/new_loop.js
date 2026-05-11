@@ -300,6 +300,18 @@ document.addEventListener("DOMContentLoaded", () => {
     return Array.isArray(workflow.steps) ? workflow.steps : [];
   }
 
+  function workflowParallelGroupCount(orchestration) {
+    const groups = new Map();
+    workflowSteps(orchestration).forEach((step) => {
+      const group = String(step?.parallel_group || "").trim();
+      if (!group) {
+        return;
+      }
+      groups.set(group, (groups.get(group) || 0) + 1);
+    });
+    return Array.from(groups.values()).filter((count) => count >= 2).length;
+  }
+
   function orchestrationHasRole(orchestration, archetype) {
     return workflowRoles(orchestration).some((role) => String(role?.archetype || "") === archetype);
   }
@@ -409,6 +421,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (!policy.hasGuide) {
       notes.push(localeText("无引导者，已隐藏触发/回退窗口", "No Guide, trigger/regression windows hidden"));
+    }
+    const parallelGroupCount = workflowParallelGroupCount(selected);
+    if (parallelGroupCount) {
+      notes.push(localeText(`并行检视 ${parallelGroupCount} 组`, `${parallelGroupCount} parallel review group${parallelGroupCount === 1 ? "" : "s"}`));
     }
     if (!policy.supportsGatekeeperCompletion) {
       showStatus(

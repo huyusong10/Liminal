@@ -63,11 +63,15 @@ def _assert_orchestration_catalog_flags(
     assert builtin_orchestration["workflow_json"]["steps"][0]["inherit_session"] is True
     assert builtin_orchestration["workflow_json"]["steps"][1]["inherit_session"] is False
     assert builtin_orchestration["workflow_json"]["steps"][0]["extra_cli_args"] == ""
+    assert builtin_orchestration["parallel_groups"] == ["inspection_pack"]
+    assert builtin_orchestration["parallel_group_count"] == 1
     assert builtin_orchestration["scenario_zh"]
     assert builtin_orchestration["scenario_en"]
 
     assert custom_orchestration["source"] == "custom"
     assert custom_orchestration["workflow_json"]["preset"] == "inspect_first"
+    assert custom_orchestration["parallel_groups"] == []
+    assert custom_orchestration["parallel_group_count"] == 0
     assert isinstance(custom_orchestration["workflow_warnings"], list)
 
 

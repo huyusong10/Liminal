@@ -869,6 +869,10 @@ def test_builtin_prompts_define_runtime_evidence_fallback_rules() -> None:
         assert evidence_bucket_zh_phrase in prompt
     assert "run status is not a task pass" in gatekeeper_prompt
     assert "run 正常结束不等于任务通过" in gatekeeper_zh_prompt
+    assert "downstream review steps run in a parallel_group" in system_prompt_prefix("builder")
+    assert "this step is in a parallel_group" in system_prompt_prefix("inspector")
+    assert "upstream reviewers ran in a parallel_group" in system_prompt_prefix("gatekeeper")
+    assert "custom specialization" in system_prompt_prefix("custom")
     assert "run status separate from task verdict" in system_prompt_prefix("gatekeeper")
     _assert_runtime_contract_frozen_prefixes()
     assert "Proven, Weak, Unproven, Blocking, and Residual risk" in output_contract_prompt("inspector")

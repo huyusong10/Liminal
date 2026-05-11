@@ -76,6 +76,15 @@
   transition: stroke 180ms ease, filter 180ms ease;
 }
 
+.workflow-loop-node .workflow-loop-node-parallel-ring {
+  fill: none;
+  stroke: rgba(13, 124, 102, 0.42);
+  stroke-width: 2;
+  stroke-dasharray: 3 4;
+  filter: none;
+  pointer-events: none;
+}
+
 .workflow-loop-node-hit {
   fill: transparent;
   stroke: transparent;
@@ -131,6 +140,40 @@
   list-style: none;
 }
 
+.workflow-loop-parallel-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workflow-loop-parallel-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid rgba(13, 124, 102, 0.16);
+  background: rgba(13, 124, 102, 0.08);
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.workflow-loop-parallel-group > span,
+.workflow-loop-pill-tag {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+html[data-locale="zh"] .workflow-loop-parallel-group > span,
+html[data-locale="zh"] .workflow-loop-pill-tag {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .workflow-loop-pill {
   display: inline-flex;
   align-items: center;
@@ -160,6 +203,10 @@
 .workflow-loop-pill.is-finish {
   border-color: rgba(171, 47, 42, 0.2);
   color: var(--workflow-loop-pill-text);
+}
+
+.workflow-loop-pill.is-parallel {
+  border-color: rgba(13, 124, 102, 0.2);
 }
 
 .workflow-loop-node:hover circle,
