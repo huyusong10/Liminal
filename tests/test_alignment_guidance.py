@@ -19,6 +19,24 @@ def test_alignment_guidance_assets_are_internal_compiler_material() -> None:
     assets = load_alignment_guidance_assets()
     assert assets.source_dir == source_dir
     _assert_contains_all(
+        assets.system_prompt_template,
+        (
+            "You are Loopora's built-in Web Loop alignment agent",
+            "Important output discipline",
+            "{{bundle_path}}",
+            "{{stage_policy}}",
+            "{{session_transcript_json}}",
+        ),
+    )
+    _assert_contains_all(
+        assets.compiler_gates,
+        (
+            "Current compiler gate: clarifying",
+            "Current compiler gate: confirmed agreement",
+            "Before asking the user, answer anything you can from the transcript",
+        ),
+    )
+    _assert_contains_all(
         assets.compiler_policy,
         (
             "internal compiler flow",
@@ -27,6 +45,9 @@ def test_alignment_guidance_assets_are_internal_compiler_material() -> None:
             "Loopora backend owns phase acceptance",
             "Repairable issues may be fixed by the Agent",
             "Human-required issues must go back to conversation",
+            "branch-aware pressure testing",
+            "answer everything you can from the transcript",
+            "Follow the user's chosen or corrected branch",
             "Agent as conversation driver",
             "Backend as compiler guard",
         ),
@@ -47,6 +68,7 @@ def test_alignment_guidance_preserves_product_and_bundle_contracts() -> None:
         assets.alignment_playbook,
         (
             "Loopora fit gate",
+            "Branch-aware pressure test",
             "agreement-to-bundle traceability checklist",
             "long-chain phase workflow",
             "Do not use arbitrary DAG language",
@@ -70,3 +92,38 @@ def test_alignment_guidance_is_packaged_without_skill_assets() -> None:
     package_data = pyproject["tool"]["setuptools"]["package-data"]["loopora"]
     assert "assets/alignment/*.md" in package_data
     assert not any(str(item).startswith("skills/assets") for item in package_data)
+
+
+def test_alignment_system_prompt_text_lives_in_markdown_assets() -> None:
+    service_source = (Path(__file__).resolve().parents[1] / "src" / "loopora" / "service_alignment.py").read_text(encoding="utf-8")
+    for snippet in (
+        "You are Loopora's built-in Web Loop alignment agent.",
+        "Important output discipline:",
+        "Current compiler gate: confirmed agreement.",
+        "The previous bundle failed Loopora's hard validator.",
+        "Selected Loopora Source Context",
+        "Bundle Improvement Context",
+    ):
+        assert snippet not in service_source
+
+    assets = load_alignment_guidance_assets()
+    _assert_contains_all(
+        "\n".join(
+            (
+                assets.system_prompt_template,
+                assets.compiler_gates,
+                assets.repair_input_template,
+                assets.current_bundle_template,
+                assets.selected_source_context_template,
+                assets.bundle_improvement_context_template,
+            )
+        ),
+        (
+            "You are Loopora's built-in Web Loop alignment agent.",
+            "Important output discipline:",
+            "Current compiler gate: confirmed agreement.",
+            "The previous bundle failed Loopora's hard validator.",
+            "Selected Loopora Source Context",
+            "Bundle Improvement Context",
+        ),
+    )

@@ -184,19 +184,22 @@ Session artifact 必须落在目标 workdir 下，并按事实源、事件流和
 
 后端调用 Agent CLI 时，不要求目标工具安装任何 Loopora Skill。
 
+系统 prompt 的长期文本必须存放在 `assets/alignment/*.md`；服务层只负责选择模板、填充 runtime 变量和注入当前状态，不在 Python 代码中维护大段提示词正文。
+
 系统 prompt 由以下内容装配：
 
-1. `assets/alignment/product-primer.md`
-2. `assets/alignment/compiler-policy.md`
-3. 当前 compiler gate：阶段、允许候选 phase、输出纪律和修复 / 追问边界
-4. `assets/alignment/alignment-playbook.md`
-5. `assets/alignment/quality-rubric.md`
-6. `assets/alignment/bundle-contract.md`
-7. `assets/alignment/examples.md`
-8. 可选 `assets/alignment/feedback-improvement.md` 与 source context，用于已有 bundle 或 run evidence 的对话改进入口；它只作为生成候选 Loop 的上下文，不作为持久演化历史
-9. 当前 session transcript
-10. 目标 workdir 的轻量只读 snapshot、bundle 输出路径、当前校验结果
-11. 输出纪律：若尚需澄清，直接提问；若 bundle 已成形，必须把完整 YAML 放入结构化字段 `bundle_yaml`
+1. `assets/alignment/system-prompt.md` 主模板
+2. `assets/alignment/compiler-gates.md` 当前 compiler gate：阶段、允许候选 phase、输出纪律和修复 / 追问边界
+3. `assets/alignment/product-primer.md`
+4. `assets/alignment/compiler-policy.md`
+5. `assets/alignment/alignment-playbook.md`
+6. `assets/alignment/quality-rubric.md`
+7. `assets/alignment/bundle-contract.md`
+8. `assets/alignment/examples.md`
+9. 可选 `assets/alignment/feedback-improvement.md` 与 source context 模板（`selected-source-context.md`、`selected-spec-markdown.md`、`bundle-improvement-context.md`、`current-bundle.md`、`repair-input.md`），用于已有 bundle、run evidence 或修复轮的对话上下文；它们只作为生成候选 Loop 的上下文，不作为持久演化历史
+10. 当前 session transcript
+11. 目标 workdir 的轻量只读 snapshot、bundle 输出路径、当前校验结果
+12. 输出纪律：若尚需澄清，直接提问；若 bundle 已成形，必须把完整 YAML 放入结构化字段 `bundle_yaml`
 
 稳定规则：
 
@@ -212,7 +215,7 @@ Session artifact 必须落在目标 workdir 下，并按事实源、事件流和
 - 结构化输出包含 `session_ref`；为兼容严格 structured-output 校验，它结构上必填、语义上可空，只接受少量字符串键（如 `session_id / thread_id / conversation_id / provider / raw_json`）。没有原生引用时这些键使用空字符串。服务层会和 executor 捕获到的 session ref 合并保存。
 - 结构化输出包含 `decision_options`；当 `needs_user_input=true` 且本轮需要用户选择时，Agent 应提供 2-4 个可点击选项，每个包含稳定 id、用户可读 label / description、recommended 标记和点击后追加到 transcript 的 `user_reply`。它只属于编译期对话面，不进入 bundle、working agreement 或 run evidence。服务层在记录 assistant transcript 时保留这些选项，前端只允许用户点击最新一条 assistant 选项；点击效果等同于发送一条普通用户消息。
 - 结构化输出还包含 alignment phase、readiness checklist 与 readiness evidence。Agent 必须先澄清任务，再给出有证据的 working agreement，等待用户确认，最后才能输出 bundle。服务层会拒绝任何未进入后端 `confirmed` stage 的 bundle 输出，也会拒绝只有 boolean checklist、缺少 evidence 字段、空泛占位值或明显反模式的 bundle 输出，并把 session 留在等待用户回复状态；服务层不应靠细粒度关键词判断每个 evidence 字段的表达质量。
-- 澄清问题必须使用任务风险语言，并默认每轮只问一个最会改变 Loop 形状的问题。问题不应裸问用户从零思考答案；它应先表达 Agent 的候选判断和推荐答案，再用结构化选项让用户选择或纠正。若 Agent 在默认 Web alignment 中把问题表述成抽象偏好 / 质量风格调查、是否配置 `Builder`、`Inspector`、`GateKeeper`、`parallel_group`、`workflow.controls` 或 YAML 字段，且没有连接到证据、假完成、风险或阻断语义，或一次抛出多项问卷式澄清，或缺少带推荐项的 `decision_options`，服务层应改写成单个带推荐选项的风险取舍问题并记录事件。
+- 澄清问题必须使用任务风险语言，并默认每轮只问一个最会改变 Loop 形状的问题。问题不应裸问用户从零思考答案；它应先表达 Agent 的候选判断和推荐答案，再用结构化选项让用户选择或纠正。Agent 在提问前应先消化 transcript、working agreement、当前 bundle / source context、校验诊断和 Workdir Snapshot；能由这些上下文回答的事实问题不应再问用户。对话应沿用户已选择或纠正的决策分支推进，除非出现新事实冲突、诊断或用户改口，否则不重开已解决分支。若 Agent 在默认 Web alignment 中把问题表述成抽象偏好 / 质量风格调查、是否配置 `Builder`、`Inspector`、`GateKeeper`、`parallel_group`、`workflow.controls` 或 YAML 字段，且没有连接到证据、假完成、风险或阻断语义，或一次抛出多项问卷式澄清，或缺少带推荐项的 `decision_options`，服务层应改写成单个带推荐选项的风险取舍问题并记录事件。
 - Agent 在展示 working agreement 或输出 bundle 前，应私下彩排一条完整运行路径：Builder 产出候选和 handoff，Inspector / Custom 读取承诺的 handoff 与 evidence，可选 Guide 把 Blocking 或 Unproven 发现转成修复方向，第二轮 Builder 读取该方向，GateKeeper 读取相关 handoff 与 evidence 后裁决，用户能通过 Proven / Weak / Unproven / Blocking / Residual risk 证据桶审计结果。若某一环只靠聊天上下文、角色名或隐含记忆成立，Agent 应继续追问或调整候选 Loop surface。
 - Agent 在展示 working agreement 或输出 bundle 前，应私下做一次失败轮次压力测试：假设未来 Builder 产出一个看起来完成但证据弱、覆盖缺失、标准漂移或残余风险不可接受的结果，检查当前 `spec`、角色姿态、workflow、handoff、evidence query 与 GateKeeper 规则是否会暴露、修复或阻断它。若不能，Agent 应继续追问或调整候选 Loop surface，而不是把未受压测的配置交给用户确认。
 - Agent 在展示 working agreement 或输出 bundle 前，应私下做 agreement-to-bundle traceability checklist：每个已确认判断项必须落到 `collaboration_summary`、`spec.markdown`、role prompt / posture、`workflow.collaboration_intent`、step `inputs`、workflow controls 或 GateKeeper evidence 规则。只存在于 `agreement_summary`、readiness evidence、transcript、metadata / loop 名称或隐性推理里的判断，不能作为 READY 前的已编译判断。服务层在 READY 校验时也要用已确认 working agreement 做粗颗粒 traceability 检查，阻断把 refund、audit、AGENTS.md、design 或其他任务特异判断留在确认协议里、最终却输出通用 bundle 的情况。

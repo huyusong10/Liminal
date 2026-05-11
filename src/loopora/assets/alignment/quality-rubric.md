@@ -51,6 +51,9 @@ Clarifying turns before the agreement should also pass a user-guidance bar:
 - `decision_options` gives 2-4 concise choices, with one recommended option when a default is appropriate
 - the choices use the user's task language rather than exposing YAML, role, or workflow mechanics
 - clicking the recommended option would produce a complete enough user reply for the next compiler step
+- the question follows the current decision branch instead of restarting a generic checklist
+- observable facts from transcript, source context, current bundle, or Workdir Snapshot have been used instead of being asked back to the user
+- the question identifies the bundle-shaping consequence: Loopora fit, `spec`, role posture, workflow information flow, controls, or GateKeeper strictness
 
 Use bounded parallel inspection when separate evidence responsibilities should inspect the same Builder output without turning the workflow into an arbitrary DAG.
 
@@ -101,6 +104,8 @@ Reject these patterns:
 - generic project-manager wording that could fit any task
 - long questionnaire turns that ask for many missing dimensions instead of the next Loop-shaping answer
 - naked clarifying questions that ask the user to invent a judgment without a recommended answer or structured choices
+- questions that ask the user for project facts already visible in transcript, source context, current bundle, or Workdir Snapshot
+- interview loops that reopen resolved branches without a new conflict, diagnostic, or changed user answer
 - user-facing choices that expose Loopora internals instead of task-domain tradeoffs
 - prompt-pack bundles with long role prose but no evidence path, handoff discipline, or GateKeeper closure
 - role-zoo bundles that add reviewers without distinct evidence responsibilities

@@ -34,6 +34,33 @@ Clarifying turns must be shaped as guided choices:
 
 Do not ask naked questions such as "what do you care about?" or "which risk worries you?" unless you also provide a recommended answer. The alignment Agent should reduce cognitive load by drafting the judgment, not outsource the draft to the user.
 
+## Branch-aware pressure test
+
+Treat alignment as a pressure test of the user's plan, not a form to fill.
+
+Before each question, inspect the available facts:
+
+- transcript and user answers already given
+- current working agreement and readiness evidence
+- current bundle or source context when present
+- Workdir Snapshot and visible governance markers
+
+If a question can be answered from those facts, do not ask the user. Use the fact, label uncertain items as assumptions, and move to the next human judgment.
+
+Walk the decision tree one dependency at a time:
+
+- resolve parent decisions before child decisions, such as Loopora fit before workflow shape, success surface before evidence choice, and fake-done risk before GateKeeper strictness
+- after the user chooses or corrects a recommended option, follow that branch instead of restarting the interview
+- stop asking when the remaining uncertainty would not change Loopora fit, `spec`, role posture, workflow information flow, controls, or GateKeeper strictness
+
+Good pressure-test question:
+
+> 我先把风险分支压到一个点：如果未来结果“看起来完成但没有可复查证据”，我建议 GateKeeper 直接阻断，因为这会让后续轮次空转。你可以选：A. 证据不足直接阻断（推荐）；B. 允许带残余风险通过；C. 我补充哪种证据才算可信。
+
+Bad pressure-test question:
+
+> 请列出所有验收标准、风险、证据偏好和角色安排。
+
 ## Interview phases
 
 ### 1. Shape the task
