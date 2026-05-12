@@ -17,6 +17,7 @@ from loopora.bundles import (
 )
 from loopora.executor_fake_payloads import alignment_bundle_yaml
 from loopora.service import LooporaError
+from loopora.service_bundle_control_summary import _traceability_projection
 from loopora.service_types import LooporaConflictError
 from loopora.settings import app_home, configure_logging
 import loopora.service_cleanup_diagnostics as cleanup_diagnostics
@@ -187,6 +188,35 @@ def test_bundle_import_rejects_invalid_loop_runtime_numbers(
         service.import_bundle_text(yaml_text)
 
 
+@pytest.mark.parametrize(
+    ("yaml_line", "error_text"),
+    (
+        ("  max_iters: 4.5", "bundle loop.max_iters must be an integer"),
+        ("  max_role_retries: 1.5", "bundle loop.max_role_retries must be an integer"),
+        ("  trigger_window: 2.5", "bundle loop.trigger_window must be an integer"),
+        ("  regression_window: 2.5", "bundle loop.regression_window must be an integer"),
+    ),
+)
+def test_bundle_import_rejects_fractional_integer_runtime_numbers(
+    service_factory,
+    sample_workdir: Path,
+    yaml_line: str,
+    error_text: str,
+) -> None:
+    service = service_factory(scenario="success")
+    original_key = yaml_line.split(":", 1)[0].strip()
+    original_line = {
+        "max_iters": "  max_iters: 4",
+        "max_role_retries": "  max_role_retries: 1",
+        "trigger_window": "  trigger_window: 2",
+        "regression_window": "  regression_window: 2",
+    }[original_key]
+    yaml_text = _bundle_yaml(sample_workdir).replace(original_line, yaml_line)
+
+    with pytest.raises(LooporaError, match=error_text):
+        service.import_bundle_text(yaml_text)
+
+
 def test_bundle_import_preserves_zero_loop_runtime_numbers(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     yaml_text = (
@@ -205,6 +235,24 @@ def test_bundle_import_preserves_zero_loop_runtime_numbers(service_factory, samp
     assert exported["loop"]["max_iters"] == 0
     assert exported["loop"]["max_role_retries"] == 0
     assert exported["loop"]["delta_threshold"] == 0.0
+
+
+def test_bundle_import_accepts_lossless_float_encoded_integer_runtime_numbers(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    yaml_text = (
+        _bundle_yaml(sample_workdir)
+        .replace("  max_iters: 4", "  max_iters: 4.0")
+        .replace("  max_role_retries: 1", "  max_role_retries: 1.0")
+        .replace("  trigger_window: 2", "  trigger_window: 2.0")
+        .replace("  regression_window: 2", "  regression_window: 2.0")
+    )
+
+    imported = service.import_bundle_text(yaml_text)
+
+    assert imported["loop"]["max_iters"] == 4
+    assert imported["loop"]["max_role_retries"] == 1
+    assert imported["loop"]["trigger_window"] == 2
+    assert imported["loop"]["regression_window"] == 2
 
 
 def test_bundle_round_trip_preserves_parallel_groups_and_step_inputs(service_factory, sample_workdir: Path) -> None:
@@ -408,6 +456,26 @@ def test_bundle_rejects_zero_workflow_control_max_fires(service_factory, sample_
         service.preview_bundle_text(yaml_text)
 
 
+def test_bundle_rejects_string_workflow_control_max_fires(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    yaml_text = _bundle_yaml(sample_workdir).replace(
+        '      on_pass: "finish_run"\n',
+        '      on_pass: "finish_run"\n'
+        "  controls:\n"
+        '    - id: "quoted_review"\n'
+        "      when:\n"
+        '        signal: "gatekeeper_rejected"\n'
+        '        after: "0s"\n'
+        "      call:\n"
+        '        role_id: "inspector"\n'
+        '      mode: "advisory"\n'
+        '      max_fires_per_run: "2"\n',
+    )
+
+    with pytest.raises(LooporaError, match="control max_fires_per_run must be an integer"):
+        service.preview_bundle_text(yaml_text)
+
+
 def test_bundle_preview_projects_error_control_summary(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
 
@@ -486,6 +554,26 @@ def test_bundle_preview_warns_about_legacy_guide_and_weak_builder_handoff(
     assert "builder_missing_guide_handoff" in codes
 
 
+def test_bundle_preview_warns_when_gatekeeper_drops_parallel_review_fan_in(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    gatekeeper_inputs = steps_by_id["gatekeeper_step"]["inputs"]
+    gatekeeper_inputs["handoffs_from"] = ["evidence_inspection_step"]
+    gatekeeper_inputs["evidence_query"]["archetypes"] = ["builder"]
+
+    preview = service.preview_bundle_text(bundle_to_yaml(bundle))
+
+    diagnostics_by_code = {item["code"]: item for item in preview["diagnostics"]}
+    assert diagnostics_by_code["gatekeeper_missing_parallel_review_handoff"]["details"]["missing_handoffs"] == [
+        "contract_inspection_step"
+    ]
+    assert diagnostics_by_code["gatekeeper_missing_parallel_review_evidence"]["details"]["missing_archetypes"] == ["inspector"]
+
+
 def test_bundle_control_summary_does_not_hide_invalid_fire_limit_projection(
     service_factory,
     sample_workdir: Path,
@@ -510,6 +598,18 @@ def test_bundle_control_summary_does_not_hide_invalid_fire_limit_projection(
 
     bundle["workflow"]["controls"][0]["max_fires_per_run"] = "not-a-number"
     assert service._bundle_control_summary(bundle)["controls"][0]["max_fires_per_run"] == "not-a-number"
+
+    bundle["workflow"]["controls"][0]["max_fires_per_run"] = "2"
+    assert service._bundle_control_summary(bundle)["controls"][0]["max_fires_per_run"] == "2"
+
+    bundle["workflow"]["controls"][0]["max_fires_per_run"] = "+2"
+    assert service._bundle_control_summary(bundle)["controls"][0]["max_fires_per_run"] == "+2"
+
+    bundle["workflow"]["controls"][0]["max_fires_per_run"] = True
+    assert service._bundle_control_summary(bundle)["controls"][0]["max_fires_per_run"] == "true"
+
+    bundle["workflow"]["controls"][0]["max_fires_per_run"] = 1.5
+    assert service._bundle_control_summary(bundle)["controls"][0]["max_fires_per_run"] == "1.5"
 
 
 def test_bundle_preview_rejects_spec_markdown_that_cannot_compile(service_factory, sample_workdir: Path) -> None:
@@ -1714,6 +1814,9 @@ def test_alignment_semantic_lint_does_not_hard_block_control_risk_wording(
     ("yaml_edit", "message"),
     [
         (lambda text: text.replace("version: 1", "version: 0", 1), "unsupported bundle version: 0"),
+        (lambda text: text.replace("version: 1", "version: 2", 1), "unsupported bundle version: 2"),
+        (lambda text: text.replace("version: 1", "version: 1.0", 1), "bundle version must be an integer"),
+        (lambda text: text.replace("version: 1", "version: false", 1), "bundle version must be an integer"),
         (lambda text: text.replace("version: 1", "version: not-a-number", 1), "bundle version must be an integer"),
         (
             lambda text: text.replace(
@@ -1724,8 +1827,52 @@ def test_alignment_semantic_lint_does_not_hard_block_control_risk_wording(
             r"bundle metadata\.revision must be >= 1",
         ),
         (
+            lambda text: text.replace(
+                '  description: "Bundle created from task-scoped alignment."',
+                '  description: "Bundle created from task-scoped alignment."\n  revision: 1.0',
+                1,
+            ),
+            r"bundle metadata\.revision must be an integer",
+        ),
+        (
+            lambda text: text.replace(
+                '  description: "Bundle created from task-scoped alignment."',
+                '  description: "Bundle created from task-scoped alignment."\n  revision: false',
+                1,
+            ),
+            r"bundle metadata\.revision must be an integer",
+        ),
+        (
+            lambda text: text.replace(
+                '  description: "Bundle created from task-scoped alignment."',
+                '  description: "Bundle created from task-scoped alignment."\n  revision: not-a-number',
+                1,
+            ),
+            r"bundle metadata\.revision must be an integer",
+        ),
+        (
+            lambda text: text.replace(
+                '  description: "Bundle created from task-scoped alignment."',
+                '  description: "Bundle created from task-scoped alignment."\n  revision:',
+                1,
+            ),
+            r"bundle metadata\.revision must be an integer",
+        ),
+        (
+            lambda text: text.replace(
+                '  description: "Bundle created from task-scoped alignment."',
+                '  description: "Bundle created from task-scoped alignment."\n  revision: ""',
+                1,
+            ),
+            r"bundle metadata\.revision must be an integer",
+        ),
+        (
             lambda text: text.replace("workflow:\n  version: 1", "workflow:\n  version: 0", 1),
             "unsupported bundle workflow version: 0",
+        ),
+        (
+            lambda text: text.replace("workflow:\n  version: 1", "workflow:\n  version: 1.0", 1),
+            "bundle workflow version must be an integer",
         ),
         (
             lambda text: text.replace("workflow:\n  version: 1", "workflow:\n  version: false", 1),
@@ -1743,6 +1890,58 @@ def test_bundle_preview_rejects_invalid_explicit_versions(
 
     with pytest.raises(LooporaError, match=message):
         service.preview_bundle_text(yaml_edit(_bundle_yaml(sample_workdir)))
+
+
+@pytest.mark.parametrize(
+    "yaml_edit",
+    [
+        lambda text: text.replace("version: 1\n", "", 1),
+        lambda text: text.replace("version: 1", 'version: ""', 1),
+    ],
+)
+def test_bundle_preview_defaults_missing_or_empty_top_level_version(
+    service_factory,
+    sample_workdir: Path,
+    yaml_edit,
+) -> None:
+    service = service_factory(scenario="success")
+
+    preview = service.preview_bundle_text(yaml_edit(_bundle_yaml(sample_workdir)))
+
+    assert preview["bundle"]["version"] == 1
+
+
+@pytest.mark.parametrize(
+    ("metadata_line", "message"),
+    (
+        ('  bundle_id: "../outside"', r"bundle metadata\.bundle_id must use letters, numbers, dot, underscore, or dash"),
+        ("  bundle_id: false", r"bundle metadata\.bundle_id must be a string"),
+        ('  source_bundle_id: "../source"', r"bundle metadata\.source_bundle_id must use letters, numbers, dot, underscore, or dash"),
+        ("  source_bundle_id: false", r"bundle metadata\.source_bundle_id must be a string"),
+    ),
+)
+def test_bundle_preview_rejects_unsafe_metadata_identifiers(
+    service_factory,
+    sample_workdir: Path,
+    metadata_line: str,
+    message: str,
+) -> None:
+    service = service_factory(scenario="success")
+    yaml_text = _bundle_yaml(sample_workdir).replace(
+        '  description: "Bundle created from task-scoped alignment."',
+        f'  description: "Bundle created from task-scoped alignment."\n{metadata_line}',
+        1,
+    )
+
+    with pytest.raises(LooporaError, match=message):
+        service.preview_bundle_text(yaml_text)
+
+
+def test_bundle_import_rejects_unsafe_replace_bundle_id(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+
+    with pytest.raises(LooporaError, match=r"bundle replace_bundle_id must use letters, numbers, dot, underscore, or dash"):
+        service.import_bundle_text(_bundle_yaml(sample_workdir), replace_bundle_id="../escape")
 
 
 def test_bundle_preview_rejects_task_contract_list_sections_without_bullets(
@@ -1797,6 +1996,27 @@ def test_bundle_preview_rejects_unsafe_workflow_identifiers(
     invalid_yaml = yaml_edit(_bundle_yaml(sample_workdir))
 
     with pytest.raises(LooporaError, match=message):
+        service.preview_bundle_text(invalid_yaml)
+
+
+def test_bundle_preview_rejects_non_string_workflow_input_list_items(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    invalid_yaml = _bundle_yaml(sample_workdir).replace(
+        '    - id: "gatekeeper_step"\n'
+        '      role_id: "gatekeeper"\n'
+        '      on_pass: "finish_run"',
+        '    - id: "gatekeeper_step"\n'
+        '      role_id: "gatekeeper"\n'
+        '      on_pass: "finish_run"\n'
+        "      inputs:\n"
+        "        handoffs_from:\n"
+        "          - 123",
+    )
+
+    with pytest.raises(LooporaError, match=r"workflow step inputs\.handoffs_from must contain only strings"):
         service.preview_bundle_text(invalid_yaml)
 
 
@@ -2146,6 +2366,55 @@ def test_bundle_replace_updates_plan_without_advancing_revision(service_factory,
     assert exported["collaboration_summary"].startswith("Prefer maintainability")
 
 
+def test_bundle_replace_logs_backup_cleanup_runtime_failure_without_failing(
+    service_factory,
+    sample_workdir: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    service = service_factory(scenario="success")
+    configure_logging()
+    imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
+    original_rmtree = cleanup_diagnostics.shutil.rmtree
+
+    def fail_backup_rmtree(path: Path) -> None:
+        target = Path(path)
+        if target.name.startswith(f"{imported['id']}.backup_"):
+            raise RuntimeError("backup cleanup crashed")
+        original_rmtree(path)
+
+    monkeypatch.setattr(cleanup_diagnostics.shutil, "rmtree", fail_backup_rmtree)
+
+    with caplog.at_level(logging.WARNING, logger="loopora.service_bundle_assets"):
+        revised = service.import_bundle_text(
+            _bundle_yaml(
+                sample_workdir,
+                collaboration_summary="Prefer resilient replacement cleanup diagnostics.",
+            ),
+            replace_bundle_id=imported["id"],
+        )
+
+    assert revised["id"] == imported["id"]
+    records = [
+        {
+            "event": getattr(record, "event", ""),
+            "context": getattr(record, "context", {}) or {},
+        }
+        for record in caplog.records
+    ]
+    log_path = app_home() / "logs" / "service.log"
+    if log_path.exists():
+        records.extend(json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip())
+    assert any(
+        record.get("event") == "service.cleanup.failed"
+        and (record.get("context") or {}).get("operation") == "bundle_backup_cleanup"
+        and (record.get("context") or {}).get("resource_type") == "path"
+        and (record.get("context") or {}).get("owner_id") == imported["id"]
+        and (record.get("context") or {}).get("error_type") == "RuntimeError"
+        for record in records
+    )
+
+
 def test_bundle_governance_cards_project_contract_controls(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     imported = service.import_bundle_text(_bundle_yaml(sample_workdir))
@@ -2159,6 +2428,44 @@ def test_bundle_governance_cards_project_contract_controls(service_factory, samp
     assert governance["workflow_shape"]
     assert governance["gatekeeper"]["enabled"] is True
     assert governance["gatekeeper"]["strictness"] == "evidence_refs_required"
+
+
+def test_bundle_governance_summary_requires_literal_gatekeeper_enabled(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(_bundle_yaml(sample_workdir))
+
+    service._bundle_control_summary = lambda _bundle: {
+        "risks": [],
+        "evidence": ["GateKeeper evidence refs"],
+        "workflow": {"summary": "Builder -> GateKeeper", "step_count": 2, "parallel_groups": []},
+        "gatekeeper": {"enabled": "false", "roles": ["GateKeeper"], "finish_steps": ["gatekeeper_step"]},
+    }
+
+    governance = service._bundle_governance_summary(bundle)
+
+    assert governance["gatekeeper"]["enabled"] is False
+    assert governance["gatekeeper"]["strictness"] == "not_configured"
+
+
+def test_bundle_traceability_requires_literal_gatekeeper_enabled() -> None:
+    traceability = _traceability_projection(
+        {
+            "bundle": {},
+            "raw_sections": {},
+            "roles": [],
+            "workflow": {},
+            "workflow_projection": {},
+            "gatekeeper": {"enabled": "true", "roles": ["GateKeeper"], "finish_steps": ["gatekeeper_step"]},
+            "controls": [],
+        }
+    )
+
+    gatekeeper_item = next(item for item in traceability["items"] if item["key"] == "gatekeeper_closure")
+    assert gatekeeper_item["mapped"] is False
+    assert "gatekeeper_closure" in traceability["missing"]
 
 
 def test_legacy_bundle_lineage_metadata_imports_but_new_exports_omit_lineage(
@@ -2575,6 +2882,38 @@ def test_derive_bundle_uses_saved_loop_spec_snapshot(
     derived = service.derive_bundle_from_loop(loop["id"], name="Derived From Saved Snapshot")
 
     assert derived["spec"]["markdown"] == sample_spec_text.strip()
+
+
+def test_derive_bundle_normalizes_saved_loop_workflow_before_projection(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Manual Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        orchestration_id="builtin:build_first",
+    )
+    workflow = json.loads(json.dumps(loop["workflow_json"]))
+    workflow["steps"][0]["inherit_session"] = "false"
+    with service.repository.transaction() as connection:
+        connection.execute(
+            "UPDATE loop_definitions SET workflow_json = ? WHERE id = ?",
+            (json.dumps(workflow, ensure_ascii=False), loop["id"]),
+        )
+
+    derived = service.derive_bundle_from_loop(loop["id"], name="Derived From Saved Snapshot")
+
+    assert derived["workflow"]["steps"][0]["inherit_session"] is False
 
 
 def test_derive_bundle_keeps_role_definition_keys_consistent(

@@ -10,6 +10,7 @@ from loopora.db_shared import logger
 from loopora.diagnostics import log_exception
 from loopora.event_redaction import redact_run_event_payload
 from loopora.run_artifacts import RunArtifactLayout
+from loopora.structured_numbers import structured_non_negative_int
 from loopora.utils import utc_now
 
 
@@ -33,7 +34,7 @@ class RepositoryEventRecordsMixin:
         max_event_id: int | None = None,
         limit: int = 200,
     ) -> list[sqlite3.Row]:
-        normalized_limit = max(0, min(int(limit), 5000))
+        normalized_limit = min(structured_non_negative_int(limit), 5000)
         if normalized_limit <= 0:
             return []
         types = sorted({str(event_type or "").strip() for event_type in (event_types or []) if str(event_type or "").strip()})
@@ -45,7 +46,7 @@ class RepositoryEventRecordsMixin:
             params.extend(types)
         if max_event_id is not None:
             where = f"{where} AND id <= ?"
-            params.append(max(0, int(max_event_id or 0)))
+            params.append(structured_non_negative_int(max_event_id))
         params.append(normalized_limit)
         rows = connection.execute(
             f"""
@@ -90,7 +91,7 @@ class RepositoryEventRecordsMixin:
                     record,
                     mirror_paths=[layout.legacy_events_path],
                 )
-            except OSError:
+            except Exception:  # noqa: BLE001 - local run event mirrors are best-effort after the DB event is durable.
                 log_exception(
                     logger,
                     "db.run_event.mirror_failed",
@@ -103,8 +104,8 @@ class RepositoryEventRecordsMixin:
         return record
 
     def list_events(self, run_id: str, *, after_id: int = 0, limit: int = 200) -> list[dict]:
-        normalized_after_id = max(0, int(after_id or 0))
-        normalized_limit = max(0, min(int(limit or 0), 5000))
+        normalized_after_id = structured_non_negative_int(after_id)
+        normalized_limit = min(structured_non_negative_int(limit), 5000)
         if normalized_limit <= 0:
             return []
         with self._connect() as connection:
@@ -163,15 +164,21 @@ class RepositoryEventRecordsMixin:
         return [self._decode_row(row) for row in rows]
 
     def update_run_event_payload_for_redaction(self, event_id: int, payload: dict) -> bool:
+        normalized_event_id = structured_non_negative_int(event_id)
+        if normalized_event_id <= 0:
+            return False
         payload_json = json.dumps(payload, ensure_ascii=False)
         with self.transaction() as connection:
             cursor = connection.execute(
                 "UPDATE run_events SET payload_json = ? WHERE id = ?",
-                (payload_json, int(event_id)),
+                (payload_json, normalized_event_id),
             )
         return cursor.rowcount > 0
 
     def record_run_takeaway_projection(self, run_id: str, source_event_id: int, payload: dict) -> bool:
+        normalized_source_event_id = structured_non_negative_int(source_event_id)
+        if normalized_source_event_id <= 0:
+            return False
         with self.transaction() as connection:
             run = connection.execute("SELECT * FROM loop_runs WHERE id = ?", (run_id,)).fetchone()
             if run is None:
@@ -179,7 +186,7 @@ class RepositoryEventRecordsMixin:
             self._insert_takeaway_projection_for_connection(
                 connection,
                 run_id=run_id,
-                source_event_id=int(source_event_id),
+                source_event_id=normalized_source_event_id,
                 payload=payload,
             )
         return True
@@ -192,15 +199,18 @@ class RepositoryEventRecordsMixin:
         source_event_id: int,
         payload: dict,
     ) -> None:
+        normalized_source_event_id = structured_non_negative_int(source_event_id)
+        if normalized_source_event_id <= 0:
+            return
         projection = dict(payload or {})
-        projection["source_event_id"] = int(source_event_id)
+        projection["source_event_id"] = normalized_source_event_id
         connection.execute(
             """
             INSERT OR REPLACE INTO run_takeaway_projections
                 (run_id, source_event_id, payload_json, created_at)
             VALUES (?, ?, ?, ?)
             """,
-            (run_id, int(source_event_id), json.dumps(projection, ensure_ascii=False), utc_now()),
+            (run_id, normalized_source_event_id, json.dumps(projection, ensure_ascii=False), utc_now()),
         )
 
     def _latest_takeaway_projection_for_connection(
@@ -210,6 +220,9 @@ class RepositoryEventRecordsMixin:
         *,
         max_source_event_id: int,
     ) -> dict | None:
+        normalized_max_source_event_id = structured_non_negative_int(max_source_event_id)
+        if normalized_max_source_event_id <= 0:
+            return None
         row = connection.execute(
             """
             SELECT * FROM run_takeaway_projections
@@ -217,7 +230,7 @@ class RepositoryEventRecordsMixin:
             ORDER BY source_event_id DESC
             LIMIT 1
             """,
-            (run_id, int(max_source_event_id)),
+            (run_id, normalized_max_source_event_id),
         ).fetchone()
         if row is None:
             return None

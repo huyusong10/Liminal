@@ -15,6 +15,7 @@ from loopora.service_iteration_reporting import IterationReportContext, Iteratio
 from loopora.service_role_execution import IterationRoleRunRequest, RoleExecutionRequest
 from loopora.service_run_finalization import TerminalRunFinalizationRequest
 from loopora.service_types import (
+    LooporaConflictError,
     LooporaError,
     LooporaNotFoundError,
     RoleExecutionError,
@@ -54,10 +55,21 @@ class LegacyExecutionState:
 
 
 class ServiceLegacyExecutionMixin:
-    def execute_run(self, run_id: str) -> dict:
+    def _execute_preclaimed_run(self, run_id: str) -> dict:
+        try:
+            return self.execute_run(run_id, _active_already_claimed=True)
+        except Exception:
+            self._mark_run_inactive(run_id)
+            self._threads.pop(run_id, None)
+            raise
+
+    def execute_run(self, run_id: str, *, _active_already_claimed: bool = False) -> dict:
         run = self.repository.get_run(run_id)
         if not run:
             raise LooporaNotFoundError(f"unknown run: {run_id}")
+
+        if not _active_already_claimed and not self._try_mark_run_active(run_id):
+            raise LooporaConflictError(f"run {run_id} is already executing in this process")
 
         log_event(
             logger,
@@ -70,13 +82,28 @@ class ServiceLegacyExecutionMixin:
                 max_iters=run.get("max_iters"),
             ),
         )
-        self._mark_run_active(run_id)
         run_dir = Path(run["runs_dir"])
-        workflow = self._normalized_workflow_from_record(run) if run.get("workflow_json") else {}
-        if workflow:
-            return self._execute_workflow_run(run_id, run, run_dir, workflow)
+        try:
+            workflow = self._normalized_workflow_from_record(run) if run.get("workflow_json") else {}
+        except Exception:
+            self._mark_run_inactive(run_id)
+            self._threads.pop(run_id, None)
+            raise
 
-        return self._execute_legacy_run(run_id, run, run_dir)
+        if workflow:
+            result = self._execute_workflow_run(run_id, run, run_dir, workflow)
+            return self._execution_result_after_cleanup(run_id, result)
+
+        result = self._execute_legacy_run(run_id, run, run_dir)
+        return self._execution_result_after_cleanup(run_id, result)
+
+    def _execution_result_after_cleanup(self, run_id: str, result: dict) -> dict:
+        if str(result.get("status") or "") not in {"succeeded", "failed", "stopped"}:
+            return result
+        try:
+            return self.get_run(run_id)
+        except Exception:  # noqa: BLE001 - execution already produced a terminal result; preserve it if refresh fails.
+            return result
 
     def _execute_legacy_run(self, run_id: str, run: dict, run_dir: Path) -> dict:
         try:
@@ -425,7 +452,11 @@ class ServiceLegacyExecutionMixin:
                 final_reason="gatekeeper_passed",
             )
         )
-        self.append_run_event(run_id, "run_finished", {"status": "succeeded", "iter": state.last_iter_id})
+        self.append_run_event(
+            run_id,
+            "run_finished",
+            self._run_finished_event_payload(finished, status="succeeded", iter_id=state.last_iter_id),
+        )
         log_event(
             logger,
             logging.INFO,
@@ -478,7 +509,7 @@ class ServiceLegacyExecutionMixin:
                 final_reason=reason,
             )
         )
-        self.append_run_event(run_id, "run_finished", {"status": status, "reason": reason})
+        self.append_run_event(run_id, "run_finished", self._run_finished_event_payload(finished, status=status, reason=reason))
         log_event(
             logger,
             logging.INFO,
@@ -504,7 +535,7 @@ class ServiceLegacyExecutionMixin:
                 final_reason="stopped",
             )
         )
-        self.append_run_event(run_id, "run_finished", {"status": "stopped"})
+        self.append_run_event(run_id, "run_finished", self._run_finished_event_payload(stopped, status="stopped"))
         log_event(
             logger,
             logging.INFO,
@@ -557,6 +588,11 @@ class ServiceLegacyExecutionMixin:
             attempts=exc.result.attempts,
             degraded=exc.result.degraded,
             error_text=error_text,
+        )
+        self.append_run_event(
+            run_id,
+            "run_finished",
+            self._run_finished_event_payload(failed, status="failed", reason="role_execution_abort"),
         )
         log_event(
             logger,
@@ -621,6 +657,11 @@ class ServiceLegacyExecutionMixin:
             attempts=1,
             degraded=False,
             error_text=error_text,
+        )
+        self.append_run_event(
+            run_id,
+            "run_finished",
+            self._run_finished_event_payload(failed, status="failed", reason="workspace_safety_guard"),
         )
         log_event(
             logger,

@@ -9,7 +9,7 @@ from loopora.workflows import build_preset_workflow, display_name_for_archetype,
 
 REQUIRED_SECTIONS = ["Task"]
 HTML_COMMENT_PATTERN = re.compile(r"<!--.*?-->", re.DOTALL)
-BULLET_ITEM_PATTERN = re.compile(r"^\s*[-*]\s+(.+?)\s*$", re.MULTILINE)
+BULLET_ITEM_PATTERN = re.compile(r"^[-*]\s+(.+?)\s*$", re.MULTILINE)
 ROLE_NOTE_HEADING_PATTERN = re.compile(r"^## (.+?)\s*$", re.MULTILINE)
 ROLE_NOTES_SUFFIX_RE = re.compile(r"\s+notes\s*$", re.IGNORECASE)
 LIST_SECTIONS = {
@@ -165,7 +165,7 @@ def compile_markdown_spec(markdown_text: str) -> dict:
     cleaned_markdown = _strip_html_comments(markdown_text)
     sections = _split_sections(cleaned_markdown)
     _reject_legacy_sections(sections)
-    missing = [section for section in REQUIRED_SECTIONS if not sections.get(section)]
+    missing = [section for section in REQUIRED_SECTIONS if not sections.get(section, "").strip()]
     if missing:
         raise SpecError(f"missing top-level sections: {', '.join(missing)}")
 
@@ -242,11 +242,16 @@ def _split_sections(markdown_text: str) -> dict[str, str]:
     pattern = re.compile(r"^# (.+?)\s*$", re.MULTILINE)
     matches = list(pattern.finditer(markdown_text))
     sections: dict[str, str] = {}
+    duplicate_sections: list[str] = []
     for index, match in enumerate(matches):
         name = match.group(1).strip()
+        if name in sections and name not in duplicate_sections:
+            duplicate_sections.append(name)
         start = match.end()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(markdown_text)
-        sections[name] = markdown_text[start:end].strip()
+        sections[name] = markdown_text[start:end].strip("\r\n")
+    if duplicate_sections:
+        raise SpecError(f"duplicate top-level sections: {', '.join(duplicate_sections)}")
     return sections
 
 
@@ -294,6 +299,7 @@ def _extract_role_notes(section_text: str) -> dict[str, str]:
     if section_text.strip() and not matches:
         raise SpecError("`# Role Notes` must use `## <Role Name> Notes` subheadings")
     notes: dict[str, str] = {}
+    duplicate_notes: list[str] = []
     for index, match in enumerate(matches):
         title = match.group(1).strip()
         start = match.end()
@@ -304,7 +310,11 @@ def _extract_role_notes(section_text: str) -> dict[str, str]:
         normalized_title = _normalize_role_note_heading(title)
         if not normalized_title:
             raise SpecError("role note subheadings must look like `## <Role Name> Notes`")
+        if normalized_title in notes and normalized_title not in duplicate_notes:
+            duplicate_notes.append(normalized_title)
         notes[normalized_title] = body
+    if duplicate_notes:
+        raise SpecError(f"duplicate role note sections: {', '.join(duplicate_notes)}")
     return notes
 
 
@@ -320,7 +330,8 @@ def _reject_legacy_sections(sections: dict[str, str]) -> None:
     legacy = [name for name in ("Goal", "Checks", "Constraints") if name in sections]
     if legacy:
         raise SpecError(
-            "legacy spec headings are no longer supported; use `# Task`, `# Done When`, `# Guardrails`, and `# Role Notes`"
+            "legacy spec headings are no longer supported; use `# Task`, `# Done When`, `# Guardrails`, "
+            "`# Success Surface`, `# Fake Done`, `# Evidence Preferences`, `# Residual Risk`, and `# Role Notes`"
         )
 
 

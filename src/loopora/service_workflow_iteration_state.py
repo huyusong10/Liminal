@@ -12,6 +12,7 @@ from loopora.run_artifacts import append_jsonl_with_mirrors, write_json_with_mir
 from loopora.service_run_finalization import TerminalRunFinalizationRequest
 from loopora.service_workflow_support import IterationContextPersistRequest, StepOutputsWriteRequest, WorkflowSummaryRequest
 from loopora.stagnation import StagnationUpdateRequest, update_stagnation
+from loopora.structured_numbers import structured_non_negative_int
 from loopora.utils import append_jsonl, read_json, utc_now
 
 logger = get_logger(__name__)
@@ -197,13 +198,20 @@ class ServiceWorkflowIterationStateMixin:
             coverage = {}
         if not isinstance(coverage, dict):
             coverage = {}
-        covered_checks = int(coverage.get("covered_check_count") or 0)
-        missing_checks = int(coverage.get("missing_check_count") or 0)
-        recent_counts = list(stagnation.get("recent_covered_check_counts", []))
-        no_progress = bool(recent_counts) and covered_checks <= int(recent_counts[-1] or 0)
-        consecutive_no_progress = int(stagnation.get("consecutive_no_required_coverage_delta") or 0)
+        covered_checks = structured_non_negative_int(coverage.get("covered_check_count"))
+        missing_checks = structured_non_negative_int(coverage.get("missing_check_count"))
+        raw_recent_counts = stagnation.get("recent_covered_check_counts", [])
+        recent_counts = (
+            [structured_non_negative_int(item) for item in raw_recent_counts]
+            if isinstance(raw_recent_counts, list)
+            else []
+        )
+        previous_covered_checks = structured_non_negative_int(recent_counts[-1]) if recent_counts else 0
+        no_progress = bool(recent_counts) and covered_checks <= previous_covered_checks
+        consecutive_no_progress = structured_non_negative_int(stagnation.get("consecutive_no_required_coverage_delta"))
         consecutive_no_progress = consecutive_no_progress + 1 if no_progress and missing_checks > 0 else 0
-        evidence_progress_mode = "stalled" if missing_checks > 0 and consecutive_no_progress >= int(request.run.get("trigger_window") or 1) else "none"
+        trigger_window = structured_non_negative_int(request.run.get("trigger_window"), default=1) or 1
+        evidence_progress_mode = "stalled" if missing_checks > 0 and consecutive_no_progress >= trigger_window else "none"
         return {
             **stagnation,
             "recent_covered_check_counts": [*recent_counts, covered_checks][-20:],
@@ -347,7 +355,11 @@ class ServiceWorkflowIterationStateMixin:
                 hydrate=True,
             )
         )
-        self.append_run_event(request.run_id, "run_finished", {"status": "succeeded", "iter": request.iter_id})
+        self.append_run_event(
+            request.run_id,
+            "run_finished",
+            self._run_finished_event_payload(finished, status="succeeded", iter_id=request.iter_id),
+        )
         log_event(
             logger,
             logging.INFO,

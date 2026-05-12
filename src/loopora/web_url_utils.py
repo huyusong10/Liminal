@@ -4,6 +4,7 @@ import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 SAFE_FILENAME_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._- ")
+SENSITIVE_REDIRECT_QUERY_KEYS = {"token"}
 
 
 def safe_local_return_path(value: object) -> str | None:
@@ -17,17 +18,33 @@ def safe_local_return_path(value: object) -> str | None:
         return None
     if not parts.path.startswith("/") or parts.path.startswith("//"):
         return None
-    return urlunsplit(("", "", parts.path or "/", parts.query, parts.fragment))
+    return urlunsplit(("", "", parts.path or "/", _safe_redirect_query(parts.query), parts.fragment))
 
 
 def with_query_params(url: str, **params: object) -> str:
     parts = urlsplit(url)
-    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query = {
+        key: value
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if key.lower() not in SENSITIVE_REDIRECT_QUERY_KEYS
+    }
     for key, value in params.items():
         if value is None:
             continue
+        if key.lower() in SENSITIVE_REDIRECT_QUERY_KEYS:
+            continue
         query[key] = str(value)
     return urlunsplit(("", "", parts.path or "/", urlencode(query), parts.fragment))
+
+
+def _safe_redirect_query(query: str) -> str:
+    return urlencode(
+        [
+            (key, value)
+            for key, value in parse_qsl(query, keep_blank_values=True)
+            if key.lower() not in SENSITIVE_REDIRECT_QUERY_KEYS
+        ]
+    )
 
 
 def safe_attachment_filename(filename: object, *, default: str = "download") -> str:

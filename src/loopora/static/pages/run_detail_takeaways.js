@@ -13,6 +13,25 @@
     const escapeHtml = deps.escapeHtml || defaultEscapeHtml;
     const formatAbsoluteDate = deps.formatAbsoluteDate || (() => "-");
 
+    function nonNegativeInteger(value) {
+      return Number.isInteger(value) && value >= 0 ? value : null;
+    }
+
+    function displayCount(value, fallback = 0) {
+      const count = nonNegativeInteger(value);
+      return count === null ? fallback : count;
+    }
+
+    function firstDisplayCount(...values) {
+      for (const value of values) {
+        const count = nonNegativeInteger(value);
+        if (count !== null) {
+          return count;
+        }
+      }
+      return 0;
+    }
+
     function takeawayStatusLabel(status) {
       switch (status) {
         case "passed":
@@ -52,7 +71,7 @@
     }
 
     function formatScore(value) {
-      const numeric = Number(value);
+      const numeric = typeof value === "number" && Number.isFinite(value) ? value : null;
       if (!Number.isFinite(numeric)) {
         return "";
       }
@@ -167,9 +186,9 @@
     function evidenceCoverageHtml(snapshot, runId) {
       const coverage = snapshot?.evidence_coverage || {};
       const manifest = snapshot?.evidence_manifest || {};
-      const evidenceCount = Number(coverage.evidence_count || snapshot?.evidence_count || 0);
-      const checkCount = Number(coverage.check_count || 0);
-      const coveredChecks = Number(coverage.covered_check_count || 0);
+      const evidenceCount = firstDisplayCount(coverage.evidence_count, snapshot?.evidence_count);
+      const checkCount = displayCount(coverage.check_count);
+      const coveredChecks = displayCount(coverage.covered_check_count);
       const coveragePath = String(coverage.coverage_path || "");
       const manifestPath = String(manifest.manifest_path || "");
       const taskVerdictPath = String(snapshot?.task_verdict_path || "");
@@ -192,12 +211,12 @@
         : coverage.ledger_path
           ? localeText(`${evidenceCount} 条证据 · 账本 ${coverage.ledger_path}`, `${evidenceCount} evidence item${evidenceCount === 1 ? "" : "s"} · Ledger ${coverage.ledger_path}`)
           : localeText("运行开始后会写入证据账本。", "The ledger appears after the run starts.");
-      const claimCount = Number(manifest.claim_count || 0);
-      const directProofCount = Number(manifest.direct_proof_claim_count || 0);
-      const workspaceArtifactCount = Number(manifest.workspace_artifact_claim_count || 0);
-      const runArtifactCount = Number(manifest.run_artifact_claim_count || 0);
-      const ledgerOnlyCount = Number(manifest.ledger_only_claim_count || 0);
-      const unverifiedCount = Number(manifest.unverified_claim_count || 0);
+      const claimCount = displayCount(manifest.claim_count);
+      const directProofCount = displayCount(manifest.direct_proof_claim_count);
+      const workspaceArtifactCount = displayCount(manifest.workspace_artifact_claim_count);
+      const runArtifactCount = displayCount(manifest.run_artifact_claim_count);
+      const ledgerOnlyCount = displayCount(manifest.ledger_only_claim_count);
+      const unverifiedCount = displayCount(manifest.unverified_claim_count);
       const proofDetail = manifestPath
         ? localeText(
           `直接证明 ${directProofCount} · 工作区产物 ${workspaceArtifactCount} · 运行产物 ${runArtifactCount} · 仅账本 ${ledgerOnlyCount} · 未验证 ${unverifiedCount}`,
@@ -208,7 +227,7 @@
       const weakBucketCount = evidenceBucketCount(snapshot, "weak");
       const unprovenCount = evidenceBucketCount(snapshot, "unproven");
       const blockingCount = evidenceBucketCount(snapshot, "blocking");
-      const riskCount = evidenceBucketCount(snapshot, "residual_risk") || Number(coverage.residual_risk_count || 0);
+      const riskCount = evidenceBucketCount(snapshot, "residual_risk") || displayCount(coverage.residual_risk_count);
       return [
         evidenceCoverageCard("裁决状态", "Verdict status", taskVerdictStatusLabel(snapshot?.task_verdict?.status), statusDetail, `${verdictAction}${traceAction}`),
         evidenceCoverageCard("证明强度", "Proof strength", claimCount ? `${directProofCount}/${claimCount}` : "-", proofDetail, manifestAction),
@@ -230,9 +249,9 @@
       const taskStatus = String(taskVerdict.status || "not_evaluated").toLowerCase();
       const coverage = snapshot?.evidence_coverage || {};
       const coverageStatus = String(coverage.status || "").toLowerCase();
-      const weakCount = Number(coverage.weak_target_count || 0);
-      const missingCount = Number(coverage.missing_target_count || 0);
-      const blockedCount = Number(coverage.blocked_target_count || 0);
+      const weakCount = displayCount(coverage.weak_target_count);
+      const missingCount = displayCount(coverage.missing_target_count);
+      const blockedCount = displayCount(coverage.blocked_target_count);
       const primaryGap = Array.isArray(coverage.top_gaps) && coverage.top_gaps.length ? coverage.top_gaps[0] : null;
       if (taskStatus === "passed_with_residual_risk") {
         return {
@@ -290,9 +309,9 @@
         bits.push(localeText(`综合分 ${formatScore(iteration.composite_score)}`, `Composite ${formatScore(iteration.composite_score)}`));
       }
       const evidenceProgressMode = String(iteration?.evidence_progress_mode || "none");
-      const coveredChecks = Number(iteration?.covered_check_count || 0);
-      const missingChecks = Number(iteration?.missing_check_count || 0);
-      const noCoverageDelta = Number(iteration?.consecutive_no_required_coverage_delta || 0);
+      const coveredChecks = displayCount(iteration?.covered_check_count);
+      const missingChecks = displayCount(iteration?.missing_check_count);
+      const noCoverageDelta = displayCount(iteration?.consecutive_no_required_coverage_delta);
       if (evidenceProgressMode !== "none") {
         bits.push(localeText("证据进展停滞", "Evidence progress stalled"));
       }
@@ -302,10 +321,11 @@
       if (noCoverageDelta > 0) {
         bits.push(localeText(`${noCoverageDelta} 轮无新增覆盖`, `${noCoverageDelta} no-coverage-delta iter${noCoverageDelta === 1 ? "" : "s"}`));
       }
-      if (iteration?.role_count) {
-        bits.push(localeText(`${iteration.role_count} 条角色结论`, `${iteration.role_count} role conclusion${iteration.role_count === 1 ? "" : "s"}`));
+      const roleCount = displayCount(iteration?.role_count);
+      if (roleCount) {
+        bits.push(localeText(`${roleCount} 条角色结论`, `${roleCount} role conclusion${roleCount === 1 ? "" : "s"}`));
       }
-      const evidenceCount = Number(snapshot?.evidence_count || 0);
+      const evidenceCount = displayCount(snapshot?.evidence_count);
       if (evidenceCount > 0) {
         bits.push(localeText(`${evidenceCount} 条证据`, `${evidenceCount} evidence item${evidenceCount === 1 ? "" : "s"}`));
       }
@@ -324,16 +344,18 @@
     }
 
     function takeawayIterationOptionLabel(iteration) {
-      const bits = [localeText(`第 ${iteration.display_iter || 1} 轮`, `Iter ${iteration.display_iter || 1}`)];
+      const displayIter = displayCount(iteration?.display_iter, 1);
+      const bits = [localeText(`第 ${displayIter} 轮`, `Iter ${displayIter}`)];
       const statusLabel = takeawayStatusLabel(iteration?.status);
       if (statusLabel) {
         bits.push(statusLabel);
       }
-      if (iteration?.role_count) {
+      const roleCount = displayCount(iteration?.role_count);
+      if (roleCount) {
         bits.push(
           localeText(
-            `${iteration.role_count} 条角色结论`,
-            `${iteration.role_count} role conclusion${iteration.role_count === 1 ? "" : "s"}`
+            `${roleCount} 条角色结论`,
+            `${roleCount} role conclusion${roleCount === 1 ? "" : "s"}`
           )
         );
       }
@@ -353,11 +375,12 @@
     }
 
     function renderTakeawayIterationCard(iteration, snapshot) {
+      const displayIter = displayCount(iteration?.display_iter, 1);
       return `
         <article class="takeaway-iteration-card takeaway-iteration-card--${escapeHtml(iteration.status || "pending")}">
           <div class="takeaway-iteration-head">
             <div class="takeaway-iteration-copy">
-              <span class="takeaway-iteration-label">${escapeHtml(localeText(`第 ${iteration.display_iter || 1} 轮`, `Iter ${iteration.display_iter || 1}`))}</span>
+              <span class="takeaway-iteration-label">${escapeHtml(localeText(`第 ${displayIter} 轮`, `Iter ${displayIter}`))}</span>
               <strong class="takeaway-iteration-title">${escapeHtml(takeawayHeadline(iteration))}</strong>
             </div>
             <span class="takeaway-status-pill takeaway-status-pill--${escapeHtml(iteration.status || "pending")}">${escapeHtml(takeawayStatusLabel(iteration.status))}</span>
@@ -372,7 +395,7 @@
                 <article class="takeaway-role-card takeaway-role-card--${escapeHtml(role.status || "pending")}">
                   <div class="takeaway-role-head">
                     <div class="takeaway-role-chip">
-                      <span class="takeaway-role-order">${escapeHtml(String((Number(role.step_order) || 0) + 1).padStart(2, "0"))}</span>
+                      <span class="takeaway-role-order">${escapeHtml(String(displayCount(role.step_order) + 1).padStart(2, "0"))}</span>
                       <strong class="takeaway-role-name">${escapeHtml(role.role_name || "-")}</strong>
                     </div>
                     <span class="takeaway-status-pill takeaway-status-pill--${escapeHtml(role.status || "pending")}">${escapeHtml(takeawayStatusLabel(role.status))}</span>
@@ -399,11 +422,13 @@
     }
 
     function takeawayMeta(snapshot) {
-      const latestIter = snapshot?.latest_display_iter;
+      const latestIter = nonNegativeInteger(snapshot?.latest_display_iter);
+      const roleCount = displayCount(snapshot?.role_conclusion_count);
+      const evidenceCount = displayCount(snapshot?.evidence_count);
       return latestIter
         ? localeText(
-          `最近到第 ${latestIter} 轮 · ${snapshot.role_conclusion_count || 0} 条角色结论 · ${snapshot.evidence_count || 0} 条证据`,
-          `Up to iter ${latestIter} · ${snapshot.role_conclusion_count || 0} role conclusions · ${snapshot.evidence_count || 0} evidence items`
+          `最近到第 ${latestIter} 轮 · ${roleCount} 条角色结论 · ${evidenceCount} 条证据`,
+          `Up to iter ${latestIter} · ${roleCount} role conclusions · ${evidenceCount} evidence items`
         )
         : localeText("角色交接写出来后，这里会自动更新。", "This updates as soon as the first role handoff lands.");
     }

@@ -15,7 +15,7 @@ from loopora.executor import (
     validate_command_args_text,
     validate_extra_cli_args_text,
 )
-from loopora.providers import normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
+from loopora.providers import CLAUDE_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL, normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
 from loopora.providers import executor_profile
 
 
@@ -147,10 +147,10 @@ def test_claude_exec_args_resume_session_and_drop_no_persistence(tmp_path: Path)
     assert "--verbose" in args
 
 
-def test_claude_preset_defaults_to_blank_model() -> None:
+def test_claude_preset_defaults_to_loopora_plan_model() -> None:
     profile = executor_profile("claude")
 
-    assert profile.default_model == ""
+    assert profile.default_model == CLAUDE_DEFAULT_MODEL
     assert "--model" in profile.command_args_template
     assert "{model}" in profile.command_args_template
 
@@ -172,6 +172,23 @@ def test_opencode_exec_args_use_variant_only_when_present(tmp_path: Path) -> Non
     assert args[:4] == ["opencode", "run", "--format", "json"]
     assert "--dangerously-skip-permissions" in args
     assert "--model" not in args
+    assert "--variant" not in args
+
+
+def test_opencode_preset_defaults_to_loopora_plan_model() -> None:
+    profile = executor_profile("opencode")
+
+    assert profile.default_model == OPENCODE_DEFAULT_MODEL
+    assert "--model" in profile.command_args_template
+    assert "{model}" in profile.command_args_template
+
+
+def test_opencode_exec_args_include_model_when_pinned(tmp_path: Path) -> None:
+    request = _request(tmp_path, executor_kind="opencode", model=OPENCODE_DEFAULT_MODEL, reasoning_effort="")
+    args = build_opencode_exec_args(request)
+
+    assert "--model" in args
+    assert args[args.index("--model") + 1] == OPENCODE_DEFAULT_MODEL
     assert "--variant" not in args
 
 

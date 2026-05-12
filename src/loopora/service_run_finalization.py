@@ -58,6 +58,25 @@ class ServiceRunFinalizationMixin:
                 runs_dir=run_dir,
             )
 
+    def _run_finished_event_payload(
+        self,
+        run: dict,
+        *,
+        status: str = "",
+        reason: str = "",
+        iter_id: int | None = None,
+    ) -> dict:
+        payload: dict[str, object] = {"status": str(status or run.get("status") or "").strip()}
+        if reason:
+            payload["reason"] = reason
+        if iter_id is not None:
+            payload["iter"] = iter_id
+        task_verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), dict) else run.get("task_verdict_json")
+        if isinstance(task_verdict, dict) and task_verdict:
+            payload["task_verdict_status"] = str(task_verdict.get("status") or "").strip()
+            payload["task_verdict_source"] = str(task_verdict.get("source") or "").strip()
+        return payload
+
     def _append_run_aborted_event(
         self,
         run_id: str,
@@ -152,6 +171,11 @@ class ServiceRunFinalizationMixin:
                 attempts=1,
                 degraded=False,
                 error_text=error_text,
+            )
+            self.append_run_event(
+                run_id,
+                "run_finished",
+                self._run_finished_event_payload(failed, status="failed", reason="crashed"),
             )
         except Exception:  # noqa: BLE001 - crash event append failure must not mask the failed run state.
             log_exception(

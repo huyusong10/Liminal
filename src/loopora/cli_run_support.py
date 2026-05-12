@@ -31,16 +31,20 @@ def print_run_result(result: dict) -> None:
     typer.echo(f"run: {result['id']}")
     typer.echo(f"run_status: {result.get('run_status') or result['status']}")
     typer.echo(f"run_dir: {result['runs_dir']}")
-    task_verdict = result.get("task_verdict") or result.get("task_verdict_json")
-    if task_verdict:
-        typer.echo(f"task_verdict: {task_verdict.get('status', 'not_evaluated')}")
-        if task_verdict.get("source"):
-            typer.echo(f"task_verdict_source: {task_verdict['source']}")
-        if task_verdict.get("summary"):
-            typer.echo(f"task_verdict_summary: {task_verdict['summary']}")
+    print_task_verdict(result.get("task_verdict") or result.get("task_verdict_json"))
     if result.get("last_verdict_json"):
         typer.echo("raw_last_verdict_json:")
         echo_json(result["last_verdict_json"])
+
+
+def print_task_verdict(task_verdict: object) -> None:
+    if not isinstance(task_verdict, dict) or not task_verdict:
+        return
+    typer.echo(f"task_verdict: {task_verdict.get('status', 'not_evaluated')}")
+    if task_verdict.get("source"):
+        typer.echo(f"task_verdict_source: {task_verdict['source']}")
+    if task_verdict.get("summary"):
+        typer.echo(f"task_verdict_summary: {task_verdict['summary']}")
 
 
 def background_worker_command(run_id: str) -> list[str]:

@@ -4,14 +4,28 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
+from loopora.coverage_target_semantics import coverage_target_is_required
 from loopora.evidence_support import evidence_item_is_non_supporting_gatekeeper_ref, evidence_item_is_supporting_gatekeeper_ref
 from loopora.run_artifacts import RunArtifactLayout, read_jsonl
+from loopora.structured_booleans import structured_bool_is_true
+from loopora.structured_numbers import structured_non_negative_int
 from loopora.utils import read_json, utc_now, write_json
 
-POSITIVE_COVERAGE_STATUSES = {"passed", "pass", "ok", "success", "succeeded", "completed", "covered", "satisfied", "guarded", "verified"}
+POSITIVE_COVERAGE_STATUSES = {
+    "passed",
+    "pass",
+    "ok",
+    "success",
+    "succeeded",
+    "completed",
+    "covered",
+    "satisfied",
+    "guarded",
+    "verified",
+    "proven",
+}
 WEAK_COVERAGE_STATUSES = {"partial", "weak", "skipped", "unknown", "inconclusive"}
 NEGATIVE_COVERAGE_STATUSES = {"failed", "fail", "error", "errored", "blocked", "rejected", "missing"}
-REQUIRED_TARGET_KINDS = {"done_when", "gatekeeper"}
 NO_RESIDUAL_RISK_MARKERS = {
     "none",
     "n/a",
@@ -141,7 +155,7 @@ def build_evidence_coverage_projection(layout: RunArtifactLayout) -> dict:
             )
             if not item_projection:
                 continue
-            artifact_ref_count += int(item_projection.get("artifact_ref_count") or 0)
+            artifact_ref_count += structured_non_negative_int(item_projection.get("artifact_ref_count"))
             risk = str(item_projection.get("risk") or "")
             if risk:
                 risk_signals.append(risk)
@@ -198,25 +212,42 @@ def summarize_evidence_coverage_projection(projection: Mapping[str, Any], *, cov
         "ledger_path": str(projection.get("ledger_path") or ""),
         "coverage_path": coverage_path,
         "status": str(projection.get("status") or "pending"),
-        "summary": dict(projection.get("summary") or {}),
-        "evidence_count": int(projection.get("evidence_count") or 0),
-        "check_count": int(projection.get("check_count") or 0),
-        "covered_check_count": int(projection.get("covered_check_count") or 0),
-        "missing_check_count": int(projection.get("missing_check_count") or 0),
-        "covered_check_ids": list(projection.get("covered_check_ids") or []),
-        "missing_check_ids": list(projection.get("missing_check_ids") or []),
-        "target_count": int(projection.get("target_count") or 0),
-        "covered_target_count": int(projection.get("covered_target_count") or 0),
-        "weak_target_count": int(projection.get("weak_target_count") or 0),
-        "missing_target_count": int(projection.get("missing_target_count") or 0),
-        "blocked_target_count": int(projection.get("blocked_target_count") or 0),
-        "top_gaps": list(projection.get("top_gaps") or [])[:5],
-        "evidence_kind_counts": dict(projection.get("evidence_kind_counts") or {}),
-        "artifact_ref_count": int(projection.get("artifact_ref_count") or 0),
-        "residual_risk_count": int(projection.get("residual_risk_count") or 0),
-        "risk_signals": list(projection.get("risk_signals") or [])[:5],
-        "latest_gatekeeper": dict(projection.get("latest_gatekeeper") or {}),
+        "summary": _mapping_or_empty(projection.get("summary")),
+        "evidence_count": structured_non_negative_int(projection.get("evidence_count")),
+        "check_count": structured_non_negative_int(projection.get("check_count")),
+        "covered_check_count": structured_non_negative_int(projection.get("covered_check_count")),
+        "missing_check_count": structured_non_negative_int(projection.get("missing_check_count")),
+        "covered_check_ids": _projection_string_list(projection.get("covered_check_ids")),
+        "missing_check_ids": _projection_string_list(projection.get("missing_check_ids")),
+        "target_count": structured_non_negative_int(projection.get("target_count")),
+        "covered_target_count": structured_non_negative_int(projection.get("covered_target_count")),
+        "weak_target_count": structured_non_negative_int(projection.get("weak_target_count")),
+        "missing_target_count": structured_non_negative_int(projection.get("missing_target_count")),
+        "blocked_target_count": structured_non_negative_int(projection.get("blocked_target_count")),
+        "top_gaps": _projection_mapping_list(projection.get("top_gaps"), limit=5),
+        "evidence_kind_counts": _mapping_or_empty(projection.get("evidence_kind_counts")),
+        "artifact_ref_count": structured_non_negative_int(projection.get("artifact_ref_count")),
+        "residual_risk_count": structured_non_negative_int(projection.get("residual_risk_count")),
+        "risk_signals": _projection_string_list(projection.get("risk_signals"), limit=5),
+        "latest_gatekeeper": _mapping_or_empty(projection.get("latest_gatekeeper")),
     }
+
+
+def _mapping_or_empty(value: object) -> dict:
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _projection_string_list(value: object, *, limit: int | None = None) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items = [item for item in value if isinstance(item, str)]
+    return items[:limit] if limit is not None else items
+
+
+def _projection_mapping_list(value: object, *, limit: int) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, Mapping)][:limit]
 
 
 def parse_target_verify_ref(value: object) -> tuple[str, str] | None:
@@ -435,7 +466,7 @@ def _apply_gatekeeper_target(target_state: dict[str, dict], latest_gatekeeper: M
     evidence_refs = [str(item).strip() for item in list(latest_gatekeeper.get("evidence_refs") or []) if str(item).strip()]
     supporting_refs = [str(item).strip() for item in list(latest_gatekeeper.get("supporting_evidence_refs") or []) if str(item).strip()]
     non_supporting_refs = [str(item).strip() for item in list(latest_gatekeeper.get("non_supporting_evidence_refs") or []) if str(item).strip()]
-    has_self_measured_evidence = bool(latest_gatekeeper.get("self_measured_evidence"))
+    has_self_measured_evidence = structured_bool_is_true(latest_gatekeeper.get("self_measured_evidence"))
     if result == "passed" and supporting_refs:
         row["status"] = "covered"
         row["reason"] = "GateKeeper passed with supporting upstream evidence refs."
@@ -486,23 +517,20 @@ def _non_supporting_gatekeeper_refs(
 def _gatekeeper_has_self_measured_evidence(item: Mapping[str, Any], *, item_id: str, evidence_refs: list[str]) -> bool:
     if not item_id or item_id not in set(evidence_refs):
         return False
-    return bool(item.get("measured_evidence")) and _safe_int(item.get("concrete_evidence_claim_count")) > 0
+    return structured_bool_is_true(item.get("measured_evidence")) and _safe_int(item.get("concrete_evidence_claim_count")) > 0
 
 
 def _safe_int(value: object) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
+    return structured_non_negative_int(value)
 
 
 def _overall_coverage_status(target_state: Mapping[str, dict]) -> str:
     rows = list(target_state.values())
-    if any(row.get("required") and row.get("status") == "blocked" for row in rows):
+    if any(coverage_target_is_required(row) and row.get("status") == "blocked" for row in rows):
         return "blocked"
-    if any(row.get("required") and row.get("status") != "covered" for row in rows):
+    if any(coverage_target_is_required(row) and row.get("status") != "covered" for row in rows):
         return "partial"
-    if any((not row.get("required")) and row.get("status") in {"missing", "weak", "blocked"} for row in rows):
+    if any((not coverage_target_is_required(row)) and row.get("status") in {"missing", "weak", "blocked"} for row in rows):
         return "weak"
     return "covered"
 
@@ -515,7 +543,7 @@ def _target_projection(row: Mapping[str, Any]) -> dict:
         "source_id": str(row.get("source_id") or ""),
         "label": str(row.get("label") or ""),
         "text": str(row.get("text") or ""),
-        "required": bool(row.get("required")),
+        "required": coverage_target_is_required(row),
         "status": str(row.get("status") or "missing"),
         "reason": str(row.get("reason") or ""),
         "evidence_refs": list(row.get("evidence_refs") or []),
@@ -526,14 +554,14 @@ def _target_projection(row: Mapping[str, Any]) -> dict:
 def _top_coverage_gaps(target_rows: list[dict]) -> list[dict]:
     severity = {"blocked": 0, "missing": 1, "weak": 2}
     gaps = [row for row in target_rows if row.get("status") != "covered"]
-    gaps.sort(key=lambda row: (0 if row.get("required") else 1, severity.get(str(row.get("status")), 9), str(row.get("id"))))
+    gaps.sort(key=lambda row: (0 if coverage_target_is_required(row) else 1, severity.get(str(row.get("status")), 9), str(row.get("id"))))
     return [
         {
             "target_id": row["id"],
             "kind": row["kind"],
             "source_section": row["source_section"],
             "status": row["status"],
-            "required": row["required"],
+            "required": coverage_target_is_required(row),
             "reason": row["reason"],
             "text": row["text"],
             "evidence_refs": row["evidence_refs"],

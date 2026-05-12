@@ -29,6 +29,14 @@ SPEC_MARKDOWN_SUFFIXES = {".md", ".markdown"}
 SPEC_DOCUMENT_MAX_BYTES = 1_000_000
 
 
+def _optional_api_identifier_value(value: object) -> object | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value.strip() or None
+    return value
+
+
 def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     _register_bundle_record_api_routes(app, ctx)
     _register_bundle_import_api_routes(app, ctx)
@@ -72,7 +80,7 @@ def _register_bundle_import_api_routes(app: FastAPI, ctx: WebRouteContext) -> No
         payload = await ctx.read_json_mapping(request)
         bundle_yaml = str(payload.get("bundle_yaml", ""))
         bundle_path = str(payload.get("bundle_path", "")).strip()
-        replace_bundle_id = str(payload.get("replace_bundle_id", "")).strip() or None
+        replace_bundle_id = _optional_api_identifier_value(payload.get("replace_bundle_id"))
         if bundle_yaml.strip():
             bundle = ctx.svc().import_bundle_text(bundle_yaml, replace_bundle_id=replace_bundle_id)
         elif bundle_path:

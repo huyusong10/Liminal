@@ -6,9 +6,12 @@
     return Array.isArray(value) ? value : [];
   }
 
+  function nonNegativeInteger(value) {
+    return Number.isInteger(value) && value >= 0 ? value : null;
+  }
+
   function numericId(value) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
+    return nonNegativeInteger(value) ?? 0;
   }
 
   function isTerminalRun(run) {
@@ -20,7 +23,7 @@
   }
 
   function boundedEvents(events, limit) {
-    return asArray(events).slice(-Math.max(0, Number(limit) || 0));
+    return asArray(events).slice(-(nonNegativeInteger(limit) ?? 0));
   }
 
   function normalizeSnapshotPayload(payload = {}, fallbackRun = {}) {
@@ -62,19 +65,21 @@
       return currentRun;
     }
     if (event.event_type === "role_started") {
+      const iter = nonNegativeInteger(payload.iter);
       return {
         ...currentRun,
         status: "running",
         active_role: payload.role || currentRun.active_role,
-        current_iter: payload.iter ?? currentRun.current_iter,
+        current_iter: iter ?? currentRun.current_iter,
       };
     }
     if (event.event_type === "run_finished") {
+      const iter = nonNegativeInteger(payload.iter);
       return {
         ...currentRun,
         status: payload.status || currentRun.status,
         active_role: null,
-        current_iter: payload.iter ?? currentRun.current_iter,
+        current_iter: iter ?? currentRun.current_iter,
         finished_at: event.created_at || currentRun.finished_at,
       };
     }

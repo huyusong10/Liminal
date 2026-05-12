@@ -147,6 +147,15 @@
     ];
     const selectedConsoleFilters = new Set(consoleFilterOptions.map((item) => item.key));
 
+    function nonNegativeInteger(value) {
+      return Number.isInteger(value) && value >= 0 ? value : null;
+    }
+
+    function displayIterLabel(value) {
+      const iter = nonNegativeInteger(value);
+      return iter === null ? "-" : displayIter(iter);
+    }
+
     function setTextContentIfChanged(target, value) {
       const node = typeof target === "string" ? document.getElementById(target) : target;
       if (!node) {
@@ -175,8 +184,8 @@
     }
 
     function eventAlreadyRecorded(records, event) {
-      const eventId = Number(event?.id || 0);
-      return eventId > 0 && records.some((record) => Number(record?.id || 0) === eventId);
+      const eventId = nonNegativeInteger(event?.id) ?? 0;
+      return eventId > 0 && records.some((record) => nonNegativeInteger(record?.id) === eventId);
     }
 
     function stageChipMarkup(stage) {
@@ -404,7 +413,7 @@
 
     function buildContextDetail(payload) {
       return [
-        `iter=${payload.iter !== undefined ? displayIter(payload.iter) : "-"}`,
+        `iter=${displayIterLabel(payload.iter)}`,
         `step=${payload.step_id || "-"}`,
         `role=${progressProjector.resolvedPayloadRoleName(payload)}`,
         `path=${payload.context_path || payload.handoff_path || payload.summary_path || payload.step_prompt_path || payload.output_path || "-"}`,
@@ -711,7 +720,7 @@
       const focusDetail = status === "running" || status === "awaiting_agent"
         ? localeText(`${focusName} 正在处理中；Loop 裁决会在终态后单独收束。`, `${focusName} is in progress; the task verdict settles separately at terminal state.`)
         : localeText(`生命周期状态是 ${window.LooporaUI.translateStatus(status)}，这不等于 Loop 是否通过。`, `Lifecycle status is ${window.LooporaUI.translateStatus(status)}; it is separate from task pass/fail.`);
-      const focusMeta = `${localeText("迭代", "Iter")} ${displayIter(run?.current_iter)} · ${localeText("耗时", "Duration")} ${formatDuration(run?.started_at, run?.finished_at)}`;
+      const focusMeta = `${localeText("迭代", "Iter")} ${displayIterLabel(run?.current_iter)} · ${localeText("耗时", "Duration")} ${formatDuration(run?.started_at, run?.finished_at)}`;
       document.getElementById("focus-title").textContent = focusTitle;
       document.getElementById("focus-detail").textContent = focusDetail;
       document.getElementById("focus-meta").textContent = focusMeta;

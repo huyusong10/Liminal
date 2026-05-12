@@ -10,6 +10,7 @@ from loopora.agent_adapters import (
     install_agent_adapter,
     normalize_agent_adapter_kind,
     read_agent_binding,
+    resolve_adapter_project_root,
     uninstall_agent_adapter,
     write_agent_binding,
 )
@@ -46,7 +47,7 @@ class ServiceAgentAdapterMixin:
         adapter = normalize_agent_adapter_kind(request.adapter)
         if adapter not in {"codex", "claude", "opencode"}:
             raise LooporaError(f"{adapter} adapter is not implemented yet")
-        root = Path(request.workdir).expanduser().resolve()
+        root = resolve_adapter_project_root(request.workdir)
         raw_yaml = str(request.bundle_yaml or "")
         source_path = ""
         if not raw_yaml.strip() and request.bundle_file is not None:
@@ -115,7 +116,7 @@ class ServiceAgentAdapterMixin:
         adapter = normalize_agent_adapter_kind(adapter)
         if adapter not in {"codex", "claude", "opencode"}:
             raise LooporaError(f"{adapter} adapter is not implemented yet")
-        root = Path(workdir).expanduser().resolve()
+        root = resolve_adapter_project_root(workdir)
         binding = read_agent_binding(adapter, root, context_id=context_id)
         if not binding:
             raise LooporaConflictError(

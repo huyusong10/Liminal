@@ -55,13 +55,16 @@ def stream_process(
         callbacks.terminate_process(process)
         raise RuntimeError("executor process stdout pipe was not configured")
 
-    callbacks.set_child_pid(process.pid)
-    callbacks.emit_event("codex_event", command_event_payload)
-    output_queue = _start_stdout_reader(process, context.role)
-    idle_timeout_seconds = context.idle_timeout_seconds or 0.0
-    last_output_at = time.monotonic()
-    stream_closed = False
+    output_queue = None
+    child_pid_registered = False
     try:
+        callbacks.set_child_pid(process.pid)
+        child_pid_registered = True
+        callbacks.emit_event("codex_event", command_event_payload)
+        output_queue = _start_stdout_reader(process, context.role)
+        idle_timeout_seconds = context.idle_timeout_seconds or 0.0
+        last_output_at = time.monotonic()
+        stream_closed = False
         while True:
             if callbacks.should_stop():
                 callbacks.terminate_process(process)
@@ -88,8 +91,10 @@ def stream_process(
     finally:
         if process.poll() is None:
             callbacks.terminate_process(process)
-        callbacks.set_child_pid(None)
-        output_queue.reader.join(timeout=0.2)
+        if child_pid_registered:
+            callbacks.set_child_pid(None)
+        if output_queue is not None:
+            output_queue.reader.join(timeout=0.2)
 
 
 @dataclass(slots=True)

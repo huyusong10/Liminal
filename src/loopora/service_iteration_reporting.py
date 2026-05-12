@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from loopora.structured_booleans import structured_bool_is_true
+from loopora.structured_numbers import structured_finite_number, structured_non_negative_int, structured_optional_finite_number
 from loopora.utils import utc_now
 
 
@@ -27,7 +29,17 @@ class IterationSummaryRequest:
     exhausted: bool = False
 
 
+def _score_values(value: object) -> list[float]:
+    if not isinstance(value, list):
+        return []
+    return [score for item in value if (score := structured_optional_finite_number(item)) is not None]
+
+
 class ServiceIterationReportingMixin:
+    @staticmethod
+    def _verifier_passed(verifier_result: dict) -> bool:
+        return structured_bool_is_true(verifier_result.get("passed"))
+
     @staticmethod
     def _empty_status_counts() -> dict[str, int]:
         return {"passed": 0, "failed": 0, "errored": 0, "skipped": 0}
@@ -111,7 +123,7 @@ class ServiceIterationReportingMixin:
                 "priority failures reported: "
                 + ", ".join(self._truncate_text(item.get("summary"), 120) for item in priority_failures[:2])
             )
-        if verifier_result.get("passed"):
+        if self._verifier_passed(verifier_result):
             return (
                 "Task verdict passes because GateKeeper evidence supports the specified and dynamic checks; "
                 "run lifecycle alone is not proof."
@@ -140,11 +152,19 @@ class ServiceIterationReportingMixin:
 
     def _enrich_verifier_result(self, verifier_result: dict, compiled_spec: dict, tester_result: dict) -> dict:
         result = dict(verifier_result)
+        result["passed"] = self._verifier_passed(result)
+        result["composite_score"] = structured_finite_number(
+            result.get("composite_score"),
+            default=1.0 if result["passed"] else 0.0,
+        )
         check_title_map = {str(check.get("id", "")).strip(): str(check.get("title", "")).strip() for check in compiled_spec.get("checks", [])}
         failed_check_titles = [check_title_map.get(check_id, check_id) for check_id in result.get("failed_check_ids", [])]
         failing_metrics = []
         for name, metric in (result.get("metric_scores") or {}).items():
-            if metric.get("passed"):
+            if not isinstance(metric, dict):
+                failing_metrics.append({"name": str(name), "value": None, "threshold": None})
+                continue
+            if structured_bool_is_true(metric.get("passed")):
                 continue
             failing_metrics.append(
                 {
@@ -214,6 +234,8 @@ class ServiceIterationReportingMixin:
         }
 
     def _build_iteration_log_entry(self, report: IterationReportContext) -> dict:
+        composite_score = structured_optional_finite_number(report.verifier_result.get("composite_score"))
+        previous_score = structured_optional_finite_number(report.previous_composite)
         entry = {
             "phase": "complete",
             "iter": report.iter_id,
@@ -224,11 +246,9 @@ class ServiceIterationReportingMixin:
                 "verifier": report.verifier_mode,
             },
             "score": {
-                "composite": report.verifier_result.get("composite_score"),
-                "delta": round(report.verifier_result["composite_score"] - report.previous_composite, 6)
-                if report.previous_composite is not None
-                else None,
-                "passed": report.verifier_result.get("passed"),
+                "composite": composite_score,
+                "delta": round(composite_score - previous_score, 6) if composite_score is not None and previous_score is not None else None,
+                "passed": self._verifier_passed(report.verifier_result),
             },
             "generator": {
                 "attempted": report.generator_result.get("attempted", ""),
@@ -244,7 +264,7 @@ class ServiceIterationReportingMixin:
                 "tester_observations": report.tester_result.get("tester_observations", ""),
             },
             "verifier": {
-                "passed": report.verifier_result.get("passed"),
+                "passed": self._verifier_passed(report.verifier_result),
                 "decision_summary": report.verifier_result.get("decision_summary", ""),
                 "failed_check_ids": list(report.verifier_result.get("failed_check_ids", [])),
                 "failed_check_titles": list(report.verifier_result.get("failed_check_titles", [])),
@@ -258,9 +278,9 @@ class ServiceIterationReportingMixin:
             },
             "stagnation": {
                 "mode": report.stagnation.get("stagnation_mode", "none"),
-                "recent_composites": list(report.stagnation.get("recent_composites", [])),
-                "recent_deltas": list(report.stagnation.get("recent_deltas", [])),
-                "consecutive_low_delta": report.stagnation.get("consecutive_low_delta", 0),
+                "recent_composites": _score_values(report.stagnation.get("recent_composites")),
+                "recent_deltas": _score_values(report.stagnation.get("recent_deltas")),
+                "consecutive_low_delta": structured_non_negative_int(report.stagnation.get("consecutive_low_delta")),
             },
         }
         if report.challenger_result is not None:
@@ -282,24 +302,23 @@ class ServiceIterationReportingMixin:
         stagnation = report.stagnation
         failed = verifier_result.get("failed_check_titles", verifier_result.get("failed_check_ids", []))
         completion_mode = str(run.get("completion_mode", "gatekeeper")).strip().lower() or "gatekeeper"
+        verifier_passed = self._verifier_passed(verifier_result)
         if request.exhausted and completion_mode == "rounds":
             status_line = "Planned rounds completed."
         elif request.exhausted:
             status_line = "Max iterations exhausted."
-        elif verifier_result["passed"] and completion_mode == "gatekeeper":
+        elif verifier_passed and completion_mode == "gatekeeper":
             status_line = "All checks passed in this iteration."
-        elif verifier_result["passed"]:
+        elif verifier_passed:
             status_line = "Verifier passed in this iteration, but the run stays in round-based mode."
         else:
             status_line = "Still iterating."
         check_mode = compiled_spec.get("check_mode", "specified")
         overall_counts = tester_result.get("status_counts", {}).get("overall", self._empty_status_counts())
         dynamic_counts = tester_result.get("status_counts", {}).get("dynamic_checks", self._empty_status_counts())
-        delta_text = (
-            f"`{round(verifier_result['composite_score'] - report.previous_composite, 6):+}`"
-            if report.previous_composite is not None
-            else "`n/a`"
-        )
+        composite_score = structured_optional_finite_number(verifier_result.get("composite_score"))
+        previous_score = structured_optional_finite_number(report.previous_composite)
+        delta_text = f"`{round(composite_score - previous_score, 6):+}`" if composite_score is not None and previous_score is not None else "`n/a`"
         lines = [
             "# Loopora Run Summary",
             "",
@@ -311,7 +330,7 @@ class ServiceIterationReportingMixin:
             f"- Iteration interval seconds: `{run.get('iteration_interval_seconds', 0.0)}`",
             f"- Composite score: `{verifier_result['composite_score']}`",
             f"- Score delta vs previous iteration: {delta_text}",
-            f"- Passed: `{verifier_result['passed']}`",
+            f"- Passed: `{verifier_passed}`",
             f"- Stagnation mode: `{stagnation.get('stagnation_mode', 'none')}`",
             f"- Failed checks: {self._format_inline_code_list(failed, empty='none', limit=4)}",
             (

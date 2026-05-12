@@ -84,10 +84,17 @@ _SENSITIVE_ARG_NAMES = {
     "--api-key",
     "--auth-token",
     "--bearer-token",
+    "--client-secret",
+    "--cookie",
     "--password",
+    "--private-key",
+    "--proxy-authorization",
     "--secret",
     "--secret-token",
+    "--set-cookie",
     "--token",
+    "--x-api-key",
+    "--x-loopora-token",
 }
 
 
@@ -163,7 +170,7 @@ def build_command_event_payload(request: RoleRequest, args: list[str]) -> dict:
             omit_next_value = False
             continue
 
-        flag_name = arg.split("=", 1)[0].strip().lower()
+        flag_name = arg.split("=", 1)[0].strip().lower().replace("_", "-")
         if flag_name in _SENSITIVE_ARG_NAMES:
             if "=" in arg:
                 sanitized_args.append(f"{arg.split('=', 1)[0]}=<secret omitted>")
@@ -482,12 +489,15 @@ class RealCodexExecutor(CodexExecutor):
 
         output_text = read_executor_output_text(request.output_path, role=request.role, executor_label="codex exec")
         try:
-            return json.loads(output_text)
+            payload = json.loads(output_text)
         except json.JSONDecodeError as exc:
             payload = self._parse_structured_output_from_text(output_text)
             if isinstance(payload, dict):
                 return payload
             raise ExecutorError(f"role={request.role} produced invalid JSON output") from exc
+        if not isinstance(payload, dict):
+            raise ExecutorError(f"codex exec did not produce a JSON object for role={request.role}")
+        return payload
 
     def _execute_claude(
         self,
@@ -542,6 +552,7 @@ class RealCodexExecutor(CodexExecutor):
         state = {
             "latest_text": "",
             "text_parts": [],
+            "text_size_bytes": 0,
         }
         return_code = self._stream_process(
             ExecutorProcessRequest(
@@ -693,6 +704,15 @@ class RealCodexExecutor(CodexExecutor):
         if event_type == "text":
             text = str((record.get("part") or {}).get("text") or "").strip()
             if text:
+                text_size = len(text.encode("utf-8"))
+                next_size = int(state.get("text_size_bytes") or 0) + text_size
+                if next_size > EXECUTOR_OUTPUT_MAX_BYTES:
+                    role = request.role if request is not None else "unknown"
+                    raise ExecutorError(
+                        f"opencode output is too large for role={role}: "
+                        f"{next_size} bytes exceeds {EXECUTOR_OUTPUT_MAX_BYTES} bytes"
+                    )
+                state["text_size_bytes"] = next_size
                 state["latest_text"] = text
                 state["text_parts"].append(text)
                 emit_event("codex_event", {"type": "stdout", "message": text})

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,9 +18,20 @@ from loopora.service_workflow_execution import (
 from loopora.service_workflow_failure_handling import WorkflowExhaustionRequest
 from loopora.service_workflow_iteration_state import WorkflowIterationCheckpointRequest
 from loopora.service_workflow_runtime import WorkflowStepRuntimeRequest
+from loopora.service_workflow_controls import (
+    WorkflowControlPayloadRequest,
+    WorkflowControlStepRequest,
+    build_workflow_control_payload,
+    build_workflow_control_step,
+    matching_workflow_controls,
+    workflow_control_after_seconds,
+    workflow_iteration_control_triggers,
+)
 from loopora.service_workflow_support import StepOutputNormalizationRequest, WorkflowSummaryRequest
+from loopora.structured_booleans import structured_bool_is_true
+from loopora.structured_numbers import structured_non_negative_int
 from loopora.utils import read_json, utc_now, write_json
-from loopora.workflows import normalize_workflow_controls
+from loopora.workflows import normalize_workflow
 
 
 @dataclass(frozen=True)
@@ -42,6 +54,78 @@ class AgentNativeStepSubmitRequest:
     step_id: str = ""
     session_ref: dict[str, Any] | None = None
     entry_source: str = ""
+
+
+@dataclass(frozen=True)
+class _AgentNativeRuntimeClaimRequest:
+    kind: str
+    run: dict
+    state: dict[str, Any]
+    context: _WorkflowRunContext
+    iteration: _WorkflowIterationState
+    step: dict
+    step_order: int
+
+
+@dataclass(frozen=True)
+class _AgentNativeControlSignalRequest:
+    run: dict
+    context: _WorkflowRunContext
+    iteration: _WorkflowIterationState
+    queue: list[dict[str, Any]]
+    signal: str
+    trigger: dict[str, object]
+
+
+@dataclass(frozen=True)
+class _AgentNativeClaimInputSnapshot:
+    current_outputs_by_step: dict[str, dict]
+    current_outputs_by_role: dict[str, dict]
+    current_outputs_by_archetype: dict[str, dict]
+    current_handoffs: list[dict]
+    evidence_items_snapshot: list[dict] | None = None
+
+
+@dataclass(frozen=True)
+class _AgentNativeStepAdvanceRequest:
+    run: dict
+    state: dict[str, Any]
+    context: _WorkflowRunContext
+    iter_id: int
+    step: dict
+    step_order: int
+    is_control_step: bool
+
+
+def _agent_native_string_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _agent_native_output_evidence_refs(output: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    refs.extend(_agent_native_string_list(output.get("evidence_refs")))
+    for item in list(output.get("coverage_results") or []):
+        if isinstance(item, dict):
+            refs.extend(_agent_native_string_list(item.get("evidence_refs")))
+    return list(dict.fromkeys(refs))
+
+
+def _agent_native_known_evidence_ids(active: dict, context_packet: dict) -> set[str]:
+    capsule = active.get("capsule") if isinstance(active.get("capsule"), dict) else {}
+    known_ids = _agent_native_string_list(capsule.get("known_evidence_ids"))
+    if not known_ids:
+        evidence = context_packet.get("evidence") if isinstance(context_packet.get("evidence"), dict) else {}
+        known_ids = _agent_native_string_list(evidence.get("known_ids"))
+    return set(known_ids)
+
+
+def _agent_native_unknown_evidence_refs(output: dict[str, Any], *, active: dict, context_packet: dict) -> list[str]:
+    known_ids = _agent_native_known_evidence_ids(active, context_packet)
+    return [item for item in _agent_native_output_evidence_refs(output) if item not in known_ids]
 
 
 class ServiceAgentNativeMixin:
@@ -125,9 +209,33 @@ class ServiceAgentNativeMixin:
             return self._agent_native_finish_iteration_or_advance(kind, run, state, context)
 
         step = context.workflow_steps[step_index]
-        role = context.role_by_id[step["role_id"]]
         iteration = self._agent_native_iteration_state(state)
+        return self._agent_native_claim_runtime_step(
+            _AgentNativeRuntimeClaimRequest(
+                kind=kind,
+                run=run,
+                state=state,
+                context=context,
+                iteration=iteration,
+                step=step,
+                step_order=step_index,
+            )
+        )
+
+    def _agent_native_claim_runtime_step(
+        self,
+        request: _AgentNativeRuntimeClaimRequest,
+    ) -> dict[str, Any]:
+        kind = request.kind
+        run = request.run
+        state = request.state
+        context = request.context
+        iteration = request.iteration
+        step = request.step
+        step_order = request.step_order
+        role = context.role_by_id[step["role_id"]]
         execution_settings = self._resolve_role_execution_settings(run, step, role)
+        claim_snapshot = self._agent_native_claim_input_snapshot(state, context, iteration, step, step_order)
         prepared = self._prepare_workflow_step_request(
             WorkflowStepRuntimeRequest(
                 executor=context.executor,
@@ -136,15 +244,15 @@ class ServiceAgentNativeMixin:
                 layout=context.layout,
                 iter_id=iteration.iter_id,
                 step=step,
-                step_order=step_index,
+                step_order=step_order,
                 role=role,
                 prompt_files=context.prompt_files,
                 execution_settings=execution_settings,
                 run_contract=context.run_contract,
-                current_outputs_by_step=iteration.current_outputs_by_step,
-                current_outputs_by_role=iteration.current_outputs_by_role,
-                current_outputs_by_archetype=iteration.current_outputs_by_archetype,
-                current_handoffs=iteration.current_handoffs,
+                current_outputs_by_step=claim_snapshot.current_outputs_by_step,
+                current_outputs_by_role=claim_snapshot.current_outputs_by_role,
+                current_outputs_by_archetype=claim_snapshot.current_outputs_by_archetype,
+                current_handoffs=claim_snapshot.current_handoffs,
                 previous_outputs_by_step=iteration.previous_outputs_by_step,
                 previous_outputs_by_role=iteration.previous_outputs_by_role,
                 previous_outputs_by_archetype=iteration.previous_outputs_by_archetype,
@@ -155,38 +263,44 @@ class ServiceAgentNativeMixin:
                 previous_composite=iteration.previous_composite,
                 stagnation_mode=iteration.stagnation.get("stagnation_mode", "none"),
                 evidence_progress_mode=iteration.stagnation.get("evidence_progress_mode", "none"),
-                covered_check_count=int(iteration.stagnation.get("latest_covered_check_count") or 0),
-                missing_check_count=int(iteration.stagnation.get("latest_missing_check_count") or 0),
-                consecutive_no_required_coverage_delta=int(iteration.stagnation.get("consecutive_no_required_coverage_delta") or 0),
+                covered_check_count=structured_non_negative_int(iteration.stagnation.get("latest_covered_check_count")),
+                missing_check_count=structured_non_negative_int(iteration.stagnation.get("latest_missing_check_count")),
+                consecutive_no_required_coverage_delta=structured_non_negative_int(
+                    iteration.stagnation.get("consecutive_no_required_coverage_delta")
+                ),
                 retry_config=context.retry_config,
+                evidence_items_snapshot=claim_snapshot.evidence_items_snapshot,
             )
         )
         runtime_role = str(prepared["runtime_role"])
         role_request = prepared["role_request"]
+        context_packet = prepared["context_packet"] if isinstance(prepared.get("context_packet"), dict) else {}
+        evidence_context = context_packet.get("evidence") if isinstance(context_packet.get("evidence"), dict) else {}
         capsule = self._agent_native_capsule(
             kind,
             run=run,
-            layout=layout,
+            layout=context.layout,
             iter_id=iteration.iter_id,
             step=step,
-            step_order=step_index,
+            step_order=step_order,
             role=role,
             runtime_role=runtime_role,
             prompt=str(prepared["prompt"]),
             output_schema=role_request.output_schema,
+            known_evidence_ids=[str(item) for item in list(evidence_context.get("known_ids") or []) if str(item).strip()],
         )
         state["active_step"] = {
             "claimed_at": utc_now(),
             "capsule": capsule,
-            "context_packet": prepared["context_packet"],
+            "context_packet": context_packet,
             "execution_settings": execution_settings,
             "role": role,
             "runtime_role": runtime_role,
             "step": step,
-            "step_order": step_index,
+            "step_order": step_order,
             "iter_id": iteration.iter_id,
         }
-        self._write_agent_native_state(layout, state)
+        self._write_agent_native_state(context.layout, state)
         run = self.repository.update_run(run["id"], status="awaiting_agent", current_iter=iteration.iter_id, active_role=runtime_role)
         self.append_run_event(
             run["id"],
@@ -195,20 +309,184 @@ class ServiceAgentNativeMixin:
                 "adapter": kind,
                 "iter": iteration.iter_id,
                 "step_id": step["id"],
-                "step_order": step_index,
+                "step_order": step_order,
                 "role_name": role["name"],
                 "archetype": role["archetype"],
                 "runtime_role": runtime_role,
                 "parallel_group": str(step.get("parallel_group") or ""),
+                "control_id": str(step.get("control_id") or ""),
             },
             role=runtime_role,
         )
+        self._agent_native_record_parallel_group_started(run, context, iteration, step, step_order)
         return {
             "adapter": kind,
             "run": self._hydrate_run_files(run),
             "run_path": f"/runs/{run['id']}",
             "next_step": capsule,
             "complete": False,
+        }
+
+    def _agent_native_claim_input_snapshot(
+        self,
+        state: dict[str, Any],
+        context: _WorkflowRunContext,
+        iteration: _WorkflowIterationState,
+        step: dict,
+        step_order: int,
+    ) -> _AgentNativeClaimInputSnapshot:
+        parallel_group = str(step.get("parallel_group") or "").strip()
+        if not parallel_group:
+            state["parallel_group_snapshot"] = {}
+            return _AgentNativeClaimInputSnapshot(
+                current_outputs_by_step=dict(iteration.current_outputs_by_step),
+                current_outputs_by_role=dict(iteration.current_outputs_by_role),
+                current_outputs_by_archetype=dict(iteration.current_outputs_by_archetype),
+                current_handoffs=list(iteration.current_handoffs),
+            )
+
+        snapshot = self._agent_native_parallel_group_snapshot(state, context, iteration, step_order, parallel_group)
+        return _AgentNativeClaimInputSnapshot(
+            current_outputs_by_step=dict(snapshot.get("current_outputs_by_step") or {}),
+            current_outputs_by_role=dict(snapshot.get("current_outputs_by_role") or {}),
+            current_outputs_by_archetype=dict(snapshot.get("current_outputs_by_archetype") or {}),
+            current_handoffs=list(snapshot.get("current_handoffs") or []),
+            evidence_items_snapshot=[item for item in list(snapshot.get("evidence_items") or []) if isinstance(item, dict)],
+        )
+
+    def _agent_native_parallel_group_snapshot(
+        self,
+        state: dict[str, Any],
+        context: _WorkflowRunContext,
+        iteration: _WorkflowIterationState,
+        step_order: int,
+        parallel_group: str,
+    ) -> dict[str, Any]:
+        group_start, group_end, group_step_ids = self._agent_native_parallel_group_bounds(context.workflow_steps, step_order, parallel_group)
+        existing = state.get("parallel_group_snapshot") if isinstance(state.get("parallel_group_snapshot"), dict) else {}
+        if (
+            existing
+            and self._agent_native_int(existing.get("iter_id"), default=-1) == iteration.iter_id
+            and str(existing.get("parallel_group") or "") == parallel_group
+            and self._agent_native_int(existing.get("group_start"), default=-1) == group_start
+            and self._agent_native_int(existing.get("group_end"), default=-1) == group_end
+        ):
+            return existing
+
+        group_step_id_set = set(group_step_ids)
+        group_roles = [context.role_by_id[step["role_id"]] for step in context.workflow_steps[group_start:group_end]]
+        group_role_ids = {str(role["id"]) for role in group_roles}
+        group_runtime_roles = {self._runtime_role_key(role) for role in group_roles}
+        group_archetypes = {str(role["archetype"]) for role in group_roles}
+        snapshot = {
+            "iter_id": iteration.iter_id,
+            "parallel_group": parallel_group,
+            "group_start": group_start,
+            "group_end": group_end,
+            "step_ids": group_step_ids,
+            "current_outputs_by_step": {
+                step_id: output for step_id, output in iteration.current_outputs_by_step.items() if step_id not in group_step_id_set
+            },
+            "current_outputs_by_role": {
+                role_id: output
+                for role_id, output in iteration.current_outputs_by_role.items()
+                if role_id not in group_role_ids and role_id not in group_runtime_roles
+            },
+            "current_outputs_by_archetype": {
+                archetype: output for archetype, output in iteration.current_outputs_by_archetype.items() if archetype not in group_archetypes
+            },
+            "current_handoffs": [
+                handoff
+                for handoff in iteration.current_handoffs
+                if str(((handoff.get("source") or {}) if isinstance(handoff, dict) else {}).get("step_id") or "") not in group_step_id_set
+            ],
+            "evidence_items": [
+                item
+                for item in read_jsonl(context.layout.evidence_ledger_path)
+                if not (
+                    isinstance(item, dict)
+                    and self._agent_native_int(item.get("iter"), default=-1) == iteration.iter_id
+                    and str(item.get("step_id") or "") in group_step_id_set
+                )
+            ],
+        }
+        state["parallel_group_snapshot"] = snapshot
+        return snapshot
+
+    @staticmethod
+    def _agent_native_int(value: object, *, default: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _agent_native_parallel_group_bounds(steps: list[dict], step_order: int, parallel_group: str) -> tuple[int, int, list[str]]:
+        group_start = step_order
+        while group_start > 0 and str(steps[group_start - 1].get("parallel_group") or "").strip() == parallel_group:
+            group_start -= 1
+        group_end = step_order + 1
+        while group_end < len(steps) and str(steps[group_end].get("parallel_group") or "").strip() == parallel_group:
+            group_end += 1
+        return group_start, group_end, [str(step["id"]) for step in steps[group_start:group_end]]
+
+    def _agent_native_record_parallel_group_started(
+        self,
+        run: dict,
+        context: _WorkflowRunContext,
+        iteration: _WorkflowIterationState,
+        step: dict,
+        step_order: int,
+    ) -> None:
+        parallel_group = str(step.get("parallel_group") or "").strip()
+        if not parallel_group:
+            return
+        group_start, _group_end, _group_step_ids = self._agent_native_parallel_group_bounds(
+            context.workflow_steps,
+            step_order,
+            parallel_group,
+        )
+        if step_order != group_start:
+            return
+        self.append_run_event(
+            run["id"],
+            "parallel_group_started",
+            self._agent_native_parallel_group_event_payload(context.workflow_steps, iteration.iter_id, step_order, parallel_group),
+        )
+
+    def _agent_native_record_parallel_group_finished(
+        self,
+        run: dict,
+        context: _WorkflowRunContext,
+        iter_id: int,
+        step: dict,
+        step_order: int,
+    ) -> None:
+        parallel_group = str(step.get("parallel_group") or "").strip()
+        if not parallel_group:
+            return
+        next_step_order = step_order + 1
+        if next_step_order < len(context.workflow_steps) and str(context.workflow_steps[next_step_order].get("parallel_group") or "").strip() == parallel_group:
+            return
+        self.append_run_event(
+            run["id"],
+            "parallel_group_finished",
+            self._agent_native_parallel_group_event_payload(context.workflow_steps, iter_id, step_order, parallel_group),
+        )
+
+    def _agent_native_parallel_group_event_payload(
+        self,
+        steps: list[dict],
+        iter_id: int,
+        step_order: int,
+        parallel_group: str,
+    ) -> dict[str, object]:
+        group_start, _group_end, group_step_ids = self._agent_native_parallel_group_bounds(steps, step_order, parallel_group)
+        return {
+            "iter": iter_id,
+            "parallel_group": parallel_group,
+            "step_orders": list(range(group_start, group_start + len(group_step_ids))),
+            "step_ids": group_step_ids,
         }
 
     def submit_agent_native_step(self, request: AgentNativeStepSubmitRequest) -> dict[str, Any]:
@@ -234,7 +512,6 @@ class ServiceAgentNativeMixin:
 
         iter_id = int(active.get("iter_id") or state.get("iter_id") or 0)
         step_order = int(active.get("step_order") or state.get("step_index") or 0)
-        write_json(layout.step_output_raw_path(iter_id, step_order, step_id), output)
 
         context = self._agent_native_run_context(run, state)
         iteration = self._agent_native_iteration_state(state)
@@ -251,6 +528,15 @@ class ServiceAgentNativeMixin:
             },
             request.host_dispatch,
         )
+        if role["archetype"] != "gatekeeper":
+            unknown_refs = _agent_native_unknown_evidence_refs(output, active=active, context_packet=context_packet)
+            if unknown_refs:
+                raise LooporaError(
+                    "agent-native evidence_refs_unknown: "
+                    + ", ".join(unknown_refs[:4])
+                    + ("..." if len(unknown_refs) > 4 else "")
+                )
+        write_json(layout.step_output_raw_path(iter_id, step_order, step_id), output)
         normalized_output = self._normalize_step_output(
             StepOutputNormalizationRequest(
                 archetype=role["archetype"],
@@ -275,8 +561,10 @@ class ServiceAgentNativeMixin:
             "context_packet": context_packet,
             "session_ref": submitted_session_ref,
             "duration_ms": 0,
+            "iter_id": iter_id,
         }
         finish_result = self._commit_workflow_step_result(context, iteration, result)
+        is_control_step = self._agent_native_record_control_completion(run, result)
         self.append_run_event(
             run["id"],
             "agent_native_step_submitted",
@@ -294,11 +582,20 @@ class ServiceAgentNativeMixin:
         )
 
         state.update(self._state_from_iteration(iteration))
-        host_dispatches = list(state.get("host_dispatches") or [])
-        host_dispatches.append(host_dispatch)
-        state["host_dispatches"] = host_dispatches
+        state["control_fire_counts"] = dict(context.control_fire_counts)
+        state["host_dispatches"] = [*list(state.get("host_dispatches") or []), host_dispatch]
         state["active_step"] = {}
-        state["step_index"] = step_order + 1
+        self._agent_native_advance_state_after_submit(
+            _AgentNativeStepAdvanceRequest(
+                run=run,
+                state=state,
+                context=context,
+                iter_id=iter_id,
+                step=step,
+                step_order=step_order,
+                is_control_step=is_control_step,
+            )
+        )
         self._write_agent_native_state(layout, state)
         if finish_result is not None:
             state["status"] = "complete"
@@ -319,6 +616,35 @@ class ServiceAgentNativeMixin:
             )
         )
 
+    def _agent_native_advance_state_after_submit(self, request: _AgentNativeStepAdvanceRequest) -> None:
+        if request.is_control_step:
+            queue = [item for item in list(request.state.get("control_queue") or []) if isinstance(item, dict)]
+            request.state["control_queue_index"] = self._agent_native_control_queue_index(request.state, queue=queue) + 1
+            request.state["step_index"] = len(request.context.workflow_steps)
+            return
+        self._agent_native_record_parallel_group_finished(request.run, request.context, request.iter_id, request.step, request.step_order)
+        request.state["step_index"] = request.step_order + 1
+        self._agent_native_update_parallel_group_snapshot_after_submit(request.state, request.context, request.step, request.step_order)
+
+    def _agent_native_record_control_completion(self, run: dict, result: dict) -> bool:
+        step = result["step"]
+        if not step.get("control_id"):
+            return False
+        control = step.get("control") if isinstance(step.get("control"), dict) else {}
+        evidence_id = evidence_entry_id(int(result["iter_id"]), int(result["step_order"]), str(step["id"]))
+        normalized_output = result["normalized_output"]
+        self.append_run_event(
+            run["id"],
+            "control_completed",
+            {
+                **control,
+                "status": normalized_output.get("status") or normalized_output.get("mode") or "completed",
+                "evidence_refs": [evidence_id],
+            },
+            role=str(control.get("role_id") or result["runtime_role"]),
+        )
+        return True
+
     def _agent_native_finish_iteration_or_advance(
         self,
         adapter: str,
@@ -328,16 +654,9 @@ class ServiceAgentNativeMixin:
     ) -> dict[str, Any]:
         layout = context.layout
         iteration = self._agent_native_iteration_state(state)
-        if context.workflow_controls:
-            self.append_run_event(
-                run["id"],
-                "agent_native_controls_deferred",
-                {
-                    "iter": iteration.iter_id,
-                    "control_count": len(context.workflow_controls),
-                    "reason": "agent_native_controls_not_implemented",
-                },
-            )
+        control_claim = self._agent_native_claim_pending_control_step(adapter, run, state, context, iteration)
+        if control_claim is not None:
+            return control_claim
         checkpoint = self._checkpoint_workflow_iteration_state(
             WorkflowIterationCheckpointRequest(
                 layout=layout,
@@ -434,12 +753,183 @@ class ServiceAgentNativeMixin:
                 "current_gatekeeper_result": None,
                 "current_guide_result": None,
                 "step_results": [],
+                "control_queue": [],
+                "control_queue_index": 0,
+                "control_queue_iter": None,
+                "parallel_group_snapshot": {},
                 "active_step": {},
                 "stagnation": iteration.stagnation,
             }
         )
         self._write_agent_native_state(layout, state)
         return self.claim_agent_native_step(AgentNativeStepClaimRequest(adapter=adapter, run_id=run["id"]))
+
+    def _agent_native_claim_pending_control_step(
+        self,
+        adapter: str,
+        run: dict,
+        state: dict[str, Any],
+        context: _WorkflowRunContext,
+        iteration: _WorkflowIterationState,
+    ) -> dict[str, Any] | None:
+        if not context.workflow_controls:
+            return None
+        if not self._agent_native_control_queue_iter_matches(state.get("control_queue_iter"), iteration.iter_id):
+            state["control_queue"] = self._agent_native_build_control_queue(run, state, context, iteration)
+            state["control_queue_index"] = 0
+            state["control_queue_iter"] = iteration.iter_id
+            state["control_fire_counts"] = dict(context.control_fire_counts)
+            self._write_agent_native_state(context.layout, state)
+
+        queue = [item for item in list(state.get("control_queue") or []) if isinstance(item, dict)]
+        index = self._agent_native_control_queue_index(state, queue=queue)
+        if index >= len(queue):
+            return None
+        entry = queue[index]
+        step = entry.get("step") if isinstance(entry.get("step"), dict) else {}
+        step_order = self._agent_native_control_queue_step_order(entry)
+        if not step or step_order is None:
+            state["control_queue_index"] = index + 1
+            self._write_agent_native_state(context.layout, state)
+            return self._agent_native_claim_pending_control_step(adapter, run, state, context, iteration)
+        return self._agent_native_claim_runtime_step(
+            _AgentNativeRuntimeClaimRequest(
+                kind=adapter,
+                run=run,
+                state=state,
+                context=context,
+                iteration=iteration,
+                step=step,
+                step_order=step_order,
+            )
+        )
+
+    @staticmethod
+    def _agent_native_control_queue_iter_matches(value: object, iter_id: int) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value == iter_id
+
+    @staticmethod
+    def _agent_native_control_queue_index(state: dict[str, Any], *, queue: list[dict[str, Any]]) -> int:
+        if "control_queue_index" not in state or state.get("control_queue_index") is None:
+            return 0
+        value = state.get("control_queue_index")
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+        return len(queue)
+
+    @staticmethod
+    def _agent_native_control_queue_step_order(entry: dict[str, Any]) -> int | None:
+        value = entry.get("step_order")
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+        return None
+
+    def _agent_native_build_control_queue(
+        self,
+        run: dict,
+        state: dict[str, Any],
+        context: _WorkflowRunContext,
+        iteration: _WorkflowIterationState,
+    ) -> list[dict[str, Any]]:
+        queue: list[dict[str, Any]] = []
+        for trigger in workflow_iteration_control_triggers(iteration.current_gatekeeper_result, iteration.stagnation):
+            self._agent_native_append_controls_for_signal(
+                _AgentNativeControlSignalRequest(
+                    run=run,
+                    context=context,
+                    iteration=iteration,
+                    queue=queue,
+                    signal=trigger.signal,
+                    trigger=trigger.trigger,
+                )
+            )
+        state["control_fire_counts"] = dict(context.control_fire_counts)
+        return queue
+
+    def _agent_native_append_controls_for_signal(
+        self,
+        request: _AgentNativeControlSignalRequest,
+    ) -> None:
+        run = request.run
+        context = request.context
+        iteration = request.iteration
+        queue = request.queue
+        signal = request.signal
+        trigger = request.trigger
+        matching_controls = matching_workflow_controls(context.workflow_controls, signal)
+        if not matching_controls:
+            return
+        for control in matching_controls:
+            control_id = str(control.get("id") or "").strip()
+            max_fires = structured_non_negative_int(control.get("max_fires_per_run"), default=1) or 1
+            fired = self._agent_native_control_fire_count(context.control_fire_counts.get(control_id), max_fires=max_fires)
+            role_id = str((control.get("call") or {}).get("role_id") or "").strip()
+            elapsed_seconds = self._agent_native_elapsed_seconds(run)
+            base_payload = build_workflow_control_payload(
+                WorkflowControlPayloadRequest(
+                    control=control,
+                    iter_id=iteration.iter_id,
+                    signal=signal,
+                    trigger=trigger,
+                    elapsed_seconds=elapsed_seconds,
+                )
+            )
+            if fired >= max_fires:
+                self.append_run_event(
+                    context.run_id,
+                    "control_skipped",
+                    {**base_payload, "skip_reason": "max_fires_per_run"},
+                )
+                continue
+            if elapsed_seconds < workflow_control_after_seconds(base_payload["after"]):
+                self.append_run_event(
+                    context.run_id,
+                    "control_skipped",
+                    {**base_payload, "skip_reason": "after_not_elapsed"},
+                )
+                continue
+            role = context.role_by_id.get(role_id)
+            if not role:
+                self.append_run_event(
+                    context.run_id,
+                    "control_failed",
+                    {**base_payload, "error": "control role not found"},
+                )
+                continue
+            context.control_fire_counts[control_id] = fired + 1
+            existing_control_count = sum(1 for item in iteration.step_results if item["step"].get("control_id")) + len(queue)
+            control_step, control_order = build_workflow_control_step(
+                WorkflowControlStepRequest(
+                    control=control,
+                    payload=base_payload,
+                    role=role,
+                    workflow_step_count=len(context.workflow_steps),
+                    existing_control_count=existing_control_count,
+                )
+            )
+            self.append_run_event(context.run_id, "control_triggered", base_payload, role=role_id)
+            queue.append({"step": control_step, "step_order": control_order})
+
+    @staticmethod
+    def _agent_native_control_fire_count(value: object, *, max_fires: int) -> int:
+        if value is None:
+            return 0
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+        return max_fires
+
+    @staticmethod
+    def _agent_native_elapsed_seconds(run: dict) -> float:
+        started_at = str(run.get("started_at") or run.get("queued_at") or run.get("created_at") or "").strip()
+        if not started_at:
+            return 0.0
+        try:
+            started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        except ValueError:
+            return 0.0
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        return max((datetime.now(UTC) - started.astimezone(UTC)).total_seconds(), 0.0)
 
     def _agent_native_resolve_run(
         self,
@@ -465,6 +955,7 @@ class ServiceAgentNativeMixin:
     def _agent_native_run_context(self, run: dict, state: dict[str, Any]) -> _WorkflowRunContext:
         layout = self._run_artifact_layout(Path(run["runs_dir"]))
         workflow = run.get("workflow_json") or read_json(layout.contract_workflow_path)
+        workflow = normalize_workflow(workflow)
         role_by_id = {role["id"]: role for role in workflow.get("roles", [])}
         return _WorkflowRunContext(
             run_id=run["id"],
@@ -478,7 +969,7 @@ class ServiceAgentNativeMixin:
             layout=layout,
             run_contract=read_json(layout.run_contract_path),
             workflow_steps=list(workflow.get("steps", [])),
-            workflow_controls=normalize_workflow_controls(workflow.get("controls"), role_by_id=role_by_id),
+            workflow_controls=list(workflow.get("controls", [])),
             control_fire_counts=dict(state.get("control_fire_counts") or {}),
             workflow_started_at=0.0,
             role_by_id=role_by_id,
@@ -565,9 +1056,29 @@ class ServiceAgentNativeMixin:
             "current_guide_result": None,
             "step_results": [],
             "control_fire_counts": {},
+            "control_queue": [],
+            "control_queue_index": 0,
+            "control_queue_iter": None,
+            "parallel_group_snapshot": {},
             "host_dispatches": [],
             "active_step": {},
         }
+
+    @staticmethod
+    def _agent_native_update_parallel_group_snapshot_after_submit(
+        state: dict[str, Any],
+        context: _WorkflowRunContext,
+        step: dict,
+        step_order: int,
+    ) -> None:
+        parallel_group = str(step.get("parallel_group") or "").strip()
+        if not parallel_group:
+            state["parallel_group_snapshot"] = {}
+            return
+        next_step_order = step_order + 1
+        if next_step_order < len(context.workflow_steps) and str(context.workflow_steps[next_step_order].get("parallel_group") or "").strip() == parallel_group:
+            return
+        state["parallel_group_snapshot"] = {}
 
     def _write_agent_native_state(self, layout, state: dict[str, Any]) -> None:
         write_json(self._agent_native_state_path(layout), state)
@@ -589,14 +1100,16 @@ class ServiceAgentNativeMixin:
         runtime_role: str,
         prompt: str,
         output_schema: dict,
+        known_evidence_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         context_path = layout.step_context_path(iter_id, step_order, step["id"])
         output_path = layout.step_output_raw_path(iter_id, step_order, step["id"])
-        known_evidence_ids = [
-            str(item.get("id"))
-            for item in read_jsonl(layout.evidence_ledger_path)
-            if isinstance(item, dict) and str(item.get("id") or "").strip()
-        ]
+        if known_evidence_ids is None:
+            known_evidence_ids = [
+                str(item.get("id"))
+                for item in read_jsonl(layout.evidence_ledger_path)
+                if isinstance(item, dict) and str(item.get("id") or "").strip()
+            ]
         target_agent = self._agent_native_target_agent(role["archetype"])
         return {
             "execution_plane": "agent_native",
@@ -653,15 +1166,45 @@ class ServiceAgentNativeMixin:
             return "loopora-guide"
         return "loopora-inspector"
 
+    @staticmethod
+    def _required_agent_native_dispatch_text(dispatch: dict[str, Any], field: str) -> str:
+        value = str(dispatch.get(field) or "").strip()
+        if not value:
+            raise LooporaConflictError(f"agent-native host dispatch {field} is required")
+        return value
+
+    @staticmethod
+    def _agent_native_dispatch_schema_version(dispatch: dict[str, Any]) -> int:
+        value = dispatch.get("schema_version")
+        if value is None or value == "":
+            return 1
+        if isinstance(value, (bool, float)):
+            raise LooporaConflictError("agent-native host dispatch schema_version must be an integer")
+        try:
+            return int(value)
+        except (TypeError, ValueError) as exc:
+            raise LooporaConflictError("agent-native host dispatch schema_version must be an integer") from exc
+
+    @staticmethod
+    def _agent_native_role_dispatch_for_submit(active: dict[str, Any]) -> dict[str, Any]:
+        capsule = active.get("capsule") if isinstance(active.get("capsule"), dict) else {}
+        role_dispatch = capsule.get("role_dispatch") if isinstance(capsule.get("role_dispatch"), dict) else {}
+        if not role_dispatch:
+            return {}
+        if not structured_bool_is_true(role_dispatch.get("required")):
+            raise LooporaConflictError("agent-native role_dispatch.required must be literal true")
+        if not isinstance(role_dispatch.get("inline_allowed"), bool):
+            raise LooporaConflictError("agent-native role_dispatch.inline_allowed must be a literal boolean")
+        return role_dispatch
+
     def _validate_agent_native_host_dispatch(self, context: dict[str, Any], dispatch: dict[str, Any] | None) -> dict[str, Any]:
         adapter = str(context["adapter"])
         run = context["run"]
         step_id = str(context["step_id"])
         role = context["role"]
         active = context["active"]
-        capsule = active.get("capsule") if isinstance(active.get("capsule"), dict) else {}
-        role_dispatch = capsule.get("role_dispatch") if isinstance(capsule.get("role_dispatch"), dict) else {}
-        if not role_dispatch.get("required"):
+        role_dispatch = self._agent_native_role_dispatch_for_submit(active)
+        if not role_dispatch:
             return {}
         if not isinstance(dispatch, dict) or not dispatch:
             raise LooporaConflictError("agent-native submit requires loopora_host_dispatch proof from the host native role agent")
@@ -671,27 +1214,29 @@ class ServiceAgentNativeMixin:
         actual_agent = str(dispatch.get("actual_agent") or dispatch.get("agent_name") or "").strip()
         target_agent = str(dispatch.get("target_agent") or "").strip()
         dispatch_mode = str(dispatch.get("dispatch_mode") or dispatch.get("mode") or "").strip()
-        inline = bool(dispatch.get("inline") is True)
+        if not isinstance(dispatch.get("inline"), bool):
+            raise LooporaConflictError("agent-native host dispatch inline must be a literal boolean")
+        inline = dispatch["inline"]
 
         if actual_agent != expected_agent or target_agent != expected_agent:
             raise LooporaConflictError(f"agent-native submit used {actual_agent or target_agent or 'unknown'} but expected {expected_agent}")
         if accepted_modes and dispatch_mode not in accepted_modes:
             raise LooporaConflictError(f"agent-native submit dispatch_mode must be one of {sorted(accepted_modes)}")
-        if inline and not bool(role_dispatch.get("inline_allowed")):
+        if inline and not structured_bool_is_true(role_dispatch.get("inline_allowed")):
             raise LooporaConflictError("agent-native submit cannot claim inline role execution for this step")
 
-        dispatch_run_id = str(dispatch.get("run_id") or "").strip()
-        dispatch_step_id = str(dispatch.get("step_id") or "").strip()
-        dispatch_adapter = str(dispatch.get("adapter") or "").strip()
-        if dispatch_run_id and dispatch_run_id != str(run["id"]):
+        dispatch_run_id = self._required_agent_native_dispatch_text(dispatch, "run_id")
+        dispatch_step_id = self._required_agent_native_dispatch_text(dispatch, "step_id")
+        dispatch_adapter = self._required_agent_native_dispatch_text(dispatch, "adapter")
+        if dispatch_run_id != str(run["id"]):
             raise LooporaConflictError("agent-native host dispatch run_id does not match the submitted run")
-        if dispatch_step_id and dispatch_step_id != step_id:
+        if dispatch_step_id != step_id:
             raise LooporaConflictError("agent-native host dispatch step_id does not match the submitted step")
-        if dispatch_adapter and dispatch_adapter != adapter:
+        if dispatch_adapter != adapter:
             raise LooporaConflictError("agent-native host dispatch adapter does not match the submitted adapter")
 
         return {
-            "schema_version": int(dispatch.get("schema_version") or 1),
+            "schema_version": self._agent_native_dispatch_schema_version(dispatch),
             "adapter": adapter,
             "run_id": str(run["id"]),
             "step_id": step_id,
@@ -709,6 +1254,11 @@ class ServiceAgentNativeMixin:
                 "id": "evidence_refs.must_be_exact_known_ids",
                 "severity": "hard",
                 "rule": "Every evidence_refs value, including coverage_results evidence_refs, must be copied exactly from known_evidence_ids. Do not invent, suffix, split, or derive new evidence IDs.",
+            },
+            {
+                "id": "coverage_results.status_uses_coverage_vocabulary",
+                "severity": "hard",
+                "rule": "coverage_results.status must use coverage vocabulary such as covered, weak, blocked, or missing; keep Proven, Weak, Unproven, Blocking, and Residual risk as verdict buckets or notes.",
             }
         ]
         if archetype == "inspector":

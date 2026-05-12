@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from loopora.coverage_target_semantics import coverage_target_is_required
 from loopora.evidence_coverage import load_or_build_evidence_coverage_projection
 from loopora.run_artifacts import RunArtifactLayout
 
@@ -134,6 +135,7 @@ def _build_buckets(coverage: Mapping[str, Any], verdict: Mapping[str, Any]) -> d
     _append_coverage_target_buckets(buckets, coverage.get("targets"))
     _append_verdict_blockers(buckets, verdict)
     _append_residual_risk_buckets(buckets, coverage.get("risk_signals"))
+    _append_verdict_residual_risk_buckets(buckets, verdict)
     if not any(buckets.values()):
         _append_legacy_evidence_buckets(buckets, verdict)
     return {key: _dedupe_bucket_items(items)[:12] for key, items in buckets.items()}
@@ -156,9 +158,9 @@ def _target_bucket_item(target: Mapping[str, Any]) -> dict:
         "label": str(target.get("label") or target.get("id") or ""),
         "text": _clean_text(target.get("text"), max_length=240),
         "reason": _clean_text(target.get("reason"), max_length=240),
-        "evidence_refs": [str(ref) for ref in list(target.get("evidence_refs") or []) if str(ref).strip()],
-        "artifact_refs": list(target.get("artifact_refs") or [])[:12],
-        "required": bool(target.get("required")),
+        "evidence_refs": _strict_string_list(target.get("evidence_refs")),
+        "artifact_refs": _mapping_list(target.get("artifact_refs"), limit=12),
+        "required": coverage_target_is_required(target),
     }
 
 
@@ -173,10 +175,16 @@ def _append_verdict_blockers(buckets: dict[str, list[dict]], verdict: Mapping[st
 
 
 def _append_residual_risk_buckets(buckets: dict[str, list[dict]], risk_signals: object) -> None:
-    for risk in list(risk_signals or []):
+    for risk in _strict_string_list(risk_signals):
         text = _clean_text(risk, max_length=240)
         if text:
             buckets["residual_risk"].append({"label": text})
+
+
+def _append_verdict_residual_risk_buckets(buckets: dict[str, list[dict]], verdict: Mapping[str, Any]) -> None:
+    for risk in [*_string_list(verdict.get("residual_risks")), *_string_list(verdict.get("residual_risk"))]:
+        if _is_meaningful_gatekeeper_residual_risk(risk):
+            buckets["residual_risk"].append({"label": _clean_text(risk, max_length=240)})
 
 
 def _append_legacy_evidence_buckets(buckets: dict[str, list[dict]], verdict: Mapping[str, Any]) -> None:
@@ -230,7 +238,7 @@ def _required_coverage_status(coverage: Mapping[str, Any]) -> str:
     targets = coverage.get("targets")
     if not isinstance(targets, list):
         return "unknown"
-    required_targets = [target for target in targets if isinstance(target, Mapping) and target.get("required")]
+    required_targets = [target for target in targets if isinstance(target, Mapping) and coverage_target_is_required(target)]
     if not required_targets:
         return "unknown"
     statuses = {str(target.get("status") or "missing").strip().lower() for target in required_targets}
@@ -262,8 +270,12 @@ def _summary_for(
     coverage_reason = _clean_text(coverage_summary.get("reason"), max_length=600)
     if verdict.get("passed") is True and status in {"failed", "insufficient_evidence"} and coverage_reason:
         return coverage_reason
-    decision_summary = _clean_text(verdict.get("decision_summary"), max_length=600)
+    decision_summary = _clean_text(verdict.get("decision_summary"), max_length=600) if _has_literal_gatekeeper_verdict(verdict) else ""
     return decision_summary or (coverage_reason or _fallback_summary_for(status, source, run_status))
+
+
+def _has_literal_gatekeeper_verdict(verdict: Mapping[str, Any]) -> bool:
+    return verdict.get("passed") is True or verdict.get("passed") is False
 
 
 def _fallback_summary_for(status: str, source: str, run_status: str) -> str:
@@ -296,7 +308,19 @@ def _string_list(value: object) -> list[str]:
         return [value.strip()] if value.strip() else []
     if not isinstance(value, list):
         return []
-    return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _strict_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _mapping_list(value: object, *, limit: int) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, Mapping)][:limit]
 
 
 def _bucket_list(value: object) -> list[dict]:
@@ -306,8 +330,8 @@ def _bucket_list(value: object) -> list[dict]:
     for item in value:
         if isinstance(item, Mapping):
             result.append(dict(item))
-        elif str(item).strip():
-            result.append({"label": str(item).strip()})
+        elif isinstance(item, str) and item.strip():
+            result.append({"label": item.strip()})
     return result
 
 

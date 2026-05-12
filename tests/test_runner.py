@@ -11,12 +11,21 @@ from pathlib import Path
 import pytest
 
 from loopora.branding import state_dir_for_workdir
-from loopora.context_flow import output_contract_prompt, system_prompt_prefix
+from loopora.context_flow import (
+    StepContextPacketRequest,
+    build_step_context_packet,
+    output_contract_prompt,
+    render_evidence_section,
+    render_iteration_section,
+    system_prompt_prefix,
+)
 from loopora.executor import CodexExecutor, ExecutorError, FakeCodexExecutor, build_command_event_payload
 from loopora.run_artifacts import RunArtifactLayout
 from loopora.run_takeaways import build_run_key_takeaways
 from loopora.service import LooporaError, LooporaService
-from loopora.service_types import LooporaNotFoundError
+from loopora.service_iteration_reporting import IterationReportContext, IterationSummaryRequest
+from loopora.service_types import LooporaConflictError, LooporaNotFoundError
+from loopora.service_workflow_runtime import _manifest_prompt_context
 from loopora.settings import app_home, configure_logging
 from loopora.workflows import prompt_asset_path
 import loopora.service_cleanup_diagnostics as cleanup_diagnostics
@@ -57,6 +66,103 @@ def _join_async_run(service: LooporaService, run_id: str, *, timeout: float = 5.
     if thread is not None:
         thread.join(timeout=timeout)
     service.get_run(run_id)
+
+
+def test_iteration_reporting_requires_literal_passed_booleans(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    compiled_spec = {
+        "checks": [{"id": "check_1", "title": "Main check"}],
+        "check_mode": "specified",
+    }
+    tester_result = service._enrich_tester_result(
+        {
+            "execution_summary": {"total_checks": 1, "passed": 1, "failed": 0, "errored": 0, "total_duration_ms": 1},
+            "check_results": [{"id": "check_1", "title": "Main check", "status": "passed", "notes": "ok"}],
+            "dynamic_checks": [],
+            "tester_observations": "",
+        }
+    )
+    verifier_result = service._enrich_verifier_result(
+        {
+            "passed": "true",
+            "decision_summary": "Raw string pass should not be trusted.",
+            "composite_score": "1.0",
+            "metric_scores": {
+                "check_pass_rate": {"value": 1.0, "threshold": 1.0, "passed": True},
+                "quality_score": {"value": 1.0, "threshold": 0.9, "passed": "true"},
+            },
+            "failed_check_ids": [],
+            "hard_constraint_violations": [],
+            "priority_failures": [],
+            "feedback_to_generator": "",
+            "evidence_refs": [],
+        },
+        compiled_spec,
+        tester_result,
+    )
+
+    assert verifier_result["passed"] is False
+    assert verifier_result["composite_score"] == 0.0
+    assert verifier_result["failing_metrics"] == [{"name": "quality_score", "value": 1.0, "threshold": 0.9}]
+    assert "Task verdict is not ready" in verifier_result["decision_summary"]
+
+    report = IterationReportContext(
+        iter_id=0,
+        generator_result={"attempted": "", "summary": "", "assumption": "", "abandoned": "", "changed_files": []},
+        tester_result=tester_result,
+        verifier_result=verifier_result,
+        stagnation={
+            "stagnation_mode": "none",
+            "recent_composites": ["0.9", 0.8, True],
+            "recent_deltas": ["0.1", 0.2, False],
+            "consecutive_low_delta": "2",
+        },
+        generator_mode="default",
+        tester_mode="default",
+        verifier_mode="default",
+        previous_composite=None,
+    )
+    log_entry = service._build_iteration_log_entry(report)
+    summary = service._build_summary(
+        IterationSummaryRequest(
+            run={
+                "workdir": str(sample_workdir),
+                "completion_mode": "gatekeeper",
+                "iteration_interval_seconds": 0.0,
+            },
+            compiled_spec=compiled_spec,
+            report=report,
+        )
+    )
+
+    assert log_entry["score"]["passed"] is False
+    assert log_entry["verifier"]["passed"] is False
+    assert log_entry["stagnation"]["recent_composites"] == [0.8]
+    assert log_entry["stagnation"]["recent_deltas"] == [0.2]
+    assert log_entry["stagnation"]["consecutive_low_delta"] == 0
+    assert "- Passed: `False`" in summary
+    assert "Still iterating." in summary
+    assert "All checks passed in this iteration." not in summary
+
+
+def test_gatekeeper_composite_score_requires_literal_number(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    gatekeeper_result = service._coerce_gatekeeper_output(
+        {
+            "passed": False,
+            "decision_summary": "Blocked with a malformed score.",
+            "composite_score": "0.95",
+            "blocking_issues": ["missing proof"],
+            "evidence_refs": [],
+        }
+    )
+
+    assert gatekeeper_result["passed"] is False
+    assert gatekeeper_result["composite_score"] == 0.0
 
 
 def test_asset_call_does_not_classify_plain_unknown_validation_errors_as_not_found(service_factory) -> None:
@@ -167,6 +273,8 @@ def _create_loop(
         ("delta_threshold", math.inf, "delta_threshold must be a finite number"),
         ("max_iters", math.inf, "max_iters must be a finite number"),
         ("max_iters", False, "max_iters must be a finite number"),
+        ("max_iters", 1.5, "max_iters must be an integer"),
+        ("trigger_window", 1.5, "trigger_window must be an integer"),
         ("delta_threshold", -0.1, "delta_threshold must be >= 0"),
     ),
 )
@@ -332,6 +440,147 @@ def test_builder_declared_workspace_artifacts_are_written_to_evidence_refs(
     assert proof_ref["exists"] is True
     assert proof_ref["hash_status"] == "sha256"
     assert proof_ref["sha256"]
+
+
+def test_manifest_prompt_context_does_not_promote_string_booleans(tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "run_prompt")
+    layout.initialize()
+    (layout.evidence_manifest_path).write_text(
+        json.dumps(
+            {
+                "claims": [
+                    {
+                        "id": "ev_string_bool",
+                        "verification_status": "direct_proof",
+                        "measured_evidence": "true",
+                        "concrete_evidence_claim_count": True,
+                        "artifact_count": 1,
+                        "artifact_backed": "true",
+                        "workspace_backed": "true",
+                        "reproducible": "true",
+                        "coverage_targets": [
+                            {
+                                "id": "done_when.check",
+                                "kind": "done_when",
+                                "label": "Done check",
+                                "reported_status": "covered",
+                                "coverage_status": "covered",
+                                "required": "true",
+                                "evidence_refs": ["ev_support"],
+                            },
+                            {
+                                "id": "evidence_preference.pref_001",
+                                "kind": "evidence_preference",
+                                "label": "Evidence preference",
+                                "reported_status": "weak",
+                                "coverage_status": "weak",
+                                "required": "true",
+                                "evidence_refs": [],
+                            },
+                            "gatekeeper.finish",
+                        ],
+                    }
+                ],
+                "problems": [],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    _summary, claims = _manifest_prompt_context(layout, ["ev_string_bool"])
+
+    assert claims[0]["measured_evidence"] is False
+    assert claims[0]["concrete_evidence_claim_count"] == 0
+    assert claims[0]["artifact_backed"] is False
+    assert claims[0]["workspace_backed"] is False
+    assert claims[0]["reproducible"] is False
+    assert claims[0]["coverage_targets"][0] == {
+        "id": "done_when.check",
+        "kind": "done_when",
+        "label": "Done check",
+        "reported_status": "covered",
+        "coverage_status": "covered",
+        "required": True,
+        "evidence_refs": ["ev_support"],
+    }
+    assert claims[0]["coverage_targets"][1]["required"] is False
+    assert claims[0]["coverage_targets"][2]["id"] == "gatekeeper.finish"
+    assert claims[0]["coverage_targets"][2]["required"] is True
+
+
+def test_step_context_packet_preserves_manifest_claim_target_trace(tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "run_prompt")
+    layout.initialize()
+    packet = build_step_context_packet(
+        StepContextPacketRequest(
+            run_contract={"compiled_spec": {}, "workflow": {"preset": "custom"}, "completion_mode": "gatekeeper"},
+            layout=layout,
+            iter_id=0,
+            step={"id": "gatekeeper_step", "role_id": "gatekeeper"},
+            step_order=1,
+            role={"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper"},
+            execution_settings={},
+            immediate_previous_step=None,
+            completed_steps_this_iteration=[],
+            previous_iteration_same_step=None,
+            previous_iteration_same_role=None,
+            previous_iteration_summary=None,
+            previous_composite=None,
+            stagnation_mode="none",
+            evidence_items=[
+                {
+                    "id": "ev_target",
+                    "role_name": "Inspector",
+                    "archetype": "inspector",
+                    "result": "passed",
+                    "claim": "Inspector covered the target.",
+                    "related_evidence_ids": [],
+                    "coverage_results": [],
+                    "artifact_refs": [],
+                }
+            ],
+            evidence_known_ids=["ev_target"],
+            evidence_manifest_summary={"claim_count": 1, "direct_proof_claim_count": 1},
+            evidence_manifest_claims=[
+                {
+                    "id": "ev_target",
+                    "verification_status": "direct_proof",
+                    "measured_evidence": True,
+                    "concrete_evidence_claim_count": 1,
+                    "artifact_count": 1,
+                    "artifact_backed": True,
+                    "workspace_backed": True,
+                    "reproducible": True,
+                    "coverage_targets": [
+                        {
+                            "id": "done_when.check",
+                            "kind": "done_when",
+                            "label": "Done check",
+                            "reported_status": "covered",
+                            "coverage_status": "covered",
+                            "required": "true",
+                            "evidence_refs": ["ev_target"],
+                        }
+                    ],
+                }
+            ],
+        )
+    )
+
+    target_trace = packet["evidence"]["manifest_claims"][0]["coverage_targets"][0]
+    assert target_trace == {
+        "id": "done_when.check",
+        "kind": "done_when",
+        "label": "Done check",
+        "reported_status": "covered",
+        "coverage_status": "covered",
+        "required": True,
+        "evidence_refs": ["ev_target"],
+    }
+    prompt_section = render_evidence_section(packet["evidence"])
+    assert '"id": "done_when.check"' in prompt_section
+    assert '"required": true' in prompt_section
 
 
 def test_command_events_do_not_persist_prompt_or_secret_markers(
@@ -693,6 +942,29 @@ def test_start_run_reports_corrupt_loop_prompt_artifact_as_domain_error(
     assert not runs_root.exists() or not list(runs_root.iterdir())
 
 
+def test_start_run_cleans_prepared_run_dir_when_registration_fails(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+    monkeypatch,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Registration Failure Cleanup Loop")
+    captured: dict[str, Path] = {}
+
+    def fail_create_run(payload: dict) -> dict:
+        captured["run_dir"] = Path(payload["runs_dir"])
+        raise LooporaConflictError("forced active run conflict")
+
+    monkeypatch.setattr(service.repository, "create_run", fail_create_run)
+
+    with pytest.raises(LooporaConflictError, match="forced active run conflict"):
+        service.start_run(loop["id"])
+
+    assert captured["run_dir"].parent == state_dir_for_workdir(sample_workdir) / "runs"
+    assert not captured["run_dir"].exists()
+
+
 def test_execute_run_fails_readably_when_run_prompt_artifact_is_corrupt(
     service_factory,
     sample_spec_file: Path,
@@ -784,11 +1056,93 @@ def test_workflow_run_recovers_corrupt_stagnation_projection(
     assert stagnation["stagnation_mode"] == "none"
 
 
+def test_workflow_context_does_not_promote_corrupt_stagnation_counts(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    recorded_counts: list[dict] = []
+
+    class CountRecordingExecutor(CodexExecutor):
+        def execute(self, request, _emit_event, _should_stop, set_child_pid):
+            set_child_pid(None)
+            recorded_counts.append(
+                {
+                    "covered_check_count": request.extra_context["covered_check_count"],
+                    "missing_check_count": request.extra_context["missing_check_count"],
+                    "consecutive_no_required_coverage_delta": request.extra_context[
+                        "consecutive_no_required_coverage_delta"
+                    ],
+                }
+            )
+            if request.role_archetype == "builder":
+                payload = {
+                    "attempted": "Prepared a candidate.",
+                    "summary": "Candidate prepared.",
+                    "changed_files": [],
+                }
+            else:
+                payload = {
+                    "passed": False,
+                    "decision_summary": "Not enough evidence.",
+                    "feedback_to_builder": "Add proof.",
+                    "blocking_issues": [],
+                    "metrics": [],
+                    "failed_check_ids": [],
+                    "priority_failures": [],
+                    "composite_score": 0.0,
+                    "evidence_refs": [],
+                    "evidence_claims": [],
+                }
+            request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            return payload
+
+    service = service_factory(scenario="success")
+    service.executor_factory = CountRecordingExecutor
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+        ],
+    }
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Corrupt Stagnation Count Loop", workflow=workflow, max_iters=1)
+    queued = service.start_run(loop["id"])
+    layout = RunArtifactLayout(Path(queued["runs_dir"]))
+    layout.timeline_stagnation_path.write_text(
+        json.dumps(
+            {
+                "stagnation_mode": "none",
+                "evidence_progress_mode": "stalled",
+                "latest_covered_check_count": "3",
+                "latest_missing_check_count": True,
+                "consecutive_no_required_coverage_delta": 1.5,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    run = service.execute_run(queued["id"])
+
+    assert run["status"] == "failed"
+    assert recorded_counts
+    assert recorded_counts[0] == {
+        "covered_check_count": 0,
+        "missing_check_count": 0,
+        "consecutive_no_required_coverage_delta": 0,
+    }
+
+
 def _assert_runtime_contract_frozen_prefixes() -> None:
     for archetype in ["builder", "inspector", "gatekeeper", "custom", "guide"]:
         prefix = system_prompt_prefix(archetype)
         assert "Treat the run contract as frozen" in prefix
-        assert "do not reinterpret or lower Task, Done When, or Guardrails" in prefix
+        assert "do not reinterpret or lower Task, Done When, Guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk" in prefix
         assert "evidence gaps or blockers" in prefix
         assert "project-local instructions, design docs, and tests" in prefix
 
@@ -796,12 +1150,12 @@ def _assert_runtime_contract_frozen_prefixes() -> None:
 def _assert_prompt_assets_contract_frozen(prompts: list[str], zh_prompts: list[str]) -> None:
     for prompt in prompts:
         assert "Treat the run contract as frozen" in prompt
-        assert "do not reinterpret or lower Task, Done When, checks, or guardrails" in prompt
+        assert "do not reinterpret or lower Task, Done When, checks, guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk" in prompt
         assert "evidence gaps or blockers" in prompt
         assert "project-local instructions, design docs" in prompt
     for prompt in zh_prompts:
         assert "把 run contract 当作已冻结" in prompt
-        assert "不要重新解释或降低 Task、Done When、checks 或 guardrails" in prompt
+        assert "不要重新解释或降低 Task、Done When、checks、guardrails、Success Surface、Fake Done、Evidence Preferences 或 Residual Risk" in prompt
         assert "证据缺口或 blocker" in prompt
         assert "项目本地指令、design 文档或 tests" in prompt
 
@@ -870,6 +1224,45 @@ def test_builtin_prompts_define_runtime_evidence_fallback_rules() -> None:
     assert "Proven, Weak, Unproven, Blocking, and Residual risk" in output_contract_prompt("inspector")
     assert "run status from task verdict" in output_contract_prompt("gatekeeper")
     assert "Blocking or Unproven gaps into the smallest repair direction" in output_contract_prompt("guide")
+
+
+def test_control_runtime_frame_renders_trigger_evidence_refs() -> None:
+    prompt_frame = render_iteration_section(
+        {
+            "iteration": {
+                "iter_index": 1,
+                "is_first_iteration": False,
+                "previous_composite": 0.42,
+                "stagnation_mode": "none",
+                "evidence_progress_mode": "stalled",
+                "covered_check_count": 1,
+                "missing_check_count": 2,
+                "consecutive_no_required_coverage_delta": 3,
+            },
+            "current_step": {
+                "step_id": "control__guide",
+                "step_order": 5,
+                "role_name": "Guide",
+                "archetype": "guide",
+                "model": "",
+                "executor_kind": "codex",
+                "executor_mode": "preset",
+                "parallel_group": "",
+                "inputs": {"evidence_query": {"limit": 40}},
+                "action_policy": {"workspace": "read_only"},
+                "control": {
+                    "signal": "gatekeeper_rejected",
+                    "mode": "repair_guidance",
+                    "reason": "GateKeeper rejected cited evidence.",
+                    "trigger_evidence_refs": ["ev_000_01_inspector_step"],
+                },
+            },
+        }
+    )
+
+    assert "- Control trigger: gatekeeper_rejected" in prompt_frame
+    assert "- Control mode: repair_guidance" in prompt_frame
+    assert "- Control evidence refs: [\"ev_000_01_inspector_step\"]" in prompt_frame
 
 
 def test_builtin_prompt_assets_treat_run_contract_as_frozen() -> None:
@@ -1187,6 +1580,14 @@ def test_gatekeeper_pass_with_uncovered_required_targets_does_not_pass_task_verd
     assert coverage["status"] == "partial"
     assert run["task_verdict"]["status"] == "insufficient_evidence"
     assert run["task_verdict"]["source"] == "gatekeeper"
+    events = service.stream_events(run["id"], limit=200)
+    assert any(
+        event["event_type"] == "run_finished"
+        and event["payload"]["status"] == "succeeded"
+        and event["payload"]["task_verdict_status"] == "insufficient_evidence"
+        and event["payload"]["task_verdict_source"] == "gatekeeper"
+        for event in events
+    )
 
 
 def test_gatekeeper_pass_with_residual_risk_projects_task_verdict(
@@ -1816,10 +2217,12 @@ def test_workflow_control_triggers_when_required_coverage_stalls(
     assert any(entry["evidence_kind"] == "control" and "control:no_evidence_progress" in entry["verifies"] for entry in evidence_ledger)
 
 
+@pytest.mark.parametrize("max_fires_per_run", [0, True, 1.5, "2"])
 def test_workflow_run_rejects_invalid_persisted_control_fire_limit(
     service_factory,
     sample_spec_file: Path,
     sample_workdir: Path,
+    max_fires_per_run: object,
 ) -> None:
     service = service_factory(scenario="success")
     workflow = {
@@ -1851,7 +2254,7 @@ def test_workflow_run_rejects_invalid_persisted_control_fire_limit(
         workflow=workflow,
     )
     corrupted_workflow = json.loads(json.dumps(loop["workflow_json"]))
-    corrupted_workflow["controls"][0]["max_fires_per_run"] = 0
+    corrupted_workflow["controls"][0]["max_fires_per_run"] = max_fires_per_run
     with service.repository.transaction() as connection:
         connection.execute(
             "UPDATE loop_definitions SET workflow_json = ? WHERE id = ?",
@@ -1864,6 +2267,99 @@ def test_workflow_run_rejects_invalid_persisted_control_fire_limit(
     assert run["status"] == "failed"
     assert "max_fires_per_run" in run["error_message"]
     assert not any(event["event_type"] == "control_triggered" for event in events)
+
+
+@pytest.mark.parametrize("limit", [True, "12"])
+def test_workflow_run_rejects_invalid_persisted_evidence_query_limit(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+    limit: object,
+) -> None:
+    service = service_factory(scenario="success")
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder"},
+            {
+                "id": "gatekeeper_step",
+                "role_id": "gatekeeper",
+                "inputs": {"evidence_query": {"archetypes": ["builder"], "limit": 12}},
+                "on_pass": "finish_run",
+            },
+        ],
+    }
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Corrupted Evidence Query Loop",
+        workflow=workflow,
+    )
+    corrupted_workflow = json.loads(json.dumps(loop["workflow_json"]))
+    corrupted_workflow["steps"][1]["inputs"]["evidence_query"]["limit"] = limit
+    with service.repository.transaction() as connection:
+        connection.execute(
+            "UPDATE loop_definitions SET workflow_json = ? WHERE id = ?",
+            (json.dumps(corrupted_workflow, ensure_ascii=False), loop["id"]),
+        )
+
+    run = service.rerun(loop["id"])
+    events = service.stream_events(run["id"], limit=100)
+
+    assert run["status"] == "failed"
+    assert "evidence_query.limit must be an integer" in run["error_message"]
+    assert not any(
+        event["event_type"] == "role_execution_summary" and event["payload"].get("archetype") == "gatekeeper"
+        for event in events
+    )
+
+
+def test_workflow_run_rejects_invalid_persisted_step_action_policy(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+        ],
+    }
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Corrupted Step Policy Loop",
+        workflow=workflow,
+    )
+    corrupted_workflow = json.loads(json.dumps(loop["workflow_json"]))
+    corrupted_workflow["steps"][1]["action_policy"]["workspace"] = "workspace_write"
+    with service.repository.transaction() as connection:
+        connection.execute(
+            "UPDATE loop_definitions SET workflow_json = ? WHERE id = ?",
+            (json.dumps(corrupted_workflow, ensure_ascii=False), loop["id"]),
+        )
+
+    run = service.rerun(loop["id"])
+    events = service.stream_events(run["id"], limit=100)
+
+    assert run["status"] == "failed"
+    assert "only Builder steps may set action_policy.workspace=workspace_write" in run["error_message"]
+    assert not any(
+        event["event_type"] == "role_execution_summary" and event["payload"].get("archetype") == "gatekeeper"
+        for event in events
+    )
 
 
 def test_step_input_policy_filters_handoffs_and_evidence_context(
@@ -1957,6 +2453,103 @@ def test_step_input_policy_filters_handoffs_and_evidence_context(
     assert recorded_gate_context["evidence"]["manifest_summary"]["claim_count"] == 1
     assert [item["id"] for item in recorded_gate_context["evidence"]["manifest_claims"]] == ["ev_000_02_contract_step"]
     assert recorded_gate_context["evidence"]["manifest_claims"][0]["verification_status"] == "run_artifact"
+
+
+def test_evidence_query_filters_canonical_ledger_before_recent_prompt_window(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    recorded_gate_context: dict = {}
+    recorded_gate_prompt = ""
+
+    class CanonicalEvidenceQueryExecutor(CodexExecutor):
+        def execute(self, request, _emit_event, _should_stop, set_child_pid):
+            nonlocal recorded_gate_prompt
+            set_child_pid(None)
+            if request.role_archetype == "inspector":
+                payload = {
+                    "execution_summary": {
+                        "total_checks": 1,
+                        "passed": 1,
+                        "failed": 0,
+                        "errored": 0,
+                        "total_duration_ms": 50,
+                    },
+                    "check_results": [
+                        {
+                            "id": "early_inspector_evidence",
+                            "title": "Early inspector evidence",
+                            "status": "passed",
+                            "notes": "The early inspector evidence remains the selected evidence query result.",
+                        }
+                    ],
+                    "dynamic_checks": [],
+                    "tester_observations": "Early inspector evidence.",
+                    "coverage_results": [],
+                }
+            elif request.role_archetype == "builder":
+                payload = {
+                    "attempted": f"Produced filler step {request.step_id}.",
+                    "summary": f"Filler step {request.step_id} completed.",
+                    "changed_files": [],
+                }
+            else:
+                context_packet = request.extra_context["context_packet"]
+                recorded_gate_context.update(context_packet)
+                recorded_gate_prompt = request.prompt
+                payload = {
+                    "passed": False,
+                    "decision_summary": "The test only inspects filtered context.",
+                    "feedback_to_builder": "No follow-up required for this context projection test.",
+                    "blocking_issues": ["context_projection_test"],
+                    "metrics": [],
+                    "metric_scores": {},
+                    "failed_check_ids": [],
+                    "priority_failures": [],
+                    "composite_score": 0.0,
+                    "evidence_refs": [],
+                    "evidence_claims": [],
+                    "residual_risks": [],
+                    "coverage_results": [],
+                }
+            request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            return payload
+
+    service = service_factory(scenario="success")
+    service.executor_factory = CanonicalEvidenceQueryExecutor
+    filler_steps = [{"id": f"filler_builder_{index:02d}", "role_id": "builder"} for index in range(45)]
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "inspector", "name": "Inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+        ],
+        "steps": [
+            {"id": "inspector_step", "role_id": "inspector"},
+            *filler_steps,
+            {
+                "id": "gatekeeper_step",
+                "role_id": "gatekeeper",
+                "on_pass": "finish_run",
+                "inputs": {
+                    "handoffs_from": ["inspector_step"],
+                    "evidence_query": {"archetypes": ["inspector"], "limit": 1},
+                },
+            },
+        ],
+    }
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Canonical Evidence Query Loop", workflow=workflow, max_iters=1)
+
+    service.rerun(loop["id"])
+
+    assert [item["step_id"] for item in recorded_gate_context["evidence"]["items"]] == ["inspector_step"]
+    assert recorded_gate_context["evidence"]["known_ids"] == ["ev_000_00_inspector_step"]
+    assert recorded_gate_context["evidence"]["manifest_summary"]["claim_count"] == 1
+    assert [item["id"] for item in recorded_gate_context["evidence"]["manifest_claims"]] == ["ev_000_00_inspector_step"]
+    assert 'Known ids: ["ev_000_00_inspector_step"]' in recorded_gate_prompt
+    assert "ev_000_01_filler_builder_00" not in recorded_gate_prompt
 
 
 def test_gatekeeper_validates_older_known_evidence_ref_from_canonical_ledger(
@@ -2290,7 +2883,13 @@ def test_round_completion_mode_can_finish_without_gatekeeper(
     iteration_log = _read_jsonl(Path(run["runs_dir"]) / "iteration_log.jsonl")
     assert len([entry for entry in iteration_log if entry["phase"] == "complete"]) == 2
     events = service.stream_events(run["id"], limit=200)
-    assert any(event["event_type"] == "run_finished" and event["payload"].get("reason") == "rounds_completed" for event in events)
+    assert any(
+        event["event_type"] == "run_finished"
+        and event["payload"].get("reason") == "rounds_completed"
+        and event["payload"]["task_verdict_status"] == "insufficient_evidence"
+        and event["payload"]["task_verdict_source"] == "rounds_completion"
+        for event in events
+    )
 
 
 def test_failed_run_without_verdict_is_not_evaluated(
@@ -2367,6 +2966,15 @@ def test_destructive_generator_is_blocked_by_workspace_guard(
     assert guard["deleted_original_count"] == 3
     assert "progress.md" in guard["deleted_original_paths"]
     assert "Execution stopped by the workspace safety guard." in (run_dir / "summary.md").read_text(encoding="utf-8")
+    events = service.stream_events(run["id"], limit=200)
+    assert any(event["event_type"] == "run_aborted" for event in events)
+    assert any(
+        event["event_type"] == "run_finished"
+        and event["payload"]["status"] == "failed"
+        and event["payload"]["reason"] == "workspace_safety_guard"
+        and event["payload"]["task_verdict_status"] == "failed"
+        for event in events
+    )
 
 
 def test_workspace_guard_ignores_generated_cache_deletions(
@@ -2478,6 +3086,37 @@ def test_exploratory_run_generates_and_freezes_checks(
     assert tester_output["check_results"]
 
 
+def test_generated_check_normalization_requires_object_items(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    assert service._normalize_generated_checks("not a list") == []
+
+    checks = service._normalize_generated_checks(
+        [
+            "not an object",
+            {
+                "title": "Primary outcome",
+                "details": "The run has a concrete proof path.",
+                "when": "After Builder finishes.",
+                "expect": "Proof is present.",
+                "fail_if": "Proof is missing.",
+            },
+        ]
+    )
+
+    assert checks == [
+        {
+            "id": "check_001",
+            "title": "Primary outcome",
+            "details": "The run has a concrete proof path.",
+            "when": "After Builder finishes.",
+            "expect": "Proof is present.",
+            "fail_if": "Proof is missing.",
+            "source": "auto_generated",
+        }
+    ]
+
+
 def test_same_workdir_concurrent_run_is_rejected(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
     service = service_factory(scenario="success", role_delay=0.4)
     first_loop = _create_loop(service, sample_spec_file, sample_workdir, name="First")
@@ -2501,6 +3140,54 @@ def test_same_workdir_concurrent_run_is_rejected(service_factory, sample_spec_fi
             service.stop_run(first_run["id"])
             _wait_for_terminal_run(service, first_run["id"])
         _join_async_run(service, first_run["id"])
+
+
+def test_start_run_async_rejects_duplicate_local_dispatch(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success", role_delay=0.4)
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Duplicate Async Dispatch")
+    run = service.start_run(loop["id"])
+    service.start_run_async(run["id"])
+
+    try:
+        with pytest.raises(LooporaError, match="already executing in this process"):
+            service.start_run_async(run["id"])
+    finally:
+        current = service.get_run(run["id"])
+        if current["status"] in {"queued", "running"}:
+            service.stop_run(run["id"])
+            _wait_for_terminal_run(service, run["id"])
+        _join_async_run(service, run["id"])
+
+
+def test_execute_run_rejects_duplicate_local_worker(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success", role_delay=0.4)
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Duplicate Worker")
+    run = service.start_run(loop["id"])
+
+    thread = threading.Thread(target=service.execute_run, args=(run["id"],), daemon=True)
+    thread.start()
+
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline and not service._is_run_active_locally(run["id"]):
+            time.sleep(0.01)
+
+        with pytest.raises(LooporaError, match="already executing in this process"):
+            service.execute_run(run["id"])
+    finally:
+        current = service.get_run(run["id"])
+        if current["status"] in {"queued", "running"}:
+            service.stop_run(run["id"])
+            _wait_for_terminal_run(service, run["id"])
+        thread.join(timeout=5)
 
 
 def test_stop_run_marks_run_stopped(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
@@ -2632,6 +3319,27 @@ def test_async_run_cleans_up_thread_bookkeeping(service_factory, sample_spec_fil
     assert run["id"] not in service._threads
 
 
+def test_execute_run_returns_terminal_run_without_active_runtime_markers(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = _create_loop(service, sample_spec_file, sample_workdir, name="Runtime Marker Cleanup Loop")
+    run = service.start_run(loop["id"])
+
+    finished = service.execute_run(run["id"])
+
+    assert finished["status"] == "succeeded"
+    assert finished["active_role"] is None
+    assert finished["runner_pid"] is None
+    assert finished["child_pid"] is None
+    stored = service.repository.get_run(run["id"])
+    assert stored["active_role"] is None
+    assert stored["runner_pid"] is None
+    assert stored["child_pid"] is None
+
+
 def test_get_run_reaps_finished_thread_handle(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
     loop = _create_loop(service, sample_spec_file, sample_workdir, name="Reap Thread Loop")
@@ -2670,6 +3378,15 @@ def test_unexpected_run_error_marks_run_failed(service_factory, sample_spec_file
     assert failed["error_message"] == "boom"
     summary = Path(failed["runs_dir"]) / "summary.md"
     assert "Execution crashed unexpectedly." in summary.read_text(encoding="utf-8")
+    events = service.repository.list_events(run["id"], after_id=0, limit=1000)
+    assert any(event["event_type"] == "run_aborted" for event in events)
+    assert any(
+        event["event_type"] == "run_finished"
+        and event["payload"]["status"] == "failed"
+        and event["payload"]["reason"] == "crashed"
+        and event["payload"]["task_verdict_status"] == "not_evaluated"
+        for event in events
+    )
 
 
 def test_legacy_gatekeeper_run_exhausts_without_crashing(
@@ -2763,8 +3480,16 @@ def test_get_run_recovers_local_orphaned_active_run(service_factory, sample_spec
     assert recovered["runner_pid"] is None
     assert recovered["child_pid"] is None
     assert "Recovered orphaned run" in (recovered["error_message"] or "")
+    assert recovered["task_verdict"]["status"] == "not_evaluated"
     events = service.repository.list_events(run["id"], after_id=0, limit=1000)
     assert any(event["event_type"] == "run_aborted" for event in events)
+    assert any(
+        event["event_type"] == "run_finished"
+        and event["payload"]["status"] == "failed"
+        and event["payload"]["reason"] == "orphaned_worker"
+        and event["payload"]["task_verdict_status"] == "not_evaluated"
+        for event in events
+    )
 
 
 def test_second_service_instance_does_not_recover_run_active_in_same_process(
@@ -2939,9 +3664,18 @@ def test_service_startup_marks_stale_active_runs_stopped(
     assert recovered["runner_pid"] is None
     assert recovered["child_pid"] is None
     assert "Recovered stale run" in (recovered["error_message"] or "")
+    assert recovered["task_verdict"]["status"] == "not_evaluated"
+    assert recovered["task_verdict"]["source"] == "run_status"
+    assert json.loads((Path(recovered["runs_dir"]) / "evidence" / "task_verdict.json").read_text(encoding="utf-8")) == recovered["task_verdict"]
 
     events = restarted.repository.list_events(run["id"], after_id=0, limit=1000)
-    assert any(event["event_type"] == "run_finished" and event["payload"].get("reason") == "Recovered stale run after service startup." for event in events)
+    assert any(
+        event["event_type"] == "run_finished"
+        and event["payload"].get("reason") == "Recovered stale run after service startup."
+        and event["payload"]["task_verdict_status"] == "not_evaluated"
+        and event["payload"]["task_verdict_source"] == "run_status"
+        for event in events
+    )
 
     fresh_run = restarted.rerun(loop["id"])
     assert fresh_run["status"] == "succeeded"

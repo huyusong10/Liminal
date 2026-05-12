@@ -58,11 +58,11 @@
 - 若 workflow role 同时提供 `role_definition_id` 与冲突的 role 级字段，或通过同名 `prompt_files` 改写该 role definition 的 prompt 内容，必须直接报错，不能静默保留或覆盖冲突值
 - workflow 可以携带整条流程的 `collaboration_intent`；它属于 workflow 结构本身，而不是 prompt 边注
 - workflow 可以携带可选 `controls[]`；它只用于受控误差风险触发，不是通用自动化入口
-- loop runtime 数值必须是真正的有限数字；布尔值不属于数值，接口层不得先把 `false/true` 转成 `0/1` 再传给服务层。显式 `0` 只在服务层声明允许的字段上保留其原义，例如无限制迭代或零延迟，而不能被默认值覆盖。
+- loop runtime 数值必须是真正的有限数字；布尔值不属于数值，接口层不得先把 `false/true` 转成 `0/1` 再传给服务层。计数、重试次数和窗口类字段必须是整数或无损整数值，不能把小数静默截断后持久化。显式 `0` 只在服务层声明允许的字段上保留其原义，例如无限制迭代或零延迟，而不能被默认值覆盖。
 - 只有 GateKeeper step 可以声明 `on_pass=finish_run`；其他 step 若尝试声明结束语义，必须在创建时被拒绝
 - 更新 orchestration 时，未显式提供的 workflow 与 prompt 资产必须沿用当前快照，不能静默回退到默认 preset，也不能丢失已有自定义 prompt
 - 读取已保存 orchestration 时，历史遗留但已无法被当前 workflow 合法引用的 prompt 资产条目不得阻塞复用；服务层应先完成内部清洗，再继续对外提供稳定快照
-- 运行策略中的数值字段必须在持久化前完成有限值与范围校验；`NaN`、`Infinity` 或负数阈值不得进入 loop definition
+- 运行策略中的数值字段必须在持久化前完成有限值、整数性与范围校验；`NaN`、`Infinity`、负数阈值或被截断后才成立的计数值不得进入 loop definition
 - 校验 completion mode 与 workflow 是否匹配
 - 冻结运行所需的 spec、workflow 与 prompt 资产
 - 当 loop 来自 bundle 导入时，把它视为同一 bundle 生命周期中的一组资产，而不是四份彼此独立的手工对象
@@ -78,6 +78,7 @@
 - 并行组内 step 不能读取彼此输出；组结束后必须按 workflow 原顺序汇聚 handoff、evidence 和事件
 - 不允许 Builder、GateKeeper 或 Guide 进入并行组，避免并发写入、并发收敛和停滞分支语义混乱
 - 维护当前活动角色与轮次状态
+- 同一进程内的同步执行入口与后台线程入口必须共享同一 run 活动租约；重复调度同一 run 必须被拒绝，不能启动第二个本地 worker 或并发推进同一运行实例
 - 在 run 开始时冻结 `run contract`
 - 在每个 step 开始前生成稳定的 `StepContextPacket`
 - 在每个 step 结束后生成稳定的 `StepHandoff`
@@ -113,11 +114,12 @@
 - 任何界面或 API 都不能把 `succeeded` 直接解释成 Loop 通过。
 - GateKeeper 通过且最新 GateKeeper 裁决明确接受有意义的残余风险时，task verdict 必须使用 `passed_with_residual_risk`，不能压平成普通 `passed`；历史失败迭代留下的风险信号仍可展示在 evidence bucket，但不能单独提升最终通过状态。
 - GateKeeper 通过不能越过 required coverage target：若 `Done When` 或 GateKeeper finish 等 required target 仍 missing / weak，或当前 run 的 coverage projection 缺失 / 不可读，task verdict 必须是 `insufficient_evidence`；若 required target 被阻断，task verdict 必须是 `failed`。这只改变任务裁决投影，不把 run lifecycle 的 `succeeded` 或 raw GateKeeper `passed=true` 解释成证明完成。legacy run 可继续按兼容模式展示旧 verdict。
+- `Done When` 与 `gatekeeper.finish` target 的 required 语义来自目标类型本身；即使持久化 coverage 中 `required` 字段损坏成字符串、数字或 false，也不能被降级为 advisory target。布尔字段仍按 literal JSON boolean 解释，损坏字段只能失败关闭，不能扩大通过范围。
 - GateKeeper 是 `gatekeeper` 模式下产生强 task verdict 的默认入口；`rounds` 模式若没有裁决 evidence，必须清楚表达“运行完成但任务未被证明”。
 
 GateKeeper evidence gate：
 
-- GateKeeper 的 `passed=true` 不是充分条件。
+- GateKeeper 的 literal boolean `passed=true` 不是充分条件；字符串、数字或其它非布尔 truthy 值不能被当作通过裁决、metric pass、measured evidence 或 required coverage 标记。所有来自角色输出、ledger、coverage 和 manifest 的结构化布尔字段都必须按 JSON boolean 语义 fail closed。
 - 新 run 的 GateKeeper verdict 必须引用已有 supporting evidence item；若 GateKeeper 是首个证据读取者，只能在同时提供可落账的具体 `evidence_claims` 与带数值阈值的 measured evidence 时引用自身 evidence item，否则服务层必须把该 verdict 改写为未通过。
 - 被引用的上游 evidence 必须是支持性证据；Inspector / Custom / control 这类取证或只读检视输出可作为支持，Builder 只有在提供当前仍可访问的 proof artifact 或 measured evidence 时才可作为支持。普通 Builder handoff、已丢失 proof artifact 的 Builder evidence、GateKeeper verdict、blocked / failed / rejected 上游 evidence 都不能作为通过依据；如果 GateKeeper 通过只引用这些非支持 evidence，服务层必须把该 verdict 改写为未通过。
 - 未通过的 evidence gate 必须进入 `blocking_issues / hard_constraint_violations`，使 run 在 `gatekeeper` completion mode 下继续迭代或最终失败。

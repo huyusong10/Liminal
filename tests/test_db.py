@@ -5,11 +5,15 @@ import logging
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from loopora.db import LooporaRepository
 from loopora.db_event_records import RunObservationSnapshotRowsRequest
 from loopora.db_schema import CURRENT_SCHEMA_VERSION
+from loopora.service_types import LooporaConflictError
 from loopora.settings import app_home, configure_logging
 import loopora.db_row_decoding as row_decoding
+import loopora.run_artifacts as run_artifacts
 
 
 def _read_service_log_records() -> list[dict]:
@@ -102,6 +106,58 @@ def test_repository_migrates_version_zero_schema_and_preserves_rows(tmp_path: Pa
     assert version == CURRENT_SCHEMA_VERSION
 
 
+def test_create_run_rejects_second_active_run_for_workdir(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    first_run = _create_run(repository, tmp_path, run_id="run_active_first", status="queued")
+    workdir = Path(first_run["workdir"])
+    spec_path = tmp_path / "second-spec.md"
+    spec_markdown = "# Task\n\nShip it again.\n"
+    spec_path.write_text(spec_markdown, encoding="utf-8")
+    second_loop = repository.create_loop(
+        {
+            "id": "loop_active_second",
+            "name": "Loop Active Second",
+            "workdir": str(workdir),
+            "spec_path": str(spec_path),
+            "spec_markdown": spec_markdown,
+            "compiled_spec": {"goal": "Ship it again.", "checks": [], "constraints": "", "role_notes": {}},
+            "model": "gpt-5.4",
+            "reasoning_effort": "medium",
+            "max_iters": 1,
+            "max_role_retries": 1,
+            "delta_threshold": 0.1,
+            "trigger_window": 1,
+            "regression_window": 1,
+            "role_models": {},
+        }
+    )
+    second_run_dir = workdir / ".loopora" / "runs" / "run_active_second"
+    second_run_dir.mkdir(parents=True)
+
+    with pytest.raises(LooporaConflictError, match="another active run is already using"):
+        repository.create_run(
+            {
+                "id": "run_active_second",
+                "loop_id": second_loop["id"],
+                "workdir": str(workdir),
+                "spec_path": str(spec_path),
+                "spec_markdown": spec_markdown,
+                "compiled_spec": {"goal": "Ship it again.", "checks": [], "constraints": "", "role_notes": {}},
+                "model": "gpt-5.4",
+                "reasoning_effort": "medium",
+                "max_iters": 1,
+                "max_role_retries": 1,
+                "delta_threshold": 0.1,
+                "trigger_window": 1,
+                "regression_window": 1,
+                "role_models": {},
+                "status": "queued",
+                "runs_dir": str(second_run_dir),
+                "summary_md": "# Loopora Run Summary\n\nQueued.\n",
+            }
+        )
+
+
 def test_repository_retries_transient_open_errors(tmp_path: Path, monkeypatch, caplog) -> None:
     target = tmp_path / "app.db"
     real_connect = sqlite3.connect
@@ -146,6 +202,52 @@ def test_append_event_tolerates_jsonl_mirror_failures(tmp_path: Path, monkeypatc
     assert stored[0]["payload"]["status"] == "running"
 
 
+def test_append_event_tolerates_runtime_jsonl_mirror_failures(tmp_path: Path, monkeypatch) -> None:
+    configure_logging()
+    repository = LooporaRepository(tmp_path / "app.db")
+    _create_run(repository, tmp_path, run_id="run_runtime_mirror_failure")
+
+    monkeypatch.setattr(
+        "loopora.db.append_jsonl_with_mirrors",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("mirror helper crashed")),
+    )
+
+    event = repository.append_event("run_runtime_mirror_failure", "run_started", {"status": "running"})
+
+    assert event["event_type"] == "run_started"
+    stored = repository.list_events("run_runtime_mirror_failure")
+    assert len(stored) == 1
+    assert stored[0]["payload"]["status"] == "running"
+    record = next(item for item in _read_service_log_records() if item["event"] == "db.run_event.mirror_failed")
+    assert record["error"]["type"] == "RuntimeError"
+    assert record["run_id"] == "run_runtime_mirror_failure"
+    assert record["context"]["event_type"] == "run_started"
+
+
+def test_run_artifact_json_mirror_runtime_failure_preserves_canonical(tmp_path: Path, monkeypatch) -> None:
+    configure_logging()
+    canonical_path = tmp_path / "canonical" / "state.json"
+    mirror_path = tmp_path / "legacy" / "state.json"
+    original_write_json = run_artifacts.write_json
+
+    def fail_legacy_write(path: Path, payload: dict) -> None:
+        if Path(path) == mirror_path:
+            raise RuntimeError("legacy mirror adapter crashed")
+        original_write_json(path, payload)
+
+    monkeypatch.setattr(run_artifacts, "write_json", fail_legacy_write)
+
+    run_artifacts.write_json_with_mirrors(canonical_path, {"ok": True}, mirror_paths=[mirror_path])
+
+    assert json.loads(canonical_path.read_text(encoding="utf-8")) == {"ok": True}
+    assert not mirror_path.exists()
+    record = next(item for item in _read_service_log_records() if item["event"] == "run_artifact.mirror_write_failed")
+    assert record["error"]["type"] == "RuntimeError"
+    assert record["context"]["operation"] == "write_json"
+    assert record["context"]["canonical_path"] == str(canonical_path)
+    assert record["context"]["mirror_path"] == str(mirror_path)
+
+
 def test_list_events_normalizes_cursor_and_limit_before_sqlite(tmp_path: Path) -> None:
     repository = LooporaRepository(tmp_path / "app.db")
     _create_run(repository, tmp_path)
@@ -153,8 +255,33 @@ def test_list_events_normalizes_cursor_and_limit_before_sqlite(tmp_path: Path) -
         repository.append_event("run_test", "progress", {"index": index})
 
     assert [event["payload"]["index"] for event in repository.list_events("run_test", after_id=-10, limit=2)] == [0, 1]
+    assert [event["payload"]["index"] for event in repository.list_events("run_test", after_id=True, limit=2)] == [0, 1]
+    assert [event["payload"]["index"] for event in repository.list_events("run_test", after_id="1", limit=2)] == [0, 1]
     assert repository.list_events("run_test", limit=0) == []
     assert repository.list_events("run_test", limit=-1) == []
+    assert repository.list_events("run_test", limit=True) == []
+    assert repository.list_events("run_test", limit="2") == []
+
+
+def test_takeaway_projection_source_event_id_requires_integer_sequence(tmp_path: Path) -> None:
+    repository = LooporaRepository(tmp_path / "app.db")
+    run = _create_run(repository, tmp_path, run_id="run_projection_source_event", status="succeeded")
+    event = repository.append_event(run["id"], "run_finished", {"status": "succeeded"})
+    boolean_source_event_id = True
+
+    assert repository.record_run_takeaway_projection(run["id"], boolean_source_event_id, {"run_status": "failed"}) is False
+    assert repository.record_run_takeaway_projection(run["id"], str(event["id"]), {"run_status": "failed"}) is False
+    assert repository.record_run_takeaway_projection(run["id"], event["id"], {"run_status": "succeeded"}) is True
+
+    snapshot = repository.run_observation_snapshot_rows(
+        RunObservationSnapshotRowsRequest(
+            run_id=run["id"],
+            timeline_event_types=["run_finished"],
+            progress_event_types=[],
+        )
+    )
+
+    assert snapshot["key_takeaway_projection"] == {"run_status": "succeeded", "source_event_id": event["id"]}
 
 
 def test_append_event_does_not_write_takeaway_projection(tmp_path: Path) -> None:

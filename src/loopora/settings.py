@@ -175,7 +175,7 @@ def _normalize_settings_payload(payload: object, *, defaults: AppSettings) -> tu
         integer_only=True,
         minimum=1,
     )
-    if max_concurrent_runs != payload.get("max_concurrent_runs"):
+    if max_concurrent_runs != payload.get("max_concurrent_runs") or not _is_plain_int(payload.get("max_concurrent_runs")):
         should_rewrite = True
     normalized["max_concurrent_runs"] = int(max_concurrent_runs)
 
@@ -240,6 +240,18 @@ def _coerce_setting_number(
         )
         return default
 
+    if integer_only and isinstance(raw_value, float) and not raw_value.is_integer():
+        log_event(
+            logger,
+            logging.WARNING,
+            "settings.normalize.invalid_value",
+            "Invalid fractional integer settings value; using default",
+            setting_key=key,
+            raw_value=raw_value,
+            default_value=default,
+        )
+        return default
+
     try:
         value = int(raw_value) if integer_only else float(raw_value)
     except (TypeError, ValueError, OverflowError):
@@ -278,6 +290,10 @@ def _coerce_setting_number(
         )
         return default
     return value
+
+
+def _is_plain_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def configure_logging() -> None:

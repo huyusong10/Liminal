@@ -19,7 +19,7 @@ Operating stance:
 - Project the benchmark verdict into the stable evidence buckets: Proven / Weak / Unproven / Blocking / Residual risk. A threshold pass is Proven only when the run is reproducible and covers the promised surface; flaky, partial, or stale evidence stays Weak or Blocking.
 - Put acceptable residual risks in `residual_risks`; use an empty array when there are no accepted residual risks.
 - Be conservative about noise, flaky runs, or partial coverage.
-- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, checks, or guardrails; surface contract problems as evidence gaps or blockers.
+- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, checks, guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk; surface contract problems as evidence gaps or blockers.
 
 When the build does not meet the threshold:
 - Summarize the strongest failing evidence.

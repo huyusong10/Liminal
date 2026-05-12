@@ -9,9 +9,11 @@ import typer
 
 from loopora.agent_web import ensure_local_web_service, web_url_for_path
 from loopora.cli_shared import JsonOutputOption, call_spawn_background_worker, echo_json, get_service, handle_error
+from loopora.cli_run_support import print_task_verdict
 from loopora.service import LooporaError
 from loopora.service_agent_native import AgentNativeStepClaimRequest, AgentNativeStepSubmitRequest
 from loopora.service_agent_adapters import AgentBundleCandidateRequest
+from loopora.workflows import WorkflowError
 
 AdapterWorkdirOption = Annotated[
     Path,
@@ -132,7 +134,7 @@ def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_te
             result = get_service().create_agent_bundle_candidate(request)
             _attach_web_url(result, path_key="preview_path", url_key="preview_url", no_web=no_web)
             _print_agent_gen_result(result, json_output=json_output)
-        except LooporaError as exc:
+        except (LooporaError, WorkflowError) as exc:
             handle_error(exc)
 
     @adapter_app.command("loop")
@@ -156,7 +158,7 @@ def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_te
             _spawn_agent_loop_worker_if_needed(service, result)
             _attach_web_url(result, path_key="run_path", url_key="run_url", no_web=no_web)
             _print_agent_loop_result(result, json_output=json_output)
-        except LooporaError as exc:
+        except (LooporaError, WorkflowError) as exc:
             handle_error(exc)
 
     @adapter_app.command("next")
@@ -181,7 +183,7 @@ def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_te
             )
             _attach_web_url(result, path_key="run_path", url_key="run_url", no_web=no_web)
             _print_agent_step_result(result, json_output=json_output)
-        except LooporaError as exc:
+        except (LooporaError, WorkflowError) as exc:
             handle_error(exc)
 
     @adapter_app.command("submit")
@@ -212,7 +214,7 @@ def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_te
             )
             _attach_web_url(result, path_key="run_path", url_key="run_url", no_web=no_web)
             _print_agent_step_result(result, json_output=json_output)
-        except LooporaError as exc:
+        except (LooporaError, WorkflowError) as exc:
             handle_error(exc)
 
 
@@ -287,7 +289,9 @@ def _print_agent_loop_result(result: dict, *, json_output: bool) -> None:
         return
     run = result.get("run") if isinstance(result.get("run"), dict) else {}
     typer.echo(f"Loopora run: {run.get('id')}")
-    typer.echo(f"run_status: {run.get('status')}")
+    typer.echo(f"run_status: {run.get('run_status') or run.get('status')}")
+    if result.get("complete"):
+        print_task_verdict(run.get("task_verdict") or run.get("task_verdict_json"))
     typer.echo(f"run_url: {result.get('run_url') or result.get('run_path')}")
     next_step = result.get("next_step") if isinstance(result.get("next_step"), dict) else {}
     if next_step:
@@ -302,7 +306,9 @@ def _print_agent_step_result(result: dict, *, json_output: bool) -> None:
         return
     run = result.get("run") if isinstance(result.get("run"), dict) else {}
     typer.echo(f"Loopora run: {run.get('id')}")
-    typer.echo(f"run_status: {run.get('status')}")
+    typer.echo(f"run_status: {run.get('run_status') or run.get('status')}")
+    if result.get("complete"):
+        print_task_verdict(run.get("task_verdict") or run.get("task_verdict_json"))
     typer.echo(f"run_url: {result.get('run_url') or result.get('run_path')}")
     next_step = result.get("next_step") if isinstance(result.get("next_step"), dict) else {}
     if result.get("complete"):

@@ -5,6 +5,7 @@ import logging
 
 from loopora.db_shared import logger
 from loopora.diagnostics import log_event
+from loopora.service_types import ACTIVE_RUN_STATUSES, LooporaConflictError
 from loopora.utils import utc_now
 
 
@@ -12,6 +13,18 @@ class RepositoryRunRecordsMixin:
     def create_run(self, payload: dict) -> dict:
         now = utc_now()
         with self.transaction() as connection:
+            if payload["status"] in ACTIVE_RUN_STATUSES:
+                active_run = connection.execute(
+                    """
+                    SELECT id
+                    FROM loop_runs
+                    WHERE workdir = ? AND status IN ('queued', 'running', 'awaiting_agent')
+                    LIMIT 1
+                    """,
+                    (payload["workdir"],),
+                ).fetchone()
+                if active_run and active_run["id"] != payload["id"]:
+                    raise LooporaConflictError(f"another active run is already using {payload['workdir']}")
             connection.execute(
                 """
                 INSERT INTO loop_runs (

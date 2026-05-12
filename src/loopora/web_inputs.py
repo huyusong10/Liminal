@@ -12,6 +12,7 @@ from fastapi import Request
 
 from loopora.branding import APP_AUTH_COOKIE, APP_AUTH_HEADER
 from loopora.markdown_tools import render_safe_markdown_html
+from loopora.numeric_inputs import coerce_integral_number
 from loopora.providers import executor_profile
 from loopora.service import LooporaError, normalize_role_models
 from loopora.specs import SpecError, compile_markdown_spec
@@ -151,7 +152,7 @@ def _loop_payload_number(
     value = payload.get(key, default)
     if isinstance(value, bool):
         raise ValueError(f"{key} must be numeric")
-    return int(value) if integer_only else float(value)
+    return coerce_integral_number(value, field_name=key) if integer_only else float(value)
 
 
 def _orchestration_payload_from_mapping(
@@ -330,7 +331,7 @@ def _coerce_loop_form_number(value: object, *, integer_only: bool) -> object:
     if isinstance(value, str) and not value.strip():
         return ""
     try:
-        return int(value) if integer_only else float(value)
+        return coerce_integral_number(value, field_name="loop setting") if integer_only else float(value)
     except (TypeError, ValueError):
         return value
 

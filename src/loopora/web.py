@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -30,6 +30,7 @@ from loopora.web_streaming import parse_sse_last_event_id
 logger = get_logger(__name__)
 
 AUTH_COOKIE_NAME = APP_AUTH_COOKIE
+INTERNAL_API_ERROR_MESSAGE = "internal server error"
 
 __all__ = [
     "_is_loopback_host",
@@ -146,8 +147,12 @@ def _install_auth_middleware(
                     error=exc,
                     method=request.method,
                     request_path=request.url.path,
+                    status_code=500,
                     client_ip=request.client.host if request.client else "",
                 )
+                response = _internal_api_error_response(request)
+                if response is not None:
+                    return response
                 raise
             _log_web_response(request, response.status_code, start_time)
             return response
@@ -181,8 +186,12 @@ def _install_auth_middleware(
                 error=exc,
                 method=request.method,
                 request_path=request.url.path,
+                status_code=500,
                 client_ip=request.client.host if request.client else "",
             )
+            response = _internal_api_error_response(request)
+            if response is not None:
+                return response
             raise
         if request.cookies.get(APP_AUTH_COOKIE) != expected_token:
             response.set_cookie(AUTH_COOKIE_NAME, expected_token, httponly=True, samesite="lax")
@@ -194,6 +203,12 @@ def _auth_token_matches(provided_token: str | None, expected_token: object) -> b
     expected = str(expected_token or "")
     provided = str(provided_token or "")
     return bool(expected and provided) and hmac.compare_digest(provided, expected)
+
+
+def _internal_api_error_response(request: Request) -> Response | None:
+    if not request.url.path.startswith("/api/"):
+        return None
+    return JSONResponse({"error": INTERNAL_API_ERROR_MESSAGE}, status_code=500)
 
 
 def _log_web_response(request: Request, status_code: int, started_at: float) -> None:

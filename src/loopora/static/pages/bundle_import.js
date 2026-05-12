@@ -114,7 +114,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function verdictSummary(summary) {
-    if (summary?.gatekeeper?.enabled) {
+    if (summary?.gatekeeper?.enabled === true) {
       return "GateKeeper";
     }
     return localeText("轮次预算", "round budget");
@@ -174,7 +174,7 @@ document.addEventListener("DOMContentLoaded", () => {
       judgmentMap.hidden = false;
       judgmentMap.innerHTML = visibleItems.map((item) => {
         const evidence = (item.evidence || []).map((value) => String(value || "").trim()).filter(Boolean)[0] || "";
-        const mapped = Boolean(item.mapped);
+        const mapped = item.mapped === true;
         return `
           <div class="alignment-judgment-row" data-mapped="${mapped}">
             <strong>${escapeHtml(traceItemLabel(item))}</strong>
@@ -234,7 +234,7 @@ document.addEventListener("DOMContentLoaded", () => {
       },
       {
         label: localeText("守门者", "GateKeeper"),
-        value: gatekeeper.enabled
+        value: gatekeeper.enabled === true
           ? localeText("需要证据引用才能结束。", "Requires evidence refs to finish.")
           : localeText("未配置守门者。", "No GateKeeper configured."),
       },

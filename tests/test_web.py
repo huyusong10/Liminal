@@ -5,6 +5,7 @@ import re
 import shutil
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,10 +13,21 @@ from fastapi.testclient import TestClient
 from loopora.bundles import bundle_to_yaml
 from loopora.branding import state_dir_for_workdir
 from loopora.file_previews import preview_existing_path
-from loopora.run_takeaways import build_minimal_run_takeaway_projection
+from loopora.run_observation_events import PROGRESS_EVENT_TYPES, TIMELINE_EVENT_TYPES
+from loopora.run_artifacts import RunArtifactLayout
+from loopora.run_takeaways import (
+    build_evidence_manifest,
+    build_legacy_iteration_takeaway,
+    build_minimal_run_takeaway_projection,
+    build_role_takeaway_from_handoff,
+    display_iter,
+    normalize_run_takeaway_projection_shape,
+)
+from loopora.providers import CLAUDE_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL
 from loopora.settings import app_home, configure_logging
-from loopora.web_streaming import MAX_EVENT_CURSOR_ID
+from loopora.web_streaming import MAX_EVENT_CURSOR_ID, parse_sse_last_event_id, stream_error_payload
 from loopora.web_url_utils import safe_attachment_filename, safe_local_return_path, with_query_params
+import loopora.service_run_lifecycle as service_run_lifecycle
 import loopora.web as web_module
 from loopora.web import build_app
 from loopora.web_overviews import _build_run_summary_snapshot, _decorate_loop_overview, _format_timeline_event
@@ -23,6 +35,19 @@ from loopora.web_overviews import _build_run_summary_snapshot, _decorate_loop_ov
 
 def _read_service_log_records() -> list[dict]:
     return [json.loads(line) for line in (app_home() / "logs" / "service.log").read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_streaming_cursor_helpers_require_strict_integer_boundaries() -> None:
+    assert parse_sse_last_event_id("42") == 42
+    assert parse_sse_last_event_id(" 42 ") == 42
+    assert parse_sse_last_event_id("+42") is None
+    assert parse_sse_last_event_id("42.0") is None
+    assert parse_sse_last_event_id(str(MAX_EVENT_CURSOR_ID + 1)) is None
+
+    assert stream_error_payload(owner_key="run_id", owner_id="run_test", after_id=42)["after_id"] == 42
+    assert stream_error_payload(owner_key="run_id", owner_id="run_test", after_id="42")["after_id"] == 0
+    assert stream_error_payload(owner_key="run_id", owner_id="run_test", after_id=True)["after_id"] == 0
+    assert stream_error_payload(owner_key="run_id", owner_id="run_test", after_id=MAX_EVENT_CURSOR_ID + 1)["after_id"] == 0
 
 
 def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
@@ -35,6 +60,15 @@ def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
             "payload": {"ok": True, "attempts": 2, "degraded": True, "duration_ms": 12},
         }
     )
+    string_ok_role_summary = _format_timeline_event(
+        {
+            "id": 6,
+            "event_type": "role_execution_summary",
+            "created_at": "2026-05-05T00:00:00Z",
+            "role": "Builder",
+            "payload": {"ok": "false", "error": "failed as string", "duration_ms": 12},
+        }
+    )
     control_event = _format_timeline_event(
         {
             "id": 2,
@@ -43,12 +77,20 @@ def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
             "payload": {"signal": "no_evidence_progress", "role_id": "inspector"},
         }
     )
+    parallel_event = _format_timeline_event(
+        {
+            "id": 5,
+            "event_type": "parallel_group_started",
+            "created_at": "2026-05-05T00:00:01Z",
+            "payload": {"parallel_group": "inspection_pack", "step_ids": ["review_a", "review_b"]},
+        }
+    )
     run_finished = _format_timeline_event(
         {
             "id": 3,
             "event_type": "run_finished",
             "created_at": "2026-05-05T00:00:02Z",
-            "payload": {"status": "succeeded", "reason": "rounds_completed"},
+            "payload": {"status": "succeeded", "reason": "rounds_completed", "task_verdict_status": "insufficient_evidence"},
         }
     )
     accepted = _format_timeline_event(
@@ -59,13 +101,96 @@ def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
             "payload": {"status": "succeeded", "task_verdict_status": "passed"},
         }
     )
+    malformed_role_summary = _format_timeline_event(
+        {
+            "id": 7,
+            "event_type": "role_execution_summary",
+            "created_at": "2026-05-05T00:00:04Z",
+            "role": "Builder",
+            "payload": {"ok": True, "attempts": "2", "degraded": "false", "duration_ms": "not-a-duration"},
+        }
+    )
+    malformed_checks = _format_timeline_event(
+        {
+            "id": 11,
+            "event_type": "checks_resolved",
+            "created_at": "2026-05-05T00:00:04Z",
+            "payload": {"count": "7", "source": "auto_generated"},
+        }
+    )
+    malformed_wait = _format_timeline_event(
+        {
+            "id": 12,
+            "event_type": "iteration_wait_started",
+            "created_at": "2026-05-05T00:00:04Z",
+            "payload": {"duration_seconds": "30"},
+        }
+    )
+    malformed_abort = _format_timeline_event(
+        {
+            "id": 13,
+            "event_type": "run_aborted",
+            "created_at": "2026-05-05T00:00:04Z",
+            "payload": {"role": "Builder", "attempts": "2"},
+        }
+    )
+    malformed_guard = _format_timeline_event(
+        {
+            "id": 14,
+            "event_type": "workspace_guard_triggered",
+            "created_at": "2026-05-05T00:00:04Z",
+            "payload": {"deleted_original_count": "3"},
+        }
+    )
+    malformed_failure_summary = _format_timeline_event(
+        {
+            "id": 8,
+            "event_type": "role_execution_summary",
+            "created_at": "2026-05-05T00:00:05Z",
+            "role": "Builder",
+            "payload": {"ok": "false", "error": "failed as string", "duration_ms": "not-a-duration"},
+        }
+    )
+    list_payload_summary = _format_timeline_event(
+        {
+            "id": 9,
+            "event_type": "role_execution_summary",
+            "created_at": "2026-05-05T00:00:06Z",
+            "role": "Builder",
+            "payload": ["not", "a", "mapping"],
+        }
+    )
+    overflow_iter_finished = _format_timeline_event(
+        {
+            "id": 10,
+            "event_type": "run_finished",
+            "created_at": "2026-05-05T00:00:07Z",
+            "payload": {"status": "succeeded", "iter": float("inf")},
+        }
+    )
 
     assert role_summary["title"] == "Builder completed"
     assert role_summary["detail"] == "attempts=2, degraded, 12ms"
+    assert string_ok_role_summary["title"] == "Builder failed"
+    assert string_ok_role_summary["detail"] == "failed as string, 12ms"
+    assert malformed_role_summary["title"] == "Builder completed"
+    assert malformed_role_summary["detail"] == "ok"
+    assert malformed_checks["detail"] == "0 checks, auto-generated"
+    assert malformed_wait["detail"] == "0s"
+    assert malformed_abort["detail"] == ""
+    assert malformed_guard["detail"] == "deleted=0"
+    assert malformed_failure_summary["title"] == "Builder failed"
+    assert malformed_failure_summary["detail"] == "failed as string"
+    assert list_payload_summary["title"] == "Builder failed"
+    assert list_payload_summary["detail"] == ""
+    assert overflow_iter_finished["title"] == "Run succeeded"
+    assert overflow_iter_finished["detail"] == ""
     assert control_event["title"] == "Control triggered"
     assert control_event["detail"] == "no_evidence_progress -> inspector"
+    assert parallel_event["title"] == "Parallel review started"
+    assert parallel_event["detail"] == "inspection_pack, steps=2"
     assert run_finished["title"] == "Run succeeded"
-    assert run_finished["detail"] == "planned rounds completed"
+    assert run_finished["detail"] == "planned rounds completed, task_verdict_status=insufficient_evidence"
     assert accepted["title"] == "Conclusion accepted"
     assert accepted["detail"] == "status=succeeded, task_verdict_status=passed"
 
@@ -109,8 +234,43 @@ def test_loop_overview_preserves_residual_risk_task_verdict() -> None:
     assert summary["verdict_note_en"] == "follow-up"
 
 
+def test_loop_overview_surfaces_unproven_terminal_task_verdicts() -> None:
+    insufficient = _decorate_loop_overview(
+        {
+            "id": "loop_1",
+            "latest_run_id": "run_1",
+            "latest_status": "succeeded",
+            "latest_task_verdict_json": {
+                "status": "insufficient_evidence",
+                "source": "gatekeeper",
+                "summary": "Missing proof.",
+            },
+            "workflow_json": {},
+        }
+    )
+    failed = _decorate_loop_overview(
+        {
+            "id": "loop_2",
+            "latest_run_id": "run_2",
+            "latest_status": "failed",
+            "latest_task_verdict_json": {
+                "status": "failed",
+                "source": "run_status",
+                "summary": "Blocked.",
+            },
+            "workflow_json": {},
+        }
+    )
+
+    assert insufficient["card_hint_en"] == "The latest task verdict has insufficient evidence."
+    assert insufficient["card_hint_zh"] == "最近一次 Loop 裁决证据不足。"
+    assert failed["card_hint_en"] == "The latest task verdict failed."
+    assert failed["card_hint_zh"] == "最近一次 Loop 裁决未通过。"
+
+
 def test_web_url_helpers_keep_redirects_and_filenames_local() -> None:
     assert safe_local_return_path("/bundles/bundle-1?tab=roles#surface") == "/bundles/bundle-1?tab=roles#surface"
+    assert safe_local_return_path("/bundles/bundle-1?token=secret&tab=roles#surface") == "/bundles/bundle-1?tab=roles#surface"
     assert safe_local_return_path("https://example.test/bundles/1") is None
     assert safe_local_return_path("//example.test/bundles/1") is None
     assert safe_local_return_path("bundles/1") is None
@@ -118,6 +278,9 @@ def test_web_url_helpers_keep_redirects_and_filenames_local() -> None:
     assert safe_local_return_path("/bundles/1\r\nLocation: https://example.test") is None
     assert with_query_params("/bundles/bundle-1?tab=roles#surface", surface_updated="workflow") == (
         "/bundles/bundle-1?tab=roles&surface_updated=workflow#surface"
+    )
+    assert with_query_params("/bundles/bundle-1?token=secret&tab=roles", surface_updated="workflow") == (
+        "/bundles/bundle-1?tab=roles&surface_updated=workflow"
     )
     assert safe_attachment_filename('Bad/Name" \r\n injected.yml') == "Bad-Name-injected.yml"
 
@@ -184,6 +347,9 @@ def _assert_run_artifact_catalog(client: TestClient, run_id: str) -> None:
     artifacts_by_id = {item["id"]: item for item in artifact_payload}
     assert artifacts_by_id["original-spec"]["label_zh"] == "原始 Loop 契约"
     assert artifacts_by_id["compiled-spec"]["label_zh"] == "编译后契约"
+    assert "假完成风险" in artifacts_by_id["compiled-spec"]["description_zh"]
+    assert "Evidence Preferences" in artifacts_by_id["compiled-spec"]["description_en"]
+    assert "Residual Risk" in artifacts_by_id["compiled-spec"]["description_en"]
     assert artifacts_by_id["workflow-manifest"]["label_zh"] == "流程清单"
     assert "规范证据账本" in artifacts_by_id["evidence-ledger"]["description_zh"]
     for artifact_id in (
@@ -234,12 +400,37 @@ def _assert_attachment_download(response, *, filename: str) -> None:
 
 
 def _assert_acceptance_evidence_payload(payload: dict) -> None:
+    assert payload["evidence_source_event_id"] > 0
+    assert payload["evidence_available"] is True
+    assert payload["task_verdict_summary"]
     assert payload["task_verdict_path"] == "evidence/task_verdict.json"
     assert payload["coverage_path"] == "evidence/coverage.json"
     assert payload["manifest_path"] == "evidence/manifest.json"
     assert payload["coverage_status"] in {"covered", "weak", "partial", "blocked", "pending"}
     assert payload["evidence_count"] > 0
     assert set(payload["evidence_bucket_counts"]) >= {"proven", "weak", "unproven", "blocking", "residual_risk"}
+
+
+def _accept_run_result_and_assert_observation_event(client: TestClient, service, run: dict, loop: dict) -> list[dict]:
+    run_before_accept = service.get_run(run["id"])
+    loop_before_accept = service.get_loop(loop["id"])
+
+    accept_response = client.post(f"/runs/{run['id']}/accept", follow_redirects=False)
+
+    assert accept_response.status_code == 303
+    assert accept_response.headers["location"] == f"/runs/{run['id']}"
+    run_after_accept = service.get_run(run["id"])
+    loop_after_accept = service.get_loop(loop["id"])
+    assert run_after_accept["status"] == run_before_accept["status"]
+    assert run_after_accept["task_verdict"] == run_before_accept["task_verdict"]
+    assert loop_after_accept["workflow_json"] == loop_before_accept["workflow_json"]
+    accepted_events = service.recent_run_events(run["id"], event_types={"run_result_accepted"})
+    assert accepted_events
+    assert accepted_events[-1]["payload"]["status"] == run["status"]
+    assert accepted_events[-1]["payload"]["task_verdict_status"]
+    assert accepted_events[-1]["payload"]["evidence_source_event_id"] < accepted_events[-1]["id"]
+    _assert_acceptance_evidence_payload(accepted_events[-1]["payload"])
+    return accepted_events
 
 
 def _assert_run_artifact_previews(client: TestClient, run_id: str, sample_spec_text: str) -> None:
@@ -277,6 +468,11 @@ def test_run_artifact_download_rejects_symlink_escaping_loopora_root(
         summary_path.symlink_to(outside_artifact)
     except OSError as exc:
         pytest.skip(f"symlinks are not available in this environment: {exc}")
+
+    artifacts = client.get(f"/api/runs/{run_id}/artifacts")
+    assert artifacts.status_code == 200
+    summary_artifact = next(item for item in artifacts.json() if item["id"] == "summary")
+    assert summary_artifact["available"] is False
 
     preview = client.get(f"/api/runs/{run_id}/artifacts/summary")
     assert preview.status_code == 400
@@ -656,6 +852,239 @@ def test_minimal_run_takeaway_projection_keeps_status_verdict_and_empty_evidence
     assert projection["source_event_id"] == 42
 
 
+def test_takeaway_evidence_manifest_does_not_promote_boolean_manifest_counts(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "run"
+    layout = RunArtifactLayout(runs_dir)
+    layout.initialize()
+    layout.evidence_manifest_path.write_text(
+        json.dumps(
+            {
+                "manifest_path": True,
+                "claim_count": True,
+                "artifact_backed_claim_count": "1",
+                "direct_proof_claim_count": 2,
+                "problems": [
+                    {"code": True, "claim_id": 7, "severity": False, "message": 3},
+                    {"code": "missing_artifact", "claim_id": "ev_001", "severity": "warning", "message": "Proof file is missing."},
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = build_evidence_manifest({"runs_dir": str(runs_dir)})
+
+    assert manifest["claim_count"] == 0
+    assert manifest["artifact_backed_claim_count"] == 0
+    assert manifest["direct_proof_claim_count"] == 2
+    assert manifest["manifest_path"] == "evidence/manifest.json"
+    assert manifest["problem_count"] == 2
+    assert manifest["problems"][0] == {"code": "", "claim_id": "", "severity": "", "message": ""}
+    assert manifest["problems"][1] == {
+        "code": "missing_artifact",
+        "claim_id": "ev_001",
+        "severity": "warning",
+        "message": "Proof file is missing.",
+    }
+
+
+def test_takeaway_projection_normalization_does_not_promote_boolean_counts() -> None:
+    projection = normalize_run_takeaway_projection_shape(
+        {"id": "run_projection_counts", "status": "succeeded", "run_status": "succeeded"},
+        {
+            "source_event_id": True,
+            "evidence_count": True,
+            "evidence_coverage": {
+                "ledger_path": True,
+                "coverage_path": True,
+                "status": True,
+                "evidence_count": True,
+                "covered_check_count": "1",
+                "missing_check_count": 2,
+                "covered_check_ids": "check_001",
+                "missing_check_ids": ["check_002", True],
+                "risk_signals": [False, "manual review"],
+            },
+            "evidence_manifest": {
+                "claim_count": True,
+                "artifact_backed_claim_count": "1",
+                "direct_proof_claim_count": 2,
+                "problem_count": True,
+            },
+            "iteration_count": True,
+            "role_conclusion_count": "1",
+            "latest_display_iter": True,
+        },
+    )
+
+    assert projection["source_event_id"] == 0
+    assert projection["evidence_count"] == 0
+    assert projection["evidence_coverage"]["ledger_path"] == ""
+    assert projection["evidence_coverage"]["coverage_path"] == ""
+    assert projection["evidence_coverage"]["status"] == "pending"
+    assert projection["evidence_coverage"]["evidence_count"] == 0
+    assert projection["evidence_coverage"]["covered_check_count"] == 0
+    assert projection["evidence_coverage"]["missing_check_count"] == 2
+    assert projection["evidence_coverage"]["covered_check_ids"] == []
+    assert projection["evidence_coverage"]["missing_check_ids"] == ["check_002"]
+    assert projection["evidence_coverage"]["risk_signals"] == ["manual review"]
+    assert projection["evidence_manifest"]["claim_count"] == 0
+    assert projection["evidence_manifest"]["artifact_backed_claim_count"] == 0
+    assert projection["evidence_manifest"]["direct_proof_claim_count"] == 2
+    assert projection["evidence_manifest"]["problem_count"] == 0
+    assert projection["iteration_count"] == 0
+    assert projection["role_conclusion_count"] == 0
+    assert projection["latest_display_iter"] is None
+
+
+def test_takeaway_projection_normalizes_task_verdict_bucket_shapes() -> None:
+    projection = normalize_run_takeaway_projection_shape(
+        {"id": "run_projection_buckets", "status": "failed", "run_status": "failed"},
+        {
+            "task_verdict": {
+                "status": "failed",
+                "source": "gatekeeper",
+                "summary": "Stored projection should keep stable bucket entries.",
+                "buckets": {
+                    "blocking": [True, "real blocker", {"label": "structured blocker"}],
+                    "residual_risk": [False],
+                },
+            },
+            "evidence_buckets": {
+                "residual_risk": [False, "manual risk"],
+                "unknown": ["not a stable bucket"],
+            },
+        },
+    )
+
+    assert projection["task_verdict"]["buckets"]["blocking"] == [
+        {"label": "real blocker"},
+        {"label": "structured blocker"},
+    ]
+    assert projection["task_verdict"]["buckets"]["residual_risk"] == []
+    assert projection["evidence_buckets"] == {"residual_risk": [{"label": "manual risk"}]}
+
+
+@pytest.mark.parametrize("iter_value", [True, "2", 1.5])
+def test_takeaway_display_iter_requires_integer_sequence(iter_value) -> None:
+    assert display_iter(iter_value) is None
+
+    iteration = build_legacy_iteration_takeaway(
+        {
+            "id": "legacy_run",
+            "status": "succeeded",
+            "current_iter": iter_value,
+            "summary_md": "# Loopora Run Summary\n\nLegacy run completed.",
+        }
+    )
+
+    assert iteration is not None
+    assert iteration["iter"] == 0
+    assert iteration["display_iter"] == 1
+
+
+def test_takeaway_role_source_and_legacy_failure_fields_require_literal_values() -> None:
+    role = build_role_takeaway_from_handoff(
+        {
+            "source": {
+                "iter": "4",
+                "step_order": "8",
+                "step_id": "builder_step",
+                "runtime_role": "generator",
+            },
+            "status": "passed",
+            "summary": "done",
+            "blocking_items": ["real blocker", True],
+            "evidence_refs": ["ev_001", False],
+        }
+    )
+
+    assert role["id"].startswith("iter-0-")
+    assert role["step_order"] == 0
+    assert role["blocking_item"] == "real blocker"
+    assert role["evidence_refs"] == ["ev_001"]
+
+    malformed_role = build_role_takeaway_from_handoff(
+        {
+            "source": {"iter": 0, "step_order": 1, "step_id": "bad_shape"},
+            "status": "blocked",
+            "summary": True,
+            "recommended_next_action": 7,
+            "blocking_items": "string blocker",
+            "evidence_refs": "ev_bad",
+        }
+    )
+
+    assert malformed_role["summary"] == ""
+    assert malformed_role["next_action"] == ""
+    assert malformed_role["blocking_item"] == ""
+    assert malformed_role["evidence_refs"] == []
+
+    malformed_identity_role = build_role_takeaway_from_handoff(
+        {
+            "source": {
+                "iter": 0,
+                "step_order": 0,
+                "step_id": True,
+                "role_name": True,
+                "runtime_role": True,
+                "archetype": True,
+            },
+            "status": "passed",
+            "summary": "done",
+        }
+    )
+
+    assert malformed_identity_role["role_name"] == "-"
+    assert malformed_identity_role["step_id"] == ""
+    assert malformed_identity_role["archetype"] == ""
+    assert "True" not in malformed_identity_role["id"]
+
+    legacy_gatekeeper_iteration = build_legacy_iteration_takeaway(
+        {
+            "id": "legacy_blocker",
+            "status": "failed",
+            "current_iter": 0,
+            "summary_md": "",
+            "last_verdict_json": {
+                "passed": False,
+                "blocking_issues": "full blocker",
+                "hard_constraint_violations": [True, "hard blocker"],
+            },
+        }
+    )
+
+    assert legacy_gatekeeper_iteration is not None
+    assert legacy_gatekeeper_iteration["roles"][0]["blocking_item"] == "full blocker"
+
+    iteration = build_legacy_iteration_takeaway(
+        {
+            "id": "legacy_run",
+            "status": "failed",
+            "current_iter": 0,
+            "summary_md": "",
+            "last_verdict_json": {
+                "passed": False,
+                "priority_failures": [
+                    {
+                        "role": "generator",
+                        "error_code": "provider_failed",
+                        "attempts": "2",
+                        "degraded": "false",
+                    }
+                ],
+            },
+        }
+    )
+
+    assert iteration is not None
+    blocking_item = iteration["roles"][0]["blocking_item"]
+    assert "provider_failed" in blocking_item
+    assert "attempts=2" not in blocking_item
+    assert "degraded" not in blocking_item
+
+
 def test_api_run_observation_snapshot_is_bounded_and_redacted(
     service_factory,
     sample_spec_file: Path,
@@ -723,6 +1152,67 @@ def test_api_run_observation_snapshot_is_bounded_and_redacted(
     timeline_text = (Path(run["runs_dir"]) / "timeline" / "events.jsonl").read_text(encoding="utf-8")
     assert marker not in timeline_text
     assert "uv run pytest -q" in json.dumps(payload["console_events"], ensure_ascii=False)
+
+
+def test_api_run_observation_snapshot_projects_stable_timeline_events(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Parallel Snapshot Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=3,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    service.repository.append_event(
+        run["id"],
+        "role_request_prepared",
+        {"role_name": "Builder", "role": "builder", "step_id": "build", "iter": 0},
+        role="builder",
+    )
+    payload = {
+        "iter": 0,
+        "parallel_group": "inspection_pack",
+        "step_orders": [1, 2],
+        "step_ids": ["inspect_a", "inspect_b"],
+    }
+    service.repository.append_event(run["id"], "parallel_group_started", payload)
+    service.repository.append_event(run["id"], "parallel_group_finished", payload)
+    service.repository.append_event(
+        run["id"],
+        "control_triggered",
+        {"signal": "gatekeeper_rejected", "role_id": "guide", "reason": "needs repair"},
+    )
+
+    assert "role_request_prepared" in TIMELINE_EVENT_TYPES
+    assert "control_triggered" in TIMELINE_EVENT_TYPES
+    assert "parallel_group_started" in TIMELINE_EVENT_TYPES
+    assert "parallel_group_started" in PROGRESS_EVENT_TYPES
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/api/runs/{run['id']}/observation-snapshot")
+
+    assert response.status_code == 200
+    snapshot = response.json()
+    timeline_events = [event for event in snapshot["timeline_events"] if event["event_type"].startswith("parallel_group_")]
+    timeline_event_by_type = {event["event_type"]: event for event in snapshot["timeline_events"]}
+    progress_types = [event["event_type"] for event in snapshot["progress_events"]]
+    assert timeline_event_by_type["role_request_prepared"]["title"] == "Role request prepared"
+    assert timeline_event_by_type["control_triggered"]["title"] == "Control triggered"
+    assert [event["event_type"] for event in timeline_events] == ["parallel_group_started", "parallel_group_finished"]
+    assert timeline_events[0]["title"] == "Parallel review started"
+    assert timeline_events[0]["detail"] == "inspection_pack, steps=2"
+    assert "parallel_group_started" in progress_types
+    assert "parallel_group_finished" in progress_types
 
 
 def test_api_run_observation_snapshot_uses_persisted_takeaway_projection(
@@ -1292,6 +1782,14 @@ def test_api_local_asset_diagnostics_reports_orphans_and_missing_dirs(
     missing_bundle_dir = service._bundle_dir("bundle_missing_dir")
     if missing_bundle_dir.exists():
         shutil.rmtree(missing_bundle_dir)
+    missing_registry_run_dir = state_dir_for_workdir(sample_workdir) / "runs" / "run_registry_missing"
+    service.repository.upsert_local_asset_root(
+        resource_type="run",
+        resource_id="run_registry_missing",
+        path=missing_registry_run_dir,
+        workdir=str(sample_workdir),
+        state="active",
+    )
 
     client = TestClient(build_app(service=service))
     response = client.get("/api/diagnostics/local-assets")
@@ -1304,6 +1802,7 @@ def test_api_local_asset_diagnostics_reports_orphans_and_missing_dirs(
     assert any(item["run_id"] == "run_orphan" and item["source"] == "recent_workdir" for item in payload["orphan_run_dirs"])
     assert any(item["resource_type"] == "bundle" and item["resource_id"] == "bundle_missing_dir" for item in payload["record_without_dir"])
     assert any(item["resource_type"] == "run" and item["resource_id"] == run["id"] for item in payload["record_without_dir"])
+    assert any(item["resource_type"] == "run" and item["resource_id"] == "run_registry_missing" for item in payload["record_without_dir"])
 
 
 def test_api_run_stream_emits_redacted_stream_error_on_backend_failure() -> None:
@@ -1340,6 +1839,31 @@ def test_api_run_stream_emits_redacted_stream_error_on_backend_failure() -> None
     }
     assert any(
         record.get("event") == "web.run_stream.failed" and (record.get("error") or {}).get("message") == "database unavailable"
+        for record in _read_service_log_records()
+    )
+
+
+def test_api_unhandled_error_returns_stable_json_and_logs_exception() -> None:
+    configure_logging()
+    raw_error = "database unavailable for api-internal-error-test"
+
+    class FlakyService:
+        def latest_run_event_id(self, run_id: str) -> int:
+            assert run_id == "run_test"
+            raise RuntimeError(raw_error)
+
+    client = TestClient(build_app(service=FlakyService()), raise_server_exceptions=False)
+
+    response = client.get("/api/runs/run_test/events")
+
+    assert response.status_code == 500
+    assert response.json() == {"error": "internal server error"}
+    assert raw_error not in response.text
+    assert any(
+        record.get("event") == "web.request.failed"
+        and (record.get("error") or {}).get("message") == raw_error
+        and (record.get("context") or {}).get("request_path") == "/api/runs/run_test/events"
+        and (record.get("context") or {}).get("status_code") == 500
         for record in _read_service_log_records()
     )
 
@@ -1498,14 +2022,7 @@ def test_run_detail_separates_status_verdict_and_reruns_terminal_run(
     assert export_response.headers["content-type"].startswith("application/yaml")
     assert "Rerun From Detail Loop" in export_response.text
 
-    accept_response = client.post(f"/runs/{run['id']}/accept", follow_redirects=False)
-    assert accept_response.status_code == 303
-    assert accept_response.headers["location"] == f"/runs/{run['id']}"
-    accepted_events = service.recent_run_events(run["id"], event_types={"run_result_accepted"})
-    assert accepted_events
-    assert accepted_events[-1]["payload"]["status"] == run["status"]
-    assert accepted_events[-1]["payload"]["task_verdict_status"]
-    _assert_acceptance_evidence_payload(accepted_events[-1]["payload"])
+    _accept_run_result_and_assert_observation_event(client, service, run, loop)
     snapshot_response = client.get(f"/api/runs/{run['id']}/observation-snapshot")
     assert snapshot_response.status_code == 200
     snapshot_payload = snapshot_response.json()
@@ -1558,6 +2075,43 @@ def test_run_accept_result_rejects_active_run(
     assert "cannot accept run result in status" in response.json()["error"]
 
 
+def test_run_accept_result_keeps_audit_shape_when_evidence_summary_is_unavailable(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+    monkeypatch,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+    run_id = _create_api_loop_run(client, sample_spec_file, sample_workdir)
+    _wait_for_run_success(client, run_id)
+
+    def fail_takeaways(_run: dict) -> dict:
+        raise RuntimeError("raw artifact read failed")
+
+    monkeypatch.setattr(service_run_lifecycle, "build_run_key_takeaways", fail_takeaways)
+
+    response = client.post(f"/runs/{run_id}/accept", follow_redirects=False)
+
+    assert response.status_code == 303
+    accepted_event = service.recent_run_events(run_id, event_types={"run_result_accepted"})[-1]
+    payload = accepted_event["payload"]
+    assert payload["evidence_source_event_id"] < accepted_event["id"]
+    assert payload["evidence_available"] is False
+    assert payload["evidence_error"] == "acceptance_evidence_unavailable"
+    assert payload["task_verdict_path"] == ""
+    assert payload["coverage_path"] == ""
+    assert payload["manifest_path"] == ""
+    assert payload["evidence_count"] == 0
+    assert payload["evidence_bucket_counts"] == {
+        "proven": 0,
+        "weak": 0,
+        "unproven": 0,
+        "blocking": 0,
+        "residual_risk": 0,
+    }
+
+
 def test_api_loop_creation_supports_provider_specific_defaults(
     service_factory,
     sample_spec_file: Path,
@@ -1586,7 +2140,7 @@ def test_api_loop_creation_supports_provider_specific_defaults(
     assert claude_response.status_code == 201
     claude_loop = claude_response.json()["loop"]
     assert claude_loop["executor_kind"] == "claude"
-    assert claude_loop["model"] == ""
+    assert claude_loop["model"] == CLAUDE_DEFAULT_MODEL
     assert claude_loop["reasoning_effort"] == "max"
 
     codex_response = client.post(
@@ -1631,7 +2185,7 @@ def test_api_loop_creation_supports_provider_specific_defaults(
     assert opencode_response.status_code == 201
     opencode_loop = opencode_response.json()["loop"]
     assert opencode_loop["executor_kind"] == "opencode"
-    assert opencode_loop["model"] == ""
+    assert opencode_loop["model"] == OPENCODE_DEFAULT_MODEL
     assert opencode_loop["reasoning_effort"] == ""
 
 
@@ -1668,6 +2222,19 @@ def test_api_loop_creation_rejects_invalid_numeric_settings(
 
     assert bool_response.status_code == 400
     assert "numeric loop settings" in bool_response.json()["error"]
+
+    fractional_response = client.post(
+        "/api/loops",
+        json={
+            "name": "Broken Loop",
+            "spec_path": str(sample_spec_file),
+            "workdir": str(sample_workdir),
+            "max_iters": 1.5,
+        },
+    )
+
+    assert fractional_response.status_code == 400
+    assert "numeric loop settings" in fractional_response.json()["error"]
 
     non_finite_response = client.post(
         "/api/loops",
@@ -2805,6 +3372,53 @@ def test_api_bundle_preview_and_import_report_invalid_version_without_500(servic
     assert import_response.json()["error"] == "bundle version must be an integer"
 
 
+@pytest.mark.parametrize(
+    ("replace_bundle_id", "expected_error"),
+    [
+        (False, "bundle replace_bundle_id must be a string"),
+        ("../escape", "bundle replace_bundle_id must use letters, numbers, dot, underscore, or dash"),
+    ],
+)
+def test_api_bundle_import_rejects_invalid_replace_bundle_id(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+    replace_bundle_id: object,
+    expected_error: str,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Bundle Replace Source",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    bundle_yaml = bundle_to_yaml(
+        service.derive_bundle_from_loop(
+            loop["id"],
+            name="Replacement Bundle",
+            description="Bundle import with invalid replace id.",
+            collaboration_summary="Keep replace targets explicit.",
+        )
+    )
+    client = TestClient(build_app(service=service))
+
+    import_response = client.post(
+        "/api/bundles/import",
+        json={"bundle_yaml": bundle_yaml, "replace_bundle_id": replace_bundle_id},
+    )
+
+    assert import_response.status_code == 400
+    assert import_response.json()["error"] == expected_error
+
+
 def test_api_bundles_derive_returns_bundle_payload(
     service_factory,
     sample_spec_file: Path,
@@ -3159,8 +3773,9 @@ def test_bundle_owned_surface_edit_redirects_back_to_bundle_detail(
     role_definition = imported["role_definitions"][0]
     client = TestClient(build_app(service=service))
 
+    return_to = quote(f"/bundles/{imported['id']}?token=secret-token&tab=workflow#surface", safe="")
     orchestration_response = client.post(
-        f"/orchestrations/{orchestration['id']}/edit?return_to=/bundles/{imported['id']}",
+        f"/orchestrations/{orchestration['id']}/edit?return_to={return_to}",
         data={
             "name": orchestration["name"],
             "description": "Workflow tuned from bundle detail.",
@@ -3170,7 +3785,7 @@ def test_bundle_owned_surface_edit_redirects_back_to_bundle_detail(
         follow_redirects=False,
     )
     assert orchestration_response.status_code == 303
-    assert orchestration_response.headers["location"] == f"/bundles/{imported['id']}?surface_updated=workflow"
+    assert orchestration_response.headers["location"] == f"/bundles/{imported['id']}?tab=workflow&surface_updated=workflow#surface"
 
     role_response = client.post(
         f"/roles/{role_definition['id']}/edit?return_to=/bundles/{imported['id']}",

@@ -11,6 +11,7 @@ import yaml
 
 from loopora.alignment_semantics import text_mentions_loop_fit_contradiction
 from loopora.executor import validate_extra_cli_args_text
+from loopora.numeric_inputs import coerce_integral_number
 from loopora.specs import SpecError, compile_markdown_spec
 from loopora.workflows import (
     WorkflowError,
@@ -94,24 +95,44 @@ def _normalize_bundle_metadata(raw_metadata: object) -> dict[str, Any]:
     name = str(metadata.get("name", "") or "").strip()
     if not name:
         raise BundleError("bundle metadata.name is required")
-    revision = _normalize_bundle_integer(
-        metadata.get("revision"),
-        default=1,
-        field_name="bundle metadata.revision",
-    )
+    revision = _normalize_bundle_revision(metadata)
     if revision < 1:
         raise BundleError("bundle metadata.revision must be >= 1")
     return {
-        "bundle_id": str(metadata.get("bundle_id", "") or "").strip(),
+        "bundle_id": normalize_bundle_identifier(metadata.get("bundle_id"), field_name="bundle metadata.bundle_id", allow_empty=True),
         "name": name,
         "description": str(metadata.get("description", "") or "").strip(),
-        "source_bundle_id": str(metadata.get("source_bundle_id", "") or "").strip(),
+        "source_bundle_id": normalize_bundle_identifier(
+            metadata.get("source_bundle_id"),
+            field_name="bundle metadata.source_bundle_id",
+            allow_empty=True,
+        ),
         "revision": revision,
     }
 
 
+def normalize_bundle_identifier(value: object, *, field_name: str = "bundle id", allow_empty: bool = False) -> str:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        if allow_empty:
+            return ""
+        raise BundleError(f"{field_name} is required")
+    try:
+        return normalize_workflow_identifier(value, field_name=field_name)
+    except WorkflowError as exc:
+        raise BundleError(str(exc)) from exc
+
+
 def _normalize_bundle_version(value: object) -> int:
     return _normalize_bundle_integer(value, default=BUNDLE_VERSION, field_name="bundle version")
+
+
+def _normalize_bundle_revision(metadata: Mapping[str, Any]) -> int:
+    if "revision" not in metadata:
+        return 1
+    value = metadata.get("revision")
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise BundleError("bundle metadata.revision must be an integer")
+    return _normalize_bundle_integer(value, default=1, field_name="bundle metadata.revision")
 
 
 def _normalize_bundle_integer(value: object, *, default: int, field_name: str) -> int:
@@ -121,7 +142,7 @@ def _normalize_bundle_integer(value: object, *, default: int, field_name: str) -
         return default
     if isinstance(value, bool):
         raise BundleError(f"{field_name} must be an integer")
-    if isinstance(value, float) and not value.is_integer():
+    if isinstance(value, float):
         raise BundleError(f"{field_name} must be an integer")
     try:
         return int(value)
@@ -155,11 +176,13 @@ def _normalize_bundle_loop(raw_loop: object) -> dict[str, Any]:
 def _normalize_bundle_loop_runtime(payload: Mapping[str, Any]) -> dict[str, int | float]:
     try:
         iteration_interval_seconds = float(_bundle_numeric_value(payload, "iteration_interval_seconds"))
-        max_iters = int(_bundle_numeric_value(payload, "max_iters"))
-        max_role_retries = int(_bundle_numeric_value(payload, "max_role_retries"))
+        max_iters = _bundle_integer_value(payload, "max_iters")
+        max_role_retries = _bundle_integer_value(payload, "max_role_retries")
         delta_threshold = float(_bundle_numeric_value(payload, "delta_threshold"))
-        trigger_window = int(_bundle_numeric_value(payload, "trigger_window"))
-        regression_window = int(_bundle_numeric_value(payload, "regression_window"))
+        trigger_window = _bundle_integer_value(payload, "trigger_window")
+        regression_window = _bundle_integer_value(payload, "regression_window")
+    except BundleError:
+        raise
     except (TypeError, ValueError, OverflowError) as exc:
         raise BundleError("bundle loop settings must use valid numbers") from exc
     if not math.isfinite(iteration_interval_seconds) or not math.isfinite(delta_threshold):
@@ -195,6 +218,14 @@ def _bundle_numeric_value(payload: Mapping[str, Any], key: str) -> object:
     if isinstance(value, bool):
         raise BundleError("bundle loop settings must use valid numbers")
     return value
+
+
+def _bundle_integer_value(payload: Mapping[str, Any], key: str) -> int:
+    value = _bundle_numeric_value(payload, key)
+    try:
+        return coerce_integral_number(value, field_name=f"bundle loop.{key}")
+    except ValueError as exc:
+        raise BundleError(str(exc)) from exc
 
 
 def _normalize_bundle_spec(raw_spec: object) -> dict[str, str]:

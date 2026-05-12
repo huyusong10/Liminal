@@ -20,6 +20,7 @@ from loopora.service_types import (
     WorkspaceSafetyError,
     normalize_completion_mode,
 )
+from loopora.structured_booleans import structured_bool_is_true
 from loopora.service_workflow_failure_handling import ServiceWorkflowFailureHandlingMixin, WorkflowExhaustionRequest
 from loopora.service_workflow_iteration_state import (
     GatekeeperIterationRecordRequest,
@@ -31,9 +32,19 @@ from loopora.service_workflow_iteration_state import (
     WorkflowStepWriteRequest,
 )
 from loopora.service_workflow_runtime import WorkflowStepRuntimeRequest
+from loopora.service_workflow_controls import (
+    WorkflowControlPayloadRequest,
+    WorkflowControlStepRequest,
+    build_workflow_control_payload,
+    build_workflow_control_step,
+    matching_workflow_controls,
+    workflow_control_after_seconds,
+    workflow_iteration_control_triggers,
+)
 from loopora.service_workflow_support import StepOutputNormalizationRequest, WorkflowSummaryRequest
-from loopora.workflows import default_step_action_policy, normalize_workflow_controls
+from loopora.workflows import normalize_workflow
 from loopora.utils import read_json
+from loopora.structured_numbers import structured_non_negative_int
 
 logger = get_logger(__name__)
 
@@ -124,26 +135,6 @@ class _WorkflowStepRunRequest:
     is_control: bool = False
 
 
-def _workflow_control_after_seconds(value: object) -> float:
-    text = str(value or "0s").strip().lower() or "0s"
-    multiplier = 1.0
-    if text.endswith("ms"):
-        multiplier = 0.001
-        text = text[:-2]
-    elif text.endswith("s"):
-        text = text[:-1]
-    elif text.endswith("m"):
-        multiplier = 60.0
-        text = text[:-1]
-    elif text.endswith("h"):
-        multiplier = 3600.0
-        text = text[:-1]
-    try:
-        return max(float(text) * multiplier, 0.0)
-    except ValueError:
-        return 0.0
-
-
 def _workflow_role_error_signal(exc: Exception) -> str:
     return "role_timeout" if "timeout" in str(exc).lower() else "step_failed"
 
@@ -210,9 +201,11 @@ class ServiceWorkflowExecutionMixin(
                 previous_composite=iteration.previous_composite,
                 stagnation_mode=iteration.stagnation.get("stagnation_mode", "none"),
                 evidence_progress_mode=iteration.stagnation.get("evidence_progress_mode", "none"),
-                covered_check_count=int(iteration.stagnation.get("latest_covered_check_count") or 0),
-                missing_check_count=int(iteration.stagnation.get("latest_missing_check_count") or 0),
-                consecutive_no_required_coverage_delta=int(iteration.stagnation.get("consecutive_no_required_coverage_delta") or 0),
+                covered_check_count=structured_non_negative_int(iteration.stagnation.get("latest_covered_check_count")),
+                missing_check_count=structured_non_negative_int(iteration.stagnation.get("latest_missing_check_count")),
+                consecutive_no_required_coverage_delta=structured_non_negative_int(
+                    iteration.stagnation.get("consecutive_no_required_coverage_delta")
+                ),
                 retry_config=context.retry_config,
             )
         )
@@ -363,7 +356,7 @@ class ServiceWorkflowExecutionMixin(
         trigger: dict[str, object],
         snapshot: dict[str, object],
     ) -> None:
-        matching_controls = [control for control in context.workflow_controls if str((control.get("when") or {}).get("signal") or "").strip() == signal]
+        matching_controls = matching_workflow_controls(context.workflow_controls, signal)
         if not matching_controls:
             return
         for control in matching_controls:
@@ -371,19 +364,16 @@ class ServiceWorkflowExecutionMixin(
             max_fires = int(control.get("max_fires_per_run", 1) or 1)
             fired = int(context.control_fire_counts.get(control_id, 0) or 0)
             role_id = str((control.get("call") or {}).get("role_id") or "").strip()
-            after = str((control.get("when") or {}).get("after") or "0s").strip() or "0s"
             elapsed_seconds = time.monotonic() - context.workflow_started_at
-            base_payload = {
-                "iter": iteration.iter_id,
-                "control_id": control_id,
-                "signal": signal,
-                "mode": str(control.get("mode") or "advisory"),
-                "after": after,
-                "elapsed_seconds": round(elapsed_seconds, 3),
-                "role_id": role_id,
-                "reason": str(trigger.get("reason") or signal),
-                "trigger_evidence_refs": list(trigger.get("evidence_refs") or []),
-            }
+            base_payload = build_workflow_control_payload(
+                WorkflowControlPayloadRequest(
+                    control=control,
+                    iter_id=iteration.iter_id,
+                    signal=signal,
+                    trigger=trigger,
+                    elapsed_seconds=elapsed_seconds,
+                )
+            )
             if fired >= max_fires:
                 self.append_run_event(
                     context.run_id,
@@ -391,7 +381,7 @@ class ServiceWorkflowExecutionMixin(
                     {**base_payload, "skip_reason": "max_fires_per_run"},
                 )
                 continue
-            if elapsed_seconds < _workflow_control_after_seconds(after):
+            if elapsed_seconds < workflow_control_after_seconds(base_payload["after"]):
                 self.append_run_event(
                     context.run_id,
                     "control_skipped",
@@ -407,25 +397,16 @@ class ServiceWorkflowExecutionMixin(
                 )
                 continue
             context.control_fire_counts[control_id] = fired + 1
-            control_order = len(context.workflow_steps) + 100 + sum(1 for item in iteration.step_results if item["step"].get("control_id"))
-            control_step = {
-                "id": f"control__{control_id}",
-                "role_id": role_id,
-                "on_pass": "continue",
-                "model": "",
-                "inherit_session": False,
-                "extra_cli_args": "",
-                "action_policy": default_step_action_policy(
-                    archetype=role.get("archetype"),
-                    on_pass="continue",
-                ),
-                "inputs": {
-                    "iteration_memory": "summary_only",
-                    "evidence_query": {"limit": 40},
-                },
-                "control_id": control_id,
-                "control": base_payload,
-            }
+            existing_control_count = sum(1 for item in iteration.step_results if item["step"].get("control_id"))
+            control_step, control_order = build_workflow_control_step(
+                WorkflowControlStepRequest(
+                    control=control,
+                    payload=base_payload,
+                    role=role,
+                    workflow_step_count=len(context.workflow_steps),
+                    existing_control_count=existing_control_count,
+                )
+            )
             self.append_run_event(context.run_id, "control_triggered", base_payload, role=role_id)
             try:
                 result = self._run_workflow_step_once(
@@ -627,37 +608,12 @@ class ServiceWorkflowExecutionMixin(
         context: _WorkflowRunContext,
         iteration: _WorkflowIterationState,
     ) -> None:
-        gatekeeper_result = iteration.current_gatekeeper_result
-        if gatekeeper_result and not bool(gatekeeper_result.get("passed")):
+        for trigger in workflow_iteration_control_triggers(iteration.current_gatekeeper_result, iteration.stagnation):
             self._run_workflow_controls_for_signal(
                 context,
                 iteration,
-                "gatekeeper_rejected",
-                {
-                    "reason": "GateKeeper rejected the current evidence.",
-                    "evidence_refs": list(gatekeeper_result.get("evidence_refs") or []),
-                    "gatekeeper_result": gatekeeper_result,
-                },
-                iteration.snapshot(),
-            )
-        stagnation_mode = str(iteration.stagnation.get("stagnation_mode", "none") or "none")
-        evidence_progress_mode = str(iteration.stagnation.get("evidence_progress_mode", "none") or "none")
-        if stagnation_mode != "none" or evidence_progress_mode != "none":
-            reason = (
-                f"Required coverage did not improve; missing checks: {iteration.stagnation.get('latest_missing_check_count')}."
-                if evidence_progress_mode != "none"
-                else f"Stagnation mode is {iteration.stagnation.get('stagnation_mode')}."
-            )
-            self._run_workflow_controls_for_signal(
-                context,
-                iteration,
-                "no_evidence_progress",
-                {
-                    "reason": reason,
-                    "evidence_refs": list((iteration.current_gatekeeper_result or {}).get("evidence_refs") or []),
-                    "stagnation_mode": stagnation_mode,
-                    "evidence_progress_mode": evidence_progress_mode,
-                },
+                trigger.signal,
+                trigger.trigger,
                 iteration.snapshot(),
             )
 
@@ -673,9 +629,10 @@ class ServiceWorkflowExecutionMixin(
         retry_config = RetryConfig(max_retries=run["max_role_retries"])
         prompt_files = self._read_prompt_files_for_run(run)
         layout = self._run_artifact_layout(run_dir)
+        workflow = normalize_workflow(workflow)
         role_by_id = {role["id"]: role for role in workflow.get("roles", [])}
         workflow_steps = list(workflow.get("steps", []))
-        workflow_controls = normalize_workflow_controls(workflow.get("controls"), role_by_id=role_by_id)
+        workflow_controls = list(workflow.get("controls", []))
         completion_mode = normalize_completion_mode(run.get("completion_mode", "gatekeeper"))
         run_contract = read_json(layout.run_contract_path)
 
@@ -810,7 +767,9 @@ class ServiceWorkflowExecutionMixin(
                 iter=iteration.iter_id,
                 executed_step_count=len(iteration.step_results),
                 stagnation_mode=progress.stagnation.get("stagnation_mode", "none"),
-                gatekeeper_passed=bool(iteration.current_gatekeeper_result and iteration.current_gatekeeper_result.get("passed")),
+                gatekeeper_passed=structured_bool_is_true(
+                    iteration.current_gatekeeper_result.get("passed") if iteration.current_gatekeeper_result else None
+                ),
                 guide_used=iteration.current_guide_result is not None,
             ),
         )

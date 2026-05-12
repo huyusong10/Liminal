@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from loopora.evidence_coverage import build_evidence_coverage_projection
+from loopora.evidence_coverage import (
+    _overall_coverage_status,
+    _top_coverage_gaps,
+    build_evidence_coverage_projection,
+    summarize_evidence_coverage_projection,
+)
 from loopora.run_artifacts import RunArtifactLayout
 
 
@@ -34,6 +39,144 @@ def _coverage_layout(tmp_path: Path) -> RunArtifactLayout:
     )
     _write_json(layout.run_contract_path, {"completion_mode": "gatekeeper"})
     return layout
+
+
+def test_coverage_required_status_requires_literal_boolean() -> None:
+    rows = {
+        "advisory_string_required": {
+            "id": "advisory_string_required",
+            "kind": "fake_done",
+            "source_section": "Fake Done",
+            "source_id": "risk_001",
+            "label": "Advisory risk",
+            "text": "String required should remain advisory.",
+            "required": "true",
+            "status": "blocked",
+            "reason": "Advisory target is blocked.",
+            "evidence_refs": [],
+        }
+    }
+
+    assert _overall_coverage_status(rows) == "weak"
+
+    gaps = _top_coverage_gaps(
+        [
+            {
+                **rows["advisory_string_required"],
+                "artifact_refs": [],
+            },
+            {
+                "id": "literal_required",
+                "kind": "done_when",
+                "source_section": "Done When",
+                "source_id": "check_001",
+                "label": "Required proof",
+                "text": "Literal required stays first.",
+                "required": True,
+                "status": "missing",
+                "reason": "Missing.",
+                "evidence_refs": [],
+                "artifact_refs": [],
+            },
+        ]
+    )
+
+    assert gaps[0]["target_id"] == "literal_required"
+    assert gaps[1]["target_id"] == "advisory_string_required"
+    assert gaps[1]["required"] is False
+
+
+def test_coverage_summary_requires_integer_counts() -> None:
+    summary = summarize_evidence_coverage_projection(
+        {
+            "status": "partial",
+            "evidence_count": True,
+            "check_count": "2",
+            "covered_check_count": 1.5,
+            "missing_check_count": 1,
+            "target_count": 4,
+            "covered_target_count": "1",
+            "weak_target_count": True,
+            "missing_target_count": 2,
+            "blocked_target_count": 0,
+            "artifact_ref_count": "3",
+            "residual_risk_count": True,
+        }
+    )
+
+    assert summary["evidence_count"] == 0
+    assert summary["check_count"] == 0
+    assert summary["covered_check_count"] == 0
+    assert summary["missing_check_count"] == 1
+    assert summary["target_count"] == 4
+    assert summary["covered_target_count"] == 0
+    assert summary["weak_target_count"] == 0
+    assert summary["missing_target_count"] == 2
+    assert summary["blocked_target_count"] == 0
+    assert summary["artifact_ref_count"] == 0
+    assert summary["residual_risk_count"] == 0
+
+
+def test_coverage_summary_drops_malformed_collection_shapes() -> None:
+    summary = summarize_evidence_coverage_projection(
+        {
+            "status": "partial",
+            "summary": "not a mapping",
+            "covered_check_ids": "check_001",
+            "missing_check_ids": ["check_002", 7, True],
+            "top_gaps": [
+                "not a gap",
+                {"target_id": "done_when.check_001", "status": "missing"},
+            ],
+            "evidence_kind_counts": ["builder", "gatekeeper"],
+            "risk_signals": "manual review needed",
+            "latest_gatekeeper": "not a mapping",
+        }
+    )
+
+    assert summary["summary"] == {}
+    assert summary["covered_check_ids"] == []
+    assert summary["missing_check_ids"] == ["check_002"]
+    assert summary["top_gaps"] == [{"target_id": "done_when.check_001", "status": "missing"}]
+    assert summary["evidence_kind_counts"] == {}
+    assert summary["risk_signals"] == []
+    assert summary["latest_gatekeeper"] == {}
+
+
+def test_coverage_treats_intrinsic_required_targets_as_required_when_marker_is_malformed() -> None:
+    rows = {
+        "done_when.check_001": {
+            "id": "done_when.check_001",
+            "kind": "done_when",
+            "source_section": "Done When",
+            "source_id": "check_001",
+            "label": "Required proof",
+            "text": "Malformed required marker must not downgrade this target.",
+            "required": "true",
+            "status": "missing",
+            "reason": "Missing.",
+            "evidence_refs": [],
+        },
+        "gatekeeper.finish": {
+            "id": "gatekeeper.finish",
+            "kind": "gatekeeper",
+            "source_section": "Workflow",
+            "source_id": "finish",
+            "label": "GateKeeper finish",
+            "text": "Malformed required marker must not downgrade this target.",
+            "required": False,
+            "status": "covered",
+            "reason": "Covered.",
+            "evidence_refs": [],
+        },
+    }
+
+    assert _overall_coverage_status(rows) == "partial"
+
+    gaps = _top_coverage_gaps([{**row, "artifact_refs": []} for row in rows.values()])
+
+    assert gaps[0]["target_id"] == "done_when.check_001"
+    assert gaps[0]["required"] is True
 
 
 def test_coverage_blocks_gatekeeper_finish_when_pass_cites_only_non_supporting_evidence(tmp_path: Path) -> None:
@@ -213,6 +356,46 @@ def test_coverage_accepts_gatekeeper_target_report_with_supporting_related_evide
     assert targets["done_when.check_001"]["status"] == "covered"
     assert targets["done_when.check_001"]["evidence_refs"] == ["ev_supporting"]
     assert targets["done_when.check_001"]["artifact_refs"][0]["label"] == "proof-file:tests/evidence/proof.json"
+
+
+def test_coverage_treats_proven_result_status_as_positive_alias(tmp_path: Path) -> None:
+    layout = _coverage_layout(tmp_path)
+    _write_ledger(
+        layout.evidence_ledger_path,
+        [
+            {
+                "id": "ev_supporting",
+                "archetype": "inspector",
+                "evidence_kind": "inspection",
+                "result": "passed",
+                "claim": "Inspector verified the target evidence.",
+                "verifies": ["target:done_when.check_001:covered"],
+            },
+            {
+                "id": "ev_gatekeeper",
+                "archetype": "gatekeeper",
+                "evidence_kind": "verdict",
+                "result": "passed",
+                "claim": "GateKeeper used the task verdict bucket word in coverage_results.",
+                "verifies": ["evidence:ev_supporting"],
+                "coverage_results": [
+                    {
+                        "target_id": "done_when.check_001",
+                        "status": "proven",
+                        "evidence_refs": ["ev_supporting"],
+                        "note": "Proven is accepted as a positive alias but projected as covered.",
+                    }
+                ],
+            },
+        ],
+    )
+
+    projection = build_evidence_coverage_projection(layout)
+
+    targets = {target["id"]: target for target in projection["targets"]}
+    assert projection["status"] == "covered"
+    assert targets["done_when.check_001"]["status"] == "covered"
+    assert targets["done_when.check_001"]["evidence_refs"] == ["ev_supporting"]
 
 
 def test_coverage_results_keep_support_refs_scoped_to_each_target(tmp_path: Path) -> None:
@@ -487,3 +670,58 @@ def test_coverage_does_not_accept_gatekeeper_self_ref_without_measured_evidence(
     assert targets["gatekeeper.finish"]["evidence_refs"] == []
     assert projection["latest_gatekeeper"]["self_measured_evidence"] is False
     assert projection["latest_gatekeeper"]["self_evidence_claim_count"] == 1
+
+
+def test_coverage_does_not_accept_string_measured_evidence(tmp_path: Path) -> None:
+    layout = _coverage_layout(tmp_path)
+    _write_ledger(
+        layout.evidence_ledger_path,
+        [
+            {
+                "id": "ev_gatekeeper",
+                "archetype": "gatekeeper",
+                "evidence_kind": "verdict",
+                "result": "passed",
+                "claim": "GateKeeper passed from a string-shaped measured evidence marker.",
+                "verifies": ["evidence:ev_gatekeeper"],
+                "measured_evidence": "true",
+                "concrete_evidence_claim_count": 1,
+            },
+        ],
+    )
+
+    projection = build_evidence_coverage_projection(layout)
+
+    targets = {target["id"]: target for target in projection["targets"]}
+    assert projection["status"] == "partial"
+    assert targets["gatekeeper.finish"]["status"] == "missing"
+    assert targets["gatekeeper.finish"]["evidence_refs"] == []
+    assert projection["latest_gatekeeper"]["self_measured_evidence"] is False
+
+
+def test_coverage_does_not_accept_boolean_concrete_evidence_claim_count(tmp_path: Path) -> None:
+    layout = _coverage_layout(tmp_path)
+    _write_ledger(
+        layout.evidence_ledger_path,
+        [
+            {
+                "id": "ev_gatekeeper",
+                "archetype": "gatekeeper",
+                "evidence_kind": "verdict",
+                "result": "passed",
+                "claim": "GateKeeper passed from a boolean-shaped evidence claim count.",
+                "verifies": ["evidence:ev_gatekeeper"],
+                "measured_evidence": True,
+                "concrete_evidence_claim_count": True,
+            },
+        ],
+    )
+
+    projection = build_evidence_coverage_projection(layout)
+
+    targets = {target["id"]: target for target in projection["targets"]}
+    assert projection["status"] == "partial"
+    assert targets["gatekeeper.finish"]["status"] == "missing"
+    assert targets["gatekeeper.finish"]["evidence_refs"] == []
+    assert projection["latest_gatekeeper"]["self_measured_evidence"] is False
+    assert projection["latest_gatekeeper"]["self_evidence_claim_count"] == 0

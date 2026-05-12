@@ -23,6 +23,7 @@ _TOP_LEVEL_CONTEXT_KEYS = {
     "workdir",
 }
 _MAX_STRING_LENGTH = 800
+_COMPONENT_BOUNDARIES = ("settings", "db", "service", "web", "cli")
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -74,11 +75,13 @@ class LooporaJsonFormatter(logging.Formatter):
         for key in sorted(_TOP_LEVEL_CONTEXT_KEYS):
             value = getattr(record, key, None)
             if value is not None:
-                payload[key] = value
+                payload[key] = _normalize_value(value, key=key)
 
         context = getattr(record, "context", None)
         if isinstance(context, dict) and context:
-            payload["context"] = context
+            normalized_context = _normalize_value(context, key="context")
+            if isinstance(normalized_context, dict) and normalized_context:
+                payload["context"] = normalized_context
 
         if record.exc_info:
             exc_type, exc_value, _ = record.exc_info
@@ -130,9 +133,12 @@ def _normalize_value(value: Any, *, key: str = "") -> Any:
 
 def _component_name(logger_name: str) -> str:
     prefix = f"{APP_PACKAGE}."
-    if logger_name.startswith(prefix):
-        return logger_name[len(prefix) :]
-    return logger_name
+    name = logger_name[len(prefix) :] if logger_name.startswith(prefix) else logger_name
+    root = name.split(".", 1)[0]
+    for boundary in _COMPONENT_BOUNDARIES:
+        if root == boundary or root.startswith(f"{boundary}_"):
+            return boundary
+    return root
 
 
 def _iso_timestamp(timestamp: float) -> str:

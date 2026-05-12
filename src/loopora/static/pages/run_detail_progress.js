@@ -11,9 +11,12 @@
     const translateStatus = deps.translateStatus || ((status) => String(status || ""));
     const translateRole = deps.translateRole || ((role) => String(role || ""));
     const normalizeRoleName = deps.normalizeRoleName || ((name) => String(name || ""));
+    function nonNegativeInteger(value) {
+      return Number.isInteger(value) && value >= 0 ? value : null;
+    }
     const displayIter = deps.displayIter || ((value) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) + 1 : 1;
+      const parsed = nonNegativeInteger(value);
+      return parsed === null ? 1 : parsed + 1;
     });
     const stripMarkdown = deps.stripMarkdown || ((value) => String(value || ""));
     const truncateText = deps.truncateText || ((value, maxLength = 140) => {
@@ -119,7 +122,7 @@
         ),
         gatekeeper: localeText(
           "根据 Loop 目标、检查项、边界和测试证据做裁决，回答“算不算通过”。",
-          "Judges the evidence against the Task, checks, and Guardrails to answer 'does this count as passing?'"
+          "Judges the evidence against the full task contract to answer 'does this count as passing?'"
         ),
         guide: localeText(
           "把上游证据压缩成下一步修复或收窄方向；显式出现在流程里时会正常运行。",
@@ -138,8 +141,8 @@
     }
 
     function stageOrderLabel(stage) {
-      const sequence = Number(stage?.sequence || 0);
-      return sequence > 0 ? String(sequence).padStart(2, "0") : "--";
+      const sequence = nonNegativeInteger(stage?.sequence);
+      return sequence !== null && sequence > 0 ? String(sequence).padStart(2, "0") : "--";
     }
 
     function getProgressStages(run = getCurrentRun()) {
@@ -259,8 +262,8 @@
     }
 
     function attemptDurationMs(attempt) {
-      const explicit = Number(attempt?.durationMs);
-      if (Number.isFinite(explicit) && explicit > 0) {
+      const explicit = nonNegativeInteger(attempt?.durationMs);
+      if (explicit !== null) {
         return explicit;
       }
       const startedAt = parseTimestamp(attempt?.startedAt);
@@ -283,7 +286,10 @@
         if (!stepId || !attemptsByStep.has(stepId)) {
           return;
         }
-        const iter = payload.iter === undefined || payload.iter === null ? null : Number(payload.iter);
+        const iter = payload.iter === undefined || payload.iter === null ? null : nonNegativeInteger(payload.iter);
+        if (payload.iter !== undefined && payload.iter !== null && iter === null) {
+          return;
+        }
         const attempts = attemptsByStep.get(stepId);
         let attempt = findAttemptByIter(attempts, iter);
         if (!attempt) {
@@ -314,10 +320,10 @@
         }
         if (event.event_type === "role_execution_summary") {
           attempt.summaryAt = event.created_at;
-          attempt.ok = Boolean(payload.ok);
-          attempt.attempts = Number(payload.attempts || 0);
+          attempt.ok = payload.ok === true;
+          attempt.attempts = nonNegativeInteger(payload.attempts) ?? 0;
           attempt.error = String(payload.error || "").trim();
-          attempt.durationMs = Number(payload.duration_ms || 0);
+          attempt.durationMs = nonNegativeInteger(payload.duration_ms);
         }
         if (event.event_type === "step_handoff_written") {
           attempt.handoffAt = event.created_at;
@@ -328,8 +334,7 @@
     }
 
     function currentIterValue(run = getCurrentRun()) {
-      const parsed = Number(run?.current_iter);
-      return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
+      return nonNegativeInteger(run?.current_iter) ?? 0;
     }
 
     function currentWorkflowStepEvent(run = getCurrentRun()) {
@@ -347,7 +352,8 @@
           if (eventRole && eventRole !== activeRole) {
             return false;
           }
-          if (payload.iter !== undefined && payload.iter !== null && Number(payload.iter) !== iter) {
+          const eventIter = payload.iter === undefined || payload.iter === null ? iter : nonNegativeInteger(payload.iter);
+          if (eventIter === null || eventIter !== iter) {
             return false;
           }
           return true;
@@ -532,7 +538,9 @@
       return findLatestEvent(getProgressEvents(), (event) => (
         event.event_type === "role_started"
         && String(event.payload?.step_id || "").trim() === stepId
-        && Number(event.payload?.iter ?? iter) === iter
+        && (event.payload?.iter === undefined || event.payload?.iter === null
+          ? true
+          : nonNegativeInteger(event.payload.iter) === iter)
       ));
     }
 
@@ -597,7 +605,7 @@
           title: activity.title,
           detail: activity.detail,
           duration: snapshots[stage]?.durationLabel || (stageStart ? formatDuration(stageStart.created_at, null) : formatDuration(run?.started_at, null)),
-          metaLeft: localeText(`第 ${displayIter(run?.current_iter)} 轮 · ${stageDisplayName(stage, run)}`, `Round ${displayIter(run?.current_iter)} · ${stageDisplayName(stage, run)}`),
+          metaLeft: localeText(`第 ${displayIter(currentIterValue(run))} 轮 · ${stageDisplayName(stage, run)}`, `Round ${displayIter(currentIterValue(run))} · ${stageDisplayName(stage, run)}`),
           metaRight: latestSignal,
         };
       }
@@ -606,7 +614,7 @@
           title: localeText("等待宿主 Agent 提交结果", "Waiting for host Agent result"),
           detail: localeText("Loopora 已冻结下一步上下文；宿主 Agent 完成该角色后会把结构化结果提交回来。", "Loopora has frozen the next-step context; the host Agent will submit structured output after completing that role."),
           duration: snapshots[stage]?.durationLabel || formatDuration(run?.started_at, null),
-          metaLeft: localeText(`第 ${displayIter(run?.current_iter)} 轮 · ${stageDisplayName(stage, run)}`, `Round ${displayIter(run?.current_iter)} · ${stageDisplayName(stage, run)}`),
+          metaLeft: localeText(`第 ${displayIter(currentIterValue(run))} 轮 · ${stageDisplayName(stage, run)}`, `Round ${displayIter(currentIterValue(run))} · ${stageDisplayName(stage, run)}`),
           metaRight: formatRelativeAge(run?.updated_at),
         };
       }
@@ -619,7 +627,7 @@
         title: latestEvent.title,
         detail: latestEvent.detail,
         duration: formatDuration(run?.started_at, run?.finished_at),
-        metaLeft: localeText(`第 ${displayIter(run?.current_iter)} 轮`, `Round ${displayIter(run?.current_iter)}`),
+        metaLeft: localeText(`第 ${displayIter(currentIterValue(run))} 轮`, `Round ${displayIter(currentIterValue(run))}`),
         metaRight: latestEvent.meta ? formatAbsoluteDate(latestEvent.meta) : localeText("没有更多时间点。", "No additional timestamp."),
       };
     }

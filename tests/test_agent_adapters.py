@@ -6,14 +6,17 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
+import yaml
 
 from loopora import cli
 import loopora.agent_web as agent_web
 from loopora.executor_fake_payloads import alignment_bundle_yaml
 from loopora.service_agent_adapters import AgentBundleCandidateRequest
 from loopora.service_agent_native import AgentNativeStepSubmitRequest
-from loopora.service_types import LooporaConflictError
+from loopora.service_types import LooporaConflictError, LooporaError
+from loopora.run_artifacts import RunArtifactLayout, read_jsonl
 from loopora.web import build_app
+from loopora.workflows import WorkflowError
 
 
 def _error_text(result) -> str:
@@ -42,6 +45,65 @@ def _opencode_command_paths(workdir: Path) -> dict[str, Path]:
         "gen": workdir / ".opencode" / "commands" / "loopora-gen.md",
         "loop": workdir / ".opencode" / "commands" / "loopora-loop.md",
     }
+
+
+def _alignment_bundle_yaml_with_gatekeeper_control(
+    workdir: Path,
+    *,
+    after: str = "0s",
+    signal: str = "gatekeeper_rejected",
+    control_id: str = "gatekeeper_repair",
+    trigger_window: int | None = None,
+) -> str:
+    payload = yaml.safe_load(alignment_bundle_yaml(str(workdir.resolve())))
+    if trigger_window is not None:
+        payload["loop"]["trigger_window"] = trigger_window
+    payload["role_definitions"].append(
+        {
+            "key": "repair-guide",
+            "name": "Repair Guide",
+            "description": "Turns a rejected verdict into a narrow repair direction.",
+            "archetype": "guide",
+            "prompt_ref": "guide.md",
+            "prompt_markdown": (
+                "---\n"
+                "version: 1\n"
+                "archetype: guide\n"
+                "---\n\n"
+                "Read the rejected GateKeeper verdict and provide one narrow repair direction without changing the workspace."
+            ),
+            "posture_notes": "Prefer the smallest evidence-producing repair over broad re-planning.",
+            "executor_kind": "codex",
+            "executor_mode": "preset",
+            "command_cli": "",
+            "command_args_text": "",
+            "model": "",
+            "reasoning_effort": "",
+        }
+    )
+    payload["workflow"]["roles"].append({"id": "repair_guide", "role_definition_key": "repair-guide"})
+    payload["workflow"]["controls"] = [
+        {
+            "id": control_id,
+            "when": {"signal": signal, "after": after},
+            "call": {"role_id": "repair_guide"},
+            "mode": "repair_guidance",
+            "max_fires_per_run": 1,
+        }
+    ]
+    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+
+
+def _alignment_bundle_yaml_with_peer_visible_parallel_review_inputs(workdir: Path) -> str:
+    payload = yaml.safe_load(alignment_bundle_yaml(str(workdir.resolve())))
+    for step in list(payload["workflow"]["steps"]):
+        if str(step.get("parallel_group") or "").strip():
+            step["inputs"] = {
+                "handoffs_from": ["builder_step", "contract_inspection_step"],
+                "evidence_query": {"archetypes": ["builder", "inspector"], "limit": 12},
+                "iteration_memory": "summary_only",
+            }
+    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
 
 
 def _claude_settings_has_loopora_session_hook(settings: dict) -> bool:
@@ -105,6 +167,18 @@ def _agent_native_step_output(step: dict) -> dict:
             "residual_risks": [],
             "coverage_results": [],
         }
+    if archetype == "guide":
+        return {
+            "created_at_iter": int(step.get("iter") or 0),
+            "mode": "repair_guidance",
+            "consumed": False,
+            "analysis": {
+                "recommended_shift": "Add direct evidence for the rejected Done When target.",
+                "risk_note": "GateKeeper rejected the current evidence set.",
+            },
+            "seed_question": "Which missing proof can Builder produce next?",
+            "meta_note": "Agent-native workflow control fired.",
+        }
     return {
         "attempted": "Prepared the workspace under the Loopora Agent-native capsule.",
         "abandoned": "",
@@ -115,6 +189,40 @@ def _agent_native_step_output(step: dict) -> dict:
         "proof_artifacts": [],
         "artifact_paths": [],
     }
+
+
+def _agent_native_rejected_gatekeeper_output(step: dict) -> dict:
+    output = _agent_native_step_output(step)
+    output.update(
+        {
+            "passed": False,
+            "decision_summary": "The task still lacks required evidence.",
+            "feedback_to_builder": "Produce direct proof for the primary user flow.",
+            "blocking_issues": ["missing_primary_flow_evidence"],
+            "composite_score": 0.42,
+            "metrics": [{"name": "quality_score", "value": 0.42, "threshold": 0.9, "passed": False}],
+            "evidence_claims": [],
+        }
+    )
+    return output
+
+
+def _drive_agent_native_until_archetype(service, result: dict, *, adapter: str, workdir: Path, archetype: str) -> dict:
+    while True:
+        step = result["next_step"]
+        if step["role"]["archetype"] == archetype:
+            return result
+        result = service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter=adapter,
+                workdir=workdir,
+                run_id=str(step["run_id"]),
+                step_id=str(step["step_id"]),
+                output=_agent_native_step_output(step),
+                host_dispatch=_agent_native_host_dispatch(adapter, step),
+                entry_source=f"{adapter}_project_skill" if adapter != "opencode" else "opencode_project_command",
+            )
+        )
 
 
 def _agent_native_host_dispatch(adapter: str, step: dict) -> dict:
@@ -296,6 +404,9 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert "loopora-builder" in loop_skill
     assert "loopora_host_dispatch" in loop_skill
     assert "role_dispatch.target_agent" in loop_skill
+    assert "Codex native dispatch guidance" in loop_skill
+    assert "omit `fork_context`" in loop_skill
+    assert "bounded timeout" in loop_skill
     assert "--entry-source codex_project_skill" in loop_skill
     codex_builder_agent_text = codex_builder_agent.read_text(encoding="utf-8")
     assert "loopora-builder" in codex_builder_agent_text
@@ -347,6 +458,9 @@ def test_cli_codex_adapter_install_uninstall_are_idempotent(tmp_path: Path) -> N
     assert json.loads(second_uninstall.stdout)["status"] == "not_installed"
     assert not skill_paths["gen"].exists()
     assert not skill_paths["loop"].exists()
+    assert (workdir / ".agents").exists()
+    assert (workdir / ".codex").exists()
+    assert (workdir / ".loopora").exists()
     assert not (workdir / ".loopora" / "adapters" / "codex" / "manifest.json").exists()
 
 
@@ -469,6 +583,20 @@ def test_cli_opencode_loop_requires_ready_bundle(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "/loopora-gen" in _error_text(result)
+
+
+def test_agent_bundle_candidate_rejects_missing_workdir(service_factory, tmp_path: Path) -> None:
+    service = service_factory(scenario="success")
+
+    with pytest.raises(LooporaError, match="adapter project root does not exist"):
+        service.create_agent_bundle_candidate(
+            AgentBundleCandidateRequest(
+                adapter="codex",
+                workdir=tmp_path / "missing-project",
+                message="Prepare a Loop for a project that is not present.",
+                bundle_yaml=alignment_bundle_yaml(str(tmp_path / "missing-project")),
+            )
+        )
 
 
 def test_cli_codex_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path, sample_workdir: Path) -> None:
@@ -778,6 +906,97 @@ def test_codex_agent_gen_validates_ready_bundle_and_loop_starts_run(
     assert final["complete"] is True
 
 
+def test_agent_native_parallel_group_peer_context_uses_group_start_snapshot(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(_alignment_bundle_yaml_with_peer_visible_parallel_review_inputs(sample_workdir), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Keep agent-native parallel reviewers isolated from peer outputs.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    result = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    builder_step = result["next_step"]
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(builder_step["run_id"]),
+            step_id=str(builder_step["step_id"]),
+            output=_agent_native_step_output(builder_step),
+            host_dispatch=_agent_native_host_dispatch("codex", builder_step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    first_peer_step = result["next_step"]
+    assert first_peer_step["step_id"] == "contract_inspection_step"
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(first_peer_step["run_id"]),
+            step_id=str(first_peer_step["step_id"]),
+            output=_agent_native_step_output(first_peer_step),
+            host_dispatch=_agent_native_host_dispatch("codex", first_peer_step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    second_peer_step = result["next_step"]
+    assert second_peer_step["step_id"] == "evidence_inspection_step"
+    second_peer_context = json.loads(Path(second_peer_step["context_absolute_path"]).read_text(encoding="utf-8"))
+    second_peer_handoff_steps = [item["source"]["step_id"] for item in second_peer_context["upstream"]["completed_steps_this_iteration"]]
+
+    assert second_peer_handoff_steps == ["builder_step"]
+    assert second_peer_context["evidence"]["known_ids"] == ["ev_000_00_builder_step"]
+    assert second_peer_step["known_evidence_ids"] == ["ev_000_00_builder_step"]
+
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(second_peer_step["run_id"]),
+            step_id=str(second_peer_step["step_id"]),
+            output=_agent_native_step_output(second_peer_step),
+            host_dispatch=_agent_native_host_dispatch("codex", second_peer_step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    gatekeeper_step = result["next_step"]
+    assert gatekeeper_step["step_id"] == "gatekeeper_step"
+    gatekeeper_context = json.loads(Path(gatekeeper_step["context_absolute_path"]).read_text(encoding="utf-8"))
+    gatekeeper_handoff_steps = [item["source"]["step_id"] for item in gatekeeper_context["upstream"]["completed_steps_this_iteration"]]
+
+    assert gatekeeper_handoff_steps == ["contract_inspection_step", "evidence_inspection_step"]
+    assert {
+        "ev_000_01_contract_inspection_step",
+        "ev_000_02_evidence_inspection_step",
+    }.issubset(set(gatekeeper_context["evidence"]["known_ids"]))
+    events = service.stream_events(str(gatekeeper_step["run_id"]), limit=200)
+    assert any(
+        event["event_type"] == "parallel_group_started"
+        and event["payload"]["parallel_group"] == "inspection_pack"
+        and event["payload"]["step_ids"] == ["contract_inspection_step", "evidence_inspection_step"]
+        for event in events
+    )
+    assert any(
+        event["event_type"] == "parallel_group_finished"
+        and event["payload"]["parallel_group"] == "inspection_pack"
+        and event["payload"]["step_ids"] == ["contract_inspection_step", "evidence_inspection_step"]
+        for event in events
+    )
+
+
 def test_agent_native_submit_requires_matching_host_dispatch_proof(
     service_factory,
     tmp_path: Path,
@@ -797,6 +1016,11 @@ def test_agent_native_submit_requires_matching_host_dispatch_proof(
     )
     started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
     step = started["next_step"]
+    raw_output_path = RunArtifactLayout(Path(started["run"]["runs_dir"])).step_output_raw_path(
+        int(step["iter"]),
+        int(step["step_order"]),
+        str(step["step_id"]),
+    )
 
     with pytest.raises(LooporaConflictError, match="loopora_host_dispatch"):
         service.submit_agent_native_step(
@@ -809,6 +1033,24 @@ def test_agent_native_submit_requires_matching_host_dispatch_proof(
                 entry_source="codex_project_skill",
             )
         )
+    assert not raw_output_path.exists()
+
+    for field in ("adapter", "run_id", "step_id"):
+        incomplete_dispatch = _agent_native_host_dispatch("codex", step)
+        incomplete_dispatch.pop(field)
+        with pytest.raises(LooporaConflictError, match=rf"{field} is required"):
+            service.submit_agent_native_step(
+                AgentNativeStepSubmitRequest(
+                    adapter="codex",
+                    workdir=sample_workdir,
+                    run_id=str(step["run_id"]),
+                    step_id=str(step["step_id"]),
+                    output=_agent_native_step_output(step),
+                    host_dispatch=incomplete_dispatch,
+                    entry_source="codex_project_skill",
+                )
+            )
+        assert not raw_output_path.exists()
 
     bad_dispatch = _agent_native_host_dispatch("codex", step)
     bad_dispatch["actual_agent"] = "loopora-gatekeeper"
@@ -824,6 +1066,714 @@ def test_agent_native_submit_requires_matching_host_dispatch_proof(
                 entry_source="codex_project_skill",
             )
         )
+    assert not raw_output_path.exists()
+
+
+def test_agent_native_host_dispatch_requires_literal_role_dispatch_booleans(service_factory) -> None:
+    service = service_factory(scenario="success")
+    context = {
+        "adapter": "codex",
+        "run": {"id": "run_agent"},
+        "step_id": "builder_step",
+        "role": {"archetype": "builder"},
+        "active": {
+            "capsule": {
+                "role_dispatch": {
+                    "required": "true",
+                    "target_agent": "loopora-builder",
+                    "inline_allowed": False,
+                    "accepted_dispatch_modes": ["host_subagent"],
+                }
+            }
+        },
+    }
+
+    with pytest.raises(LooporaConflictError, match="required must be literal true"):
+        service._validate_agent_native_host_dispatch(context, None)
+
+    context["active"]["capsule"]["role_dispatch"] = {
+        "required": True,
+        "target_agent": "loopora-builder",
+        "inline_allowed": "false",
+        "accepted_dispatch_modes": ["host_subagent"],
+    }
+    with pytest.raises(LooporaConflictError, match="inline_allowed must be a literal boolean"):
+        service._validate_agent_native_host_dispatch(
+            context,
+            {
+                "schema_version": 1,
+                "adapter": "codex",
+                "run_id": "run_agent",
+                "step_id": "builder_step",
+                "target_agent": "loopora-builder",
+                "actual_agent": "loopora-builder",
+                "dispatch_mode": "host_subagent",
+                "inline": False,
+            },
+        )
+
+    context["active"]["capsule"]["role_dispatch"] = {
+        "required": True,
+        "target_agent": "loopora-builder",
+        "inline_allowed": False,
+        "accepted_dispatch_modes": ["host_subagent"],
+    }
+    missing_inline_dispatch = {
+        "schema_version": 1,
+        "adapter": "codex",
+        "run_id": "run_agent",
+        "step_id": "builder_step",
+        "target_agent": "loopora-builder",
+        "actual_agent": "loopora-builder",
+        "dispatch_mode": "host_subagent",
+    }
+    with pytest.raises(LooporaConflictError, match="inline must be a literal boolean"):
+        service._validate_agent_native_host_dispatch(context, missing_inline_dispatch)
+
+    string_inline_dispatch = {**missing_inline_dispatch, "inline": "false"}
+    with pytest.raises(LooporaConflictError, match="inline must be a literal boolean"):
+        service._validate_agent_native_host_dispatch(context, string_inline_dispatch)
+
+    with pytest.raises(LooporaConflictError, match="cannot claim inline"):
+        service._validate_agent_native_host_dispatch(
+            context,
+            {
+                "schema_version": 1,
+                "adapter": "codex",
+                "run_id": "run_agent",
+                "step_id": "builder_step",
+                "target_agent": "loopora-builder",
+                "actual_agent": "loopora-builder",
+                "dispatch_mode": "host_subagent",
+                "inline": True,
+            },
+        )
+
+    with pytest.raises(LooporaConflictError, match="schema_version must be an integer"):
+        service._validate_agent_native_host_dispatch(
+            context,
+            {
+                "schema_version": "latest",
+                "adapter": "codex",
+                "run_id": "run_agent",
+                "step_id": "builder_step",
+                "target_agent": "loopora-builder",
+                "actual_agent": "loopora-builder",
+                "dispatch_mode": "host_subagent",
+                "inline": False,
+            },
+        )
+
+    for schema_version in (True, 1.5):
+        dispatch = {
+            "schema_version": schema_version,
+            "adapter": "codex",
+            "run_id": "run_agent",
+            "step_id": "builder_step",
+            "target_agent": "loopora-builder",
+            "actual_agent": "loopora-builder",
+            "dispatch_mode": "host_subagent",
+            "inline": False,
+        }
+        with pytest.raises(LooporaConflictError, match="schema_version must be an integer"):
+            service._validate_agent_native_host_dispatch(context, dispatch)
+
+
+def test_agent_native_gatekeeper_blocks_unknown_coverage_result_refs(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Require coverage target evidence refs to stay inside the known evidence set.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    result = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    result = _drive_agent_native_until_archetype(service, result, adapter="codex", workdir=sample_workdir, archetype="gatekeeper")
+    step = result["next_step"]
+
+    gatekeeper_output = _agent_native_step_output(step)
+    gatekeeper_output["coverage_results"] = [
+        {
+            "target_id": "fake_done.risk_001",
+            "status": "covered",
+            "evidence_refs": ["invented_ev"],
+            "note": "This target-level evidence ref is not from known_evidence_ids.",
+        }
+    ]
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(step["run_id"]),
+            step_id=str(step["step_id"]),
+            output=gatekeeper_output,
+            host_dispatch=_agent_native_host_dispatch("codex", step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert result["complete"] is False
+    assert result["next_step"]["step_id"] == "builder_step"
+    layout = RunArtifactLayout(Path(result["run"]["runs_dir"]))
+    normalized_gatekeeper_output = json.loads(
+        layout.step_output_normalized_path(int(step["iter"]), int(step["step_order"]), str(step["step_id"])).read_text(encoding="utf-8")
+    )
+    assert normalized_gatekeeper_output["passed"] is False
+    assert normalized_gatekeeper_output["blocking_issues"] == ["gatekeeper_coverage_evidence_refs_unknown: invented_ev"]
+
+
+def test_agent_native_rejects_non_gatekeeper_unknown_coverage_result_refs(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Reject invented evidence refs before non-GateKeeper output enters the ledger.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    result = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    result = _drive_agent_native_until_archetype(service, result, adapter="codex", workdir=sample_workdir, archetype="inspector")
+    step = result["next_step"]
+
+    inspector_output = _agent_native_step_output(step)
+    inspector_output["coverage_results"] = [
+        {
+            "target_id": "fake_done.risk_001",
+            "status": "covered",
+            "evidence_refs": ["invented_ev"],
+            "note": "The ref is not copied from known_evidence_ids.",
+        }
+    ]
+    with pytest.raises(LooporaError, match="agent-native evidence_refs_unknown: invented_ev"):
+        service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                run_id=str(step["run_id"]),
+                step_id=str(step["step_id"]),
+                output=inspector_output,
+                host_dispatch=_agent_native_host_dispatch("codex", step),
+                entry_source="codex_project_skill",
+            )
+        )
+
+    layout = RunArtifactLayout(Path(result["run"]["runs_dir"]))
+    assert not layout.step_output_raw_path(int(step["iter"]), int(step["step_order"]), str(step["step_id"])).exists()
+    ledger = read_jsonl(layout.evidence_ledger_path)
+    assert not any(item.get("step_id") == step["step_id"] for item in ledger)
+
+
+def test_agent_native_gatekeeper_pass_with_missing_required_coverage_keeps_task_verdict_insufficient(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Keep agent-native lifecycle success separate from evidence-backed task proof.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+
+    final = _drive_agent_native_run_to_success(service, adapter="codex", started=started, workdir=sample_workdir)
+
+    run = final["run"]
+    task_verdict = run["task_verdict"]
+    assert run["status"] == "succeeded"
+    assert run["last_verdict_json"]["passed"] is True
+    assert task_verdict["status"] == "insufficient_evidence"
+    assert task_verdict["source"] == "gatekeeper"
+    assert "Required coverage" in task_verdict["summary"]
+    assert json.loads((Path(run["runs_dir"]) / "evidence" / "task_verdict.json").read_text(encoding="utf-8")) == task_verdict
+
+
+def test_agent_native_gatekeeper_rejection_claims_workflow_control(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(_alignment_bundle_yaml_with_gatekeeper_control(sample_workdir), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Run a GateKeeper rejection control in the host Agent plane.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    result = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    result = _drive_agent_native_until_archetype(service, result, adapter="codex", workdir=sample_workdir, archetype="gatekeeper")
+    step = result["next_step"]
+    gatekeeper_output = _agent_native_rejected_gatekeeper_output(step)
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(step["run_id"]),
+            step_id=str(step["step_id"]),
+            output=gatekeeper_output,
+            host_dispatch=_agent_native_host_dispatch("codex", step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    control_step = result["next_step"]
+    assert result["complete"] is False
+    assert control_step["step_id"] == "control__gatekeeper_repair"
+    assert control_step["role"]["archetype"] == "guide"
+    assert control_step["role_dispatch"]["target_agent"] == "loopora-guide"
+
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(control_step["run_id"]),
+            step_id=str(control_step["step_id"]),
+            output=_agent_native_step_output(control_step),
+            host_dispatch=_agent_native_host_dispatch("codex", control_step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert result["complete"] is False
+    assert result["next_step"]["step_id"] == "builder_step"
+    run_id = str(result["run"]["id"])
+    run_dir = Path(result["run"]["runs_dir"])
+    events = service.stream_events(run_id, limit=300)
+    evidence_ledger = read_jsonl(run_dir / "evidence" / "ledger.jsonl")
+
+    assert not any(event["event_type"] == "agent_native_controls_deferred" for event in events)
+    assert any(
+        event["event_type"] == "control_triggered"
+        and event["payload"]["signal"] == "gatekeeper_rejected"
+        and event["payload"]["control_id"] == "gatekeeper_repair"
+        for event in events
+    )
+    assert any(
+        event["event_type"] == "control_completed"
+        and event["payload"]["signal"] == "gatekeeper_rejected"
+        and event["payload"]["evidence_refs"]
+        for event in events
+    )
+    assert any(entry["evidence_kind"] == "control" and "control:gatekeeper_rejected" in entry["verifies"] for entry in evidence_ledger)
+
+
+def test_agent_native_submit_revalidates_persisted_workflow_controls(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(_alignment_bundle_yaml_with_gatekeeper_control(sample_workdir), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Reject corrupted persisted workflow controls before accepting an Agent-native step result.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    step = started["next_step"]
+    corrupted_workflow = json.loads(json.dumps(started["run"]["workflow_json"]))
+    corrupted_workflow["controls"][0]["max_fires_per_run"] = 0
+    with service.repository.transaction() as connection:
+        connection.execute(
+            "UPDATE loop_runs SET workflow_json = ? WHERE id = ?",
+            (json.dumps(corrupted_workflow, ensure_ascii=False), started["run"]["id"]),
+        )
+
+    with pytest.raises(WorkflowError, match="max_fires_per_run"):
+        service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                run_id=str(step["run_id"]),
+                step_id=str(step["step_id"]),
+                output=_agent_native_step_output(step),
+                host_dispatch=_agent_native_host_dispatch("codex", step),
+                entry_source="codex_project_skill",
+            )
+        )
+
+    events = service.stream_events(str(started["run"]["id"]), limit=100)
+    assert not any(event["event_type"] == "agent_native_step_submitted" for event in events)
+
+
+def test_agent_native_submit_revalidates_persisted_workflow_inputs(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Reject corrupted persisted workflow inputs before accepting an Agent-native step result.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    step = started["next_step"]
+    raw_output_path = RunArtifactLayout(Path(started["run"]["runs_dir"])).step_output_raw_path(
+        int(step["iter"]),
+        int(step["step_order"]),
+        str(step["step_id"]),
+    )
+    corrupted_workflow = json.loads(json.dumps(started["run"]["workflow_json"]))
+    corrupted_workflow["steps"][1]["inputs"]["evidence_query"]["archetypes"].append(False)
+    with service.repository.transaction() as connection:
+        connection.execute(
+            "UPDATE loop_runs SET workflow_json = ? WHERE id = ?",
+            (json.dumps(corrupted_workflow, ensure_ascii=False), started["run"]["id"]),
+        )
+
+    with pytest.raises(WorkflowError, match="must contain only strings"):
+        service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                run_id=str(step["run_id"]),
+                step_id=str(step["step_id"]),
+                output=_agent_native_step_output(step),
+                host_dispatch=_agent_native_host_dispatch("codex", step),
+                entry_source="codex_project_skill",
+            )
+        )
+    assert not raw_output_path.exists()
+
+
+def test_agent_native_workflow_control_skip_records_after_not_elapsed_event(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(_alignment_bundle_yaml_with_gatekeeper_control(sample_workdir, after="1h"), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Skip an agent-native GateKeeper rejection control before its after window elapses.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    result = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    result = _drive_agent_native_until_archetype(service, result, adapter="codex", workdir=sample_workdir, archetype="gatekeeper")
+    step = result["next_step"]
+
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(step["run_id"]),
+            step_id=str(step["step_id"]),
+            output=_agent_native_rejected_gatekeeper_output(step),
+            host_dispatch=_agent_native_host_dispatch("codex", step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert result["complete"] is False
+    assert result["next_step"]["step_id"] == "builder_step"
+    events = service.stream_events(str(result["run"]["id"]), limit=300)
+
+    assert not any(event["event_type"] == "agent_native_controls_deferred" for event in events)
+    assert not any(event["event_type"] == "control_triggered" for event in events)
+    assert not any(event["event_type"] == "control_completed" for event in events)
+    assert any(
+        event["event_type"] == "control_skipped"
+        and event["payload"]["signal"] == "gatekeeper_rejected"
+        and event["payload"]["control_id"] == "gatekeeper_repair"
+        and event["payload"]["skip_reason"] == "after_not_elapsed"
+        for event in events
+    )
+
+
+def test_agent_native_workflow_control_respects_fire_limit_across_iterations(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(_alignment_bundle_yaml_with_gatekeeper_control(sample_workdir), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Enforce an agent-native workflow control fire limit across iterations.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    result = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    result = _drive_agent_native_until_archetype(service, result, adapter="codex", workdir=sample_workdir, archetype="gatekeeper")
+    first_gatekeeper_step = result["next_step"]
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(first_gatekeeper_step["run_id"]),
+            step_id=str(first_gatekeeper_step["step_id"]),
+            output=_agent_native_rejected_gatekeeper_output(first_gatekeeper_step),
+            host_dispatch=_agent_native_host_dispatch("codex", first_gatekeeper_step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    first_control_step = result["next_step"]
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(first_control_step["run_id"]),
+            step_id=str(first_control_step["step_id"]),
+            output=_agent_native_step_output(first_control_step),
+            host_dispatch=_agent_native_host_dispatch("codex", first_control_step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert result["next_step"]["step_id"] == "builder_step"
+    result = _drive_agent_native_until_archetype(service, result, adapter="codex", workdir=sample_workdir, archetype="gatekeeper")
+    second_gatekeeper_step = result["next_step"]
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(second_gatekeeper_step["run_id"]),
+            step_id=str(second_gatekeeper_step["step_id"]),
+            output=_agent_native_rejected_gatekeeper_output(second_gatekeeper_step),
+            host_dispatch=_agent_native_host_dispatch("codex", second_gatekeeper_step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert result["complete"] is False
+    assert result["next_step"]["step_id"] == "builder_step"
+    run_id = str(result["run"]["id"])
+    run_dir = Path(result["run"]["runs_dir"])
+    events = service.stream_events(run_id, limit=500)
+    evidence_ledger = read_jsonl(run_dir / "evidence" / "ledger.jsonl")
+
+    assert [event["event_type"] for event in events].count("control_triggered") == 1
+    assert [event["event_type"] for event in events].count("control_completed") == 1
+    assert any(
+        event["event_type"] == "control_skipped"
+        and event["payload"]["signal"] == "gatekeeper_rejected"
+        and event["payload"]["control_id"] == "gatekeeper_repair"
+        and event["payload"]["skip_reason"] == "max_fires_per_run"
+        for event in events
+    )
+    control_entries = [entry for entry in evidence_ledger if entry["evidence_kind"] == "control"]
+    assert len(control_entries) == 1
+    assert "control:gatekeeper_rejected" in control_entries[0]["verifies"]
+
+
+def test_agent_native_malformed_control_fire_count_fails_closed(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(_alignment_bundle_yaml_with_gatekeeper_control(sample_workdir), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Treat malformed local control fire counts as already exhausted.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    result = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    result = _drive_agent_native_until_archetype(service, result, adapter="codex", workdir=sample_workdir, archetype="gatekeeper")
+    first_gatekeeper_step = result["next_step"]
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(first_gatekeeper_step["run_id"]),
+            step_id=str(first_gatekeeper_step["step_id"]),
+            output=_agent_native_rejected_gatekeeper_output(first_gatekeeper_step),
+            host_dispatch=_agent_native_host_dispatch("codex", first_gatekeeper_step),
+            entry_source="codex_project_skill",
+        )
+    )
+    first_control_step = result["next_step"]
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(first_control_step["run_id"]),
+            step_id=str(first_control_step["step_id"]),
+            output=_agent_native_step_output(first_control_step),
+            host_dispatch=_agent_native_host_dispatch("codex", first_control_step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    state_path = Path(result["run"]["runs_dir"]) / "agent_native" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["control_fire_counts"]["gatekeeper_repair"] = "1"
+    state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    result = _drive_agent_native_until_archetype(service, result, adapter="codex", workdir=sample_workdir, archetype="gatekeeper")
+    second_gatekeeper_step = result["next_step"]
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(second_gatekeeper_step["run_id"]),
+            step_id=str(second_gatekeeper_step["step_id"]),
+            output=_agent_native_rejected_gatekeeper_output(second_gatekeeper_step),
+            host_dispatch=_agent_native_host_dispatch("codex", second_gatekeeper_step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    events = service.stream_events(str(result["run"]["id"]), limit=500)
+
+    assert result["complete"] is False
+    assert result["next_step"]["step_id"] == "builder_step"
+    assert [event["event_type"] for event in events].count("control_triggered") == 1
+    assert any(
+        event["event_type"] == "control_skipped"
+        and event["payload"]["control_id"] == "gatekeeper_repair"
+        and event["payload"]["skip_reason"] == "max_fires_per_run"
+        for event in events
+    )
+
+
+def test_agent_native_no_evidence_progress_control_claims_stalled_context(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(
+        _alignment_bundle_yaml_with_gatekeeper_control(
+            sample_workdir,
+            signal="no_evidence_progress",
+            control_id="coverage_stall_guidance",
+            trigger_window=1,
+        ),
+        encoding="utf-8",
+    )
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Surface stalled required evidence coverage in the host Agent plane.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    result = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+
+    result = _drive_agent_native_until_archetype(service, result, adapter="codex", workdir=sample_workdir, archetype="gatekeeper")
+    first_gatekeeper_step = result["next_step"]
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(first_gatekeeper_step["run_id"]),
+            step_id=str(first_gatekeeper_step["step_id"]),
+            output=_agent_native_rejected_gatekeeper_output(first_gatekeeper_step),
+            host_dispatch=_agent_native_host_dispatch("codex", first_gatekeeper_step),
+            entry_source="codex_project_skill",
+        )
+    )
+    assert result["next_step"]["step_id"] == "builder_step"
+
+    result = _drive_agent_native_until_archetype(service, result, adapter="codex", workdir=sample_workdir, archetype="gatekeeper")
+    second_gatekeeper_step = result["next_step"]
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(second_gatekeeper_step["run_id"]),
+            step_id=str(second_gatekeeper_step["step_id"]),
+            output=_agent_native_rejected_gatekeeper_output(second_gatekeeper_step),
+            host_dispatch=_agent_native_host_dispatch("codex", second_gatekeeper_step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    control_step = result["next_step"]
+    assert control_step["step_id"] == "control__coverage_stall_guidance"
+    assert control_step["role"]["archetype"] == "guide"
+    control_context = json.loads(Path(control_step["context_absolute_path"]).read_text(encoding="utf-8"))
+    assert control_context["iteration"]["evidence_progress_mode"] == "stalled"
+    assert control_context["iteration"]["covered_check_count"] == 0
+    assert control_context["iteration"]["missing_check_count"] == 2
+    assert control_context["iteration"]["consecutive_no_required_coverage_delta"] == 1
+    assert control_context["current_step"]["control"]["signal"] == "no_evidence_progress"
+
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(control_step["run_id"]),
+            step_id=str(control_step["step_id"]),
+            output=_agent_native_step_output(control_step),
+            host_dispatch=_agent_native_host_dispatch("codex", control_step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert result["complete"] is False
+    assert result["next_step"]["step_id"] == "builder_step"
+    run_id = str(result["run"]["id"])
+    run_dir = Path(result["run"]["runs_dir"])
+    events = service.stream_events(run_id, limit=500)
+    evidence_ledger = read_jsonl(run_dir / "evidence" / "ledger.jsonl")
+
+    assert any(
+        event["event_type"] == "control_triggered"
+        and event["payload"]["signal"] == "no_evidence_progress"
+        and "Required coverage did not improve" in event["payload"]["reason"]
+        for event in events
+    )
+    assert any(entry["evidence_kind"] == "control" and "control:no_evidence_progress" in entry["verifies"] for entry in evidence_ledger)
 
 
 def test_claude_agent_gen_validates_ready_bundle_and_loop_starts_run(
@@ -937,7 +1887,8 @@ def test_codex_agent_binding_is_scoped_by_host_context(service_factory, tmp_path
     assert started["run"]["status"] == "awaiting_agent"
 
 
-def test_cli_codex_loop_does_not_spawn_nested_worker_for_agent_native(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("adapter", ["codex", "claude", "opencode"])
+def test_cli_agent_loop_does_not_spawn_nested_worker_for_agent_native(adapter: str, monkeypatch, tmp_path: Path) -> None:
     workdir = tmp_path / "project"
     workdir.mkdir()
     run_dir = tmp_path / "run"
@@ -973,17 +1924,138 @@ def test_cli_codex_loop_does_not_spawn_nested_worker_for_agent_native(monkeypatc
 
     result = runner.invoke(
         cli.app,
-        ["agent", "codex", "loop", "--workdir", str(workdir), "--context-id", "thread-1", "--no-web"],
+        ["agent", adapter, "loop", "--workdir", str(workdir), "--context-id", "thread-1", "--no-web"],
     )
 
     assert result.exit_code == 0, result.stdout
-    assert calls["adapter"] == "codex"
+    assert calls["adapter"] == adapter
     assert calls["workdir"] == workdir
     assert calls["context_id"] == "thread-1"
     assert calls["entry_source"] == ""
     assert calls["execute_async"] is False
     assert "run_url: /runs/run_agent" in result.stdout
     assert "next_step_id: builder_step" in result.stdout
+
+
+def test_cli_agent_submit_prints_terminal_task_verdict(monkeypatch, tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    result_file = tmp_path / "result.json"
+    result_file.write_text(
+        json.dumps(
+            {
+                "loopora_host_dispatch": {
+                    "adapter": "codex",
+                    "run_id": "run_terminal",
+                    "step_id": "gatekeeper_step",
+                    "target_agent": "loopora-gatekeeper",
+                    "actual_agent": "loopora-gatekeeper",
+                    "dispatch_mode": "host_subagent",
+                    "inline": False,
+                },
+                "result": {"passed": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeService:
+        def submit_agent_native_step(self, _request: AgentNativeStepSubmitRequest):
+            return {
+                "run": {
+                    "id": "run_terminal",
+                    "status": "succeeded",
+                    "run_status": "succeeded",
+                    "task_verdict": {
+                        "status": "insufficient_evidence",
+                        "source": "gatekeeper",
+                        "summary": "Required coverage still lacks direct evidence.",
+                    },
+                },
+                "run_path": "/runs/run_terminal",
+                "next_step": None,
+                "complete": True,
+            }
+
+    monkeypatch.setattr(cli, "create_service", FakeService)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "submit",
+            "--workdir",
+            str(workdir),
+            "--run-id",
+            "run_terminal",
+            "--step-id",
+            "gatekeeper_step",
+            "--result-file",
+            str(result_file),
+            "--no-web",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "run_status: succeeded" in result.stdout
+    assert "task_verdict: insufficient_evidence" in result.stdout
+    assert "task_verdict_source: gatekeeper" in result.stdout
+    assert "task_verdict_summary: Required coverage still lacks direct evidence." in result.stdout
+    assert "agent_native: complete" in result.stdout
+
+
+def test_cli_agent_submit_reports_workflow_errors_without_traceback(monkeypatch, tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    result_file = tmp_path / "result.json"
+    result_file.write_text(
+        json.dumps(
+            {
+                "loopora_host_dispatch": {
+                    "adapter": "codex",
+                    "run_id": "run_test",
+                    "step_id": "builder_step",
+                    "target_agent": "loopora-builder",
+                    "actual_agent": "loopora-builder",
+                    "dispatch_mode": "host_subagent",
+                    "inline": False,
+                },
+                "result": {"summary": "unreachable"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeService:
+        def submit_agent_native_step(self, _request: AgentNativeStepSubmitRequest):
+            raise WorkflowError("workflow control max_fires_per_run must be between 1 and 20")
+
+    monkeypatch.setattr(cli, "create_service", FakeService)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "submit",
+            "--workdir",
+            str(workdir),
+            "--run-id",
+            "run_corrupt",
+            "--step-id",
+            "builder_step",
+            "--result-file",
+            str(result_file),
+            "--no-web",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "max_fires_per_run" in _error_text(result)
+    assert "Traceback" not in _error_text(result)
 
 
 def test_agent_adapter_web_api_reports_status_and_mutates_implemented_hosts(service_factory, tmp_path: Path) -> None:

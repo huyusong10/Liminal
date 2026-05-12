@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -212,6 +213,43 @@ def test_command_event_payload_redacts_prompt_schema_and_secret_values(tmp_path:
     assert "<secret omitted>" in payload["message"]
 
 
+def test_command_event_payload_redacts_common_secret_alias_flags(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    request = RoleRequest(
+        run_id="run_test",
+        role="custom_helper",
+        prompt="normal prompt",
+        workdir=tmp_path,
+        model="",
+        reasoning_effort="",
+        output_schema={"type": "object", "properties": {}},
+        output_path=run_dir / "custom_output.json",
+        run_dir=run_dir,
+    )
+
+    payload = build_command_event_payload(
+        request,
+        [
+            "custom-tool",
+            "--private-key",
+            "PRIVATE_KEY_SECRET_MARKER",
+            "--client_secret=CLIENT_SECRET_MARKER",
+            "--x-api-key",
+            "X_API_KEY_SECRET_MARKER",
+            "--x-loopora-token",
+            "LOOPORA_TOKEN_SECRET_MARKER",
+        ],
+    )
+
+    assert payload["token_omitted"] is True
+    assert "PRIVATE_KEY_SECRET_MARKER" not in payload["message"]
+    assert "CLIENT_SECRET_MARKER" not in payload["message"]
+    assert "X_API_KEY_SECRET_MARKER" not in payload["message"]
+    assert "LOOPORA_TOKEN_SECRET_MARKER" not in payload["message"]
+    assert payload["message"].count("<secret omitted>") == 4
+
+
 def test_real_codex_executor_can_parse_resume_output_without_schema(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -264,6 +302,84 @@ def test_real_codex_executor_can_parse_resume_output_without_schema(
 
     assert payload == {"ok": True, "mode": "resume"}
     assert ("codex_event", {"type": "stdout", "message": "resume ok"}) in emitted
+
+
+def test_real_codex_executor_rejects_non_object_json_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    codex_path = fake_bin / "codex"
+    codex_path.write_text(
+        "#!/bin/sh\n"
+        "output=''\n"
+        "while [ \"$#\" -gt 0 ]; do\n"
+        "  if [ \"$1\" = \"--output-last-message\" ]; then\n"
+        "    output=\"$2\"\n"
+        "    shift 2\n"
+        "    continue\n"
+        "  fi\n"
+        "  shift\n"
+        "done\n"
+        "printf '[{\"ok\": true}]\\n' > \"$output\"\n",
+        encoding="utf-8",
+    )
+    codex_path.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    request = RoleRequest(
+        run_id="run_test",
+        role="generator",
+        prompt="Return JSON only.",
+        workdir=tmp_path,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        output_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]},
+        output_path=run_dir / "generator_output.json",
+        run_dir=run_dir,
+    )
+
+    executor = RealCodexExecutor()
+    with pytest.raises(ExecutorError, match="codex exec did not produce a JSON object"):
+        executor.execute(
+            request,
+            lambda _event_type, _payload: None,
+            lambda: False,
+            lambda _pid: None,
+        )
+
+
+def test_opencode_stream_text_is_bounded_before_event_emit(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    request = RoleRequest(
+        run_id="run_test",
+        role="generator",
+        prompt="Return JSON only.",
+        workdir=tmp_path,
+        model="",
+        reasoning_effort="",
+        output_schema={"type": "object", "properties": {}, "additionalProperties": True},
+        output_path=run_dir / "generator_output.json",
+        run_dir=run_dir,
+        executor_kind="opencode",
+    )
+    emitted: list[tuple[str, dict]] = []
+    state = {"latest_text": "", "text_parts": [], "text_size_bytes": 0}
+    oversized_line = json.dumps({"type": "text", "part": {"text": "x" * (EXECUTOR_OUTPUT_MAX_BYTES + 1)}})
+
+    with pytest.raises(ExecutorError, match="opencode output is too large"):
+        RealCodexExecutor()._handle_opencode_line(
+            oversized_line,
+            state,
+            lambda event_type, payload: emitted.append((event_type, payload)),
+            request,
+        )
+
+    assert emitted == []
+    assert state == {"latest_text": "", "text_parts": [], "text_size_bytes": 0}
 
 
 def test_executor_session_ref_extracts_nested_session_payload() -> None:
@@ -448,6 +564,6 @@ def test_legacy_runtime_prompts_treat_run_contract_as_frozen(service_factory, tm
 
     for prompt in prompts:
         assert "Treat the run contract as frozen" in prompt
-        assert "do not reinterpret or lower the Task, Done When, checks, or guardrails" in prompt
+        assert "do not reinterpret or lower the Task, Done When, checks, guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk" in prompt
         assert "evidence gap, blocker, or Loop-adjustment recommendation" in prompt
         assert "project-local instructions, design docs, and tests" in prompt

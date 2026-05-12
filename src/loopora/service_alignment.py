@@ -24,11 +24,11 @@ from loopora.bundles import (
     read_bundle_file_text,
 )
 from loopora.diagnostics import get_logger, log_exception
-from loopora.event_redaction import redact_alignment_event_payload
+from loopora.event_redaction import redact_alignment_event_payload, redact_sensitive_text, redact_sensitive_value
 from loopora.evidence_coverage import load_or_build_evidence_coverage_projection, summarize_evidence_coverage_projection
 from loopora.executor import ExecutionStopped, ExecutorError, RoleRequest, validate_command_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
-from loopora.run_artifacts import read_jsonl
+from loopora.run_artifacts import RunArtifactLayout, read_jsonl
 from loopora.service_alignment_diagnostics import (
     append_alignment_diagnostic_event,
     append_alignment_local_diagnostic_event,
@@ -36,6 +36,7 @@ from loopora.service_alignment_diagnostics import (
 )
 from loopora.service_cleanup_diagnostics import best_effort_rmtree, cleanup_diagnostic_payload, log_cleanup_diagnostic
 from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError
+from loopora.structured_numbers import structured_non_negative_int
 from loopora.utils import make_id, utc_now
 
 logger = get_logger(__name__)
@@ -350,6 +351,7 @@ ALIGNMENT_LANGUAGE_NEUTRAL_CONFIRMATIONS = {
     "go ahead",
     "proceed",
 }
+ALIGNMENT_SOURCE_ARTIFACT_REF_KEYS = ("kind", "label", "relative_path", "workspace_path", "absolute_path")
 ALIGNMENT_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -512,7 +514,7 @@ def _coerce_alignment_session_create_request(
     return AlignmentSessionCreateRequest(
         workdir=workdir if isinstance(workdir, Path) else Path(str(workdir)),
         message=str(raw_request.get("message", "") or ""),
-        start_immediately=bool(raw_request.get("start_immediately", True)),
+        start_immediately=_coerce_alignment_start_immediately(raw_request.get("start_immediately", True)),
         source_option_id=str(raw_request.get("source_option_id", "") or "").strip(),
         executor_settings=_alignment_executor_settings_from_raw(raw_request),
     )
@@ -528,9 +530,17 @@ def _coerce_revision_session_options(
         return request
     return RevisionSessionOptions(
         message=str(raw_request.get("message", "") or ""),
-        start_immediately=bool(raw_request.get("start_immediately", True)),
+        start_immediately=_coerce_alignment_start_immediately(raw_request.get("start_immediately", True)),
         executor_settings=_alignment_executor_settings_from_raw(raw_request),
     )
+
+
+def _coerce_alignment_start_immediately(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _alignment_executor_settings_from_raw(raw_request: dict[str, object]) -> AlignmentExecutorSettingsRequest:
@@ -543,6 +553,24 @@ def _alignment_executor_settings_from_raw(raw_request: dict[str, object]) -> Ali
         model=str(raw_request.get("model", defaults.model)),
         reasoning_effort=str(raw_request.get("reasoning_effort", defaults.reasoning_effort)),
     )
+
+
+def _governance_marker_responsibility_present(text: str, *, actor_pattern: str, action_pattern: str) -> bool:
+    marker_pattern = r"agents\.md|design/readme\.md|design/|tests/|project-local|project local|项目本地|本地治理"
+    segments = re.split(r"[\n.;。；]+", text)
+    marker_windows: list[str] = []
+    for match in re.finditer(marker_pattern, text, flags=re.I):
+        start = max(0, match.start() - 180)
+        end = min(len(text), match.end() + 180)
+        marker_windows.append(text[start:end])
+    for segment in [*segments, *marker_windows]:
+        if (
+            re.search(marker_pattern, segment, flags=re.I)
+            and re.search(actor_pattern, segment, flags=re.I)
+            and re.search(action_pattern, segment, flags=re.I)
+        ):
+            return True
+    return False
 
 
 class ServiceAlignmentMixin:
@@ -765,6 +793,10 @@ class ServiceAlignmentMixin:
         self.get_alignment_session(session_id)
         return self.repository.list_alignment_events(session_id, after_id=after_id, limit=limit)
 
+    def latest_alignment_event_id(self, session_id: str) -> int:
+        self.get_alignment_session(session_id)
+        return self.repository.latest_alignment_event_id(session_id)
+
     def get_alignment_workdir_context(self, workdir: Path) -> dict:
         root = workdir.expanduser().resolve()
         if not root.exists() or not root.is_dir():
@@ -795,13 +827,14 @@ class ServiceAlignmentMixin:
             seen_option_ids,
         )
         has_sources = any(str(option.get("action") or "") != "regenerate" for option in options)
+        bounded_options = self._bounded_alignment_context_options(options)
         return {
             "workdir": str(root),
             "state_dir": str(state_dir),
             "has_loopora_state": state_dir.exists(),
             "requires_choice": has_sources,
             "recommended_option_id": "" if has_sources else "regenerate",
-            "options": options[:20],
+            "options": bounded_options,
         }
 
     def get_alignment_bundle(self, session_id: str) -> dict:
@@ -901,6 +934,7 @@ class ServiceAlignmentMixin:
             alignment_stage="ready",
             validation=validation,
             error_message="",
+            finished_at=None,
         )
         session = self.get_alignment_session(session_id)
         self._write_alignment_validation_log(session, validation)
@@ -955,7 +989,7 @@ class ServiceAlignmentMixin:
         )
         run = None
         redirect_url = f"/bundles/{bundle['id']}"
-        if start_immediately:
+        if _coerce_alignment_start_immediately(start_immediately):
             try:
                 run = self.start_run(bundle["loop_id"])
                 if execute_async:
@@ -1087,10 +1121,11 @@ class ServiceAlignmentMixin:
         bundle_path = Path(session["bundle_path"])
         bundle_path.parent.mkdir(parents=True, exist_ok=True)
         bundle_path.write_text(bundle_to_yaml(seed_bundle), encoding="utf-8")
+        redacted_source = self._redact_alignment_source_value(request.source_context)
         working_agreement = {
             "mode": "improvement",
-            "source": request.source_context,
-            "seed_bundle_metadata": seed_bundle.get("metadata", {}),
+            "source": redacted_source,
+            "seed_bundle_metadata": self._redact_alignment_source_value(seed_bundle.get("metadata", {})),
         }
         self.repository.update_alignment_session(
             session["id"],
@@ -1102,7 +1137,7 @@ class ServiceAlignmentMixin:
             session["id"],
             "alignment_bundle_improvement_seeded",
             {
-                "source_type": request.source_context.get("source_type", ""),
+                "source_type": redacted_source.get("source_type", "") if isinstance(redacted_source, dict) else "",
                 "source_bundle_id": request.linked_bundle_id,
                 "source_run_id": request.linked_run_id,
                 "bundle_path": str(bundle_path),
@@ -1123,18 +1158,15 @@ class ServiceAlignmentMixin:
         seed["metadata"] = metadata
         return seed
 
-    def _alignment_run_artifact_paths(self, run: dict) -> dict:
-        layout = self._run_artifact_layout(Path(run["runs_dir"]))
-
-        def relative_if_exists(path: Path) -> str:
-            return layout.relative(path) if path.exists() else ""
+    @staticmethod
+    def _alignment_run_artifact_paths(run: dict) -> dict:
+        layout = RunArtifactLayout(Path(run["runs_dir"]))
 
         return {
-            "runs_dir": str(layout.run_dir),
-            "task_verdict": relative_if_exists(layout.task_verdict_path),
-            "evidence_ledger": relative_if_exists(layout.evidence_ledger_path),
-            "evidence_coverage": relative_if_exists(layout.evidence_coverage_path),
-            "evidence_manifest": relative_if_exists(layout.evidence_manifest_path),
+            "task_verdict": layout.relative(layout.task_verdict_path),
+            "evidence_ledger": layout.relative(layout.evidence_ledger_path),
+            "evidence_coverage": layout.relative(layout.evidence_coverage_path),
+            "evidence_manifest": layout.relative(layout.evidence_manifest_path),
         }
 
     def _alignment_run_evidence_summary(self, run: dict, *, limit: int = 8) -> list[dict]:
@@ -1150,12 +1182,36 @@ class ServiceAlignmentMixin:
                 "claim": str(item.get("claim") or "")[:500],
                 "result": str(item.get("result") or ""),
                 "residual_risk": str(item.get("residual_risk") or "")[:300],
-                "verifies": list(item.get("verifies") or [])[:8],
-                "artifact_refs": [dict(ref) for ref in list(item.get("artifact_refs") or []) if isinstance(ref, dict)][:6],
+                "verifies": self._alignment_source_string_list(item.get("verifies"), limit=8),
+                "artifact_refs": self._alignment_source_artifact_refs(item.get("artifact_refs"), limit=6),
             }
             for item in read_jsonl(layout.evidence_ledger_path)
         ]
         return items[-limit:]
+
+    @staticmethod
+    def _alignment_source_string_list(value: object, *, limit: int) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [item for item in value if isinstance(item, str)][:limit]
+
+    @staticmethod
+    def _alignment_source_artifact_refs(value: object, *, limit: int) -> list[dict]:
+        if not isinstance(value, list):
+            return []
+        refs: list[dict] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            refs.append(
+                {
+                    key: item.get(key, "") if isinstance(item.get(key, ""), str) else ""
+                    for key in ALIGNMENT_SOURCE_ARTIFACT_REF_KEYS
+                }
+            )
+            if len(refs) >= limit:
+                break
+        return refs
 
     def _alignment_run_coverage_summary(self, run: dict) -> dict:
         layout = self._run_artifact_layout(Path(run["runs_dir"]))
@@ -1200,7 +1256,7 @@ class ServiceAlignmentMixin:
                     state = next_state
                     continue
 
-                if bool(output.get("needs_user_input")) or self._alignment_blocked_output_waits_for_user(
+                if self._alignment_needs_user_input(output) or self._alignment_blocked_output_waits_for_user(
                     output,
                     assistant_message=assistant_message,
                 ):
@@ -1277,7 +1333,7 @@ class ServiceAlignmentMixin:
     def _fallback_alignment_assistant_message(output: dict, *, has_bundle: bool) -> str:
         if has_bundle:
             return "已整理成一个可导入的 Loopora bundle。"
-        if bool(output.get("needs_user_input")):
+        if ServiceAlignmentMixin._alignment_needs_user_input(output):
             return "我需要继续用中文对齐；请先确认一个会改变 Loop 形状的点：这次更怕结果看起来完成但证据不足，还是推进太慢？"
         return "我需要继续用中文对齐后再继续。"
 
@@ -1328,13 +1384,14 @@ class ServiceAlignmentMixin:
             )
             return None
         session = self.get_alignment_session(session_id)
-        if int(session.get("repair_attempts", 0) or 0) >= 1:
+        repair_attempts = self._alignment_repair_attempts(session, invalid_default=1)
+        if repair_attempts >= 1:
             self._fail_alignment_session(session_id, error)
             return None
         self.repository.update_alignment_session(
             session_id,
             status="repairing",
-            repair_attempts=int(session.get("repair_attempts", 0) or 0) + 1,
+            repair_attempts=repair_attempts + 1,
             error_message=error,
         )
         self.repository.append_alignment_event(
@@ -1359,7 +1416,7 @@ class ServiceAlignmentMixin:
         session = self.get_alignment_session(session_id)
         root = self._alignment_session_root(session)
         self._ensure_alignment_artifact_dirs(root)
-        attempt = int(session.get("repair_attempts", 0) or 0)
+        attempt = self._alignment_repair_attempts(session)
         invocation_dir = self._alignment_invocation_dir(root, attempt, repair=mode == "repair")
         invocation_dir.mkdir(parents=True, exist_ok=True)
         output_path = invocation_dir / "output.json"
@@ -1647,10 +1704,10 @@ class ServiceAlignmentMixin:
             return []
         phase = str(output.get("alignment_phase", "") or "").strip().lower()
         status = str(output.get("status", "") or "").strip().lower()
-        if not bool(output.get("needs_user_input")) and phase != "blocked" and status != "blocked":
+        if not cls._alignment_needs_user_input(output) and phase != "blocked" and status != "blocked":
             return []
         options = cls._normalize_alignment_decision_options(output.get("decision_options"))
-        if options:
+        if cls._alignment_decision_options_are_visible(options):
             return options
         if phase == "agreement":
             return cls._agreement_confirmation_decision_options(session)
@@ -1670,7 +1727,7 @@ class ServiceAlignmentMixin:
             label = cls._agreement_text_snippet(item.get("label"), limit=80)
             description = cls._agreement_text_snippet(item.get("description"), limit=220)
             user_reply = cls._agreement_text_snippet(item.get("user_reply"), limit=260)
-            if not label or not user_reply:
+            if not label or not description or not user_reply:
                 continue
             option_id = str(item.get("id") or f"option_{index}").strip()
             option_id = re.sub(r"[^A-Za-z0-9_.:-]+", "-", option_id).strip("-") or f"option_{index}"
@@ -1682,7 +1739,7 @@ class ServiceAlignmentMixin:
                     "id": option_id,
                     "label": label,
                     "description": description,
-                    "recommended": bool(item.get("recommended")),
+                    "recommended": item.get("recommended") is True,
                     "user_reply": user_reply,
                 }
             )
@@ -1691,7 +1748,15 @@ class ServiceAlignmentMixin:
     @classmethod
     def _alignment_has_recommended_decision_options(cls, output: dict) -> bool:
         options = cls._normalize_alignment_decision_options(output.get("decision_options"))
-        return len(options) >= 2 and any(bool(option.get("recommended")) for option in options)
+        return cls._alignment_decision_options_are_visible(options)
+
+    @staticmethod
+    def _alignment_needs_user_input(output: dict) -> bool:
+        return output.get("needs_user_input") is True
+
+    @staticmethod
+    def _alignment_decision_options_are_visible(options: list[dict]) -> bool:
+        return len(options) >= 2 and any(option.get("recommended") is True for option in options)
 
     @staticmethod
     def _default_alignment_decision_options(session: dict) -> list[dict]:
@@ -1817,7 +1882,7 @@ class ServiceAlignmentMixin:
 
     @staticmethod
     def _alignment_clarifying_question_issues(output: dict) -> list[str]:
-        if not bool(output.get("needs_user_input")):
+        if not ServiceAlignmentMixin._alignment_needs_user_input(output):
             return []
         message = str(output.get("assistant_message", "") or "").strip()
         if not message:
@@ -2288,20 +2353,23 @@ class ServiceAlignmentMixin:
 
     @staticmethod
     def _governance_marker_responsibilities_present(text: str) -> bool:
-        builder_reads = bool(
-            re.search(r"\b(?:builder|generator)\b", text)
-            and re.search(r"\b(?:read|reads|consult|consults|follow|follows|respect|respects)\b|读取|查阅|遵守|遵循", text)
+        builder_reads = _governance_marker_responsibility_present(
+            text,
+            actor_pattern=r"\b(?:builder|generator)\b|构建者|构建",
+            action_pattern=r"\b(?:read|reads|consult|consults|follow|follows|respect|respects)\b|读取|查阅|遵守|遵循",
         )
-        review_checks = bool(
-            re.search(r"\b(?:inspector|custom|review|reviewer)\b|检查|审查|验证", text)
-            and re.search(r"\b(?:verify|verifies|check|checks|review|reviews|validate|validates|test|tests)\b|检查|审查|验证|测试", text)
+        review_checks = _governance_marker_responsibility_present(
+            text,
+            actor_pattern=r"\b(?:inspector|custom|review|reviewer)\b|检查者|巡检|检查|审查|验证",
+            action_pattern=r"\b(?:verify|verifies|check|checks|review|reviews|validate|validates|test|tests)\b|检查|审查|验证|测试",
         )
-        gatekeeper_gates = bool(
-            re.search(r"\b(?:gatekeeper|gate keeper|verifier)\b|守门|裁决", text)
-            and re.search(
-                r"\b(?:weak|unproven|blocking|block|blocks|missing|skipped|fail closed|reject|rejects)\b|弱证据|未证明|阻断|缺少|跳过|拒绝",
-                text,
-            )
+        gatekeeper_gates = _governance_marker_responsibility_present(
+            text,
+            actor_pattern=r"\b(?:gatekeeper|gate keeper|verifier)\b|守门|裁决",
+            action_pattern=(
+                r"\b(?:weak|unproven|blocking|block|blocks|missing|skipped|fail closed|reject|rejects)\b"
+                r"|弱证据|未证明|阻断|缺少|跳过|拒绝"
+            ),
         )
         return builder_reads and review_checks and gatekeeper_gates
 
@@ -3114,8 +3182,21 @@ class ServiceAlignmentMixin:
         option_id = str(option.get("option_id") or "").strip()
         if not option_id or option_id in seen_option_ids:
             return
+        for key in ("label_zh", "label_en", "description_zh", "description_en"):
+            if key in option:
+                option[key] = redact_sensitive_text(str(option.get(key) or ""))
         seen_option_ids.add(option_id)
         options.append(option)
+
+    @staticmethod
+    def _bounded_alignment_context_options(options: list[dict], *, limit: int = 20) -> list[dict]:
+        if len(options) <= limit:
+            return options
+        regenerate = next((option for option in options if option.get("option_id") == "regenerate"), None)
+        bounded = options[:limit]
+        if regenerate is not None and all(option.get("option_id") != "regenerate" for option in bounded):
+            bounded = [*bounded[: max(0, limit - 1)], regenerate]
+        return bounded
 
     def _collect_alignment_session_context_options(self, root: Path, options: list[dict], seen_option_ids: set[str]) -> set[str]:
         seen_bundle_paths: set[str] = set()
@@ -3171,6 +3252,8 @@ class ServiceAlignmentMixin:
             if resolved_bundle_path in seen_bundle_paths:
                 continue
             seen_bundle_paths.add(resolved_bundle_path)
+            if not self._alignment_bundle_file_has_ready_validation(bundle_path):
+                continue
             self._add_alignment_context_option(
                 self._alignment_file_bundle_context_option(
                     source_session_id=bundle_path.parent.parent.name,
@@ -3185,6 +3268,15 @@ class ServiceAlignmentMixin:
                 continue
             seen_spec_paths.add(resolved_spec)
             self._add_alignment_context_option(self._alignment_spec_file_context_option(spec_path), options, seen_option_ids)
+
+    @staticmethod
+    def _alignment_bundle_file_has_ready_validation(bundle_path: Path) -> bool:
+        validation_path = bundle_path.parent / "validation.json"
+        try:
+            payload = json.loads(validation_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return False
+        return isinstance(payload, dict) and payload.get("ok") is True
 
     @staticmethod
     def _same_alignment_workdir(candidate: object, expected: Path) -> bool:
@@ -3210,7 +3302,7 @@ class ServiceAlignmentMixin:
         for entry in session.get("transcript") or []:
             if not isinstance(entry, dict) or entry.get("role") != "user":
                 continue
-            content = str(entry.get("content", "") or "").strip()
+            content = redact_sensitive_text(str(entry.get("content", "") or "").strip())
             if content:
                 return content[:80]
         return str(session.get("id") or "alignment session")
@@ -3312,6 +3404,7 @@ class ServiceAlignmentMixin:
             "source_run_id": run_id,
             "source_loop_id": str(run.get("loop_id") or loop.get("id") or ""),
             "status": str(run.get("status") or ""),
+            "artifact_paths": cls._alignment_run_artifact_paths(run),
             "label_zh": f"基于最近运行证据改进：{loop_name}",
             "label_en": f"Improve from latest run evidence: {loop_name}",
             "description_zh": "把最近一次 run 的 task verdict、coverage、GateKeeper 裁决和证据路径作为改进依据。",
@@ -3346,8 +3439,11 @@ class ServiceAlignmentMixin:
     def _bounded_alignment_file_text(path: Path, *, limit: int = 16000) -> str:
         try:
             text = path.read_text(encoding="utf-8")
+        except UnicodeError:
+            return "Source file could not be read as UTF-8 text."
         except OSError as exc:
             return f"Source file could not be read: {exc}"
+        text = redact_sensitive_text(text)
         if len(text) <= limit:
             return text
         return text[:limit] + "\n\n[Loopora truncated this source context for prompt size.]"
@@ -3357,7 +3453,7 @@ class ServiceAlignmentMixin:
         entries = [entry for entry in (session.get("transcript") or []) if isinstance(entry, dict)]
         summary: list[dict] = []
         for entry in entries[-8:]:
-            content = str(entry.get("content", "") or "").strip()
+            content = redact_sensitive_text(str(entry.get("content", "") or "").strip())
             if not content:
                 continue
             summary.append(
@@ -3512,6 +3608,17 @@ class ServiceAlignmentMixin:
         return self._alignment_source_seed_payload(source)
 
     @staticmethod
+    def _redact_alignment_source_value(value: object, *, key: str = "") -> object:
+        if isinstance(value, list):
+            return [ServiceAlignmentMixin._redact_alignment_source_value(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                str(child_key): ServiceAlignmentMixin._redact_alignment_source_value(item, key=str(child_key))
+                for child_key, item in value.items()
+            }
+        return redact_sensitive_value(key, value)
+
+    @staticmethod
     def _alignment_source_seed_payload(
         source: dict,
         *,
@@ -3520,12 +3627,13 @@ class ServiceAlignmentMixin:
         linked_loop_id: str = "",
         linked_run_id: str = "",
     ) -> dict:
+        redacted_source = ServiceAlignmentMixin._redact_alignment_source_value(source)
         working_agreement = {
             "mode": str(source.get("mode") or "selected_source"),
-            "source": source,
+            "source": redacted_source,
         }
         if isinstance(seed_bundle, dict) and seed_bundle:
-            working_agreement["seed_bundle_metadata"] = seed_bundle.get("metadata", {})
+            working_agreement["seed_bundle_metadata"] = ServiceAlignmentMixin._redact_alignment_source_value(seed_bundle.get("metadata", {}))
         return {
             "working_agreement": working_agreement,
             "seed_bundle": seed_bundle or {},
@@ -3533,13 +3641,13 @@ class ServiceAlignmentMixin:
             "linked_loop_id": linked_loop_id,
             "linked_run_id": linked_run_id,
             "event": {
-                "source_type": source.get("source_type", ""),
-                "source_bundle_id": source.get("source_bundle_id", ""),
-                "source_loop_id": source.get("source_loop_id", ""),
-                "source_run_id": source.get("source_run_id", ""),
-                "source_alignment_session_id": source.get("source_alignment_session_id", ""),
-                "spec_path": source.get("spec_path", ""),
-                "reason": source.get("reason", ""),
+                "source_type": redacted_source.get("source_type", "") if isinstance(redacted_source, dict) else "",
+                "source_bundle_id": redacted_source.get("source_bundle_id", "") if isinstance(redacted_source, dict) else "",
+                "source_loop_id": redacted_source.get("source_loop_id", "") if isinstance(redacted_source, dict) else "",
+                "source_run_id": redacted_source.get("source_run_id", "") if isinstance(redacted_source, dict) else "",
+                "source_alignment_session_id": redacted_source.get("source_alignment_session_id", "") if isinstance(redacted_source, dict) else "",
+                "spec_path": redacted_source.get("spec_path", "") if isinstance(redacted_source, dict) else "",
+                "reason": redacted_source.get("reason", "") if isinstance(redacted_source, dict) else "",
             },
         }
 
@@ -3591,8 +3699,8 @@ class ServiceAlignmentMixin:
         if mode not in {"improvement", "selected_source"}:
             return ""
         source = agreement.get("source") if isinstance(agreement.get("source"), dict) else {}
-        artifact_paths_text = json.dumps(source.get("artifact_paths") or {}, ensure_ascii=False, indent=2)
-        transcript_summary_text = json.dumps(source.get("transcript_summary") or [], ensure_ascii=False, indent=2)
+        artifact_paths_text = redact_sensitive_text(json.dumps(source.get("artifact_paths") or {}, ensure_ascii=False, indent=2))
+        transcript_summary_text = redact_sensitive_text(json.dumps(source.get("transcript_summary") or [], ensure_ascii=False, indent=2))
         spec_markdown = str(source.get("spec_markdown") or "")
         guidance = load_alignment_guidance_assets()
         selected_spec_markdown_block = ""
@@ -3617,10 +3725,10 @@ class ServiceAlignmentMixin:
         if mode == "selected_source":
             return selected_context
         evidence_items = source.get("evidence_summary") if isinstance(source.get("evidence_summary"), list) else []
-        evidence_text = json.dumps(evidence_items[:8], ensure_ascii=False, indent=2)
-        coverage_text = json.dumps(source.get("coverage_summary") or {}, ensure_ascii=False, indent=2)
-        task_verdict_text = json.dumps(source.get("task_verdict") or {}, ensure_ascii=False, indent=2)
-        verdict_text = json.dumps(source.get("gatekeeper_verdict") or {}, ensure_ascii=False, indent=2)
+        evidence_text = redact_sensitive_text(json.dumps(evidence_items[:8], ensure_ascii=False, indent=2))
+        coverage_text = redact_sensitive_text(json.dumps(source.get("coverage_summary") or {}, ensure_ascii=False, indent=2))
+        task_verdict_text = redact_sensitive_text(json.dumps(source.get("task_verdict") or {}, ensure_ascii=False, indent=2))
+        verdict_text = redact_sensitive_text(json.dumps(source.get("gatekeeper_verdict") or {}, ensure_ascii=False, indent=2))
         improvement_context = ServiceAlignmentMixin._render_alignment_template(
             guidance.bundle_improvement_context_template,
             {
@@ -3641,7 +3749,7 @@ class ServiceAlignmentMixin:
         first_user = ""
         last_message = ""
         for entry in transcript:
-            content = str(entry.get("content", "") or "").strip()
+            content = redact_sensitive_text(str(entry.get("content", "") or "").strip())
             if not content:
                 continue
             if not first_user and entry.get("role") == "user":
@@ -3662,11 +3770,11 @@ class ServiceAlignmentMixin:
             "linked_bundle_id": session.get("linked_bundle_id", ""),
             "linked_loop_id": session.get("linked_loop_id", ""),
             "linked_run_id": session.get("linked_run_id", ""),
-            "repair_attempts": int(session.get("repair_attempts", 0) or 0),
+            "repair_attempts": ServiceAlignmentMixin._alignment_repair_attempts(session),
             "created_at": session.get("created_at", ""),
             "updated_at": session.get("updated_at", ""),
             "finished_at": session.get("finished_at", ""),
-            "error_message": session.get("error_message", ""),
+            "error_message": redact_sensitive_text(str(session.get("error_message", "") or "")),
             "message_count": len(transcript),
             "title": first_user[:96] if first_user else session.get("id", ""),
             "last_message": last_message[:160],
@@ -3709,7 +3817,7 @@ class ServiceAlignmentMixin:
         ServiceAlignmentMixin._ensure_alignment_artifact_dirs(paths["root"])
         payload = json.dumps(validation, ensure_ascii=False, indent=2) + "\n"
         paths["validation"].write_text(payload, encoding="utf-8")
-        attempt = int(session.get("repair_attempts", 0) or 0)
+        attempt = ServiceAlignmentMixin._alignment_repair_attempts(session)
         invocation_dir = ServiceAlignmentMixin._alignment_invocation_dir(
             paths["root"],
             attempt,
@@ -3781,11 +3889,11 @@ class ServiceAlignmentMixin:
         bundle_path = Path(session["bundle_path"])
         if bundle_path.exists():
             try:
-                current_bundle = read_bundle_file_text(bundle_path)
+                current_bundle = redact_sensitive_text(read_bundle_file_text(bundle_path))
             except (BundleError, OSError) as exc:
                 current_bundle = f"Current bundle file could not be read: {exc}"
-        transcript_text = json.dumps(session.get("transcript") or [], ensure_ascii=False, indent=2)
-        working_agreement_text = json.dumps(session.get("working_agreement") or {}, ensure_ascii=False, indent=2)
+        transcript_text = redact_sensitive_text(json.dumps(session.get("transcript") or [], ensure_ascii=False, indent=2))
+        working_agreement_text = redact_sensitive_text(json.dumps(session.get("working_agreement") or {}, ensure_ascii=False, indent=2))
         alignment_stage = str(session.get("alignment_stage", "") or "clarifying")
         user_language_hint = self._alignment_user_language_hint(session)
         workdir_snapshot = self._alignment_workdir_snapshot(Path(session["workdir"]))
@@ -3816,7 +3924,7 @@ class ServiceAlignmentMixin:
                 "executor_kind": session.get("executor_kind", "codex"),
                 "executor_mode": session.get("executor_mode", "preset"),
                 "command_cli": session.get("command_cli", ""),
-                "command_args_text": session.get("command_args_text", ""),
+                "command_args_text": redact_sensitive_text(str(session.get("command_args_text", "") or "")),
                 "model": session.get("model", ""),
                 "reasoning_effort": session.get("reasoning_effort", ""),
                 "workdir_snapshot": workdir_snapshot,
@@ -4039,7 +4147,14 @@ class ServiceAlignmentMixin:
     @staticmethod
     def _alignment_invocation_dir(root: Path, attempt: int, *, repair: bool) -> Path:
         suffix = "-repair" if repair else ""
-        return root / "invocations" / f"{int(attempt) + 1:04d}{suffix}"
+        attempt_index = structured_non_negative_int(attempt)
+        return root / "invocations" / f"{attempt_index + 1:04d}{suffix}"
+
+    @staticmethod
+    def _alignment_repair_attempts(session: dict | None, *, invalid_default: int = 0) -> int:
+        if not session or session.get("repair_attempts") is None:
+            return 0
+        return structured_non_negative_int(session.get("repair_attempts"), default=invalid_default)
 
     @staticmethod
     def _alignment_output_debug_payload(output: dict, bundle_path: Path) -> dict:
@@ -4055,7 +4170,8 @@ class ServiceAlignmentMixin:
             payload.setdefault("bundle_path", str(bundle_path))
             payload["bundle_sha256"] = ""
             payload["bundle_bytes"] = 0
-        return payload
+        redacted_payload = ServiceAlignmentMixin._redact_alignment_source_value(payload)
+        return redacted_payload if isinstance(redacted_payload, dict) else {}
 
     @classmethod
     def _sanitize_alignment_event_payload(cls, event_type: str, payload: dict, *, invocation_id: str = "") -> dict:
@@ -4114,7 +4230,7 @@ class ServiceAlignmentMixin:
         for entry in transcript:
             if not isinstance(entry, dict):
                 continue
-            content = str(entry.get("content", "") or "").strip()
+            content = redact_sensitive_text(str(entry.get("content", "") or "").strip())
             if not content:
                 continue
             if not first_user and entry.get("role") == "user":

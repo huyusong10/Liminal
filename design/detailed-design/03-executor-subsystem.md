@@ -79,6 +79,7 @@ Execution modes 只描述 headless execution plane。
 - command mode 是 escape hatch
 - 但仍必须经过最小可运行性校验
 - 参数模板只接受执行器声明的运行时占位符；无法识别的 `{name}` 形式占位符必须在启动子进程前失败
+- 命令预览事件必须在发出前省略 prompt、JSON schema 与常见 secret 参数值，并用稳定标记说明这些内容已被省略；统一 event redaction 仍是写入边界的最后保护层
 - command mode 仍必须把输出收敛为结构化对象，不能把未受限的大块文件内容当作角色结果吞入内存
 
 ## 6. Provider Abstraction Rules
@@ -92,7 +93,7 @@ Execution modes 只描述 headless execution plane。
 
 如果一个新 provider 无法满足这四点，它不应进入核心适配层。
 
-模型字段在预设模式下是可选 pin：空值表示继承对应 CLI 的当前默认模型，只有显式填写时才向 provider 命令传递模型参数。Loopora 不把会随上游工具迭代的模型名写成默认契约。
+模型字段在预设模式下是可选 pin：provider profile 可以给出 Loopora 套餐默认模型，空值仍表示继承对应 CLI 的当前默认模型。执行器只在请求模型非空时向 provider 命令传递模型参数；用户需要完全固定 argv 或绕过套餐默认时，应显式覆盖模型字段或改用 command mode。
 
 预设模式不应默认切断宿主正常用户认证或 setting 上下文。真实 CLI 需要用户级 keychain、OAuth 或配置才能运行时，Loopora 的默认参数必须允许读取这些正常来源；用户需要完全固定 argv 时，应改用 command mode。
 
@@ -101,6 +102,7 @@ Execution modes 只描述 headless execution plane。
 - 所有 headless provider 最终都必须向上层返回同构的结构化对象
 - provider 私有输出必须在本层被消化
 - provider 写入的结构化输出文件必须是有界、可解码的文本；过大、非 UTF-8 或无法解析为对象时必须映射为明确执行错误
+- 通过 provider 流事件累积出的结构化结果文本也必须服从同一有界输出规则；超过上限时应在进入事件流和解析层前失败并终止子进程。
 - 子进程必须受 stop 与 timeout 控制；stream/handler 内部失败时也必须先终止子进程，再向上抛出错误
 - command mode 不得绕过结构化输出要求
 - Agent-first adapter 的 `/loopora-loop`、`next`、`submit` 路径不得调用 `codex`、`claude` 或 `opencode` CLI 子进程；真实宿主 L3 必须用 sentinel 证明这一点
@@ -133,7 +135,7 @@ fake executor 的职责是模拟边界，不是复制真实 provider 行为。
 
 因为 fake executor 的结构化输出会被编排测试、证据账本和本地演示直接消费，它的 canned payload 仍必须保留最小运行期语义：角色输出不能暗示可以降低已冻结的 Task / Done When / checks / guardrails；GateKeeper 成功样例必须来自 evidence refs 或可测量 evidence claims，而不是 run 生命周期本身；失败样例应把缺口表达为 weak / unproven / blocking evidence，而不是把“未通过”伪装成普通完成状态。
 
-headless provider L3 只验证 executor 边界：真实 CLI 能启动、返回结构化输出、写入 run artifact，并在同一 step 的后续轮次使用正确 resume 形状。复杂任务质量、alignment 追问质量、GateKeeper 证据门禁和多 workflow 语义应主要由 L1/L2 的确定性 fake executor、契约测试和必要的人工场景验证；它们不应默认进入 provider L3 发布阻断。
+headless provider L3 只验证 executor 边界：真实 CLI 能启动、返回结构化输出、写入 run artifact，并在同一 step 的后续轮次使用正确 resume 形状。复杂任务质量、alignment 追问质量、GateKeeper 证据门禁和多 workflow 语义应主要由 L1/L2 的确定性 fake executor、契约测试和必要的人工场景验证；它们不应默认进入 provider L3 发布阻断。Codex / Claude Code / OpenCode 的 provider L3 目标彼此独立，发布验证入口可以按目标拆成并行 pytest 子进程，但每个子进程必须保留单独的 target env、临时 workdir 和 run storage。默认发布路径还应断言 Claude Code 的 `Kimi-K2.6` 与 OpenCode 的 `minimax-token-plan/MiniMax-M2.7` 出现在真实 provider 命令事件中；显式模型覆盖需要单独开关，并表示本次只验证覆盖路径而不是默认套餐路径。provider L3 harness 应写出 `.loopora/l3/real-cli-phase-report.json`，投影模型、run 状态、命令事件、resume 形状和关键 artifact。
 
 Agent-first adapter 的 L3 属于宿主入口验证，不属于 executor L3。它必须覆盖：真实宿主读取项目级入口、按 `gen -> loop -> next/submit` 完成最小 Loop、Web adapter card 可仿真安装/状态/卸载，并证明 Loopora 没有从宿主内部再调用同名宿主 CLI。
 

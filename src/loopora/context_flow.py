@@ -4,10 +4,12 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from loopora.coverage_target_semantics import coverage_target_is_required
 from loopora.evidence_gate import concrete_evidence_claim_count, has_measured_gate_evidence
-from loopora.specs import resolve_role_note
-
 from loopora.run_artifacts import RunArtifactLayout, artifact_ref
+from loopora.specs import resolve_role_note
+from loopora.structured_booleans import structured_bool_is_true
+from loopora.structured_numbers import structured_non_negative_int, structured_optional_finite_number
 from loopora.utils import utc_now
 
 
@@ -209,6 +211,21 @@ EVIDENCE_MANIFEST_SUMMARY_SCHEMA = {
     "additionalProperties": False,
 }
 
+EVIDENCE_MANIFEST_CLAIM_TARGET_SCHEMA = {
+    "type": "object",
+    "required": ["id", "kind", "label", "reported_status", "coverage_status", "required", "evidence_refs"],
+    "properties": {
+        "id": {"type": "string"},
+        "kind": {"type": "string"},
+        "label": {"type": "string"},
+        "reported_status": {"type": "string"},
+        "coverage_status": {"type": "string"},
+        "required": {"type": "boolean"},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}},
+    },
+    "additionalProperties": False,
+}
+
 EVIDENCE_MANIFEST_CLAIM_SCHEMA = {
     "type": "object",
     "required": [
@@ -232,7 +249,7 @@ EVIDENCE_MANIFEST_CLAIM_SCHEMA = {
         "artifact_backed": {"type": "boolean"},
         "workspace_backed": {"type": "boolean"},
         "reproducible": {"type": "boolean"},
-        "coverage_targets": {"type": "array", "items": {"type": "string"}},
+        "coverage_targets": {"type": "array", "items": EVIDENCE_MANIFEST_CLAIM_TARGET_SCHEMA},
         "problem_codes": {"type": "array", "items": {"type": "string"}},
     },
     "additionalProperties": False,
@@ -685,7 +702,7 @@ def build_step_handoff(result: StepResultContext) -> dict:
         recommended_next_action = (
             _clean_text(output.get("feedback_to_builder") or output.get("feedback_to_generator")) or "Continue only after the blocking issues are resolved."
         )
-        status = "passed" if bool(output.get("passed")) else "blocked"
+        status = "passed" if structured_bool_is_true(output.get("passed")) else "blocked"
     elif archetype == "guide":
         analysis = output.get("analysis") if isinstance(output.get("analysis"), dict) else {}
         summary = _clean_text(analysis.get("recommended_shift") or output.get("meta_note")) or "Guide proposed a direction shift."
@@ -977,8 +994,9 @@ def build_iteration_summary(context: IterationSummaryContext) -> dict:
     latest_by_archetype = {
         item["role"]["archetype"]: layout.relative(layout.step_handoff_path(iter_id, int(item["step_order"]), item["step"]["id"])) for item in step_results
     }
-    composite = gatekeeper_output.get("composite_score")
-    delta = round(float(composite) - float(context.previous_composite), 6) if composite is not None and context.previous_composite is not None else None
+    composite = _number_value(gatekeeper_output.get("composite_score"))
+    previous_composite = _number_value(context.previous_composite)
+    delta = round(composite - previous_composite, 6) if composite is not None and previous_composite is not None else None
     return {
         "phase": "complete",
         "iter": int(iter_id),
@@ -1005,9 +1023,9 @@ def build_iteration_summary(context: IterationSummaryContext) -> dict:
         "stagnation": {
             "mode": str(stagnation.get("stagnation_mode", "none")),
             "evidence_progress_mode": str(stagnation.get("evidence_progress_mode", "none") or "none"),
-            "recent_composites": [float(value) for value in list(stagnation.get("recent_composites", [])) if value is not None],
-            "recent_deltas": [float(value) for value in list(stagnation.get("recent_deltas", [])) if value is not None],
-            "consecutive_low_delta": int(stagnation.get("consecutive_low_delta", 0) or 0),
+            "recent_composites": _number_values(stagnation.get("recent_composites")),
+            "recent_deltas": _number_values(stagnation.get("recent_deltas")),
+            "consecutive_low_delta": _int_value(stagnation.get("consecutive_low_delta")),
             "covered_check_count": _int_value(stagnation.get("latest_covered_check_count")),
             "missing_check_count": _int_value(stagnation.get("latest_missing_check_count")),
             "consecutive_no_required_coverage_delta": _int_value(stagnation.get("consecutive_no_required_coverage_delta")),
@@ -1106,7 +1124,7 @@ def system_prompt_prefix(archetype: str) -> str:
             "- Prefer focused, incremental changes over broad resets.\n"
             "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
             "- If downstream review steps run in a parallel_group, leave one coherent handoff for all reviewers instead of splitting evidence across private notes.\n"
-            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, or Guardrails; "
+            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk; "
             "surface contract problems as evidence gaps or blockers instead.\n"
             "- In the handoff, name which claim moved toward Proven and what remains Weak, Unproven, Blocking, or Residual risk."
         )
@@ -1118,7 +1136,7 @@ def system_prompt_prefix(archetype: str) -> str:
             "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
             "- Classify important observations as Proven, Weak, Unproven, Blocking, or Residual risk when that helps downstream judgment.\n"
             "- If this step is in a parallel_group, cover only your assigned evidence responsibility and do not wait for peer reviewers.\n"
-            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, or Guardrails; "
+            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk; "
             "surface contract problems as evidence gaps or blockers instead.\n"
             "- Do not rewrite source files as part of inspection."
         )
@@ -1130,7 +1148,7 @@ def system_prompt_prefix(archetype: str) -> str:
             "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
             "- Keep run status separate from task verdict, and organize the verdict as Proven, Weak, Unproven, Blocking, or Residual risk.\n"
             "- If upstream reviewers ran in a parallel_group, fan in every relevant review branch instead of treating the last handoff as the whole review.\n"
-            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, or Guardrails; "
+            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk; "
             "surface contract problems as evidence gaps or blockers instead.\n"
             "- Keep the verdict short and operational."
         )
@@ -1143,7 +1161,7 @@ def system_prompt_prefix(archetype: str) -> str:
             "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
             "- Mark specialized observations as Proven, Weak, Unproven, Blocking, or Residual risk when useful.\n"
             "- If this step is in a parallel_group, cover only your custom specialization and leave evidence GateKeeper can fan in with peer branches.\n"
-            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, or Guardrails; "
+            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk; "
             "surface contract problems as evidence gaps or blockers instead.\n"
             "- Always return a stable takeaway with status, summary, blocking_items, and recommended_next_action."
         )
@@ -1153,7 +1171,7 @@ def system_prompt_prefix(archetype: str) -> str:
         "- Do not act like a second GateKeeper.\n"
         "- Turn Blocking or Unproven gaps into a smaller proof or repair direction while keeping Residual risk visible.\n"
         "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
-        "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, or Guardrails; "
+        "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk; "
         "surface contract problems as evidence gaps or blockers instead.\n"
         "- Keep the advice grounded in the current evidence."
     )
@@ -1164,15 +1182,16 @@ def output_contract_prompt(archetype: str) -> str:
         return (
             "Output contract: return JSON with attempted, abandoned, assumption, summary, changed_files, "
             "proof_files, proof_artifacts, and artifact_paths. Use empty arrays for proof_files, "
-            "proof_artifacts, and artifact_paths when no proof artifact was created."
+            "proof_artifacts, artifact_paths, and changed_files when no files or proof artifacts were created."
         )
     if archetype == "inspector":
         return (
             "Output contract: return JSON with execution_summary, check_results, dynamic_checks, tester_observations, "
-            "and coverage_results. Use an empty coverage_results list unless you can explicitly verify or reject coverage target ids. "
+            "and coverage_results. Use empty arrays for check_results, dynamic_checks, and coverage_results when there are no items. "
+            "Only populate coverage_results when you can explicitly verify or reject coverage target ids. "
             "Inside execution_summary, return total_checks, passed, failed, errored, and total_duration_ms. "
             "For every check_results item and dynamic_checks item, return id, title, status, and notes. "
-            "For every coverage_results item, return target_id, status, evidence_refs, and note. "
+            "For every coverage_results item, return target_id, status, evidence_refs, and note; use coverage status words such as covered, weak, blocked, or missing. "
             "Use notes to distinguish Proven, Weak, Unproven, Blocking, and Residual risk evidence."
         )
     if archetype == "gatekeeper":
@@ -1184,7 +1203,7 @@ def output_contract_prompt(archetype: str) -> str:
             "priority_failures, evidence_refs, evidence_claims, residual_risks, and coverage_results when there are no items. "
             "Metrics rows must include name, value, threshold, and passed. Inside metric_scores, provide exactly "
             "check_pass_rate and quality_score, each with value, threshold, and passed. Priority failures must include error_code and summary. "
-            "For every coverage_results item, return target_id, status, evidence_refs, and note. "
+            "For every coverage_results item, return target_id, status, evidence_refs, and note; use covered for a verified target and keep Proven/Weak/Unproven/Blocking/Residual risk as verdict buckets. "
             "A pass must cite supporting upstream evidence_refs from the Evidence ledger; a plain Builder handoff is not support unless it carries a proof artifact or measured evidence. If this is the first gate in the workflow, "
             "claims alone are not enough; provide concrete metric_scores tied to the evidence you inspected. "
             "The decision_summary should separate run status from task verdict and name any Weak, Unproven, Blocking, or Residual risk evidence."
@@ -1192,7 +1211,8 @@ def output_contract_prompt(archetype: str) -> str:
     if archetype == "custom":
         return (
             "Output contract: return JSON with status, summary, blocking_items, recommended_next_action, "
-            "observations, recommendations, risks, and handoff_note."
+            "observations, recommendations, risks, and handoff_note. Use empty arrays for blocking_items, "
+            "observations, recommendations, and risks when there are no items."
         )
     return (
         "Output contract: return JSON with created_at_iter, mode, consumed, analysis, seed_question, and meta_note. "
@@ -1243,10 +1263,17 @@ def _combine_role_guidance(spec_role_note: str, role_posture: str) -> str:
 
 
 def _int_value(value: object) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
+    return structured_non_negative_int(value)
+
+
+def _number_value(value: object) -> float | None:
+    return structured_optional_finite_number(value)
+
+
+def _number_values(value: object) -> list[float]:
+    if not isinstance(value, list):
+        return []
+    return [number for item in value if (number := _number_value(item)) is not None]
 
 
 def render_iteration_section(packet: dict) -> str:
@@ -1265,10 +1292,12 @@ def render_iteration_section(packet: dict) -> str:
     action_policy = current_step.get("action_policy") if isinstance(current_step.get("action_policy"), dict) else {}
     control_lines = ""
     if control:
+        trigger_refs = [str(item).strip() for item in list(control.get("trigger_evidence_refs") or []) if str(item).strip()]
         control_lines = (
             f"- Control trigger: {control.get('signal') or 'unknown'}\n"
             f"- Control mode: {control.get('mode') or 'advisory'}\n"
             f"- Control reason: {control.get('reason') or 'runtime control check'}\n"
+            f"- Control evidence refs: {json.dumps(trigger_refs, ensure_ascii=False)}\n"
         )
     return (
         "Current execution frame:\n"
@@ -1487,21 +1516,56 @@ def _normalize_manifest_claims(value: object) -> list[dict]:
             {
                 "id": claim_id,
                 "verification_status": str(claim.get("verification_status") or "ledger_only").strip(),
-                "measured_evidence": bool(claim.get("measured_evidence")),
+                "measured_evidence": structured_bool_is_true(claim.get("measured_evidence")),
                 "concrete_evidence_claim_count": _int_value(claim.get("concrete_evidence_claim_count")),
                 "artifact_count": _int_value(claim.get("artifact_count")),
-                "artifact_backed": bool(claim.get("artifact_backed")),
-                "workspace_backed": bool(claim.get("workspace_backed")),
-                "reproducible": bool(claim.get("reproducible")),
-                "coverage_targets": [str(item).strip() for item in list(claim.get("coverage_targets") or []) if str(item).strip()][:20],
+                "artifact_backed": structured_bool_is_true(claim.get("artifact_backed")),
+                "workspace_backed": structured_bool_is_true(claim.get("workspace_backed")),
+                "reproducible": structured_bool_is_true(claim.get("reproducible")),
+                "coverage_targets": normalize_manifest_claim_coverage_targets(claim.get("coverage_targets")),
                 "problem_codes": [str(item).strip() for item in list(claim.get("problem_codes") or []) if str(item).strip()][:20],
             }
         )
     return rows[:40]
 
 
+def normalize_manifest_claim_coverage_targets(value: object) -> list[dict]:
+    rows: list[dict] = []
+    for item in list(value or []):
+        if isinstance(item, dict):
+            target_id = str(item.get("id") or item.get("target_id") or "").strip()
+            if not target_id:
+                continue
+            rows.append(
+                {
+                    "id": target_id,
+                    "kind": str(item.get("kind") or "").strip(),
+                    "label": str(item.get("label") or target_id).strip(),
+                    "reported_status": str(item.get("reported_status") or item.get("status") or "unknown").strip(),
+                    "coverage_status": str(item.get("coverage_status") or "unknown").strip(),
+                    "required": coverage_target_is_required(item, target_id=target_id),
+                    "evidence_refs": _string_list(item.get("evidence_refs"))[:8],
+                }
+            )
+            continue
+        target_id = str(item or "").strip()
+        if target_id:
+            rows.append(
+                {
+                    "id": target_id,
+                    "kind": "",
+                    "label": target_id,
+                    "reported_status": "unknown",
+                    "coverage_status": "unknown",
+                    "required": coverage_target_is_required({}, target_id=target_id),
+                    "evidence_refs": [],
+                }
+            )
+    return rows[:20]
+
+
 def _prompt_bool(value: object) -> str:
-    return "true" if bool(value) else "false"
+    return "true" if structured_bool_is_true(value) else "false"
 
 
 def _artifact_ref_prompt_paths(value: object) -> list[str]:

@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 EXECUTOR_KINDS = ("codex", "claude", "opencode", "custom")
+CLAUDE_DEFAULT_MODEL = "Kimi-K2.6"
+OPENCODE_DEFAULT_MODEL = "minimax-token-plan/MiniMax-M2.7"
 EXECUTOR_KIND_ALIASES = {
     "codex": "codex",
     "openai-codex": "codex",
@@ -85,11 +87,11 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
         label="Claude Code",
         label_zh="Claude Code",
         cli_name="claude",
-        default_model="",
-        model_placeholder_zh="留空使用 Claude Code 当前默认模型，或填 sonnet / opus / 完整模型名",
-        model_placeholder_en="Leave blank to use the current Claude Code default, or enter sonnet / opus / a full model name",
-        model_help_zh="使用本机 Claude Code CLI。默认留空更稳妥；也可以显式填 sonnet / opus，或完整模型名。",
-        model_help_en="Uses the local Claude Code CLI. Leaving the model blank is the safest default; you can also set sonnet / opus or a full model name explicitly.",
+        default_model=CLAUDE_DEFAULT_MODEL,
+        model_placeholder_zh="默认 Kimi-K2.6；也可以填 sonnet / opus / 完整模型名",
+        model_placeholder_en="Defaults to Kimi-K2.6; you can also enter sonnet / opus / a full model name",
+        model_help_zh="使用本机 Claude Code CLI。Loopora 默认固定到套餐模型 Kimi-K2.6；清空模型字段时才继承 Claude Code 当前默认模型。",
+        model_help_en="Uses the local Claude Code CLI. Loopora defaults to the plan model Kimi-K2.6; clear the model field only when you want Claude Code's current default.",
         effort_label_zh="推理强度",
         effort_label_en="Effort",
         effort_help_zh="Claude Code 支持 low、medium、high、max。旧的 xhigh 会自动映射为 max。",
@@ -121,11 +123,11 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
         label="OpenCode",
         label_zh="OpenCode",
         cli_name="opencode",
-        default_model="",
-        model_placeholder_zh="provider/model，留空则使用 OpenCode 当前默认模型",
-        model_placeholder_en="provider/model, or leave blank to use the current OpenCode default",
-        model_help_zh="使用本机 OpenCode CLI。模型名格式通常是 provider/model，例如 anthropic/claude-sonnet-4-20250514。",
-        model_help_en="Uses the local OpenCode CLI. The model is usually provider/model, for example anthropic/claude-sonnet-4-20250514.",
+        default_model=OPENCODE_DEFAULT_MODEL,
+        model_placeholder_zh="默认 minimax-token-plan/MiniMax-M2.7；也可以填 provider/model",
+        model_placeholder_en="Defaults to minimax-token-plan/MiniMax-M2.7; you can also enter provider/model",
+        model_help_zh="使用本机 OpenCode CLI。Loopora 默认固定到套餐模型 minimax-token-plan/MiniMax-M2.7；清空模型字段时才继承 OpenCode 当前默认模型。",
+        model_help_en="Uses the local OpenCode CLI. Loopora defaults to the plan model minimax-token-plan/MiniMax-M2.7; clear the model field only when you want OpenCode's current default.",
         effort_label_zh="Variant（可选）",
         effort_label_en="Variant (optional)",
         effort_help_zh="OpenCode 走 provider-specific variant。可留空使用默认，也可以填 high、max、minimal、xhigh 等。",
@@ -141,6 +143,8 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
             "--dir",
             "{workdir}",
             "--dangerously-skip-permissions",
+            "--model",
+            "{model}",
             "{prompt}",
         ),
     ),

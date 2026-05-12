@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from loopora.service_workflow_controls import workflow_control_after_seconds, workflow_iteration_control_triggers
 from loopora.workflows import (
     WorkflowError,
     build_preset_workflow,
@@ -15,6 +16,49 @@ from loopora.workflows import (
     load_workflow_file,
     load_prompt_file,
 )
+
+
+def test_workflow_control_after_seconds_parses_supported_units() -> None:
+    assert workflow_control_after_seconds("500ms") == 0.5
+    assert workflow_control_after_seconds("2s") == 2.0
+    assert workflow_control_after_seconds("3m") == 180.0
+    assert workflow_control_after_seconds("1h") == 3600.0
+    assert workflow_control_after_seconds("not-a-duration") == 0.0
+
+
+def test_workflow_iteration_control_triggers_cover_rejection_and_required_coverage_stall() -> None:
+    triggers = workflow_iteration_control_triggers(
+        {"passed": False, "evidence_refs": ["ev_001"]},
+        {
+            "stagnation_mode": "none",
+            "evidence_progress_mode": "stalled",
+            "latest_missing_check_count": 2,
+        },
+    )
+
+    assert [trigger.signal for trigger in triggers] == ["gatekeeper_rejected", "no_evidence_progress"]
+    assert triggers[0].trigger["evidence_refs"] == ["ev_001"]
+    assert triggers[1].trigger["evidence_progress_mode"] == "stalled"
+    assert "Required coverage did not improve" in str(triggers[1].trigger["reason"])
+
+
+@pytest.mark.parametrize("missing_check_count", [True, "2", 1.5])
+def test_workflow_iteration_control_triggers_do_not_promote_corrupt_missing_counts(missing_check_count) -> None:
+    triggers = workflow_iteration_control_triggers(
+        None,
+        {
+            "stagnation_mode": "none",
+            "evidence_progress_mode": "stalled",
+            "latest_missing_check_count": missing_check_count,
+        },
+    )
+
+    assert [trigger.signal for trigger in triggers] == ["no_evidence_progress"]
+    assert triggers[0].trigger["reason"] == "Required coverage did not improve; missing checks: 0."
+
+
+def test_workflow_iteration_control_triggers_skip_clean_iteration() -> None:
+    assert workflow_iteration_control_triggers({"passed": True, "evidence_refs": ["ev_001"]}, {"stagnation_mode": "none"}) == []
 
 
 def test_normalize_workflow_rejects_duplicate_step_ids() -> None:
@@ -41,6 +85,7 @@ def test_normalize_workflow_rejects_duplicate_step_ids() -> None:
         ("2", "unsupported workflow version: 2"),
         ("not-a-number", "workflow version must be an integer"),
         (False, "workflow version must be an integer"),
+        (1.0, "workflow version must be an integer"),
         (1.2, "workflow version must be an integer"),
     ],
 )
@@ -76,6 +121,62 @@ def test_normalize_workflow_rejects_invalid_explicit_version(version, message) -
     ],
 )
 def test_normalize_workflow_rejects_unsafe_stable_identifiers(field_update, message) -> None:
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            {"id": "inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "inspector_step", "role_id": "inspector"},
+        ],
+    }
+    workflow.update(field_update)
+
+    with pytest.raises(WorkflowError, match=message):
+        normalize_workflow(workflow)
+
+
+@pytest.mark.parametrize(
+    ("field_update", "message"),
+    [
+        (
+            {"roles": [{"id": True, "archetype": "builder", "prompt_ref": "builder.md"}]},
+            "workflow role id must be a string",
+        ),
+        ({"steps": [{"id": False, "role_id": "builder"}]}, "workflow step id must be a string"),
+        (
+            {"steps": [{"id": "builder_step", "role_id": "builder", "parallel_group": 1}]},
+            "workflow step parallel_group must be a string",
+        ),
+        (
+            {
+                "controls": [
+                    {
+                        "id": False,
+                        "when": {"signal": "no_evidence_progress"},
+                        "call": {"role_id": "inspector"},
+                    }
+                ]
+            },
+            "workflow control id must be a string",
+        ),
+        (
+            {
+                "controls": [
+                    {
+                        "id": "stale_check",
+                        "when": {"signal": "no_evidence_progress"},
+                        "call": {"role_id": True},
+                    }
+                ]
+            },
+            r"workflow control stale_check\.call\.role_id must be a string",
+        ),
+    ],
+)
+def test_normalize_workflow_rejects_non_string_stable_identifiers(field_update, message) -> None:
     workflow = {
         "version": 1,
         "roles": [
@@ -142,6 +243,24 @@ def test_normalize_workflow_parses_boolean_like_step_session_flags() -> None:
 
     assert workflow["steps"][0]["inherit_session"] is False
     assert workflow["steps"][1]["inherit_session"] is True
+
+
+@pytest.mark.parametrize("limit", [True, 1.5, "12"])
+def test_normalize_workflow_rejects_non_integer_evidence_query_limit(limit) -> None:
+    with pytest.raises(WorkflowError, match=r"workflow step inputs\.evidence_query\.limit must be an integer"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [{"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"}],
+                "steps": [
+                    {
+                        "id": "builder_step",
+                        "role_id": "builder",
+                        "inputs": {"evidence_query": {"limit": limit}},
+                    }
+                ],
+            }
+        )
 
 
 def test_normalize_workflow_adds_default_step_action_policies() -> None:
@@ -297,6 +416,71 @@ def test_workflow_warnings_cover_stale_and_prechange_gatekeeper_paths() -> None:
     ]
 
 
+def test_workflow_warnings_surface_guide_steps_without_upstream_inputs() -> None:
+    workflow = normalize_workflow(
+        {
+            "version": 1,
+            "roles": [
+                {"id": "inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                {"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"},
+                {"id": "gatekeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+            ],
+            "steps": [
+                {"id": "inspection_step", "role_id": "inspector"},
+                {"id": "guide_step", "role_id": "guide"},
+                {
+                    "id": "gatekeeper_step",
+                    "role_id": "gatekeeper",
+                    "on_pass": "finish_run",
+                    "inputs": {
+                        "handoffs_from": ["inspection_step", "guide_step"],
+                        "evidence_query": {"archetypes": ["inspector", "guide"], "limit": 20},
+                    },
+                },
+            ],
+        }
+    )
+
+    assert workflow["warnings"] == [
+        "Guide step guide_step has incomplete upstream inputs, so it may rely on ambient context."
+    ]
+
+
+def test_workflow_warnings_accept_guide_steps_with_upstream_handoff_and_evidence_inputs() -> None:
+    workflow = normalize_workflow(
+        {
+            "version": 1,
+            "roles": [
+                {"id": "inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                {"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"},
+                {"id": "gatekeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+            ],
+            "steps": [
+                {"id": "inspection_step", "role_id": "inspector"},
+                {
+                    "id": "guide_step",
+                    "role_id": "guide",
+                    "inputs": {
+                        "handoffs_from": ["inspection_step"],
+                        "evidence_query": {"archetypes": ["inspector"], "limit": 12},
+                    },
+                },
+                {
+                    "id": "gatekeeper_step",
+                    "role_id": "gatekeeper",
+                    "on_pass": "finish_run",
+                    "inputs": {
+                        "handoffs_from": ["inspection_step", "guide_step"],
+                        "evidence_query": {"archetypes": ["inspector", "guide"], "limit": 20},
+                    },
+                },
+            ],
+        }
+    )
+
+    assert workflow["warnings"] == []
+
+
 def test_visible_workflow_presets_are_curated_governance_shapes() -> None:
     assert preset_names() == [
         "build_then_parallel_review",
@@ -403,6 +587,59 @@ def test_normalize_workflow_preserves_parallel_group_and_step_inputs() -> None:
     assert workflow["steps"][3]["inputs"] == {"handoffs_from": ["accessibility_step", "contract_step"]}
 
 
+@pytest.mark.parametrize(
+    "inputs",
+    (
+        {"handoffs_from": ["builder_step", 123]},
+        {"evidence_query": {"archetypes": ["builder", False]}},
+        {"evidence_query": {"verifies": ["target:done_when.check_001:covered", {"target": "fake_done"}]}},
+    ),
+)
+def test_normalize_workflow_rejects_non_string_step_input_list_items(inputs: dict) -> None:
+    with pytest.raises(WorkflowError, match="must contain only strings"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                    {"id": "inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                    {
+                        "id": "inspector_step",
+                        "role_id": "inspector",
+                        "inputs": inputs,
+                    },
+                ],
+            }
+        )
+
+
+def test_normalize_workflow_rejects_non_string_iteration_memory_policy() -> None:
+    with pytest.raises(
+        WorkflowError,
+        match=r"workflow step inputs\.iteration_memory must be default, none, same_step, same_role, or summary_only",
+    ):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                    {"id": "inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                ],
+                "steps": [
+                    {"id": "builder_step", "role_id": "builder"},
+                    {
+                        "id": "inspector_step",
+                        "role_id": "inspector",
+                        "inputs": {"iteration_memory": False},
+                    },
+                ],
+            }
+        )
+
+
 def test_normalize_workflow_preserves_control_triggers() -> None:
     workflow = normalize_workflow(
         {
@@ -458,6 +695,60 @@ def test_normalize_workflow_rejects_zero_control_fire_limit() -> None:
                         "max_fires_per_run": 0,
                     }
                 ],
+            }
+        )
+
+
+@pytest.mark.parametrize("max_fires_per_run", [True, 1.5, "2"])
+def test_normalize_workflow_rejects_non_integer_control_fire_limit(max_fires_per_run) -> None:
+    with pytest.raises(WorkflowError, match="control max_fires_per_run must be an integer"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"},
+                ],
+                "steps": [
+                    {"id": "guide_step", "role_id": "guide"},
+                ],
+                "controls": [
+                    {
+                        "id": "non_integer_control",
+                        "when": {"signal": "no_evidence_progress", "after": "0s"},
+                        "call": {"role_id": "guide"},
+                        "max_fires_per_run": max_fires_per_run,
+                    }
+                ],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("control_patch", "message"),
+    [
+        ({"mode": False}, "workflow control mode must be advisory, blocking, or repair_guidance"),
+        ({"when": {"signal": "no_evidence_progress", "after": False}}, r"workflow control when\.after"),
+    ],
+)
+def test_normalize_workflow_rejects_non_string_control_enums(control_patch: dict, message: str) -> None:
+    control = {
+        "id": "control_with_bad_enum",
+        "when": {"signal": "no_evidence_progress", "after": "0s"},
+        "call": {"role_id": "guide"},
+    }
+    control.update(control_patch)
+
+    with pytest.raises(WorkflowError, match=message):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"},
+                ],
+                "steps": [
+                    {"id": "guide_step", "role_id": "guide"},
+                ],
+                "controls": [control],
             }
         )
 
@@ -560,6 +851,14 @@ def test_workflow_file_reports_encoding_and_parse_errors(tmp_path) -> None:
         load_workflow_file(invalid_json_file)
 
 
+def test_workflow_file_rejects_non_object_nested_workflow(tmp_path) -> None:
+    workflow_file = tmp_path / "workflow.yml"
+    workflow_file.write_text("workflow:\n  - not\n  - an\n  - object\n", encoding="utf-8")
+
+    with pytest.raises(WorkflowError, match="workflow file workflow must be an object"):
+        load_workflow_file(workflow_file)
+
+
 def test_prompt_file_reports_encoding_errors(tmp_path) -> None:
     prompt_file = tmp_path / "prompt.md"
     prompt_file.write_bytes(b"\xff")
@@ -605,6 +904,25 @@ def test_normalize_workflow_rejects_non_builder_workspace_write() -> None:
                         "id": "inspector_step",
                         "role_id": "inspector",
                         "action_policy": {"workspace": "workspace_write"},
+                    },
+                ],
+            }
+        )
+
+
+def test_normalize_workflow_rejects_non_string_action_policy_workspace() -> None:
+    with pytest.raises(WorkflowError, match=r"workflow step action_policy\.workspace must be read_only or workspace_write"):
+        normalize_workflow(
+            {
+                "version": 1,
+                "roles": [
+                    {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                ],
+                "steps": [
+                    {
+                        "id": "builder_step",
+                        "role_id": "builder",
+                        "action_policy": {"workspace": False},
                     },
                 ],
             }

@@ -21,7 +21,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let currentRun = initialRun;
   let consoleEventRecords = Array.isArray(initialConsoleEvents) ? initialConsoleEvents.slice() : [];
-  let lastEventId = Number(initialLatestEventId || 0);
+  let lastEventId = nonNegativeInteger(initialLatestEventId) ?? 0;
   let autoScrollConsole = true;
 
   function localeText(zh, en) {
@@ -40,9 +40,18 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function nonNegativeInteger(value) {
+    return Number.isInteger(value) && value >= 0 ? value : null;
+  }
+
+  function displayCount(value, fallback = 0) {
+    const count = nonNegativeInteger(value);
+    return count === null ? fallback : count;
+  }
+
   function formatDurationMs(value) {
-    const duration = Number(value);
-    if (!Number.isFinite(duration) || duration < 0) {
+    const duration = nonNegativeInteger(value);
+    if (duration === null) {
       return "";
     }
     if (duration < 1000) {
@@ -52,11 +61,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function displayIter(value, fallback = 1) {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed) || parsed < 0) {
+    const parsed = nonNegativeInteger(value);
+    if (parsed === null) {
       return fallback;
     }
-    return Math.floor(parsed) + 1;
+    return parsed + 1;
   }
 
   function lineCountLabel(visibleCount, totalCount = visibleCount) {
@@ -138,12 +147,32 @@ document.addEventListener("DOMContentLoaded", () => {
     const resolvedRole = payload.role_name && window.LooporaUI?.normalizeRoleName
       ? window.LooporaUI.normalizeRoleName(payload.role_name, payload.archetype || payload.role)
       : (payload.role || "-");
+    const iter = nonNegativeInteger(payload.iter);
     return [
-      `iter=${payload.iter !== undefined ? displayIter(payload.iter) : "-"}`,
+      `iter=${iter === null ? "-" : displayIter(iter)}`,
       `step=${payload.step_id || "-"}`,
       `role=${resolvedRole}`,
       `path=${payload.context_path || payload.handoff_path || payload.summary_path || payload.step_prompt_path || payload.output_path || "-"}`,
     ].join(" · ");
+  }
+
+  function runFinishedTone(payload) {
+    const verdictStatus = String(payload.task_verdict_status || "").trim();
+    if (verdictStatus === "failed") {
+      return "error";
+    }
+    if (["insufficient_evidence", "passed_with_residual_risk"].includes(verdictStatus)) {
+      return "warning";
+    }
+    return payload.status === "succeeded" ? "success" : "warning";
+  }
+
+  function runFinishedSummary(payload) {
+    const parts = [`${localeText("运行结束", "Run finished")} · ${window.LooporaUI.translateStatus(payload.status || "succeeded")}`];
+    if (payload.task_verdict_status) {
+      parts.push(`${localeText("任务裁决", "Task verdict")} ${payload.task_verdict_status}`);
+    }
+    return parts.join(" · ");
   }
 
   function buildConsoleLines(event) {
@@ -158,11 +187,12 @@ document.addEventListener("DOMContentLoaded", () => {
       })];
     }
     if (event.event_type === "checks_resolved") {
+      const count = displayCount(payload.count);
       return [buildConsoleEntry(event, {
         tone: "system",
         channel: "state",
         filterKey: "status",
-        summary: `${localeText("检查项已就绪", "Checks resolved")} (${payload.count || 0})`,
+        summary: `${localeText("检查项已就绪", "Checks resolved")} (${count})`,
         text: prettyJson(payload),
       })];
     }
@@ -190,7 +220,8 @@ document.addEventListener("DOMContentLoaded", () => {
       })];
     }
     if (event.event_type === "role_started") {
-      const iterLabel = payload.iter !== undefined ? ` · ${localeText("迭代", "iter")} ${displayIter(payload.iter)}` : "";
+      const iter = nonNegativeInteger(payload.iter);
+      const iterLabel = iter === null ? "" : ` · ${localeText("迭代", "iter")} ${displayIter(iter)}`;
       return [buildConsoleEntry(event, {
         tone: "system",
         channel: "state",
@@ -209,14 +240,17 @@ document.addEventListener("DOMContentLoaded", () => {
       })];
     }
     if (event.event_type === "role_execution_summary") {
-      const tone = payload.ok ? "success" : "error";
+      const ok = payload.ok === true;
+      const tone = ok ? "success" : "error";
       const durationText = formatDurationMs(payload.duration_ms);
-      const detail = payload.ok
-        ? `${localeText("完成", "Completed")} · ${localeText("尝试", "attempts")}=${payload.attempts || 1}${durationText ? ` · ${durationText}` : ""}`
+      const attempts = nonNegativeInteger(payload.attempts);
+      const attemptsText = attempts === null ? "" : ` · ${localeText("尝试", "attempts")}=${attempts}`;
+      const detail = ok
+        ? `${localeText("完成", "Completed")}${attemptsText}${durationText ? ` · ${durationText}` : ""}`
         : `${localeText("失败", "Failed")} · ${payload.error || "-"}${durationText ? ` · ${durationText}` : ""}`;
       return [buildConsoleEntry(event, {
         tone,
-        channel: payload.ok ? "state" : "error",
+        channel: ok ? "state" : "error",
         filterKey: "result",
         summary: detail,
         text: prettyJson(payload),
@@ -257,7 +291,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (event.event_type === "iteration_summary_written") {
       return [buildConsoleEntry(event, {
-        tone: payload.passed ? "success" : "system",
+        tone: payload.passed === true ? "success" : "system",
         channel: "context",
         filterKey: "actions",
         summary: `${localeText("轮次摘要已冻结", "Iteration summary written")} · score=${payload.composite_score ?? "n/a"}`,
@@ -275,11 +309,12 @@ document.addEventListener("DOMContentLoaded", () => {
       })];
     }
     if (event.event_type === "workspace_guard_triggered") {
+      const deletedCount = displayCount(payload.deleted_original_count);
       return [buildConsoleEntry(event, {
         tone: "error",
         channel: "error",
         filterKey: "result",
-        summary: `${localeText("工作区安全守卫触发", "Workspace safety guard triggered")} · ${localeText("删掉原始文件", "Deleted original files")}=${payload.deleted_original_count || 0}`,
+        summary: `${localeText("工作区安全守卫触发", "Workspace safety guard triggered")} · ${localeText("删掉原始文件", "Deleted original files")}=${deletedCount}`,
         text: prettyJson(payload),
       })];
     }
@@ -303,10 +338,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (event.event_type === "run_finished") {
       return [buildConsoleEntry(event, {
-        tone: payload.status === "succeeded" ? "success" : "warning",
+        tone: runFinishedTone(payload),
         channel: "state",
         filterKey: "result",
-        summary: `${localeText("运行结束", "Run finished")} · ${window.LooporaUI.translateStatus(payload.status || "succeeded")}`,
+        summary: runFinishedSummary(payload),
         text: prettyJson(payload),
       })];
     }
@@ -550,21 +585,23 @@ document.addEventListener("DOMContentLoaded", () => {
   function updateRunStateFromEvent(event) {
     const payload = event.payload || {};
     if (event.event_type === "role_started") {
+      const iter = nonNegativeInteger(payload.iter);
       currentRun = {
         ...currentRun,
         status: "running",
         active_role: payload.role || currentRun.active_role,
-        current_iter: payload.iter ?? currentRun.current_iter,
+        current_iter: iter ?? currentRun.current_iter,
       };
       syncConsoleMeta();
       return;
     }
     if (event.event_type === "run_finished") {
+      const iter = nonNegativeInteger(payload.iter);
       currentRun = {
         ...currentRun,
         status: payload.status || currentRun.status,
         active_role: null,
-        current_iter: payload.iter ?? currentRun.current_iter,
+        current_iter: iter ?? currentRun.current_iter,
         finished_at: event.created_at || currentRun.finished_at,
       };
       syncConsoleMeta();
@@ -638,10 +675,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function handleStreamEvent(message) {
     const payload = JSON.parse(message.data);
-    if (payload.id <= lastEventId) {
+    const eventId = nonNegativeInteger(payload.id);
+    if (eventId === null || eventId <= lastEventId) {
       return null;
     }
-    lastEventId = payload.id;
+    lastEventId = eventId;
     pushConsoleEvent(payload);
     updateRunStateFromEvent(payload);
     return payload;

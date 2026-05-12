@@ -12,7 +12,7 @@ from loopora.utils import utc_now
 
 AGENT_ADAPTER_KINDS = ("codex", "claude", "opencode")
 IMPLEMENTED_AGENT_ADAPTERS = {"codex", "claude", "opencode"}
-ADAPTER_VERSION = 4
+ADAPTER_VERSION = 5
 CODEX_ADAPTER_VERSION = ADAPTER_VERSION
 CLAUDE_ADAPTER_VERSION = ADAPTER_VERSION
 OPENCODE_ADAPTER_VERSION = ADAPTER_VERSION
@@ -679,7 +679,7 @@ def _sha256_text(value: str) -> str:
 
 
 def _remove_empty_parents(root: Path, directory: Path) -> None:
-    stop_dirs = {root, root / ".agents", root / ".claude", root / ".opencode", root / ".loopora"}
+    stop_dirs = {root, root / ".agents", root / ".codex", root / ".claude", root / ".opencode", root / ".loopora"}
     current = directory
     while current != current.parent and current not in stop_dirs:
         try:
@@ -791,7 +791,7 @@ Return exactly one wrapper JSON object with `loopora_host_dispatch` and `result`
 
 The `loopora_host_dispatch` object is your native-dispatch proof. Set `schema_version` to 1, `adapter` to the capsule adapter, `run_id` and `step_id` to the capsule values, `target_agent` and `actual_agent` to the exact agent name that invoked you, `dispatch_mode` to `host_subagent`, `host_task`, or `host_agent`, `inline` to false, and `attestation` to a short statement that the host invoked this named role agent rather than doing the role work inline.
 
-Follow any evidence_rules in the capsule as hard constraints. In particular, every evidence_refs value, including coverage_results evidence_refs, must be an exact string copied from known_evidence_ids. Do not invent, suffix, split, or derive new evidence IDs. A GateKeeper pass must cite supporting upstream evidence already known to Loopora, and Loopora Core derives its own finish coverage after submission. For GateKeeper, use the schema's `passed` boolean and `decision_summary`; do not return a `verdict` / `task_verdict` wrapper. Put artifact labels, filenames, and finer-grained observations in evidence_claims or notes, not in evidence_refs.
+Follow any evidence_rules in the capsule as hard constraints. In particular, every evidence_refs value, including coverage_results evidence_refs, must be an exact string copied from known_evidence_ids. Do not invent, suffix, split, or derive new evidence IDs. Use coverage status words such as `covered`, `weak`, `blocked`, or `missing` in coverage_results.status; keep Proven/Weak/Unproven/Blocking/Residual risk as verdict or note buckets. A GateKeeper pass must cite supporting upstream evidence already known to Loopora, and Loopora Core derives its own finish coverage after submission. For GateKeeper, use the schema's `passed` boolean and `decision_summary`; do not return a `verdict` / `task_verdict` wrapper. Put artifact labels, filenames, and finer-grained observations in evidence_claims or notes, not in evidence_refs.
 
 Do not launch codex, claude, or opencode from inside this role. The host Agent is already the execution subject; Loopora only needs the wrapper JSON submitted back through loopora agent <adapter> submit.
 """
@@ -909,8 +909,21 @@ if __name__ == "__main__":
 """
 
 
+def _agent_native_dispatch_guidance(adapter: str) -> str:
+    if adapter != "codex":
+        return ""
+    return """
+Codex native dispatch guidance:
+- When using Codex `spawn_agent`, set `agent_type` to the exact `role_dispatch.target_agent` and omit `fork_context`; do not combine a custom agent type with a full-history fork.
+- Pass only the current step capsule essentials, output schema, known evidence ids, and relevant artifact paths to the role agent. Do not pass the full conversation or unrelated run history.
+- Ask the role agent to return the required structured result directly. Prefer empty proof arrays over creating extra proof files unless the capsule requires an artifact.
+- Wait for the role agent with a bounded timeout that is shorter than the surrounding command timeout. If native dispatch cannot complete, report that as unavailable instead of waiting indefinitely or submitting inline work.
+"""
+
+
 def _agent_native_loop_body(*, adapter: str, marker_source: str, context_arg: str = "") -> str:
     context_bits = f" {context_arg}" if context_arg else ""
+    dispatch_guidance = _agent_native_dispatch_guidance(adapter)
     return f"""Start or reuse the Loopora-managed run for the READY bundle associated with this session or workdir.
 
 ## Required path
@@ -927,6 +940,7 @@ LOOPORA_AGENT_ENTRY_SOURCE={marker_source} loopora agent {adapter} loop --workdi
    - inspector/custom step -> `loopora-inspector`
    - gatekeeper step -> `loopora-gatekeeper`
    - guide step -> `loopora-guide`
+{dispatch_guidance.rstrip()}
 4. Treat `next_step.output_schema`, `next_step.evidence_rules`, `next_step.evidence_ref_contract`, and `next_step.role_dispatch` as the result contract. If the host cannot invoke the required role agent, stop and report that native dispatch is unavailable rather than submitting inline work.
 5. Save one wrapper JSON object under `.loopora/agent_outbox/{adapter}/`, then submit it. The wrapper must have exactly this shape:
 

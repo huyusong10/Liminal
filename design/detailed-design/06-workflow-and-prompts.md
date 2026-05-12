@@ -85,6 +85,7 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 
 - workflow `role.id`、`step.id`、`controls[].id` 与 `parallel_group` 必须使用安全稳定标识：字母、数字、点、下划线或短横线，长度 1-80。
 - 缺失的 role / step id 仍可由系统生成 `role_001` / `step_001` 这类安全标识。
+- 只有字段缺失或空字符串可触发默认 id；显式布尔值、数字或对象不能经 `str()` 或 truthy/default 逻辑被转成稳定标识。
 - 非法标识必须在 workflow 或 bundle 保存 / 预览前失败，不能进入 run artifact 路径或持久化事实源。
 
 每个 control 至少表达：
@@ -102,9 +103,11 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 
 - `inherit_session` 按“同一个 step 跨轮次续接自己的会话”解释，不按“当前目录最近一次会话”解释。
 - Builder step 默认继承 session；Inspector、GateKeeper、Guide 与 Custom step 默认不继承，除非显式打开。
+- Web 编排编辑器、Web API 与 bundle projection 对 `inherit_session` 使用同一组表单兼容布尔值：literal boolean、`1/0` 与字符串 `true/false/yes/no/on/off`。前端不得用 JavaScript truthiness 把字符串 `"false"` 误解释为续接会话；非法值在服务层归一化时仍应失败关闭。
 - `posture_notes` 是 task-scoped 治理注入位，不是 archetype 本身，也不是全局 task contract 的替代品。
 - posture 可以承载用户难以完全规则化的隐性判断；Inspector 可以按 posture 做语义检视，只要输出能落到 evidence、handoff、blocker 或 residual risk。
 - `action_policy` 归属于 step。Builder archetype 通常获得写入权限，Inspector / GateKeeper / Guide / Custom 通常只读或只产出判断；例外必须在 workflow 中显式表达。
+- `action_policy.workspace` 必须是明确的字符串枚举；缺失可使用 archetype 默认值，但显式布尔值、数字或其他非字符串值不能被 falsy/default 逻辑吞成默认权限。
 - `extra_cli_args` 必须是可被 shell 风格分词解析的字符串。
 - command mode 参数模板是每行一个 argv 参数，只能使用 executor 公开声明的运行时占位符；未知 `{name}` 占位符在保存、预览或启动前失败，`{extra_cli_args}` 只能作为独立 argv 插入点。
 - `parallel_group` 第一阶段只支持连续的 Inspector / Custom step，用于 fan-out / fan-in 检视；它不是任意 DAG 语法。
@@ -114,14 +117,15 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 - 长链中的每个 Builder 必须有明确阶段产物、handoff 和下游读取者；若某个 Builder 只重复“继续推进”而没有新的证据责任或交接边界，应合并到相邻 Builder，避免退化成 role zoo 或 loop script。
 - 当 Builder 排在另一个 Builder 之后，若中间存在 Inspector、Custom 或 Guide，后一个 Builder 必须显式读取对应 handoff；若两个 Builder 直接相邻，也应通过 task-specific role posture 或 step input 说明阶段边界，避免依赖 ambient context。
 - Guide step 是只读的方向转换步骤，不会因当前未停滞而被服务层自动跳过。若 workflow 显式安排 Guide，它必须通过 `inputs.handoffs_from` / `inputs.evidence_query` 读取上游审查、阻断或未证明证据；条件式 Guide 应通过 `controls[]` 表达。
-- `inputs.handoffs_from` 可按 step id、role id、runtime role、archetype 或 role name 选择当前轮上游 handoff。
-- `inputs.evidence_query` 可按 evidence 生产角色、验证目标和数量上限裁剪 evidence ledger 摘要；显式声明时，下游 prompt 中可引用的 evidence ids 也必须跟随裁剪结果，避免角色绕过 workflow 信息流引用未路由证据。完整 ledger 仍是 canonical source。
+- `inputs.handoffs_from` 可按 step id、role id、runtime role、archetype 或 role name 选择当前轮上游 handoff；字符串数组项必须本身就是字符串，不能把数字、布尔值或对象经 `str()` 隐式转成引用。
+- `inputs.evidence_query` 可按 evidence 生产角色、验证目标和数量上限裁剪 evidence ledger 摘要；`archetypes`、`verifies` 的字符串数组项必须本身就是字符串；`limit` 若显式声明，创建、导入和运行时读取持久化 workflow 都必须把它当作受限正整数，布尔值、小数、字符串数字或非数字必须失败关闭。显式声明时，下游 prompt 中可引用的 evidence ids 也必须跟随裁剪结果，避免角色绕过 workflow 信息流引用未路由证据。完整 ledger 仍是 canonical source。
 - `inputs.iteration_memory` 可选择 `default / none / same_step / same_role / summary_only`，用于控制轮次间信息传递。
 - `controls[].when.signal` v1 只允许 `no_evidence_progress / role_timeout / step_failed / gatekeeper_rejected`。
 - `no_evidence_progress` 不只表示 composite score 停滞；当多轮后 required `Done When` coverage count 没有增加且仍有缺失 check 时，也应触发同一控制信号，让系统尽早暴露“故事在动但证明没动”。
 - control 只能调用当前 workflow 中已有的 Inspector、Guide 或 GateKeeper；不能调用 Builder，避免自动修复污染工作区。
 - control invocation 是控制检查调用，不插入 canonical workflow 顺序；它只产生 evidence、handoff、blocker 或修复建议。
-- `controls[].max_fires_per_run` 必须是 `1..20` 的有界正整数；显式 `0` 不能在 Web 编辑器、bundle projection 或运行装配中被默认值隐藏。
+- `controls[].max_fires_per_run` 必须是 `1..20` 的有界正整数；显式 `0`、布尔值、小数、字符串数字或非数字不能在 Web 编辑器、bundle projection 或运行装配中被默认值隐藏。
+- `controls[].mode` 与 `controls[].when.after` 必须是明确的字符串值；缺失可使用默认值，显式布尔值、数字或其他非字符串值必须失败关闭。
 - control 自身失败必须写入 run event stream，不能静默吞掉。
 
 ## 4. 内置 starter orchestration
@@ -185,7 +189,7 @@ workflow 保存前必须满足：
 - evidence ledger item 必须标记证据类型，例如 `handoff`、`inspection`、`verdict`、`advisory` 或 `observation`。
 - GateKeeper 输出通过时必须引用上游支持性 `evidence_refs`；Inspector / Custom / control 输出可以作为取证或检视支持，Builder handoff 只有在携带 proof artifact 或 measured evidence 时才可以作为支持。普通 Builder 自述、GateKeeper verdict、blocked / failed / rejected 的上游 evidence 不能作为通过依据。如果 GateKeeper 是本轮第一个证据读取者，则必须提供可度量 `metric_scores` 和具体 `evidence_claims`。自然语言 claims 单独不能结束 run。
 - GateKeeper 输出契约必须包含 `residual_risks` 数组；无残余风险时返回空数组，有可接受残余风险时逐项命名。通过态的有意义 residual risk 会进入 task verdict 的 `passed_with_residual_risk`，不能只藏在 `decision_summary` 自由文本里。
-- GateKeeper 与 Inspector 一样可以通过 `coverage_results` 明确覆盖或拒绝 coverage target；这主要用于 Fake Done 与 Evidence Preferences 这类裁决期风险 / 证据偏好。ledger item 必须保留每条 `coverage_results` 的 `target_id / status / evidence_refs / note`，不能只把 refs 压平成 item 级关系。positive coverage 必须由当前支持性 item、measured evidence，或当前 target 自己的 `coverage_results.evidence_refs` 指向的支持性 evidence 支撑，否则 projection 只能标记为 weak。schema、prompt 与 ledger `verifies` 必须保持一致，不能提示模型输出一个会被 schema 拒绝的字段。
+- GateKeeper 与 Inspector 一样可以通过 `coverage_results` 明确覆盖或拒绝 coverage target；这主要用于 Fake Done 与 Evidence Preferences 这类裁决期风险 / 证据偏好。ledger item 必须保留每条 `coverage_results` 的 `target_id / status / evidence_refs / note`，不能只把 refs 压平成 item 级关系。`coverage_results.status` 使用覆盖词汇，满足目标时首选 `covered`；`Proven / Weak / Unproven / Blocking / Residual risk` 是裁决投影桶，不应被提示成 coverage status。Core 可兼容常见正向别名并归一到 `covered`，但 positive coverage 必须由当前支持性 item、measured evidence，或当前 target 自己的 `coverage_results.evidence_refs` 指向的支持性 evidence 支撑，否则 projection 只能标记为 weak。schema、prompt 与 ledger `verifies` 必须保持一致，不能提示模型输出一个会被 schema 拒绝的字段。
 - `custom` role 可以进入编排，但不能成为收敛裁决入口。
 - 并行组必须是连续 step，且每组至少 2 个 step。
 - 并行组内第一阶段只允许 `inspector` 与 `custom`，不允许 `builder`、`gatekeeper` 或 `guide`，避免并发写入和并发收敛污染 run 状态。
@@ -248,12 +252,13 @@ step 级执行附加项只影响当前 step：
 - 后续轮次必须显式继承 evidence progress 状态：当 required coverage 没有新增证明且仍有缺口时，当前 step prompt 与上一轮 summary 都应暴露 `evidence_progress_mode`、covered / missing check count 和连续无覆盖增量，避免模型只看到分数变化而看不到“故事在动但证明没动”。
 - 系统安全边界、输出契约和 context packet shape 不能被自定义 prompt 绕开。
 - evidence ledger 摘要只传递近期 item、已知 evidence id 列表、ledger 路径和当前 step 可引用 claims 的 manifest proof-strength 摘要，避免把证据账本或 manifest 全文复制进每个 prompt。服务层校验 GateKeeper `evidence_refs` 时必须回到 canonical ledger 补全已允许 id 的完整 evidence item；不能因为 prompt 摘要裁剪掉旧 item 就把仍在信息流权限内的 evidence ref 误判为未知或非支持。
-- `inputs.evidence_query` 裁剪 evidence 时，prompt 中的 known ids、manifest claim rows 与 proof-strength summary 都必须跟随同一可引用集合；proof-strength 不得泄露裁剪外证据，也不得让 UI 事后投影成为 GateKeeper 决策时看不到的事实。
+- 显式 `inputs.evidence_query` 必须先从当前可见 evidence 集合按 query 匹配，再应用 limit；普通 step 的当前可见集合是完整 canonical ledger，并行 peer 的当前可见集合是组起点快照。未声明 query 时可以只渲染近期 item 摘要，但 `known_ids` 仍表达当前 step 可引用的 canonical evidence id 集合。
+- `inputs.evidence_query` 裁剪 evidence 时，prompt 中的 known ids、manifest claim rows 与 proof-strength summary 都必须跟随同一可引用集合；manifest claim rows 应保留有界 coverage target trace，包括 target id、覆盖状态、required 语义和支持 refs；proof-strength 不得泄露裁剪外证据，也不得让 UI 事后投影成为 GateKeeper 决策时看不到的事实。
 - `inputs` 只能裁剪当前 prompt 的可见上下文，不能改变 run 的 canonical evidence ledger、step output、handoff 或 iteration summary。
 - Guide 的运行时 prompt 与输出契约必须把 Blocking、Unproven 或停滞信号转成最小修复 / 收窄方向；Weak 证据只有在会改变裁决时才优先补强，Residual risk 必须保持可见。
 - control prompt 必须显式说明触发信号、原因、读取的 evidence refs 和模式；它产生的 ledger item 使用 `evidence_kind=control`。
-- `Role Notes` / `posture_notes` / `collaboration_intent` 可以影响角色工作姿态，但不能改写 `Task / Done When / Guardrails`。
-- 所有运行期 archetype 的 system prompt 前缀都必须提醒角色：run contract 已冻结；若发现 `Task / Done When / Guardrails` 过窄、过松或冲突，应作为 evidence gap / blocker / Loop 调整建议暴露，而不能在 run 内静默降级或改写。
+- `Role Notes` / `posture_notes` / `collaboration_intent` 可以影响角色工作姿态，但不能改写 `Task / Done When / Guardrails / Success Surface / Fake Done / Evidence Preferences / Residual Risk`。
+- 所有运行期 archetype 的 system prompt 前缀都必须提醒角色：run contract 已冻结；若发现 `Task / Done When / Guardrails / Success Surface / Fake Done / Evidence Preferences / Residual Risk` 过窄、过松或冲突，应作为 evidence gap / blocker / Loop 调整建议暴露，而不能在 run 内静默降级或改写。
 - step `action_policy` 可以收窄或授予当前调用的行动边界，但不能让角色越过系统安全约束、workspace guard 或 completion mode 语义。
 - 当环境阻断浏览器、截图或桌面控制能力时，prompt 应引导角色切换到可重复 fallback 证据，并把环境限制写入 handoff。
 - agent-native step result 与 headless executor result 进入同一结构化归一化、evidence ledger 和 GateKeeper 裁决边界；接口差异不能改变证据事实源。

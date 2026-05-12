@@ -57,22 +57,38 @@ _SECRET_KEYS = {
     "bearer_token",
     "cookie",
     "password",
+    "private_key",
+    "privatekey",
     "secret",
     "secret_token",
     "set_cookie",
     "token",
 }
 _SECRET_KEY_SUFFIXES = ("_api_key", "_authorization", "_cookie", "_password", "_private_key", "_secret", "_token")
+_SECRET_COMPACT_KEY_SUFFIXES = (
+    "apikey",
+    "authorization",
+    "authtoken",
+    "bearertoken",
+    "clientsecret",
+    "cookie",
+    "password",
+    "privatekey",
+    "secret",
+    "secrettoken",
+    "setcookie",
+    "token",
+)
 _SECRET_ARG_PATTERN = re.compile(
-    r"(?i)(--(?:api-key|auth-token|bearer-token|password|secret(?:-token)?|token)(?:=|\s+))"
+    r"(?i)(--(?:access[-_]token|api[-_]key|auth(?:orization|[-_]token)|bearer[-_]token|client[-_]secret|cookie|id[-_]token|password|private[-_]key|proxy[-_]authorization|refresh[-_]token|secret(?:[-_]token)?|session[-_]token|set[-_]cookie|token|x[-_](?:api[-_]key|loopora[-_]token))(?:=|\s+))"
     r"(<secret omitted>|\"[^\"]*\"|'[^']*'|[^\s]+)"
 )
 _ENV_SECRET_PATTERN = re.compile(
-    r"(?i)\b((?:OPENAI_API_KEY|ANTHROPIC_API_KEY|API_KEY|TOKEN|SECRET|PASSWORD)=)(<secret omitted>|[^\s]+)"
+    r"(?i)\b(([A-Z0-9_]*(?:API_KEY|AUTH_TOKEN|BEARER_TOKEN|CLIENT_SECRET|PRIVATE_KEY|TOKEN|SECRET|PASSWORD))=)(<secret omitted>|[^\s]+)"
 )
 _BEARER_SECRET_PATTERN = re.compile(r"(?i)\b((?:authorization:\s*)?bearer\s+)([A-Za-z0-9._~+/=-]+)")
 _HEADER_SECRET_PATTERN = re.compile(
-    r"(?i)\b((?:authorization|cookie|set-cookie|x-api-key|x-loopora-token):\s*)([^\r\n]+)"
+    r"(?i)\b((?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-loopora-token):\s*)([^\r\n]+)"
 )
 
 
@@ -280,9 +296,18 @@ def _redact_value(key: str, value: object) -> object:
         return PROMPT_OMITTED
     if normalized_key in _JSON_SCHEMA_KEYS:
         return JSON_SCHEMA_OMITTED
-    if normalized_key in _SECRET_KEYS or normalized_key.endswith(_SECRET_KEY_SUFFIXES):
+    if _is_secret_key(normalized_key):
         return SECRET_OMITTED
     return _redact_container(value)
+
+
+def _is_secret_key(normalized_key: str) -> bool:
+    compact_key = re.sub(r"[^a-z0-9]+", "", normalized_key)
+    return (
+        normalized_key in _SECRET_KEYS
+        or normalized_key.endswith(_SECRET_KEY_SUFFIXES)
+        or compact_key.endswith(_SECRET_COMPACT_KEY_SUFFIXES)
+    )
 
 
 def _redact_container(value: object) -> object:

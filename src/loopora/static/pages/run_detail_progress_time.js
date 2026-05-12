@@ -2,11 +2,15 @@
   function createProgressTimeHelpers(deps = {}) {
     const localeText = deps.localeText || ((zh, en) => en || zh || "");
 
+    function nonNegativeNumber(value) {
+      return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+    }
+
     function formatDurationMs(value) {
-      if (value === undefined || value === null || Number.isNaN(Number(value))) {
+      const ms = nonNegativeNumber(value);
+      if (ms === null) {
         return "";
       }
-      const ms = Number(value);
       if (ms < 1000) {
         return `${Math.round(ms)}ms`;
       }
@@ -15,7 +19,11 @@
     }
 
     function formatStageDuration(ms) {
-      const totalSeconds = Math.max(0, Math.round(Number(ms || 0) / 1000));
+      const normalized = nonNegativeNumber(ms);
+      if (normalized === null) {
+        return "";
+      }
+      const totalSeconds = Math.round(normalized / 1000);
       if (!totalSeconds) {
         return "";
       }

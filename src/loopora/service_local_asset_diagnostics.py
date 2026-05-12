@@ -238,13 +238,14 @@ def _append_registry_records_without_dirs(
         if not resource_type or not resource_id or path.exists():
             continue
         key = (resource_type, resource_id, str(path))
-        if key in record_without_dir_keys or not _registry_record_has_live_owner(
+        has_live_owner = _registry_record_has_live_owner(
             resource_type=resource_type,
             resource_id=resource_id,
             bundle_ids=bundle_ids,
             alignment_session_ids=alignment_session_ids,
             run_ids=run_ids,
-        ):
+        )
+        if key in record_without_dir_keys or (row.get("state") != "active" and not has_live_owner):
             continue
         record_without_dir.append({"resource_type": resource_type, "resource_id": resource_id, "path": str(path)})
         record_without_dir_keys.add(key)

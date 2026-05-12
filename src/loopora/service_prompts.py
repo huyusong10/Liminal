@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -9,7 +10,8 @@ from loopora.specs import resolve_role_note
 
 
 FROZEN_CONTRACT_GUIDANCE = (
-    "Treat the run contract as frozen: do not reinterpret or lower the Task, Done When, checks, or guardrails. "
+    "Treat the run contract as frozen: do not reinterpret or lower the Task, Done When, checks, guardrails, "
+    "Success Surface, Fake Done, Evidence Preferences, or Residual Risk. "
     "If the contract seems too narrow, too loose, or conflicted, surface that as an evidence gap, blocker, "
     "or Loop-adjustment recommendation instead of silently changing the target. "
     "Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
@@ -105,7 +107,7 @@ class ServiceRunPromptMixin:
             f"Constraints:\n{constraints}\n\n"
             f"{role_note}"
             "Return JSON with attempted, abandoned, assumption, summary, changed_files, proof_files, proof_artifacts, and artifact_paths. "
-            "Use empty arrays for proof_files, proof_artifacts, and artifact_paths when no proof artifact was created."
+            "Use empty arrays for changed_files, proof_files, proof_artifacts, and artifact_paths when no files or proof artifacts were created."
         )
 
     def _generator_prior_iteration_feedback(
@@ -164,8 +166,9 @@ class ServiceRunPromptMixin:
             f"{role_note}"
             "Inside `execution_summary`, return `total_checks`, `passed`, `failed`, `errored`, and `total_duration_ms`.\n"
             "For every `check_results` item and every `dynamic_checks` item, return `id`, `title`, `status`, and `notes`.\n"
-            "Return `coverage_results` as an empty list unless you can explicitly verify or reject Fake Done or Evidence Preferences coverage targets; "
-            "entries must include target_id, status, evidence_refs, and note.\n"
+            "Return `check_results`, `dynamic_checks`, and `coverage_results` as empty lists when there are no items.\n"
+            "Only populate `coverage_results` when you can explicitly verify or reject Fake Done or Evidence Preferences coverage targets; "
+            "entries must include target_id, status, evidence_refs, and note. Use coverage status words such as `covered`, `weak`, `blocked`, or `missing`; keep Proven/Weak/Unproven/Blocking/Residual risk as note buckets, not status values.\n"
             "Return JSON with execution_summary, check_results, dynamic_checks, tester_observations, and coverage_results."
         )
 
@@ -180,7 +183,7 @@ class ServiceRunPromptMixin:
             "Distinguish product or knowledge failures from harness-process defects, and surface harness defects as first-class failures when they block trustworthy evaluation.\n"
             "Separate run status from task verdict. Organize evidence as Proven, Weak, Unproven, Blocking, and Residual risk; do not treat a normal run lifecycle as task proof.\n"
             f"{FROZEN_CONTRACT_GUIDANCE}"
-            "Return `coverage_results` as an empty list unless you can explicitly verify or reject Fake Done or Evidence Preferences coverage targets; entries must include target_id, status, evidence_refs, and note.\n"
+            "Return `coverage_results` as an empty list unless you can explicitly verify or reject Fake Done or Evidence Preferences coverage targets; entries must include target_id, status, evidence_refs, and note. Use coverage status words such as `covered`, `weak`, `blocked`, or `missing`; keep Proven/Weak/Unproven/Blocking/Residual risk as verdict buckets, not status values.\n"
             f"Iteration: {iter_id}\n"
             f"Mode: {mode}\n"
             f"Goal:\n{compiled_spec['goal']}\n\n"
@@ -191,7 +194,7 @@ class ServiceRunPromptMixin:
             "Return `metrics` as rows with `name`, `value`, `threshold`, and `passed`.\n"
             "Inside `metric_scores`, provide exactly `check_pass_rate` and `quality_score`, each with `value`, `threshold`, and `passed`.\n"
             "For every `priority_failures` item, return `error_code` and `summary`.\n"
-            "For every `coverage_results` item, return `target_id`, `status`, `evidence_refs`, and `note`.\n"
+            "For every `coverage_results` item, return `target_id`, `status`, `evidence_refs`, and `note`; use `covered` for a verified target.\n"
             "When passing, cite concrete supporting Evidence ledger item ids in `evidence_refs`; a plain Builder handoff is not support unless it carries a proof artifact or measured evidence. "
             "If this GateKeeper step is the first evidence reader, prose claims alone are not enough; include measured `metric_scores` and put concise proof statements in `evidence_claims`.\n"
             "Return `metrics`, `blocking_issues`, `hard_constraint_violations`, `failed_check_ids`, `priority_failures`, `evidence_refs`, `evidence_claims`, `residual_risks`, and `coverage_results` as arrays; "
@@ -219,9 +222,14 @@ class ServiceRunPromptMixin:
             "Return JSON with created_at_iter, mode, consumed, analysis, seed_question, and meta_note."
         )
 
-    def _normalize_generated_checks(self, checks: list[dict]) -> list[dict]:
+    def _normalize_generated_checks(self, checks: object) -> list[dict]:
+        if not isinstance(checks, list):
+            return []
         normalized = []
-        for index, raw_check in enumerate(checks, start=1):
+        for raw_check in checks:
+            if not isinstance(raw_check, Mapping):
+                continue
+            index = len(normalized) + 1
             title = str(raw_check.get("title", "")).strip() or f"Exploratory check {index}"
             when = str(raw_check.get("when", "")).strip()
             expect = str(raw_check.get("expect", "")).strip()

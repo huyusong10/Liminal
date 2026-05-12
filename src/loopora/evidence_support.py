@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from loopora.structured_booleans import structured_bool_is_true
+
 NON_SUPPORTING_EVIDENCE_RESULTS = {"blocked", "failed", "fail", "rejected", "error", "errored"}
 SUPPORTING_REVIEW_ARCHETYPES = {"inspector", "custom"}
 
@@ -19,7 +21,7 @@ def evidence_item_is_supporting_gatekeeper_ref(item: Mapping[str, Any]) -> bool:
         return True
     if str(item.get("evidence_kind") or "").strip().lower() == "control":
         return True
-    if bool(item.get("measured_evidence")):
+    if structured_bool_is_true(item.get("measured_evidence")):
         return True
     return _has_proof_artifact_ref(item.get("artifact_refs"))
 

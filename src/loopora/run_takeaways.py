@@ -10,6 +10,8 @@ from typing import Any, NotRequired, TypedDict
 from loopora.branding import strip_run_summary_title
 from loopora.evidence_coverage import load_or_build_evidence_coverage_projection, summarize_evidence_coverage_projection
 from loopora.run_artifacts import RunArtifactLayout, read_jsonl
+from loopora.structured_numbers import structured_non_negative_int
+from loopora.task_verdicts import BUCKET_KEYS, normalize_task_verdict
 from loopora.workflows import ARCHETYPES, display_name_for_archetype, normalize_role_display_name
 
 LEGACY_RUNTIME_ROLE_TO_ARCHETYPE = {
@@ -18,6 +20,30 @@ LEGACY_RUNTIME_ROLE_TO_ARCHETYPE = {
     "verifier": "gatekeeper",
     "challenger": "guide",
 }
+EVIDENCE_COVERAGE_COUNT_FIELDS = (
+    "evidence_count",
+    "check_count",
+    "covered_check_count",
+    "missing_check_count",
+    "target_count",
+    "covered_target_count",
+    "weak_target_count",
+    "missing_target_count",
+    "blocked_target_count",
+    "artifact_ref_count",
+    "residual_risk_count",
+)
+EVIDENCE_COVERAGE_STATUSES = {"pending", "covered", "weak", "partial", "blocked", "legacy"}
+EVIDENCE_MANIFEST_COUNT_FIELDS = (
+    "claim_count",
+    "artifact_backed_claim_count",
+    "workspace_backed_claim_count",
+    "direct_proof_claim_count",
+    "workspace_artifact_claim_count",
+    "run_artifact_claim_count",
+    "ledger_only_claim_count",
+    "unverified_claim_count",
+)
 
 
 class RunTakeawayProjection(TypedDict):
@@ -42,10 +68,10 @@ class RunTakeawayProjection(TypedDict):
 def display_iter(iter_value: object | None) -> int | None:
     if iter_value is None:
         return None
-    try:
-        return max(int(iter_value), 0) + 1
-    except (TypeError, ValueError):
+    normalized = _int_value(iter_value, default=None)
+    if normalized is None:
         return None
+    return normalized + 1
 
 
 def strip_markdown(value: str | None) -> str:
@@ -82,14 +108,20 @@ def safe_read_json_file(path: Path) -> dict | None:
 
 
 def clean_takeaway_text(value: object, *, max_length: int = 240) -> str:
-    text = truncate_text(strip_markdown(str(value or "").strip()), max_length=max_length)
+    if not isinstance(value, str):
+        return ""
+    text = truncate_text(strip_markdown(value.strip()), max_length=max_length)
     return text.strip()
 
 
+def _string_value(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
 def display_role_name(name: object, *, archetype: object = "", runtime_role: object = "") -> str:
-    cleaned_name = str(name or "").strip()
-    cleaned_runtime = str(runtime_role or "").strip().lower()
-    cleaned_archetype = str(archetype or "").strip().lower() or LEGACY_RUNTIME_ROLE_TO_ARCHETYPE.get(cleaned_runtime, "")
+    cleaned_name = _string_value(name)
+    cleaned_runtime = _string_value(runtime_role).lower()
+    cleaned_archetype = _string_value(archetype).lower() or LEGACY_RUNTIME_ROLE_TO_ARCHETYPE.get(cleaned_runtime, "")
     normalized_name = normalize_role_display_name(cleaned_name, cleaned_archetype)
     if normalized_name:
         return normalized_name
@@ -111,34 +143,27 @@ def normalize_takeaway_status(status: object) -> str:
 
 def build_role_takeaway_from_handoff(handoff: Mapping[str, object], *, composite_score: object = None) -> dict:
     source = handoff.get("source") if isinstance(handoff.get("source"), Mapping) else {}
-    try:
-        iter_id = int(source.get("iter", 0))
-    except (TypeError, ValueError):
-        iter_id = 0
-    try:
-        step_order = int(source.get("step_order") or 0)
-    except (TypeError, ValueError):
-        step_order = 0
+    iter_id = _int_value(source.get("iter"), default=0) or 0
+    step_order = _int_value(source.get("step_order"), default=0) or 0
     role_name = display_role_name(
         source.get("role_name"),
         archetype=source.get("archetype"),
         runtime_role=source.get("runtime_role"),
     )
-    blocking_items = [
-        clean_takeaway_text(item, max_length=520) for item in list(handoff.get("blocking_items") or []) if clean_takeaway_text(item, max_length=520)
-    ]
+    blocking_items = [clean_takeaway_text(item, max_length=520) for item in _string_list(handoff.get("blocking_items"))]
     next_action = clean_takeaway_text(handoff.get("recommended_next_action"), max_length=520)
+    step_id = _string_value(source.get("step_id"))
     return {
-        "id": f"iter-{iter_id}-{str(source.get('step_id') or role_name).strip() or role_name}",
-        "step_id": str(source.get("step_id") or "").strip(),
+        "id": f"iter-{iter_id}-{step_id or role_name}",
+        "step_id": step_id,
         "step_order": step_order,
         "role_name": role_name,
-        "archetype": str(source.get("archetype") or "").strip().lower(),
+        "archetype": _string_value(source.get("archetype")).lower(),
         "status": normalize_takeaway_status(handoff.get("status")),
         "summary": clean_takeaway_text(handoff.get("summary"), max_length=1200),
         "blocking_item": " · ".join(blocking_items),
         "next_action": next_action,
-        "evidence_refs": [str(item).strip() for item in list(handoff.get("evidence_refs") or []) if str(item).strip()],
+        "evidence_refs": _string_list(handoff.get("evidence_refs")),
         "composite_score": composite_score,
     }
 
@@ -202,15 +227,22 @@ def _current_iter_id(run: Mapping[str, Any]) -> int | None:
 
 
 def _int_value(value: object, *, default: int | None) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
+    if default is None:
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return value
+        return None
+    return structured_non_negative_int(value, default=default)
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
 
 
 def _handoff_step_order(handoff: Mapping[str, object]) -> int:
     source = handoff.get("source") if isinstance(handoff.get("source"), Mapping) else {}
-    return int(source.get("step_order") or 0)
+    return structured_non_negative_int(source.get("step_order"))
 
 
 def _build_structured_iteration_takeaway(
@@ -292,9 +324,10 @@ def build_legacy_iteration_takeaway(run: dict) -> dict | None:
         return None
 
     run_status = str(run.get("status") or "").strip().lower()
+    iter_id = _int_value(run.get("current_iter"), default=0) or 0
     return {
-        "iter": int(run.get("current_iter") or 0),
-        "display_iter": display_iter(run.get("current_iter")) or 1,
+        "iter": iter_id,
+        "display_iter": display_iter(iter_id) or 1,
         "status": _legacy_iteration_status(run_status, verdict, roles),
         "phase": run_status,
         "summary": excerpt or clean_takeaway_text(verdict.get("decision_summary"), max_length=220),
@@ -325,7 +358,7 @@ def _legacy_failure_roles(verdict: Mapping[str, Any]) -> list[dict]:
 
 
 def _legacy_failure_role(failure: Mapping[str, Any], *, index: int, verdict: Mapping[str, Any]) -> dict:
-    runtime_role = str(failure.get("role") or "").strip().lower()
+    runtime_role = _string_value(failure.get("role")).lower()
     return {
         "id": f"legacy-failure-{index}",
         "step_id": "",
@@ -343,11 +376,11 @@ def _legacy_failure_role(failure: Mapping[str, Any], *, index: int, verdict: Map
 def _legacy_failure_support_bits(failure: Mapping[str, Any]) -> list[str]:
     support_bits = []
     error_code = clean_takeaway_text(failure.get("error_code"), max_length=80)
-    attempts = failure.get("attempts")
-    degraded = bool(failure.get("degraded"))
+    attempts = _int_value(failure.get("attempts"), default=None)
+    degraded = failure.get("degraded") is True
     if error_code:
         support_bits.append(error_code)
-    if attempts not in {None, ""}:
+    if attempts is not None:
         support_bits.append(f"attempts={attempts}")
     if degraded:
         support_bits.append("degraded")
@@ -370,9 +403,22 @@ def _legacy_gatekeeper_role(verdict: Mapping[str, Any], *, step_order: int, exce
 
 
 def _legacy_blocking_note(verdict: Mapping[str, Any]) -> str:
-    return clean_takeaway_text((verdict.get("blocking_issues") or [""])[0], max_length=140) or clean_takeaway_text(
-        (verdict.get("hard_constraint_violations") or [""])[0], max_length=140
-    )
+    for item in [
+        *_legacy_verdict_string_list(verdict.get("blocking_issues")),
+        *_legacy_verdict_string_list(verdict.get("hard_constraint_violations")),
+    ]:
+        text = clean_takeaway_text(item, max_length=140)
+        if text:
+            return text
+    return ""
+
+
+def _legacy_verdict_string_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
 
 
 def _legacy_feedback(verdict: Mapping[str, Any]) -> str:
@@ -442,12 +488,13 @@ def build_minimal_run_takeaway_projection(
     *,
     source_event_id: int | None = None,
 ) -> RunTakeawayProjection:
-    task_verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), Mapping) else {}
+    raw_task_verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), Mapping) else {}
+    task_verdict = normalize_task_verdict(raw_task_verdict)
     projection: RunTakeawayProjection = {
         "run_status": str(run.get("run_status") or run.get("status") or "").strip(),
         "task_verdict": dict(task_verdict),
         "task_verdict_path": "",
-        "evidence_buckets": dict(task_verdict.get("buckets") or {}) if isinstance(task_verdict, Mapping) else {},
+        "evidence_buckets": _normalize_takeaway_evidence_buckets(raw_task_verdict.get("buckets")),
         "build_dir": str(Path(str(run.get("workdir") or "")).expanduser().resolve()) if run.get("workdir") else "",
         "log_dir": str(Path(str(run.get("runs_dir") or "")).expanduser().resolve()) if run.get("runs_dir") else "",
         "evidence_count": 0,
@@ -461,7 +508,7 @@ def build_minimal_run_takeaway_projection(
         "iterations": [],
     }
     if source_event_id is not None:
-        projection["source_event_id"] = int(source_event_id or 0)
+        projection["source_event_id"] = _int_value(source_event_id, default=0) or 0
     return projection
 
 
@@ -500,21 +547,43 @@ def _apply_takeaway_scalar_projection_fields(normalized: RunTakeawayProjection, 
 
 
 def _apply_takeaway_task_verdict_projection_fields(normalized: RunTakeawayProjection, projection: Mapping[str, Any]) -> None:
-    if isinstance(projection.get("task_verdict"), Mapping):
-        normalized["task_verdict"] = dict(projection.get("task_verdict") or {})
-        normalized["evidence_buckets"] = (
-            dict(normalized["task_verdict"].get("buckets") or {}) if isinstance(normalized["task_verdict"].get("buckets"), Mapping) else {}
-        )
+    raw_task_verdict = projection.get("task_verdict") if isinstance(projection.get("task_verdict"), Mapping) else {}
+    task_verdict = normalize_task_verdict(raw_task_verdict)
+    if task_verdict:
+        normalized["task_verdict"] = task_verdict
+        normalized["evidence_buckets"] = _normalize_takeaway_evidence_buckets(raw_task_verdict.get("buckets"))
     if isinstance(projection.get("evidence_buckets"), Mapping):
-        normalized["evidence_buckets"] = dict(projection.get("evidence_buckets") or {})
+        normalized["evidence_buckets"] = _normalize_takeaway_evidence_buckets(projection.get("evidence_buckets"))
+
+
+def _normalize_takeaway_evidence_buckets(value: object) -> dict[str, list[dict]]:
+    if not isinstance(value, Mapping):
+        return {}
+    buckets: dict[str, list[dict]] = {}
+    for key in BUCKET_KEYS:
+        if key in value:
+            buckets[key] = _takeaway_bucket_list(value.get(key))
+    return buckets
+
+
+def _takeaway_bucket_list(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    result: list[dict] = []
+    for item in value:
+        if isinstance(item, Mapping):
+            result.append(dict(item))
+        elif isinstance(item, str) and item.strip():
+            result.append({"label": item.strip()})
+    return result
 
 
 def _apply_takeaway_evidence_projection_fields(normalized: RunTakeawayProjection, projection: Mapping[str, Any]) -> None:
     normalized["evidence_count"] = _int_value(projection.get("evidence_count"), default=normalized["evidence_count"]) or 0
     if isinstance(projection.get("evidence_coverage"), Mapping):
-        normalized["evidence_coverage"] = {**empty_evidence_coverage(), **dict(projection.get("evidence_coverage") or {})}
+        normalized["evidence_coverage"] = _normalize_evidence_coverage_payload(projection.get("evidence_coverage"))
     if isinstance(projection.get("evidence_manifest"), Mapping):
-        normalized["evidence_manifest"] = {**empty_evidence_manifest(), **dict(projection.get("evidence_manifest") or {})}
+        normalized["evidence_manifest"] = _normalize_evidence_manifest_payload(projection.get("evidence_manifest"))
 
 
 def _apply_takeaway_iteration_projection_fields(normalized: RunTakeawayProjection, projection: Mapping[str, Any]) -> None:
@@ -546,6 +615,49 @@ def build_evidence_coverage(run: dict) -> dict[str, Any]:
     )
 
 
+def _normalize_evidence_coverage_payload(value: object) -> dict[str, Any]:
+    raw = value if isinstance(value, Mapping) else {}
+    normalized = empty_evidence_coverage()
+    normalized["ledger_path"] = _string_value(raw.get("ledger_path"))
+    normalized["coverage_path"] = _string_value(raw.get("coverage_path"))
+    normalized["status"] = _normalize_evidence_coverage_status(raw.get("status"))
+    normalized["summary"] = dict(raw.get("summary") or {}) if isinstance(raw.get("summary"), Mapping) else {}
+    for field in EVIDENCE_COVERAGE_COUNT_FIELDS:
+        normalized[field] = _int_value(raw.get(field), default=0) or 0
+    normalized["covered_check_ids"] = _string_list(raw.get("covered_check_ids"))
+    normalized["missing_check_ids"] = _string_list(raw.get("missing_check_ids"))
+    normalized["top_gaps"] = [dict(item) for item in list(raw.get("top_gaps") or []) if isinstance(item, Mapping)][:5]
+    normalized["evidence_kind_counts"] = dict(raw.get("evidence_kind_counts") or {}) if isinstance(raw.get("evidence_kind_counts"), Mapping) else {}
+    normalized["risk_signals"] = _string_list(raw.get("risk_signals"))[:5]
+    normalized["latest_gatekeeper"] = dict(raw.get("latest_gatekeeper") or {}) if isinstance(raw.get("latest_gatekeeper"), Mapping) else {}
+    return normalized
+
+
+def _normalize_evidence_coverage_status(value: object) -> str:
+    status = _string_value(value).lower()
+    return status if status in EVIDENCE_COVERAGE_STATUSES else "pending"
+
+
+def _normalize_evidence_manifest_payload(value: object, *, default_manifest_path: str = "") -> dict[str, Any]:
+    raw = value if isinstance(value, Mapping) else {}
+    normalized = empty_evidence_manifest()
+    normalized["manifest_path"] = _string_value(raw.get("manifest_path")) or default_manifest_path
+    for field in EVIDENCE_MANIFEST_COUNT_FIELDS:
+        normalized[field] = _int_value(raw.get(field), default=0) or 0
+    problems = [dict(item) for item in list(raw.get("problems") or []) if isinstance(item, Mapping)]
+    normalized["problem_count"] = len(problems) if isinstance(raw.get("problems"), list) else (_int_value(raw.get("problem_count"), default=0) or 0)
+    normalized["problems"] = [
+        {
+            "code": _string_value(item.get("code")),
+            "claim_id": _string_value(item.get("claim_id")),
+            "severity": _string_value(item.get("severity")),
+            "message": _string_value(item.get("message")),
+        }
+        for item in problems[:4]
+    ]
+    return normalized
+
+
 def build_evidence_manifest(run: dict) -> dict[str, Any]:
     runs_dir_value = str(run.get("runs_dir") or "").strip()
     if not runs_dir_value:
@@ -555,28 +667,10 @@ def build_evidence_manifest(run: dict) -> dict[str, Any]:
     manifest = safe_read_json_file(layout.evidence_manifest_path)
     if not manifest:
         return empty_evidence_manifest()
-    problems = [dict(item) for item in list(manifest.get("problems") or []) if isinstance(item, Mapping)]
-    return {
-        "manifest_path": str(manifest.get("manifest_path") or layout.relative(layout.evidence_manifest_path)),
-        "claim_count": _int_value(manifest.get("claim_count"), default=0) or 0,
-        "artifact_backed_claim_count": _int_value(manifest.get("artifact_backed_claim_count"), default=0) or 0,
-        "workspace_backed_claim_count": _int_value(manifest.get("workspace_backed_claim_count"), default=0) or 0,
-        "direct_proof_claim_count": _int_value(manifest.get("direct_proof_claim_count"), default=0) or 0,
-        "workspace_artifact_claim_count": _int_value(manifest.get("workspace_artifact_claim_count"), default=0) or 0,
-        "run_artifact_claim_count": _int_value(manifest.get("run_artifact_claim_count"), default=0) or 0,
-        "ledger_only_claim_count": _int_value(manifest.get("ledger_only_claim_count"), default=0) or 0,
-        "unverified_claim_count": _int_value(manifest.get("unverified_claim_count"), default=0) or 0,
-        "problem_count": len(problems),
-        "problems": [
-            {
-                "code": str(item.get("code") or "").strip(),
-                "claim_id": str(item.get("claim_id") or "").strip(),
-                "severity": str(item.get("severity") or "").strip(),
-                "message": str(item.get("message") or "").strip(),
-            }
-            for item in problems[:4]
-        ],
-    }
+    return _normalize_evidence_manifest_payload(
+        manifest,
+        default_manifest_path=layout.relative(layout.evidence_manifest_path),
+    )
 
 
 def build_run_key_takeaways(run: dict) -> RunTakeawayProjection:
@@ -585,7 +679,7 @@ def build_run_key_takeaways(run: dict) -> RunTakeawayProjection:
         legacy_iteration = build_legacy_iteration_takeaway(run)
         if legacy_iteration:
             iterations = [legacy_iteration]
-    iterations = sorted(iterations, key=lambda item: int(item.get("iter") or -1), reverse=True)
+    iterations = sorted(iterations, key=_iteration_sort_key, reverse=True)
     latest = iterations[0] if iterations else None
     evidence_count = 0
     runs_dir_value = str(run.get("runs_dir") or "").strip()
@@ -609,6 +703,11 @@ def build_run_key_takeaways(run: dict) -> RunTakeawayProjection:
         }
     )
     return projection
+
+
+def _iteration_sort_key(item: Mapping[str, Any]) -> int:
+    iter_id = _int_value(item.get("iter"), default=None)
+    return iter_id if iter_id is not None else -1
 
 
 _build_run_key_takeaways = build_run_key_takeaways

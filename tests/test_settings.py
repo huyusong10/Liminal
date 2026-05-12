@@ -177,6 +177,39 @@ def test_load_settings_rejects_non_finite_numeric_values(monkeypatch, tmp_path: 
     )
 
 
+def test_load_settings_rejects_fractional_integer_values(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("LOOPORA_HOME", str(tmp_path / "loopora-home"))
+    storage_path = app_home() / "settings.json"
+    storage_path.write_text(
+        (
+            "{\n"
+            '  "max_concurrent_runs": 3.5,\n'
+            '  "polling_interval_seconds": 0.25,\n'
+            '  "stop_grace_period_seconds": 1.0,\n'
+            '  "role_idle_timeout_seconds": 120.0\n'
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    settings = load_settings()
+
+    assert settings == AppSettings(
+        max_concurrent_runs=2,
+        polling_interval_seconds=0.25,
+        stop_grace_period_seconds=1.0,
+        role_idle_timeout_seconds=120.0,
+    )
+    assert storage_path.read_text(encoding="utf-8") == (
+        "{\n"
+        '  "max_concurrent_runs": 2,\n'
+        '  "polling_interval_seconds": 0.25,\n'
+        '  "stop_grace_period_seconds": 1.0,\n'
+        '  "role_idle_timeout_seconds": 120.0\n'
+        "}\n"
+    )
+
+
 def test_load_settings_keeps_running_when_default_writeback_fails(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("LOOPORA_HOME", str(tmp_path / "loopora-home"))
 

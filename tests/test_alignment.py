@@ -100,6 +100,139 @@ def test_alignment_service_writes_validates_previews_imports_and_runs(
     assert final_session["linked_run_id"] == imported["run"]["id"]
 
 
+def test_alignment_manifest_and_session_summary_redact_transcript_preview_secrets(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Start from --token MANIFEST_TOKEN_SECRET_MARKER and Cookie: sid=MANIFEST_COOKIE_SECRET_MARKER.",
+        start_immediately=False,
+    )
+    artifact_root = Path(session["artifact_dir"])
+    manifest = json.loads((artifact_root / "manifest.json").read_text(encoding="utf-8"))
+    listed = service.list_alignment_sessions()[0]
+    transcript_text = (artifact_root / "conversation" / "transcript.jsonl").read_text(encoding="utf-8")
+
+    for payload in (json.dumps(manifest, ensure_ascii=False), json.dumps(listed, ensure_ascii=False)):
+        assert "MANIFEST_TOKEN_SECRET_MARKER" not in payload
+        assert "MANIFEST_COOKIE_SECRET_MARKER" not in payload
+        assert "<secret omitted>" in payload
+
+    assert "MANIFEST_TOKEN_SECRET_MARKER" in transcript_text
+    assert "MANIFEST_COOKIE_SECRET_MARKER" in transcript_text
+
+
+def test_alignment_manifest_redacts_error_message_preview_secrets(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a Loop later.",
+        start_immediately=False,
+    )
+
+    service.repository.update_alignment_session(
+        session["id"],
+        status="failed",
+        error_message="provider failed with Authorization: Bearer MANIFEST_ERROR_SECRET_MARKER",
+    )
+    service._write_alignment_manifest(service.get_alignment_session(session["id"]))
+
+    manifest = json.loads((Path(session["artifact_dir"]) / "manifest.json").read_text(encoding="utf-8"))
+    assert "MANIFEST_ERROR_SECRET_MARKER" not in json.dumps(manifest, ensure_ascii=False)
+    assert manifest["error_message"] == "provider failed with Authorization: <secret omitted>"
+
+
+def test_alignment_invocation_output_debug_artifact_redacts_sensitive_values(tmp_path: Path) -> None:
+    invocation_dir = tmp_path / "invocations" / "0001"
+    invocation_dir.mkdir(parents=True)
+    bundle_path = tmp_path / "artifacts" / "bundle.yml"
+    bundle_yaml = "version: 1\nmetadata:\n  name: OUTPUT_BUNDLE_SECRET_MARKER\n"
+
+    alignment_module.ServiceAlignmentMixin._finalize_alignment_invocation_files(
+        invocation_dir,
+        {
+            "assistant_message": "Use --x-loopora-token OUTPUT_ARG_SECRET_MARKER",
+            "diagnostics": {
+                "error": "Authorization: Bearer OUTPUT_AUTH_SECRET_MARKER",
+                "headers": {"Cookie": "sid=OUTPUT_COOKIE_SECRET_MARKER"},
+                "auth_token": "OUTPUT_FIELD_SECRET_MARKER",
+            },
+            "prompt": "OUTPUT_PROMPT_SECRET_MARKER",
+            "bundle_yaml": bundle_yaml,
+        },
+        bundle_path,
+    )
+
+    output = json.loads((invocation_dir / "output.json").read_text(encoding="utf-8"))
+    output_text = json.dumps(output, ensure_ascii=False)
+
+    assert "bundle_yaml" not in output
+    assert output["bundle_written"] is True
+    assert output["bundle_path"] == str(bundle_path)
+    assert output["bundle_bytes"] == len(bundle_yaml.encode("utf-8"))
+    assert output["bundle_sha256"]
+    assert output["diagnostics"]["headers"]["Cookie"] == "<secret omitted>"
+    assert output["diagnostics"]["auth_token"] == "<secret omitted>"
+    assert output["prompt"] == "<prompt omitted>"
+    for secret in (
+        "OUTPUT_ARG_SECRET_MARKER",
+        "OUTPUT_AUTH_SECRET_MARKER",
+        "OUTPUT_COOKIE_SECRET_MARKER",
+        "OUTPUT_FIELD_SECRET_MARKER",
+        "OUTPUT_PROMPT_SECRET_MARKER",
+        "OUTPUT_BUNDLE_SECRET_MARKER",
+    ):
+        assert secret not in output_text
+
+
+def test_alignment_workdir_context_redacts_user_controlled_option_labels(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["metadata"]["name"] = "Imported --token CONTEXT_LABEL_TOKEN_SECRET_MARKER"
+    bundle["metadata"]["description"] = "Authorization: Bearer CONTEXT_LABEL_AUTH_SECRET_MARKER"
+    bundle["loop"]["name"] = "Cookie: sid=CONTEXT_LABEL_COOKIE_SECRET_MARKER"
+
+    service.import_bundle_text(bundle_to_yaml(bundle))
+
+    context = service.get_alignment_workdir_context(sample_workdir)
+    context_text = json.dumps(context, ensure_ascii=False)
+
+    assert "CONTEXT_LABEL_TOKEN_SECRET_MARKER" not in context_text
+    assert "CONTEXT_LABEL_AUTH_SECRET_MARKER" not in context_text
+    assert "CONTEXT_LABEL_COOKIE_SECRET_MARKER" not in context_text
+    assert "<secret omitted>" in context_text
+
+
+def test_alignment_import_string_false_does_not_start_run(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a focused starter experience.",
+    )
+    session = _confirm_alignment_agreement(service, created["id"])
+
+    imported = service.import_alignment_bundle(session["id"], start_immediately="false")
+
+    assert imported["run"] is None
+    assert imported["session"]["status"] == "imported"
+    assert imported["session"]["linked_run_id"] == ""
+    events = service.list_alignment_events(session["id"])
+    assert any(event["event_type"] == "alignment_imported" for event in events)
+    assert not any(event["event_type"] == "alignment_run_started" for event in events)
+
+
 def test_alignment_executor_events_redact_sensitive_values_before_persistence(
     service_factory,
     sample_workdir: Path,
@@ -211,6 +344,61 @@ def test_alignment_service_waits_for_user_question(service_factory, sample_workd
     assert session["executor_session_ref"]["session_id"]
 
 
+def test_alignment_event_cursor_requires_integer_sequence(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a focused starter experience.",
+    )
+    service.repository.append_alignment_event(session["id"], "alignment_status_checked", {"status": "idle"})
+
+    events = service.list_alignment_events(session["id"])
+    assert len(events) >= 2
+    first_id = events[0]["id"]
+
+    assert [event["id"] for event in service.list_alignment_events(session["id"], after_id=True, limit=2)] == [
+        event["id"] for event in events[:2]
+    ]
+    assert [event["id"] for event in service.list_alignment_events(session["id"], after_id=str(first_id), limit=2)] == [
+        event["id"] for event in events[:2]
+    ]
+    assert service.list_alignment_events(session["id"], limit=True) == []
+
+
+def test_alignment_repair_attempts_require_integer_sequence(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a focused starter experience.",
+    )
+
+    updated = service.repository.update_alignment_session(session["id"], repair_attempts="2")
+
+    assert updated["repair_attempts"] == 0
+    assert alignment_module.ServiceAlignmentMixin._alignment_repair_attempts({"repair_attempts": None}) == 0
+    assert alignment_module.ServiceAlignmentMixin._alignment_repair_attempts({"repair_attempts": "1"}, invalid_default=1) == 1
+    assert alignment_module.ServiceAlignmentMixin._alignment_invocation_dir(sample_workdir, "2", repair=False).name == "0001"
+
+
+def test_alignment_session_start_immediately_string_false_does_not_start(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_question")
+
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="I need help shaping this task.",
+        start_immediately="false",
+    )
+
+    assert session["status"] == "idle"
+    assert session["transcript"][-1]["role"] == "user"
+    assert not Path(session["bundle_path"]).exists()
+    events = service.list_alignment_events(session["id"])
+    assert not any(event["event_type"] == "alignment_waiting_user" for event in events)
+
+
 def test_alignment_service_keeps_not_fit_gate_in_dialogue(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="alignment_not_fit")
 
@@ -319,6 +507,161 @@ def test_alignment_service_reframes_clarifying_questionnaires(
         and {"questionnaire_overload", "missing_recommended_decision_options"}.issubset(set(event["payload"].get("issues", [])))
         for event in events
     )
+
+
+def test_alignment_visible_decision_options_require_choice_set_and_recommendation() -> None:
+    session = {"transcript": [{"role": "user", "content": "Build a governed starter experience."}]}
+    non_boolean_needs_user_input = alignment_module.ServiceAlignmentMixin._visible_alignment_decision_options(
+        session,
+        {
+            "needs_user_input": "false",
+            "alignment_phase": "clarifying",
+            "decision_options": [
+                {
+                    "id": "evidence_path",
+                    "label": "Evidence path",
+                    "description": "Prefer proof.",
+                    "recommended": True,
+                    "user_reply": "Use the evidence path.",
+                },
+                {
+                    "id": "speed_path",
+                    "label": "Speed path",
+                    "description": "Prefer speed.",
+                    "recommended": False,
+                    "user_reply": "Use the speed path.",
+                },
+            ],
+        },
+        has_bundle=False,
+    )
+    single_option = alignment_module.ServiceAlignmentMixin._visible_alignment_decision_options(
+        session,
+        {
+            "needs_user_input": True,
+            "alignment_phase": "clarifying",
+            "decision_options": [
+                {
+                    "id": "only_choice",
+                    "label": "Only one path",
+                    "description": "This should not be displayed as a real choice.",
+                    "recommended": True,
+                    "user_reply": "Use the only path.",
+                }
+            ],
+        },
+        has_bundle=False,
+    )
+    no_recommendation = alignment_module.ServiceAlignmentMixin._visible_alignment_decision_options(
+        session,
+        {
+            "needs_user_input": True,
+            "alignment_phase": "clarifying",
+            "decision_options": [
+                {"id": "slow", "label": "Go slow", "description": "More evidence.", "user_reply": "Go slow."},
+                {"id": "fast", "label": "Go fast", "description": "More speed.", "user_reply": "Go fast."},
+            ],
+        },
+        has_bundle=False,
+    )
+    missing_description = alignment_module.ServiceAlignmentMixin._visible_alignment_decision_options(
+        session,
+        {
+            "needs_user_input": True,
+            "alignment_phase": "clarifying",
+            "decision_options": [
+                {
+                    "id": "evidence_path",
+                    "label": "Evidence path",
+                    "recommended": True,
+                    "user_reply": "Use the evidence path.",
+                },
+                {
+                    "id": "speed_path",
+                    "label": "Speed path",
+                    "description": "Prefer speed.",
+                    "recommended": False,
+                    "user_reply": "Use the speed path.",
+                },
+            ],
+        },
+        has_bundle=False,
+    )
+    string_recommendation = alignment_module.ServiceAlignmentMixin._visible_alignment_decision_options(
+        session,
+        {
+            "needs_user_input": True,
+            "alignment_phase": "clarifying",
+            "decision_options": [
+                {
+                    "id": "evidence_path",
+                    "label": "Evidence path",
+                    "description": "Prefer proof.",
+                    "recommended": "true",
+                    "user_reply": "Use the evidence path.",
+                },
+                {
+                    "id": "speed_path",
+                    "label": "Speed path",
+                    "description": "Prefer speed.",
+                    "recommended": "false",
+                    "user_reply": "Use the speed path.",
+                },
+            ],
+        },
+        has_bundle=False,
+    )
+    valid_options = alignment_module.ServiceAlignmentMixin._visible_alignment_decision_options(
+        session,
+        {
+            "needs_user_input": True,
+            "alignment_phase": "clarifying",
+            "decision_options": [
+                {
+                    "id": "evidence_path",
+                    "label": "Evidence path",
+                    "description": "Prefer proof.",
+                    "recommended": True,
+                    "user_reply": "Use the evidence path.",
+                },
+                {
+                    "id": "speed_path",
+                    "label": "Speed path",
+                    "description": "Prefer speed.",
+                    "recommended": False,
+                    "user_reply": "Use the speed path.",
+                },
+            ],
+        },
+        has_bundle=False,
+    )
+
+    assert non_boolean_needs_user_input == []
+    assert [option["id"] for option in single_option] == ["evidence_first", "speed_first", "add_judgment"]
+    assert [option["id"] for option in no_recommendation] == ["evidence_first", "speed_first", "add_judgment"]
+    assert [option["id"] for option in missing_description] == ["evidence_first", "speed_first", "add_judgment"]
+    assert [option["id"] for option in string_recommendation] == ["evidence_first", "speed_first", "add_judgment"]
+    assert [option["id"] for option in valid_options] == ["evidence_path", "speed_path"]
+
+
+def test_alignment_clarifying_question_rewrite_requires_boolean_need() -> None:
+    non_boolean_issues = alignment_module.ServiceAlignmentMixin._alignment_clarifying_question_issues(
+        {
+            "needs_user_input": "true",
+            "assistant_message": "What roles do you want?",
+            "decision_options": [],
+        }
+    )
+    boolean_issues = alignment_module.ServiceAlignmentMixin._alignment_clarifying_question_issues(
+        {
+            "needs_user_input": True,
+            "assistant_message": "What roles do you want?",
+            "decision_options": [],
+        }
+    )
+
+    assert non_boolean_issues == []
+    assert "generic_alignment_question" in boolean_issues
 
 
 def test_alignment_service_materializes_visible_working_agreement(
@@ -792,6 +1135,14 @@ def test_alignment_bundle_source_file_rejects_invalid_utf8(service_factory, samp
     assert "UTF-8 encoded YAML" in synced_session["error_message"]
     assert any(event["event_type"] == "alignment_bundle_sync_failed" for event in service.list_alignment_events(preview_session["id"]))
 
+    Path(preview_session["bundle_path"]).write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    recovered = service.sync_alignment_bundle_from_file(preview_session["id"])
+    recovered_session = service.get_alignment_session(preview_session["id"])
+    assert recovered["ok"] is True
+    assert recovered_session["status"] == "ready"
+    assert recovered_session["error_message"] == ""
+    assert recovered_session["finished_at"] is None
+
     import_session = _confirm_alignment_agreement(
         service,
         service.create_alignment_session(workdir=sample_workdir, message="Create an importable Loop.")["id"],
@@ -1108,6 +1459,56 @@ def test_alignment_traceability_checks_governance_markers_across_readiness_evide
     issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
 
     assert any("project-local governance markers" in issue for issue in issues)
+
+
+def test_alignment_traceability_rejects_disconnected_governance_marker_responsibilities(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
+    bundle["spec"]["markdown"] += (
+        "\nWorkdir Snapshot detected AGENTS.md, design/README.md, design/, and tests/.\n"
+        + ("Neutral context keeps the marker list separate from generic role responsibilities. " * 10)
+    )
+    bundle["collaboration_summary"] += (
+        "\nBuilder reads task notes. Inspector checks the result. GateKeeper blocks weak proof."
+    )
+    session = {
+        "working_agreement": {
+            "readiness_evidence": {
+                "workdir_facts": "AGENTS.md, design/README.md, design/, and tests/ must shape runtime governance.",
+            }
+        }
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert any("project-local governance markers" in issue for issue in issues)
+
+
+def test_alignment_traceability_accepts_marker_specific_role_responsibilities(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
+    bundle["collaboration_summary"] += (
+        "\nBuilder reads AGENTS.md, design/README.md, design/, and tests/ before editing. "
+        "Inspector verifies AGENTS.md, design/README.md, design/, and tests/ obligations against the result. "
+        "GateKeeper treats skipped AGENTS.md, design/README.md, design/, or tests/ evidence as Weak, Unproven, or Blocking."
+    )
+    session = {
+        "working_agreement": {
+            "readiness_evidence": {
+                "workdir_facts": "AGENTS.md, design/README.md, design/, and tests/ must shape runtime governance.",
+            }
+        }
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert not any("project-local governance markers" in issue for issue in issues)
 
 
 def test_alignment_traceability_ignores_metadata_and_loop_names(
@@ -1529,10 +1930,38 @@ def test_alignment_api_covers_session_events_bundle_and_import(
     assert client.get("/api/alignments/sessions").json()["sessions"] == []
 
 
+def test_alignment_api_start_immediately_false_keeps_new_session_idle(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    client = TestClient(build_app(service=service))
+
+    response = client.post(
+        "/api/alignments/sessions",
+        json={
+            "workdir": str(sample_workdir),
+            "message": "Create a bundle later.",
+            "start_immediately": "false",
+        },
+    )
+
+    assert response.status_code == 201
+    session_id = response.json()["session"]["id"]
+    session = service.get_alignment_session(session_id)
+    assert session["status"] == "idle"
+    assert session["transcript"][-1]["content"] == "Create a bundle later."
+    assert not any(event["event_type"] == "alignment_started" for event in service.list_alignment_events(session_id))
+
+
 def test_alignment_stream_emits_redacted_stream_error_on_backend_failure(caplog) -> None:
     class FlakyService:
         def get_alignment_session(self, session_id: str) -> dict:
             return {"id": session_id, "status": "running"}
+
+        def latest_alignment_event_id(self, session_id: str) -> int:
+            assert session_id == "session_test"
+            return 9
 
         def list_alignment_events(self, session_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
             assert session_id == "session_test"
@@ -1580,12 +2009,33 @@ def test_alignment_event_api_rejects_out_of_range_query_params(service_factory) 
         assert response.json()["error"] == "request validation failed"
 
 
+def test_alignment_event_api_rejects_cursor_beyond_current_events() -> None:
+    class CursorAwareService:
+        def get_alignment_session(self, session_id: str) -> dict:
+            return {"id": session_id, "status": "ready"}
+
+        def latest_alignment_event_id(self, session_id: str) -> int:
+            assert session_id == "session_test"
+            return 10
+
+    client = TestClient(build_app(service=CursorAwareService()))
+
+    response = client.get("/api/alignments/sessions/session_test/events?after_id=11")
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "event cursor is out of range"
+
+
 def test_alignment_stream_logs_invalid_resume_cursor_and_keeps_request_cursor(caplog) -> None:
     captured: dict[str, int] = {}
 
     class CursorAwareService:
         def get_alignment_session(self, session_id: str) -> dict:
             return {"id": session_id, "status": "ready"}
+
+        def latest_alignment_event_id(self, session_id: str) -> int:
+            assert session_id == "session_test"
+            return 10
 
         def list_alignment_events(self, session_id: str, after_id: int = 0, limit: int = 200) -> list[dict]:
             assert session_id == "session_test"
@@ -1600,7 +2050,7 @@ def test_alignment_stream_logs_invalid_resume_cursor_and_keeps_request_cursor(ca
         client.stream(
             "GET",
             "/api/alignments/sessions/session_test/stream?after_id=7",
-            headers={"Last-Event-ID": str(MAX_EVENT_CURSOR_ID + 1)},
+            headers={"Last-Event-ID": "11"},
         ) as response,
     ):
         assert response.status_code == 200
@@ -1611,6 +2061,8 @@ def test_alignment_stream_logs_invalid_resume_cursor_and_keeps_request_cursor(ca
         getattr(record, "event", "") == "web.alignment_stream.resume_cursor_invalid"
         and getattr(record, "context", {}).get("session_id") == "session_test"
         and getattr(record, "context", {}).get("after_id") == 7
+        and getattr(record, "context", {}).get("latest_event_id") == 10
+        and getattr(record, "context", {}).get("invalid_last_event_id") == "11"
         for record in caplog.records
     )
 
@@ -1897,10 +2349,12 @@ def test_alignment_improvement_session_can_start_from_run_evidence(
     assert agreement["source"]["source_bundle_id"] == source["id"]
     assert agreement["source"]["source_run_id"] == run["id"]
     assert agreement["source"]["run_status"] == run["status"]
-    assert agreement["source"]["artifact_paths"]["task_verdict"] == "evidence/task_verdict.json"
-    assert agreement["source"]["artifact_paths"]["evidence_ledger"] == "evidence/ledger.jsonl"
-    assert agreement["source"]["artifact_paths"]["evidence_coverage"] == "evidence/coverage.json"
-    assert agreement["source"]["artifact_paths"]["evidence_manifest"] == "evidence/manifest.json"
+    assert agreement["source"]["artifact_paths"] == {
+        "task_verdict": "evidence/task_verdict.json",
+        "evidence_ledger": "evidence/ledger.jsonl",
+        "evidence_coverage": "evidence/coverage.json",
+        "evidence_manifest": "evidence/manifest.json",
+    }
     assert "coverage_summary" in agreement["source"]
     assert any(item["artifact_refs"] for item in agreement["source"]["evidence_summary"])
     assert agreement["source"]["task_verdict"]["status"]
@@ -1941,6 +2395,7 @@ def test_alignment_run_revision_tolerates_corrupt_evidence_ledger(
     )
     run = service.rerun(loop["id"])
     (Path(run["runs_dir"]) / "evidence" / "ledger.jsonl").write_bytes(b"\xff")
+    (Path(run["runs_dir"]) / "evidence" / "task_verdict.json").unlink()
 
     session = service.create_run_revision_session(run["id"], start_immediately=False)
 
@@ -1948,11 +2403,93 @@ def test_alignment_run_revision_tolerates_corrupt_evidence_ledger(
     assert agreement["mode"] == "improvement"
     assert agreement["source"]["source_type"] == "run"
     assert agreement["source"]["source_run_id"] == run["id"]
-    assert agreement["source"]["artifact_paths"]["task_verdict"] == "evidence/task_verdict.json"
-    assert agreement["source"]["artifact_paths"]["evidence_ledger"] == "evidence/ledger.jsonl"
+    assert agreement["source"]["artifact_paths"] == {
+        "task_verdict": "evidence/task_verdict.json",
+        "evidence_ledger": "evidence/ledger.jsonl",
+        "evidence_coverage": "evidence/coverage.json",
+        "evidence_manifest": "evidence/manifest.json",
+    }
     assert agreement["source"]["evidence_summary"] == []
     preview = service.get_alignment_bundle(session["id"])
     assert preview["ok"] is True
+
+
+def test_alignment_run_evidence_summary_drops_malformed_trace_shapes(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Malformed Evidence Summary Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4-mini",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    proof_path = sample_workdir / "proof.md"
+    ledger_path = Path(run["runs_dir"]) / "evidence" / "ledger.jsonl"
+    ledger_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "id": "ev_bad_shape",
+                        "claim": "Bad trace shapes should not become prompt structure.",
+                        "verifies": "target:done_when.check_001:covered",
+                        "artifact_refs": {"kind": "workspace", "relative_path": "proof.md"},
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
+                        "id": "ev_good_shape",
+                        "claim": "Good trace shapes should keep only stable fields.",
+                        "verifies": ["target:done_when.check_001:covered", 7, True],
+                        "artifact_refs": [
+                            {
+                                "kind": "workspace",
+                                "label": "proof",
+                                "relative_path": "proof.md",
+                                "workspace_path": "proof.md",
+                                "absolute_path": str(proof_path),
+                                "raw_payload": "uncommitted payload",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    session = service.create_run_revision_session(run["id"], start_immediately=False)
+
+    summary = session["working_agreement"]["source"]["evidence_summary"]
+    assert summary[0]["id"] == "ev_bad_shape"
+    assert summary[0]["verifies"] == []
+    assert summary[0]["artifact_refs"] == []
+    assert summary[1]["id"] == "ev_good_shape"
+    assert summary[1]["verifies"] == ["target:done_when.check_001:covered"]
+    assert summary[1]["artifact_refs"] == [
+        {
+            "kind": "workspace",
+            "label": "proof",
+            "relative_path": "proof.md",
+            "workspace_path": "proof.md",
+            "absolute_path": str(proof_path),
+        }
+    ]
+    assert "raw_payload" not in json.dumps(summary, ensure_ascii=False)
 
 
 def test_alignment_api_creates_improvement_sessions_from_bundle_and_run(
@@ -2052,6 +2589,182 @@ def test_alignment_workdir_context_discovers_spec_and_requires_explicit_selectio
         )
 
 
+def test_alignment_workdir_context_only_lists_validated_local_ready_bundles(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    state_dir = sample_workdir / ".loopora"
+    valid_bundle = state_dir / "alignment_sessions" / "align_valid" / "artifacts" / "bundle.yml"
+    failed_bundle = state_dir / "alignment_sessions" / "align_failed" / "artifacts" / "bundle.yml"
+    unknown_bundle = state_dir / "alignment_sessions" / "align_unknown" / "artifacts" / "bundle.yml"
+    for bundle_path in (valid_bundle, failed_bundle, unknown_bundle):
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    (valid_bundle.parent / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
+    (failed_bundle.parent / "validation.json").write_text('{"ok": false, "error": "semantic lint failed"}\n', encoding="utf-8")
+
+    context = service.get_alignment_workdir_context(sample_workdir)
+    local_options = [
+        option
+        for option in context["options"]
+        if option.get("source_type") == "alignment_session_file"
+    ]
+
+    assert [option["source_alignment_session_id"] for option in local_options] == ["align_valid"]
+    assert local_options[0]["bundle_path"] == str(valid_bundle)
+
+
+def test_alignment_workdir_context_preserves_regenerate_option_when_source_list_is_bounded(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    for index in range(25):
+        service.create_alignment_session(
+            workdir=sample_workdir,
+            message=f"Existing alignment source {index}",
+            start_immediately=False,
+        )
+
+    context = service.get_alignment_workdir_context(sample_workdir)
+    option_ids = [option["option_id"] for option in context["options"]]
+
+    assert len(context["options"]) == 20
+    assert context["requires_choice"] is True
+    assert context["recommended_option_id"] == ""
+    assert option_ids[-1] == "regenerate"
+    assert sum(option_id == "regenerate" for option_id in option_ids) == 1
+
+
+def test_alignment_source_context_redacts_sensitive_transcript_and_spec_material(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    state_dir = sample_workdir / ".loopora"
+    state_dir.mkdir()
+    spec_path = state_dir / "spec.md"
+    spec_path.write_text("# Task\n\nCall the API with Authorization: Bearer SPEC_SECRET_MARKER.\n", encoding="utf-8")
+    source_session_id = "align_secret_source"
+    bundle_path = state_dir / "alignment_sessions" / source_session_id / "artifacts" / "bundle.yml"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.repository.create_alignment_session(
+        {
+            "id": source_session_id,
+            "status": "ready",
+            "workdir": str(sample_workdir),
+            "bundle_path": str(bundle_path),
+            "transcript": [
+                {
+                    "role": "user",
+                    "content": "Improve this Loop with --token TRANSCRIPT_TOKEN_SECRET_MARKER and Cookie: sid=TRANSCRIPT_COOKIE_SECRET_MARKER",
+                    "created_at": "now",
+                }
+            ],
+            "validation": {"ok": True},
+            "alignment_stage": "ready",
+            "working_agreement": {},
+            "executor_session_ref": {},
+        }
+    )
+
+    context = service.get_alignment_workdir_context(sample_workdir)
+    context_text = json.dumps(context, ensure_ascii=False)
+
+    assert "TRANSCRIPT_TOKEN_SECRET_MARKER" not in context_text
+    assert "TRANSCRIPT_COOKIE_SECRET_MARKER" not in context_text
+
+    session_option = next(option for option in context["options"] if option.get("source_alignment_session_id") == source_session_id)
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Use the old alignment as source context.",
+        source_option_id=session_option["option_id"],
+        start_immediately=False,
+    )
+    prompt = service._build_alignment_prompt(session, mode="normal")
+    source_text = json.dumps(session["working_agreement"], ensure_ascii=False)
+
+    assert "TRANSCRIPT_TOKEN_SECRET_MARKER" not in source_text
+    assert "TRANSCRIPT_COOKIE_SECRET_MARKER" not in source_text
+    assert "TRANSCRIPT_TOKEN_SECRET_MARKER" not in prompt
+    assert "TRANSCRIPT_COOKIE_SECRET_MARKER" not in prompt
+    assert "<secret omitted>" in prompt
+
+    spec_option = next(option for option in context["options"] if option["source_type"] == "spec_file")
+    spec_session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Use the spec as source context.",
+        source_option_id=spec_option["option_id"],
+        start_immediately=False,
+    )
+
+    assert "SPEC_SECRET_MARKER" not in spec_session["working_agreement"]["source"]["spec_markdown"]
+    assert "<secret omitted>" in service._build_alignment_prompt(spec_session, mode="normal")
+
+
+def test_alignment_improvement_context_redacts_sensitive_run_source_values(service_factory) -> None:
+    service = service_factory(scenario="success")
+    session = {
+        "working_agreement": {
+            "mode": "improvement",
+            "source": {
+                "source_type": "run",
+                "source_run_id": "run_secret",
+                "evidence_summary": [{"claim": "Observed Authorization: Bearer RUN_EVIDENCE_SECRET_MARKER"}],
+                "coverage_summary": {"reason": "Header x-api-key: RUN_API_KEY_SECRET_MARKER"},
+                "task_verdict": {"summary": "Cookie: sid=RUN_COOKIE_SECRET_MARKER"},
+                "gatekeeper_verdict": {"decision_summary": "tool --token RUN_TOKEN_SECRET_MARKER"},
+            },
+        }
+    }
+
+    context = service._alignment_improvement_context_text(session)
+
+    assert "RUN_EVIDENCE_SECRET_MARKER" not in context
+    assert "RUN_API_KEY_SECRET_MARKER" not in context
+    assert "RUN_COOKIE_SECRET_MARKER" not in context
+    assert "RUN_TOKEN_SECRET_MARKER" not in context
+    assert "<secret omitted>" in context
+
+
+def test_alignment_improvement_session_redacts_persisted_source_context(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    seed_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+
+    session = service._create_revision_alignment_session(
+        alignment_module.RevisionAlignmentSessionRequest(
+            seed_bundle=seed_bundle,
+            message="Use sensitive source context.",
+            start_immediately=False,
+            source_context={
+                "mode": "improvement",
+                "source_type": "run",
+                "source_run_id": "run_secret",
+                "evidence_summary": [{"claim": "Authorization: Bearer PERSISTED_EVIDENCE_SECRET"}],
+                "coverage_summary": {"reason": "x-api-key: PERSISTED_API_KEY_SECRET"},
+                "task_verdict": {"summary": "Cookie: sid=PERSISTED_COOKIE_SECRET"},
+                "gatekeeper_verdict": {"decision_summary": "tool --token PERSISTED_TOKEN_SECRET"},
+            },
+            linked_bundle_id="",
+            linked_run_id="run_secret",
+            executor_settings=alignment_module._default_alignment_executor_settings(),
+        )
+    )
+
+    source_text = json.dumps(session["working_agreement"], ensure_ascii=False)
+
+    assert "PERSISTED_EVIDENCE_SECRET" not in source_text
+    assert "PERSISTED_API_KEY_SECRET" not in source_text
+    assert "PERSISTED_COOKIE_SECRET" not in source_text
+    assert "PERSISTED_TOKEN_SECRET" not in source_text
+    assert "<secret omitted>" in source_text
+
+
 def test_alignment_workdir_context_seeds_selected_existing_bundle(
     service_factory,
     sample_spec_file: Path,
@@ -2083,6 +2796,55 @@ def test_alignment_workdir_context_seeds_selected_existing_bundle(
     assert "Current Bundle" in prompt
 
 
+def test_alignment_workdir_context_run_option_exposes_artifact_refs_and_rehydrates_source(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    source = _create_alignment_improvement_source_bundle(service, sample_spec_file, sample_workdir)
+    run = service.rerun(source["loop_id"])
+
+    context = service.get_alignment_workdir_context(sample_workdir)
+    run_option = next(option for option in context["options"] if option.get("source_run_id") == run["id"])
+
+    assert run_option["source_type"] == "run"
+    assert run_option["artifact_paths"] == {
+        "task_verdict": "evidence/task_verdict.json",
+        "evidence_ledger": "evidence/ledger.jsonl",
+        "evidence_coverage": "evidence/coverage.json",
+        "evidence_manifest": "evidence/manifest.json",
+    }
+    assert "evidence_summary" not in run_option
+    assert "task_verdict" not in run_option
+    assert "gatekeeper_verdict" not in run_option
+
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="基于这次 run 的证据继续改进方案。",
+        source_option_id=run_option["option_id"],
+        start_immediately=False,
+    )
+
+    agreement = session["working_agreement"]
+    assert agreement["mode"] == "improvement"
+    assert agreement["source"]["source_type"] == "run"
+    assert agreement["source"]["source_bundle_id"] == source["id"]
+    assert agreement["source"]["source_run_id"] == run["id"]
+    assert agreement["source"]["artifact_paths"] == {
+        "task_verdict": "evidence/task_verdict.json",
+        "evidence_ledger": "evidence/ledger.jsonl",
+        "evidence_coverage": "evidence/coverage.json",
+        "evidence_manifest": "evidence/manifest.json",
+    }
+    assert agreement["source"]["task_verdict"]["status"]
+    assert agreement["source"]["gatekeeper_verdict"]["decision_summary"]
+    assert any(item["artifact_refs"] for item in agreement["source"]["evidence_summary"])
+    prompt = service._build_alignment_prompt(session, mode="normal")
+    assert "Recent evidence summary:" in prompt
+    assert "artifact_refs" in prompt
+
+
 def test_alignment_workdir_context_api_creates_selected_source_session(
     service_factory,
     sample_workdir: Path,
@@ -2111,6 +2873,31 @@ def test_alignment_workdir_context_api_creates_selected_source_session(
     session = create_response.json()["session"]
     assert session["working_agreement"]["mode"] == "selected_source"
     assert session["working_agreement"]["source"]["spec_path"] == str(spec_path)
+
+
+def test_alignment_selected_spec_source_degrades_invalid_utf8(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    state_dir = sample_workdir / ".loopora"
+    state_dir.mkdir()
+    spec_path = state_dir / "spec.md"
+    spec_path.write_bytes(b"\xff")
+
+    context = service.get_alignment_workdir_context(sample_workdir)
+    spec_option = next(option for option in context["options"] if option["source_type"] == "spec_file")
+    session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Use this spec as source context.",
+        source_option_id=spec_option["option_id"],
+        start_immediately=False,
+    )
+
+    source = session["working_agreement"]["source"]
+    assert source["spec_path"] == str(spec_path)
+    assert source["artifact_paths"] == {"spec": str(spec_path)}
+    assert source["spec_markdown"] == "Source file could not be read as UTF-8 text."
 
 
 def test_alignment_service_lazily_migrates_legacy_flat_artifacts(service_factory, sample_workdir: Path) -> None:

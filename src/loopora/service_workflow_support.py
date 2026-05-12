@@ -11,6 +11,8 @@ from loopora.evidence_support import (
 )
 from loopora.run_artifacts import RunArtifactLayout, append_jsonl_with_mirrors
 from loopora.service_prompts import BUILDER_SCHEMA, CUSTOM_SCHEMA, GATEKEEPER_SCHEMA, GUIDE_SCHEMA, INSPECTOR_SCHEMA
+from loopora.structured_booleans import structured_bool_is_true
+from loopora.structured_numbers import structured_finite_number, structured_non_negative_int, structured_optional_finite_number
 from loopora.utils import read_json, utc_now, write_json
 from loopora.workflows import LEGACY_ROLE_BY_ARCHETYPE
 
@@ -126,8 +128,20 @@ def _expand_self_evidence_refs(evidence_refs: list[str], context: GatekeeperEvid
 def _metric_scores_from_result(result: dict) -> dict:
     metric_scores = result.get("metric_scores")
     if isinstance(metric_scores, dict):
-        return metric_scores
+        return _normalize_metric_scores(metric_scores)
     return _metric_scores_from_metrics(result.get("metrics"))
+
+
+def _normalize_metric_scores(metric_scores: dict) -> dict:
+    normalized = {}
+    for name, value in metric_scores.items():
+        if not isinstance(value, dict):
+            continue
+        normalized[str(name)] = {
+            **value,
+            "passed": structured_bool_is_true(value.get("passed")),
+        }
+    return normalized
 
 
 def _metric_scores_from_metrics(metrics: object) -> dict:
@@ -141,7 +155,7 @@ def _metric_scores_from_metrics(metrics: object) -> dict:
         metric_scores[name] = {
             "value": metric.get("value"),
             "threshold": metric.get("threshold"),
-            "passed": bool(metric.get("passed")),
+            "passed": structured_bool_is_true(metric.get("passed")),
         }
     return metric_scores
 
@@ -153,7 +167,7 @@ def _composite_score_for_result(result: dict, metric_scores: dict) -> object:
     quality_metric = metric_scores.get("quality_score")
     if isinstance(quality_metric, dict):
         return quality_metric.get("value")
-    return 1.0 if result.get("passed") else 0.0
+    return 1.0 if structured_bool_is_true(result.get("passed")) else 0.0
 
 
 def _metric_rows_from_scores(metric_scores: dict) -> list[dict]:
@@ -207,6 +221,19 @@ def _invalid_ref_blocker(invalid_refs: list[str]) -> str:
     return "gatekeeper_evidence_refs_unknown: " + ", ".join(invalid_refs[:4]) + ("..." if len(invalid_refs) > 4 else "")
 
 
+def _coverage_result_evidence_refs(value: object) -> list[str]:
+    refs: list[str] = []
+    for item in list(value or []):
+        if not isinstance(item, dict):
+            continue
+        refs.extend(_string_list(item.get("evidence_refs")))
+    return list(dict.fromkeys(refs))
+
+
+def _invalid_coverage_result_refs(value: object, context: GatekeeperEvidenceContext) -> list[str]:
+    return [item for item in _coverage_result_evidence_refs(value) if item not in context.known_ids]
+
+
 def _apply_gatekeeper_evidence_gate(state: GatekeeperEvidenceGateState) -> list[str]:
     if not state.result["passed"]:
         return state.evidence_refs
@@ -240,9 +267,20 @@ def _apply_gatekeeper_evidence_gate(state: GatekeeperEvidenceGateState) -> list[
 
 
 def _adjust_blocked_composite_score(composite_score: object, result: dict, blocking_issues: list[str]) -> object:
-    if not result["passed"] and float(composite_score or 0.0) >= 0.9 and blocking_issues:
+    score = structured_finite_number(composite_score)
+    if not result["passed"] and score >= 0.9 and blocking_issues:
         return 0.89
-    return composite_score
+    return score
+
+
+def _score_value(value: object) -> float | None:
+    return structured_optional_finite_number(value)
+
+
+def _score_values(value: object) -> list[float]:
+    if not isinstance(value, list):
+        return []
+    return [score for item in value if (score := _score_value(item)) is not None]
 
 
 def _populate_gatekeeper_result(result: dict, fields: GatekeeperResultFields) -> dict:
@@ -254,7 +292,10 @@ def _populate_gatekeeper_result(result: dict, fields: GatekeeperResultFields) ->
     result["blocking_issues"] = fields.blocking_issues
     result["hard_constraint_violations"] = fields.blocking_issues
     result["metric_scores"] = fields.metric_scores
-    result["composite_score"] = float(fields.composite_score or 0.0)
+    result["composite_score"] = structured_finite_number(
+        fields.composite_score,
+        default=1.0 if result["passed"] else 0.0,
+    )
     result["evidence_refs"] = fields.evidence_refs
     result["evidence_claims"] = fields.evidence_claims
     result["residual_risks"] = _string_list(result.get("residual_risks"))
@@ -308,9 +349,8 @@ class ServiceWorkflowSupportMixin:
         evidence_refs = _expand_self_evidence_refs(evidence_refs, gate_context)
         metric_scores = _metric_scores_from_result(result)
         composite_score = _composite_score_for_result(result, metric_scores)
-        if not result.get("metrics"):
-            result["metrics"] = _metric_rows_from_scores(metric_scores)
-        result["passed"] = bool(result.get("passed", False))
+        result["metrics"] = _metric_rows_from_scores(metric_scores)
+        result["passed"] = structured_bool_is_true(result.get("passed"))
         evidence_refs = _apply_gatekeeper_evidence_gate(
             GatekeeperEvidenceGateState(
                 result=result,
@@ -321,6 +361,14 @@ class ServiceWorkflowSupportMixin:
                 blocking_issues=blocking_issues,
             )
         )
+        invalid_coverage_refs = _invalid_coverage_result_refs(result.get("coverage_results"), gate_context)
+        if result["passed"] and invalid_coverage_refs:
+            blocking_issues.append(
+                "gatekeeper_coverage_evidence_refs_unknown: "
+                + ", ".join(invalid_coverage_refs[:4])
+                + ("..." if len(invalid_coverage_refs) > 4 else "")
+            )
+            result["passed"] = False
         composite_score = _adjust_blocked_composite_score(composite_score, result, blocking_issues)
         return _populate_gatekeeper_result(
             result,
@@ -414,6 +462,8 @@ class ServiceWorkflowSupportMixin:
     ) -> dict:
         by_archetype = {item["role"]["archetype"]: item["output"] for item in step_results}
         gatekeeper_output = by_archetype.get("gatekeeper", {})
+        composite_score = _score_value(gatekeeper_output.get("composite_score"))
+        previous_score = _score_value(previous_composite)
         entry = {
             "phase": "complete",
             "iter": iter_id,
@@ -439,21 +489,21 @@ class ServiceWorkflowSupportMixin:
                 "gatekeeper_status": gatekeeper_output.get("evidence_gate_status"),
             },
             "score": {
-                "composite": gatekeeper_output.get("composite_score"),
-                "delta": round(gatekeeper_output["composite_score"] - previous_composite, 6)
-                if previous_composite is not None and gatekeeper_output.get("composite_score") is not None
-                else None,
-                "passed": gatekeeper_output.get("passed"),
+                "composite": composite_score,
+                "delta": round(composite_score - previous_score, 6) if composite_score is not None and previous_score is not None else None,
+                "passed": structured_bool_is_true(gatekeeper_output.get("passed")),
             },
             "stagnation": {
                 "mode": stagnation.get("stagnation_mode", "none"),
                 "evidence_progress_mode": stagnation.get("evidence_progress_mode", "none"),
-                "recent_composites": list(stagnation.get("recent_composites", [])),
-                "recent_deltas": list(stagnation.get("recent_deltas", [])),
-                "consecutive_low_delta": stagnation.get("consecutive_low_delta", 0),
-                "covered_check_count": int(stagnation.get("latest_covered_check_count") or 0),
-                "missing_check_count": int(stagnation.get("latest_missing_check_count") or 0),
-                "consecutive_no_required_coverage_delta": int(stagnation.get("consecutive_no_required_coverage_delta") or 0),
+                "recent_composites": _score_values(stagnation.get("recent_composites")),
+                "recent_deltas": _score_values(stagnation.get("recent_deltas")),
+                "consecutive_low_delta": structured_non_negative_int(stagnation.get("consecutive_low_delta")),
+                "covered_check_count": structured_non_negative_int(stagnation.get("latest_covered_check_count")),
+                "missing_check_count": structured_non_negative_int(stagnation.get("latest_missing_check_count")),
+                "consecutive_no_required_coverage_delta": structured_non_negative_int(
+                    stagnation.get("consecutive_no_required_coverage_delta")
+                ),
             },
         }
         entry["generator"] = entry["builder"]
@@ -471,6 +521,7 @@ class ServiceWorkflowSupportMixin:
             (item["output"] for item in reversed(request.step_results) if item["role"]["archetype"] == "gatekeeper"),
             {},
         )
+        gatekeeper_passed = structured_bool_is_true(gatekeeper_output.get("passed"))
         completion_mode = str(request.run.get("completion_mode", "gatekeeper")).strip().lower() or "gatekeeper"
         status_line = (
             "Planned rounds completed."
@@ -479,15 +530,17 @@ class ServiceWorkflowSupportMixin:
             if request.exhausted
             else "Still iterating."
         )
-        if gatekeeper_output.get("passed") and completion_mode == "gatekeeper":
+        if gatekeeper_passed and completion_mode == "gatekeeper":
             status_line = "All checks passed in this iteration."
-        elif gatekeeper_output.get("passed"):
+        elif gatekeeper_passed:
             status_line = "GateKeeper passed in this iteration, but the run stays in round-based mode."
         delta_text = (
             f"`{round(gatekeeper_output['composite_score'] - request.previous_composite, 6):+}`"
             if request.previous_composite is not None and gatekeeper_output.get("composite_score") is not None
             else "`n/a`"
         )
+        covered_check_count = structured_non_negative_int(request.stagnation.get("latest_covered_check_count"))
+        missing_check_count = structured_non_negative_int(request.stagnation.get("latest_missing_check_count"))
         lines = [
             "# Loopora Run Summary",
             "",
@@ -500,11 +553,10 @@ class ServiceWorkflowSupportMixin:
             f"- Iteration interval seconds: `{request.run.get('iteration_interval_seconds', 0.0)}`",
             f"- Composite score: `{gatekeeper_output.get('composite_score', 'n/a')}`",
             f"- Score delta vs previous iteration: {delta_text}",
-            f"- Passed: `{gatekeeper_output.get('passed', False)}`",
+            f"- Passed: `{gatekeeper_passed}`",
             f"- Stagnation mode: `{request.stagnation.get('stagnation_mode', 'none')}`",
             f"- Evidence progress mode: `{request.stagnation.get('evidence_progress_mode', 'none')}`",
-            f"- Required coverage: `{int(request.stagnation.get('latest_covered_check_count') or 0)} covered, "
-            f"{int(request.stagnation.get('latest_missing_check_count') or 0)} missing`",
+            f"- Required coverage: `{covered_check_count} covered, {missing_check_count} missing`",
             "",
             status_line,
         ]

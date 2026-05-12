@@ -11,6 +11,39 @@
   }) {
     const translateRunStatus = translateStatus || ((status) => window.LooporaUI.translateStatus(status));
 
+    function nonNegativeInteger(value) {
+      return Number.isInteger(value) && value >= 0 ? value : null;
+    }
+
+    function displayCount(value, fallback = 0) {
+      const count = nonNegativeInteger(value);
+      return count === null ? fallback : count;
+    }
+
+    function durationText(value) {
+      const durationMs = nonNegativeInteger(value);
+      return durationMs === null ? "" : formatDurationMs(durationMs);
+    }
+
+    function runFinishedTone(payload) {
+      const verdictStatus = String(payload.task_verdict_status || "").trim();
+      if (verdictStatus === "failed") {
+        return "error";
+      }
+      if (["insufficient_evidence", "passed_with_residual_risk"].includes(verdictStatus)) {
+        return "warning";
+      }
+      return payload.status === "succeeded" ? "success" : "warning";
+    }
+
+    function runFinishedSummary(payload) {
+      const parts = [`${localeText("运行结束", "Run finished")} · ${translateRunStatus(payload.status || "succeeded")}`];
+      if (payload.task_verdict_status) {
+        parts.push(`${localeText("任务裁决", "Task verdict")} ${payload.task_verdict_status}`);
+      }
+      return parts.join(" · ");
+    }
+
     function buildConsoleLines(event) {
       const payload = event.payload || {};
 
@@ -24,11 +57,12 @@
         })];
       }
       if (event.event_type === "checks_resolved") {
+        const count = displayCount(payload.count);
         return [buildConsoleEntry(event, {
           tone: "system",
           channel: "state",
           filterKey: "status",
-          summary: `${localeText("检查项已就绪", "Checks resolved")} (${payload.count || 0})`,
+          summary: `${localeText("检查项已就绪", "Checks resolved")} (${count})`,
           text: prettyConsoleJson(payload),
         })];
       }
@@ -53,7 +87,8 @@
         })];
       }
       if (event.event_type === "role_started") {
-        const iterLabel = payload.iter !== undefined ? ` · ${localeText("迭代", "iter")} ${displayIter(payload.iter)}` : "";
+        const iter = nonNegativeInteger(payload.iter);
+        const iterLabel = iter === null ? "" : ` · ${localeText("迭代", "iter")} ${displayIter(iter)}`;
         return [buildConsoleEntry(event, {
           tone: "system",
           channel: "state",
@@ -72,14 +107,17 @@
         })];
       }
       if (event.event_type === "role_execution_summary") {
-        const tone = payload.ok ? "success" : "error";
-        const durationText = formatDurationMs(payload.duration_ms);
-        const detail = payload.ok
-          ? `${localeText("完成", "Completed")} · ${localeText("尝试", "attempts")}=${payload.attempts || 1}${durationText ? ` · ${durationText}` : ""}`
-          : `${localeText("失败", "Failed")} · ${payload.error || "-"}${durationText ? ` · ${durationText}` : ""}`;
+        const ok = payload.ok === true;
+        const tone = ok ? "success" : "error";
+        const safeDurationText = durationText(payload.duration_ms);
+        const attempts = nonNegativeInteger(payload.attempts);
+        const attemptsText = attempts === null ? "" : ` · ${localeText("尝试", "attempts")}=${attempts}`;
+        const detail = ok
+          ? `${localeText("完成", "Completed")}${attemptsText}${safeDurationText ? ` · ${safeDurationText}` : ""}`
+          : `${localeText("失败", "Failed")} · ${payload.error || "-"}${safeDurationText ? ` · ${safeDurationText}` : ""}`;
         return [buildConsoleEntry(event, {
           tone,
-          channel: payload.ok ? "state" : "error",
+          channel: ok ? "state" : "error",
           filterKey: "result",
           summary: detail,
           text: prettyConsoleJson(payload),
@@ -120,7 +158,7 @@
       }
       if (event.event_type === "iteration_summary_written") {
         return [buildConsoleEntry(event, {
-          tone: payload.passed ? "success" : "system",
+          tone: payload.passed === true ? "success" : "system",
           channel: "context",
           filterKey: "actions",
           summary: `${localeText("轮次摘要已冻结", "Iteration summary written")} · score=${payload.composite_score ?? "n/a"}`,
@@ -138,11 +176,12 @@
         })];
       }
       if (event.event_type === "workspace_guard_triggered") {
+        const deletedCount = displayCount(payload.deleted_original_count);
         return [buildConsoleEntry(event, {
           tone: "error",
           channel: "error",
           filterKey: "result",
-          summary: `${localeText("工作区安全守卫触发", "Workspace safety guard triggered")} · ${localeText("删掉原始文件", "Deleted original files")}=${payload.deleted_original_count || 0}`,
+          summary: `${localeText("工作区安全守卫触发", "Workspace safety guard triggered")} · ${localeText("删掉原始文件", "Deleted original files")}=${deletedCount}`,
           text: prettyConsoleJson(payload),
         })];
       }
@@ -166,10 +205,10 @@
       }
       if (event.event_type === "run_finished") {
         return [buildConsoleEntry(event, {
-          tone: payload.status === "succeeded" ? "success" : "warning",
+          tone: runFinishedTone(payload),
           channel: "state",
           filterKey: "result",
-          summary: `${localeText("运行结束", "Run finished")} · ${translateRunStatus(payload.status || "succeeded")}`,
+          summary: runFinishedSummary(payload),
           text: prettyConsoleJson(payload),
         })];
       }

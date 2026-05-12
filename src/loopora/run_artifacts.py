@@ -33,8 +33,8 @@ RUN_ARTIFACT_SPECS = (
         "relative_path": "contract/compiled_spec.json",
         "label_zh": "编译后契约",
         "label_en": "Compiled spec",
-        "description_zh": "本次运行实际使用的任务、检查项、边界和角色备注。",
-        "description_en": "The Task, checks, Guardrails, and role notes used by this run.",
+        "description_zh": "本次运行实际使用的任务、检查项、边界、假完成风险、证据偏好、残余风险和角色备注。",
+        "description_en": "The Task, checks, Guardrails, Success Surface, Fake Done, Evidence Preferences, Residual Risk, and role notes used by this run.",
     },
     {
         "id": "workflow-manifest",
@@ -404,7 +404,7 @@ def append_jsonl_with_mirrors(path: Path, payload: dict, *, mirror_paths: Iterab
             continue
         try:
             append_jsonl(mirror_path, payload)
-        except OSError as exc:
+        except Exception as exc:  # noqa: BLE001 - legacy mirrors are best-effort once canonical write succeeds.
             _log_mirror_write_failure(exc, operation="append_jsonl", canonical_path=path, mirror_path=mirror_path)
 
 
@@ -415,7 +415,7 @@ def write_json_with_mirrors(path: Path, payload: dict, *, mirror_paths: Iterable
             continue
         try:
             write_json(mirror_path, payload)
-        except OSError as exc:
+        except Exception as exc:  # noqa: BLE001 - legacy mirrors are best-effort once canonical write succeeds.
             _log_mirror_write_failure(exc, operation="write_json", canonical_path=path, mirror_path=mirror_path)
 
 
@@ -428,11 +428,11 @@ def write_text_with_mirrors(path: Path, text: str, *, mirror_paths: Iterable[Pat
         try:
             ensure_parent(mirror_path)
             mirror_path.write_text(text, encoding="utf-8")
-        except OSError as exc:
+        except Exception as exc:  # noqa: BLE001 - legacy mirrors are best-effort once canonical write succeeds.
             _log_mirror_write_failure(exc, operation="write_text", canonical_path=path, mirror_path=mirror_path)
 
 
-def _log_mirror_write_failure(exc: OSError, *, operation: str, canonical_path: Path, mirror_path: Path) -> None:
+def _log_mirror_write_failure(exc: Exception, *, operation: str, canonical_path: Path, mirror_path: Path) -> None:
     log_exception(
         logger,
         "run_artifact.mirror_write_failed",
@@ -485,11 +485,13 @@ def list_run_artifacts(run: dict) -> list[dict]:
                 **artifact,
                 "filename": artifact["relative_path"],
                 "path": str(path),
-                "available": path.exists(),
+                "available": _is_available_run_artifact_path(layout, path),
             }
         )
     if layout.contract_prompts_dir.exists():
-        for prompt_path in sorted(path for path in layout.contract_prompts_dir.rglob("*.md") if path.is_file()):
+        for prompt_path in sorted(
+            path for path in layout.contract_prompts_dir.rglob("*.md") if _is_available_run_artifact_path(layout, path)
+        ):
             relative_path = layout.relative(prompt_path)
             artifacts.append(
                 {
@@ -506,7 +508,7 @@ def list_run_artifacts(run: dict) -> list[dict]:
             )
     if layout.iterations_dir.exists():
         for artifact_path in sorted(layout.iterations_dir.rglob("*")):
-            if not artifact_path.is_file() or artifact_path.name not in STEP_ARTIFACT_FILENAMES:
+            if artifact_path.name not in STEP_ARTIFACT_FILENAMES or not _is_available_run_artifact_path(layout, artifact_path):
                 continue
             relative_path = layout.relative(artifact_path)
             label_prefix = "Step prompt" if artifact_path.name == "prompt.md" else "Step artifact"
@@ -525,6 +527,15 @@ def list_run_artifacts(run: dict) -> list[dict]:
                 }
             )
     return artifacts
+
+
+def _is_available_run_artifact_path(layout: RunArtifactLayout, path: Path) -> bool:
+    try:
+        resolved_root = layout.run_dir.resolve()
+        resolved_path = path.resolve()
+    except (OSError, RuntimeError):
+        return False
+    return resolved_path.is_relative_to(resolved_root) and resolved_path.is_file()
 
 
 def artifact_slug(relative_path: str) -> str:

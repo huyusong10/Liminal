@@ -147,12 +147,30 @@ def normalize_prompt_ref(value: str | None) -> str:
 
 
 def normalize_workflow_identifier(value: object, *, field_name: str) -> str:
-    normalized = str(value or "").strip()
+    if value is None:
+        normalized = ""
+    elif not isinstance(value, str):
+        raise WorkflowError(f"{field_name} must be a string")
+    else:
+        normalized = value.strip()
     if not normalized:
         raise WorkflowError(f"{field_name} is required")
     if not WORKFLOW_SAFE_IDENTIFIER_RE.fullmatch(normalized):
         raise WorkflowError(f"{field_name} must use letters, numbers, dot, underscore, or dash")
     return normalized
+
+
+def _normalize_optional_workflow_identifier(
+    value: object,
+    *,
+    default: str,
+    field_name: str,
+) -> str:
+    if value is None:
+        return normalize_workflow_identifier(default, field_name=field_name)
+    if isinstance(value, str) and not value.strip():
+        return normalize_workflow_identifier(default, field_name=field_name)
+    return normalize_workflow_identifier(value, field_name=field_name)
 
 
 def normalize_workflow_version(value: Any, *, field_name: str = "workflow version") -> int:
@@ -162,7 +180,7 @@ def normalize_workflow_version(value: Any, *, field_name: str = "workflow versio
         return WORKFLOW_VERSION
     if isinstance(value, bool):
         raise WorkflowError(f"{field_name} must be an integer")
-    if isinstance(value, float) and not value.is_integer():
+    if isinstance(value, float):
         raise WorkflowError(f"{field_name} must be an integer")
     try:
         version = int(value)
@@ -314,7 +332,9 @@ def _normalize_string_list(value: Any, *, field_name: str) -> list[str]:
         raise WorkflowError(f"{field_name} must be a string or array of strings")
     result: list[str] = []
     for item in value:
-        normalized = str(item or "").strip()
+        if not isinstance(item, str):
+            raise WorkflowError(f"{field_name} must contain only strings")
+        normalized = item.strip()
         if normalized:
             result.append(normalized)
     return result
@@ -325,10 +345,11 @@ def _unknown_keys(value: Mapping[str, Any], allowed_keys: set[str]) -> list[str]
 
 
 def normalize_step_parallel_group(value: Any) -> str:
-    normalized = str(value or "").strip()
-    if not normalized:
+    if value is None:
         return ""
-    return normalize_workflow_identifier(normalized, field_name="workflow step parallel_group")
+    if isinstance(value, str) and not value.strip():
+        return ""
+    return normalize_workflow_identifier(value, field_name="workflow step parallel_group")
 
 
 def normalize_step_inputs(value: Any) -> dict[str, Any]:
@@ -402,17 +423,22 @@ def normalize_step_evidence_archetypes(value: Any) -> list[str]:
 def normalize_step_evidence_limit(value: Any) -> int | None:
     if value is None:
         return None
-    try:
-        limit = int(value)
-    except (TypeError, ValueError) as exc:
-        raise WorkflowError("workflow step inputs.evidence_query.limit must be an integer") from exc
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise WorkflowError("workflow step inputs.evidence_query.limit must be an integer")
+    limit = value
     if limit < 1 or limit > 100:
         raise WorkflowError("workflow step inputs.evidence_query.limit must be between 1 and 100")
     return limit
 
 
 def normalize_step_iteration_memory(value: Any) -> str:
-    iteration_memory = str(value or "").strip().lower()
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise WorkflowError(
+            "workflow step inputs.iteration_memory must be default, none, same_step, same_role, or summary_only"
+        )
+    iteration_memory = value.strip().lower()
     if iteration_memory == "all":
         iteration_memory = "default"
     if not iteration_memory:
@@ -439,6 +465,23 @@ def default_step_action_policy(*, archetype: str | None = None, on_pass: str = "
     return {"workspace": "read_only", "can_block": False, "can_finish_run": False}
 
 
+def normalize_step_action_policy_workspace(value: Any, *, default: str) -> str:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raw_workspace = str(default)
+    elif not isinstance(value, str):
+        raise WorkflowError("workflow step action_policy.workspace must be read_only or workspace_write")
+    else:
+        raw_workspace = value
+    normalized = raw_workspace.strip().lower().replace("-", "_")
+    if normalized in {"readonly", "read"}:
+        normalized = "read_only"
+    elif normalized in {"write", "workspace"}:
+        normalized = "workspace_write"
+    if normalized not in STEP_ACTION_POLICY_WORKSPACES:
+        raise WorkflowError("workflow step action_policy.workspace must be read_only or workspace_write")
+    return normalized
+
+
 def normalize_step_action_policy(
     value: Any,
     *,
@@ -455,16 +498,11 @@ def normalize_step_action_policy(
         unknown_keys = sorted(str(key) for key in value if str(key) not in STEP_ACTION_POLICY_KEYS)
         if unknown_keys:
             raise WorkflowError(f"workflow step action_policy contains unknown keys: {', '.join(unknown_keys)}")
-        raw_workspace = str(value.get("workspace", defaults["workspace"]) or defaults["workspace"]).strip().lower()
-        raw_workspace = raw_workspace.replace("-", "_")
-        if raw_workspace in {"readonly", "read"}:
-            raw_workspace = "read_only"
-        elif raw_workspace in {"write", "workspace"}:
-            raw_workspace = "workspace_write"
-        if raw_workspace not in STEP_ACTION_POLICY_WORKSPACES:
-            raise WorkflowError("workflow step action_policy.workspace must be read_only or workspace_write")
         policy = {
-            "workspace": raw_workspace,
+            "workspace": normalize_step_action_policy_workspace(
+                value.get("workspace", defaults["workspace"]),
+                default=str(defaults["workspace"]),
+            ),
             "can_block": normalize_step_policy_boolean(
                 value.get("can_block"),
                 field_name="can_block",
@@ -523,8 +561,9 @@ def normalize_workflow_control(
 
 
 def normalize_workflow_control_id(value: Any, *, index: int, seen_ids: set[str]) -> str:
-    control_id = normalize_workflow_identifier(
-        value or f"control_{index:03d}",
+    control_id = _normalize_optional_workflow_identifier(
+        value,
+        default=f"control_{index:03d}",
         field_name="workflow control id",
     )
     if control_id in seen_ids:
@@ -544,7 +583,13 @@ def normalize_workflow_control_when(value: Any, *, control_id: str) -> tuple[str
         raise WorkflowError(
             "workflow control when.signal must be one of: " + ", ".join(sorted(WORKFLOW_CONTROL_SIGNALS))
         )
-    after = str(value.get("after") or "0s").strip() or "0s"
+    raw_after = value.get("after")
+    if raw_after is None or (isinstance(raw_after, str) and not raw_after.strip()):
+        after = "0s"
+    elif not isinstance(raw_after, str):
+        raise WorkflowError("workflow control when.after must be an elapsed duration such as 30s, 20m, or 1h")
+    else:
+        after = raw_after.strip()
     if not WORKFLOW_CONTROL_AFTER_RE.match(after):
         raise WorkflowError("workflow control when.after must be an elapsed duration such as 30s, 20m, or 1h")
     return signal, after
@@ -561,7 +606,10 @@ def normalize_workflow_control_call(
     call_unknown = _unknown_keys(value, WORKFLOW_CONTROL_CALL_KEYS)
     if call_unknown:
         raise WorkflowError(f"workflow control {control_id}.call contains unknown keys: {', '.join(call_unknown)}")
-    role_id = str(value.get("role_id") or "").strip()
+    role_id = normalize_workflow_identifier(
+        value.get("role_id"),
+        field_name=f"workflow control {control_id}.call.role_id",
+    )
     role = role_by_id.get(role_id)
     if role is None:
         raise WorkflowError(f"workflow control {control_id} references unknown role_id: {role_id}")
@@ -572,7 +620,12 @@ def normalize_workflow_control_call(
 
 
 def normalize_workflow_control_mode(value: Any) -> str:
-    mode = str(value or "advisory").strip()
+    if value is None or (isinstance(value, str) and not value.strip()):
+        mode = "advisory"
+    elif not isinstance(value, str):
+        raise WorkflowError("workflow control mode must be advisory, blocking, or repair_guidance")
+    else:
+        mode = value.strip()
     if mode not in WORKFLOW_CONTROL_MODES:
         raise WorkflowError("workflow control mode must be advisory, blocking, or repair_guidance")
     return mode
@@ -580,10 +633,9 @@ def normalize_workflow_control_mode(value: Any) -> str:
 
 def normalize_workflow_control_max_fires(value: Any) -> int:
     raw_value = 1 if value is None or value == "" else value
-    try:
-        max_fires = int(raw_value)
-    except (TypeError, ValueError) as exc:
-        raise WorkflowError("workflow control max_fires_per_run must be an integer") from exc
+    if isinstance(raw_value, bool) or not isinstance(raw_value, int):
+        raise WorkflowError("workflow control max_fires_per_run must be an integer")
+    max_fires = raw_value
     if max_fires < 1 or max_fires > 20:
         raise WorkflowError("workflow control max_fires_per_run must be between 1 and 20")
     return max_fires
@@ -1407,6 +1459,7 @@ def workflow_warnings(workflow: dict) -> list[str]:
         warnings.append(
             "This workflow has no GateKeeper finish step, so it should be paired with round-based completion or updated before gate-based execution."
         )
+    warnings.extend(workflow_guide_input_warnings(steps, role_by_id))
     gate_before_builder = False
     gate_after_builder_without_inspector = False
     seen_builder = False
@@ -1431,6 +1484,21 @@ def workflow_warnings(workflow: dict) -> list[str]:
         warnings.append("GateKeeper appears before a later Builder step, so it may only judge pre-change evidence.")
     if gate_after_builder_without_inspector:
         warnings.append("GateKeeper appears after Builder without a later Inspector step, so it may judge stale evidence.")
+    return warnings
+
+
+def workflow_guide_input_warnings(
+    steps: list[dict[str, Any]],
+    role_by_id: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    warnings: list[str] = []
+    for step in steps:
+        role = role_by_id.get(step["role_id"], {})
+        if role.get("archetype") != "guide":
+            continue
+        inputs = step.get("inputs") if isinstance(step.get("inputs"), Mapping) else {}
+        if not inputs.get("handoffs_from") or not inputs.get("evidence_query"):
+            warnings.append(f"Guide step {step['id']} has incomplete upstream inputs, so it may rely on ambient context.")
     return warnings
 
 
@@ -1582,8 +1650,9 @@ def normalize_workflow_role(
 ) -> dict[str, Any]:
     if not isinstance(raw_role, dict):
         raise WorkflowError("workflow roles must be objects")
-    role_id = normalize_workflow_identifier(
-        raw_role.get("id") or f"role_{index:03d}",
+    role_id = _normalize_optional_workflow_identifier(
+        raw_role.get("id"),
+        default=f"role_{index:03d}",
         field_name="workflow role id",
     )
     if role_id in role_ids:
@@ -1641,8 +1710,9 @@ def normalize_workflow_step(
     role = role_by_id.get(role_id)
     if role is None:
         raise WorkflowError(f"workflow step references unknown role_id: {role_id}")
-    step_id = normalize_workflow_identifier(
-        raw_step.get("id") or f"step_{index:03d}",
+    step_id = _normalize_optional_workflow_identifier(
+        raw_step.get("id"),
+        default=f"step_{index:03d}",
         field_name="workflow step id",
     )
     if step_id in step_ids:
@@ -1721,6 +1791,8 @@ def load_workflow_file(path: Path) -> tuple[dict[str, Any], dict[str, str]]:
     if not isinstance(payload, dict):
         raise WorkflowError("workflow file must decode to an object")
     workflow = payload.get("workflow", payload)
+    if not isinstance(workflow, Mapping):
+        raise WorkflowError("workflow file workflow must be an object")
     prompt_files = payload.get("prompt_files", {})
     if not isinstance(prompt_files, dict):
         raise WorkflowError("workflow file prompt_files must be a mapping")

@@ -41,7 +41,12 @@ class ServiceWorkflowFailureHandlingMixin:
         self.append_run_event(
             request.run_id,
             "run_finished",
-            {"status": final_status, "reason": final_reason, "iter": request.last_iter_id},
+            self._run_finished_event_payload(
+                finished,
+                status=final_status,
+                reason=final_reason,
+                iter_id=request.last_iter_id,
+            ),
         )
         log_event(
             logger,
@@ -69,7 +74,7 @@ class ServiceWorkflowFailureHandlingMixin:
                 hydrate=True,
             )
         )
-        self.append_run_event(run_id, "run_finished", {"status": "stopped"})
+        self.append_run_event(run_id, "run_finished", self._run_finished_event_payload(stopped, status="stopped"))
         log_event(
             logger,
             logging.INFO,
@@ -131,6 +136,11 @@ class ServiceWorkflowFailureHandlingMixin:
             attempts=exc.result.attempts,
             degraded=exc.result.degraded,
             error_text=error_text,
+        )
+        self.append_run_event(
+            run_id,
+            "run_finished",
+            self._run_finished_event_payload(failed, status="failed", reason="role_execution_abort"),
         )
         log_event(
             logger,
@@ -202,6 +212,11 @@ class ServiceWorkflowFailureHandlingMixin:
             attempts=1,
             degraded=False,
             error_text=error_text,
+        )
+        self.append_run_event(
+            run_id,
+            "run_finished",
+            self._run_finished_event_payload(failed, status="failed", reason="workspace_safety_guard"),
         )
         log_event(
             logger,

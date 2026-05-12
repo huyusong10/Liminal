@@ -7,6 +7,7 @@ from pathlib import Path
 from loopora.db_shared import logger
 from loopora.diagnostics import log_event
 from loopora.event_redaction import redact_alignment_event_payload
+from loopora.structured_numbers import structured_non_negative_int
 from loopora.utils import utc_now
 
 
@@ -49,7 +50,7 @@ class RepositoryAlignmentRecordsMixin:
                     payload.get("linked_run_id", ""),
                     payload.get("active_child_pid"),
                     1 if payload.get("stop_requested") else 0,
-                    int(payload.get("repair_attempts", 0) or 0),
+                    structured_non_negative_int(payload.get("repair_attempts", 0)),
                     now,
                     now,
                     payload.get("finished_at"),
@@ -125,7 +126,7 @@ class RepositoryAlignmentRecordsMixin:
                 updates[column] = json.dumps(fields[key], ensure_ascii=False)
         for key in passthrough_fields:
             if key in fields:
-                updates[key] = fields[key]
+                updates[key] = structured_non_negative_int(fields[key]) if key == "repair_attempts" else fields[key]
         if "stop_requested" in fields:
             updates["stop_requested"] = 1 if fields["stop_requested"] else 0
         if fields.get("clear_active_child_pid"):
@@ -254,8 +255,8 @@ class RepositoryAlignmentRecordsMixin:
             return
 
     def list_alignment_events(self, session_id: str, *, after_id: int = 0, limit: int = 200) -> list[dict]:
-        normalized_after_id = max(0, int(after_id or 0))
-        normalized_limit = max(0, min(int(limit or 0), 5000))
+        normalized_after_id = structured_non_negative_int(after_id)
+        normalized_limit = min(structured_non_negative_int(limit), 5000)
         if normalized_limit <= 0:
             return []
         with self._connect() as connection:
@@ -270,6 +271,18 @@ class RepositoryAlignmentRecordsMixin:
             ).fetchall()
         return [self._decode_row(row) for row in rows]
 
+    def latest_alignment_event_id(self, session_id: str) -> int:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT MAX(id) AS latest_id
+                FROM alignment_events
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+        return int(row["latest_id"] or 0) if row else 0
+
     def list_alignment_events_for_redaction_audit(self) -> list[dict]:
         with self._connect() as connection:
             rows = connection.execute(
@@ -283,11 +296,14 @@ class RepositoryAlignmentRecordsMixin:
         return [self._decode_row(row) for row in rows]
 
     def update_alignment_event_payload_for_redaction(self, event_id: int, payload: dict) -> bool:
+        normalized_event_id = structured_non_negative_int(event_id)
+        if normalized_event_id <= 0:
+            return False
         payload_json = json.dumps(payload, ensure_ascii=False)
         with self.transaction() as connection:
             cursor = connection.execute(
                 "UPDATE alignment_events SET payload_json = ? WHERE id = ?",
-                (payload_json, int(event_id)),
+                (payload_json, normalized_event_id),
             )
         return cursor.rowcount > 0
 

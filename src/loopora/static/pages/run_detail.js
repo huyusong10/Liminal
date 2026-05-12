@@ -14,6 +14,45 @@
   let renderProjector = null;
   let domRenderer = null;
   const MAX_CONSOLE_LINES = 420;
+  const PROGRESS_EVENT_TYPES = new Set([
+    "checks_resolved",
+    "role_started",
+    "role_request_prepared",
+    "parallel_group_started",
+    "parallel_group_finished",
+    "step_context_prepared",
+    "role_execution_summary",
+    "step_handoff_written",
+    "control_triggered",
+    "control_completed",
+    "control_failed",
+    "control_skipped",
+    "run_aborted",
+    "run_finished",
+  ]);
+  const TIMELINE_STREAM_EVENT_TYPES = [
+    "run_started",
+    "checks_resolved",
+    "role_request_prepared",
+    "parallel_group_started",
+    "parallel_group_finished",
+    "step_context_prepared",
+    "role_execution_summary",
+    "step_handoff_written",
+    "control_triggered",
+    "control_completed",
+    "control_failed",
+    "control_skipped",
+    "iteration_summary_written",
+    "iteration_wait_started",
+    "iteration_wait_finished",
+    "role_degraded",
+    "challenger_done",
+    "stop_requested",
+    "run_result_accepted",
+    "run_aborted",
+    "workspace_guard_triggered",
+  ];
   const api = window.LooporaRunDetailApi;
   const observation = window.LooporaRunDetailObservation;
   const stateStore = window.LooporaRunDetailState.createRunDetailState({
@@ -130,12 +169,16 @@
     return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
   }
 
+  function nonNegativeInteger(value) {
+    return Number.isInteger(value) && value >= 0 ? value : null;
+  }
+
   function displayIter(value, fallback = 1) {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed) || parsed < 0) {
+    const iter = nonNegativeInteger(value);
+    if (iter === null) {
       return fallback;
     }
-    return Math.floor(parsed) + 1;
+    return iter + 1;
   }
 
   function observationStateLabel(state) {
@@ -161,8 +204,8 @@
   }
 
   function eventAlreadyRecorded(records, event) {
-    const eventId = Number(event?.id || 0);
-    return eventId > 0 && records.some((record) => Number(record?.id || 0) === eventId);
+    const eventId = nonNegativeInteger(event?.id) ?? 0;
+    return eventId > 0 && records.some((record) => nonNegativeInteger(record?.id) === eventId);
   }
 
   function syncStateStore() {
@@ -416,20 +459,7 @@
   }
 
   function isProgressEvent(event) {
-    return [
-      "checks_resolved",
-      "role_started",
-      "role_request_prepared",
-      "step_context_prepared",
-      "role_execution_summary",
-      "step_handoff_written",
-      "control_triggered",
-      "control_completed",
-      "control_failed",
-      "control_skipped",
-      "run_aborted",
-      "run_finished",
-    ].includes(event?.event_type);
+    return PROGRESS_EVENT_TYPES.has(event?.event_type);
   }
 
   function pushProgressEvent(event) {
@@ -587,7 +617,7 @@
       closeRunStream();
       setObservationState("finished");
     });
-    ["run_started", "checks_resolved", "role_request_prepared", "step_context_prepared", "role_execution_summary", "step_handoff_written", "control_triggered", "control_completed", "control_failed", "control_skipped", "iteration_summary_written", "role_degraded", "challenger_done", "stop_requested", "run_result_accepted", "run_aborted", "workspace_guard_triggered"].forEach((eventName) => {
+    TIMELINE_STREAM_EVENT_TYPES.forEach((eventName) => {
       eventSource.addEventListener(eventName, (message) => {
         handleStreamEvent(message, {
           console: true,

@@ -6,6 +6,7 @@ from pathlib import Path
 from loopora.context_flow import (
     StepContextPacketRequest,
     build_step_context_packet,
+    normalize_manifest_claim_coverage_targets,
     output_contract_prompt,
     render_step_prompt,
     system_prompt_prefix,
@@ -16,8 +17,15 @@ from loopora.recovery import RetryConfig
 from loopora.run_artifacts import RunArtifactLayout, read_jsonl
 from loopora.service_role_execution import RoleExecutionRequest
 from loopora.service_types import LooporaError
+from loopora.structured_booleans import structured_bool_is_true
+from loopora.structured_numbers import structured_non_negative_int
 from loopora.utils import read_json, write_json
-from loopora.workflows import WorkflowError, default_step_action_policy, role_uses_execution_snapshot
+from loopora.workflows import (
+    WorkflowError,
+    default_step_action_policy,
+    normalize_step_evidence_limit,
+    role_uses_execution_snapshot,
+)
 
 
 @dataclass(frozen=True)
@@ -51,6 +59,7 @@ class WorkflowStepRuntimeRequest:
     missing_check_count: int
     consecutive_no_required_coverage_delta: int
     retry_config: RetryConfig
+    evidence_items_snapshot: list[dict] | None = None
 
 
 @dataclass(frozen=True)
@@ -92,13 +101,13 @@ def _manifest_prompt_context(layout: RunArtifactLayout, known_ids: list[str]) ->
             {
                 "id": claim_id,
                 "verification_status": str(claim.get("verification_status") or "ledger_only").strip(),
-                "measured_evidence": bool(claim.get("measured_evidence")),
+                "measured_evidence": structured_bool_is_true(claim.get("measured_evidence")),
                 "concrete_evidence_claim_count": _safe_int(claim.get("concrete_evidence_claim_count")),
                 "artifact_count": _safe_int(claim.get("artifact_count")),
-                "artifact_backed": bool(claim.get("artifact_backed")),
-                "workspace_backed": bool(claim.get("workspace_backed")),
-                "reproducible": bool(claim.get("reproducible")),
-                "coverage_targets": _claim_target_ids(claim),
+                "artifact_backed": structured_bool_is_true(claim.get("artifact_backed")),
+                "workspace_backed": structured_bool_is_true(claim.get("workspace_backed")),
+                "reproducible": structured_bool_is_true(claim.get("reproducible")),
+                "coverage_targets": normalize_manifest_claim_coverage_targets(claim.get("coverage_targets")),
                 "problem_codes": problem_codes_by_claim.get(claim_id, [])[:8],
             }
         )
@@ -126,22 +135,8 @@ def _empty_manifest_prompt_summary() -> dict:
     }
 
 
-def _claim_target_ids(claim: dict) -> list[str]:
-    target_ids = []
-    for target in list(claim.get("coverage_targets") or []):
-        if not isinstance(target, dict):
-            continue
-        target_id = str(target.get("id") or "").strip()
-        if target_id:
-            target_ids.append(target_id)
-    return target_ids[:20]
-
-
 def _safe_int(value: object) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError, OverflowError):
-        return 0
+    return structured_non_negative_int(value)
 
 
 class ServiceWorkflowRuntimeMixin:
@@ -204,12 +199,7 @@ class ServiceWorkflowRuntimeMixin:
                 if not any(needle in verify_text for needle in verifies):
                     continue
             filtered.append(item)
-        raw_limit = query.get("limit", 40)
-        try:
-            limit = int(raw_limit)
-        except (TypeError, ValueError):
-            limit = 40
-        limit = max(1, min(limit, 100))
+        limit = normalize_step_evidence_limit(query.get("limit")) or 40
         return filtered[-limit:]
 
     def _step_declares_evidence_query(self, step: dict) -> bool:
@@ -241,8 +231,11 @@ class ServiceWorkflowRuntimeMixin:
             expected_archetype=role["archetype"],
         )
         runtime_role = self._runtime_role_key(role)
-        all_evidence_items = read_jsonl(layout.evidence_ledger_path)
-        evidence_items = all_evidence_items[-40:]
+        all_evidence_items = (
+            list(runtime_request.evidence_items_snapshot)
+            if runtime_request.evidence_items_snapshot is not None
+            else read_jsonl(layout.evidence_ledger_path)
+        )
         current_handoffs_for_step = self._filter_handoffs_for_step(step, runtime_request.current_handoffs)
         (
             previous_iteration_same_step_for_step,
@@ -254,8 +247,13 @@ class ServiceWorkflowRuntimeMixin:
             previous_iteration_same_role=runtime_request.previous_handoffs_by_role.get(role["id"]),
             previous_iteration_summary=runtime_request.previous_iteration_summary,
         )
-        evidence_items = self._filter_evidence_for_step(step, evidence_items)
-        evidence_known_ids = self._evidence_known_ids(evidence_items if self._step_declares_evidence_query(step) else all_evidence_items)
+        declares_evidence_query = self._step_declares_evidence_query(step)
+        if declares_evidence_query:
+            evidence_items = self._filter_evidence_for_step(step, all_evidence_items)
+            evidence_known_ids = self._evidence_known_ids(evidence_items)
+        else:
+            evidence_items = all_evidence_items[-40:]
+            evidence_known_ids = self._evidence_known_ids(all_evidence_items)
         evidence_manifest_summary, evidence_manifest_claims = _manifest_prompt_context(layout, evidence_known_ids)
         context_packet = build_step_context_packet(
             StepContextPacketRequest(

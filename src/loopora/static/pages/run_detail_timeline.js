@@ -19,6 +19,15 @@
     const translateStatus = deps.translateStatus || ((status) => String(status || ""));
     const resolvedPayloadRoleName = deps.resolvedPayloadRoleName || ((payload = {}, role = "") => String(payload.role_name || role || "-"));
 
+    function nonNegativeInteger(value) {
+      return Number.isInteger(value) && value >= 0 ? value : null;
+    }
+
+    function displayCount(value, fallback = 0) {
+      const count = nonNegativeInteger(value);
+      return count === null ? fallback : count;
+    }
+
     function formatTimelineEvent(event) {
       const payload = event.payload || {};
       const role = payload.role || event.role || "role";
@@ -26,9 +35,10 @@
         return {title: localeText("运行已开始", "Run started"), detail: ""};
       }
       if (event.event_type === "checks_resolved") {
+        const count = displayCount(payload.count);
         return {
           title: localeText("检查项已就绪", "Checks resolved"),
-          detail: localeText(`共 ${payload.count || 0} 条检查项`, `${payload.count || 0} checks ready`),
+          detail: localeText(`共 ${count} 条检查项`, `${count} checks ready`),
         };
       }
       if (event.event_type === "role_request_prepared") {
@@ -44,13 +54,15 @@
         };
       }
       if (event.event_type === "role_execution_summary") {
-        const durationText = formatDurationMs(payload.duration_ms);
-        if (payload.ok) {
+        const durationMs = nonNegativeInteger(payload.duration_ms);
+        const durationText = durationMs === null ? "" : formatDurationMs(durationMs);
+        if (payload.ok === true) {
           const parts = [];
-          if ((payload.attempts || 1) > 1) {
-            parts.push(`${localeText("重试", "attempts")}=${payload.attempts}`);
+          const attempts = nonNegativeInteger(payload.attempts);
+          if (attempts !== null && attempts > 1) {
+            parts.push(`${localeText("重试", "attempts")}=${attempts}`);
           }
-          if (payload.degraded) {
+          if (payload.degraded === true) {
             parts.push(localeText("已降级", "degraded"));
           }
           if (durationText) {
@@ -76,6 +88,19 @@
         return {
           title: localeText("步骤交接包已写入", "Step handoff written"),
           detail: String(payload.summary || payload.step_id || ""),
+        };
+      }
+      if (["parallel_group_started", "parallel_group_finished"].includes(event.event_type)) {
+        const stepIds = Array.isArray(payload.step_ids) ? payload.step_ids : [];
+        const stepOrders = Array.isArray(payload.step_orders) ? payload.step_orders : [];
+        const stepCount = stepIds.length || stepOrders.length || 0;
+        const titleByType = {
+          parallel_group_started: localeText("并行检视开始", "Parallel review started"),
+          parallel_group_finished: localeText("并行检视结束", "Parallel review finished"),
+        };
+        return {
+          title: titleByType[event.event_type],
+          detail: `${payload.parallel_group || "-"} · ${localeText(`${stepCount} 个步骤`, `${stepCount} steps`)}`,
         };
       }
       if (["control_triggered", "control_completed", "control_failed", "control_skipped"].includes(event.event_type)) {
@@ -112,24 +137,36 @@
         };
       }
       if (event.event_type === "run_aborted") {
+        const attempts = displayCount(payload.attempts);
         return {
           title: localeText("运行中止", "Run aborted"),
-          detail: `${translateRole(payload.role || "role")} · ${localeText("尝试次数", "attempts")}=${payload.attempts || 0}`,
+          detail: `${translateRole(payload.role || "role")} · ${localeText("尝试次数", "attempts")}=${attempts}`,
         };
       }
       if (event.event_type === "workspace_guard_triggered") {
+        const deletedCount = displayCount(payload.deleted_original_count);
         return {
           title: localeText("工作区安全守卫触发", "Workspace safety guard triggered"),
           detail: localeText(
-            `检测到删掉了 ${payload.deleted_original_count || 0} 个原始文件，已立即拦下这次运行。`,
-            `Detected ${payload.deleted_original_count || 0} deleted original files and stopped the run immediately.`
+            `检测到删掉了 ${deletedCount} 个原始文件，已立即拦下这次运行。`,
+            `Detected ${deletedCount} deleted original files and stopped the run immediately.`
           ),
         };
       }
       if (event.event_type === "run_finished") {
+        const detailParts = [];
+        const iter = nonNegativeInteger(payload.iter);
+        if (payload.reason) {
+          detailParts.push(String(payload.reason));
+        } else if (iter !== null) {
+          detailParts.push(`${localeText("迭代", "Iter")} ${displayIter(iter)}`);
+        }
+        if (payload.task_verdict_status) {
+          detailParts.push(`${localeText("任务裁决", "Task verdict")} ${payload.task_verdict_status}`);
+        }
         return {
           title: `${localeText("运行结束", "Run finished")} · ${translateStatus(payload.status || "succeeded")}`,
-          detail: payload.reason ? String(payload.reason) : (payload.iter !== undefined ? `${localeText("迭代", "Iter")} ${displayIter(payload.iter)}` : ""),
+          detail: detailParts.join(" · "),
         };
       }
       return {title: event.event_type, detail: ""};
@@ -138,10 +175,16 @@
     function timelineTone(event) {
       const payload = event.payload || {};
       if (event.event_type === "run_finished") {
+        if (payload.task_verdict_status === "failed") {
+          return "danger";
+        }
+        if (["insufficient_evidence", "passed_with_residual_risk"].includes(payload.task_verdict_status)) {
+          return "warning";
+        }
         return payload.status === "succeeded" ? "success" : (payload.status === "failed" ? "danger" : "warning");
       }
       if (event.event_type === "role_execution_summary") {
-        return payload.ok ? "success" : "danger";
+        return payload.ok === true ? "success" : "danger";
       }
       if (event.event_type === "checks_resolved") {
         return "accent";
@@ -165,16 +208,21 @@
         pills.push(translateRole(payload.role));
       }
       if (payload.iter !== undefined) {
-        pills.push(localeText(`第 ${displayIter(payload.iter)} 轮`, `Round ${displayIter(payload.iter)}`));
+        const iter = nonNegativeInteger(payload.iter);
+        if (iter !== null) {
+          pills.push(localeText(`第 ${displayIter(iter)} 轮`, `Round ${displayIter(iter)}`));
+        }
       }
       if (event.event_type === "checks_resolved") {
         pills.push(payload.source === "auto_generated" ? localeText("自动生成", "Auto-generated") : localeText("显式提供", "Specified"));
       }
       if (event.event_type === "workspace_guard_triggered") {
-        pills.push(localeText(`删掉 ${payload.deleted_original_count || 0} 个原始文件`, `Deleted ${payload.deleted_original_count || 0} original files`));
+        const deletedCount = displayCount(payload.deleted_original_count);
+        pills.push(localeText(`删掉 ${deletedCount} 个原始文件`, `Deleted ${deletedCount} original files`));
       }
-      if (payload.duration_ms) {
-        pills.push(formatDurationMs(payload.duration_ms));
+      const durationMs = nonNegativeInteger(payload.duration_ms);
+      if (durationMs !== null) {
+        pills.push(formatDurationMs(durationMs));
       }
       if (!pills.length && formatted.detail) {
         pills.push(formatted.detail);

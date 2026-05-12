@@ -5,8 +5,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from loopora.coverage_target_semantics import coverage_target_is_required
 from loopora.evidence_coverage import parse_target_verify_ref
 from loopora.run_artifacts import RunArtifactLayout, read_jsonl
+from loopora.structured_booleans import structured_bool_is_true
+from loopora.structured_numbers import structured_non_negative_int
 from loopora.utils import read_json, utc_now, write_json
 
 MAX_HASH_BYTES = 10 * 1024 * 1024
@@ -93,7 +96,7 @@ def _claim_manifest(item: Mapping[str, Any], *, layout: RunArtifactLayout, targe
         "workspace_artifact_count": sum(1 for ref in artifact_refs if ref.get("kind") == "workspace"),
         "artifact_backed": artifact_backed,
         "workspace_backed": workspace_backed,
-        "measured_evidence": bool(item.get("measured_evidence")),
+        "measured_evidence": structured_bool_is_true(item.get("measured_evidence")),
         "concrete_evidence_claim_count": _safe_int(item.get("concrete_evidence_claim_count")),
         "verification_status": verification_status,
         "reproducible": verification_status in {"direct_proof", "workspace_artifact"},
@@ -150,7 +153,7 @@ def _coverage_target_refs(item: Mapping[str, Any], targets_by_id: Mapping[str, M
                 "label": str(target.get("label") or target_id).strip(),
                 "reported_status": coverage_result["status"],
                 "coverage_status": str(target.get("status") or "missing").strip(),
-                "required": bool(target.get("required")),
+                "required": coverage_target_is_required(target, target_id=target_id),
                 "evidence_refs": coverage_result["evidence_refs"],
             }
         )
@@ -170,7 +173,7 @@ def _coverage_target_refs(item: Mapping[str, Any], targets_by_id: Mapping[str, M
                 "label": str(target.get("label") or target_id).strip(),
                 "reported_status": str(reported_status or "unknown").strip(),
                 "coverage_status": str(target.get("status") or "missing").strip(),
-                "required": bool(target.get("required")),
+                "required": coverage_target_is_required(target, target_id=target_id),
                 "evidence_refs": [],
             }
         )
@@ -228,7 +231,7 @@ def _target_index(targets_by_id: Mapping[str, Mapping[str, Any]], claims: list[d
     artifacts_by_target: dict[str, list[dict]] = {}
     claims_by_id = {str(claim.get("id") or "").strip(): claim for claim in claims if str(claim.get("id") or "").strip()}
     for target_id, target in targets_by_id.items():
-        target_artifacts = [ref for ref in list(target.get("artifact_refs") or []) if isinstance(ref, Mapping)]
+        target_artifacts = [_artifact_manifest(ref) for ref in list(target.get("artifact_refs") or []) if isinstance(ref, Mapping)]
         if target_artifacts:
             artifacts_by_target.setdefault(target_id, []).extend(dict(ref) for ref in target_artifacts[:8])
     for claim in claims:
@@ -253,7 +256,7 @@ def _target_index(targets_by_id: Mapping[str, Mapping[str, Any]], claims: list[d
                 "kind": str(target.get("kind") or "").strip(),
                 "label": str(target.get("label") or target_id).strip(),
                 "status": str(target.get("status") or "missing").strip(),
-                "required": bool(target.get("required")),
+                "required": coverage_target_is_required(target, target_id=target_id),
                 "claim_refs": list(dict.fromkeys(claims_by_target.get(target_id, []))),
                 "artifact_refs": _dedupe_artifact_refs(artifacts_by_target.get(target_id, []))[:8],
             }
@@ -318,7 +321,4 @@ def _safe_read_json_artifact(path: Path) -> dict:
 
 
 def _safe_int(value: object) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError, OverflowError):
-        return 0
+    return structured_non_negative_int(value)

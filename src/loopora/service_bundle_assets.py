@@ -6,10 +6,11 @@ from pathlib import Path
 import re
 import shutil
 
-from loopora.bundles import BundleError, bundle_to_yaml, load_bundle_file, load_bundle_text, normalize_bundle
+from loopora.bundles import BundleError, bundle_to_yaml, load_bundle_file, load_bundle_text, normalize_bundle, normalize_bundle_identifier
 from loopora.diagnostics import get_logger
 from loopora.evidence_coverage import with_coverage_targets
 from loopora.markdown_tools import render_safe_markdown_html
+from loopora.numeric_inputs import coerce_integral_number
 from loopora.service_bundle_control_summary import build_bundle_control_summary, preview_list_items
 from loopora.service_bundle_graph_preflight import BundleGraphLinks, bundle_graph_links, preflight_bundle_graph_delete
 from loopora.service_cleanup_diagnostics import best_effort_rmtree, cleanup_diagnostic_payload, log_cleanup_diagnostic
@@ -18,9 +19,10 @@ from loopora.specs import compile_markdown_spec, SpecError
 from loopora.service_asset_common import _normalize_role_models
 from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError
 from loopora.service_local_asset_diagnostics import build_local_asset_diagnostics
+from loopora.structured_booleans import structured_bool_is_true
 from loopora.utils import make_id
 from loopora.utils import write_json
-from loopora.workflows import ROLE_EXECUTION_FIELDS, ROLE_POSTURE_FIELDS, has_finish_gatekeeper_step
+from loopora.workflows import ROLE_EXECUTION_FIELDS, ROLE_POSTURE_FIELDS, has_finish_gatekeeper_step, normalize_workflow
 
 logger = get_logger(__name__)
 
@@ -95,7 +97,10 @@ def _loop_runtime_number(loop: dict, key: str, default: int | float, *, integer_
     value = loop.get(key, default)
     if value is None or value == "":
         value = default
-    return int(value) if integer_only else float(value)
+    try:
+        return coerce_integral_number(value, field_name=f"loop.{key}") if integer_only else float(value)
+    except ValueError as exc:
+        raise LooporaError(str(exc)) from exc
 
 
 class ServiceBundleAssetMixin:
@@ -253,6 +258,7 @@ class ServiceBundleAssetMixin:
             raw_sections = {}
         control_summary = self._bundle_control_summary(bundle)
         gatekeeper = dict(control_summary.get("gatekeeper") or {})
+        gatekeeper_enabled = structured_bool_is_true(gatekeeper.get("enabled"))
         evidence_preferences = preview_list_items(str(raw_sections.get("Evidence Preferences") or ""), limit=3)
         if not evidence_preferences:
             evidence_preferences = list(control_summary.get("evidence") or [])[:3]
@@ -266,10 +272,10 @@ class ServiceBundleAssetMixin:
             "workflow_step_count": int((control_summary.get("workflow") or {}).get("step_count") or 0),
             "parallel_groups": list((control_summary.get("workflow") or {}).get("parallel_groups") or []),
             "gatekeeper": {
-                "enabled": bool(gatekeeper.get("enabled")),
+                "enabled": gatekeeper_enabled,
                 "roles": list(gatekeeper.get("roles") or []),
                 "finish_steps": list(gatekeeper.get("finish_steps") or []),
-                "strictness": "evidence_refs_required" if gatekeeper.get("enabled") else "not_configured",
+                "strictness": "evidence_refs_required" if gatekeeper_enabled else "not_configured",
             },
         }
 
@@ -304,7 +310,7 @@ class ServiceBundleAssetMixin:
         request = _derive_bundle_request_from_args(request, raw_request)
         loop_id = request.loop_id
         loop = self.get_loop(loop_id)
-        workflow = dict(loop.get("workflow_json") or {})
+        workflow = normalize_workflow(loop.get("workflow_json") or {})
         prompt_files = dict(loop.get("prompt_files") or {})
         spec_markdown = loop.get("spec_markdown", "")
         role_definitions = []
@@ -559,7 +565,13 @@ class ServiceBundleAssetMixin:
         replace_bundle_id: str | None,
         imported_from_path: str,
     ) -> BundleImportTarget:
-        target_bundle_id = str(replace_bundle_id or bundle["metadata"].get("bundle_id") or make_id("bundle")).strip()
+        if replace_bundle_id is not None:
+            try:
+                target_bundle_id = normalize_bundle_identifier(replace_bundle_id, field_name="bundle replace_bundle_id")
+            except BundleError as exc:
+                raise LooporaError(str(exc)) from exc
+        else:
+            target_bundle_id = str(bundle["metadata"].get("bundle_id") or make_id("bundle")).strip()
         existing = self.repository.get_bundle(target_bundle_id)
         if existing and not replace_bundle_id:
             raise LooporaConflictError(f"bundle already exists: {target_bundle_id}")
@@ -622,16 +634,12 @@ class ServiceBundleAssetMixin:
     def _cleanup_bundle_import_backup_dir(self, target: BundleImportTarget) -> None:
         if not target.backup_dir or not target.backup_dir.exists():
             return
-        try:
-            shutil.rmtree(target.backup_dir)
-        except OSError as exc:
-            self._record_bundle_cleanup_failure(
-                operation="bundle_backup_cleanup",
-                resource_type="path",
-                resource_id=target.backup_dir,
-                owner_id=target.target_bundle_id,
-                error=exc,
-            )
+        best_effort_rmtree(
+            target.backup_dir,
+            logger,
+            operation="bundle_backup_cleanup",
+            owner_id=target.target_bundle_id,
+        )
 
     def _write_imported_bundle_spec(self, target_bundle_id: str, bundle: dict) -> Path:
         spec_path = self._bundle_spec_path(target_bundle_id)

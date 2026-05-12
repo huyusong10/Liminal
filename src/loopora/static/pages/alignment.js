@@ -795,7 +795,7 @@ document.addEventListener("DOMContentLoaded", () => {
         id: String(option.id || `option_${index + 1}`),
         label: String(option.label || "").trim(),
         description: String(option.description || "").trim(),
-        recommended: Boolean(option.recommended),
+        recommended: option.recommended === true,
         userReply: String(option.user_reply || option.userReply || option.label || "").trim(),
       }))
       .filter((option) => option.label && option.userReply)
@@ -1250,7 +1250,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function verdictSummary(summary) {
     const gatekeeper = summary?.gatekeeper || {};
-    if (gatekeeper.enabled) {
+    if (gatekeeper.enabled === true) {
       return localeText("守门者依据证据裁决。", "GateKeeper judges from evidence.");
     }
     return localeText("按轮次预算收束。", "Ends by round budget.");
@@ -1297,7 +1297,7 @@ document.addEventListener("DOMContentLoaded", () => {
       },
       {
         label: localeText("守门者", "GateKeeper"),
-        value: gatekeeper.enabled
+        value: gatekeeper.enabled === true
           ? localeText("需要证据引用才能结束。", "Requires evidence refs to finish.")
           : localeText("未配置守门者。", "No GateKeeper configured."),
       },
@@ -1355,7 +1355,7 @@ document.addEventListener("DOMContentLoaded", () => {
       judgmentMap.innerHTML = visibleItems.map((item) => {
         const evidence = (item.evidence || []).map((value) => String(value || "").trim()).filter(Boolean)[0] || "";
         const surface = surfaceSummary(item.surfaces);
-        const mapped = Boolean(item.mapped);
+        const mapped = item.mapped === true;
         return `
           <div class="alignment-judgment-row" data-mapped="${mapped}">
             <strong>${escapeHtml(traceItemLabel(item))}</strong>
@@ -1476,7 +1476,7 @@ document.addEventListener("DOMContentLoaded", () => {
       artifactJudgment.title = evidencePathSummary(summary);
     }
     if (artifactVerdict) {
-      artifactVerdict.textContent = labeledSummary("裁决", "Verdict", summary?.gatekeeper?.enabled ? "GateKeeper" : verdictSummary(summary));
+      artifactVerdict.textContent = labeledSummary("裁决", "Verdict", summary?.gatekeeper?.enabled === true ? "GateKeeper" : verdictSummary(summary));
       artifactVerdict.title = verdictSummary(summary);
     }
     artifactWorkdir.textContent = labeledSummary("目录", "Workdir", basename(payload.bundle?.loop?.workdir || ""));

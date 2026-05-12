@@ -71,7 +71,7 @@ def _register_alignment_session_routes(app: FastAPI, ctx: WebRouteContext) -> No
             model=str(payload.get("model", "")).strip(),
             reasoning_effort=str(payload.get("reasoning_effort", "")).strip(),
             source_option_id=str(payload.get("source_option_id", "")).strip(),
-            start_immediately=True,
+            start_immediately=_coerce_bool(payload.get("start_immediately", True)),
         )
         return JSONResponse({"session": session}, status_code=201)
 
@@ -103,6 +103,9 @@ def _register_alignment_session_routes(app: FastAPI, ctx: WebRouteContext) -> No
         after_id: int = Query(default=0, ge=0, le=MAX_EVENT_CURSOR_ID),
         limit: int = Query(default=200, ge=1, le=5000),
     ) -> JSONResponse:
+        latest_event_id = _latest_alignment_event_id(ctx, session_id)
+        if after_id > latest_event_id:
+            return ctx.json_error("event cursor is out of range")
         return JSONResponse(ctx.svc().list_alignment_events(session_id, after_id=after_id, limit=limit))
 
 
@@ -114,7 +117,16 @@ def _register_alignment_stream_route(app: FastAPI, ctx: WebRouteContext) -> None
         after_id: int = Query(default=0, ge=0, le=MAX_EVENT_CURSOR_ID),
     ) -> StreamingResponse:
         ctx.svc().get_alignment_session(session_id)
-        after_id = _resolve_alignment_stream_after_id(ctx, request, session_id=session_id, after_id=after_id)
+        latest_event_id = _latest_alignment_event_id(ctx, session_id)
+        if after_id > latest_event_id:
+            return ctx.json_error("event cursor is out of range")
+        after_id = _resolve_alignment_stream_after_id(
+            ctx,
+            request,
+            session_id=session_id,
+            after_id=after_id,
+            latest_event_id=latest_event_id,
+        )
         return StreamingResponse(
             _alignment_event_stream(ctx, session_id=session_id, after_id=after_id),
             media_type="text/event-stream",
@@ -181,19 +193,31 @@ def _alignment_event_stream(ctx: WebRouteContext, *, session_id: str, after_id: 
         time.sleep(1)
 
 
-def _resolve_alignment_stream_after_id(ctx: WebRouteContext, request: Request, *, session_id: str, after_id: int) -> int:
+def _latest_alignment_event_id(ctx: WebRouteContext, session_id: str) -> int:
+    return max(0, int(ctx.svc().latest_alignment_event_id(session_id) or 0))
+
+
+def _resolve_alignment_stream_after_id(
+    ctx: WebRouteContext,
+    request: Request,
+    *,
+    session_id: str,
+    after_id: int,
+    latest_event_id: int,
+) -> int:
     last_event_header = str(request.headers.get("last-event-id", "")).strip()
     if not last_event_header:
         return after_id
     parsed_header = parse_sse_last_event_id(last_event_header)
-    if parsed_header is None:
+    if parsed_header is None or parsed_header > latest_event_id:
         log_event(
             ctx.logger,
             logging.WARNING,
             "web.alignment_stream.resume_cursor_invalid",
-            "Ignored invalid SSE resume cursor and kept the request cursor",
+            "Ignored invalid or out-of-range SSE resume cursor and kept the request cursor",
             session_id=session_id,
             after_id=after_id,
+            latest_event_id=latest_event_id,
             invalid_last_event_id=last_event_header,
         )
         return after_id

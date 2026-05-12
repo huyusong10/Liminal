@@ -103,7 +103,7 @@ def best_effort_rmtree(
     try:
         shutil.rmtree(target)
         return True
-    except OSError as exc:
+    except Exception as exc:  # noqa: BLE001 - cleanup failures are diagnostic-only at this boundary.
         payload = record_cleanup_failure(
             logger,
             CleanupFailureRequest(

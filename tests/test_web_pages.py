@@ -88,6 +88,53 @@ const fileLines = projector.buildConsoleLines({
 if (fileLines.length !== 1 || fileLines[0].channel !== "file" || !fileLines[0].summary.includes("app.py")) {
   throw new Error(`file projection failed: ${JSON.stringify(fileLines)}`);
 }
+const runFinishedLines = projector.buildConsoleLines({
+  event_type: "run_finished",
+  created_at: "2026-04-30T00:00:00Z",
+  payload: {status: "succeeded", task_verdict_status: "insufficient_evidence"},
+});
+if (
+  runFinishedLines.length !== 1 ||
+  runFinishedLines[0].tone !== "warning" ||
+  !runFinishedLines[0].summary.includes("Task verdict insufficient_evidence")
+) {
+  throw new Error(`run finished console projection failed: ${JSON.stringify(runFinishedLines)}`);
+}
+const stringOkLines = projector.buildConsoleLines({
+  event_type: "role_execution_summary",
+  created_at: "2026-04-30T00:00:00Z",
+  role: "builder",
+  payload: {ok: "false", attempts: 1, error: "failed as string"},
+});
+if (
+  stringOkLines.length !== 1 ||
+  stringOkLines[0].tone !== "error" ||
+  stringOkLines[0].channel !== "error" ||
+  !stringOkLines[0].summary.includes("failed as string")
+) {
+  throw new Error(`string ok console projection failed closed incorrectly: ${JSON.stringify(stringOkLines)}`);
+}
+const malformedSuccessLines = projector.buildConsoleLines({
+  event_type: "role_execution_summary",
+  created_at: "2026-04-30T00:00:00Z",
+  role: "builder",
+  payload: {ok: true, attempts: "3", duration_ms: "42"},
+});
+if (
+  malformedSuccessLines.length !== 1 ||
+  malformedSuccessLines[0].summary.includes("attempts=3") ||
+  malformedSuccessLines[0].summary.includes("42ms")
+) {
+  throw new Error(`console promoted malformed numeric role summary fields: ${JSON.stringify(malformedSuccessLines)}`);
+}
+const stringPassedIterationLines = projector.buildConsoleLines({
+  event_type: "iteration_summary_written",
+  created_at: "2026-04-30T00:00:00Z",
+  payload: {passed: "true", composite_score: 1},
+});
+if (stringPassedIterationLines.length !== 1 || stringPassedIterationLines[0].tone !== "system") {
+  throw new Error(`string passed iteration projection did not fail closed: ${JSON.stringify(stringPassedIterationLines)}`);
+}
 """
     subprocess.run([node, "-e", script], cwd=root, check=True)
 
@@ -119,6 +166,10 @@ for (const file of [
   "src/loopora/static/pages/run_detail_render.js",
 ]) {
   vm.runInContext(fs.readFileSync(file, "utf8"), context);
+}
+const timeHelpers = context.window.LooporaRunDetailProgressTime.createProgressTimeHelpers({localeText: (_zh, en) => en});
+if (timeHelpers.formatDurationMs(12) !== "12ms" || timeHelpers.formatDurationMs("12") !== "") {
+  throw new Error("duration formatter did not require literal numeric input");
 }
 const progressEvents = [
   {id: 1, event_type: "checks_resolved", created_at: "2026-04-30T00:00:01Z", payload: {source: "specified"}},
@@ -180,6 +231,38 @@ const formatted = timeline.formatTimelineEvent({event_type: "role_execution_summ
 if (!formatted.title.includes("role:generator") || !formatted.detail.includes("12ms")) {
   throw new Error(`timeline projection failed: ${JSON.stringify(formatted)}`);
 }
+const malformedChecksTimeline = timeline.formatTimelineEvent({event_type: "checks_resolved", payload: {count: "7"}});
+if (malformedChecksTimeline.detail.includes("7 checks")) {
+  throw new Error(`timeline promoted malformed check count: ${JSON.stringify(malformedChecksTimeline)}`);
+}
+const malformedSuccessTimeline = timeline.formatTimelineEvent({event_type: "role_execution_summary", role: "generator", payload: {ok: true, attempts: "2", degraded: "false", duration_ms: "12"}});
+if (malformedSuccessTimeline.detail.includes("attempts=2") || malformedSuccessTimeline.detail.includes("degraded") || malformedSuccessTimeline.detail.includes("12ms")) {
+  throw new Error(`timeline promoted malformed role summary fields: ${JSON.stringify(malformedSuccessTimeline)}`);
+}
+const stringOkTimeline = timeline.formatTimelineEvent({event_type: "role_execution_summary", role: "generator", payload: {ok: "false", error: "failed as string"}});
+if (!stringOkTimeline.title.includes("failed")) {
+  throw new Error(`string ok timeline projection did not fail closed: ${JSON.stringify(stringOkTimeline)}`);
+}
+const stringOkTone = timeline.timelineTone({event_type: "role_execution_summary", payload: {ok: "false"}});
+if (stringOkTone !== "danger") {
+  throw new Error(`string ok timeline tone did not fail closed: ${stringOkTone}`);
+}
+const runFinished = timeline.formatTimelineEvent({event_type: "run_finished", payload: {status: "succeeded", task_verdict_status: "insufficient_evidence", iter: 1}});
+if (!runFinished.detail.includes("Task verdict insufficient_evidence")) {
+  throw new Error(`run finished verdict projection failed: ${JSON.stringify(runFinished)}`);
+}
+const malformedRunFinished = timeline.formatTimelineEvent({event_type: "run_finished", payload: {status: "succeeded", iter: "3"}});
+if (malformedRunFinished.detail.includes("Iter 4")) {
+  throw new Error(`timeline promoted malformed run iter: ${JSON.stringify(malformedRunFinished)}`);
+}
+const runFinishedTone = timeline.timelineTone({event_type: "run_finished", payload: {status: "succeeded", task_verdict_status: "insufficient_evidence"}});
+if (runFinishedTone !== "warning") {
+  throw new Error(`run finished verdict tone failed: ${runFinishedTone}`);
+}
+const parallelStarted = timeline.formatTimelineEvent({event_type: "parallel_group_started", payload: {parallel_group: "inspection_pack", step_ids: ["inspect_a", "inspect_b"]}});
+if (parallelStarted.title !== "Parallel review started" || !parallelStarted.detail.includes("2 steps")) {
+  throw new Error(`parallel group timeline projection failed: ${JSON.stringify(parallelStarted)}`);
+}
 const takeaways = context.window.LooporaRunDetailTakeaways.createTakeawayProjector({
   localeText: (_zh, en) => en,
   escapeHtml: (value) => String(value || ""),
@@ -216,6 +299,14 @@ if (!takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("View manifest")
 if (!takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("1 evidence ref") || !takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("1 artifact")) {
   throw new Error("takeaway bucket trace count projection failed");
 }
+const malformedCoverageHtml = takeaways.evidenceCoverageHtml({
+  task_verdict: {status: "not_evaluated", buckets: {}},
+  evidence_coverage: {evidence_count: "4", covered_check_count: "2", check_count: "3"},
+  evidence_manifest: {manifest_path: "evidence/manifest.json", claim_count: "5", direct_proof_claim_count: "2"},
+}, "run_1");
+if (malformedCoverageHtml.includes("Direct 2") || malformedCoverageHtml.includes("2/5") || malformedCoverageHtml.includes("4 evidence")) {
+  throw new Error(`takeaway promoted malformed evidence counts: ${malformedCoverageHtml}`);
+}
 const stalledIterationHtml = takeaways.renderTakeawayIterationCard({
   iter: 1,
   display_iter: 2,
@@ -231,6 +322,24 @@ const stalledIterationHtml = takeaways.renderTakeawayIterationCard({
 }, {evidence_count: 4});
 if (!stalledIterationHtml.includes("Evidence progress stalled") || !stalledIterationHtml.includes("Coverage 0 covered / 2 missing")) {
   throw new Error(`takeaway evidence-progress projection failed: ${stalledIterationHtml}`);
+}
+const malformedIterationHtml = takeaways.renderTakeawayIterationCard({
+  display_iter: "2",
+  status: "blocked",
+  evidence_progress_mode: "stalled",
+  covered_check_count: "1",
+  missing_check_count: "2",
+  consecutive_no_required_coverage_delta: "3",
+  role_count: "4",
+  roles: [{role_name: "Builder", step_order: "8", status: "passed"}],
+}, {evidence_count: "5"});
+if (
+  malformedIterationHtml.includes("Iter 2") ||
+  malformedIterationHtml.includes("Coverage 1 covered / 2 missing") ||
+  malformedIterationHtml.includes("4 role") ||
+  malformedIterationHtml.includes(">09<")
+) {
+  throw new Error(`takeaway promoted malformed iteration counts: ${malformedIterationHtml}`);
 }
 const residualSnapshot = {
   task_verdict: {
@@ -401,6 +510,13 @@ const merged = observation.mergeSnapshotState(
 if (merged.lastEventId !== 12 || merged.timelineRecords.length !== 40 || merged.consoleEventRecords.length !== 160 || merged.progressEventRecords.length !== 2000) {
   throw new Error(`snapshot normalization failed: ${JSON.stringify(merged)}`);
 }
+const malformedSnapshot = observation.mergeSnapshotState(
+  {currentRun: {id: "run_1", status: "running"}, lastEventId: 7},
+  {run: {id: "run_1", status: "running"}, latest_event_id: "12", timeline_events: []}
+);
+if (malformedSnapshot.lastEventId !== 7) {
+  throw new Error(`snapshot promoted malformed latest_event_id: ${JSON.stringify(malformedSnapshot)}`);
+}
 const deduped = observation.appendUniqueEvent([{id: 1}, {id: 2}], {id: 2}, 10);
 if (deduped.length !== 2) {
   throw new Error(`duplicate event was appended: ${JSON.stringify(deduped)}`);
@@ -412,6 +528,14 @@ const updatedRun = observation.applyRunEvent({status: "running", active_role: "g
 });
 if (updatedRun.status !== "succeeded" || updatedRun.active_role !== null || updatedRun.current_iter !== 2) {
   throw new Error(`run event state failed: ${JSON.stringify(updatedRun)}`);
+}
+const malformedIterRun = observation.applyRunEvent({status: "running", active_role: "generator", current_iter: 1}, {
+  event_type: "run_finished",
+  created_at: "2026-04-30T00:00:00Z",
+  payload: {status: "succeeded", iter: "2"},
+});
+if (malformedIterRun.current_iter !== 1) {
+  throw new Error(`run event promoted malformed iter: ${JSON.stringify(malformedIterRun)}`);
 }
 if (observation.streamFailureState({run: {status: "running"}, failureCount: 4}) !== "stream-stale") {
   throw new Error("stream stale threshold failed");
@@ -465,6 +589,10 @@ if (merged.lastEventId !== 7 || merged.observationState !== "ready") {
 const duplicate = store.applyStreamEvent({id: 7, event_type: "role_started", payload: {role: "generator"}});
 if (!duplicate.duplicate || duplicate.state.lastEventId !== 7) {
   throw new Error(`duplicate stream event was not suppressed: ${JSON.stringify(duplicate)}`);
+}
+const malformedId = store.applyStreamEvent({id: "8", event_type: "role_started", payload: {role: "generator"}});
+if (!malformedId.duplicate || malformedId.state.lastEventId !== 7) {
+  throw new Error(`malformed stream event id was not suppressed: ${JSON.stringify(malformedId)}`);
 }
 const applied = store.applyStreamEvent({id: 8, event_type: "run_finished", created_at: "2026-04-30T00:00:00Z", payload: {status: "succeeded"}});
 if (applied.duplicate || applied.state.currentRun.status !== "succeeded" || applied.state.lastEventId !== 8) {
@@ -1548,6 +1676,21 @@ def _assert_zh_new_orchestration_page(html: str) -> None:
     assert ">Finish run</option>" not in zh_on_pass_markup
 
 
+def test_new_orchestration_script_parses_boolean_like_step_session_flags() -> None:
+    script = (Path(__file__).resolve().parents[1] / "src" / "loopora" / "static" / "pages" / "new_orchestration.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "function coerceWorkflowBoolean" in script
+    assert '["0", "false", "no", "off"].includes(normalized)' in script
+    assert "inherit_session: coerceWorkflowBoolean(step.inherit_session" in script
+    assert "settingsStepInheritSessionInput.checked = coerceWorkflowBoolean(step.inherit_session, false);" in script
+    assert "step.inherit_session = coerceWorkflowBoolean(rawValue, false);" in script
+    assert "inherit_session: Boolean(" not in script
+    assert "settingsStepInheritSessionInput.checked = Boolean(" not in script
+    assert "step.inherit_session = Boolean(" not in script
+
+
 def _assert_builtin_orchestration_edit_page(html: str) -> None:
     for expected in (
         "默认编排是固定的",
@@ -2088,6 +2231,66 @@ def test_new_loop_page_remote_mode_explains_server_side_paths(service_factory) -
     assert 'aria-disabled="true"' in response.text
 
 
+def _assert_alignment_static_asset_regressions(client: TestClient) -> None:
+    alignment_css_response = client.get("/static/pages/alignment.css")
+    assert alignment_css_response.status_code == 200
+    alignment_css = alignment_css_response.text
+    assert ".alignment-chat {" in alignment_css
+    assert ".bundle-chat-shell {" in alignment_css
+    assert ".alignment-working-card {" in alignment_css
+    assert ".alignment-decision-options {" in alignment_css
+    assert ".alignment-decision-option {" in alignment_css
+    assert ".alignment-history-item.is-running" in alignment_css
+    assert "alignmentPulse" not in alignment_css
+    assert "alignmentTrace" not in alignment_css
+
+    alignment_js_response = client.get("/static/pages/alignment.js")
+    assert alignment_js_response.status_code == 200
+    alignment_js = alignment_js_response.text
+    assert "/api/alignments/workdir-context" in alignment_js
+    assert "source_option_id" in alignment_js
+    assert "alignment-decision-options" in alignment_js
+    assert "decision_options" in alignment_js
+    assert "recommended: option.recommended === true" in alignment_js
+    assert "recommended: Boolean(option.recommended)" not in alignment_js
+    assert "const mapped = item.mapped === true;" in alignment_js
+    assert "const mapped = Boolean(item.mapped);" not in alignment_js
+    assert "gatekeeper.enabled === true" in alignment_js
+    assert "gatekeeper.enabled)" not in alignment_js
+    assert "summary?.gatekeeper?.enabled ?" not in alignment_js
+
+    bundle_import_js_response = client.get("/static/pages/bundle_import.js")
+    assert bundle_import_js_response.status_code == 200
+    bundle_import_js = bundle_import_js_response.text
+    assert "const mapped = item.mapped === true;" in bundle_import_js
+    assert "const mapped = Boolean(item.mapped);" not in bundle_import_js
+    assert "summary?.gatekeeper?.enabled === true" in bundle_import_js
+    assert "gatekeeper.enabled === true" in bundle_import_js
+
+
+def _assert_run_event_ok_static_regressions(client: TestClient) -> None:
+    expected_snippets = {
+        "/static/pages/run_detail_progress.js": ["attempt.ok = payload.ok === true;"],
+        "/static/pages/run_detail_progress_activity.js": ["const ok = payload.ok === true;"],
+        "/static/pages/run_detail_console.js": [
+            "const ok = payload.ok === true;",
+            "payload.passed === true ? \"success\" : \"system\"",
+        ],
+        "/static/pages/run_detail_timeline.js": ["payload.ok === true ? \"success\" : \"danger\""],
+        "/static/pages/run_console.js": [
+            "const ok = payload.ok === true;",
+            "payload.passed === true ? \"success\" : \"system\"",
+        ],
+    }
+    for path, snippets in expected_snippets.items():
+        response = client.get(path)
+        assert response.status_code == 200
+        for snippet in snippets:
+            assert snippet in response.text
+    for path in expected_snippets:
+        assert "Boolean(payload.ok)" not in client.get(path).text
+
+
 def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(service_factory) -> None:
     service = service_factory(scenario="success")
 
@@ -2103,24 +2306,8 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
     assert "@keyframes pulseGlow" not in css
     for page_selector in (".alignment-", ".bundle-chat-", ".workflow-editor-", ".workflow-loop-"):
         assert page_selector not in css
-    alignment_css_response = client.get("/static/pages/alignment.css")
-    assert alignment_css_response.status_code == 200
-    alignment_css = alignment_css_response.text
-    assert ".alignment-chat {" in alignment_css
-    assert ".bundle-chat-shell {" in alignment_css
-    assert ".alignment-working-card {" in alignment_css
-    assert ".alignment-decision-options {" in alignment_css
-    assert ".alignment-decision-option {" in alignment_css
-    assert ".alignment-history-item.is-running" in alignment_css
-    assert "alignmentPulse" not in alignment_css
-    assert "alignmentTrace" not in alignment_css
-    alignment_js_response = client.get("/static/pages/alignment.js")
-    assert alignment_js_response.status_code == 200
-    alignment_js = alignment_js_response.text
-    assert "/api/alignments/workdir-context" in alignment_js
-    assert "source_option_id" in alignment_js
-    assert "alignment-decision-options" in alignment_js
-    assert "decision_options" in alignment_js
+    _assert_alignment_static_asset_regressions(client)
+    _assert_run_event_ok_static_regressions(client)
     workflow_css_response = client.get("/static/pages/workflow_editor.css")
     assert workflow_css_response.status_code == 200
     workflow_css = workflow_css_response.text

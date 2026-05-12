@@ -218,8 +218,9 @@
         }
       }
       if (event.event_type === "role_execution_summary") {
+        const ok = payload.ok === true;
         return {
-          title: payload.ok ? localeText("这个阶段刚刚完成", "This stage just completed") : localeText("这个阶段刚刚失败", "This stage just failed"),
+          title: ok ? localeText("这个阶段刚刚完成", "This stage just completed") : localeText("这个阶段刚刚失败", "This stage just failed"),
           detail: truncateText(String(payload.error || localeText("执行摘要已写入时间线。", "Execution summary was written to the timeline.")).trim(), 140),
         };
       }

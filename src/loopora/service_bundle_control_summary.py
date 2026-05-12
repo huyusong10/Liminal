@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from loopora.specs import SpecError, compile_markdown_spec
+from loopora.structured_booleans import structured_bool_is_true
 
 
 def preview_list_items(markdown_text: str, *, limit: int = 4) -> list[str]:
@@ -196,10 +197,13 @@ def _control_summaries(workflow: dict, role_lookup: dict) -> list[dict]:
 def _control_max_fires_per_run(value: object) -> int | str:
     if value is None or value == "":
         return 1
-    try:
-        return int(value)
-    except (TypeError, ValueError, OverflowError):
-        return str(value).strip()
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
 
 
 def _traceability_projection(context: dict) -> dict:
@@ -340,7 +344,7 @@ def _workflow_trace(workflow: dict, workflow_projection: dict) -> list[str]:
 
 
 def _gatekeeper_trace(gatekeeper: dict) -> list[str]:
-    if not gatekeeper.get("enabled"):
+    if not structured_bool_is_true(gatekeeper.get("enabled")):
         return []
     roles = ", ".join(str(item) for item in gatekeeper.get("roles") or [] if str(item).strip())
     finish_steps = ", ".join(str(item) for item in gatekeeper.get("finish_steps") or [] if str(item).strip())
@@ -424,6 +428,7 @@ def _append_workflow_input_diagnostics(
         "latest_builder_step": "",
         "review_steps_since_builder": [],
         "guide_steps_since_builder": [],
+        "parallel_review_groups": [],
     }
     for step in steps:
         step_context = _workflow_step_diagnostic_context(step, role_lookup)
@@ -579,32 +584,127 @@ def _diagnose_gatekeeper_step(diagnostics: list[dict], step_context: dict, state
                 "step_ids": [step_context["step_id"]],
             },
         )
+    _diagnose_gatekeeper_parallel_review_fan_in(diagnostics, step_context, state)
 
 
 def _advance_workflow_diagnostic_state(step_context: dict, state: dict) -> None:
+    _record_parallel_review_group(step_context, state)
     if step_context["step_id"]:
         state["prior_step_ids"].append(step_context["step_id"])
     if step_context["archetype"]:
         state["prior_archetypes"].add(step_context["archetype"])
 
 
+def _diagnose_gatekeeper_parallel_review_fan_in(diagnostics: list[dict], step_context: dict, state: dict) -> None:
+    groups = [group for group in list(state.get("parallel_review_groups") or []) if group.get("step_ids")]
+    if not groups:
+        return
+    parallel_step_ids = _unique_in_order(
+        step_id
+        for group in groups
+        for step_id in list(group.get("step_ids") or [])
+    )
+    missing_handoffs = _input_missing_handoffs(step_context["inputs"], parallel_step_ids)
+    if missing_handoffs:
+        _append_diagnostic(
+            diagnostics,
+            {
+                "code": "gatekeeper_missing_parallel_review_handoff",
+                "severity": "warning",
+                "title_en": "GateKeeper misses parallel review handoffs",
+                "title_zh": "GateKeeper 缺少并行检视交接",
+                "message_en": "A finishing GateKeeper after parallel review should name every peer review handoff, not only the last branch.",
+                "message_zh": "并行检视后的收束 GateKeeper 应读取每条 peer review handoff，而不是只读取最后一支。",
+                "surfaces": ["workflow.steps[].inputs.handoffs_from"],
+                "step_ids": [step_context["step_id"]],
+                "details": {"missing_handoffs": missing_handoffs, "parallel_groups": [group["parallel_group"] for group in groups]},
+            },
+        )
+    expected_archetypes = {
+        archetype
+        for group in groups
+        for archetype in set(group.get("archetypes") or set())
+        if archetype
+    }
+    if "builder" in set(state.get("prior_archetypes") or set()):
+        expected_archetypes.add("builder")
+    missing_archetypes = _input_missing_evidence_archetypes(step_context["inputs"], expected_archetypes)
+    if missing_archetypes:
+        _append_diagnostic(
+            diagnostics,
+            {
+                "code": "gatekeeper_missing_parallel_review_evidence",
+                "severity": "warning",
+                "title_en": "GateKeeper misses parallel review evidence",
+                "title_zh": "GateKeeper 缺少并行检视证据",
+                "message_en": "A finishing GateKeeper after parallel review should query Builder and peer review evidence before closing.",
+                "message_zh": "并行检视后的收束 GateKeeper 应查询 Builder 和 peer review 证据后再收口。",
+                "surfaces": ["workflow.steps[].inputs.evidence_query"],
+                "step_ids": [step_context["step_id"]],
+                "details": {"missing_archetypes": missing_archetypes, "parallel_groups": [group["parallel_group"] for group in groups]},
+            },
+        )
+
+
+def _record_parallel_review_group(step_context: dict, state: dict) -> None:
+    parallel_group = str(step_context["step"].get("parallel_group") or "").strip()
+    if not parallel_group or step_context["archetype"] not in {"inspector", "custom"} or not step_context["step_id"]:
+        return
+    groups = list(state.get("parallel_review_groups") or [])
+    group = next((item for item in groups if item.get("parallel_group") == parallel_group), None)
+    if group is None:
+        group = {"parallel_group": parallel_group, "step_ids": [], "archetypes": set()}
+        groups.append(group)
+        state["parallel_review_groups"] = groups
+    group["step_ids"].append(step_context["step_id"])
+    group["archetypes"].add(step_context["archetype"])
+
+
+def _unique_in_order(values) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        normalized = str(value or "").strip()
+        if normalized and normalized not in result:
+            result.append(normalized)
+    return result
+
+
+def _input_missing_handoffs(inputs: dict, expected_step_ids: list[str]) -> list[str]:
+    actual = _input_handoff_ids(inputs)
+    return [step_id for step_id in expected_step_ids if step_id and step_id not in actual]
+
+
 def _input_names_any_handoff(inputs: dict, expected_step_ids: list[str]) -> bool:
-    handoffs_from = inputs.get("handoffs_from") if isinstance(inputs, dict) else []
-    actual = {str(item or "").strip() for item in list(handoffs_from or []) if str(item or "").strip()}
+    actual = _input_handoff_ids(inputs)
     return bool(actual.intersection({item for item in expected_step_ids if item}))
 
 
+def _input_handoff_ids(inputs: dict) -> set[str]:
+    handoffs_from = inputs.get("handoffs_from") if isinstance(inputs, dict) else []
+    return {str(item or "").strip() for item in list(handoffs_from or []) if str(item or "").strip()}
+
+
 def _input_queries_any_archetype(inputs: dict, expected_archetypes: set[str]) -> bool:
+    actual = _input_evidence_query_archetypes(inputs)
+    expected = {item for item in expected_archetypes if item}
+    return bool(actual.intersection(expected))
+
+
+def _input_missing_evidence_archetypes(inputs: dict, expected_archetypes: set[str]) -> list[str]:
+    actual = _input_evidence_query_archetypes(inputs)
+    expected = {item for item in expected_archetypes if item}
+    return sorted(expected.difference(actual))
+
+
+def _input_evidence_query_archetypes(inputs: dict) -> set[str]:
     evidence_query = inputs.get("evidence_query") if isinstance(inputs, dict) else {}
     if not isinstance(evidence_query, dict):
-        return False
-    actual = {
+        return set()
+    return {
         str(item or "").strip().lower()
         for item in list(evidence_query.get("archetypes") or [])
         if str(item or "").strip()
     }
-    expected = {item for item in expected_archetypes if item}
-    return bool(actual.intersection(expected))
 
 
 def _append_diagnostic(

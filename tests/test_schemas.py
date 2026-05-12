@@ -68,6 +68,22 @@ def test_runtime_output_contracts_name_top_level_schema_required_fields() -> Non
         assert not missing
 
 
+def test_runtime_output_contracts_explain_empty_required_arrays() -> None:
+    contracts_and_schemas = [
+        (output_contract_prompt("builder"), GENERATOR_SCHEMA),
+        (output_contract_prompt("inspector"), TESTER_SCHEMA),
+        (output_contract_prompt("gatekeeper"), VERIFIER_SCHEMA),
+        (output_contract_prompt("custom"), CUSTOM_SCHEMA),
+    ]
+
+    for prompt, schema in contracts_and_schemas:
+        array_fields = _required_array_fields(schema)
+        assert array_fields
+        assert "empty" in prompt.lower()
+        for field in array_fields:
+            assert field in prompt
+
+
 def test_tester_prompts_name_execution_summary_shape() -> None:
     mixin = PromptHarness()
     compiled_spec = _prompt_contract_spec()
@@ -130,6 +146,24 @@ def test_legacy_role_prompts_name_top_level_schema_required_fields(tmp_path) -> 
         assert not missing
 
 
+def test_legacy_role_prompts_explain_empty_required_arrays(tmp_path) -> None:
+    mixin = PromptHarness()
+    compiled_spec = _prompt_contract_spec()
+    tester_output = _prompt_contract_tester_output()
+    prompts_and_schemas = [
+        (mixin._generator_prompt(compiled_spec, tmp_path, 0, "default"), GENERATOR_SCHEMA),
+        (mixin._tester_prompt(compiled_spec, 0, "default"), TESTER_SCHEMA),
+        (mixin._verifier_prompt(compiled_spec, tester_output, 0, "default"), VERIFIER_SCHEMA),
+    ]
+
+    for prompt, schema in prompts_and_schemas:
+        array_fields = _required_array_fields(schema)
+        assert array_fields
+        assert "empty" in prompt.lower()
+        for field in array_fields:
+            assert field in prompt
+
+
 def _prompt_contract_spec() -> dict:
     return {
         "goal": "Verify the main flow.",
@@ -161,6 +195,15 @@ def _prompt_contract_tester_output() -> dict:
         "tester_observations": "No passing proof.",
         "coverage_results": [],
     }
+
+
+def _required_array_fields(schema: dict) -> list[str]:
+    properties = schema.get("properties") or {}
+    return [
+        field
+        for field in schema.get("required", [])
+        if isinstance(properties.get(field), dict) and properties[field].get("type") == "array"
+    ]
 
 
 def _find_schema_issues(schema: object, path: str = "root") -> list[tuple[str, str]]:

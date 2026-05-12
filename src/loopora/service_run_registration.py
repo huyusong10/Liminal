@@ -10,9 +10,11 @@ from loopora.context_flow import RunContractSnapshotRequest, build_run_contract_
 from loopora.diagnostics import log_event
 from loopora.evidence_coverage import with_coverage_targets, write_evidence_coverage_projection
 from loopora.executor import coerce_reasoning_effort, normalize_reasoning_effort, validate_command_args_text
+from loopora.numeric_inputs import coerce_integral_number
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode
 from loopora.run_artifacts import INITIAL_STAGNATION_STATE, write_json_with_mirrors, write_text_with_mirrors
 from loopora.service_asset_common import _normalize_role_models, logger
+from loopora.service_cleanup_diagnostics import best_effort_rmtree
 from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError, normalize_completion_mode
 from loopora.utils import make_id, write_json
 from loopora.workflows import WorkflowError, has_finish_gatekeeper_step
@@ -73,11 +75,12 @@ def _coerce_loop_create_request(
 
 def _normalize_loop_create_request(request: LoopCreateRequest) -> LoopCreateRequest:
     workdir, spec_path = _normalize_loop_paths(request.workdir, request.spec_path)
-    _validate_loop_limits(request)
+    runtime_limits = _normalize_loop_limits(request)
     return replace(
         request,
         workdir=workdir,
         spec_path=spec_path,
+        **runtime_limits,
         **_normalize_loop_executor_settings(request),
     )
 
@@ -94,7 +97,7 @@ def _normalize_loop_paths(workdir: Path, spec_path: Path) -> tuple[Path, Path]:
     return normalized_workdir, normalized_spec_path
 
 
-def _validate_loop_limits(request: LoopCreateRequest) -> None:
+def _normalize_loop_limits(request: LoopCreateRequest) -> dict[str, int | float]:
     for field_name in (
         "iteration_interval_seconds",
         "max_iters",
@@ -104,18 +107,35 @@ def _validate_loop_limits(request: LoopCreateRequest) -> None:
         "regression_window",
     ):
         _validate_finite_loop_number(getattr(request, field_name), field_name=field_name)
-    if request.max_iters < 0:
+    try:
+        max_iters = coerce_integral_number(request.max_iters, field_name="max_iters")
+        max_role_retries = coerce_integral_number(request.max_role_retries, field_name="max_role_retries")
+        trigger_window = coerce_integral_number(request.trigger_window, field_name="trigger_window")
+        regression_window = coerce_integral_number(request.regression_window, field_name="regression_window")
+    except ValueError as exc:
+        raise LooporaError(str(exc)) from exc
+    iteration_interval_seconds = float(request.iteration_interval_seconds)
+    delta_threshold = float(request.delta_threshold)
+    if max_iters < 0:
         raise LooporaError("max_iters must be >= 0")
-    if request.max_role_retries < 0:
+    if max_role_retries < 0:
         raise LooporaError("max_role_retries must be >= 0")
-    if request.iteration_interval_seconds < 0:
+    if iteration_interval_seconds < 0:
         raise LooporaError("iteration_interval_seconds must be >= 0")
-    if request.delta_threshold < 0:
+    if delta_threshold < 0:
         raise LooporaError("delta_threshold must be >= 0")
-    if request.trigger_window < 1:
+    if trigger_window < 1:
         raise LooporaError("trigger_window must be >= 1")
-    if request.regression_window < 1:
+    if regression_window < 1:
         raise LooporaError("regression_window must be >= 1")
+    return {
+        "iteration_interval_seconds": iteration_interval_seconds,
+        "max_iters": max_iters,
+        "max_role_retries": max_role_retries,
+        "delta_threshold": delta_threshold,
+        "trigger_window": trigger_window,
+        "regression_window": regression_window,
+    }
 
 
 def _validate_finite_loop_number(value: object, *, field_name: str) -> None:
@@ -360,39 +380,49 @@ class ServiceRunRegistrationMixin:
         write_json_with_mirrors(layout.run_contract_path, run_contract)
         write_evidence_coverage_projection(layout)
 
-        run = self.repository.create_run(
-            {
-                "id": run_id,
-                "loop_id": loop_id,
-                "workdir": loop["workdir"],
-                "spec_path": loop["spec_path"],
-                "spec_markdown": loop["spec_markdown"],
-                "compiled_spec": compiled_spec,
-                "executor_kind": loop.get("executor_kind", "codex"),
-                "executor_mode": loop.get("executor_mode", "preset"),
-                "command_cli": loop.get("command_cli", ""),
-                "command_args_text": loop.get("command_args_text", ""),
-                "model": loop["model"],
-                "reasoning_effort": coerce_reasoning_effort(
-                    loop["reasoning_effort"],
-                    loop.get("executor_kind", "codex"),
-                ),
-                "completion_mode": loop.get("completion_mode", "gatekeeper"),
-                "iteration_interval_seconds": loop.get("iteration_interval_seconds", 0.0),
-                "max_iters": loop["max_iters"],
-                "max_role_retries": loop["max_role_retries"],
-                "delta_threshold": loop["delta_threshold"],
-                "trigger_window": loop["trigger_window"],
-                "regression_window": loop["regression_window"],
-                "orchestration_id": loop.get("orchestration_id", ""),
-                "orchestration_name": loop.get("orchestration_name", ""),
-                "role_models": loop["role_models_json"],
-                "workflow": workflow,
-                "status": "queued",
-                "runs_dir": str(run_dir),
-                "summary_md": queued_summary,
-            }
-        )
+        try:
+            run = self.repository.create_run(
+                {
+                    "id": run_id,
+                    "loop_id": loop_id,
+                    "workdir": loop["workdir"],
+                    "spec_path": loop["spec_path"],
+                    "spec_markdown": loop["spec_markdown"],
+                    "compiled_spec": compiled_spec,
+                    "executor_kind": loop.get("executor_kind", "codex"),
+                    "executor_mode": loop.get("executor_mode", "preset"),
+                    "command_cli": loop.get("command_cli", ""),
+                    "command_args_text": loop.get("command_args_text", ""),
+                    "model": loop["model"],
+                    "reasoning_effort": coerce_reasoning_effort(
+                        loop["reasoning_effort"],
+                        loop.get("executor_kind", "codex"),
+                    ),
+                    "completion_mode": loop.get("completion_mode", "gatekeeper"),
+                    "iteration_interval_seconds": loop.get("iteration_interval_seconds", 0.0),
+                    "max_iters": loop["max_iters"],
+                    "max_role_retries": loop["max_role_retries"],
+                    "delta_threshold": loop["delta_threshold"],
+                    "trigger_window": loop["trigger_window"],
+                    "regression_window": loop["regression_window"],
+                    "orchestration_id": loop.get("orchestration_id", ""),
+                    "orchestration_name": loop.get("orchestration_name", ""),
+                    "role_models": loop["role_models_json"],
+                    "workflow": workflow,
+                    "status": "queued",
+                    "runs_dir": str(run_dir),
+                    "summary_md": queued_summary,
+                }
+            )
+        except Exception:
+            best_effort_rmtree(
+                run_dir,
+                logger,
+                operation="run_registration_failed_cleanup",
+                owner_id=loop_id,
+                workdir=loop["workdir"],
+            )
+            raise
         self.append_run_event(run_id, "run_registered", {"loop_id": loop_id, "status": "queued"})
         log_event(
             logger,

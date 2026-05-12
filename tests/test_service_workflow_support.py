@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from loopora.service_workflow_support import ServiceWorkflowSupportMixin
+from loopora.context_flow import IterationSummaryContext, build_iteration_summary
+from loopora.run_artifacts import RunArtifactLayout
+from loopora.service_workflow_support import ServiceWorkflowSupportMixin, WorkflowSummaryRequest
+from loopora.stagnation import StagnationUpdateRequest, update_stagnation
 
 
 def test_gatekeeper_output_rejects_unknown_evidence_refs() -> None:
@@ -24,6 +27,33 @@ def test_gatekeeper_output_rejects_unknown_evidence_refs() -> None:
     assert output["blocking_issues"] == ["gatekeeper_evidence_refs_unknown: missing_ev"]
 
 
+def test_gatekeeper_output_rejects_unknown_coverage_result_evidence_refs() -> None:
+    output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
+        {
+            "passed": True,
+            "decision_summary": "The top-level verdict cites real evidence, but target coverage cites an invented ref.",
+            "composite_score": 1.0,
+            "evidence_refs": ["known_ev"],
+            "evidence_claims": ["A concrete claim that cites the known upstream inspection evidence."],
+            "coverage_results": [
+                {
+                    "target_id": "fake_done.risk_001",
+                    "status": "covered",
+                    "evidence_refs": ["invented_ev"],
+                    "note": "This target-specific evidence ref is not in the known evidence set.",
+                }
+            ],
+        },
+        evidence_context={"items": [{"id": "known_ev", "archetype": "inspector", "result": "passed"}]},
+        current_evidence_id="ev_gatekeeper",
+    )
+
+    assert output["passed"] is False
+    assert output["composite_score"] == 0.89
+    assert output["evidence_gate_status"] == "blocked"
+    assert output["blocking_issues"] == ["gatekeeper_coverage_evidence_refs_unknown: invented_ev"]
+
+
 def test_gatekeeper_output_allows_first_gate_measured_evidence_claim() -> None:
     output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
         {
@@ -42,6 +72,210 @@ def test_gatekeeper_output_allows_first_gate_measured_evidence_claim() -> None:
     assert output["decision_summary"] == "All checks passed."
     assert output["evidence_refs"] == ["ev_gatekeeper"]
     assert output["evidence_gate_status"] == "passed"
+
+
+def test_gatekeeper_output_requires_literal_boolean_pass() -> None:
+    output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
+        {
+            "passed": "true",
+            "decision_summary": "Looks good.",
+            "metric_scores": {
+                "quality_score": {"value": 0.95, "threshold": 0.9, "passed": "true"},
+            },
+            "evidence_claims": ["Measured benchmark evidence satisfied the first GateKeeper pass."],
+        },
+        evidence_context={"items": []},
+        current_evidence_id="ev_gatekeeper",
+    )
+
+    assert output["passed"] is False
+    assert output["metric_scores"]["quality_score"]["passed"] is False
+    assert output["metrics"][0]["passed"] is False
+    assert output["evidence_refs"] == []
+    assert output["evidence_gate_status"] == "not_passed"
+
+
+def test_gatekeeper_output_default_composite_requires_literal_boolean_pass() -> None:
+    output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
+        {
+            "passed": "true",
+            "decision_summary": "A string pass should not set the fallback score.",
+            "evidence_claims": ["String boolean values are not measured proof."],
+        },
+        evidence_context={"items": []},
+        current_evidence_id="ev_gatekeeper",
+    )
+
+    assert output["passed"] is False
+    assert output["composite_score"] == 0.0
+    assert output["evidence_gate_status"] == "not_passed"
+
+
+def test_workflow_summary_requires_literal_gatekeeper_passed_boolean(tmp_path: Path) -> None:
+    class WorkflowSupportHarness(ServiceWorkflowSupportMixin):
+        @staticmethod
+        def _truncate_text(value: str | None, max_length: int = 220) -> str:
+            return str(value or "")[:max_length]
+
+    service = WorkflowSupportHarness()
+    gatekeeper_step_result = {
+        "step": {"id": "gatekeeper_step"},
+        "step_order": 0,
+        "role": {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper"},
+        "runtime_role": "verifier",
+        "output": {
+            "passed": "true",
+            "decision_summary": "String pass must remain blocked in summary projections.",
+            "composite_score": 1.0,
+            "evidence_refs": [],
+        },
+    }
+
+    entry = service._build_workflow_iteration_entry(
+        0,
+        [gatekeeper_step_result],
+        {"stagnation_mode": "none"},
+        previous_composite=None,
+    )
+    summary = service._build_workflow_summary(
+        WorkflowSummaryRequest(
+            run={"workdir": str(tmp_path), "completion_mode": "gatekeeper", "iteration_interval_seconds": 0.0},
+            workflow={"preset": "custom"},
+            compiled_spec={"checks": [], "check_mode": "specified"},
+            iter_id=0,
+            step_results=[gatekeeper_step_result],
+            stagnation={"stagnation_mode": "none"},
+            exhausted=False,
+            previous_composite=None,
+        )
+    )
+
+    assert entry["score"]["passed"] is False
+    assert "- Passed: `False`" in summary
+    assert "Still iterating." in summary
+    assert "All checks passed in this iteration." not in summary
+
+
+def test_iteration_summaries_require_literal_score_numbers(tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "run")
+    layout.initialize()
+    gatekeeper_step_result = {
+        "step": {"id": "gatekeeper_step"},
+        "step_order": 0,
+        "role": {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper"},
+        "runtime_role": "verifier",
+        "output": {
+            "passed": False,
+            "decision_summary": "String scores should not enter iteration context.",
+            "composite_score": "0.95",
+            "evidence_refs": [],
+        },
+        "handoff": {"status": "failed", "source": {"step_order": 0, "step_id": "gatekeeper_step"}},
+    }
+    stagnation = {
+        "stagnation_mode": "plateau",
+        "recent_composites": ["0.7", 0.8, True],
+        "recent_deltas": ["0.1", 0.2, False],
+        "consecutive_low_delta": "2",
+    }
+    service = ServiceWorkflowSupportMixin()
+
+    legacy_entry = service._build_workflow_iteration_entry(
+        0,
+        [gatekeeper_step_result],
+        stagnation,
+        previous_composite=0.4,
+    )
+    summary = build_iteration_summary(
+        IterationSummaryContext(
+            layout=layout,
+            iter_id=0,
+            step_results=[gatekeeper_step_result],
+            stagnation=stagnation,
+            previous_composite=0.4,
+            timestamp="2026-01-01T00:00:00Z",
+        )
+    )
+
+    assert legacy_entry["score"]["composite"] is None
+    assert legacy_entry["score"]["delta"] is None
+    assert legacy_entry["stagnation"]["recent_composites"] == [0.8]
+    assert legacy_entry["stagnation"]["recent_deltas"] == [0.2]
+    assert legacy_entry["stagnation"]["consecutive_low_delta"] == 0
+    assert summary["score"]["composite"] is None
+    assert summary["score"]["delta"] is None
+    assert summary["stagnation"]["recent_composites"] == [0.8]
+    assert summary["stagnation"]["recent_deltas"] == [0.2]
+    assert summary["stagnation"]["consecutive_low_delta"] == 0
+
+
+def test_stagnation_update_requires_literal_score_history() -> None:
+    stagnation = update_stagnation(
+        StagnationUpdateRequest(
+            stagnation={
+                "recent_composites": ["0.7", 0.8, True],
+                "recent_deltas": ["0.1", 0.2, False],
+            },
+            composite=0.81,
+            current_iter=1,
+            delta_threshold=0.05,
+            trigger_window=2,
+            regression_window=2,
+        )
+    )
+
+    assert stagnation["recent_composites"] == [0.8, 0.81]
+    assert stagnation["recent_deltas"] == [0.2, 0.01]
+    assert stagnation["consecutive_low_delta"] == 1
+    assert stagnation["stagnation_mode"] == "none"
+
+
+def test_gatekeeper_output_normalizes_metric_row_booleans() -> None:
+    output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
+        {
+            "passed": False,
+            "decision_summary": "The measured check did not pass.",
+            "metrics": [
+                {"name": "quality_score", "value": 0.8, "threshold": 0.9, "passed": "false"},
+            ],
+            "evidence_claims": ["Measured benchmark evidence did not satisfy the first GateKeeper pass."],
+        },
+        evidence_context={"items": []},
+        current_evidence_id="ev_gatekeeper",
+    )
+
+    assert output["passed"] is False
+    assert output["metric_scores"]["quality_score"]["passed"] is False
+    assert output["metrics"] == [{"name": "quality_score", "value": 0.8, "threshold": 0.9, "passed": False}]
+
+
+def test_gatekeeper_output_rejects_string_measured_evidence_as_supporting_ref() -> None:
+    output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
+        {
+            "passed": True,
+            "decision_summary": "The Builder measured this.",
+            "composite_score": 1.0,
+            "evidence_refs": ["builder_ev"],
+            "evidence_claims": ["A concrete claim that incorrectly treats string measured evidence as proof."],
+        },
+        evidence_context={
+            "items": [
+                {
+                    "id": "builder_ev",
+                    "archetype": "builder",
+                    "evidence_kind": "handoff",
+                    "result": "completed",
+                    "measured_evidence": "true",
+                    "artifact_refs": [],
+                }
+            ]
+        },
+        current_evidence_id="ev_gatekeeper",
+    )
+
+    assert output["passed"] is False
+    assert output["evidence_gate_status"] == "blocked"
+    assert output["blocking_issues"] == ["gatekeeper_pass_refs_not_supporting_evidence"]
 
 
 def test_gatekeeper_output_rejects_blocked_upstream_refs_as_supporting_evidence() -> None:

@@ -312,6 +312,25 @@ document.addEventListener("DOMContentLoaded", () => {
     return String(archetype || "") === "builder";
   }
 
+  function coerceWorkflowBoolean(value, fallback) {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "number" && (value === 0 || value === 1)) {
+      return value === 1;
+    }
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (["1", "true", "yes", "on"].includes(normalized)) {
+        return true;
+      }
+      if (["0", "false", "no", "off"].includes(normalized)) {
+        return false;
+      }
+    }
+    return Boolean(fallback);
+  }
+
   function canStepUseParallelGroup(role) {
     return ["inspector", "custom"].includes(String(role?.archetype || "").trim());
   }
@@ -395,7 +414,7 @@ document.addEventListener("DOMContentLoaded", () => {
       role_id: String(step.role_id || workflowPayload.roles[0]?.id || ""),
       on_pass: String(step.on_pass || "continue"),
       model: String(step.model || ""),
-      inherit_session: Boolean(step.inherit_session ?? defaultInheritSession(
+      inherit_session: coerceWorkflowBoolean(step.inherit_session, defaultInheritSession(
         workflowPayload.roles.find((role) => role.id === String(step.role_id || ""))?.archetype,
       )),
       extra_cli_args: String(step.extra_cli_args || ""),
@@ -922,7 +941,7 @@ document.addEventListener("DOMContentLoaded", () => {
     settingsStepModelInput.value = step.model || "";
     settingsStepOnPassInput.value = isGate && step.on_pass === "finish_run" ? "finish_run" : "continue";
     settingsStepParallelGroupInput.value = step.parallel_group || "";
-    settingsStepInheritSessionInput.checked = Boolean(step.inherit_session);
+    settingsStepInheritSessionInput.checked = coerceWorkflowBoolean(step.inherit_session, false);
     settingsStepExtraCliArgsInput.value = step.extra_cli_args || "";
     settingsRoleDefinition.textContent = role
       ? (definition ? `${definition.name} · ${roleLabel(definition.archetype)}` : localeText("未绑定角色定义", "Unbound role definition"))
@@ -1146,7 +1165,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return false;
     }
     if (field === "inherit_session") {
-      step.inherit_session = Boolean(rawValue);
+      step.inherit_session = coerceWorkflowBoolean(rawValue, false);
       return true;
     }
     if (field === "parallel_group") {

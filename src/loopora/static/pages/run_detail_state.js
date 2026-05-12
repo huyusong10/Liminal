@@ -4,8 +4,7 @@
   }
 
   function numericId(value) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
+    return Number.isInteger(value) && value >= 0 ? value : 0;
   }
 
   function copyState(state) {
@@ -54,6 +53,9 @@
 
     function applyStreamEvent(event = {}) {
       const eventId = numericId(event.id);
+      if (eventId <= 0) {
+        return {duplicate: true, event: null, state: getState()};
+      }
       if (eventId > 0 && eventId <= state.lastEventId) {
         return {duplicate: true, event: null, state: getState()};
       }
