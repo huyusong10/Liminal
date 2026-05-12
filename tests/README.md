@@ -21,6 +21,8 @@ The test suite protects behavior contracts, not implementation shape.
 
 L3 tests may skip on ordinary developer machines, but their skip reason must name the missing environment switch or command template. Passing L1/L2 only means the feature is structurally correct in Loopora; L3 is the final proof that the real host/browser path still works.
 
+L3 is handbook-first. Before running or interpreting L3, read `tests/l3/README.md`; the L3 runner prints this entry path and can print the full handbook with `--show-playbook`.
+
 Current L3 switches:
 
 - Real provider CLI loop: set `LOOPORA_ENABLE_REAL_CLI_E2E=1` and, when needed, provider/model target variables used by `tests/test_real_cli_integration.py`.
@@ -28,11 +30,23 @@ Current L3 switches:
 - Real Web process: set `LOOPORA_ENABLE_RELEASE_WEB_E2E=1` to start a real `loopora serve` process and run the browser Tools adapter journey.
 - Heavy real workflow experiments: set `LOOPORA_ENABLE_REAL_WORKFLOW_EXPERIMENTS=1` when explicitly running `real_workflow_experiment` tests such as the preserved search rollout examples. These are not part of the minimal L3 release gate.
 
+Claude Code and OpenCode model defaults are part of the ordinary release path: Claude Code uses `Kimi-K2.6`, and OpenCode uses `minimax-token-plan/MiniMax-M2.7`. L3 fails the default path if those models are not visible in the real Agent command template or real CLI command events. Set `LOOPORA_L3_ALLOW_MODEL_OVERRIDE=1` only when the release deliberately validates a different model.
+
+Codex / Claude Code / OpenCode L3 targets are independent and can be run in parallel without `pytest-xdist`:
+
+```bash
+python tests/run_l3_parallel.py --suite real-agent --agent-targets codex,claude,opencode
+python tests/run_l3_parallel.py --suite real-cli --cli-targets codex,claude,opencode
+```
+
+The runner starts one pytest subprocess per selected target, sets that subprocess's `LOOPORA_REAL_*_TARGETS` to a single value, and defaults to at most three concurrent jobs. Use `--suite all` to include `real-agent`, `real-cli`, and `release-web`, `--max-parallel N` to tune concurrency, `--dry-run` to inspect the exact subprocess plan, and `--status-interval-seconds N` to control heartbeat output while waiting. Passing jobs delete their temporary runner log by default; failing jobs preserve it for diagnosis.
+
 L3 uses a minimum coverage model:
 
-- One real provider CLI smoke proves process launch, structured output parsing, artifact persistence, and resume command shape. It does not try to prove that a model can finish a large product task.
-- One real Agent-host smoke per selected implemented host proves the installed Codex, Claude Code, or OpenCode entry can drive `/loopora-gen` before `/loopora-loop`, execute returned Agent-native step capsules with the host's own role/subagent mechanism, submit `loopora_host_dispatch` proof, and continue until terminal. The test prompt must not disclose the underlying `loopora agent <adapter> ...` commands, the managed entry must leave an invocation-source trail in the Core binding, and a sentinel PATH must prove Loopora did not call a nested `codex` / `claude` / `opencode` CLI from inside the host session. The fixture bundle uses the minimum terminal flow: one upstream evidence-producing step and one GateKeeper step. It should not put the run's eventual terminal state into task-level Done When; the outer test harness asserts terminal status after the Agent-native loop completes.
+- One real provider CLI smoke proves process launch, structured output parsing, artifact persistence, default model visibility, and resume command shape. It does not try to prove that a model can finish a large product task.
+- One real Agent-host smoke per selected implemented host proves the installed Codex, Claude Code, or OpenCode entry can turn a short conversation brief into a host-authored candidate bundle, drive `/loopora-gen` before `/loopora-loop`, expose runtime activity while the run is active, execute returned Agent-native step capsules with the host's own role/subagent mechanism, submit `loopora_host_dispatch` proof, and continue until terminal. The test prompt must not disclose the underlying `loopora agent <adapter> ...` commands, the managed entry must leave an invocation-source trail in the Core binding, and a sentinel PATH must prove Loopora did not call a nested `codex` / `claude` / `opencode` CLI from inside the host session. The fixture bundle uses the minimum terminal flow: one upstream evidence-producing step and one GateKeeper step. It should not put the run's eventual terminal state into task-level Done When; the outer test harness asserts terminal status and the run event chain after the Agent-native loop completes.
 - One real Web-process smoke proves browser control of Codex / Claude Code / OpenCode adapter status / install / update / uninstall and visible error states against a real `loopora serve`.
+- L3 harnesses write phase reports under `.loopora/l3/` so a failing run exposes process, model, artifact, state, and command evidence without requiring the operator to infer progress from quiet stdout.
 - Larger realistic tasks may live as manual scenarios or `real_workflow_experiment` tests, but they should not be the default release blocker unless the feature being released is specifically about that workflow.
 
 ## Guardrails

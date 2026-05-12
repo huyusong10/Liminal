@@ -80,10 +80,16 @@ Agent-native entry 路径：
 - OpenCode command 当前不依赖用户 `opencode.json`，可使用显式 `--context-id` 或未来宿主暴露的 `OPENCODE_SESSION_ID`；不可用时回落到 workdir 绑定，并在 binding 中标明来源。
 - Managed entry 必须把入口来源写入 Core binding；宿主命令可通过 hidden `--entry-source` 或 Loopora-managed 环境标记传递来源，但这两者都只用于 provenance，不改变 bundle / run 业务语义。
 - execution capsule 至少包含 step identity、role / archetype、role dispatch contract、action policy、输入裁剪后的上下文、输出 schema、evidence rules、evidence ref contract、提交入口和可观察 run URL。它不能包含必须由宿主外部重新推断的隐式状态。
-- `role_dispatch` 是硬提交契约，不只是提示文案：它声明 required、target_agent、inline_allowed、accepted_dispatch_modes、proof_field 和 result_field。宿主提交时必须带 `loopora_host_dispatch`，且 run id、step id、adapter、target agent、actual agent、dispatch mode 必须与 capsule 匹配；缺失、inline 或 agent 不匹配时 Core 必须拒绝 submit。
+- `role_dispatch` 是硬提交契约，不只是提示文案：它声明 required、target_agent、inline_allowed、accepted_dispatch_modes、proof_field 和 result_field。宿主提交时必须带 `loopora_host_dispatch`，且 run id、step id、adapter、target agent、actual agent、dispatch mode 必须与 capsule 匹配；`inline` 必须作为 literal JSON boolean 明确提交。缺失、inline 或 agent 不匹配时 Core 必须拒绝 submit。`required` 与 `inline_allowed` 必须按 literal JSON boolean 解释；声明了 `role_dispatch` 但 `required` 不是 literal `true` 时，Core 必须拒绝而不是把 malformed capsule 当作无需 proof。`schema_version` 缺失或空值时默认 `1`，但显式布尔值、小数或非整数不能被 `int()` 提升成有效 proof 版本。
 - evidence rules 是宿主执行 step 时必须遵守的语义约束，不是文案契约；例如 GateKeeper pass 必须引用支持性的上游 evidence refs，blocked / failed evidence 不能支撑 pass，finish coverage 由 Loopora Core 根据 verdict 派生。
-- `known_evidence_ids` 是闭集。宿主提交的 `evidence_refs`，包括 `coverage_results[].evidence_refs`，只能逐字复制该列表中的 ID；派生子 ID、artifact label 或文件名都必须写入 claims / notes，未知 evidence refs 由 Core 当作 blocking evidence gate 失败处理。
+- `known_evidence_ids` 是闭集。宿主提交的 `evidence_refs`，包括 `coverage_results[].evidence_refs`，只能逐字复制该列表中的 ID；派生子 ID、artifact label 或文件名都必须写入 claims / notes，未知 evidence refs 由 Core 当作 blocking evidence gate 失败处理。非 GateKeeper step 的未知引用应在 submit 边界被拒绝，避免无效 ref 写入 ledger；GateKeeper pass 的未知引用则进入 GateKeeper evidence gate 并把 pass 改写为 blocking verdict。
+- submit proof 或非 GateKeeper evidence ref 闭集校验失败时，Core 不得写入 canonical step output、handoff 或 evidence ledger；失败请求只能作为接口错误返回，不能污染后续 step 的事实源。
 - Evidence / handoff 回填是受限动作：宿主可以提交当前已 claim step 的结构化结果，不能任意改写 Loop 生命周期或 GateKeeper 裁决。
+- `agent_native` 进入 `parallel_group` 时，每个同组 capsule 的 StepContextPacket 与 `known_evidence_ids` 必须来自同一个组起点快照；同组 peer 的提交可以即时落账，但不能出现在后续 peer 的上下文或可引用 evidence 闭集中，组后的下游 step 才能 fan-in 已落账的 peer handoff / evidence。
+- `agent_native` 必须与 headless 使用同一组并行检视白盒事件：进入组时写 `parallel_group_started`，组内最后一个 peer 提交后写 `parallel_group_finished`；这些事件表达 workflow 形状，不替代 step 自身的 context / handoff / evidence。
+- `agent_native` run 触发 workflow control 时，Core 必须把 control invocation 作为宿主可 claim 的 execution capsule 返回，而不是回退到 headless executor 或只记录 deferred 事件。该 capsule 仍必须遵守 `role_dispatch` 证明、不能调用 Builder、不插入 canonical workflow 顺序；control 完成后必须写入 control event 与 `evidence_kind=control` 的 ledger item。
+- `agent_native` 的 control queue 与 fire count 是本地运行状态，不是外部输入；缺失字段可按初始状态恢复，但损坏的队列游标、step order 或 fire count 不能被字符串 / 布尔 / 小数提升为有效计数。损坏队列项应跳过，损坏 fire count 应按已达到触发上限处理，避免重放 control 或越过 fire limit。
+- `loopora agent <adapter> loop/next/submit` 的人类可读输出在终态完成时必须同时报告 run lifecycle 与 task verdict；宿主 Agent 或用户不能只根据 `succeeded` 判断任务已被证据证明。
 
 ### 3.3 Agent-native 与 headless 边界
 
@@ -164,20 +170,24 @@ Agent-first adapter 至少由三层测试保护：
 
 | 层级 | 目的 | 覆盖重点 |
 | --- | --- | --- |
-| L1 Contract / API | 快速证明公开契约和错误语义 | CLI 幂等安装卸载、managed ownership、不覆盖用户配置、READY binding、`/loopora-loop` 缺 READY 失败、agent-native next/submit、API 状态和未实现平台 |
+| L1 Contract / API | 快速证明公开契约和错误语义 | CLI 幂等安装卸载、managed ownership、不覆盖用户配置、READY binding、`/loopora-loop` 缺 READY 失败、agent-native next/submit、parallel_group capsule 快照隔离、API 状态和未实现平台 |
 | L2 Browser / local integration | 用真实浏览器和本地服务证明 Web 用户旅程 | Tools 页选择目标项目、Codex / Claude / OpenCode 安装 / 状态刷新 / 卸载、冲突错误可见 |
-| L3 Real environment | 上线前人工主动运行的最后防线 | 真实 Codex / Claude Code / OpenCode host / slash、skill 或 command 入口能触发 managed entry，并按 `/loopora-gen` 后 `/loopora-loop` 的顺序产生 binding、agent-native run、step evidence 与终态；真实 `loopora serve` 进程中的 Web Tools 能完成安装 / 更新 / 卸载并展示异常状态 |
+| L3 Real environment | 上线前人工主动运行的最后防线 | 真实 Codex / Claude Code / OpenCode host / slash、skill 或 command 入口能把对话 brief 编译成 READY bundle，并按 `/loopora-gen` 后 `/loopora-loop` 的顺序产生 binding、agent-native run、runtime activity、step evidence 与终态；真实 `loopora serve` 进程中的 Web Tools 能完成安装 / 更新 / 卸载并展示异常状态 |
 
 稳定规则：
 
 - L1 / L2 是提交前默认质量门槛；L3 是发布或合并到上线分支前的人工 gate。
+- L3 的入口是 Agent handbook，而不是单个 pytest 文件；运行或解释 L3 前应先读 `tests/l3/README.md`，再选择 runner suite、目标 Agent 与等待/排障策略。测试代码只断言稳定契约，说明书承载等待、并行、日志追踪和模糊语义排障经验。
 - L3 可以依赖本机真实 Codex、浏览器和 shell 环境；缺少环境时必须 skip 并给出缺少的显式环境变量或命令模板。
 - L3 仍然断言用户可观察结果和落盘资产，不把宿主 CLI 的内部输出格式写成 Loopora 契约。
 - L3 Agent 入口测试不得在测试 prompt 中直接给出 `loopora agent <adapter> gen` / `loopora agent <adapter> loop` 的底层命令；这些命令只能来自 Loopora-managed entry 文件。managed entry 应把入口来源写入 Core binding，供测试和排障确认真实入口顺序；直接凭记忆调用底层 CLI 不能算作通过 Agent-first 入口。
+- L3 Agent 入口测试必须覆盖从对话引导生成 bundle 的路径：harness 可以提供确定性 conversation brief 和目标 candidate path，但不得预先写好 candidate YAML 再让宿主导入；通过条件必须包括宿主创建的 candidate file、alignment transcript / manifest、READY validation、linked bundle / loop / run。
 - L3 Agent-native 测试必须放置会失败的 sentinel `codex`、`claude`、`opencode` 子进程命令或等价进程追踪，证明 Loopora run 内没有反向调用宿主 Agent CLI。
 - L3 应证明至少一个 role step 通过 `role_dispatch.target_agent` 路径提交，并且 `loopora_host_dispatch.inline=false`、`actual_agent=target_agent`；在宿主支持 subagent 的场景，测试应优先要求使用 subagent / task agent，而不是只让主对话 inline 完成所有 step。
-- L3 的测试 bundle 使用最小覆盖模型：bundle 内只验证 Agent entry、binding、一个上游 step evidence 与 GateKeeper terminal decision；run 最终终态由测试 harness 外层断言，不应写成 Loop task 的 Done When，也不应为了证明入口契约引入额外 Inspector 长链路。
-- L3 Web 测试至少覆盖 Codex / Claude Code / OpenCode 的 `not_installed`、`installed`、`needs_update` 与 `error` 投影，避免只验证 happy path。
+- Codex L3 通过原生 `spawn_agent` 验证 `role_dispatch.target_agent` 时，managed entry 必须提示宿主使用目标 agent type、避免 full-history fork、只传递当前 step 必需上下文，并用短于外层命令的有限等待；宿主不得无限等待子 agent，也不得在子 agent 未返回时用 inline work 伪造提交。
+- Codex / Claude Code / OpenCode 的 Agent-host L3 目标互不共享 workdir、Loopora home、Web port 和 binding state；发布验证入口可以把每个 host 目标拆成独立 pytest 子进程并行运行，并在等待期间输出 heartbeat 与可追踪日志路径。real Agent-host harness 还应在 workdir 下写 `.loopora/l3/real-agent-phase-report.json`，把 candidate、validation、binding、runtime activity、run events、agent-native state、coverage、task verdict、role output 与 sentinel log 压成诊断投影。默认发布路径还必须把 Claude Code 的 `Kimi-K2.6` 与 OpenCode 的 `minimax-token-plan/MiniMax-M2.7` 作为可见模型断言；若要验证模型覆盖，必须通过显式 override 开关让本次 L3 失去默认模型证明含义。并行、heartbeat 与 phase report 只属于 harness 调度 / 观察优化，不得削弱 sentinel、entry provenance、subagent dispatch proof 或终态断言。
+- L3 的测试 bundle 使用最小覆盖模型：bundle 内只验证 Agent entry、binding、一个上游 step supporting evidence 与 GateKeeper terminal decision；Builder step 必须留下可被 GateKeeper 引用的 proof artifact 或 measured evidence，不能只用普通 handoff 自述支撑 pass。run 最终终态由测试 harness 外层断言，不应写成 Loop task 的 Done When，也不应为了证明入口契约引入额外 Inspector 长链路。harness 应在宿主命令运行期间轮询 runtime activity，并在完成后断言 run events 至少覆盖 context preparation、role request、agent-native claim/submit、handoff、summary 与 terminal task verdict。
+- L3 Web 测试至少覆盖 Codex / Claude Code / OpenCode 的 `not_installed`、`installed`、`needs_update` 与 `error` 投影，避免只验证 happy path；harness 应写出轻量 phase report，记录真实 `loopora serve` 命令、base URL、每个 adapter 的状态迁移与关键文件状态，便于失败时区分服务启动、浏览器路径和文件所有权问题。
 
 ## 8. 依赖边界
 

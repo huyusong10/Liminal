@@ -2,25 +2,26 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 import shlex
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
+from textwrap import dedent
 import urllib.request
 
 import pytest
 
 from loopora.branding import state_dir_for_workdir
-from loopora.bundles import bundle_to_yaml
 from loopora.db import LooporaRepository
+from loopora.providers import CLAUDE_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL
 from loopora.service import LooporaService
 from loopora.service_types import TERMINAL_RUN_STATUSES
 from loopora.settings import AppSettings
-from loopora.workflows import builtin_prompt_markdown
-
 
 pytestmark = pytest.mark.real_agent
 
@@ -30,9 +31,40 @@ CLAUDE_COMMAND_TEMPLATE_ENV = "LOOPORA_REAL_CLAUDE_AGENT_COMMAND_TEMPLATE"
 OPENCODE_COMMAND_TEMPLATE_ENV = "LOOPORA_REAL_OPENCODE_AGENT_COMMAND_TEMPLATE"
 TARGETS_ENV = "LOOPORA_REAL_AGENT_TARGETS"
 TIMEOUT_ENV = "LOOPORA_REAL_AGENT_TIMEOUT_SECONDS"
+L3_MODEL_OVERRIDE_ENV = "LOOPORA_L3_ALLOW_MODEL_OVERRIDE"
 AGENT_TARGETS = ("codex", "claude", "opencode")
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
+
+
+@dataclass(frozen=True, slots=True)
+class HostCommandMonitorRequest:
+    command: str
+    adapter: str
+    workdir: Path
+    env: dict[str, str]
+    timeout: float
+    agent_web_url: str
+    sentinel_log: Path
+
+
+@dataclass(frozen=True, slots=True)
+class HostCommandMonitorResult:
+    completed: subprocess.CompletedProcess[str]
+    binding: dict
+    activity_snapshots: list[dict]
+    phase_report: dict
+    phase_report_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class PhaseStatusInput:
+    adapter: str
+    workdir: Path
+    binding: dict
+    activity_snapshots: list[dict]
+    events: list[dict]
+    validation_summaries: list[dict]
 
 
 def _selected_real_agent_targets() -> set[str]:
@@ -53,6 +85,37 @@ def _template_env_for_adapter(adapter: str) -> str:
         "claude": CLAUDE_COMMAND_TEMPLATE_ENV,
         "opencode": OPENCODE_COMMAND_TEMPLATE_ENV,
     }.get(adapter, COMMAND_TEMPLATE_ENV)
+
+
+def _expected_model_for_adapter(adapter: str) -> str:
+    return {
+        "claude": CLAUDE_DEFAULT_MODEL,
+        "opencode": OPENCODE_DEFAULT_MODEL,
+    }.get(adapter, "")
+
+
+def _model_override_allowed() -> bool:
+    return os.environ.get(L3_MODEL_OVERRIDE_ENV) == "1"
+
+
+def _model_policy_summary(adapter: str, command: str) -> dict:
+    expected = _expected_model_for_adapter(adapter)
+    return {
+        "adapter": adapter,
+        "expected_default_model": expected,
+        "model_override_allowed": _model_override_allowed(),
+        "default_model_observed": bool(not expected or expected in command),
+    }
+
+
+def _assert_real_agent_command_model_policy(adapter: str, command: str) -> None:
+    expected = _expected_model_for_adapter(adapter)
+    if not expected or expected in command:
+        return
+    assert _model_override_allowed(), (
+        f"{adapter} real-agent L3 must use default model {expected!r} on the release path. "
+        f"Set {L3_MODEL_OVERRIDE_ENV}=1 only for an intentional override validation."
+    )
 
 
 def _require_real_agent_template(adapter: str) -> str:
@@ -120,6 +183,33 @@ def _wait_for_agent_web(base_url: str, *, timeout: float) -> None:
     raise AssertionError(f"Timed out waiting for Agent-started Loopora Web at {base_url}: {last_error}")
 
 
+def _fetch_runtime_activity(base_url: str) -> dict:
+    with urllib.request.urlopen(f"{base_url}/api/runtime/activity", timeout=1) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict) or not {"running_count", "queued_count", "runs"} <= set(payload):
+        raise AssertionError(f"invalid runtime activity payload: {payload!r}")
+    return payload
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _safe_read_json(path: Path) -> dict:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _truncate_text(value: object, *, limit: int = 600) -> str:
+    text = str(value or "")
+    return text if len(text) <= limit else text[:limit] + "...[truncated]"
+
+
 def _terminate_pid_file(pid_file: Path) -> None:
     if not pid_file.exists():
         return
@@ -161,6 +251,315 @@ def _wait_for_run_binding(adapter: str, workdir: Path, *, timeout: float) -> dic
     raise AssertionError(f"Timed out waiting for a {adapter} adapter run binding; last payloads={last_payloads!r}")
 
 
+def _linked_run_binding(adapter: str, workdir: Path) -> dict | None:
+    for payload in _binding_payloads(adapter, workdir):
+        if str(payload.get("linked_run_id") or "").strip():
+            return payload
+    return None
+
+
+def _latest_binding(adapter: str, workdir: Path) -> dict:
+    payloads = _binding_payloads(adapter, workdir)
+    if not payloads:
+        return {}
+    linked = [payload for payload in payloads if str(payload.get("linked_run_id") or "").strip()]
+    return linked[-1] if linked else payloads[-1]
+
+
+def _phase_report_path(workdir: Path) -> Path:
+    return state_dir_for_workdir(workdir) / "l3" / "real-agent-phase-report.json"
+
+
+def _candidate_file(adapter: str, workdir: Path) -> Path:
+    return state_dir_for_workdir(workdir) / "agent_inbox" / adapter / "conversation-candidate.yml"
+
+
+def _run_dir(workdir: Path, run_id: str) -> Path:
+    return state_dir_for_workdir(workdir) / "runs" / run_id
+
+
+def _alignment_validation_summaries(workdir: Path) -> list[dict]:
+    rows: list[dict] = []
+    sessions_dir = state_dir_for_workdir(workdir) / "alignment_sessions"
+    for path in sorted(sessions_dir.glob("*/artifacts/validation.json"))[-8:]:
+        payload = _safe_read_json(path)
+        rows.append(
+            {
+                "session_id": path.parent.parent.name,
+                "ok": payload.get("ok"),
+                "error": _truncate_text(payload.get("error"), limit=240),
+                "issues": list((payload.get("semantic_lint") or {}).get("issues") or [])[:5]
+                if isinstance(payload.get("semantic_lint"), dict)
+                else [],
+                "path": str(path),
+            }
+        )
+    return rows
+
+
+def _binding_summary(binding: dict) -> dict:
+    invocations = list(binding.get("entry_invocations") or []) if isinstance(binding.get("entry_invocations"), list) else []
+    return {
+        "adapter": binding.get("adapter"),
+        "alignment_status": binding.get("alignment_status"),
+        "alignment_session_id": binding.get("alignment_session_id"),
+        "linked_bundle_id": binding.get("linked_bundle_id"),
+        "linked_loop_id": binding.get("linked_loop_id"),
+        "linked_run_id": binding.get("linked_run_id"),
+        "run_path": binding.get("run_path"),
+        "execution_plane": binding.get("execution_plane"),
+        "entry_invocations": [
+            {"action": item.get("action"), "entry_source": item.get("entry_source"), "at": item.get("at")}
+            for item in invocations
+            if isinstance(item, dict)
+        ],
+        "path": binding.get("path"),
+    }
+
+
+def _activity_summaries(activity_snapshots: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for snapshot in activity_snapshots[-5:]:
+        runs = snapshot.get("runs") if isinstance(snapshot.get("runs"), list) else []
+        rows.append(
+            {
+                "running_count": snapshot.get("running_count"),
+                "queued_count": snapshot.get("queued_count"),
+                "runs": [
+                    {"id": item.get("id"), "status": item.get("status"), "run_path": item.get("run_path")}
+                    for item in runs[:6]
+                    if isinstance(item, dict)
+                ],
+            }
+        )
+    return rows
+
+
+def _event_summaries(events: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for event in events[-12:]:
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        rows.append(
+            {
+                "id": event.get("id"),
+                "event_type": event.get("event_type"),
+                "role": event.get("role"),
+                "step_id": payload.get("step_id"),
+                "status": payload.get("status"),
+                "reason": payload.get("reason"),
+                "task_verdict_status": payload.get("task_verdict_status"),
+            }
+        )
+    return rows
+
+
+def _state_summary(path: Path) -> dict:
+    state = _safe_read_json(path)
+    active = state.get("active_step") if isinstance(state.get("active_step"), dict) else {}
+    capsule = active.get("capsule") if isinstance(active.get("capsule"), dict) else {}
+    return {
+        "status": state.get("status"),
+        "iter_id": state.get("iter_id"),
+        "step_index": state.get("step_index"),
+        "active_step_id": capsule.get("step_id"),
+        "active_role": (capsule.get("role") or {}).get("archetype") if isinstance(capsule.get("role"), dict) else None,
+        "host_dispatches": [
+            {
+                "step_id": item.get("step_id"),
+                "target_agent": item.get("target_agent"),
+                "actual_agent": item.get("actual_agent"),
+                "dispatch_mode": item.get("dispatch_mode"),
+                "inline": item.get("inline"),
+            }
+            for item in list(state.get("host_dispatches") or [])[-6:]
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def _projection_summary(path: Path, *, keys: tuple[str, ...]) -> dict:
+    payload = _safe_read_json(path)
+    return {key: payload.get(key) for key in keys if key in payload}
+
+
+def _role_output_summary(path: Path) -> dict:
+    payload = _safe_read_json(path)
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else payload
+    if not isinstance(result, dict):
+        result = {}
+    return {
+        "exists": path.exists(),
+        "keys": sorted(result.keys())[:16],
+        "passed": result.get("passed"),
+        "evidence_gate_status": result.get("evidence_gate_status"),
+        "blocking_issues": list(result.get("blocking_issues") or [])[:6] if isinstance(result.get("blocking_issues"), list) else [],
+        "hard_constraint_violations": list(result.get("hard_constraint_violations") or [])[:6]
+        if isinstance(result.get("hard_constraint_violations"), list)
+        else [],
+        "evidence_refs": list(result.get("evidence_refs") or [])[:6] if isinstance(result.get("evidence_refs"), list) else [],
+    }
+
+
+def _role_outputs_summary(run_path: Path) -> dict:
+    rows: dict[str, dict] = {}
+    for step_dir in sorted((run_path / "iterations" / "iter_000" / "steps").glob("*__*")):
+        rows[step_dir.name] = {
+            "raw": _role_output_summary(step_dir / "output.raw.json"),
+            "normalized": _role_output_summary(step_dir / "output.normalized.json"),
+        }
+    return rows
+
+
+def _phase_statuses(inputs: PhaseStatusInput) -> dict[str, dict]:
+    run_id = str(inputs.binding.get("linked_run_id") or "").strip()
+    invocations = list(inputs.binding.get("entry_invocations") or []) if isinstance(inputs.binding.get("entry_invocations"), list) else []
+
+    def event_seen(event_type: str, step_id: str | None = None) -> bool:
+        return any(
+            event.get("event_type") == event_type and (step_id is None or (event.get("payload") or {}).get("step_id") == step_id)
+            for event in inputs.events
+            if isinstance(event.get("payload") or {}, dict)
+        )
+
+    return {
+        "host_process_started": {"ok": True, "detail": "host command was started by the harness"},
+        "candidate_file_created": {
+            "ok": _candidate_file(inputs.adapter, inputs.workdir).exists(),
+            "path": str(_candidate_file(inputs.adapter, inputs.workdir)),
+        },
+        "gen_invocation_observed": {"ok": any((item.get("action") if isinstance(item, dict) else None) == "gen" for item in invocations)},
+        "ready_validation_observed": {"ok": any(item.get("ok") is True for item in inputs.validation_summaries)},
+        "loop_invocation_observed": {"ok": any((item.get("action") if isinstance(item, dict) else None) == "loop" for item in invocations)},
+        "linked_run_created": {"ok": bool(run_id), "run_id": run_id},
+        "runtime_activity_observed_run": {
+            "ok": bool(run_id)
+            and any(
+                item.get("id") == run_id and item.get("status") in {"queued", "running", "awaiting_agent"}
+                for snapshot in inputs.activity_snapshots
+                for item in list(snapshot.get("runs") or [])
+                if isinstance(item, dict)
+            )
+        },
+        "builder_claimed": {"ok": event_seen("agent_native_step_claimed", "builder_step")},
+        "builder_submitted": {"ok": event_seen("agent_native_step_submitted", "builder_step")},
+        "gatekeeper_claimed": {"ok": event_seen("agent_native_step_claimed", "gatekeeper_step")},
+        "gatekeeper_submitted": {"ok": event_seen("agent_native_step_submitted", "gatekeeper_step")},
+        "terminal_run_finished": {"ok": any(event.get("event_type") == "run_finished" for event in inputs.events)},
+        "task_verdict_passed": {
+            "ok": any(
+                event.get("event_type") == "run_finished" and (event.get("payload") or {}).get("task_verdict_status") == "passed"
+                for event in inputs.events
+                if isinstance(event.get("payload") or {}, dict)
+            )
+        },
+    }
+
+
+def _build_l3_phase_report(
+    *,
+    adapter: str,
+    workdir: Path,
+    activity_snapshots: list[dict],
+    sentinel_log: Path,
+    command: str,
+) -> dict:
+    binding = _latest_binding(adapter, workdir)
+    run_id = str(binding.get("linked_run_id") or "").strip()
+    run_path = _run_dir(workdir, run_id) if run_id else Path()
+    events = _read_jsonl(run_path / "events.jsonl") if run_id else []
+    validation_summaries = _alignment_validation_summaries(workdir)
+    candidate = _candidate_file(adapter, workdir)
+    proof_file = workdir / "loopora-agent-release-proof.json"
+    return {
+        "schema_version": 1,
+        "adapter": adapter,
+        "workdir": str(workdir),
+        "command_preview": _truncate_text(command, limit=500),
+        "model_policy": _model_policy_summary(adapter, command),
+        "phase_statuses": _phase_statuses(
+            PhaseStatusInput(
+                adapter=adapter,
+                workdir=workdir,
+                binding=binding,
+                activity_snapshots=activity_snapshots,
+                events=events,
+                validation_summaries=validation_summaries,
+            )
+        ),
+        "diagnostics": {
+            "candidate": {
+                "path": str(candidate),
+                "exists": candidate.exists(),
+                "size_bytes": candidate.stat().st_size if candidate.exists() else 0,
+                "first_lines": candidate.read_text(encoding="utf-8").splitlines()[:8] if candidate.exists() else [],
+            },
+            "alignment_validations": validation_summaries,
+            "binding": _binding_summary(binding),
+            "runtime_activity": _activity_summaries(activity_snapshots),
+            "events_tail": _event_summaries(events),
+            "agent_native_state": _state_summary(run_path / "agent_native" / "state.json") if run_id else {},
+            "coverage": _projection_summary(
+                run_path / "evidence" / "coverage.json",
+                keys=("status", "covered_check_count", "missing_check_count", "missing_check_ids", "latest_gatekeeper", "top_gaps"),
+            )
+            if run_id
+            else {},
+            "task_verdict": _projection_summary(run_path / "evidence" / "task_verdict.json", keys=("status", "source", "summary", "buckets"))
+            if run_id
+            else {},
+            "role_outputs": _role_outputs_summary(run_path) if run_id else {},
+            "proof_file": {"path": str(proof_file), "exists": proof_file.exists()},
+            "sentinel_log": {
+                "path": str(sentinel_log),
+                "exists": sentinel_log.exists(),
+                "preview": _truncate_text(sentinel_log.read_text(encoding="utf-8") if sentinel_log.exists() else "", limit=500),
+            },
+        },
+    }
+
+
+def _write_l3_phase_report(
+    *,
+    adapter: str,
+    workdir: Path,
+    activity_snapshots: list[dict],
+    sentinel_log: Path,
+    command: str,
+) -> tuple[dict, Path]:
+    report = _build_l3_phase_report(
+        adapter=adapter,
+        workdir=workdir,
+        activity_snapshots=activity_snapshots,
+        sentinel_log=sentinel_log,
+        command=command,
+    )
+    path = _phase_report_path(workdir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report, path
+
+
+def _compact_phase_report(report: dict) -> dict:
+    diagnostics = report.get("diagnostics") if isinstance(report.get("diagnostics"), dict) else {}
+    return {
+        "adapter": report.get("adapter"),
+        "workdir": report.get("workdir"),
+        "model_policy": report.get("model_policy"),
+        "phase_statuses": report.get("phase_statuses"),
+        "binding": diagnostics.get("binding"),
+        "alignment_validations": diagnostics.get("alignment_validations"),
+        "coverage": diagnostics.get("coverage"),
+        "task_verdict": diagnostics.get("task_verdict"),
+        "events_tail": diagnostics.get("events_tail"),
+        "sentinel_log": diagnostics.get("sentinel_log"),
+    }
+
+
+def _format_l3_diagnostic_failure(message: object, *, report: dict, report_path: Path) -> str:
+    compact = json.dumps(_compact_phase_report(report), ensure_ascii=False, indent=2)
+    return f"{message}\n\nL3 phase report: {report_path}\n{compact}"
+
+
 def _loopora_service(loopora_home: Path) -> LooporaService:
     return LooporaService(
         repository=LooporaRepository(loopora_home / "app.db"),
@@ -199,23 +598,90 @@ if role == "gatekeeper":
         "passed": True,
         "decision_summary": "Agent adapter release gate passed with supporting upstream Builder evidence.",
         "feedback_to_builder": "",
+        "feedback_to_generator": "",
         "blocking_issues": [],
+        "hard_constraint_violations": [],
         "metrics": [{"name": "quality_score", "value": 1.0, "threshold": 0.9, "passed": True}],
+        "metric_scores": {
+            "check_pass_rate": {"value": 1.0, "threshold": 1.0, "passed": True},
+            "quality_score": {"value": 1.0, "threshold": 0.9, "passed": True},
+        },
         "failed_check_ids": [],
         "priority_failures": [],
         "composite_score": 1.0,
         "evidence_refs": ["ev_000_00_builder_step"],
-        "evidence_claims": ["The upstream Builder evidence confirms the managed run binding and structured result."],
+        "evidence_claims": ["The upstream Builder evidence confirms the managed run binding, structured result, and evidence-backed verdict path."],
         "residual_risks": [],
-        "coverage_results": [],
+        "coverage_results": [
+            {
+                "target_id": "done_when.check_001",
+                "status": "covered",
+                "evidence_refs": ["ev_000_00_builder_step"],
+                "note": "The managed binding and run URL were present before GateKeeper closed the run.",
+            },
+            {
+                "target_id": "done_when.check_002",
+                "status": "covered",
+                "evidence_refs": ["ev_000_00_builder_step"],
+                "note": "Builder returned the structured release-gate result with a concrete proof file.",
+            },
+            {
+                "target_id": "done_when.check_003",
+                "status": "covered",
+                "evidence_refs": ["ev_000_00_builder_step"],
+                "note": "GateKeeper inspected and cited the exact upstream Builder evidence id.",
+            },
+            {
+                "target_id": "fake_done.risk_001",
+                "status": "covered",
+                "evidence_refs": ["ev_000_00_builder_step"],
+                "note": "The verdict relies on Builder evidence, not only run visibility.",
+            },
+            {
+                "target_id": "fake_done.risk_002",
+                "status": "covered",
+                "evidence_refs": ["ev_000_00_builder_step"],
+                "note": "The pass cites upstream evidence rather than an unsupported GateKeeper assertion.",
+            },
+            {
+                "target_id": "evidence_preference.pref_001",
+                "status": "covered",
+                "evidence_refs": ["ev_000_00_builder_step"],
+                "note": "The verdict is projected through the task verdict buckets.",
+            },
+            {
+                "target_id": "evidence_preference.pref_002",
+                "status": "covered",
+                "evidence_refs": ["ev_000_00_builder_step"],
+                "note": "Evidence references use exact known evidence ids.",
+            },
+        ],
     }
 else:
+    proof_path = Path("loopora-agent-release-proof.json")
+    proof_path.write_text(
+        json.dumps(
+            {
+                "candidate_bundle": "conversation-generated",
+                "managed_entry": "loopora-gen before loopora-loop",
+                "runtime_activity": "observed by the host release gate",
+                "agent_native_submission": "builder handoff is available for GateKeeper",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\\n",
+        encoding="utf-8",
+    )
     payload = {
-        "attempted": "Verified the Loopora Agent adapter can start a managed run.",
+        "attempted": "Verified the Loopora Agent adapter can start a managed run and wrote a release proof file.",
         "abandoned": "No product changes were needed for this release gate.",
-        "assumption": "The release gate only needs a deterministic terminal run after /loopora-loop.",
-        "summary": "Custom executor wrote a structured Builder result for the Agent adapter release gate.",
+        "assumption": "The release proof file is sufficient upstream evidence for this deterministic adapter gate.",
+        "summary": "Custom executor wrote a structured Builder result and proof file for the Agent adapter release gate.",
         "changed_files": [],
+        "proof_files": [str(proof_path)],
+        "proof_artifacts": [],
+        "artifact_paths": [],
     }
 output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
 print(json.dumps({"type": "stdout", "message": f"loopora-agent-release-executor complete: {role}"}))
@@ -223,6 +689,283 @@ print(json.dumps({"type": "stdout", "message": f"loopora-agent-release-executor 
         encoding="utf-8",
     )
     return script
+
+
+def _agent_release_bundle_yaml(workdir: Path, executor_script: Path) -> str:
+    return (
+        dedent(
+            f"""\
+            version: 1
+            collaboration_summary: "This release gate proves conversation-guided bundle generation, managed entry provenance, runtime activity, evidence-backed handoff, and GateKeeper verification through Agent-native step submission."
+            metadata:
+              name: Agent Adapter Release Gate
+            loop:
+              workdir: {workdir.resolve()}
+              completion_mode: gatekeeper
+              executor_kind: custom
+              executor_mode: command
+              command_cli: {sys.executable}
+              command_args_text: |
+                {executor_script}
+                builder
+                {{output_path}}
+                {{prompt}}
+              iteration_interval_seconds: 0
+              max_iters: 1
+              max_role_retries: 1
+              delta_threshold: 0.005
+              trigger_window: 2
+              regression_window: 2
+              model: ""
+              reasoning_effort: ""
+            role_definitions:
+              - key: builder
+                name: Agent Release Builder
+                description: "Writes a deterministic Builder result and proof file for the Agent adapter release gate."
+                archetype: builder
+                prompt_ref: builder.md
+                prompt_markdown: |
+                  ---
+                  version: 1
+                  archetype: builder
+                  ---
+
+                  # Agent Release Builder
+
+                  Create `loopora-agent-release-proof.json` in the workdir with concise JSON proof that the conversation-generated candidate, managed run binding, runtime visibility, and Agent-native submission path were observed. Return a structured Builder result whose `proof_files` contains `loopora-agent-release-proof.json`; empty `changed_files`, `proof_artifacts`, and `artifact_paths` are valid.
+                posture_notes: "Keep this release gate deterministic and evidence-oriented; leave a concrete proof file for GateKeeper."
+                executor_kind: custom
+                executor_mode: command
+                command_cli: {sys.executable}
+                command_args_text: |
+                  {executor_script}
+                  builder
+                  {{output_path}}
+                  {{prompt}}
+                model: ""
+                reasoning_effort: ""
+              - key: gatekeeper
+                name: Agent Release GateKeeper
+                description: "Checks Builder evidence and closes the release gate."
+                archetype: gatekeeper
+                prompt_ref: gatekeeper.md
+                prompt_markdown: |
+                  ---
+                  version: 1
+                  archetype: gatekeeper
+                  ---
+
+                  # Agent Release GateKeeper
+
+                  Cite only exact upstream Builder evidence ids from known_evidence_ids. Use `covered` for every satisfied coverage_results target; keep Proven, Weak, Unproven, Blocking, and Residual risk as verdict bucket prose, not coverage status strings.
+                posture_notes: "Fail closed unless the Builder evidence id is available and cited exactly."
+                executor_kind: custom
+                executor_mode: command
+                command_cli: {sys.executable}
+                command_args_text: |
+                  {executor_script}
+                  gatekeeper
+                  {{output_path}}
+                  {{prompt}}
+                model: ""
+                reasoning_effort: ""
+            workflow:
+              version: 1
+              preset: custom
+              collaboration_intent: "Prove conversation-guided bundle generation, managed entry provenance, runtime activity, evidence-backed handoff, and GateKeeper verification through Agent-native step submission."
+              roles:
+                - id: builder
+                  role_definition_key: builder
+                - id: gatekeeper
+                  role_definition_key: gatekeeper
+              steps:
+                - id: builder_step
+                  role_id: builder
+                - id: gatekeeper_step
+                  role_id: gatekeeper
+                  on_pass: finish_run
+                  inputs:
+                    handoffs_from:
+                      - builder_step
+                    evidence_query:
+                      archetypes:
+                        - builder
+                      limit: 4
+            spec:
+              markdown: |
+                # Task
+
+                Prove the installed Loopora Agent entry can guide a short task conversation into a READY bundle, start a managed run, expose runtime activity, and finish through Agent-native step submission.
+
+                # Done When
+
+                - A managed run binding exposes a run URL that is visible while the run is active.
+                - Builder returns a structured result with a proof file for this release gate.
+                - GateKeeper can inspect Builder evidence and cite exact upstream evidence ids.
+
+                # Success Surface
+
+                - Candidate bundle is generated from conversation guidance and validated as READY by Loopora Core.
+                - Managed entry provenance records `/loopora-gen` before `/loopora-loop`.
+                - Runtime activity is observable before terminal completion.
+                - The run finishes through Agent-native claim and submit events for both steps.
+
+                # Guardrails
+
+                - Do not invoke codex, claude, or opencode from inside this Agent session.
+                - Do not invent evidence refs outside known_evidence_ids.
+                - Use the installed Loopora project entry commands, not hand-written direct CLI shortcuts.
+
+                # Fake Done
+
+                - A visible run without Builder evidence is not a task pass.
+                - A GateKeeper pass without exact upstream evidence refs is not a task pass.
+
+                # Evidence Preferences
+
+                - GateKeeper projects the final task verdict into Proven, Weak, Unproven, Blocking, and Residual risk buckets.
+                - Prefer run events, runtime activity, binding provenance, and exact evidence ids over role self-report.
+
+                # Residual Risk
+
+                This release gate accepts only the residual risk that host-native role dispatch is represented by the non-interactive host's available role mechanism.
+            """
+        ).strip()
+        + "\n"
+    )
+
+
+def _wait_for_host_command_with_runtime_monitoring(request: HostCommandMonitorRequest) -> HostCommandMonitorResult:
+    deadline = time.monotonic() + request.timeout
+    activity_snapshots: list[dict] = []
+    phase_report: dict = {}
+    phase_report_path = _phase_report_path(request.workdir)
+    with tempfile.NamedTemporaryFile(
+        "w+", prefix="loopora-real-agent-stdout-", suffix=".log", encoding="utf-8", delete=False
+    ) as stdout_file, tempfile.NamedTemporaryFile(
+        "w+", prefix="loopora-real-agent-stderr-", suffix=".log", encoding="utf-8", delete=False
+    ) as stderr_file:
+        process = subprocess.Popen(request.command, cwd=request.workdir, env=request.env, shell=True, text=True, stdout=stdout_file, stderr=stderr_file)
+        last_report_at = 0.0
+        try:
+            while process.poll() is None:
+                now = time.monotonic()
+                if now >= deadline:
+                    process.kill()
+                    process.wait(timeout=5)
+                    stdout_file.flush()
+                    stderr_file.flush()
+                    stdout = Path(stdout_file.name).read_text(encoding="utf-8", errors="replace")
+                    stderr = Path(stderr_file.name).read_text(encoding="utf-8", errors="replace")
+                    phase_report, phase_report_path = _write_l3_phase_report(
+                        adapter=request.adapter,
+                        workdir=request.workdir,
+                        activity_snapshots=activity_snapshots,
+                        sentinel_log=request.sentinel_log,
+                        command=request.command,
+                    )
+                    raise AssertionError(
+                        _format_l3_diagnostic_failure(
+                            f"timed out waiting for real {request.adapter} Agent host command\nstdout:\n{stdout}\nstderr:\n{stderr}",
+                            report=phase_report,
+                            report_path=phase_report_path,
+                        )
+                    ) from None
+                try:
+                    activity = _fetch_runtime_activity(request.agent_web_url)
+                    activity_snapshots.append(activity)
+                except (AssertionError, json.JSONDecodeError, OSError, TimeoutError):
+                    pass
+                if now - last_report_at >= 2:
+                    phase_report, phase_report_path = _write_l3_phase_report(
+                        adapter=request.adapter,
+                        workdir=request.workdir,
+                        activity_snapshots=activity_snapshots,
+                        sentinel_log=request.sentinel_log,
+                        command=request.command,
+                    )
+                    last_report_at = now
+                time.sleep(0.5)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+        stdout_path = Path(stdout_file.name)
+        stderr_path = Path(stderr_file.name)
+    stdout = stdout_path.read_text(encoding="utf-8", errors="replace")
+    stderr = stderr_path.read_text(encoding="utf-8", errors="replace")
+    stdout_path.unlink(missing_ok=True)
+    stderr_path.unlink(missing_ok=True)
+    completed = subprocess.CompletedProcess(request.command, int(process.returncode or 0), stdout, stderr)
+    binding = _linked_run_binding(request.adapter, request.workdir)
+    if binding is None:
+        try:
+            binding = _wait_for_run_binding(request.adapter, request.workdir, timeout=30)
+        except AssertionError as exc:
+            phase_report, phase_report_path = _write_l3_phase_report(
+                adapter=request.adapter,
+                workdir=request.workdir,
+                activity_snapshots=activity_snapshots,
+                sentinel_log=request.sentinel_log,
+                command=request.command,
+            )
+            raise AssertionError(_format_l3_diagnostic_failure(exc, report=phase_report, report_path=phase_report_path)) from None
+    phase_report, phase_report_path = _write_l3_phase_report(
+        adapter=request.adapter,
+        workdir=request.workdir,
+        activity_snapshots=activity_snapshots,
+        sentinel_log=request.sentinel_log,
+        command=request.command,
+    )
+    return HostCommandMonitorResult(
+        completed=completed,
+        binding=binding,
+        activity_snapshots=activity_snapshots,
+        phase_report=phase_report,
+        phase_report_path=phase_report_path,
+    )
+
+
+def _assert_runtime_activity_observed_run(activity_snapshots: list[dict], run_id: str) -> None:
+    assert activity_snapshots, "runtime activity endpoint was not observed while the host command was running"
+    assert any(
+        item.get("id") == run_id and item.get("status") in {"queued", "running", "awaiting_agent"}
+        for snapshot in activity_snapshots
+        for item in snapshot.get("runs", [])
+        if isinstance(item, dict)
+    ), activity_snapshots[-3:]
+
+
+def _assert_alignment_session_came_from_conversation(workdir: Path, run_id: str) -> None:
+    manifests = sorted((workdir / ".loopora" / "alignment_sessions").glob("*/manifest.json"))
+    assert manifests
+    manifest = json.loads(manifests[-1].read_text(encoding="utf-8"))
+    assert manifest["linked_run_id"] == run_id
+    assert manifest["linked_bundle_id"]
+    assert manifest["message_count"] >= 2
+    assert manifest["paths"]["transcript"] == "conversation/transcript.jsonl"
+    assert (Path(manifest["bundle_path"])).exists()
+
+
+def _assert_run_observation_chain(workdir: Path, run_id: str, adapter: str) -> None:
+    events = _read_jsonl(workdir / ".loopora" / "runs" / run_id / "events.jsonl")
+    assert events
+    event_types = [str(event.get("event_type") or "") for event in events]
+    for step_id in ("builder_step", "gatekeeper_step"):
+        for event_type in ("step_context_prepared", "role_request_prepared", "agent_native_step_claimed", "agent_native_step_submitted"):
+            assert any(event.get("event_type") == event_type and (event.get("payload") or {}).get("step_id") == step_id for event in events)
+    run_finished = [event for event in events if event.get("event_type") == "run_finished"]
+    assert run_finished
+    assert run_finished[-1]["payload"]["status"] == "succeeded"
+    assert run_finished[-1]["payload"]["task_verdict_status"] == "passed"
+    submitted = [event for event in events if event.get("event_type") == "agent_native_step_submitted"]
+    assert len(submitted) >= 2
+    for event in submitted:
+        dispatch = (event.get("payload") or {}).get("host_dispatch") or {}
+        assert dispatch.get("adapter") == adapter
+        assert dispatch.get("actual_agent") == dispatch.get("target_agent")
+        assert dispatch.get("inline") is False
+    assert event_types.index("step_context_prepared") < event_types.index("run_finished")
 
 
 def _agent_label(adapter: str) -> str:
@@ -256,128 +999,10 @@ def _assert_managed_gen_before_loop(adapter: str, entry_invocations: list[dict])
     assert normalized[-1] == ("loop", expected_source)
 
 
-def _agent_release_bundle_yaml(workdir: Path, executor_script: Path, *, adapter: str) -> str:
-    def role_execution(role: str) -> dict:
-        return {
-            "executor_kind": "custom",
-            "executor_mode": "command",
-            "command_cli": sys.executable,
-            "command_args_text": f"{executor_script}\n{role}\n{{output_path}}\n{{prompt}}",
-            "model": "",
-            "reasoning_effort": "",
-        }
-
-    loop_execution = {
-        "executor_kind": "custom",
-        "executor_mode": "command",
-        "command_cli": sys.executable,
-        "command_args_text": f"{executor_script}\nbuilder\n{{output_path}}\n{{prompt}}",
-        "model": "",
-        "reasoning_effort": "",
-    }
-    bundle = {
-        "version": 1,
-        "metadata": {
-            "name": "Agent Adapter Release Gate",
-            "description": f"Deterministic bundle used by the real {_agent_label(adapter)} host L3 gate.",
-        },
-        "collaboration_summary": (
-            f"Use deterministic proof evidence to show that {_agent_label(adapter)} can drive Loopora's installed Agent entry and that /loopora-loop "
-            "starts a Loopora-managed run without depending on another long-running model task; GateKeeper makes the final judgment from upstream Builder evidence."
-        ),
-        "loop": {
-            "name": "Agent Adapter Release Gate",
-            "workdir": str(workdir.resolve()),
-            "completion_mode": "gatekeeper",
-            **loop_execution,
-            "model": "",
-            "reasoning_effort": "",
-            "iteration_interval_seconds": 0,
-            "max_iters": 1,
-            "max_role_retries": 1,
-            "delta_threshold": 0.005,
-            "trigger_window": 2,
-            "regression_window": 2,
-        },
-        "spec": {
-            "markdown": """# Task
-
-Prepare a verifiable release gate showing that a user can invoke Loopora from the Coding Agent and receive a managed run URL.
-
-# Done When
-
-- The Agent entry creates a managed run binding with a run URL.
-- The Builder step writes a structured result that GateKeeper can inspect.
-
-# Success Surface
-
-- The release gate proves the Coding Agent can call Loopora Agent entry points, observe a Loopora-managed run URL, and submit Agent-native step results.
-
-# Guardrails
-
-- Do not edit user-owned Agent host or Loopora configuration.
-
-# Fake Done
-
-- Reporting a URL without creating a managed run binding.
-
-# Evidence Preferences
-
-- Prefer deterministic upstream evidence generated inside the Loopora run.
-
-# Residual Risk
-
-This gate does not prove product task quality; it only proves the Agent adapter entry boundary. The outer L3 harness, not this Loop contract, asserts the final run status after GateKeeper submission.
-""",
-        },
-        "role_definitions": [
-            {
-                "key": "builder",
-                "name": "Agent Release Builder",
-                "description": "Runs a deterministic custom command.",
-                "archetype": "builder",
-                "prompt_ref": "builder.md",
-                "prompt_markdown": builtin_prompt_markdown("builder.md"),
-                "posture_notes": "This role exists only to make the Agent adapter L3 run deterministic and quick.",
-                **role_execution("builder"),
-            },
-            {
-                "key": "gatekeeper",
-                "name": "Agent Release GateKeeper",
-                "description": "Closes the deterministic Agent adapter gate.",
-                "archetype": "gatekeeper",
-                "prompt_ref": "gatekeeper.md",
-                "prompt_markdown": builtin_prompt_markdown("gatekeeper.md"),
-                "posture_notes": "Pass only when upstream Builder evidence is present.",
-                **role_execution("gatekeeper"),
-            },
-        ],
-        "workflow": {
-            "version": 1,
-            "preset": "custom",
-            "collaboration_intent": "Use deterministic evidence, handoff, and GateKeeper closure after the real Agent host invokes /loopora-loop.",
-            "roles": [
-                {"id": "builder", "role_definition_key": "builder"},
-                {"id": "gatekeeper", "role_definition_key": "gatekeeper"},
-            ],
-            "steps": [
-                {"id": "builder_step", "role_id": "builder"},
-                {
-                    "id": "gatekeeper_step",
-                    "role_id": "gatekeeper",
-                    "on_pass": "finish_run",
-                    "inputs": {"handoffs_from": ["builder_step"], "evidence_query": {"archetypes": ["builder"], "limit": 4}},
-                },
-            ],
-        },
-    }
-    return bundle_to_yaml(bundle)
-
-
 @pytest.mark.parametrize("adapter", AGENT_TARGETS)
-def test_real_agent_host_can_drive_loopora_gen_then_loop(adapter: str, tmp_path: Path, monkeypatch) -> None:
+def test_real_agent_host_can_guide_bundle_then_monitor_loop(adapter: str, tmp_path: Path, monkeypatch) -> None:  # noqa: PLR0915
     template = _require_real_agent_template(adapter)
-    timeout = float(os.environ.get(TIMEOUT_ENV, "180"))
+    timeout = float(os.environ.get(TIMEOUT_ENV, "900"))
     loopora_home = tmp_path / "loopora-home"
     monkeypatch.setenv("LOOPORA_HOME", str(loopora_home))
     sentinel_dir, sentinel_log = _write_nested_agent_sentinels(tmp_path)
@@ -396,28 +1021,37 @@ def test_real_agent_host_can_drive_loopora_gen_then_loop(adapter: str, tmp_path:
     workdir.mkdir()
     (workdir / "README.md").write_text("# Real Agent adapter release fixture\n", encoding="utf-8")
     executor_script = _write_custom_executor(workdir)
-    bundle_file = workdir / "loopora-agent-candidate.yml"
-    bundle_file.write_text(_agent_release_bundle_yaml(workdir, executor_script, adapter=adapter), encoding="utf-8")
+    bundle_file = workdir / ".loopora" / "agent_inbox" / adapter / "conversation-candidate.yml"
     prompt_file = workdir / "loopora-agent-release-prompt.md"
+    candidate_yaml = _agent_release_bundle_yaml(workdir, executor_script)
+    command = ""
+    activity_snapshots: list[dict] = []
     prompt_file.write_text(
         f"""# Loopora Agent Adapter Release Gate
 
 Use the Loopora {_agent_label(adapter)} project entry installed in this workdir. If this non-interactive host does not expose native slash commands directly, inspect the installed project entry files and follow their instructions.
 
-Current task: prove the installed Loopora Agent entry can generate a READY candidate and then start a managed run.
+Current task: prove the installed Loopora Agent entry can guide a short task conversation into a READY bundle, start a managed run, expose runtime activity, and finish through Agent-native step submission.
 
-A deterministic candidate bundle YAML is available at `{bundle_file}`. Use that file as the candidate bundle for `/loopora-gen`; do not author a different bundle.
+Author the candidate bundle from the conversation brief below and save it to `{bundle_file}`. Create the parent directory if needed. The pytest harness deliberately does not pre-create this candidate file; this L3 gate must prove the host can turn conversation guidance into a bundle before invoking `/loopora-gen`.
 
 Before invoking anything, read these installed project entry files: `{_entry_file_hint(adapter)}`. Use them as the only source for shell command syntax, and preserve their provenance markers exactly.
+
+The conversation has converged on this canonical candidate bundle draft. Save the YAML between the fences exactly to `{bundle_file}` before invoking `/loopora-gen`. The saved file must not include Markdown fences or prose.
+
+```yaml
+{candidate_yaml}```
 
 Required order:
 
 1. Invoke `/loopora-gen` or the installed `loopora-gen` project entry semantics.
 2. Only after the candidate is READY, invoke `/loopora-loop` or the installed `loopora-loop` project entry semantics.
 3. Continue the installed Agent-native loop path until Loopora returns `complete: true`. For each returned step capsule, use the host's native role/subagent mechanism named by `role_dispatch.target_agent`, write one wrapper JSON result with `loopora_host_dispatch` and `result`, follow any `evidence_rules`, `evidence_ref_contract`, and `role_dispatch`, and submit it as instructed by the installed entry.
-4. Return a short summary with the candidate URL, run URL, and terminal run status.
+4. While the run is active, observe the local Loopora runtime activity endpoint or the returned run URL enough to confirm the run is visible before terminal completion.
+5. Return a short summary with the candidate URL, run URL, runtime activity observation, and terminal run status.
 
-The Loopora bundle intentionally does not make "the run is terminal" a task-level Done When item; this pytest harness checks terminal status after the host finishes the Agent-native loop.
+Keep each role dispatch small and deterministic for this release gate. Builder must create `loopora-agent-release-proof.json` in the workdir and return `proof_files: ["loopora-agent-release-proof.json"]`; it may still return empty `changed_files`, `proof_artifacts`, and `artifact_paths`. GateKeeper should cite only the exact Builder evidence id returned in `known_evidence_ids`. For every satisfied `coverage_results` target, set `status` to `covered`; do not use verdict bucket words such as `proven` or `unproven` as coverage status values. For Codex, if you use `spawn_agent`, set `agent_type` to the exact target agent, omit `fork_context`, and wait with a bounded timeout shorter than this harness timeout.
+
 For every result file, use the installed entry's wrapper format: top-level `loopora_host_dispatch` plus top-level `result`. The `result` object must use the exact top-level keys required by the step capsule's `output_schema`. For GateKeeper, write `passed`, `decision_summary`, `metrics`, `metric_scores`, `evidence_refs`, `evidence_claims`, and the other schema fields inside `result`; do not use a `verdict` or `task_verdict` envelope. In `loopora_host_dispatch`, set both `target_agent` and `actual_agent` to the exact `role_dispatch.target_agent`, set `dispatch_mode` to `host_subagent`, `host_task`, or `host_agent`, and set `inline` to false. Every `evidence_refs` list, including inside `coverage_results`, must contain only exact strings copied from `known_evidence_ids`. If `known_evidence_ids` contains only `ev_000_00_builder_step`, use only `ev_000_00_builder_step`; do not invent suffixes such as `_binding`, `_output`, `_preference`, or `_fake_done_risk`. Artifact labels and file names belong in evidence_claims or notes.
 
 Do not edit user-owned config files.
@@ -438,24 +1072,54 @@ Do not invoke codex, claude, or opencode from inside this Agent session; this re
             check=False,
         )
         assert install.returncode == 0, install.stderr or install.stdout
+        assert not bundle_file.exists()
 
         command = template.format(
             workdir=shlex.quote(str(workdir)),
             prompt_file=shlex.quote(str(prompt_file)),
             bundle_file=shlex.quote(str(bundle_file)),
         )
-        completed = subprocess.run(command, cwd=workdir, env=env, shell=True, text=True, capture_output=True, timeout=timeout, check=False)
+        _assert_real_agent_command_model_policy(adapter, command)
+        monitor_result = _wait_for_host_command_with_runtime_monitoring(
+            HostCommandMonitorRequest(
+                command=command,
+                adapter=adapter,
+                workdir=workdir,
+                env=env,
+                timeout=timeout,
+                agent_web_url=agent_web_url,
+                sentinel_log=sentinel_log,
+            )
+        )
+        completed = monitor_result.completed
+        binding = monitor_result.binding
+        activity_snapshots = monitor_result.activity_snapshots
         assert completed.returncode == 0, completed.stderr or completed.stdout
-        _wait_for_agent_web(agent_web_url, timeout=10)
-        binding = _wait_for_run_binding(adapter, workdir, timeout=30)
+        assert bundle_file.exists()
+        preview = _loopora_service(loopora_home).preview_bundle_text(bundle_file.read_text(encoding="utf-8"))
+        assert preview["ok"] is True, preview.get("error")
         assert binding["adapter"] == adapter
         assert binding["linked_run_id"]
         assert str(binding["run_path"]).startswith("/runs/")
         entry_invocations = binding.get("entry_invocations")
         assert isinstance(entry_invocations, list)
         _assert_managed_gen_before_loop(adapter, entry_invocations)
+        _assert_runtime_activity_observed_run(activity_snapshots, str(binding["linked_run_id"]))
+        _assert_alignment_session_came_from_conversation(workdir, str(binding["linked_run_id"]))
+        _assert_run_observation_chain(workdir, str(binding["linked_run_id"]), adapter)
         final_run = _wait_for_terminal_run(loopora_home, str(binding["linked_run_id"]), timeout=30)
         assert final_run["status"] == "succeeded"
         assert not sentinel_log.exists(), sentinel_log.read_text(encoding="utf-8") if sentinel_log.exists() else ""
+    except AssertionError as exc:
+        if "L3 phase report:" in str(exc):
+            raise
+        report, report_path = _write_l3_phase_report(
+            adapter=adapter,
+            workdir=workdir,
+            activity_snapshots=activity_snapshots,
+            sentinel_log=sentinel_log,
+            command=command,
+        )
+        raise AssertionError(_format_l3_diagnostic_failure(exc, report=report, report_path=report_path)) from None
     finally:
         _terminate_pid_file(agent_web_pid_file)

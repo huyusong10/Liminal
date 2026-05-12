@@ -32,6 +32,7 @@ REAL_CLI_TARGETS_ENV = "LOOPORA_REAL_CLI_TARGETS"
 REAL_CLI_CODEX_MODEL_ENV = "LOOPORA_REAL_CLI_CODEX_MODEL"
 REAL_CLI_CLAUDE_MODEL_ENV = "LOOPORA_REAL_CLI_CLAUDE_MODEL"
 REAL_CLI_OPENCODE_MODEL_ENV = "LOOPORA_REAL_CLI_OPENCODE_MODEL"
+L3_MODEL_OVERRIDE_ENV = "LOOPORA_L3_ALLOW_MODEL_OVERRIDE"
 PROVIDER_ORDER = ("codex", "claude", "opencode")
 PROVIDER_MODEL_ENV = {
     "codex": REAL_CLI_CODEX_MODEL_ENV,
@@ -54,12 +55,25 @@ class RealRunArtifacts:
     terminal_event: dict
 
 
+@dataclass(frozen=True)
+class RealCliPhaseReportInput:
+    provider: str
+    workdir: Path
+    model: str
+    run: dict | None
+    artifacts: RealRunArtifacts | None
+    error: object | None = None
+
+
 def _read_jsonl(path: Path) -> list[dict]:
-    return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _truncate_text(value: object, *, limit: int = 500) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
 
 
 def _wait_for_terminal_run(service: LooporaService, run_id: str, *, timeout_seconds: float) -> dict:
@@ -75,11 +89,7 @@ def _wait_for_terminal_run(service: LooporaService, run_id: str, *, timeout_seco
 def _selected_real_cli_targets() -> tuple[str, ...]:
     raw = str(os.environ.get(REAL_CLI_TARGETS_ENV, "") or "").strip()
     if not raw:
-        return tuple(
-            provider
-            for provider in PROVIDER_ORDER
-            if shutil.which(executor_profile(provider).cli_name) is not None
-        )
+        return tuple(provider for provider in PROVIDER_ORDER if shutil.which(executor_profile(provider).cli_name) is not None)
 
     selected: list[str] = []
     invalid: list[str] = []
@@ -124,6 +134,22 @@ def _provider_model(provider: str) -> str:
     return executor_profile(provider).default_model
 
 
+def _model_override_allowed() -> bool:
+    return os.environ.get(L3_MODEL_OVERRIDE_ENV) == "1"
+
+
+def _assert_real_cli_model_policy(provider: str, model: str) -> None:
+    if provider == "codex":
+        return
+    expected = executor_profile(provider).default_model
+    if model == expected:
+        return
+    assert _model_override_allowed(), (
+        f"{provider} real-cli L3 must use default model {expected!r} on the release path; "
+        f"got {model!r}. Set {L3_MODEL_OVERRIDE_ENV}=1 only for an intentional override validation."
+    )
+
+
 def _provider_reasoning_effort(provider: str) -> str:
     return executor_profile(provider).effort_default
 
@@ -133,6 +159,16 @@ def _summary_text(run_dir: Path) -> str:
     if not summary_path.exists():
         return "(missing summary.md)"
     return summary_path.read_text(encoding="utf-8")
+
+
+def _safe_read_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _real_service(tmp_path: Path, *, provider: str) -> LooporaService:
@@ -225,8 +261,7 @@ Inspect this tiny workspace and report that the provider adapter can see `{MARKE
                 "prompt_ref": "builder.md",
                 "prompt_markdown": builtin_prompt_markdown("builder.md"),
                 "posture_notes": (
-                    f"Confirm `{MARKER_FILE}` exists and explicitly avoid modifying files. "
-                    "This is a provider-adapter smoke test, not a product-quality task."
+                    f"Confirm `{MARKER_FILE}` exists and explicitly avoid modifying files. This is a provider-adapter smoke test, not a product-quality task."
                 ),
                 **role_execution,
             },
@@ -246,12 +281,7 @@ def _collect_artifacts(provider: str, workdir: Path, run: dict) -> RealRunArtifa
     run_dir = Path(run["runs_dir"])
     events = _read_jsonl(run_dir / "timeline" / "events.jsonl")
     role_requests = _read_jsonl(run_dir / "context" / "role_requests.jsonl")
-    command_events = [
-        event
-        for event in events
-        if event["event_type"] == "codex_event"
-        and event.get("payload", {}).get("type") == "command"
-    ]
+    command_events = [event for event in events if event["event_type"] == "codex_event" and event.get("payload", {}).get("type") == "command"]
     terminal_event = next(event for event in reversed(events) if event["event_type"] == "run_finished")
     return RealRunArtifacts(
         provider=provider,
@@ -274,31 +304,138 @@ def _requests_for_step(artifacts: RealRunArtifacts, step_id: str) -> list[dict]:
 
 
 def _role_execution_summaries(artifacts: RealRunArtifacts) -> list[dict]:
-    return [
-        event
-        for event in artifacts.events
-        if event["event_type"] == "role_execution_summary"
-        and event.get("role") == "generator"
-    ]
+    return [event for event in artifacts.events if event["event_type"] == "role_execution_summary" and event.get("role") == "generator"]
 
 
-def _assert_provider_resume_command_shape(artifacts: RealRunArtifacts) -> None:
+def _provider_resume_command_shape_result(artifacts: RealRunArtifacts) -> dict:
     messages = _command_messages(artifacts)
     if artifacts.provider == "codex":
         resume_messages = [message for message in messages if "codex exec resume" in message]
-        assert resume_messages, "expected a Codex resume command in the second builder iteration"
-        assert not any("--cd" in message for message in resume_messages)
-        assert not any("--sandbox" in message for message in resume_messages)
-        assert not any("--output-schema" in message for message in resume_messages)
-        return
+        invalid_flags = [flag for flag in ("--cd", "--sandbox", "--output-schema") if any(flag in message for message in resume_messages)]
+        return {"ok": bool(resume_messages) and not invalid_flags, "resume_messages": resume_messages[:3], "invalid_flags": invalid_flags}
     if artifacts.provider == "claude":
         resume_messages = [message for message in messages if message.startswith("claude ") and " --resume " in f" {message} "]
-        assert resume_messages, "expected a Claude Code --resume command in the second builder iteration"
-        assert not any(" --continue " in f" {message} " for message in resume_messages)
-        return
+        invalid_flags = ["--continue"] if any(" --continue " in f" {message} " for message in resume_messages) else []
+        return {"ok": bool(resume_messages) and not invalid_flags, "resume_messages": resume_messages[:3], "invalid_flags": invalid_flags}
     resume_messages = [message for message in messages if message.startswith("opencode run") and " --session " in f" {message} "]
-    assert resume_messages, "expected an OpenCode --session command in the second builder iteration"
-    assert not any(" --continue " in f" {message} " for message in resume_messages)
+    invalid_flags = ["--continue"] if any(" --continue " in f" {message} " for message in resume_messages) else []
+    return {"ok": bool(resume_messages) and not invalid_flags, "resume_messages": resume_messages[:3], "invalid_flags": invalid_flags}
+
+
+def _assert_provider_resume_command_shape(artifacts: RealRunArtifacts) -> None:
+    result = _provider_resume_command_shape_result(artifacts)
+    assert result["resume_messages"], f"expected a {artifacts.provider} resume command in the second builder iteration"
+    assert result["ok"], result
+
+
+def _assert_real_cli_model_observed(artifacts: RealRunArtifacts, model: str) -> None:
+    if artifacts.provider == "codex":
+        return
+    messages = _command_messages(artifacts)
+    assert any(model in message for message in messages), (
+        f"expected real {artifacts.provider} command events to include selected model {model!r}; messages={messages[:3]}"
+    )
+
+
+def _phase_report_path(workdir: Path) -> Path:
+    return workdir / ".loopora" / "l3" / "real-cli-phase-report.json"
+
+
+def _command_event_summaries(artifacts: RealRunArtifacts | None) -> list[dict]:
+    if artifacts is None:
+        return []
+    return [
+        {
+            "event_id": event.get("id"),
+            "message": _truncate_text((event.get("payload") or {}).get("message"), limit=360),
+        }
+        for event in artifacts.command_events[-6:]
+    ]
+
+
+def _role_request_summaries(artifacts: RealRunArtifacts | None) -> list[dict]:
+    if artifacts is None:
+        return []
+    return [
+        {
+            "step_id": item.get("step_id"),
+            "role_id": item.get("role_id"),
+            "resume_session_id": bool(item.get("resume_session_id")),
+        }
+        for item in artifacts.role_requests[-6:]
+    ]
+
+
+def _build_real_cli_phase_report(inputs: RealCliPhaseReportInput) -> dict:
+    provider = inputs.provider
+    model = inputs.model
+    run = inputs.run
+    artifacts = inputs.artifacts
+    expected_model = executor_profile(provider).default_model
+    builder_requests = _requests_for_step(artifacts, "builder_step") if artifacts is not None else []
+    resume_result = _provider_resume_command_shape_result(artifacts) if artifacts is not None else {"ok": False, "resume_messages": [], "invalid_flags": []}
+    run_dir_value = str((run or {}).get("runs_dir") or "")
+    run_dir = artifacts.run_dir if artifacts is not None else (Path(run_dir_value) if run_dir_value else None)
+    return {
+        "schema_version": 1,
+        "provider": provider,
+        "workdir": str(inputs.workdir),
+        "selected_model": model,
+        "expected_default_model": expected_model,
+        "model_override_allowed": _model_override_allowed(),
+        "phase_statuses": {
+            "model_policy": {"ok": provider == "codex" or model == expected_model or _model_override_allowed()},
+            "run_finished": {"ok": bool(artifacts and artifacts.terminal_event["payload"].get("status") == "succeeded")},
+            "structured_output_observed": {"ok": bool(artifacts and _role_execution_summaries(artifacts))},
+            "artifacts_persisted": {"ok": run_dir is not None and (run_dir / "summary.md").exists() and (run_dir / "contract" / "run_contract.json").exists()},
+            "resume_session_observed": {"ok": len(builder_requests) >= 2 and bool(builder_requests[1].get("resume_session_id"))},
+            "resume_command_shape_observed": {"ok": bool(resume_result.get("ok"))},
+            "model_observed": {
+                "ok": provider == "codex" or bool(artifacts and any(model in message for message in _command_messages(artifacts))),
+            },
+        },
+        "diagnostics": {
+            "run": {
+                "id": (run or {}).get("id"),
+                "status": (run or {}).get("status"),
+                "runs_dir": str((run or {}).get("runs_dir") or ""),
+            },
+            "terminal_event": artifacts.terminal_event if artifacts is not None else {},
+            "command_events": _command_event_summaries(artifacts),
+            "role_requests": _role_request_summaries(artifacts),
+            "resume_command_shape": resume_result,
+            "artifacts": {
+                "summary": str(run_dir / "summary.md") if run_dir is not None else "",
+                "summary_exists": run_dir is not None and (run_dir / "summary.md").exists(),
+                "run_contract": str(run_dir / "contract" / "run_contract.json") if run_dir is not None else "",
+                "run_contract_exists": run_dir is not None and (run_dir / "contract" / "run_contract.json").exists(),
+                "task_verdict": _safe_read_json(run_dir / "evidence" / "task_verdict.json") if run_dir is not None else {},
+            },
+            "error": _truncate_text(inputs.error, limit=700) if inputs.error is not None else "",
+        },
+    }
+
+
+def _write_real_cli_phase_report(inputs: RealCliPhaseReportInput) -> tuple[dict, Path]:
+    report = _build_real_cli_phase_report(inputs)
+    path = _phase_report_path(inputs.workdir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return report, path
+
+
+def _format_real_cli_diagnostic_failure(message: object, *, report: dict, report_path: Path) -> str:
+    compact = {
+        "provider": report.get("provider"),
+        "selected_model": report.get("selected_model"),
+        "expected_default_model": report.get("expected_default_model"),
+        "model_override_allowed": report.get("model_override_allowed"),
+        "phase_statuses": report.get("phase_statuses"),
+        "run": (report.get("diagnostics") or {}).get("run"),
+        "resume_command_shape": (report.get("diagnostics") or {}).get("resume_command_shape"),
+        "command_events": (report.get("diagnostics") or {}).get("command_events"),
+    }
+    return f"{message}\n\nL3 phase report: {report_path}\n{json.dumps(compact, ensure_ascii=False, indent=2)}"
 
 
 @pytest.mark.real_cli
@@ -307,33 +444,47 @@ def test_real_cli_provider_adapter_minimal_bundle_runs_and_resumes(tmp_path: Pat
     workdir = _create_minimal_workspace(tmp_path, provider=provider)
     service = _real_service(tmp_path, provider=provider)
     timeout_seconds = float(os.environ.get(REAL_CLI_TIMEOUT_ENV, "600"))
-    bundle_yaml = _minimal_real_cli_bundle_yaml(workdir, provider=provider)
+    model = _provider_model(provider)
+    queued_run: dict | None = None
+    final_run: dict | None = None
+    artifacts: RealRunArtifacts | None = None
 
-    preview = service.preview_bundle_text(bundle_yaml)
-    assert preview["ok"] is True
-    assert preview["bundle"]["loop"]["workdir"] == str(workdir.resolve())
-    bundle = service.import_bundle_text(bundle_yaml)
-    assert bundle["loop_id"]
+    try:
+        _assert_real_cli_model_policy(provider, model)
+        bundle_yaml = _minimal_real_cli_bundle_yaml(workdir, provider=provider)
 
-    queued_run = service.start_run(bundle["loop_id"])
-    service.start_run_async(queued_run["id"])
-    final_run = _wait_for_terminal_run(service, queued_run["id"], timeout_seconds=timeout_seconds)
-    final_summary = _summary_text(Path(final_run["runs_dir"]))
-    assert final_run["status"] == "succeeded", final_summary
-    artifacts = _collect_artifacts(provider, workdir, final_run)
-    summary = _summary_text(artifacts.run_dir)
+        preview = service.preview_bundle_text(bundle_yaml)
+        assert preview["ok"] is True
+        assert preview["bundle"]["loop"]["workdir"] == str(workdir.resolve())
+        bundle = service.import_bundle_text(bundle_yaml)
+        assert bundle["loop_id"]
 
-    assert artifacts.terminal_event["payload"]["status"] == "succeeded", summary
-    assert artifacts.terminal_event["payload"].get("reason") == "rounds_completed", summary
-    assert not any(event["event_type"] == "run_aborted" for event in artifacts.events), summary
-    assert (artifacts.run_dir / "summary.md").exists()
-    assert (artifacts.run_dir / "contract" / "run_contract.json").exists()
-    assert (workdir / MARKER_FILE).read_text(encoding="utf-8") == MARKER_TEXT
+        queued_run = service.start_run(bundle["loop_id"])
+        service.start_run_async(queued_run["id"])
+        final_run = _wait_for_terminal_run(service, queued_run["id"], timeout_seconds=timeout_seconds)
+        final_summary = _summary_text(Path(final_run["runs_dir"]))
+        assert final_run["status"] == "succeeded", final_summary
+        artifacts = _collect_artifacts(provider, workdir, final_run)
+        _write_real_cli_phase_report(RealCliPhaseReportInput(provider=provider, workdir=workdir, model=model, run=final_run, artifacts=artifacts))
+        summary = _summary_text(artifacts.run_dir)
 
-    builder_requests = _requests_for_step(artifacts, "builder_step")
-    assert len(builder_requests) >= 2, summary
-    assert builder_requests[0]["resume_session_id"] == ""
-    assert builder_requests[1]["resume_session_id"]
-    assert len(_role_execution_summaries(artifacts)) >= 2, summary
-    assert not any("unexpected argument '--cd'" in message for message in _command_messages(artifacts))
-    _assert_provider_resume_command_shape(artifacts)
+        assert artifacts.terminal_event["payload"]["status"] == "succeeded", summary
+        assert artifacts.terminal_event["payload"].get("reason") == "rounds_completed", summary
+        assert not any(event["event_type"] == "run_aborted" for event in artifacts.events), summary
+        assert (artifacts.run_dir / "summary.md").exists()
+        assert (artifacts.run_dir / "contract" / "run_contract.json").exists()
+        assert (workdir / MARKER_FILE).read_text(encoding="utf-8") == MARKER_TEXT
+
+        builder_requests = _requests_for_step(artifacts, "builder_step")
+        assert len(builder_requests) >= 2, summary
+        assert builder_requests[0]["resume_session_id"] == ""
+        assert builder_requests[1]["resume_session_id"]
+        assert len(_role_execution_summaries(artifacts)) >= 2, summary
+        assert not any("unexpected argument '--cd'" in message for message in _command_messages(artifacts))
+        _assert_real_cli_model_observed(artifacts, model)
+        _assert_provider_resume_command_shape(artifacts)
+    except AssertionError as exc:
+        report, report_path = _write_real_cli_phase_report(
+            RealCliPhaseReportInput(provider=provider, workdir=workdir, model=model, run=final_run or queued_run, artifacts=artifacts, error=exc)
+        )
+        raise AssertionError(_format_real_cli_diagnostic_failure(exc, report=report, report_path=report_path)) from None
