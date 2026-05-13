@@ -25,15 +25,15 @@ from loopora.settings import AppSettings
 
 pytestmark = pytest.mark.real_agent
 
-ENABLE_ENV = "LOOPORA_ENABLE_REAL_AGENT_E2E"
+ENABLE_ENV = "LOOPORA_ENABLE_REAL_AGENT_PROBE"
 COMMAND_TEMPLATE_ENV = "LOOPORA_REAL_AGENT_COMMAND_TEMPLATE"
 CLAUDE_COMMAND_TEMPLATE_ENV = "LOOPORA_REAL_CLAUDE_AGENT_COMMAND_TEMPLATE"
 OPENCODE_COMMAND_TEMPLATE_ENV = "LOOPORA_REAL_OPENCODE_AGENT_COMMAND_TEMPLATE"
 TARGETS_ENV = "LOOPORA_REAL_AGENT_TARGETS"
 TIMEOUT_ENV = "LOOPORA_REAL_AGENT_TIMEOUT_SECONDS"
-L3_MODEL_OVERRIDE_ENV = "LOOPORA_L3_ALLOW_MODEL_OVERRIDE"
+REAL_PROBE_MODEL_OVERRIDE_ENV = "LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE"
 AGENT_TARGETS = ("codex", "claude", "opencode")
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 SRC_ROOT = REPO_ROOT / "src"
 
 
@@ -95,7 +95,7 @@ def _expected_model_for_adapter(adapter: str) -> str:
 
 
 def _model_override_allowed() -> bool:
-    return os.environ.get(L3_MODEL_OVERRIDE_ENV) == "1"
+    return os.environ.get(REAL_PROBE_MODEL_OVERRIDE_ENV) == "1"
 
 
 def _model_policy_summary(adapter: str, command: str) -> dict:
@@ -113,14 +113,14 @@ def _assert_real_agent_command_model_policy(adapter: str, command: str) -> None:
     if not expected or expected in command:
         return
     assert _model_override_allowed(), (
-        f"{adapter} real-agent L3 must use default model {expected!r} on the release path. "
-        f"Set {L3_MODEL_OVERRIDE_ENV}=1 only for an intentional override validation."
+        f"{adapter} real-agent probe must use default model {expected!r} on the release path. "
+        f"Set {REAL_PROBE_MODEL_OVERRIDE_ENV}=1 only for an intentional override validation."
     )
 
 
 def _require_real_agent_template(adapter: str) -> str:
     if os.environ.get(ENABLE_ENV) != "1":
-        pytest.skip(f"set {ENABLE_ENV}=1 to run the real Agent adapter release gate")
+        pytest.skip(f"set {ENABLE_ENV}=1 to run the real Agent adapter release-profile probe")
     if adapter not in _selected_real_agent_targets():
         pytest.skip(f"{adapter} is not enabled by {TARGETS_ENV}")
     env_name = _template_env_for_adapter(adapter)
@@ -267,7 +267,7 @@ def _latest_binding(adapter: str, workdir: Path) -> dict:
 
 
 def _phase_report_path(workdir: Path) -> Path:
-    return state_dir_for_workdir(workdir) / "l3" / "real-agent-phase-report.json"
+    return state_dir_for_workdir(workdir) / "real-probes" / "real-agent-phase-report.json"
 
 
 def _candidate_file(adapter: str, workdir: Path) -> Path:
@@ -455,7 +455,7 @@ def _phase_statuses(inputs: PhaseStatusInput) -> dict[str, dict]:
     }
 
 
-def _build_l3_phase_report(
+def _build_real_probe_phase_report(
     *,
     adapter: str,
     workdir: Path,
@@ -518,7 +518,7 @@ def _build_l3_phase_report(
     }
 
 
-def _write_l3_phase_report(
+def _write_real_probe_phase_report(
     *,
     adapter: str,
     workdir: Path,
@@ -526,7 +526,7 @@ def _write_l3_phase_report(
     sentinel_log: Path,
     command: str,
 ) -> tuple[dict, Path]:
-    report = _build_l3_phase_report(
+    report = _build_real_probe_phase_report(
         adapter=adapter,
         workdir=workdir,
         activity_snapshots=activity_snapshots,
@@ -555,9 +555,9 @@ def _compact_phase_report(report: dict) -> dict:
     }
 
 
-def _format_l3_diagnostic_failure(message: object, *, report: dict, report_path: Path) -> str:
+def _format_real_probe_diagnostic_failure(message: object, *, report: dict, report_path: Path) -> str:
     compact = json.dumps(_compact_phase_report(report), ensure_ascii=False, indent=2)
-    return f"{message}\n\nL3 phase report: {report_path}\n{compact}"
+    return f"{message}\n\nReal probe phase report: {report_path}\n{compact}"
 
 
 def _loopora_service(loopora_home: Path) -> LooporaService:
@@ -596,7 +596,7 @@ _prompt = sys.argv[3]
 if role == "gatekeeper":
     payload = {
         "passed": True,
-        "decision_summary": "Agent adapter release gate passed with supporting upstream Builder evidence.",
+        "decision_summary": "Agent adapter release-profile probe passed with supporting upstream Builder evidence.",
         "feedback_to_builder": "",
         "feedback_to_generator": "",
         "blocking_issues": [],
@@ -623,7 +623,7 @@ if role == "gatekeeper":
                 "target_id": "done_when.check_002",
                 "status": "covered",
                 "evidence_refs": ["ev_000_00_builder_step"],
-                "note": "Builder returned the structured release-gate result with a concrete proof file.",
+                "note": "Builder returned the structured probe result with a concrete proof file.",
             },
             {
                 "target_id": "done_when.check_003",
@@ -664,7 +664,7 @@ else:
             {
                 "candidate_bundle": "conversation-generated",
                 "managed_entry": "loopora-gen before loopora-loop",
-                "runtime_activity": "observed by the host release gate",
+                "runtime_activity": "observed by the host release-profile probe",
                 "agent_native_submission": "builder handoff is available for GateKeeper",
             },
             ensure_ascii=False,
@@ -675,9 +675,9 @@ else:
     )
     payload = {
         "attempted": "Verified the Loopora Agent adapter can start a managed run and wrote a release proof file.",
-        "abandoned": "No product changes were needed for this release gate.",
+        "abandoned": "No product changes were needed for this release-profile probe.",
         "assumption": "The release proof file is sufficient upstream evidence for this deterministic adapter gate.",
-        "summary": "Custom executor wrote a structured Builder result and proof file for the Agent adapter release gate.",
+        "summary": "Custom executor wrote a structured Builder result and proof file for the Agent adapter release-profile probe.",
         "changed_files": [],
         "proof_files": [str(proof_path)],
         "proof_artifacts": [],
@@ -696,7 +696,7 @@ def _agent_release_bundle_yaml(workdir: Path, executor_script: Path) -> str:
         dedent(
             f"""\
             version: 1
-            collaboration_summary: "This release gate proves conversation-guided bundle generation, managed entry provenance, runtime activity, evidence-backed handoff, and GateKeeper verification through Agent-native step submission."
+            collaboration_summary: "This release-profile probe proves conversation-guided bundle generation, managed entry provenance, runtime activity, evidence-backed handoff, and GateKeeper verification through Agent-native step submission."
             metadata:
               name: Agent Adapter Release Gate
             loop:
@@ -721,7 +721,7 @@ def _agent_release_bundle_yaml(workdir: Path, executor_script: Path) -> str:
             role_definitions:
               - key: builder
                 name: Agent Release Builder
-                description: "Writes a deterministic Builder result and proof file for the Agent adapter release gate."
+                description: "Writes a deterministic Builder result and proof file for the Agent adapter release-profile probe."
                 archetype: builder
                 prompt_ref: builder.md
                 prompt_markdown: |
@@ -733,7 +733,7 @@ def _agent_release_bundle_yaml(workdir: Path, executor_script: Path) -> str:
                   # Agent Release Builder
 
                   Create `loopora-agent-release-proof.json` in the workdir with concise JSON proof that the conversation-generated candidate, managed run binding, runtime visibility, and Agent-native submission path were observed. Return a structured Builder result whose `proof_files` contains `loopora-agent-release-proof.json`; empty `changed_files`, `proof_artifacts`, and `artifact_paths` are valid.
-                posture_notes: "Keep this release gate deterministic and evidence-oriented; leave a concrete proof file for GateKeeper."
+                posture_notes: "Keep this release-profile probe deterministic and evidence-oriented; leave a concrete proof file for GateKeeper."
                 executor_kind: custom
                 executor_mode: command
                 command_cli: {sys.executable}
@@ -746,7 +746,7 @@ def _agent_release_bundle_yaml(workdir: Path, executor_script: Path) -> str:
                 reasoning_effort: ""
               - key: gatekeeper
                 name: Agent Release GateKeeper
-                description: "Checks Builder evidence and closes the release gate."
+                description: "Checks Builder evidence and closes the release-profile probe."
                 archetype: gatekeeper
                 prompt_ref: gatekeeper.md
                 prompt_markdown: |
@@ -800,7 +800,7 @@ def _agent_release_bundle_yaml(workdir: Path, executor_script: Path) -> str:
                 # Done When
 
                 - A managed run binding exposes a run URL that is visible while the run is active.
-                - Builder returns a structured result with a proof file for this release gate.
+                - Builder returns a structured result with a proof file for this release-profile probe.
                 - GateKeeper can inspect Builder evidence and cite exact upstream evidence ids.
 
                 # Success Surface
@@ -828,7 +828,7 @@ def _agent_release_bundle_yaml(workdir: Path, executor_script: Path) -> str:
 
                 # Residual Risk
 
-                This release gate accepts only the residual risk that host-native role dispatch is represented by the non-interactive host's available role mechanism.
+                This release-profile probe accepts only the residual risk that host-native role dispatch is represented by the non-interactive host's available role mechanism.
             """
         ).strip()
         + "\n"
@@ -857,7 +857,7 @@ def _wait_for_host_command_with_runtime_monitoring(request: HostCommandMonitorRe
                     stderr_file.flush()
                     stdout = Path(stdout_file.name).read_text(encoding="utf-8", errors="replace")
                     stderr = Path(stderr_file.name).read_text(encoding="utf-8", errors="replace")
-                    phase_report, phase_report_path = _write_l3_phase_report(
+                    phase_report, phase_report_path = _write_real_probe_phase_report(
                         adapter=request.adapter,
                         workdir=request.workdir,
                         activity_snapshots=activity_snapshots,
@@ -865,7 +865,7 @@ def _wait_for_host_command_with_runtime_monitoring(request: HostCommandMonitorRe
                         command=request.command,
                     )
                     raise AssertionError(
-                        _format_l3_diagnostic_failure(
+                        _format_real_probe_diagnostic_failure(
                             f"timed out waiting for real {request.adapter} Agent host command\nstdout:\n{stdout}\nstderr:\n{stderr}",
                             report=phase_report,
                             report_path=phase_report_path,
@@ -877,7 +877,7 @@ def _wait_for_host_command_with_runtime_monitoring(request: HostCommandMonitorRe
                 except (AssertionError, json.JSONDecodeError, OSError, TimeoutError):
                     pass
                 if now - last_report_at >= 2:
-                    phase_report, phase_report_path = _write_l3_phase_report(
+                    phase_report, phase_report_path = _write_real_probe_phase_report(
                         adapter=request.adapter,
                         workdir=request.workdir,
                         activity_snapshots=activity_snapshots,
@@ -902,15 +902,15 @@ def _wait_for_host_command_with_runtime_monitoring(request: HostCommandMonitorRe
         try:
             binding = _wait_for_run_binding(request.adapter, request.workdir, timeout=30)
         except AssertionError as exc:
-            phase_report, phase_report_path = _write_l3_phase_report(
+            phase_report, phase_report_path = _write_real_probe_phase_report(
                 adapter=request.adapter,
                 workdir=request.workdir,
                 activity_snapshots=activity_snapshots,
                 sentinel_log=request.sentinel_log,
                 command=request.command,
             )
-            raise AssertionError(_format_l3_diagnostic_failure(exc, report=phase_report, report_path=phase_report_path)) from None
-    phase_report, phase_report_path = _write_l3_phase_report(
+            raise AssertionError(_format_real_probe_diagnostic_failure(exc, report=phase_report, report_path=phase_report_path)) from None
+    phase_report, phase_report_path = _write_real_probe_phase_report(
         adapter=request.adapter,
         workdir=request.workdir,
         activity_snapshots=activity_snapshots,
@@ -1033,7 +1033,7 @@ Use the Loopora {_agent_label(adapter)} project entry installed in this workdir.
 
 Current task: prove the installed Loopora Agent entry can guide a short task conversation into a READY bundle, start a managed run, expose runtime activity, and finish through Agent-native step submission.
 
-Author the candidate bundle from the conversation brief below and save it to `{bundle_file}`. Create the parent directory if needed. The pytest harness deliberately does not pre-create this candidate file; this L3 gate must prove the host can turn conversation guidance into a bundle before invoking `/loopora-gen`.
+Author the candidate bundle from the conversation brief below and save it to `{bundle_file}`. Create the parent directory if needed. The pytest harness deliberately does not pre-create this candidate file; this real probe must prove the host can turn conversation guidance into a bundle before invoking `/loopora-gen`.
 
 Before invoking anything, read these installed project entry files: `{_entry_file_hint(adapter)}`. Use them as the only source for shell command syntax, and preserve their provenance markers exactly.
 
@@ -1050,13 +1050,13 @@ Required order:
 4. While the run is active, observe the local Loopora runtime activity endpoint or the returned run URL enough to confirm the run is visible before terminal completion.
 5. Return a short summary with the candidate URL, run URL, runtime activity observation, and terminal run status.
 
-Keep each role dispatch small and deterministic for this release gate. Builder must create `loopora-agent-release-proof.json` in the workdir and return `proof_files: ["loopora-agent-release-proof.json"]`; it may still return empty `changed_files`, `proof_artifacts`, and `artifact_paths`. GateKeeper should cite only the exact Builder evidence id returned in `known_evidence_ids`. For every satisfied `coverage_results` target, set `status` to `covered`; do not use verdict bucket words such as `proven` or `unproven` as coverage status values. For Codex, if you use `spawn_agent`, set `agent_type` to the exact target agent, omit `fork_context`, and wait with a bounded timeout shorter than this harness timeout.
+Keep each role dispatch small and deterministic for this release-profile probe. Builder must create `loopora-agent-release-proof.json` in the workdir and return `proof_files: ["loopora-agent-release-proof.json"]`; it may still return empty `changed_files`, `proof_artifacts`, and `artifact_paths`. GateKeeper should cite only the exact Builder evidence id returned in `known_evidence_ids`. For every satisfied `coverage_results` target, set `status` to `covered`; do not use verdict bucket words such as `proven` or `unproven` as coverage status values. For Codex, if you use `spawn_agent`, set `agent_type` to the exact target agent, omit `fork_context`, and wait with a bounded timeout shorter than this harness timeout.
 
 For every result file, use the installed entry's wrapper format: top-level `loopora_host_dispatch` plus top-level `result`. The `result` object must use the exact top-level keys required by the step capsule's `output_schema`. For GateKeeper, write `passed`, `decision_summary`, `metrics`, `metric_scores`, `evidence_refs`, `evidence_claims`, and the other schema fields inside `result`; do not use a `verdict` or `task_verdict` envelope. In `loopora_host_dispatch`, set both `target_agent` and `actual_agent` to the exact `role_dispatch.target_agent`, set `dispatch_mode` to `host_subagent`, `host_task`, or `host_agent`, and set `inline` to false. Every `evidence_refs` list, including inside `coverage_results`, must contain only exact strings copied from `known_evidence_ids`. If `known_evidence_ids` contains only `ev_000_00_builder_step`, use only `ev_000_00_builder_step`; do not invent suffixes such as `_binding`, `_output`, `_preference`, or `_fake_done_risk`. Artifact labels and file names belong in evidence_claims or notes.
 
 Do not edit user-owned config files.
 Do not invent a direct Loopora CLI command from this prompt; follow the installed project entry instructions when a shell command is needed.
-Do not invoke codex, claude, or opencode from inside this Agent session; this release gate must prove the host Agent itself performs the role work.
+Do not invoke codex, claude, or opencode from inside this Agent session; this release-profile probe must prove the host Agent itself performs the role work.
 """,
         encoding="utf-8",
     )
@@ -1111,15 +1111,15 @@ Do not invoke codex, claude, or opencode from inside this Agent session; this re
         assert final_run["status"] == "succeeded"
         assert not sentinel_log.exists(), sentinel_log.read_text(encoding="utf-8") if sentinel_log.exists() else ""
     except AssertionError as exc:
-        if "L3 phase report:" in str(exc):
+        if "Real probe phase report:" in str(exc):
             raise
-        report, report_path = _write_l3_phase_report(
+        report, report_path = _write_real_probe_phase_report(
             adapter=adapter,
             workdir=workdir,
             activity_snapshots=activity_snapshots,
             sentinel_log=sentinel_log,
             command=command,
         )
-        raise AssertionError(_format_l3_diagnostic_failure(exc, report=report, report_path=report_path)) from None
+        raise AssertionError(_format_real_probe_diagnostic_failure(exc, report=report, report_path=report_path)) from None
     finally:
         _terminate_pid_file(agent_web_pid_file)

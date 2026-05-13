@@ -73,26 +73,26 @@
 
 默认 CI 负责快速证明代码、包产物和 Web 浏览器主路径仍可运行：
 
-- push / PR 路径必须包含 Python 静态检查、包构建、全量快速测试和浏览器 E2E。
-- 浏览器 E2E 应失败在项目行为或测试断言上，而不是失败在每次运行时重复安装系统包依赖；浏览器 runtime 与系统库依赖应由固定 runner/container/cache 边界提供。
-- 默认浏览器 E2E 不访问真实 provider、不依赖用户 secret，也不写入真实任务 workspace；真实 provider 验证只能走显式触发路径。
+- push / PR 路径必须包含 Python 静态检查、包构建、全量快速测试和浏览器 journey。
+- 浏览器 journey 应失败在项目行为或测试断言上，而不是失败在每次运行时重复安装系统包依赖；浏览器 runtime 与系统库依赖应由固定 runner/container/cache 边界提供。
+- 默认浏览器 journey 不访问真实 provider、不依赖用户 secret，也不写入真实任务 workspace；真实 provider 验证只能走显式触发路径。
 
-## 2.2 真实 CLI 集成验证
+## 2.2 真实 CLI Real Probe
 
-为了覆盖预设执行器与真实 workspace 的组合，仓库允许存在 opt-in 的真实 CLI 集成测试：
+为了覆盖预设执行器与真实 workspace 的组合，仓库允许存在 opt-in 的真实 CLI real probe：
 
 - 必须显式打 `real_cli` 标记，并默认跳过。
 - 必须使用真实 provider CLI 与真实 workspace fixture 副本，不能退化为 `FakeCodexExecutor`。
 - 断言应优先锁定基础设施契约，例如 run 能终结、角色 structured output 可读、resume 命令不再携带无效参数，而不是锁定模型审美或实现细节。
 - 至少保留一个两轮以上的真实用例，用 `completion_mode=rounds` 强制走到第二轮 Builder `resume` 分支，覆盖跨轮次会话续接这条高风险链路。
-- 当前真实 provider E2E 只覆盖 `preset` 模式，不覆盖 `command` 模式；若后续需要扩展，必须单独评估矩阵膨胀成本。
-- 统一开关为 `LOOPORA_ENABLE_REAL_CLI_E2E=1`；默认关闭。
+- 当前真实 provider probe 只覆盖 `preset` 模式，不覆盖 `command` 模式；若后续需要扩展，必须单独评估矩阵膨胀成本。
+- 统一开关为 `LOOPORA_ENABLE_REAL_CLI_PROBE=1`；默认关闭。
 - `LOOPORA_REAL_CLI_TARGETS=codex,claude,opencode` 可缩小 provider 范围。若未设置，则按本机实际存在的 CLI 自动过滤。
 - `LOOPORA_REAL_CLI_TIMEOUT_SECONDS` 控制单条 run 的最长等待时间。
-- provider 模型覆盖通过可选环境变量注入：`LOOPORA_REAL_CLI_CODEX_MODEL`、`LOOPORA_REAL_CLI_CLAUDE_MODEL`、`LOOPORA_REAL_CLI_OPENCODE_MODEL`；普通发布 L3 不应静默覆盖 Claude Code / OpenCode 默认模型，覆盖路径必须同时设置显式 L3 override 开关，让报告和断言都能区分默认套餐路径与覆盖路径。
-- 真实 CLI L3 失败时应保留 `.loopora/l3/real-cli-phase-report.json`，至少包含 provider、实际模型、run 终态、命令事件摘要、resume 断言线索与关键 artifact 是否存在。
+- provider 模型覆盖通过可选环境变量注入：`LOOPORA_REAL_CLI_CODEX_MODEL`、`LOOPORA_REAL_CLI_CLAUDE_MODEL`、`LOOPORA_REAL_CLI_OPENCODE_MODEL`；普通发布 real probe 不应静默覆盖 Claude Code / OpenCode 默认模型，覆盖路径必须同时设置显式 real probe override 开关，让报告和断言都能区分默认套餐路径与覆盖路径。
+- 真实 CLI real probe 失败时应保留 `.loopora/real-probes/real-cli-phase-report.json`，至少包含 provider、实际模型、run 终态、命令事件摘要、resume 断言线索与关键 artifact 是否存在。
 - 若环境缺少 CLI、浏览器或宿主权限，这类用例应明确 skip，而不是伪造成功结果。
-- 除基础设施矩阵外，仓库还允许保留 scenario-driven 的真实 workflow 用例；这类用例应围绕教程里的真实样例场景组织，并把复制后的 workspace、`.loopora` 运行目录、proof 结果和 review 摘要落到 `artifacts/real_search_loop_e2e/<run-id>/...`，避免真实 run 结束后被清理。
+- 除基础设施矩阵外，仓库还允许保留 scenario-driven 的真实 workflow 用例；这类用例应围绕教程里的真实样例场景组织，并把复制后的 workspace、`.loopora` 运行目录、proof 结果和 review 摘要落到 `artifacts/real_search_loop_experiments/<run-id>/...`，避免真实 run 结束后被清理。
 - 这类 scenario fixture 可以是小型但真实的多模块 workspace，而不是单文件谜题；proof 应同时要求代码结果、设计说明和方向/复盘产物成立，避免模型只靠补报告或单点 hack 通过。
 - GitHub Actions 中的真实 provider 验证只能通过 `workflow_dispatch` 手动触发，不进入默认 CI；workflow 必须接受可配置 `targets`、`setup_command` 与 `pytest_args`。若目标 provider 缺少 CLI、必要 secret 或本地配置，workflow summary 必须明确 skip 原因，而不是伪绿通过。
 

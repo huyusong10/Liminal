@@ -8,16 +8,14 @@
     </linearGradient>
   </defs>
 
-  <rect width="512" height="512" rx="128" fill="#ffffff" />
-
-  <!-- Infinity loop with thinner stroke -->
-  <path d="M 130 256 C 130 140, 245 140, 256 256 C 267 372, 382 372, 382 256 C 382 140, 267 140, 256 256 C 245 372, 130 372, 130 256 Z"
+  <!-- Infinity loop scaled for transparent surfaces -->
+  <path d="M 95 256 C 95 108, 242 108, 256 256 C 270 404, 417 404, 417 256 C 417 108, 270 108, 256 256 C 242 404, 95 404, 95 256 Z"
         fill="none"
         stroke="url(#v2-soft-grad)"
-        stroke-width="28"
+        stroke-width="32"
         stroke-linecap="round"
         stroke-linejoin="round" />
 
   <!-- Center dot with matching gradient -->
-  <circle cx="256" cy="256" r="22" fill="#ffffff" stroke="url(#v2-soft-grad)" stroke-width="5" />
+  <circle cx="256" cy="256" r="25" fill="#ffffff" stroke="url(#v2-soft-grad)" stroke-width="6" />
 </svg>

@@ -1161,7 +1161,7 @@ def _assert_prompt_assets_contract_frozen(prompts: list[str], zh_prompts: list[s
 
 
 def _runtime_prompt_assets() -> tuple[dict[str, str], dict[str, str]]:
-    prompts_dir = Path(__file__).resolve().parents[1] / "src" / "loopora" / "assets" / "prompts"
+    prompts_dir = Path(__file__).resolve().parents[3] / "src" / "loopora" / "assets" / "prompts"
     names = ["builder", "inspector", "custom", "guide", "gatekeeper", "gatekeeper-benchmark"]
     prompts = {name: (prompts_dir / f"{name}.md").read_text(encoding="utf-8") for name in names}
     zh_prompts = {name: (prompts_dir / f"{name}.zh.md").read_text(encoding="utf-8") for name in names}
@@ -1266,7 +1266,7 @@ def test_control_runtime_frame_renders_trigger_evidence_refs() -> None:
 
 
 def test_builtin_prompt_assets_treat_run_contract_as_frozen() -> None:
-    prompts_dir = Path(__file__).resolve().parents[1] / "src" / "loopora" / "assets" / "prompts"
+    prompts_dir = Path(__file__).resolve().parents[3] / "src" / "loopora" / "assets" / "prompts"
     prompts = [
         (prompts_dir / "builder.md").read_text(encoding="utf-8"),
         (prompts_dir / "inspector.md").read_text(encoding="utf-8"),

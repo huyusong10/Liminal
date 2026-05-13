@@ -14,7 +14,7 @@ def _assert_contains_all(text: str, snippets: tuple[str, ...]) -> None:
 def test_alignment_guidance_assets_are_internal_compiler_material() -> None:
     source_dir = alignment_guidance_dir()
     assert source_dir.exists()
-    assert not (Path(__file__).resolve().parents[1] / "skills" / "loopora-task-alignment").exists()
+    assert not (Path(__file__).resolve().parents[3] / "skills" / "loopora-task-alignment").exists()
 
     assets = load_alignment_guidance_assets()
     assert assets.source_dir == source_dir
@@ -95,7 +95,7 @@ def test_alignment_guidance_is_packaged_without_skill_assets() -> None:
 
 
 def test_alignment_system_prompt_text_lives_in_markdown_assets() -> None:
-    service_source = (Path(__file__).resolve().parents[1] / "src" / "loopora" / "service_alignment.py").read_text(encoding="utf-8")
+    service_source = (Path(__file__).resolve().parents[3] / "src" / "loopora" / "service_alignment.py").read_text(encoding="utf-8")
     for snippet in (
         "You are Loopora's built-in Web Loop alignment agent.",
         "Important output discipline:",

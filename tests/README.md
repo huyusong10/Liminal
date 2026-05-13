@@ -1,63 +1,93 @@
-# Loopora Test Map
+# Loopora Verification Map
 
-The test suite protects behavior contracts, not implementation shape.
+Loopora verification is organized by two independent questions:
 
-## Layers
+- Verification type: what kind of evidence proves the behavior?
+- Run profile: when should that evidence be collected?
 
-| Layer | Scope | Preferred anchors |
+Older labels such as L1/L2/L3 are no longer the primary taxonomy. They mixed execution cost with evidence meaning and did not describe review-only or experiment-style cases well.
+
+## Verification Types
+
+| Type | Directory | What It Proves | Result Shape |
+| --- | --- | --- | --- |
+| Contract Checks | `tests/checks/contracts/` | Stable public contracts, data semantics, schema behavior, CLI/API boundaries, static asset contracts | Deterministic pytest pass/fail |
+| Journey Checks | `tests/checks/journeys/` | User-visible local flows that need browser, templates, client state, or in-process Web behavior | Deterministic pytest pass/fail plus local artifacts when useful |
+| Real Probes | `tests/probes/real_environment/` | Real provider CLIs, real Agent hosts, or a real `loopora serve` process still satisfy the minimal external-boundary contract | Opt-in pytest pass/fail plus phase reports |
+| Review Cases | `tests/reviews/` | Fuzzy visual, semantic, expression, and experience quality that code can help capture but should not pretend to judge alone | Screenshots, reports, machine hints, human/agent review |
+| Scenarios | `tests/scenarios/` | Manual exploratory journeys through stable product goals | Playbook steps and evidence boundaries |
+| Experiments | `tests/experiments/` | High-cost or research-like real workflows that preserve evidence but are not default gates | Opt-in artifacts and analysis |
+
+## Run Profiles
+
+| Profile | When | Typical Entry |
 | --- | --- | --- |
-| L1 Contract / API | Spec compilation, bundle lifecycle, workflow normalization, run evidence, GateKeeper completion, adapter ownership | Public return values, stable IDs, canonical artifacts, status semantics, status codes, structured error semantics |
-| L2 Browser / Local Integration | User journeys that require a real browser, client-side state, or local in-process service behavior | Accessible controls, visible outcomes, persisted state, files written under a real temporary workdir |
-| L3 Real Environment | Opt-in release gates against real provider CLIs, real Agent host entry, or real `loopora serve` process | Provider/host capability, degradation visibility, preserved artifacts, observable user journeys |
-| Scenarios | Manual exploratory journeys for a few core flows | Stable user goals, evidence boundaries, cross-entry consistency |
+| `default` | Every normal code change before commit | `uv run ruff check .` and focused `uv run pytest tests/checks/...` |
+| `focused` | A touched module has a nearby contract or journey check | Focused pytest path under `tests/checks/contracts/` or `tests/checks/journeys/` |
+| `opt-in` | A user/reviewer asks for visual, semantic, real-host, or exploratory evidence | `tests/reviews/run.py`, `tests/probes/real_environment/run_real_probes.py`, or a scenario playbook |
+| `release` | Before shipping changes that depend on real external hosts or browser/server integration | Real probe suites plus relevant journey checks |
+| `experiment` | The goal is to learn from a realistic task, not to block ordinary development | Explicit experiment tests under `tests/experiments/` |
 
-## Required Gates
+## Default Gate
 
-| Gate | When | Command shape |
-| --- | --- | --- |
-| L1 | Every code change before commit | `uv run ruff check .` and focused `uv run pytest ...` for touched contract/API files |
-| L2 | Every feature that changes a user journey, Web behavior, local files, or cross-entry state | Focused browser/local integration tests, then the default `uv run pytest -q` when feasible |
-| L3 | Before release or before merging a feature that depends on real external hosts | Opt-in real-environment markers such as `real_cli`, `real_agent`, and `release_web` with required environment variables |
-
-L3 tests may skip on ordinary developer machines, but their skip reason must name the missing environment switch or command template. Passing L1/L2 only means the feature is structurally correct in Loopora; L3 is the final proof that the real host/browser path still works.
-
-L3 is handbook-first. Before running or interpreting L3, read `tests/l3/README.md`; the L3 runner prints this entry path and can print the full handbook with `--show-playbook`.
-
-Current L3 switches:
-
-- Real provider CLI loop: set `LOOPORA_ENABLE_REAL_CLI_E2E=1` and, when needed, provider/model target variables used by `tests/test_real_cli_integration.py`.
-- Real Coding Agent adapter: set `LOOPORA_ENABLE_REAL_AGENT_E2E=1`. For Codex, set `LOOPORA_REAL_AGENT_COMMAND_TEMPLATE`; for Claude Code, set `LOOPORA_REAL_CLAUDE_AGENT_COMMAND_TEMPLATE`; for OpenCode, set `LOOPORA_REAL_OPENCODE_AGENT_COMMAND_TEMPLATE`. All templates support `{workdir}`, `{prompt_file}`, `{bundle_file}`. Use `LOOPORA_REAL_AGENT_TARGETS=codex,claude,opencode` to choose hosts.
-- Real Web process: set `LOOPORA_ENABLE_RELEASE_WEB_E2E=1` to start a real `loopora serve` process and run the browser Tools adapter journey.
-- Heavy real workflow experiments: set `LOOPORA_ENABLE_REAL_WORKFLOW_EXPERIMENTS=1` when explicitly running `real_workflow_experiment` tests such as the preserved search rollout examples. These are not part of the minimal L3 release gate.
-
-Claude Code and OpenCode model defaults are part of the ordinary release path: Claude Code uses `Kimi-K2.6`, and OpenCode uses `minimax-token-plan/MiniMax-M2.7`. L3 fails the default path if those models are not visible in the real Agent command template or real CLI command events. Set `LOOPORA_L3_ALLOW_MODEL_OVERRIDE=1` only when the release deliberately validates a different model.
-
-Codex / Claude Code / OpenCode L3 targets are independent and can be run in parallel without `pytest-xdist`:
+For ordinary code work, run:
 
 ```bash
-python tests/run_l3_parallel.py --suite real-agent --agent-targets codex,claude,opencode
-python tests/run_l3_parallel.py --suite real-cli --cli-targets codex,claude,opencode
+uv run ruff check .
+uv run pytest -q tests/checks/contracts tests/checks/journeys
 ```
 
-The runner starts one pytest subprocess per selected target, sets that subprocess's `LOOPORA_REAL_*_TARGETS` to a single value, and defaults to at most three concurrent jobs. Use `--suite all` to include `real-agent`, `real-cli`, and `release-web`, `--max-parallel N` to tune concurrency, `--dry-run` to inspect the exact subprocess plan, and `--status-interval-seconds N` to control heartbeat output while waiting. Passing jobs delete their temporary runner log by default; failing jobs preserve it for diagnosis.
+Use narrower pytest paths when the touched behavior has a clear local boundary. Contract and journey checks should assert user-observable behavior, public return values, stable IDs, status semantics, structured errors, persisted artifacts, and accessible controls. They should not assert private variables, CSS classes, DOM nesting, transient implementation order, or exact copy unless the copy is itself the contract.
 
-L3 uses a minimum coverage model:
+## Real Probes
 
-- One real provider CLI smoke proves process launch, structured output parsing, artifact persistence, default model visibility, and resume command shape. It does not try to prove that a model can finish a large product task.
-- One real Agent-host smoke per selected implemented host proves the installed Codex, Claude Code, or OpenCode entry can turn a short conversation brief into a host-authored candidate bundle, drive `/loopora-gen` before `/loopora-loop`, expose runtime activity while the run is active, execute returned Agent-native step capsules with the host's own role/subagent mechanism, submit `loopora_host_dispatch` proof, and continue until terminal. The test prompt must not disclose the underlying `loopora agent <adapter> ...` commands, the managed entry must leave an invocation-source trail in the Core binding, and a sentinel PATH must prove Loopora did not call a nested `codex` / `claude` / `opencode` CLI from inside the host session. The fixture bundle uses the minimum terminal flow: one upstream evidence-producing step and one GateKeeper step. It should not put the run's eventual terminal state into task-level Done When; the outer test harness asserts terminal status and the run event chain after the Agent-native loop completes.
-- One real Web-process smoke proves browser control of Codex / Claude Code / OpenCode adapter status / install / update / uninstall and visible error states against a real `loopora serve`.
-- L3 harnesses write phase reports under `.loopora/l3/` so a failing run exposes process, model, artifact, state, and command evidence without requiring the operator to infer progress from quiet stdout.
-- Larger realistic tasks may live as manual scenarios or `real_workflow_experiment` tests, but they should not be the default release blocker unless the feature being released is specifically about that workflow.
+Real probes are handbook-first. Before running or interpreting them, read:
+
+```bash
+python tests/probes/real_environment/run_real_probes.py --show-playbook
+```
+
+Common entries:
+
+```bash
+python tests/probes/real_environment/run_real_probes.py --suite real-agent --agent-targets codex,claude,opencode
+python tests/probes/real_environment/run_real_probes.py --suite real-cli --cli-targets codex,claude,opencode
+python tests/probes/real_environment/run_real_probes.py --suite release-web
+```
+
+Real probes may skip on ordinary developer machines, but the skip reason must name the missing environment switch or command template. Phase reports are written under `.loopora/real-probes/` so a failing run exposes process, model, artifact, state, and command evidence without forcing the operator to infer progress from quiet stdout.
+
+Claude Code and OpenCode model defaults are part of the ordinary release profile: Claude Code uses `Kimi-K2.6`, and OpenCode uses `minimax-token-plan/MiniMax-M2.7`. A real probe fails the default release profile if those models are not visible in the real Agent command template or real CLI command events. Set `LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE=1` only when the release deliberately validates a different model.
+
+## Review Cases
+
+Review cases are separate from deterministic checks. They are case-first and intentionally allow fuzzy semantic checks such as text crowding, arrows crossing labels, clipped controls, expert-language leakage, misleading diagrams, or page chrome compressing content.
+
+Run:
+
+```bash
+uv run python tests/reviews/run.py --case rendered-surfaces
+uv run python tests/reviews/run.py --case rendered-surfaces --url home=http://127.0.0.1:8000/
+```
+
+SVG diagrams and Web pages share the same review runner and case format. Logo assets are not review-case targets; they keep ordinary structural checks for parseability, serving, and references.
+
+## Experiments
+
+Real workflow experiments are explicitly opt-in:
+
+```bash
+LOOPORA_ENABLE_REAL_WORKFLOW_EXPERIMENTS=1 uv run pytest -q tests/experiments/real_workflows
+```
+
+Experiments may preserve copied workspaces, run artifacts, proof output, and review notes. They should not become release blockers unless the shipped feature is specifically about that workflow.
 
 ## Guardrails
 
-- The default Ruff gate covers syntax/name errors and Bugbear runtime hazards; broader style-modernization scans remain opt-in cleanup work.
-- Do not assert static UI copy as the main contract.
-- Do not assert CSS classes, DOM nesting, or script source internals unless the behavior has no better public anchor.
-- Keep language-specific checks narrow and focused on locale selection or presence of translated resources, not exact phrasing.
-- Default-path UI tests should assert the core user actions: describe task, confirm loop plan, run, and inspect evidence.
-- Expert terms such as `bundle`, `YAML`, `orchestration`, and `workflow controls` should be asserted only on expert paths or debug/source panels, not as required default-path copy.
+- Use deterministic code checks for stable contracts.
+- Use review cases when code can collect pixels/text/hints but final judgment is semantic.
+- Use scenarios when the useful artifact is an exploratory route rather than an automated assertion.
+- Use experiments when the task is costly, provider-dependent, or intentionally research-like.
+- Prefer one high-value journey over many branch-mirror tests.
+- Keep language-specific checks narrow and focused on locale selection or resource presence, not exact phrasing.
 - Keep legacy compatibility coverage separate from new-path quality assertions.
-- Prefer one high-value journey over many tests that mirror individual implementation branches.
-- Keep `tests/scenarios/` small; merge adjacent UI flows into one journey instead of adding one file per page tweak.
-- When adding or pruning tests, keep the highest-value assertion at each layer and delete branch-mirror tests that only restate implementation details.

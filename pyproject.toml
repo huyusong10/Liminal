@@ -55,11 +55,11 @@ loopora = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-  "browser_e2e: local Playwright browser coverage against in-process Loopora Web or local browser fixtures",
-  "real_cli: opt-in release-gate coverage that uses a real provider CLI for the minimal provider adapter boundary",
-  "real_agent: opt-in release-gate coverage that drives a real Coding Agent host or slash/skill command template",
-  "release_web: opt-in release-gate browser coverage against a real loopora serve process",
-  "real_workflow_experiment: opt-in heavy real-provider workflow experiments that preserve artifacts and are not part of the minimal L3 release gate",
+  "journey: local journey check coverage against in-process Loopora Web or local browser fixtures",
+  "real_cli: opt-in real-environment probe that uses a real provider CLI for the minimal provider adapter boundary",
+  "real_agent: opt-in real-environment probe that drives a real Coding Agent host or slash/skill command template",
+  "release_web: opt-in real-environment probe against a real loopora serve process",
+  "real_workflow_experiment: opt-in heavy real-provider workflow experiments that preserve artifacts and are not part of the release real-probe gate",
 ]
 
 [tool.ruff]

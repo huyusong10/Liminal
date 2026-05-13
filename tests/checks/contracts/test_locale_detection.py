@@ -11,7 +11,7 @@ import pytest
 
 NODE = shutil.which("node")
 pytestmark = pytest.mark.skipif(NODE is None, reason="node is required for locale detection tests")
-APP_JS = Path(__file__).resolve().parents[1] / "src" / "loopora" / "static" / "app.js"
+APP_JS = Path(__file__).resolve().parents[3] / "src" / "loopora" / "static" / "app.js"
 
 
 @dataclass(frozen=True)

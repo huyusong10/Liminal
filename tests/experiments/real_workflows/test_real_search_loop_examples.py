@@ -3,8 +3,8 @@ from __future__ import annotations
 """Scenario-driven heavy real-provider experiments for curated tutorial workflows.
 
 These tests preserve their workspaces and Loopora run artifacts under
-artifacts/real_search_loop_e2e so humans can inspect the final work later. They
-are intentionally outside the minimal L3 release gate.
+artifacts/real_search_loop_experiments so humans can inspect the final work later. They
+are intentionally outside the minimal release real-probe gate.
 """
 
 import json
@@ -24,9 +24,9 @@ from loopora.providers import executor_profile
 from loopora.service import LooporaService
 from loopora.settings import AppSettings
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 FIXTURE_ROOT = ROOT / "tests" / "fixtures"
-RESULTS_ROOT = ROOT / "artifacts" / "real_search_loop_e2e"
+RESULTS_ROOT = ROOT / "artifacts" / "real_search_loop_experiments"
 REAL_WORKFLOW_EXPERIMENT_ENV = "LOOPORA_ENABLE_REAL_WORKFLOW_EXPERIMENTS"
 REAL_CLI_TIMEOUT_ENV = "LOOPORA_REAL_CLI_TIMEOUT_SECONDS"
 REAL_CLI_CODEX_MODEL_ENV = "LOOPORA_REAL_CLI_CODEX_MODEL"

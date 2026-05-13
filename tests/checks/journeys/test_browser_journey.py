@@ -24,7 +24,7 @@ from loopora.settings import AppSettings, app_home
 from loopora.web import build_app
 
 playwright = pytest.importorskip("playwright.sync_api")
-pytestmark = pytest.mark.browser_e2e
+pytestmark = pytest.mark.journey
 
 
 CALCULATOR_HTML = """<!DOCTYPE html>
@@ -519,7 +519,7 @@ def test_local_listener_other_os_errors_still_raise() -> None:
         _skip_if_local_listener_unavailable(OSError("boom"))
 
 
-def test_e2e_calculator_loop_runs_and_works_in_browser(tmp_path: Path) -> None:
+def test_browser_journey_calculator_loop_runs_and_works(tmp_path: Path) -> None:
     spec_path = tmp_path / "spec.md"
     spec_path.write_text(
         textwrap.dedent(
@@ -552,7 +552,7 @@ def test_e2e_calculator_loop_runs_and_works_in_browser(tmp_path: Path) -> None:
     )
 
     loop = service.create_loop(
-        name="Calculator Browser E2E",
+        name="Calculator Browser journey",
         spec_path=spec_path,
         workdir=workdir,
         model="gpt-5.4",

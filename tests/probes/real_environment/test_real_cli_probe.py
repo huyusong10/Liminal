@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-"""Minimal real-provider release gate.
+"""Minimal real-provider probe.
 
 These tests invoke real provider CLIs and external APIs. They are skipped by
-default and intended for release verification, not fast feedback. The release
-gate intentionally stays small: L1/L2 cover Loopora semantics with fake
-executors; this L3 gate only proves that a real provider can execute Loopora's
-frozen role request, return structured output, persist artifacts, and resume a
-step session across rounds.
+default and intended for release-profile verification, not fast feedback. The
+probe intentionally stays small: deterministic contract checks cover Loopora
+semantics with fake executors; this real probe only proves that a real provider
+can execute Loopora's frozen role request, return structured output, persist
+artifacts, and resume a step session across rounds.
 """
 
 import json
@@ -26,13 +26,13 @@ from loopora.service import LooporaService
 from loopora.settings import AppSettings
 from loopora.workflows import builtin_prompt_markdown
 
-REAL_CLI_ENV = "LOOPORA_ENABLE_REAL_CLI_E2E"
+REAL_CLI_ENV = "LOOPORA_ENABLE_REAL_CLI_PROBE"
 REAL_CLI_TIMEOUT_ENV = "LOOPORA_REAL_CLI_TIMEOUT_SECONDS"
 REAL_CLI_TARGETS_ENV = "LOOPORA_REAL_CLI_TARGETS"
 REAL_CLI_CODEX_MODEL_ENV = "LOOPORA_REAL_CLI_CODEX_MODEL"
 REAL_CLI_CLAUDE_MODEL_ENV = "LOOPORA_REAL_CLI_CLAUDE_MODEL"
 REAL_CLI_OPENCODE_MODEL_ENV = "LOOPORA_REAL_CLI_OPENCODE_MODEL"
-L3_MODEL_OVERRIDE_ENV = "LOOPORA_L3_ALLOW_MODEL_OVERRIDE"
+REAL_PROBE_MODEL_OVERRIDE_ENV = "LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE"
 PROVIDER_ORDER = ("codex", "claude", "opencode")
 PROVIDER_MODEL_ENV = {
     "codex": REAL_CLI_CODEX_MODEL_ENV,
@@ -116,7 +116,7 @@ def _selected_real_cli_targets() -> tuple[str, ...]:
 
 def _require_real_cli_target(provider: str) -> None:
     if os.environ.get(REAL_CLI_ENV) != "1":
-        pytest.skip(f"set {REAL_CLI_ENV}=1 to run the real-provider release gate")
+        pytest.skip(f"set {REAL_CLI_ENV}=1 to run the real-provider release-profile probe")
 
     cli_name = executor_profile(provider).cli_name
     selected = _selected_real_cli_targets()
@@ -135,7 +135,7 @@ def _provider_model(provider: str) -> str:
 
 
 def _model_override_allowed() -> bool:
-    return os.environ.get(L3_MODEL_OVERRIDE_ENV) == "1"
+    return os.environ.get(REAL_PROBE_MODEL_OVERRIDE_ENV) == "1"
 
 
 def _assert_real_cli_model_policy(provider: str, model: str) -> None:
@@ -145,8 +145,8 @@ def _assert_real_cli_model_policy(provider: str, model: str) -> None:
     if model == expected:
         return
     assert _model_override_allowed(), (
-        f"{provider} real-cli L3 must use default model {expected!r} on the release path; "
-        f"got {model!r}. Set {L3_MODEL_OVERRIDE_ENV}=1 only for an intentional override validation."
+        f"{provider} real-cli probe must use default model {expected!r} on the release path; "
+        f"got {model!r}. Set {REAL_PROBE_MODEL_OVERRIDE_ENV}=1 only for an intentional override validation."
     )
 
 
@@ -209,7 +209,7 @@ def _minimal_real_cli_bundle_yaml(workdir: Path, *, provider: str) -> str:
         "version": 1,
         "metadata": {
             "name": f"Real CLI Minimal Smoke {provider}",
-            "description": "Minimal real-provider release gate.",
+            "description": "Minimal real-provider release-profile probe.",
         },
         "collaboration_summary": (
             "Verify that Loopora can hand a frozen role request to a real provider CLI, "
@@ -338,7 +338,7 @@ def _assert_real_cli_model_observed(artifacts: RealRunArtifacts, model: str) -> 
 
 
 def _phase_report_path(workdir: Path) -> Path:
-    return workdir / ".loopora" / "l3" / "real-cli-phase-report.json"
+    return workdir / ".loopora" / "real-probes" / "real-cli-phase-report.json"
 
 
 def _command_event_summaries(artifacts: RealRunArtifacts | None) -> list[dict]:
@@ -435,7 +435,7 @@ def _format_real_cli_diagnostic_failure(message: object, *, report: dict, report
         "resume_command_shape": (report.get("diagnostics") or {}).get("resume_command_shape"),
         "command_events": (report.get("diagnostics") or {}).get("command_events"),
     }
-    return f"{message}\n\nL3 phase report: {report_path}\n{json.dumps(compact, ensure_ascii=False, indent=2)}"
+    return f"{message}\n\nReal probe phase report: {report_path}\n{json.dumps(compact, ensure_ascii=False, indent=2)}"
 
 
 @pytest.mark.real_cli

@@ -7,9 +7,9 @@ import sys
 import pytest
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-REAL_CLI_TEST = REPO_ROOT / "tests" / "test_real_cli_integration.py"
-RELEASE_WEB_TEST = REPO_ROOT / "tests" / "test_release_web_e2e.py"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+REAL_CLI_TEST = REPO_ROOT / "tests" / "probes" / "real_environment" / "test_real_cli_probe.py"
+RELEASE_WEB_TEST = REPO_ROOT / "tests" / "probes" / "real_environment" / "test_release_web_probe.py"
 
 
 def _load_module(path: Path, name: str):
@@ -22,7 +22,7 @@ def _load_module(path: Path, name: str):
 
 
 def test_real_cli_phase_report_projects_model_resume_and_artifacts(tmp_path: Path) -> None:
-    module = _load_module(REAL_CLI_TEST, "real_cli_l3")
+    module = _load_module(REAL_CLI_TEST, "real_cli_probe")
     workdir = tmp_path / "work"
     workdir.mkdir()
     run_dir = workdir / ".loopora" / "runs" / "run_123"
@@ -67,7 +67,7 @@ def test_real_cli_phase_report_projects_model_resume_and_artifacts(tmp_path: Pat
         )
     )
 
-    assert report_path == workdir / ".loopora" / "l3" / "real-cli-phase-report.json"
+    assert report_path == workdir / ".loopora" / "real-probes" / "real-cli-phase-report.json"
     assert report_path.exists()
     assert report["phase_statuses"]["model_observed"]["ok"] is True
     assert report["phase_statuses"]["resume_session_observed"]["ok"] is True
@@ -76,18 +76,18 @@ def test_real_cli_phase_report_projects_model_resume_and_artifacts(tmp_path: Pat
 
 
 def test_real_cli_default_model_policy_requires_explicit_override(monkeypatch) -> None:
-    module = _load_module(REAL_CLI_TEST, "real_cli_l3_policy")
-    monkeypatch.delenv(module.L3_MODEL_OVERRIDE_ENV, raising=False)
+    module = _load_module(REAL_CLI_TEST, "real_cli_probe_policy")
+    monkeypatch.delenv(module.REAL_PROBE_MODEL_OVERRIDE_ENV, raising=False)
 
     with pytest.raises(AssertionError):
         module._assert_real_cli_model_policy("claude", "other-model")
 
-    monkeypatch.setenv(module.L3_MODEL_OVERRIDE_ENV, "1")
+    monkeypatch.setenv(module.REAL_PROBE_MODEL_OVERRIDE_ENV, "1")
     module._assert_real_cli_model_policy("claude", "other-model")
 
 
 def test_release_web_phase_report_projects_adapter_state_matrix(tmp_path: Path) -> None:
-    module = _load_module(RELEASE_WEB_TEST, "release_web_l3")
+    module = _load_module(RELEASE_WEB_TEST, "release_web_probe")
     workdir = tmp_path / "release-web-workdir"
     workdir.mkdir()
     events: list[dict] = []
@@ -128,7 +128,7 @@ def test_release_web_phase_report_projects_adapter_state_matrix(tmp_path: Path) 
         )
     )
 
-    assert report_path == workdir / ".loopora" / "l3" / "release-web-phase-report.json"
+    assert report_path == workdir / ".loopora" / "real-probes" / "release-web-phase-report.json"
     assert report_path.exists()
     assert report["phase_statuses"]["server_ready"]["ok"] is True
     for adapter in module.ADAPTERS:

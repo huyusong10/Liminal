@@ -3,69 +3,69 @@
   <desc id="desc">普通 human-in-the-loop 中人需要每轮回来判断；human-shaped Loop 中人的判断提前塑造运行结构。</desc>
   <defs>
     <filter id="shadow" x="-15%" y="-15%" width="130%" height="130%">
-      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#2c2118" flood-opacity="0.08"/>
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.08"/>
     </filter>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0,0 L10,5 L0,10 Z" fill="#8d8378"/>
+      <path d="M0,0 L10,5 L0,10 Z" fill="#64748b"/>
     </marker>
     <pattern id="dots" width="30" height="30" patternUnits="userSpaceOnUse">
-      <circle cx="3" cy="3" r="1" fill="#e8dfd3" opacity="0.6"/>
+      <circle cx="3" cy="3" r="1" fill="#dbe3ee" opacity="0.6"/>
     </pattern>
   </defs>
-  <rect width="1200" height="560" rx="28" fill="#faf9f6"/>
+  <rect width="1200" height="560" rx="28" fill="#f8fafc"/>
   <rect x="20" y="20" width="1160" height="520" rx="24" fill="url(#dots)" opacity="0.4"/>
 
-  <text x="60" y="70" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="32" font-weight="760" fill="#211b15">Loopora 改变人和 Agent 在循环里的位置</text>
-  <text x="60" y="102" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="500" fill="#6d665d">不是把人抽离，而是把人的判断从每轮事后补救，变成事前塑造循环。</text>
+  <text x="60" y="70" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="32" font-weight="700" fill="#111827">Loopora 改变人和 Agent 在循环里的位置</text>
+  <text x="60" y="102" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="16" font-weight="500" fill="#475569">不是把人抽离，而是把人的判断从每轮事后补救，变成事前塑造循环。</text>
 
   <!-- 左侧 -->
   <g filter="url(#shadow)">
-    <rect x="60" y="140" width="520" height="300" rx="20" fill="#ffffff" stroke="#d9d0c5"/>
+    <rect x="60" y="140" width="520" height="300" rx="20" fill="#ffffff" stroke="#d7e0ea"/>
     <rect x="60" y="140" width="7" height="300" rx="3.5" fill="#b45309"/>
-    <text x="92" y="186" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="24" font-weight="760" fill="#211b15">普通 human-in-the-loop</text>
-    <text x="92" y="216" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500" fill="#6d665d">判断力留在人类现场复盘里</text>
+    <text x="92" y="186" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="24" font-weight="700" fill="#111827">普通 human-in-the-loop</text>
+    <text x="92" y="216" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500" fill="#475569">判断力留在人类现场复盘里</text>
 
     <rect x="120" y="260" width="150" height="80" rx="16" fill="#fff7ed" stroke="#fed7aa"/>
-    <text x="195" y="294" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="760" fill="#211b15">人类</text>
-    <text x="195" y="318" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="500" fill="#6d665d">每轮回来判断</text>
+    <text x="195" y="294" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" fill="#111827">人类</text>
+    <text x="195" y="318" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="500" fill="#475569">每轮回来判断</text>
 
     <rect x="340" y="260" width="150" height="80" rx="16" fill="#eef2ff" stroke="#c7d2fe"/>
-    <text x="415" y="294" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="760" fill="#211b15">Agent</text>
-    <text x="415" y="318" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="500" fill="#6d665d">执行下一轮</text>
+    <text x="415" y="294" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" fill="#111827">Agent</text>
+    <text x="415" y="318" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="500" fill="#475569">执行下一轮</text>
 
-    <path d="M290,300 L310,300" fill="none" stroke="#8d8378" stroke-width="2.5" stroke-linecap="round" marker-end="url(#arrow)"/>
-    <path d="M415,360 C 340 400 260 400 220 360" fill="none" stroke="#8d8378" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="8 8" marker-end="url(#arrow)"/>
+    <path d="M290,300 L310,300" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+    <path d="M415,360 C 340 400 260 400 220 360" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="8 8" marker-end="url(#arrow)"/>
   </g>
 
-  <rect x="130" y="454" width="340" height="36" rx="18" fill="#fff7ed" stroke="#fed7aa"/>
-  <text x="300" y="478" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" font-weight="760" fill="#9a3412">人不在场时，判断标准容易漂移</text>
+  <rect x="130" y="448" width="340" height="36" rx="18" fill="#fff7ed" stroke="#fed7aa"/>
+  <text x="300" y="472" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" font-weight="700" fill="#9a3412">人不在场时，判断标准容易漂移</text>
 
   <!-- 右侧 -->
   <g filter="url(#shadow)">
-    <rect x="620" y="140" width="520" height="300" rx="20" fill="#ffffff" stroke="#d9d0c5"/>
+    <rect x="620" y="140" width="520" height="300" rx="20" fill="#ffffff" stroke="#d7e0ea"/>
     <rect x="620" y="140" width="7" height="300" rx="3.5" fill="#0d7c66"/>
-    <text x="652" y="186" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="24" font-weight="760" fill="#211b15">Human-shaped Loop</text>
-    <text x="652" y="216" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500" fill="#6d665d">判断力先塑造 Loop 的运行结构</text>
+    <text x="652" y="186" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="24" font-weight="700" fill="#111827">Human-shaped Loop</text>
+    <text x="652" y="216" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15" font-weight="500" fill="#475569">判断力先塑造 Loop 的运行结构</text>
 
     <rect x="680" y="240" width="160" height="70" rx="16" fill="#fff7ed" stroke="#fed7aa"/>
-    <text x="760" y="274" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="760" fill="#211b15">人类</text>
-    <text x="760" y="296" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="500" fill="#6d665d">提前给判断</text>
+    <text x="760" y="274" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" fill="#111827">人类</text>
+    <text x="760" y="296" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="500" fill="#475569">提前给判断</text>
 
-    <path d="M860,275 L920,275" fill="none" stroke="#8d8378" stroke-width="2.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+    <path d="M860,275 L920,275" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round" marker-end="url(#arrow)"/>
 
     <rect x="940" y="240" width="160" height="70" rx="16" fill="#f0fdfa" stroke="#99f6e4"/>
-    <text x="1020" y="274" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="760" fill="#211b15">Loopora</text>
-    <text x="1020" y="296" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="500" fill="#6d665d">编译成 Loop</text>
+    <text x="1020" y="274" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" fill="#111827">Loopora</text>
+    <text x="1020" y="296" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="500" fill="#475569">编译成 Loop</text>
 
-    <path d="M1020,340 L1020,370" fill="none" stroke="#8d8378" stroke-width="2.5" stroke-linecap="round" marker-end="url(#arrow)"/>
+    <path d="M1020,340 L1020,370" fill="none" stroke="#64748b" stroke-width="2.5" stroke-linecap="round" marker-end="url(#arrow)"/>
 
     <rect x="760" y="370" width="300" height="60" rx="16" fill="#eef2ff" stroke="#c7d2fe"/>
-    <text x="910" y="400" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="760" fill="#211b15">Agent 在结构里循环</text>
-    <text x="910" y="420" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="500" fill="#6d665d">构建 → 检查 → 修复 → 裁决</text>
+    <text x="910" y="400" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" fill="#111827">Agent 在结构里循环</text>
+    <text x="910" y="420" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" font-weight="500" fill="#475569">构建 → 检查 → 修复 → 裁决</text>
   </g>
 
-  <rect x="700" y="454" width="360" height="36" rx="18" fill="#ecfdf5" stroke="#a7f3d0"/>
-  <text x="880" y="478" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" font-weight="760" fill="#047857">人类判断先进入运行框架</text>
+  <rect x="700" y="448" width="360" height="36" rx="18" fill="#ecfdf5" stroke="#a7f3d0"/>
+  <text x="880" y="472" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="14" font-weight="700" fill="#047857">人类判断先进入运行框架</text>
 
-  <text x="600" y="500" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="760" fill="#211b15">人类没有消失；判断从"每轮事后补救"变成"先塑造循环"。</text>
+  <text x="600" y="520" text-anchor="middle" font-family="Inter, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="18" font-weight="700" fill="#111827">人类没有消失；判断从"每轮事后补救"变成"先塑造循环"。</text>
 </svg>

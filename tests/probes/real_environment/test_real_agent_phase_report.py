@@ -8,12 +8,12 @@ import sys
 import pytest
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-REAL_AGENT_TEST = REPO_ROOT / "tests" / "test_real_agent_adapter_e2e.py"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+REAL_AGENT_TEST = REPO_ROOT / "tests" / "probes" / "real_environment" / "test_real_agent_adapter_probe.py"
 
 
 def _load_real_agent_module():
-    spec = importlib.util.spec_from_file_location("real_agent_l3", REAL_AGENT_TEST)
+    spec = importlib.util.spec_from_file_location("real_agent_probe", REAL_AGENT_TEST)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules[spec.name] = module
@@ -31,7 +31,7 @@ def _write_jsonl(path: Path, rows: list[dict]) -> None:
     path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
 
 
-def test_real_agent_phase_report_summarizes_l3_milestones(tmp_path: Path) -> None:
+def test_real_agent_phase_report_summarizes_real_probe_milestones(tmp_path: Path) -> None:
     module = _load_real_agent_module()
     workdir = tmp_path / "work"
     workdir.mkdir()
@@ -80,7 +80,7 @@ def test_real_agent_phase_report_summarizes_l3_milestones(tmp_path: Path) -> Non
         {"passed": True, "evidence_gate_status": "passed", "evidence_refs": ["ev_000_00_builder_step"]},
     )
 
-    report, report_path = module._write_l3_phase_report(
+    report, report_path = module._write_real_probe_phase_report(
         adapter="opencode",
         workdir=workdir,
         activity_snapshots=[{"running_count": 1, "queued_count": 0, "runs": [{"id": run_id, "status": "awaiting_agent"}]}],
@@ -88,7 +88,7 @@ def test_real_agent_phase_report_summarizes_l3_milestones(tmp_path: Path) -> Non
         command='opencode run --model "minimax-token-plan/MiniMax-M2.7" "...prompt..."',
     )
 
-    assert report_path == workdir / ".loopora" / "l3" / "real-agent-phase-report.json"
+    assert report_path == workdir / ".loopora" / "real-probes" / "real-agent-phase-report.json"
     assert report_path.exists()
     phases = report["phase_statuses"]
     assert phases["candidate_file_created"]["ok"] is True
@@ -112,19 +112,19 @@ def test_real_agent_phase_report_formats_compact_failure(tmp_path: Path) -> None
         "phase_statuses": {"candidate_file_created": {"ok": False}},
         "diagnostics": {"binding": {}, "alignment_validations": [], "coverage": {}, "task_verdict": {}, "events_tail": [], "sentinel_log": {}},
     }
-    message = module._format_l3_diagnostic_failure("boom", report=report, report_path=tmp_path / "phase.json")
+    message = module._format_real_probe_diagnostic_failure("boom", report=report, report_path=tmp_path / "phase.json")
 
     assert "boom" in message
-    assert "L3 phase report:" in message
+    assert "Real probe phase report:" in message
     assert "candidate_file_created" in message
 
 
 def test_real_agent_default_model_policy_requires_explicit_override(monkeypatch) -> None:
     module = _load_real_agent_module()
-    monkeypatch.delenv(module.L3_MODEL_OVERRIDE_ENV, raising=False)
+    monkeypatch.delenv(module.REAL_PROBE_MODEL_OVERRIDE_ENV, raising=False)
 
     with pytest.raises(AssertionError):
         module._assert_real_agent_command_model_policy("opencode", "opencode run --model other-model")
 
-    monkeypatch.setenv(module.L3_MODEL_OVERRIDE_ENV, "1")
+    monkeypatch.setenv(module.REAL_PROBE_MODEL_OVERRIDE_ENV, "1")
     module._assert_real_agent_command_model_policy("opencode", "opencode run --model other-model")

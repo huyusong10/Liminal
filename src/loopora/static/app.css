@@ -2629,7 +2629,7 @@ body.modal-open {
   height: 56px;
   border-radius: 0;
   opacity: 0.82;
-  box-shadow: 0 8px 18px rgba(var(--glass-dark-rgb), 0.08);
+  filter: drop-shadow(0 8px 14px rgba(var(--glass-dark-rgb), 0.12));
 }
 
 /* ── Forms ── */
@@ -5917,7 +5917,7 @@ textarea:focus {
   width: 56px;
   height: 56px;
   opacity: 0.82;
-  box-shadow: 0 8px 18px rgba(var(--glass-dark-rgb), 0.08);
+  filter: drop-shadow(0 8px 14px rgba(var(--glass-dark-rgb), 0.12));
 }
 
 .callout,

@@ -1,12 +1,12 @@
-# Loopora L3 Agent Handbook
+# Loopora Real Probe Handbook
 
-This handbook is the entry point for L3. Read it before running or interpreting any L3 test.
+This handbook is the entry point for real probes. Read it before running or interpreting any real-environment probe.
 
-L3 is not just executable pytest code. It is a release-gate workflow for real Agent hosts, real provider CLIs, real local services, and the Agent or human who has to interpret failures. The code asserts stable contracts; this handbook explains how to operate the gate and how to read the evidence it produces.
+A real probe is not just executable pytest code. It is a release-profile workflow for real Agent hosts, real provider CLIs, real local services, and the Agent or human who has to interpret failures. The code asserts stable contracts; this handbook explains how to operate the probe and how to read the evidence it produces.
 
-## 1. What L3 Proves
+## 1. What Real Probes Prove
 
-L3 protects the real-environment boundary that L1 and L2 cannot prove:
+Real probes protect the real-environment boundary that deterministic contract and journey checks cannot prove:
 
 | Suite | Proof target | Hard contract |
 | --- | --- | --- |
@@ -14,27 +14,27 @@ L3 protects the real-environment boundary that L1 and L2 cannot prove:
 | `real-cli` | Real provider CLI execution | Provider process launches, structured outputs are parsed, artifacts persist, and resume command shape remains valid. |
 | `release-web` | Real `loopora serve` process and browser path | Web Tools can observe adapter status and drive install/update/uninstall/error states against a real local service. |
 
-Use larger realistic workflows only as manual scenarios or explicitly marked experiments. They should not become the default L3 release blocker unless the feature being released is about that workflow.
+Use larger realistic workflows only as manual scenarios or explicitly marked experiments. They should not become the default release-profile blocker unless the feature being released is about that workflow.
 
 Design-to-evidence traceability:
 
 | Design clause | Suite | Hard assertion | Evidence artifact |
 | --- | --- | --- | --- |
-| Agent entry must be handbook-first and managed-entry driven | `real-agent` | Candidate file is host-created, and binding records managed `/loopora-gen` before `/loopora-loop` | `.loopora/l3/real-agent-phase-report.json`, adapter binding JSON, alignment validation JSON |
+| Agent entry must be handbook-first and managed-entry driven | `real-agent` | Candidate file is host-created, and binding records managed `/loopora-gen` before `/loopora-loop` | `.loopora/real-probes/real-agent-phase-report.json`, adapter binding JSON, alignment validation JSON |
 | Agent-native role work must not be faked inline or by nested host CLI | `real-agent` | Builder and GateKeeper are claimed/submitted, dispatch is non-inline, actual agent matches target agent, and sentinel CLI log stays absent | Run events, `agent_native/state.json`, role outputs, sentinel log path |
 | GateKeeper pass must be backed by upstream evidence | `real-agent` | Builder leaves supporting proof, GateKeeper cites exact known evidence, run succeeds with task verdict `passed` | Evidence ledger, coverage projection, task verdict projection, role outputs |
-| Provider L3 only proves the executor boundary | `real-cli` | Real CLI launches, structured outputs persist, second round has resume session, and provider resume argv shape is valid | `.loopora/l3/real-cli-phase-report.json`, run events, role request JSONL, run contract |
-| Web L3 proves real service/browser adapter management | `release-web` | `not_installed`, `installed`, `needs_update`, and `error` states are observable without overwriting user-owned files | `.loopora/l3/release-web-phase-report.json`, browser status attributes, adapter files |
+| Provider real probe only proves the executor boundary | `real-cli` | Real CLI launches, structured outputs persist, second round has resume session, and provider resume argv shape is valid | `.loopora/real-probes/real-cli-phase-report.json`, run events, role request JSONL, run contract |
+| Web real probe proves real service/browser adapter management | `release-web` | `not_installed`, `installed`, `needs_update`, and `error` states are observable without overwriting user-owned files | `.loopora/real-probes/release-web-phase-report.json`, browser status attributes, adapter files |
 
 ## 2. How To Run
 
-Prefer the L3 runner over direct pytest invocation because the runner encodes the parallelism, handbook notice, waiting behavior, and log preservation policy:
+Prefer the real probe runner over direct pytest invocation because the runner encodes the parallelism, handbook notice, waiting behavior, and log preservation policy:
 
 ```bash
-python tests/run_l3_parallel.py --show-playbook
-python tests/run_l3_parallel.py --suite real-agent --agent-targets codex,claude,opencode --max-parallel 3
-python tests/run_l3_parallel.py --suite real-cli --cli-targets codex,claude,opencode --max-parallel 3
-python tests/run_l3_parallel.py --suite all --max-parallel 3
+python tests/probes/real_environment/run_real_probes.py --show-playbook
+python tests/probes/real_environment/run_real_probes.py --suite real-agent --agent-targets codex,claude,opencode --max-parallel 3
+python tests/probes/real_environment/run_real_probes.py --suite real-cli --cli-targets codex,claude,opencode --max-parallel 3
+python tests/probes/real_environment/run_real_probes.py --suite all --max-parallel 3
 ```
 
 Agent-host command templates are required for `real-agent`:
@@ -51,7 +51,7 @@ Default model policy is a hard release-path assertion:
 
 - `real-agent` requires the Claude command template to contain `Kimi-K2.6` and the OpenCode command template to contain `minimax-token-plan/MiniMax-M2.7`.
 - `real-cli` requires the generated provider command events to contain the selected Claude/OpenCode model.
-- To intentionally run a model override, set `LOOPORA_L3_ALLOW_MODEL_OVERRIDE=1` and make the override explicit in the command template or provider model env var. Do not use this exemption for an ordinary release check.
+- To intentionally run a model override, set `LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE=1` and make the override explicit in the command template or provider model env var. Do not use this exemption for an ordinary release check.
 
 ## 3. Parallelism
 
@@ -63,12 +63,12 @@ The runner creates one pytest subprocess per selected target. Each job gets its 
 
 Do not treat quiet stdout as proof of progress or failure.
 
-The runner prints a heartbeat for long-running jobs. Each heartbeat includes elapsed time and the live log path. L3 harnesses also write compact phase reports inside the temporary workdir or Loopora state dir; on assertion failure, pytest includes the relevant path and a compact summary when available.
+The runner prints a heartbeat for long-running jobs. Each heartbeat includes elapsed time and the live log path. Real probe harnesses also write compact phase reports inside the temporary workdir or Loopora state dir; on assertion failure, pytest includes the relevant path and a compact summary when available.
 
 While a job is still running, inspect evidence rather than waiting blindly:
 
 1. Process command line: confirm the intended host and model are actually running.
-2. Phase report: inspect `.loopora/l3/*-phase-report.json` for the latest process, model, artifact, and state projection.
+2. Phase report: inspect `.loopora/real-probes/*-phase-report.json` for the latest process, model, artifact, and state projection.
 3. Candidate bundle path: confirm the host created `.loopora/agent_inbox/<adapter>/conversation-candidate.yml`.
 4. Alignment validation: inspect `.loopora/alignment_sessions/*/artifacts/validation.json`.
 5. Binding: inspect `.loopora/agent_adapters/<adapter>/bindings/*.json` for `gen` before `loop`, linked bundle, linked loop, and linked run.
@@ -85,7 +85,7 @@ Hard waiting signal: the job reaches its timeout, the host exits non-zero, the l
 
 ## 5. What Is A Test Assertion
 
-Only stable facts should fail L3:
+Only stable facts should fail a real probe:
 
 - The host must create the candidate bundle; the harness must not prewrite it.
 - Managed entry provenance must show `/loopora-gen` before `/loopora-loop`.
@@ -96,7 +96,7 @@ Only stable facts should fail L3:
 - GateKeeper must cite exact known evidence IDs.
 - Run lifecycle must finish `succeeded`, and task verdict must be `passed`.
 - Nested host CLI sentinels must remain silent.
-- Default Claude/OpenCode model selection must be visible unless `LOOPORA_L3_ALLOW_MODEL_OVERRIDE=1` is set for an intentional override run.
+- Default Claude/OpenCode model selection must be visible unless `LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE=1` is set for an intentional override run.
 
 Do not make these fuzzy observations into hard assertions unless they become stable product contracts:
 
@@ -112,7 +112,7 @@ Read failure artifacts in this order:
 
 1. Runner summary and preserved log path.
 2. Pytest assertion failure and the compact phase report printed below it.
-3. Full `.loopora/l3/real-agent-phase-report.json`.
+3. Full `.loopora/real-probes/real-agent-phase-report.json`.
 4. Binding invocation order and linked run ID.
 5. Validation files for candidate bundle failures.
 6. Run event tail for the last stable phase.
@@ -139,7 +139,7 @@ Recommended defaults:
 
 - Real Agent target timeout: `LOOPORA_REAL_AGENT_TIMEOUT_SECONDS=900`.
 - Real CLI target timeout: `LOOPORA_REAL_CLI_TIMEOUT_SECONDS=600`.
-- Runner heartbeat: `LOOPORA_L3_STATUS_INTERVAL_SECONDS=30`.
+- Runner heartbeat: `LOOPORA_REAL_PROBE_STATUS_INTERVAL_SECONDS=30`.
 - Parallel target count: up to `3` for Codex / Claude Code / OpenCode when quotas allow it.
 
 These are operating defaults, not task success criteria. The hard success criteria are the artifacts, events, evidence, and terminal task verdict.

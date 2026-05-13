@@ -15,9 +15,9 @@ import pytest
 
 pytestmark = pytest.mark.release_web
 
-ENABLE_ENV = "LOOPORA_ENABLE_RELEASE_WEB_E2E"
+ENABLE_ENV = "LOOPORA_ENABLE_RELEASE_WEB_PROBE"
 TIMEOUT_ENV = "LOOPORA_RELEASE_WEB_TIMEOUT_SECONDS"
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 SRC_ROOT = REPO_ROOT / "src"
 ADAPTERS = ("codex", "claude", "opencode")
 
@@ -103,7 +103,7 @@ def _release_web_adapter_fixtures(tmp_path: Path) -> ReleaseWebAdapterFixtures:
 
 def _require_release_web_enabled() -> None:
     if os.environ.get(ENABLE_ENV) != "1":
-        pytest.skip(f"set {ENABLE_ENV}=1 to run the real loopora serve browser release gate")
+        pytest.skip(f"set {ENABLE_ENV}=1 to run the real loopora serve browser release-profile probe")
 
 
 def _free_port() -> int:
@@ -141,7 +141,7 @@ def _wait_for_path_state(path: Path, *, exists: bool, timeout: float = 5.0) -> N
 
 
 def _phase_report_path(workdir: Path) -> Path:
-    return workdir / ".loopora" / "l3" / "release-web-phase-report.json"
+    return workdir / ".loopora" / "real-probes" / "release-web-phase-report.json"
 
 
 def _file_state(path: Path | None) -> dict:
@@ -209,7 +209,7 @@ def _format_release_web_failure(message: object, *, report: dict, report_path: P
         "phase_statuses": report.get("phase_statuses"),
         "events_tail": ((report.get("diagnostics") or {}).get("events") or [])[-8:],
     }
-    return f"{message}\n\nL3 phase report: {report_path}\n{json.dumps(compact, ensure_ascii=False, indent=2)}"
+    return f"{message}\n\nReal probe phase report: {report_path}\n{json.dumps(compact, ensure_ascii=False, indent=2)}"
 
 
 def _expect_adapter_state(sync_api, page, adapter: str, state: str) -> None:
@@ -238,14 +238,14 @@ def _exercise_adapter_install_update_uninstall(sync_api, page, *, adapter: str, 
     _expect_adapter_state(sync_api, page, adapter, "installed")
     _record_release_web_event(events, ReleaseWebEventInput(adapter=adapter, phase="install", state="installed", paths=paths))
 
-    paths.gen_skill.write_text(paths.gen_skill.read_text(encoding="utf-8") + "\n<!-- managed drift for release web gate -->\n", encoding="utf-8")
+    paths.gen_skill.write_text(paths.gen_skill.read_text(encoding="utf-8") + "\n<!-- managed drift for release web probe -->\n", encoding="utf-8")
     page.get_by_test_id("agent-adapter-refresh").click()
     _expect_adapter_state(sync_api, page, adapter, "needs_update")
     _record_release_web_event(events, ReleaseWebEventInput(adapter=adapter, phase="drift", state="needs_update", paths=paths))
 
     page.get_by_test_id(f"agent-adapter-install-{adapter}").click()
     _expect_adapter_state(sync_api, page, adapter, "installed")
-    assert "managed drift for release web gate" not in paths.gen_skill.read_text(encoding="utf-8")
+    assert "managed drift for release web probe" not in paths.gen_skill.read_text(encoding="utf-8")
     _record_release_web_event(events, ReleaseWebEventInput(adapter=adapter, phase="repair", state="installed", paths=paths))
 
     page.get_by_test_id(f"agent-adapter-uninstall-{adapter}").click()

@@ -37,7 +37,7 @@ def _assert_initial_locale(html: str, locale: str) -> None:
 
 
 def test_run_detail_page_css_owns_progress_surface_rules() -> None:
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[3]
     app_css = (root / "src" / "loopora" / "static" / "app.css").read_text(encoding="utf-8")
     run_detail_css = (root / "src" / "loopora" / "static" / "pages" / "run_detail.css").read_text(encoding="utf-8")
 
@@ -50,7 +50,7 @@ def test_run_detail_console_projector_maps_core_events_without_dom() -> None:
     node = shutil.which("node")
     if not node:
         pytest.skip("node is required for static JS module checks")
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[3]
     script = r"""
 const fs = require("fs");
 const vm = require("vm");
@@ -143,7 +143,7 @@ def test_run_detail_projectors_map_progress_timeline_and_takeaways_without_dom()
     node = shutil.which("node")
     if not node:
         pytest.skip("node is required for static JS module checks")
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[3]
     script = r"""
 const fs = require("fs");
 const vm = require("vm");
@@ -407,7 +407,7 @@ def test_run_detail_projector_defaults_escape_dynamic_html() -> None:
     node = shutil.which("node")
     if not node:
         pytest.skip("node is required for static JS module checks")
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[3]
     script = r"""
 const fs = require("fs");
 const vm = require("vm");
@@ -488,7 +488,7 @@ def test_run_detail_observation_projector_handles_snapshot_dedupe_and_stream_sta
     node = shutil.which("node")
     if not node:
         pytest.skip("node is required for static JS module checks")
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[3]
     script = r"""
 const fs = require("fs");
 const vm = require("vm");
@@ -551,7 +551,7 @@ def test_run_detail_state_and_stream_controller_handle_reliability_edges() -> No
     node = shutil.which("node")
     if not node:
         pytest.skip("node is required for static JS module checks")
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[3]
     script = r"""
 const fs = require("fs");
 const vm = require("vm");
@@ -1677,7 +1677,7 @@ def _assert_zh_new_orchestration_page(html: str) -> None:
 
 
 def test_new_orchestration_script_parses_boolean_like_step_session_flags() -> None:
-    script = (Path(__file__).resolve().parents[1] / "src" / "loopora" / "static" / "pages" / "new_orchestration.js").read_text(
+    script = (Path(__file__).resolve().parents[3] / "src" / "loopora" / "static" / "pages" / "new_orchestration.js").read_text(
         encoding="utf-8"
     )
 
@@ -2328,7 +2328,7 @@ def test_static_css_keeps_preview_timeline_and_mobile_nav_regressions_covered(se
 
 
 def test_role_definition_script_keeps_bilingual_text_updates_safe() -> None:
-    script = (Path(__file__).resolve().parents[1] / "src" / "loopora" / "static" / "pages" / "new_role_definition.js").read_text(encoding="utf-8")
+    script = (Path(__file__).resolve().parents[3] / "src" / "loopora" / "static" / "pages" / "new_role_definition.js").read_text(encoding="utf-8")
 
     assert "function setBilingualText" in script
     assert "replaceChildren(zhNode, enNode)" in script
