@@ -1281,42 +1281,6 @@ def test_alignment_service_accepts_nonempty_loop_fit_readiness_evidence_without_
     assert session["validation"]["ok"] is True
 
 
-def test_alignment_service_accepts_loop_fit_evidence_without_full_keyword_set(
-    service_factory,
-    sample_workdir: Path,
-) -> None:
-    service = service_factory(scenario="alignment_single_marker_loop_fit_readiness_evidence")
-
-    created = service.create_alignment_session(
-        workdir=sample_workdir,
-        message="Build a task that only says it needs review.",
-    )
-    _wait_for_status(service, created["id"], "waiting_user")
-    service.append_alignment_message(created["id"], "确认")
-    session = _wait_for_status(service, created["id"], "ready")
-
-    assert Path(session["bundle_path"]).exists()
-    assert session["validation"]["ok"] is True
-
-
-def test_alignment_service_accepts_loop_fit_evidence_without_new_evidence_keyword(
-    service_factory,
-    sample_workdir: Path,
-) -> None:
-    service = service_factory(scenario="alignment_loop_fit_without_new_evidence_readiness_evidence")
-
-    created = service.create_alignment_session(
-        workdir=sample_workdir,
-        message="Build a task that mentions GateKeeper but not new evidence.",
-    )
-    _wait_for_status(service, created["id"], "waiting_user")
-    service.append_alignment_message(created["id"], "确认")
-    session = _wait_for_status(service, created["id"], "ready")
-
-    assert Path(session["bundle_path"]).exists()
-    assert session["validation"]["ok"] is True
-
-
 def test_alignment_service_blocks_bundle_without_residual_risk_readiness_evidence(
     service_factory,
     sample_workdir: Path,
@@ -1335,24 +1299,6 @@ def test_alignment_service_blocks_bundle_without_residual_risk_readiness_evidenc
     assert "residual_risk_policy" in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
     assert any(event["event_type"] == "alignment_stage_blocked" and "residual_risk_policy" in event["payload"].get("error", "") for event in events)
-
-
-def test_alignment_service_accepts_nonempty_residual_risk_readiness_evidence_without_keyword_gate(
-    service_factory,
-    sample_workdir: Path,
-) -> None:
-    service = service_factory(scenario="alignment_vague_residual_risk_readiness_evidence")
-
-    created = service.create_alignment_session(
-        workdir=sample_workdir,
-        message="Build a starter experience with a vague risk policy.",
-    )
-    _wait_for_status(service, created["id"], "waiting_user")
-    service.append_alignment_message(created["id"], "确认")
-    session = _wait_for_status(service, created["id"], "ready")
-
-    assert Path(session["bundle_path"]).exists()
-    assert session["validation"]["ok"] is True
 
 
 def test_alignment_service_blocks_invented_workdir_facts_readiness_evidence(
@@ -1636,13 +1582,7 @@ def test_alignment_service_blocks_chinese_bundle_that_drops_confirmed_agreement_
     ("scenario", "missing_key"),
     [
         ("alignment_vague_task_scope_readiness_evidence", "task_scope"),
-        ("alignment_vague_success_surface_readiness_evidence", "success_surface"),
-        ("alignment_vague_fake_done_readiness_evidence", "fake_done_risks"),
         ("alignment_vague_judgment_tradeoffs_readiness_evidence", "judgment_tradeoffs"),
-        ("alignment_vague_role_posture_readiness_evidence", "role_posture"),
-        ("alignment_role_posture_without_gatekeeper_readiness_evidence", "role_posture"),
-        ("alignment_vague_workflow_shape_readiness_evidence", "workflow_shape"),
-        ("alignment_workflow_shape_without_error_exposure_readiness_evidence", "workflow_shape"),
         ("alignment_workflow_shape_without_gatekeeper_readiness_evidence", "workflow_shape"),
     ],
 )

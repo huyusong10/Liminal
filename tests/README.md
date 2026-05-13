@@ -22,22 +22,23 @@ Older labels such as L1/L2/L3 are no longer the primary taxonomy. They mixed exe
 
 | Profile | When | Typical Entry |
 | --- | --- | --- |
-| `default` | Every normal code change before commit | `uv run ruff check .` and focused `uv run pytest tests/checks/...` |
+| `default-fast` | Every normal code change before commit | `uv run ruff check .` and `uv run pytest -q tests/checks/contracts` |
 | `focused` | A touched module has a nearby contract or journey check | Focused pytest path under `tests/checks/contracts/` or `tests/checks/journeys/` |
+| `journey` | A touched UI flow, CI container job, or release profile needs rendered/user-flow evidence | `uv run pytest -q tests/checks/journeys` |
 | `opt-in` | A user/reviewer asks for visual, semantic, real-host, or exploratory evidence | `tests/reviews/run.py`, `tests/probes/real_environment/run_real_probes.py`, or a scenario playbook |
 | `release` | Before shipping changes that depend on real external hosts or browser/server integration | Real probe suites plus relevant journey checks |
 | `experiment` | The goal is to learn from a realistic task, not to block ordinary development | Explicit experiment tests under `tests/experiments/` |
 
-## Default Gate
+## Default-Fast Gate
 
 For ordinary code work, run:
 
 ```bash
 uv run ruff check .
-uv run pytest -q tests/checks/contracts tests/checks/journeys
+uv run pytest -q tests/checks/contracts
 ```
 
-Use narrower pytest paths when the touched behavior has a clear local boundary. Contract and journey checks should assert user-observable behavior, public return values, stable IDs, status semantics, structured errors, persisted artifacts, and accessible controls. They should not assert private variables, CSS classes, DOM nesting, transient implementation order, or exact copy unless the copy is itself the contract.
+Use narrower pytest paths when the touched behavior has a clear local boundary. Journey checks move out of the local default-fast gate: run them when the touched change affects rendered pages, browser state, navigation, forms, or the CI/release profile asks for them. Contract and journey checks should assert user-observable behavior, public return values, stable IDs, status semantics, structured errors, persisted artifacts, and accessible controls. They should not assert private variables, CSS classes, DOM nesting, transient implementation order, or exact copy unless the copy is itself the contract.
 
 ## Real Probes
 
@@ -86,6 +87,7 @@ Experiments may preserve copied workspaces, run artifacts, proof output, and rev
 
 - Use deterministic code checks for stable contracts.
 - Use review cases when code can collect pixels/text/hints but final judgment is semantic.
+- Keep expression-flexibility examples in review cases instead of multiplying contract checks for every acceptable wording.
 - Use scenarios when the useful artifact is an exploratory route rather than an automated assertion.
 - Use experiments when the task is costly, provider-dependent, or intentionally research-like.
 - Prefer one high-value journey over many branch-mirror tests.

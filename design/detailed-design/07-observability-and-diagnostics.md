@@ -71,9 +71,10 @@
 
 ## 2.1 默认 CI 与浏览器回归
 
-默认 CI 负责快速证明代码、包产物和 Web 浏览器主路径仍可运行：
+默认 CI 负责快速证明代码、包产物和 Web 主路径仍可运行，但把低成本契约与浏览器成本分开：
 
-- push / PR 路径必须包含 Python 静态检查、包构建、全量快速测试和浏览器 journey。
+- push / PR 的普通测试 job 必须包含 Python 静态检查、包构建和 `tests/checks/contracts` 契约检查；它不重复承担浏览器 journey 成本。
+- 浏览器/container job 负责 `tests/checks/journeys`，覆盖需要真实页面、浏览器状态、导航或表单交互的 journey。
 - 浏览器 journey 应失败在项目行为或测试断言上，而不是失败在每次运行时重复安装系统包依赖；浏览器 runtime 与系统库依赖应由固定 runner/container/cache 边界提供。
 - 默认浏览器 journey 不访问真实 provider、不依赖用户 secret，也不写入真实任务 workspace；真实 provider 验证只能走显式触发路径。
 

@@ -136,13 +136,190 @@ def _parse_named_urls(raw_urls: list[str], env_value: str | None) -> list[tuple[
     return urls
 
 
-def _target_file_globs(target: dict[str, Any]) -> list[str]:
+def _target_exclude_globs(target: dict[str, Any]) -> list[str]:
     globs = target.get("exclude") or []
     return [str(item) for item in globs]
 
 
 def _is_excluded(path: Path, globs: list[str]) -> bool:
     return any(fnmatch.fnmatch(path.name, pattern) or fnmatch.fnmatch(str(path), pattern) for pattern in globs)
+
+
+def _target_title(target: dict[str, Any], target_id: str) -> str:
+    return str(target.get("title") or target_id)
+
+
+def _expand_repo_globs(patterns: list[str], exclude: list[str]) -> list[Path]:
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in patterns:
+        for path in sorted(ROOT.glob(pattern)):
+            if not path.is_file() or _is_excluded(path.relative_to(ROOT), exclude) or path in seen:
+                continue
+            seen.add(path)
+            paths.append(path)
+    return paths
+
+
+def _resolve_repo_paths(paths: list[str], exclude: list[str]) -> list[Path]:
+    resolved: list[Path] = []
+    seen: set[Path] = set()
+    for raw_path in paths:
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute():
+            path = ROOT / path
+        if not path.exists() or not path.is_file() or _is_excluded(path.relative_to(ROOT) if path.is_relative_to(ROOT) else path, exclude) or path in seen:
+            continue
+        seen.add(path)
+        resolved.append(path)
+    return resolved
+
+
+def _artifact_rel_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _read_text_preview(path: Path, max_bytes: int) -> tuple[str, bool]:
+    raw = path.read_bytes()
+    truncated = len(raw) > max_bytes
+    text = raw[:max_bytes].decode("utf-8", errors="replace")
+    return text, truncated
+
+
+def _write_text_index(target: dict[str, Any], output_dir: Path) -> Artifact:
+    target_id = _slugify(str(target["id"]))
+    exclude = _target_exclude_globs(target)
+    patterns = [str(item) for item in target.get("globs") or []]
+    files = _expand_repo_globs(patterns, exclude)
+    if not files and not target.get("optional", False):
+        raise ValueError(f"text_globs target {target_id} matched no files")
+
+    max_bytes = int(target.get("max_bytes_per_file") or 12000)
+    output_path = output_dir / f"{target_id}.md"
+    lines = [f"# {_target_title(target, target_id)}", ""]
+    if not files:
+        lines.append("No files matched this optional target.")
+    for path in files:
+        preview, truncated = _read_text_preview(path, max_bytes)
+        lines.extend(
+            [
+                f"## `{_artifact_rel_path(path)}`",
+                "",
+                "```text",
+                preview.rstrip(),
+                "```",
+                "",
+            ]
+        )
+        if truncated:
+            lines.extend([f"_Truncated after {max_bytes} bytes._", ""])
+    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return Artifact(target_id=target_id, title=_target_title(target, target_id), kind="text_globs", path=output_path, hints=[])
+
+
+def _normalize_terms(raw_terms: Any) -> list[tuple[str, str]]:
+    terms: list[tuple[str, str]] = []
+    for item in raw_terms or []:
+        if isinstance(item, dict):
+            term = str(item.get("term") or "").strip()
+            label = str(item.get("label") or term).strip()
+        else:
+            term = str(item).strip()
+            label = term
+        if term:
+            terms.append((term, label or term))
+    return terms
+
+
+def _write_term_hints(target: dict[str, Any], output_dir: Path) -> Artifact:
+    target_id = _slugify(str(target["id"]))
+    exclude = _target_exclude_globs(target)
+    patterns = [str(item) for item in target.get("globs") or []]
+    files = _expand_repo_globs(patterns, exclude)
+    terms = _normalize_terms(target.get("terms"))
+    if not terms:
+        raise ValueError(f"term_hints target {target_id} needs at least one term")
+    if not files and not target.get("optional", False):
+        raise ValueError(f"term_hints target {target_id} matched no files")
+
+    hits: list[tuple[str, int, str, str]] = []
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        lowered_lines = text.splitlines()
+        for line_no, line in enumerate(lowered_lines, start=1):
+            line_lower = line.lower()
+            for term, label in terms:
+                if term.lower() in line_lower:
+                    hits.append((_artifact_rel_path(path), line_no, label, line.strip()))
+
+    output_path = output_dir / f"{target_id}.md"
+    lines = [f"# {_target_title(target, target_id)}", ""]
+    if hits:
+        for rel_path, line_no, label, line in hits:
+            lines.append(f"- `{rel_path}:{line_no}` `{label}`: {line}")
+    else:
+        lines.append("No configured terms were found.")
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    hints = [f"{rel_path}:{line_no}: review `{label}` wording" for rel_path, line_no, label, _line in hits[:120]]
+    return Artifact(target_id=target_id, title=_target_title(target, target_id), kind="term_hints", path=output_path, hints=hints)
+
+
+def _parse_named_paths(raw_paths: list[str], env_value: str | None) -> list[tuple[str, str]]:
+    values = [*raw_paths]
+    if env_value:
+        values.extend(item.strip() for item in env_value.split(",") if item.strip())
+    named_paths: list[tuple[str, str]] = []
+    for index, raw in enumerate(values, start=1):
+        if "=" in raw:
+            name, path = raw.split("=", 1)
+        else:
+            name, path = f"artifact-{index}", raw
+        named_paths.append((_slugify(name), path))
+    return named_paths
+
+
+def _write_artifact_paths(target: dict[str, Any], output_dir: Path, cli_artifacts: list[str]) -> Artifact:
+    target_id = _slugify(str(target["id"]))
+    exclude = _target_exclude_globs(target)
+    configured_paths = [str(item) for item in target.get("paths") or []]
+    configured_globs = [str(item) for item in target.get("globs") or []]
+    env_paths = _parse_named_paths([], os.environ.get(str(target.get("paths_env") or "")))
+    cli_paths = _parse_named_paths(cli_artifacts, None)
+    all_paths = configured_paths + [path for _name, path in env_paths] + [path for _name, path in cli_paths]
+    files = [*_resolve_repo_paths(all_paths, exclude), *_expand_repo_globs(configured_globs, exclude)]
+
+    if not files and not target.get("optional", False):
+        raise ValueError(f"artifact_paths target {target_id} matched no files")
+
+    max_bytes = int(target.get("max_bytes_per_file") or 16000)
+    output_path = output_dir / f"{target_id}.md"
+    lines = [f"# {_target_title(target, target_id)}", ""]
+    hints: list[str] = []
+    if not files:
+        lines.append("No artifact files matched this optional target.")
+        hints.append(f"{target_id}: no artifacts matched; run the probe or pass --artifact when reviewing behavior evidence")
+    for path in files:
+        preview, truncated = _read_text_preview(path, max_bytes)
+        lines.extend(
+            [
+                f"## `{_artifact_rel_path(path)}`",
+                "",
+                "```text",
+                preview.rstrip(),
+                "```",
+                "",
+            ]
+        )
+        if truncated:
+            lines.extend([f"_Truncated after {max_bytes} bytes._", ""])
+    output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return Artifact(target_id=target_id, title=_target_title(target, target_id), kind="artifact_paths", path=output_path, hints=hints)
 
 
 def _svg_contact_sheet_html(root: Path, files: list[Path]) -> str:
@@ -165,7 +342,7 @@ img{{max-width:100%;max-height:100%;display:block;}}
 def _render_svg_directory(playwright_driver: Any, target: dict[str, Any], output_dir: Path) -> Artifact:
     target_id = _slugify(str(target["id"]))
     source_dir = ROOT / str(target["path"])
-    globs = _target_file_globs(target)
+    globs = _target_exclude_globs(target)
     files = [path for path in sorted(source_dir.glob("*.svg")) if not _is_excluded(path, globs)]
     if not files:
         raise ValueError(f"no SVG files matched target {target_id}: {source_dir}")
@@ -185,7 +362,7 @@ def _render_svg_directory(playwright_driver: Any, target: dict[str, Any], output
         for path in files:
             probe.set_content(path.read_text(encoding="utf-8"), wait_until="load")
             hints.extend(f"{path.relative_to(ROOT)}: {hint}" for hint in probe.evaluate(SVG_TEXT_HINT_SCRIPT))
-        return Artifact(target_id=target_id, title=str(target.get("title") or target_id), kind="svg_directory", path=screenshot_path, hints=hints)
+        return Artifact(target_id=target_id, title=_target_title(target, target_id), kind="svg_directory", path=screenshot_path, hints=hints)
     finally:
         browser.close()
 
@@ -259,22 +436,37 @@ def _write_report(case: Case, artifacts: list[Artifact], output_dir: Path) -> Pa
     return report_path
 
 
-def _run_case(case: Case, output_root: Path, cli_urls: list[str]) -> Path:
-    sync_api = __import__("playwright.sync_api", fromlist=["sync_playwright"])
+def _run_case(case: Case, output_root: Path, cli_urls: list[str], cli_artifacts: list[str]) -> Path:
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     output_dir = output_root / run_id / _slugify(case.case_id)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     artifacts: list[Artifact] = []
-    with sync_api.sync_playwright() as playwright_driver:
+    browser_target_types = {"svg_directory", "web_urls"}
+    needs_browser = any(target.get("type") in browser_target_types for target in case.targets)
+    playwright_context = None
+    if needs_browser:
+        sync_api = __import__("playwright.sync_api", fromlist=["sync_playwright"])
+        playwright_context = sync_api.sync_playwright()
+    try:
+        playwright_driver = playwright_context.__enter__() if playwright_context else None
         for target in case.targets:
             target_type = target.get("type")
             if target_type == "svg_directory":
                 artifacts.append(_render_svg_directory(playwright_driver, target, output_dir))
             elif target_type == "web_urls":
                 artifacts.extend(_render_web_urls(playwright_driver, target, output_dir, cli_urls))
+            elif target_type == "text_globs":
+                artifacts.append(_write_text_index(target, output_dir))
+            elif target_type == "artifact_paths":
+                artifacts.append(_write_artifact_paths(target, output_dir, cli_artifacts))
+            elif target_type == "term_hints":
+                artifacts.append(_write_term_hints(target, output_dir))
             else:
                 raise ValueError(f"unknown review target type: {target_type}")
+    finally:
+        if playwright_context:
+            playwright_context.__exit__(None, None, None)
     return _write_report(case, artifacts, output_dir)
 
 
@@ -283,6 +475,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list", action="store_true", help="List available review cases.")
     parser.add_argument("--case", action="append", dest="case_ids", help="Case id to run. Defaults to rendered-surfaces.")
     parser.add_argument("--url", action="append", default=[], help="Web URL to include, optionally as name=url.")
+    parser.add_argument("--artifact", action="append", default=[], help="Artifact file to include, optionally as name=path.")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT, help="Directory where review artifacts are written.")
     args = parser.parse_args(argv)
 
@@ -299,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     for case_id in selected_ids:
-        report_path = _run_case(cases[case_id], args.output_root, args.url)
+        report_path = _run_case(cases[case_id], args.output_root, args.url, args.artifact)
         print(f"Review report: {report_path}")
     return 0
 

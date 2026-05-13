@@ -5,7 +5,7 @@ targets:
   - id: docs-diagrams
     type: svg_directory
     title: Documentation diagrams
-    path: docs/assets/diagrams
+    path: assets/diagrams
   - id: operator-web-pages
     type: web_urls
     title: Web pages supplied by the operator
@@ -28,6 +28,7 @@ Look for:
 - Arrows, connector lines, pills, captions, badges, or status chips crossing labels or occupying the same visual lane as surrounding content.
 - Bottom captions or summary statements colliding with nearby panels, chips, or legends.
 - Dense cards, controls, or page chrome that lose readable hierarchy after viewport scaling.
+- Run observation, bundle import/manual paths, and workflow diagrams where hover affordances, arrows, chips, or status labels are technically present but visually hard to read.
 - Bilingual variants where one language fits but the other no longer has enough layout budget.
 
 Logo assets are explicitly out of scope for this case.

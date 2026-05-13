@@ -2,7 +2,7 @@
 
 Review cases are opt-in evidence workflows for rendered surfaces and other fuzzy semantic judgments. They are not deterministic contract or journey checks and are not release gates by default.
 
-Use it when a user or reviewer asks for visual quality, semantic language, concept coherence, or Agent-behavior review work. SVG diagrams and Web pages use the same runner and the same case format; they differ only by target type.
+Use it when a user or reviewer asks for visual quality, semantic language, concept coherence, or Agent-behavior review work. SVG diagrams, Web pages, source text, and recorded run artifacts use the same runner and the same case format; they differ only by target type.
 
 ## How To Run
 
@@ -31,11 +31,32 @@ LOOPORA_REVIEW_URLS="home=http://127.0.0.1:8000/,compose=http://127.0.0.1:8000/l
   uv run python tests/reviews/run.py --case rendered-surfaces
 ```
 
-Artifacts are written under `.loopora/reviews/<timestamp>/` and include screenshots, rendered contact sheets, machine hints, and a Markdown report.
+Run semantic/text cases without starting a browser:
+
+```bash
+uv run python tests/reviews/run.py --case default-path-language
+uv run python tests/reviews/run.py --case concept-coherence
+```
+
+Include real probe or run artifacts for Agent-native behavior review:
+
+```bash
+uv run python tests/reviews/run.py --case agent-native-behavior --artifact phase=.loopora/real-probes/real-agent-phase-report.json
+```
+
+Artifacts are written under `.loopora/reviews/<timestamp>/` and include screenshots, rendered contact sheets, text indexes, artifact previews, machine hints, and a Markdown report.
+
+Supported target types:
+
+- `svg_directory`: renders a contact sheet and SVG text-layout hints.
+- `web_urls`: captures supplied Web URLs across configured viewports.
+- `text_globs`: builds a bounded text index from repository files.
+- `artifact_paths`: reads configured, environment-provided, or CLI-provided artifact files.
+- `term_hints`: scans configured terms and emits non-blocking machine hints.
 
 ## What Counts As Evidence
 
-The runner captures concrete pixels and lightweight machine hints. The final judgment is still human/agent review against the case brief.
+The runner captures concrete pixels, relevant text, recorded artifacts, and lightweight machine hints. The final judgment is still human/agent review against the case brief.
 
 Good findings describe rendered user-facing problems:
 

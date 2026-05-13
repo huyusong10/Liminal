@@ -26,3 +26,9 @@
 - 新手主路径保持“Loop / 运行 / 证据结论”的心智，理解 Loop 是被人类判断塑形的运行结构，不要求先理解内部 YAML。
 - READY、运行、证据和守门裁决都能回到同一份 `spec / roles / workflow / evidence` 契约。
 - 旧数据或降级路径可以继续查看，但不能伪装成已经满足新证据质量。
+
+**为什么保留为 scenario**：
+
+- contract checks 能证明各 API、bundle、run evidence 和 GateKeeper 契约，但不能证明操作者在跨多个入口时是否仍能形成同一个“human-shaped Loop”产品心智。
+- browser journeys 能覆盖关键页面是否可达，review cases 能检查文案与视觉语义，但这个场景需要把对话确认、READY 预览、真实运行证据、裁决和导出串成一次连续判断。
+- real probes 只证明真实宿主或 provider 边界，不应承担完整产品叙事和人工理解路径的成本。

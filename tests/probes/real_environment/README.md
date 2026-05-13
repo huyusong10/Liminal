@@ -16,6 +16,8 @@ Real probes protect the real-environment boundary that deterministic contract an
 
 Use larger realistic workflows only as manual scenarios or explicitly marked experiments. They should not become the default release-profile blocker unless the feature being released is about that workflow.
 
+The old Agent-first adapter scenario is now split by evidence type: this handbook and the real-agent probe cover stable hard invariants, while `tests/reviews/cases/agent-native-behavior.md` reviews recorded phase reports for fuzzy Agent-native behavior such as whether the host experience reads like a managed Loop instead of an inline shortcut.
+
 Design-to-evidence traceability:
 
 | Design clause | Suite | Hard assertion | Evidence artifact |

@@ -177,7 +177,7 @@ Agent-first adapter 的验证按证据类型组织，而不是按旧的 L1/L2/L3
 
 稳定规则：
 
-- Contract checks 和 journey checks 是提交前默认质量门槛；real probes 是发布或合并到上线分支前的主动 gate。
+- Contract checks 是本地 default-fast 和普通 CI job 的提交前默认质量门槛；journey checks 在 touched UI、浏览器/container CI job 或 release profile 中运行；real probes 是发布或合并到上线分支前的主动 gate。
 - Real probe 的入口是 handbook，而不是单个 pytest 文件；运行或解释前应先读 `tests/probes/real_environment/README.md`，再选择 runner suite、目标 Agent 与等待/排障策略。测试代码只断言稳定契约，说明书承载等待、并行、日志追踪和模糊语义排障经验。
 - Real probe 可以依赖本机真实 Codex、浏览器和 shell 环境；缺少环境时必须 skip 并给出缺少的显式环境变量或命令模板。
 - Real probe 仍然断言用户可观察结果和落盘资产，不把宿主 CLI 的内部输出格式写成 Loopora 契约。
