@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="640" viewBox="0 0 1000 640" role="img" aria-labelledby="title desc">
+  <title id="title">人的判断被整理成四个运行面</title>
+  <desc id="desc">图示模糊的人类要求如何被整理成任务契约、执行姿态、证据路径和裁决规则四个用户可理解的运行面。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M2 2 L10 6 L2 10 Z" fill="#2563eb"/>
+    </marker>
+    <filter id="shadow" x="-8%" y="-8%" width="116%" height="124%">
+      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+  <rect width="1000" height="640" rx="28" fill="#f6f8fb"/>
+  <text x="500" y="58" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="700" fill="#172033">“编译”不是加长 prompt，而是把判断放进运行面</text>
+  <text x="500" y="92" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" fill="#5b6475">这些运行面让后续轮次可以被追问、记录和裁决</text>
+
+  <rect x="56" y="155" width="292" height="314" rx="20" fill="#ffffff" stroke="#cbd5e1" filter="url(#shadow)"/>
+  <text x="202" y="202" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#172033">人的原始说法</text>
+  <text x="92" y="256" font-family="Inter, Arial, sans-serif" font-size="17" fill="#334155">“别只给我一个能点的页面”</text>
+  <text x="92" y="302" font-family="Inter, Arial, sans-serif" font-size="17" fill="#334155">“先证明权限和资格”</text>
+  <text x="92" y="348" font-family="Inter, Arial, sans-serif" font-size="17" fill="#334155">“越权退款绝对不行”</text>
+  <text x="92" y="394" font-family="Inter, Arial, sans-serif" font-size="17" fill="#334155">“先别美化 UI”</text>
+  <circle cx="76" cy="250" r="5" fill="#2563eb"/>
+  <circle cx="76" cy="296" r="5" fill="#2563eb"/>
+  <circle cx="76" cy="342" r="5" fill="#dc2626"/>
+  <circle cx="76" cy="388" r="5" fill="#d97706"/>
+
+  <path d="M360 312 C388 312 406 312 434 312" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="397" y="291" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600" fill="#1e3a8a">整理成</text>
+
+  <rect x="454" y="138" width="218" height="166" rx="18" fill="#eff6ff" stroke="#bfdbfe" filter="url(#shadow)"/>
+  <text x="563" y="181" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#1e3a8a">任务契约</text>
+  <text x="488" y="225" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">什么算完成</text>
+  <text x="488" y="256" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">什么是假完成</text>
+
+  <rect x="718" y="138" width="218" height="166" rx="18" fill="#ecfdf5" stroke="#a7f3d0" filter="url(#shadow)"/>
+  <text x="827" y="181" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#065f46">执行姿态</text>
+  <text x="752" y="225" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">下一轮优先什么</text>
+  <text x="752" y="256" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">构建、取证或修复</text>
+
+  <rect x="454" y="348" width="218" height="166" rx="18" fill="#fff7ed" stroke="#fed7aa" filter="url(#shadow)"/>
+  <text x="563" y="391" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#9a3412">证据路径</text>
+  <text x="488" y="435" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">每轮留下什么材料</text>
+  <text x="488" y="466" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">证明了什么、没证明什么</text>
+
+  <rect x="718" y="348" width="218" height="166" rx="18" fill="#fef2f2" stroke="#fecaca" filter="url(#shadow)"/>
+  <text x="827" y="391" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#991b1b">裁决规则</text>
+  <text x="752" y="435" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">什么时候能收口</text>
+  <text x="752" y="466" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">什么时候必须停止</text>
+
+  <rect x="214" y="553" width="572" height="50" rx="16" fill="#172033"/>
+  <text x="500" y="584" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="600" fill="#ffffff">运行中的每一轮，都必须回到这些面上说明证据、缺口、风险和下一步</text>
+</svg>

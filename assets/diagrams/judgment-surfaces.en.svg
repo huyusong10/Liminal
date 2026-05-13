@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="640" viewBox="0 0 1000 640" role="img" aria-labelledby="title desc">
+  <title id="title">Human judgment becomes four running surfaces</title>
+  <desc id="desc">The diagram shows loose human instructions becoming a task contract, execution posture, evidence path, and decision rule that readers can understand.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M2 2 L10 6 L2 10 Z" fill="#2563eb"/>
+    </marker>
+    <filter id="shadow" x="-8%" y="-8%" width="116%" height="124%">
+      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+  <rect width="1000" height="640" rx="28" fill="#f6f8fb"/>
+  <text x="500" y="58" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="29" font-weight="700" fill="#172033">“Compilation” is not a longer prompt; it gives judgment a place to run</text>
+  <text x="500" y="92" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" fill="#5b6475">These surfaces make later rounds askable, recordable, and decidable</text>
+
+  <rect x="56" y="155" width="292" height="314" rx="20" fill="#ffffff" stroke="#cbd5e1" filter="url(#shadow)"/>
+  <text x="202" y="202" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#172033">Raw human wording</text>
+  <text x="90" y="256" font-family="Inter, Arial, sans-serif" font-size="16" fill="#334155">“Do not just give me a page”</text>
+  <text x="90" y="302" font-family="Inter, Arial, sans-serif" font-size="16" fill="#334155">“Prove authorization first”</text>
+  <text x="90" y="348" font-family="Inter, Arial, sans-serif" font-size="16" fill="#334155">“Unauthorized refunds block”</text>
+  <text x="90" y="394" font-family="Inter, Arial, sans-serif" font-size="16" fill="#334155">“Do not polish UI yet”</text>
+  <circle cx="76" cy="250" r="5" fill="#2563eb"/>
+  <circle cx="76" cy="296" r="5" fill="#2563eb"/>
+  <circle cx="76" cy="342" r="5" fill="#dc2626"/>
+  <circle cx="76" cy="388" r="5" fill="#d97706"/>
+
+  <path d="M360 312 C388 312 406 312 434 312" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="397" y="291" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600" fill="#1e3a8a">becomes</text>
+
+  <rect x="454" y="138" width="218" height="166" rx="18" fill="#eff6ff" stroke="#bfdbfe" filter="url(#shadow)"/>
+  <text x="563" y="181" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#1e3a8a">Task contract</text>
+  <text x="488" y="225" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">what counts as done</text>
+  <text x="488" y="256" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">what is fake done</text>
+
+  <rect x="718" y="138" width="218" height="166" rx="18" fill="#ecfdf5" stroke="#a7f3d0" filter="url(#shadow)"/>
+  <text x="827" y="181" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#065f46">Execution posture</text>
+  <text x="752" y="225" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">what the next round</text>
+  <text x="752" y="256" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">should prioritize</text>
+
+  <rect x="454" y="348" width="218" height="166" rx="18" fill="#fff7ed" stroke="#fed7aa" filter="url(#shadow)"/>
+  <text x="563" y="391" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#9a3412">Evidence path</text>
+  <text x="488" y="435" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">what each round leaves</text>
+  <text x="488" y="466" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">proven and unproven</text>
+
+  <rect x="718" y="348" width="218" height="166" rx="18" fill="#fef2f2" stroke="#fecaca" filter="url(#shadow)"/>
+  <text x="827" y="391" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#991b1b">Decision rule</text>
+  <text x="752" y="435" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">when the run can close</text>
+  <text x="752" y="466" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">when it must stop</text>
+
+  <rect x="148" y="553" width="704" height="50" rx="16" fill="#172033"/>
+  <text x="500" y="584" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="600" fill="#ffffff">Every round returns here with evidence, gaps, risk, and next action</text>
+</svg>

@@ -11,236 +11,134 @@
   <a href="https://fastapi.tiangolo.com/">
     <img alt="FastAPI" src="https://img.shields.io/badge/web-FastAPI-009688?logo=fastapi&logoColor=white">
   </a>
-  <img alt="Local first" src="https://img.shields.io/badge/local--first-human--shaped%20AI%20loops-0D7C66">
+  <img alt="Agent first" src="https://img.shields.io/badge/agent--first-loop-2563EB">
+  <img alt="Local first" src="https://img.shields.io/badge/local--first-evidence-0D7C66">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-D66A36">
 </p>
 
-**Loopora compiles repeated human judgment into runnable Loop structure for long-running AI Agent tasks.**
+# Loopora
 
-New to Loopora? Start with the philosophy: [Human-Shaped Loop](./docs/human-shaped-loop.md).
+**Start the Loop inside your Agent. Watch the evidence in the Web UI.**
 
-## The One-Sentence Pitch
+Loopora adds a visible running structure to long AI Agent tasks: it captures the judgment, evidence requirements, and stopping conditions you would otherwise repeat later, then keeps the Agent returning to them across rounds.
 
-> Can the judgment a human would repeat later be shaped *before* the loop starts?
-
-If yes, Loopora turns that judgment into a runnable Loop: a task contract, role responsibilities, workflow gates, evidence flow, and a verdict surface that an Agent can iterate inside—without drifting.
-
-## Do You Need It?
-
-Start with the negative question:
-
-> Would one strong Agent pass plus one human review be enough?
-
-If yes, do not use Loopora. Direct Agent work is cheaper.
-
-Loopora is for the moment when "ask the Agent again" stops being the right abstraction. The missing piece is no longer effort. It is the repeated human judgment that decides whether each round is real progress, fake progress, acceptable risk, or a reason to redirect.
-
-**The gate:**
-
-| # | Question | If yes... |
-|---|----------|-----------|
-| 1 | One Agent pass + one review enough? | **Skip Loopora.** |
-| 2 | Humans would not keep returning after key rounds? | Direct Agent or a simple loop is enough. |
-| 3 | Future judgment cannot be shaped before the run? | Keep humans in the live loop. |
-| 4 | Future judgment repeats and can be shaped ahead of time? | **Compose a human-shaped Loop.** |
-
-## What It Saves
-
-Not judgment itself. It saves the *repeated moments* where humans are pulled back into a long task to ask the same questions:
-
-- Did this round prove the right thing?
-- Is the result truly done, or only locally plausible?
-- Did the Agent silently lower the acceptance standard?
-- Which evidence should be trusted?
-- Which risk is acceptable, and which must block?
-- Should the next round build, inspect, repair, narrow scope, or stop?
-
-When those questions repeat, the bottleneck is no longer generation. It is repeatedly applying human judgment.
-
-Loopora moves that judgment earlier:
-
-```
-human-in-the-loop  →  human-shaped loop
-```
-
-Humans do not disappear. They move from live per-round correction to Loop design and evidence audit.
+This README is only the first-use path. For the deeper argument behind this layer, read [Human-Shaped Loop](./HUMAN-SHAPED-LOOP.md).
 
 <p align="center">
-  <img src="./docs/assets/diagrams/time-shift.en.svg" alt="Human judgment moves from live correction to prior loop design" width="1000" />
+  <img src="./assets/diagrams/first-run-path.en.svg" alt="Loopora recommends generating and running a Loop inside the Agent while the Web UI observes and manages the evidence" width="1000" />
 </p>
 
-## Why a Simple Loop Is Not Enough
+## Start With a Task
 
-Simple loops extend time. They excel when the task has hard external validation: benchmarks, contract tests, schema checks, lint, type checks, or a proof harness.
+Imagine you are asking a Coding Agent to build a refund admin:
 
-But without governance, a loop is a blind box. Early error can be inherited, amplified, and rationalized by later rounds. The result may become more complete, more coherent, and still wrong.
+> Build a refund request admin. Do not stop at a clickable page. Prove admin authorization, refund eligibility, payment failure handling, and auditability.
 
-Loopora's goal is not "more rounds." Its goal is slower error accumulation.
+With a single prompt, the Agent may quickly produce a plausible page and a few happy-path tests. The hard part starts in the next round: did it prove the authorization boundary? Is eligibility real or mocked? What happens after a payment provider failure? Can an audit log reconstruct a refund?
 
-> A loop without governance is a blind box. A governed Loop is an error decelerator.
+Loopora does one simple thing: it turns the questions you would keep asking later into a Loop, so each Agent round comes back with evidence instead of only a nicer summary.
 
-<p align="center">
-  <img src="./docs/assets/diagrams/error-cascade.en.svg" alt="Early error gets inherited and polished across rounds" width="1000" />
-</p>
+## Install
 
-<p align="center">
-  <img src="./docs/assets/diagrams/governed-loop.en.svg" alt="Comparison between a naive loop and a governed human-shaped Loop" width="1000" />
-</p>
-
-## What Loopora Compiles
-
-A **Loop** is not a longer prompt. It is the runnable shape of how this task should be judged.
-
-| Surface | Job |
-|---------|-----|
-| `spec` | Scope, success, fake done, guardrails, evidence preference, residual risk |
-| `roles` | How each AI Agent role should build, inspect, gate, or redirect |
-| `workflow` | Order, handoff, evidence routing, automatic iteration, controls, stop conditions |
-| `evidence` | What each run changed, checked, proved, failed to prove, and decided |
-
-Internally, Loopora stores or exchanges a Loop as a YAML **bundle**. Users do not need to start there. The Web UI guides you through task description, Loop-shaping questions, preview of the governance surfaces, and run creation only after the candidate Loop validates.
-
-<p align="center">
-  <img src="./docs/assets/diagrams/judgment-compiler.en.svg" alt="Loopora compiles tacit judgment into spec, roles, workflow, evidence, and verdicts" width="1000" />
-</p>
-
-## Why Not Let the Model Learn This
-
-The model should learn general capability: coding, reasoning, tool use, planning, language, and broad patterns.
-
-But task judgment is often local, temporary, and debatable:
-
-- this task should be strict; another task should explore
-- this benchmark is trusted here; another benchmark may be misleading
-- this residual risk is acceptable now; the same risk may block in another context
-- this project should preserve public contracts; another prototype may optimize speed
-
-Those judgments should be explicit, previewable, editable, exportable, and disposable. They belong in the Agent harness or Loop layer, not silently in model weights.
-
-> The model learns general capability. The Loop learns how this task should be judged.
-
-## A Real Example
-
-> Build an English learning website.
-
-A normal Agent may produce polished pages: a landing page, vocabulary cards, exercises, buttons, and attractive visuals. It can look finished before proving that a learner can complete one real learning cycle.
-
-Loopora asks judgment questions first:
-
-- Is the first version a real learning path or a product sketch?
-- What is fake done: good-looking pages without a usable study loop?
-- Which evidence proves the learner can choose a goal, study, practice, and see progress?
-- Should GateKeeper reject UI polish if the learning loop is not real?
-
-That may compile into:
-
-```text
-Builder
--> Contract Inspector + Evidence Inspector
--> GateKeeper
--> repair with evidence, or close with evidence
-```
-
-The Agent can still create, inspect, and repair. The difference is that "done" is no longer whatever the last message can plausibly claim. Done must be supported by the evidence the Loop asked for.
-
-## Five-Minute Path
-
-Loopora can become powerful, but first use must stay simple:
-
-> describe the task → choose a workdir → confirm the Loop → run → inspect evidence
-
-Advanced features such as parallel Inspectors, evidence routing, workflow controls, trigger rules, and provider-specific execution are compiled into the plan only when they help control long-task error. They are not concepts a new user must configure up front.
-
-## When Should You Use It
-
-Ask in order:
-
-1. **One Agent pass + one review enough?** If yes, skip.
-2. **Would a human otherwise return after meaningful rounds to judge what happened?** If no, direct Agent or a simple loop may be enough.
-3. **Will the next round create new evidence?** If no, more looping only creates drift.
-4. **Is the judgment hard to reduce to one stable benchmark?** If benchmarkable, use the benchmark first.
-5. **Is fake done likely?** Loopora is most useful when a result can look done while the core loop, root cause, contract, evidence, or risk posture is not solid.
-6. **Should this judgment survive one chat?** If the way of judging the task should be inherited, exported, reused, or audited, it may deserve a Loop.
-
-Loopora is not for "all complex tasks." It is for long tasks where human judgment would repeat, evidence changes across rounds, and fake completion is worth blocking.
-
-<p align="center">
-  <img src="./docs/assets/diagrams/autonomy-multiplication.en.svg" alt="Agent autonomy depends on judgment structure, evidence feedback, and error exposure speed" width="1000" />
-</p>
-
-## Quick Start
-
-Until Loopora is published as a Python package, install the CLI from the repository root:
+For now, install from source. From the repository root:
 
 ```bash
 uv tool install --editable .
 ```
 
-If uv says the tool bin directory is not on `PATH`, run `uv tool update-shell` once and restart the shell.
+If uv says the tool directory is not on `PATH`, run:
 
-Start the local Web console:
+```bash
+uv tool update-shell
+```
+
+Then restart your shell.
+
+## Recommended Path: Use It Inside Your Agent
+
+Loopora's default entry point is the Coding Agent you already use. With Codex, switch to the project where the Agent will work, then install the Loopora project entry:
+
+```bash
+cd /path/to/your/project
+loopora init codex
+```
+
+Claude Code and OpenCode can be connected too:
+
+```bash
+loopora init claude
+loopora init opencode
+```
+
+Then return to your Agent and use two entries for the current task:
+
+```text
+/loopora-gen
+/loopora-loop
+```
+
+They have different jobs:
+
+| Entry | What happens |
+| --- | --- |
+| `/loopora-gen` | Turns the current task and your judgment into a reviewable candidate Loop. It does not start the run. |
+| `/loopora-loop` | Starts or resumes the task with the confirmed Loop, so the Agent advances through evidence. |
+
+For the first run, you can say:
+
+```text
+I need to build a refund request admin. Please generate a Loopora Loop:
+- a clickable page is not enough
+- admin authorization and refund eligibility must be proven
+- payment failures must be traceable and handoff-ready
+- the audit trail must reconstruct a refund
+```
+
+Then run `/loopora-gen`. Loopora returns a local Web URL where you can see what the task became. After you confirm it, run `/loopora-loop`; the current Agent continues under that Loop.
+
+## What Gets Compiled?
+
+You do not need to learn the internal format first. Think of it as a runtime whiteboard:
+
+| What you would keep asking | What the Loop carries |
+| --- | --- |
+| "Do not just give me a clickable page." | A submit-ready page is not enough; the real refund path must be proven. |
+| "Prove authorization and eligibility first." | Each round must account for authorization, eligibility, and boundary evidence. |
+| "Unauthorized refunds are unacceptable." | Unauthorized, duplicate, or unauditable refund paths block completion. |
+| "Do not polish the UI yet." | The next round prioritizes business-path evidence over polish. |
+| "Some loose ends can remain." | Residual risk may remain, but it must be explicit, visible, and owned. |
+
+That is the difference between Loopora and an ordinary prompt: a prompt mainly tells the Agent what to do now; Loopora keeps later rounds tied to the same judgment and evidence.
+
+## Web Entry
+
+The Web UI is the fuller observation and management surface. You can start a Loop from inside the Agent, then open Web whenever you want to inspect or manage it.
+
+Start the local Web UI:
 
 ```bash
 loopora serve --host 127.0.0.1 --port 8742
 ```
 
-Open [http://127.0.0.1:8742](http://127.0.0.1:8742), choose **Compose**, select a workdir, and describe the task.
+Open [http://127.0.0.1:8742](http://127.0.0.1:8742).
 
-## Web Flow
+Web is useful when you want to:
 
-In the local Web UI:
+- see running and completed Loops.
+- inspect evidence, gaps, blockers, and final verdicts.
+- install or update Codex, Claude Code, and OpenCode Agent entries.
+- edit a candidate Loop, or create one directly from Web.
 
-1. **Loops** — daily workspace for saved Loops, active activity, and latest runs.
-2. **Compose** — chat-first Loop composition workbench.
-3. Loopora calls your local AI Agent CLI and asks only questions that change the Loop.
-4. READY Loops show the task contract, roles, workflow diagram, and source file action.
-5. **Create and run** materializes the Loop and starts the run.
-6. **Library** keeps plan files, role definitions, and flow library entries for expert reuse.
+The Agent entry and Web entry are not separate worlds. Even if a Loop starts inside your Agent, it is recorded in the same local system and can be viewed and managed in Web.
 
-Manual creation remains available for expert users who already know which `spec`, `roles`, or `workflow` surface they want to edit. Importing YAML or asking an Agent to improve an existing bundle are also composition scenarios; after validation, they enter the same run, evidence, and verdict path.
+## Technical Shape: How the Bundle Carries Judgment
 
-## Expert YAML Path
+<p align="center">
+  <img src="./assets/diagrams/bundle-judgment-structure.en.svg" alt="A Loopora Bundle carries task-local judgment through task contract, Agent responsibilities, run flow, evidence rules, and verdict rules" width="1000" />
+</p>
 
-The Web UI is the recommended path because it keeps judgment elicitation, Loop composition, validation, preview, execution, and evidence in one guided flow.
+Loopora compiles a reviewable Bundle. It does not try to encode all human judgment; it encodes the part of judgment that will repeatedly affect this long-running task.
 
-YAML remains an expert import/export format. It is useful for auditing, reuse, and manual exchange, but Loopora no longer treats an external Agent Skill as a first-class bundle compiler.
+The Bundle is sufficient because five surfaces work together: the task contract prevents the goal from shrinking, Agent responsibilities keep each round focused, run flow says where to return when evidence is weak, evidence rules separate claims from proof, and verdict rules decide whether to pass, block, continue, or carry explicit residual risk.
 
-## CLI
-
-The CLI remains available for automation and expert usage:
-
-```bash
-loopora run \
-  --spec ./demo-spec.md \
-  --workdir /absolute/path/to/project \
-  --executor codex \
-  --model <model> \
-  --max-iters 8
-```
-
-When Loopora is published as a Python package, install it as a CLI tool with `uv tool install loopora` or `pipx install loopora`. Plain `python -m pip install loopora` is also valid inside an activated virtual environment, but tool installs give the cleanest always-available `loopora` command.
-
-## Project Status
-
-Loopora is experimental and local-first.
-
-Stable commitments:
-
-- Loopora compiles task-scoped human judgment into explicit, inspectable Loop surfaces
-- long-running task orchestration should live outside a single AI Agent conversation
-- Loops remain inspectable and file-backed
-- bundle import/export stays explicit and local
-- runs must produce evidence, not only logs: ledger, coverage, manifest, and task verdict artifacts stay traceable from the result view
-- accepting a result or improving a Loop from run evidence must stay tied to the concrete evidence verdict, not to hidden prompt drift
-- bundle changes should stay explicit through import/export, not hidden prompt drift
-
-## Development
-
-Run the local checks:
-
-```bash
-uv sync
-uv run ruff check .
-uv build --out-dir tmp/package-check
-uv run pytest -q
-```
+At the end of each round, Loopora does not only ask whether the Agent said "done." It reconciles the output against the Bundle: what was proven, what is weak evidence, what remains unproven, which risk blocks closure, and which gap the next round should repair.

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620" role="img" aria-labelledby="title desc">
+  <title id="title">How a plain automated loop amplifies early error</title>
+  <desc id="desc">The diagram shows an unguided loop turning a weak proxy goal, such as a submitting page, into a more convincing completion story while core risks remain unproven.</desc>
+  <defs>
+    <marker id="arrow-red" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M2 2 L10 6 L2 10 Z" fill="#dc2626"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+      <path d="M2 2 L10 6 L2 10 Z" fill="#2563eb"/>
+    </marker>
+    <filter id="shadow" x="-8%" y="-8%" width="116%" height="124%">
+      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+  <rect width="1000" height="620" rx="28" fill="#f6f8fb"/>
+  <text x="500" y="58" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="29" font-weight="700" fill="#172033">Without steady decision rules, later rounds refine early error</text>
+  <text x="500" y="92" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" fill="#5b6475">The Agent is not lazy; it inherited the wrong definition of done</text>
+
+  <rect x="76" y="150" width="196" height="180" rx="18" fill="#ffffff" stroke="#fecaca" filter="url(#shadow)"/>
+  <text x="174" y="190" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#991b1b">Round 1</text>
+  <text x="174" y="232" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="600" fill="#172033">The page submits</text>
+  <text x="174" y="263" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#64748b">treated as completion</text>
+  <rect x="108" y="286" width="132" height="28" rx="14" fill="#fee2e2"/>
+  <text x="174" y="306" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="600" fill="#991b1b">proxy goal drifted</text>
+
+  <rect x="304" y="150" width="196" height="180" rx="18" fill="#ffffff" stroke="#fecaca" filter="url(#shadow)"/>
+  <text x="402" y="190" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#991b1b">Round 2</text>
+  <text x="402" y="232" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="600" fill="#172033">Polish the UI</text>
+  <text x="402" y="263" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#64748b">more states, better copy</text>
+  <rect x="337" y="286" width="130" height="28" rx="14" fill="#fee2e2"/>
+  <text x="402" y="306" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="600" fill="#991b1b">risk unchanged</text>
+
+  <rect x="532" y="150" width="196" height="180" rx="18" fill="#ffffff" stroke="#fecaca" filter="url(#shadow)"/>
+  <text x="630" y="190" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#991b1b">Round 3</text>
+  <text x="630" y="232" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="600" fill="#172033">Add easy tests</text>
+  <text x="630" y="263" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#64748b">happy path gets smoother</text>
+  <rect x="565" y="286" width="130" height="28" rx="14" fill="#fee2e2"/>
+  <text x="630" y="306" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="600" fill="#991b1b">evidence stays weak</text>
+
+  <rect x="760" y="150" width="166" height="180" rx="18" fill="#fff7ed" stroke="#fb923c" filter="url(#shadow)"/>
+  <text x="843" y="190" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#9a3412">Round 4</text>
+  <text x="843" y="232" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="600" fill="#172033">Done story</text>
+  <text x="843" y="263" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#64748b">fuller, more confident</text>
+  <rect x="786" y="286" width="114" height="28" rx="14" fill="#fed7aa"/>
+  <text x="843" y="306" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14" font-weight="600" fill="#9a3412">looks shippable</text>
+
+  <path d="M278 240 L298 240" stroke="#dc2626" stroke-width="3" marker-end="url(#arrow-red)"/>
+  <path d="M506 240 L526 240" stroke="#dc2626" stroke-width="3" marker-end="url(#arrow-red)"/>
+  <path d="M734 240 L754 240" stroke="#dc2626" stroke-width="3" marker-end="url(#arrow-red)"/>
+
+  <rect x="92" y="404" width="816" height="116" rx="20" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="500" y="438" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#172033">The real risks never re-enter the loop</text>
+  <rect x="128" y="466" width="184" height="34" rx="17" fill="#fef2f2" stroke="#fecaca"/>
+  <text x="220" y="489" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600" fill="#991b1b">authorization unproven</text>
+  <rect x="335" y="466" width="168" height="34" rx="17" fill="#fef2f2" stroke="#fecaca"/>
+  <text x="419" y="489" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600" fill="#991b1b">eligibility unproven</text>
+  <rect x="526" y="466" width="184" height="34" rx="17" fill="#fef2f2" stroke="#fecaca"/>
+  <text x="618" y="489" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600" fill="#991b1b">provider failure unproven</text>
+  <rect x="733" y="466" width="140" height="34" rx="17" fill="#fef2f2" stroke="#fecaca"/>
+  <text x="803" y="489" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600" fill="#991b1b">audit gap</text>
+
+  <path d="M500 356 L500 392" stroke="#2563eb" stroke-width="3" stroke-dasharray="7 7" marker-end="url(#arrow-blue)"/>
+  <text x="500" y="566" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="600" fill="#172033">A human-shaped Loop exists to stop this inheritance of error and fake closure</text>
+</svg>

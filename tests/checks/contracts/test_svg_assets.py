@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SVG_NAMESPACE = {"svg": "http://www.w3.org/2000/svg"}
 PUBLIC_SVG_DIRS = (
     ROOT / "src/loopora/assets/logo",
-    ROOT / "docs/assets/diagrams",
+    ROOT / "assets/diagrams",
 )
 ALLOWED_FONT_WEIGHTS = {"normal", "bold", "400", "500", "600", "700"}
 LEGACY_WARM_NEUTRALS = {
@@ -56,7 +56,7 @@ def test_logo_assets_do_not_depend_on_fixed_white_tiles() -> None:
 
 
 def test_document_diagrams_keep_accessible_metadata_and_current_palette() -> None:
-    for path in sorted((ROOT / "docs/assets/diagrams").glob("*.svg")):
+    for path in sorted((ROOT / "assets/diagrams").glob("*.svg")):
         raw = _read_svg(path)
         root = ET.fromstring(raw)
 

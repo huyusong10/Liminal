@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="720" viewBox="0 0 1000 720" role="img" aria-labelledby="title desc">
+  <title id="title">How a Bundle carries judgment</title>
+  <desc id="desc">A diagram showing how a Loopora Bundle covers the judgment surfaces that drift in long-running tasks: task contract, Agent responsibilities, run flow, evidence rules, and verdict rules.</desc>
+  <defs>
+    <filter id="shadow" x="-8%" y="-8%" width="116%" height="124%">
+      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+  <rect width="1000" height="720" rx="28" fill="#f6f8fb"/>
+  <text x="500" y="58" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="700" fill="#172033">How a Bundle Carries Task-Local Judgment</text>
+  <text x="500" y="92" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" fill="#5b6475">It does not model all human wisdom; it covers the judgment surfaces that drift each round</text>
+
+  <rect x="58" y="126" width="884" height="492" rx="24" fill="#ffffff" stroke="#cbd5e1" filter="url(#shadow)"/>
+  <rect x="104" y="154" width="792" height="64" rx="18" fill="#172033"/>
+  <text x="500" y="184" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Loopora Bundle</text>
+  <text x="500" y="207" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14.5" fill="#dbeafe">a reviewable, runnable, reusable structure for task judgment</text>
+
+  <rect x="98" y="252" width="220" height="42" rx="14" fill="#dbeafe" stroke="#bfdbfe"/>
+  <text x="208" y="278" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#1e3a8a">Bundle surface</text>
+  <rect x="350" y="252" width="226" height="42" rx="14" fill="#dbeafe" stroke="#bfdbfe"/>
+  <text x="463" y="278" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#1e3a8a">Drift it prevents</text>
+  <rect x="608" y="252" width="294" height="42" rx="14" fill="#dbeafe" stroke="#bfdbfe"/>
+  <text x="755" y="278" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#1e3a8a">Question repeated each round</text>
+
+  <rect x="98" y="314" width="804" height="54" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <circle cx="122" cy="341" r="12" fill="#2563eb"/>
+  <text x="122" y="346" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">1</text>
+  <text x="154" y="347" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#172033">Task contract</text>
+  <text x="368" y="347" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">The goal shrinks</text>
+  <text x="626" y="347" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">What does not count as done?</text>
+
+  <rect x="98" y="382" width="804" height="54" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <circle cx="122" cy="409" r="12" fill="#2563eb"/>
+  <text x="122" y="414" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">2</text>
+  <text x="154" y="415" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#172033">Agent responsibilities</text>
+  <text x="368" y="415" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">Only easy work is done</text>
+  <text x="626" y="415" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">What should this round focus on?</text>
+
+  <rect x="98" y="450" width="804" height="54" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <circle cx="122" cy="477" r="12" fill="#2563eb"/>
+  <text x="122" y="482" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">3</text>
+  <text x="154" y="483" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#172033">Run flow</text>
+  <text x="368" y="483" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">Polish replaces repair</text>
+  <text x="626" y="483" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">Which gap should come next?</text>
+
+  <rect x="98" y="518" width="804" height="54" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <circle cx="122" cy="545" r="12" fill="#059669"/>
+  <text x="122" y="550" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">4</text>
+  <text x="154" y="551" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#172033">Evidence rules</text>
+  <text x="368" y="551" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">Claims replace proof</text>
+  <text x="626" y="551" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">What evidence is strong enough?</text>
+
+  <rect x="98" y="586" width="804" height="54" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <circle cx="122" cy="613" r="12" fill="#dc2626"/>
+  <text x="122" y="618" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">5</text>
+  <text x="154" y="619" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#172033">Verdict rules</text>
+  <text x="368" y="619" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">Plausible becomes done</text>
+  <text x="626" y="619" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">Pass, block, continue, or carry risk?</text>
+
+  <rect x="150" y="654" width="700" height="52" rx="20" fill="#172033"/>
+  <text x="500" y="676" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600" fill="#ffffff">Sufficiency comes from repeated application:</text>
+  <text x="500" y="697" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600" fill="#ffffff">each round returns to these surfaces, not only to the Agent summary</text>
+</svg>
