@@ -80,8 +80,8 @@
       <span data-lang="en">Choose how this loop starts.</span>
     </h1>
     <p>
-      <span data-lang="zh">如果你还在描述目标和判断方式，从对话编排开始。只有当底层运行资产都已经想清楚时，再进入手动编排。</span>
-      <span data-lang="en">Start with the loop-plan conversation when you are still shaping task judgment. Use manual expert mode only when the underlying runtime assets are already clear.</span>
+      <span data-lang="zh">如果你还在描述目标和判断方式，从对话编排开始。只有当你已经知道要用哪份契约、哪些检视角色和怎样的运行流程时，再进入手动编排。</span>
+      <span data-lang="en">Start with the loop-plan conversation when you are still shaping task judgment. Use manual expert mode only when you already know the contract, review roles, and run flow you want.</span>
     </p>
   </div>
 </section>
@@ -90,15 +90,15 @@
   <article class="panel create-choice-card create-choice-card--primary" id="bundle-import-form" data-testid="loop-create-bundle-choice">
     <div>
       <span class="eyebrow"><span data-lang="zh">推荐</span><span data-lang="en">Recommended</span></span>
-      <h2><span data-lang="zh">对话编排 Loop</span><span data-lang="en">Generate a Loop Plan</span></h2>
+      <h2><span data-lang="zh">对话编排 Loop</span><span data-lang="en">Compose Loop by Conversation</span></h2>
       <p>
-        <span data-lang="zh">像聊天一样描述需求，Loopora 会让本机智能体对齐判断方式，并展示目标、风险、证据路径和裁决方式。</span>
-        <span data-lang="en">Describe the request like a normal LLM chat. Loopora asks a local Agent to align task judgment, then previews the goal, risks, evidence path, and verdict path.</span>
+        <span data-lang="zh">用自然语言描述任务、你会反复追问的判断和不能假完成的证据。Loopora 会让本机智能体把判断方式整理成候选 Loop，并展示目标、风险、证据路径和裁决方式。</span>
+        <span data-lang="en">Describe the task, the judgment you would keep checking, and the evidence that must not be faked. Loopora asks a local Agent to shape that judgment into a candidate Loop, then previews the goal, risks, evidence path, and verdict path.</span>
       </p>
     </div>
     <a class="primary-button" href="/loops/new/bundle" data-testid="loop-create-bundle-link">
       <span data-lang="zh">开始对话</span>
-      <span data-lang="en">Start Chat</span>
+      <span data-lang="en">Start Conversation</span>
     </a>
   </article>
   <article class="panel create-choice-card" id="manual-loop-form" data-testid="loop-create-manual-choice">
@@ -106,8 +106,8 @@
       <span class="eyebrow"><span data-lang="zh">专家路径</span><span data-lang="en">Expert mode</span></span>
       <h2><span data-lang="zh">手动编排 Loop</span><span data-lang="en">Create Loop Manually</span></h2>
       <p>
-        <span data-lang="zh">直接选择 Loop 契约、工作目录、流程编排和运行参数。适合你已经维护好角色定义和编排规则，只想立刻创建一个 Loop。</span>
-        <span data-lang="en">Choose the spec, workdir, orchestration, and runtime settings directly. Use this when roles and workflow rules already exist and you only need a loop.</span>
+        <span data-lang="zh">直接选择 Loop 契约、工作目录、流程和运行参数。适合你已经知道要用哪份契约、哪些检视角色和怎样的运行流程。</span>
+        <span data-lang="en">Choose the Loop contract, workdir, flow, and runtime settings directly. Use this when you already know the contract, review roles, and run flow you want.</span>
       </p>
     </div>
     <a class="secondary-button" href="/loops/new/manual#manual-loop-form" data-testid="loop-create-manual-link">
@@ -169,7 +169,7 @@
         </button>
         <div class="alignment-live-body" id="alignment-live-body" data-testid="alignment-live-body" hidden>
           <div class="console-toolbar">
-            <div class="console-filter-group" aria-label="{{ 'Alignment event lanes' if page_locale == 'en' else '对齐事件分组' }}">
+            <div class="console-filter-group" aria-label="{{ 'Conversation event lanes' if page_locale == 'en' else '对话事件分组' }}">
               <span class="console-filter-chip is-active console-filter-chip--status">Status</span>
               <span class="console-filter-chip is-active console-filter-chip--actions">Actions</span>
               <span class="console-filter-chip is-active console-filter-chip--result">Result</span>
@@ -336,7 +336,7 @@
           <span class="label-row">
             <span><span data-lang="zh">配置方式</span><span data-lang="en">Configuration mode</span></span>
           </span>
-          <div class="executor-mode-switch" data-testid="alignment-executor-mode-switch" role="group" aria-label="{{ '对齐执行器配置方式' if page_locale == 'zh' else 'Alignment executor configuration mode' }}">
+          <div class="executor-mode-switch" data-testid="alignment-executor-mode-switch" role="group" aria-label="{{ '对话执行器配置方式' if page_locale == 'zh' else 'Conversation executor configuration mode' }}">
             <button class="executor-mode-chip" type="button" id="alignment-mode-preset-button" data-alignment-mode-choice="preset" data-testid="alignment-mode-preset-button">
               <strong><span data-lang="zh">预设</span><span data-lang="en">Preset</span></strong>
             </button>
@@ -421,10 +421,10 @@
 >
   <header class="panel-header">
     <div>
-      <h2><span data-lang="zh">导入方案文件</span><span data-lang="en">Import Existing Bundle / YAML</span></h2>
+      <h2><span data-lang="zh">导入方案文件</span><span data-lang="en">Import existing plan file</span></h2>
       <p class="panel-note">
         <span data-lang="zh">如果你已经有一份方案文件，可以先预览 Loop 契约、角色和流程，再创建 Loop 或直接运行。</span>
-        <span data-lang="en">If you already have a bundle file or YAML, preview the contract, roles, and workflow before creating or running the loop.</span>
+        <span data-lang="en">If you already have a plan file, preview the contract, roles, and flow before creating or running the loop.</span>
       </p>
     </div>
   </header>
@@ -438,9 +438,9 @@
     <div class="field-status is-error" id="bundle-import-error" aria-live="polite" {% if not import_error %}hidden{% endif %}>{{ import_error or "" }}</div>
     <div class="form-grid">
       <label>
-        <span><span data-lang="zh">方案文件路径</span><span data-lang="en">Bundle path</span></span>
+        <span><span data-lang="zh">方案文件路径</span><span data-lang="en">Plan file path</span></span>
         <div class="field-inline-row">
-          <input id="bundle-import-path" name="bundle_path" value="{{ import_values.bundle_path }}" placeholder="/absolute/path/to/bundle.yml" />
+          <input id="bundle-import-path" name="bundle_path" value="{{ import_values.bundle_path }}" placeholder="/absolute/path/to/plan.yml" />
           {% if access_state.native_dialogs_enabled %}
           <button
             class="ghost-button"
@@ -456,11 +456,11 @@
         </div>
       </label>
       <label>
-        <span><span data-lang="zh">替换已有方案包 ID</span><span data-lang="en">Replace bundle id</span></span>
+        <span><span data-lang="zh">替换已有方案包 ID</span><span data-lang="en">Replace plan id</span></span>
         <input id="bundle-import-replace-id" name="replace_bundle_id" value="{{ import_values.replace_bundle_id }}" />
       </label>
       <label class="wide">
-        <span><span data-lang="zh">方案文件内容</span><span data-lang="en">Bundle YAML</span></span>
+        <span><span data-lang="zh">方案文件内容</span><span data-lang="en">Plan file content</span></span>
         <textarea id="bundle-import-yaml" name="bundle_yaml" rows="8">{{- import_values.bundle_yaml -}}</textarea>
       </label>
       <label class="checkbox-row wide">
@@ -554,7 +554,7 @@
       <h2><span data-lang="zh">手动编排</span><span data-lang="en">Manual Expert Mode</span></h2>
       <p class="panel-note">
         <span data-lang="zh">如果你已经准备好了 Loop 契约、角色定义和流程编排，可以直接用这张表单创建 Loop。它仍然是完整能力，不是降级路径。</span>
-        <span data-lang="en">If the spec, role definitions, and orchestration are already prepared, create the loop directly here. This remains the full expert path, not a reduced mode.</span>
+        <span data-lang="en">If the Loop contract, role definitions, and flow are already prepared, create the loop directly here. This remains the full expert path, not a reduced mode.</span>
       </p>
     </div>
   </header>
@@ -648,13 +648,13 @@
           <span><span data-lang="zh">契约路径</span><span data-lang="en">Spec path</span></span>
           {{ tip_button(
             "如果不知道 Loop 契约该怎么写，先去流程编排里找最接近的例子，再按你的需求改。要是暂时还不想把成功条件写死，也可以先省略完成条件，让系统在运行开始时自动冻结检查项。",
-            "If you're not sure how to write the spec, start from the closest example in Orchestrations and adapt it to your case. If you're not ready to lock the success conditions yet, you can omit Done When and let the system freeze checks at run start.",
+            "If you're not sure how to write the Loop contract, start from the closest example in the Flow library and adapt it to your case. If you're not ready to lock the success conditions yet, you can omit Done When and let the system freeze checks at run start.",
             "loop-spec-tip"
           ) }}
         </span>
         <a class="inline-hint-link" href="/orchestrations">
           <span data-lang="zh">不知道怎么写？先去流程编排看样例。</span>
-          <span data-lang="en">Not sure how to write it yet? Start with an example in Orchestrations.</span>
+          <span data-lang="en">Not sure how to write it yet? Start with an example in the Flow library.</span>
         </a>
       </span>
       <div class="input-with-action input-with-multi-actions">
@@ -677,7 +677,7 @@
         </button>
         <button class="secondary-button" type="button" id="create-spec-template" data-testid="spec-template-button" data-native-dialogs-enabled="{{ 'true' if access_state.native_dialogs_enabled else 'false' }}">
           <span data-lang="zh">按流程生成模板</span>
-          <span data-lang="en">Generate from orchestration</span>
+          <span data-lang="en">Generate from flow</span>
         </button>
       </div>
       <div class="field-status" id="spec-validation" aria-live="polite" hidden></div>
@@ -687,16 +687,16 @@
       <header class="panel-header workflow-editor-header">
         <div>
           <h2 class="panel-title-with-help">
-            <span><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></span>
+            <span><span data-lang="zh">流程编排</span><span data-lang="en">Run flow</span></span>
             {{ tip_button(
               "这里决定角色顺序和流程结构。角色默认用什么执行器、模型和提示词，都来自“角色定义”；如果要改这些默认配置，请回到“角色定义”页面。",
-              "This decides the role order and workflow structure. Default executors, models, and prompts still come from Role Definitions. To change those defaults, go back to the Roles page.",
+              "This decides the role order and flow structure. Default executors, models, and prompts still come from Role Definitions. To change those defaults, go back to the Roles page.",
               "loop-orchestration-panel-tip"
             ) }}
           </h2>
           <p class="field-note">
             <span data-lang="zh">先在“角色定义”和“流程编排”里把角色协作关系整理好，再回到这里挑一套配置投入运行。</span>
-            <span data-lang="en">Shape role definitions and orchestration first, then come back here to run one of those plans.</span>
+            <span data-lang="en">Shape role definitions and flow first, then come back here to run one of those plans.</span>
           </p>
         </div>
         <div class="card-actions card-actions-compact">
@@ -706,7 +706,7 @@
           </a>
           <a class="ghost-button" href="/orchestrations">
             <span data-lang="zh">流程编排</span>
-            <span data-lang="en">Orchestrations</span>
+            <span data-lang="en">Flow library</span>
           </a>
           <a class="ghost-button" href="/tutorial">
             <span data-lang="zh">使用教程</span>
@@ -718,10 +718,10 @@
         <label class="wide">
           <span class="label-row">
             <span class="label-with-help">
-              <span><span data-lang="zh">选择编排方案</span><span data-lang="en">Choose orchestration</span></span>
+              <span><span data-lang="zh">选择编排方案</span><span data-lang="en">Choose flow</span></span>
               {{ tip_button(
               "编排决定有哪些角色、每轮按什么顺序执行，以及守门裁决通过后是否结束。这个页面会根据所选编排，自动收起不适用的运行策略字段。",
-                "The orchestration decides which roles exist, their order in each round, and whether a GateKeeper can end the run. This page will automatically hide runtime fields that do not apply to the selected orchestration.",
+                "The selected flow decides which roles exist, their order in each round, and whether a GateKeeper can end the run. This page will automatically hide runtime fields that do not apply to that flow.",
                 "loop-orchestration-tip"
               ) }}
             </span>
@@ -744,7 +744,7 @@
           <span><span data-lang="zh">完成方式</span><span data-lang="en">Completion mode</span></span>
           {{ tip_button(
             "守门裁决模式会等待一个“通过即结束”的守门步骤来收束；轮次推进模式则只按最大迭代次数推进。如果当前编排没有可结束流程的守门步骤，这里会自动锁到轮次推进。",
-            "GateKeeper mode waits for a finish-on-pass GateKeeper step to close the run. Rounds mode advances only by the iteration cap. If the selected orchestration cannot finish through a GateKeeper, this page locks the loop to rounds automatically.",
+            "GateKeeper mode waits for a finish-on-pass GateKeeper step to close the run. Rounds mode advances only by the iteration cap. If the selected flow cannot finish through a GateKeeper, this page locks the loop to rounds automatically.",
             "loop-completion-mode-tip"
           ) }}
         </span>
@@ -828,7 +828,7 @@
           <span><span data-lang="zh">触发窗口</span><span data-lang="en">Trigger window</span></span>
           {{ tip_button(
             "只有编排里存在 Guide 时才有意义。表示要连续多少轮都几乎没有推进，才触发 Guide 介入给出方向调整。",
-            "This only matters when the orchestration includes a Guide. It is the number of near-stalled rounds required before the Guide steps in with a direction change.",
+            "This only matters when the selected flow includes a Guide. It is the number of near-stalled rounds required before the Guide steps in with a direction change.",
             "loop-trigger-window-tip"
           ) }}
         </span>
@@ -842,7 +842,7 @@
           <span><span data-lang="zh">回退窗口</span><span data-lang="en">Regression window</span></span>
           {{ tip_button(
             "只有编排里存在 Guide 时才有意义。表示最近连续多少轮分数都在下降，才把当前趋势视作回退并触发 Guide 介入。",
-            "This only matters when the orchestration includes a Guide. It is the number of consecutive negative-score rounds required before Loopora treats the trend as regression and asks the Guide to intervene.",
+            "This only matters when the selected flow includes a Guide. It is the number of consecutive negative-score rounds required before Loopora treats the trend as regression and asks the Guide to intervene.",
             "loop-regression-window-tip"
           ) }}
         </span>
@@ -982,7 +982,7 @@
     const statusLabel = (status) => {
       const labels = {
         idle: localeText("未开始", "Idle"),
-        running: localeText("对齐中", "Running"),
+        running: localeText("编排中", "Composing"),
         waiting_user: localeText("等待回复", "Waiting"),
         validating: localeText("校验中", "Validating"),
         repairing: localeText("自动修复", "Repairing"),

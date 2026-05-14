@@ -39,7 +39,7 @@
     function runFinishedSummary(payload) {
       const parts = [`${localeText("运行结束", "Run finished")} · ${translateRunStatus(payload.status || "succeeded")}`];
       if (payload.task_verdict_status) {
-        parts.push(`${localeText("任务裁决", "Task verdict")} ${payload.task_verdict_status}`);
+        parts.push(`${localeText("Loop 裁决", "Task verdict")} ${payload.task_verdict_status}`);
       }
       return parts.join(" · ");
     }

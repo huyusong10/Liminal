@@ -162,7 +162,7 @@
           detailParts.push(`${localeText("迭代", "Iter")} ${displayIter(iter)}`);
         }
         if (payload.task_verdict_status) {
-          detailParts.push(`${localeText("任务裁决", "Task verdict")} ${payload.task_verdict_status}`);
+          detailParts.push(`${localeText("Loop 裁决", "Task verdict")} ${payload.task_verdict_status}`);
         }
         return {
           title: `${localeText("运行结束", "Run finished")} · ${translateStatus(payload.status || "succeeded")}`,

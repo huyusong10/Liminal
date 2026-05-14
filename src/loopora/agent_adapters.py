@@ -12,7 +12,7 @@ from loopora.utils import utc_now
 
 AGENT_ADAPTER_KINDS = ("codex", "claude", "opencode")
 IMPLEMENTED_AGENT_ADAPTERS = {"codex", "claude", "opencode"}
-ADAPTER_VERSION = 5
+ADAPTER_VERSION = 6
 CODEX_ADAPTER_VERSION = ADAPTER_VERSION
 CLAUDE_ADAPTER_VERSION = ADAPTER_VERSION
 OPENCODE_ADAPTER_VERSION = ADAPTER_VERSION
@@ -924,7 +924,7 @@ Codex native dispatch guidance:
 def _agent_native_loop_body(*, adapter: str, marker_source: str, context_arg: str = "") -> str:
     context_bits = f" {context_arg}" if context_arg else ""
     dispatch_guidance = _agent_native_dispatch_guidance(adapter)
-    return f"""Start or reuse the Loopora-managed run for the READY bundle associated with this session or workdir.
+    return f"""Start or reuse the Loopora-managed run for the reviewed Loop preview associated with this session or workdir.
 
 ## Required path
 
@@ -973,7 +973,7 @@ Copy the Loopora commands with `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source`
 
 ## Boundaries
 
-- If the command says no READY bundle is associated with this session/workdir, tell the user to run `/loopora-gen` first.
+- If the command says no Loop preview is associated with this session/workdir, tell the user to run `/loopora-gen` first.
 - Do not create a bundle implicitly from `/loopora-loop`.
 - Do not bypass Loopora's bundle import, run lifecycle, evidence ledger, or GateKeeper verdict.
 - Do not launch `codex`, `claude`, or `opencode` from inside this entry. The current host Agent must dispatch to the named host-native Loopora role agent and submit wrapper JSON to Loopora.
@@ -983,14 +983,14 @@ Copy the Loopora commands with `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source`
 def _codex_loopora_gen_skill() -> str:
     return f"""---
 name: loopora-gen
-description: "Use when the user invokes /loopora-gen, asks to generate a Loopora candidate Loop from the current coding task, or wants the Codex session to compile a READY Loopora bundle without starting a run."
+description: "Use when the user invokes /loopora-gen, asks to generate a Loopora Loop preview from the current coding task, or wants the Codex session to prepare a Loop without starting a run."
 ---
 
 <!-- {MANAGED_MARKER} version={CODEX_ADAPTER_VERSION} file=loopora-gen -->
 
 # Loopora Gen
 
-Compile the current coding task into a Loopora candidate Loop. Do not start a run.
+Compile the current coding task into a Loopora Loop preview. Do not start a run.
 
 ## Required path
 
@@ -1003,7 +1003,7 @@ Compile the current coding task into a Loopora candidate Loop. Do not start a ru
 LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex gen --workdir "$PWD" --message "<short task summary>" --bundle-file <candidate-yaml-path> --entry-source codex_project_skill
 ```
 
-5. Report the returned candidate Loop URL. If validation fails, report the Loopora error and fix the YAML before trying again.
+5. Report the returned Loop preview URL. If validation fails, report the Loopora error and fix the YAML before trying again.
 
 Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source`; those markers bind this invocation to Loopora's Core evidence trail.
 
@@ -1012,14 +1012,14 @@ Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-so
 - `/loopora-gen` never starts a run.
 - READY is decided by Loopora Core validation, not by Codex prose.
 - If the task does not need a long-running evidence-governed Loop, explain that before generating.
-- If `loopora agent codex gen` returns a non-READY Web alignment URL, tell the user it needs Web confirmation or more alignment before `/loopora-loop`.
+- If `loopora agent codex gen` returns a Web review URL instead of a ready preview, tell the user it needs Web review or more Loop setup before `/loopora-loop`.
 """
 
 
 def _codex_loopora_loop_skill() -> str:
     return f"""---
 name: loopora-loop
-description: "Use when the user invokes /loopora-loop or asks Codex to start or resume the Loopora-managed Loop for the current coding task after /loopora-gen has produced a READY bundle."
+description: "Use when the user invokes /loopora-loop or asks Codex to start or resume the Loopora-managed Loop for the current coding task after /loopora-gen has produced a Loop preview."
 ---
 
 <!-- {MANAGED_MARKER} version={CODEX_ADAPTER_VERSION} file=loopora-loop -->
@@ -1033,7 +1033,7 @@ description: "Use when the user invokes /loopora-loop or asks Codex to start or 
 def _claude_loopora_gen_skill() -> str:
     return f"""---
 name: loopora-gen
-description: "Generate a Loopora candidate Loop from the current Claude Code task without starting a run. Invoke manually as /loopora-gen."
+description: "Generate a Loopora Loop preview from the current Claude Code task without starting a run. Invoke manually as /loopora-gen."
 disable-model-invocation: true
 allowed-tools: "Bash(loopora agent claude gen *) Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen *)"
 ---
@@ -1042,7 +1042,7 @@ allowed-tools: "Bash(loopora agent claude gen *) Bash(LOOPORA_AGENT_ENTRY_SOURCE
 
 # Loopora Gen
 
-Compile the current Claude Code task into a Loopora candidate Loop. Do not start a run.
+Compile the current Claude Code task into a Loopora Loop preview. Do not start a run.
 
 ## Required path
 
@@ -1055,7 +1055,7 @@ Compile the current Claude Code task into a Loopora candidate Loop. Do not start
 LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen --workdir "$PWD" --context-id "${{CLAUDE_SESSION_ID}}" --message "<short task summary>" --bundle-file <candidate-yaml-path> --entry-source claude_project_skill
 ```
 
-5. Report the returned candidate Loop URL. If validation fails, report the Loopora error and fix the YAML before trying again.
+5. Report the returned Loop preview URL. If validation fails, report the Loopora error and fix the YAML before trying again.
 
 Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`, and `--entry-source`; those markers bind the current Claude Code session to Loopora's Core evidence trail.
 
@@ -1064,14 +1064,14 @@ Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`
 - `/loopora-gen` never starts a run.
 - READY is decided by Loopora Core validation, not by Claude Code prose.
 - If the task does not need a long-running evidence-governed Loop, explain that before generating.
-- If `loopora agent claude gen` returns a non-READY Web alignment URL, tell the user it needs Web confirmation or more alignment before `/loopora-loop`.
+- If `loopora agent claude gen` returns a Web review URL instead of a ready preview, tell the user it needs Web review or more Loop setup before `/loopora-loop`.
 """
 
 
 def _claude_loopora_loop_skill() -> str:
     return f"""---
 name: loopora-loop
-description: "Start or reuse the Loopora-managed run for the READY bundle associated with this Claude Code task. Invoke manually after /loopora-gen."
+description: "Start or reuse the Loopora-managed run for the reviewed Loop preview associated with this Claude Code task. Invoke manually after /loopora-gen."
 disable-model-invocation: true
 allowed-tools: "Bash(loopora agent claude loop *) Bash(loopora agent claude next *) Bash(loopora agent claude submit *) Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude *) Task"
 ---
@@ -1086,7 +1086,7 @@ allowed-tools: "Bash(loopora agent claude loop *) Bash(loopora agent claude next
 
 def _claude_loopora_gen_command() -> str:
     return f"""---
-description: Generate a Loopora candidate Loop from the current Claude Code task without starting a run.
+description: Generate a Loopora Loop preview from the current Claude Code task without starting a run.
 allowed-tools: Bash(loopora agent claude gen *), Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen *)
 ---
 
@@ -1100,7 +1100,7 @@ Follow `.claude/skills/loopora-gen/SKILL.md` in this project. Preserve its `LOOP
 
 def _claude_loopora_loop_command() -> str:
     return f"""---
-description: Start or reuse the Loopora-managed run for the READY bundle associated with this Claude Code task.
+description: Start or reuse the Loopora-managed run for the reviewed Loop preview associated with this Claude Code task.
 allowed-tools: Bash(loopora agent claude loop *), Bash(loopora agent claude next *), Bash(loopora agent claude submit *), Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude *), Task
 ---
 
@@ -1114,7 +1114,7 @@ allowed-tools: Bash(loopora agent claude loop *), Bash(loopora agent claude next
 
 def _opencode_loopora_gen_command() -> str:
     return f"""---
-description: Generate a Loopora candidate Loop from the current OpenCode task without starting a run.
+description: Generate a Loopora Loop preview from the current OpenCode task without starting a run.
 agent: build
 ---
 
@@ -1122,7 +1122,7 @@ agent: build
 
 # Loopora Gen
 
-Compile the current OpenCode task into a Loopora candidate Loop. Do not start a run.
+Compile the current OpenCode task into a Loopora Loop preview. Do not start a run.
 
 ## Arguments
 
@@ -1139,7 +1139,7 @@ Compile the current OpenCode task into a Loopora candidate Loop. Do not start a 
 LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command loopora agent opencode gen --workdir "$PWD" --context-id "${{OPENCODE_SESSION_ID:-}}" --message "<short task summary>" --bundle-file <candidate-yaml-path> --entry-source opencode_project_command
 ```
 
-5. Report the returned candidate Loop URL. If validation fails, report the Loopora error and fix the YAML before trying again.
+5. Report the returned Loop preview URL. If validation fails, report the Loopora error and fix the YAML before trying again.
 
 Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`, and `--entry-source`; those markers bind this invocation to Loopora's Core evidence trail. If OpenCode does not expose `OPENCODE_SESSION_ID`, keep the flag as shown and Loopora will fall back to workdir binding.
 
@@ -1148,13 +1148,13 @@ Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`
 - `/loopora-gen` never starts a run.
 - READY is decided by Loopora Core validation, not by OpenCode prose.
 - If the task does not need a long-running evidence-governed Loop, explain that before generating.
-- If `loopora agent opencode gen` returns a non-READY Web alignment URL, tell the user it needs Web confirmation or more alignment before `/loopora-loop`.
+- If `loopora agent opencode gen` returns a Web review URL instead of a ready preview, tell the user it needs Web review or more Loop setup before `/loopora-loop`.
 """
 
 
 def _opencode_loopora_loop_command() -> str:
     return f"""---
-description: Start or reuse the Loopora-managed run for the READY bundle associated with this OpenCode task.
+description: Start or reuse the Loopora-managed run for the reviewed Loop preview associated with this OpenCode task.
 agent: loopora-orchestrator
 subtask: true
 ---

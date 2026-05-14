@@ -21,9 +21,9 @@ Agent adapter 层存在的唯一理由：
 
 | 平台 | 状态 | 稳定承诺 |
 | --- | --- | --- |
-| Codex | 已实现 | 安装项目级 Codex skill 入口和 Loopora role custom agents；`/loopora-gen` 校验 READY bundle，`/loopora-loop` 创建或复用 agent-native run，并让 Codex 用原生 subagent / thread 机制推进 step |
-| Claude Code | 已实现 | 安装项目级 Claude Code command / skill 入口和 Loopora subagents；`/loopora-gen` 校验 READY bundle，`/loopora-loop` 创建或复用 agent-native run，并让 Claude Code 用原生 Agent / subagent 机制推进 step |
-| OpenCode | 已实现 | 安装项目级 OpenCode command 入口和 Loopora subagents；`/loopora-gen` 校验 READY bundle，`/loopora-loop` 创建或复用 agent-native run，并让 OpenCode 用原生 Task / subagent 机制推进 step |
+| Codex | 已实现 | 安装项目级 Codex skill 入口和 Loopora role custom agents；`/loopora-gen` 校验并返回 READY Loop 预览，`/loopora-loop` 创建或复用 agent-native run，并让 Codex 用原生 subagent / thread 机制推进 step |
+| Claude Code | 已实现 | 安装项目级 Claude Code command / skill 入口和 Loopora subagents；`/loopora-gen` 校验并返回 READY Loop 预览，`/loopora-loop` 创建或复用 agent-native run，并让 Claude Code 用原生 Agent / subagent 机制推进 step |
+| OpenCode | 已实现 | 安装项目级 OpenCode command 入口和 Loopora subagents；`/loopora-gen` 校验并返回 READY Loop 预览，`/loopora-loop` 创建或复用 agent-native run，并让 OpenCode 用原生 Task / subagent 机制推进 step |
 
 Codex 选择项目级 skill 文件承载用户入口，并安装符合 Codex custom agent schema 的 `.codex/agents/*.toml` 承载 Loopora role posture；custom agent 文件必须使用宿主原生字段表达 agent name、description 与 developer instructions。Codex app / CLI 中 enabled skills 可进入 slash 列表；若宿主只支持 skill invocation，`/loopora-gen` 与 `/loopora-loop` 的用户语义由同名 skill 触发承载。
 
@@ -45,25 +45,27 @@ OpenCode 选择官方项目级 custom command 路径：`.opencode/commands/<comm
 2. 宿主 Agent 生成候选 bundle YAML。
 3. Skill 调用 Loopora CLI adapter entry，把候选 YAML 交给 Core。
 4. Core 创建或更新一个 READY alignment session，运行 bundle 结构校验、spec 编译、alignment 语义 linter 与 READY 投影。
-5. CLI 确保本地 Web 服务可用，并返回候选 Loop URL。
+5. CLI 确保本地 Web 服务可用，并返回 Loop 预览 URL。
 
 稳定规则：
 
 - `/loopora-gen` 不启动 run。
 - READY 的事实源是 Loopora Core 校验后的 alignment session 和 `artifacts/bundle.yml`，不是 Codex 的自然语言说明。
 - Coding Agent 可以生成候选 YAML，但不能自己宣布 READY；READY 只由 Core 校验产生。
-- 若宿主入口无法可靠取得完整会话上下文，adapter 可退化为打开 Web alignment 预填入口；该退化必须在结果中暴露为未 READY，不得伪装成可运行 Loop。
+- 宿主入口和 CLI 的人类可读输出应把结果说成 Loop 预览与 preview URL；`READY`、`candidate`、bundle hash 和候选字节数是 Core/JSON/诊断事实，不是用户默认要阅读的成功主语。
+- 宿主入口提交候选 YAML 时，Core binding 与 `agent_candidate_received` event 必须记录规范化候选内容的 `candidate_sha256` 与 `candidate_bytes`；未提交候选 YAML 时这些字段为空哈希 / `0` 字节，并与 `requires_web_alignment` 一起说明当前只是预填入口。
+- 若宿主入口无法可靠取得完整会话上下文或没有提交候选 YAML，adapter 只能退化为打开 Web Loop setup / review 预填入口；该入口保留用户消息与来源 provenance，但不得自动启动后端 alignment Agent，也不得伪装成 READY 或可运行 Loop。JSON/API 字段可继续使用 `requires_web_alignment` 表达内部状态。
 
 ### 3.2 `/loopora-loop`
 
 用户语义：
 
-> 用已确认的 Loop 协议启动或推进当前任务。
+> 用已审查或已接受的 Loop 协议启动或推进当前任务。
 
 Agent-native entry 路径：
 
 1. CLI/Core 查找当前宿主 session 或 workdir 绑定的 READY alignment session。
-2. 若不存在 READY bundle，返回明确错误，提示先运行 `/loopora-gen`。
+2. 若不存在 ready Loop preview，返回明确错误，提示先运行 `/loopora-gen`；人类可读错误不把 `READY bundle` 当作默认主语。
 3. 若 READY session 尚未导入，Core 复用现有 alignment import 路径物化 bundle、Loop、roles 和 workflow。
 4. Core 创建或复用 `agent_native` run，并返回 run URL 与下一个 execution capsule。
 5. 宿主 Agent 读取 capsule 的 `role_dispatch.target_agent`，把当前 step 交给该命名原生 subagent / task agent 执行；不能用主对话 inline 完成角色工作。
@@ -73,6 +75,7 @@ Agent-native entry 路径：
 
 - `/loopora-loop` 不从一句话任务直接生成 bundle。
 - `/loopora-loop` 不绕过 bundle import、workspace lock、run lifecycle 或 evidence gate。
+- `/loopora-loop` 的硬门槛是当前 session / workdir 存在 READY Loop 预览或已导入 Loop；用户审查或接受 preview 的动作由主动调用 `/loopora-loop` 表达，不另设一个隐式 confirmed-preview 状态。
 - 重复调用时返回已绑定 run 的当前状态；非终态 active run 不会被重复创建，同一 workdir 不会静默产生多个活动 run。
 - Agent-first 路径不启动 Codex / Claude Code / OpenCode CLI 子进程来模拟角色；宿主 Agent 是执行主体，Loopora Core 只出租下一步 capsule 与接收结果。
 - `headless` / legacy 路径可继续由 Loopora worker 调 executor 子进程，用于 CI、无人值守、custom command 或没有可用宿主 Agent 的场景；该路径不能被 `/loopora-loop` 默认使用。

@@ -119,9 +119,9 @@ RUN_ARTIFACT_SPECS = (
     {
         "id": "task-verdict",
         "relative_path": "evidence/task_verdict.json",
-        "label_zh": "任务裁决",
+        "label_zh": "Loop 裁决",
         "label_en": "Task verdict",
-        "description_zh": "终态任务裁决，说明证据是否足以支持通过、拒绝或保留残余风险。",
+        "description_zh": "终态 Loop 裁决，说明证据是否足以支持通过、拒绝或保留残余风险。",
         "description_en": "The final task verdict explaining whether evidence supports a pass, rejection, or accepted residual risk.",
     },
 )

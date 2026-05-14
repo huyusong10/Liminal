@@ -688,7 +688,7 @@
       setTextContentIfChanged("progress-live-detail", liveWork.detail);
       setTextContentIfChanged("progress-stage-label", liveWork.metaLeft);
       setTextContentIfChanged("progress-caption", status === "running" || status === "awaiting_agent"
-        ? localeText("不再猜一个虚假的百分比，只保留当前阶段和已经走过的阶段耗时痕迹。", "No fake percentage here anymore. This view keeps the current stage and the time traces already left on completed stages.")
+        ? localeText("进展按阶段耗时展示，而不是猜测完成百分比；当前阶段和已完成阶段的耗时痕迹会持续保留。", "Progress uses stage timing instead of a guessed completion percentage, keeping the current stage and completed-stage time traces visible.")
         : localeText("这一轮已经收尾，下面保留最终阶段结果和整条路径的耗时痕迹。", "This run has settled, and the stage flow below now shows the final outcome with the time spent along the way."));
 
       document.querySelectorAll(".stage-chip").forEach((chip) => {

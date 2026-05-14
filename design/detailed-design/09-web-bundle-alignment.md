@@ -1,6 +1,6 @@
 # Web Task Alignment
 
-> 最高原则：遵循 `../core-ideas/product-principle.md`。Web 对话页是编排 Loop 的一种默认场景：它把用户的长期 AI Agent 任务对齐成候选 Loop，并从 READY 预览进入运行与证据裁决。
+> 最高原则：遵循 `../core-ideas/product-principle.md` 与 `../core-ideas/agent-first-loopora.md`。Web 对话页是取得 Loop 的完整 Web 场景；coding 场景的推荐 first-use path 是 `/loopora-gen -> READY 预览 -> /loopora-loop`，两者共享同一 Core 校验、READY、bundle 导入和 run/evidence 语义。
 
 ## 1. 模块职责
 
@@ -15,27 +15,29 @@
 它不是：
 
 - 新的 CLI 命令
+- Agent-first `/loopora-gen` 的替代实现
 - 新的 bundle 格式
 - 通用聊天系统
 - 独立于 `spec / role definitions / workflow` 的第四种运行资产
 
 ## 2. 产品判断
 
-Web alignment 要解决的问题不是“少写一段 YAML”，而是帮助用户把未来任务中本来会反复发生的人类判断提前显影，并编排成一个可运行、可观察、可裁决的 human-shaped Loop。
+Web alignment 要解决的问题不是“少写一段 YAML”，而是帮助用户在 Web-only 场景里把未来任务中本来会反复发生的人类判断提前显影，并编排成一个可运行、可观察、可裁决的 human-shaped Loop。
 
-推荐路径是：
+Web 路径是：
 
-`用户描述任务 -> Web alignment session -> 后端 Agent CLI -> YAML bundle -> READY Loop 预览 -> 创建 Loop 并运行`
+`用户描述任务 -> Web 方案对话 -> 后端 Agent CLI -> 方案文件（内部 bundle YAML）-> READY Loop 预览 -> 创建 Loop 并运行`
 
 稳定承诺：
 
 - 用户可以完全不理解 prompt 拼装、YAML 或外部 Agent 操作。
 - 用户也不需要先理解 `bundle / spec / roles / workflow`，但 READY 预览必须让这些治理 surface 可检查。
+- Web 路径里的显式确认对象是可见 working agreement；READY Loop 是经过校验的预览，后续语义是 review / create / run，不引入独立的 confirmed Loop 状态。
 - 对话问题必须优先围绕能改变 Loop 形状的 task-scoped judgment：成功面、假完成、证据偏好、残余风险、角色姿态、workflow 形状和信息流。
 - 最终产物仍然必须是单文件 YAML bundle；这是候选 Loop 的交换格式。
 - READY 只表示 bundle 文件已经存在并通过硬校验，不表示 loop 已经导入或运行成功。
 - READY 在默认界面中的主语义是“Loop 已准备好，可以创建并运行”；`bundle`、`import` 和 YAML 只在专家源文件操作或错误调试中出现。
-- 外部 Agent Skill 不是一等入口；专家仍可手动导入 / 导出 YAML，但默认判断编译必须留在 Web alignment 的受控流程内。
+- Agent-first entry 是独立的一等候选入口；Web alignment 不负责安装或模拟宿主 Coding Agent entry。专家仍可手动导入 / 导出 YAML，但所有候选最终都必须通过同一 Core 校验和 READY 预览。
 
 ## 3. Web 入口
 
@@ -49,13 +51,13 @@ Web 创建入口拆成三条路由：
 | `/loops/new/bundle` | 顶层“编排”的默认对话编排工作台；READY 预览与创建运行 |
 | `/loops/new/manual` | 编排工作台的手动编排 / 导入方案文件专家入口；直接选择 spec、workdir、workflow 和运行参数；也承载已有 bundle YAML / 文件导入 |
 
-编排工作台采用共享侧栏 + 右侧模式内容的结构。侧栏是稳定上下文，承载新对话、最近 alignment sessions、对话编排、导入方案文件和手动编排入口；右侧模式可以是对话式 composer、方案文件导入预览，或专家手动表单。同一时刻只能展示一个右侧模式，不能把导入表单和手动表单上下堆叠。用户从任一模式都应能直接回到对话编排或最近历史，而不需要重新从顶栏寻找入口。
+编排工作台采用共享侧栏 + 右侧模式内容的结构。侧栏是稳定上下文，承载新对话、最近对话、对话编排、导入方案文件和手动编排入口；右侧模式可以是对话式 composer、方案文件导入预览，或专家手动表单。同一时刻只能展示一个右侧模式，不能把导入表单和手动表单上下堆叠。用户从任一模式都应能直接回到对话编排或最近历史，而不需要重新从顶栏寻找入口。
 
 对话编排模式首帧采用主流 LLM 对话界面：极简输入框为主，配置和日志只作为按需展开能力。页面默认表达为：
 
 | 控件 | 语义 |
 |------|------|
-| 左侧历史栏 | 新建对话、最近 alignment sessions、三种编排模式入口；对话模式下每条历史可删除 |
+| 左侧历史栏 | 新建对话、最近对话、三种编排模式入口；对话模式下每条历史可删除 |
 | 中央 composer | 用户描述需求；默认 placeholder 类似 `你想让 Loopora 做什么？` |
 | Composer chips | 选择 workdir、打开 Agent 设置，并展示当前 Agent、workdir 简名和状态 |
 | 设置浮层 | 由 chips 打开，必须可关闭，支持点击外部和 Esc 关闭 |
@@ -63,15 +65,16 @@ Web 创建入口拆成三条路由：
 补充规则：
 
 - Workdir 仍是必填运行环境字段，但默认隐藏在轻量 chip 背后的设置浮层里；用户未选择 workdir 就发送时，页面应保留输入内容并打开 workdir 设置提示。
-- 选择 workdir 后，页面应检查该目录下已有的 Loopora 产物，并在启动新对话前把选择权交还给用户：继续已有 alignment session、基于已有 Loop / bundle / run / spec 改进，或重新生成并忽略旧产物。系统不得因为 `.loopora` 存在就静默继承上下文。
+- 选择 workdir 后，页面应检查该目录下已有的 Loopora 产物，并在启动新对话前把选择权交还给用户：继续已有对话，基于已有 Loop、方案文件、运行证据或任务契约改进，或重新生成并忽略旧产物。系统不得因为 `.loopora` 存在就静默继承上下文。
 - workdir 上下文选择只影响 Web alignment 的对话期输入；它不创建 bundle 版本历史、lineage、diff 或回滚语义。用户选择“重新生成”时，旧产物只能作为存在性提醒或完全忽略，不能被注入为事实来源。
 - 模型、推理强度、自定义命令参数属于 Agent 设置，默认隐藏在弹层或抽屉里，不作为独立“高级”入口暴露。预设模式的模型可留空，语义是继承当前 Agent CLI 默认模型，而不是由 Loopora 固定某个易过期模型名。
 - 执行工具配置语义与角色定义页一致：预设模式只暴露模型与推理强度；自定义命令模式直接维护 CLI 与参数模板，并让模型 / 推理强度成为不可编辑参考；`Custom Command` 只支持自定义命令，OpenCode 默认推理强度为空。
 - “已有 bundle YAML / 文件”的导入路径属于 `/loops/new/manual` 的导入模式，不进入对话消息流，避免把生成式对齐和专家手工导入混在同一内容面。
 - 顶栏 Web 导航中的“编排”一级入口直接进入 `/loops/new/bundle`；Loop 工作台只承载已有 Loop 与运行回访，不重复放置编排模式按钮或目标 / workdir 表单。编排工作台共享侧栏提供 `/loops/new/manual#bundle-import-form` 与 `/loops/new/manual#manual-loop-form` 二级入口；`/loops/new`、旧 import hash 与手动入口只承担兼容和专家分流，不再是新手主路径。
 - 页面文案不应要求用户理解“spec / roles / workflow”才能开始。
-- Loop 对话页必须提供“新建对话”和历史对话入口；历史来自后端 alignment sessions。
-- 历史删除只删除 alignment session 及其事件 / 临时 artifact，不删除已经导入的 bundle、loop 或 run。
+- Loop 对话页必须提供“新建对话”和历史对话入口；历史在后端以 alignment session 保存，但默认界面表达为“对话”。
+- 默认界面的状态、错误提示与可访问性标签也必须遵守这条边界：表达为“对话 / 编排 / conversation / composition”，`alignment` 只保留在 API、事件、DOM/test id、日志或专家调试语境。
+- 历史删除只删除后端对话状态及其事件 / 临时 artifact，不删除已经导入的方案文件、Loop 或运行。
 - 手动编排模式不承载 bundle 对齐逻辑，避免把 Web 问答编排和人工规则编排混在同一个内容面；但它仍属于同一个编排工作台，以保留回到对话编排和历史对话的路径。
 - 对话页的滚动边界应稳定：桌面端左侧历史栏和底部 composer 不随主内容滚动，浏览器外层不出现第二条滚动轴，只有右侧对话 / artifact 内容区滚动。
 - 编排工作台是全宽 shell，但不是所有内容都铺满视口：左侧侧栏和历史区利用全宽工作台保持上下文，右侧导入方案文件、手动编排、READY 预览和 artifact surface 仍应使用全站共享页面宽度节奏；对话 composer 和长文本阅读区可以使用更窄的阅读宽度。
@@ -248,11 +251,11 @@ bundle 检查器必须复用现有 bundle 契约校验。
 - 自动修复轮数默认 1 次，避免无限消耗。
 - 校验错误展示给用户时应摘要化，原始错误可折叠查看。
 - 校验通过后，系统应重新规范化导出 YAML，保证预览与导入消费的是同一份 bundle。
-- Web alignment 生成的 bundle 必须使用 `loop.completion_mode: "gatekeeper"`，让 READY 后的默认运行路径以 evidence-backed GateKeeper verdict 作为任务裁决，而不是只用 rounds 生命周期收束。专家手动编排 / 导入路径可以继续使用其他 completion mode。
+- Web alignment 生成的 bundle 必须使用 `loop.completion_mode: "gatekeeper"`，让 READY 后的默认运行路径以 evidence-backed GateKeeper verdict 作为 Loop 裁决，而不是只用 rounds 生命周期收束。专家手动编排 / 导入路径可以继续使用其他 completion mode。
 - `gatekeeper` 模式下，硬校验必须要求 workflow 中存在 GateKeeper role 且至少有一个 GateKeeper step 可以 `finish_run`；否则不能进入 READY。
 - 当 session 使用 command/custom executor 设置时，Web alignment 校验必须要求最终 bundle 的 `loop` 与所有 `role_definitions[]` 保留同一组 executor fields；否则用户在入口选择的运行时会被 bundle 悄悄改写。
 - 当 session 已有用户确认过的 working agreement 时，Web alignment 校验必须检查最终 bundle 是否承载其中可识别的任务特异判断。该检查只针对明显的编译丢失，例如确认协议里有具体业务对象、治理入口或证据锚点但 bundle 完全没有对应线索；不要把自然语言相似度、固定关键词或完整原文复述变成硬门槛。
-- Web alignment 的硬语义 linter 分层处理。硬阻断只覆盖粗颗粒契约：`collaboration_summary` 非占位且提到证据与 GateKeeper 裁决姿态；bundle 把任务裁决证据投影到稳定证据桶 Proven / Weak / Unproven / Blocking / Residual risk（中文可用等价语义）；spec `# Task` 不是通用占位，且存在 `Done When`、Success Surface、Fake Done、Evidence Preferences 和 Residual Risk section；workflow 有非占位 `collaboration_intent`；任何排在 Builder 后的 Inspector / Custom review step 显式读取 Builder handoff 并查询 Builder evidence；Builder / Guide / GateKeeper 的后续步骤显式读取上游 handoff、查询相关 evidence，并在需要跨轮证据时声明 `inputs.iteration_memory`；并行 review 使用不同 `role_definition_key`、同一个上游 handoff，并让 finishing GateKeeper 汇总每个并行 handoff 和对应 evidence；同一 workflow 中被使用的不同 `role_definitions` 不能在同一 archetype 下携带完全相同的 prompt / posture 责任，否则只是 role zoo 而不是新的证据责任；bundle prose 不能声称 Workdir Snapshot 观察到未被 marker 支撑的技术栈、测试套件或构建能力，也不能把 task-scoped judgment 写成全局人格记忆、永久偏好或跨任务用户画像；GateKeeper 模式具备可 finish 的 GateKeeper role。是否用某些词表达判断取舍、role posture 是否包含特定动词、Success Surface / Fake Done / Evidence Preferences / Residual Risk 的句子是否满足某组关键词，不属于硬正则阻断；这些质量要求仍写在 prompt、internal compiler policy、rubric 和 working agreement 中，由生成模型、用户确认和运行期 GateKeeper 共同治理。
+- Web alignment 的硬语义 linter 分层处理。硬阻断只覆盖粗颗粒契约：`collaboration_summary` 非占位且提到证据与 GateKeeper 裁决姿态；bundle 把 Loop 裁决证据投影到稳定证据桶 Proven / Weak / Unproven / Blocking / Residual risk（中文可用等价语义）；spec `# Task` 不是通用占位，且存在 `Done When`、Success Surface、Fake Done、Evidence Preferences 和 Residual Risk section；workflow 有非占位 `collaboration_intent`；任何排在 Builder 后的 Inspector / Custom review step 显式读取 Builder handoff 并查询 Builder evidence；Builder / Guide / GateKeeper 的后续步骤显式读取上游 handoff、查询相关 evidence，并在需要跨轮证据时声明 `inputs.iteration_memory`；并行 review 使用不同 `role_definition_key`、同一个上游 handoff，并让 finishing GateKeeper 汇总每个并行 handoff 和对应 evidence；同一 workflow 中被使用的不同 `role_definitions` 不能在同一 archetype 下携带完全相同的 prompt / posture 责任，否则只是 role zoo 而不是新的证据责任；bundle prose 不能声称 Workdir Snapshot 观察到未被 marker 支撑的技术栈、测试套件或构建能力，也不能把 task-scoped judgment 写成全局人格记忆、永久偏好或跨任务用户画像；GateKeeper 模式具备可 finish 的 GateKeeper role。是否用某些词表达判断取舍、role posture 是否包含特定动词、Success Surface / Fake Done / Evidence Preferences / Residual Risk 的句子是否满足某组关键词，不属于硬正则阻断；这些质量要求仍写在 prompt、internal compiler policy、rubric 和 working agreement 中，由生成模型、用户确认和运行期 GateKeeper 共同治理。
 
 ## 7. LIVE 输出
 
@@ -346,9 +349,9 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 
 | API | 语义 |
 |-----|------|
-| `POST /api/alignments/sessions` | 创建 session，可带首条用户需求并立即启动 |
+| `POST /api/alignments/sessions` | 创建 Web alignment session，可带首条用户需求并立即启动 |
 | `POST /api/alignments/workdir-context` | 检查目标 workdir 的可选 Loopora 来源，返回继续 / 改进 / 重新生成选项 |
-| `GET /api/alignments/sessions` | 返回最近 alignment sessions，用于历史对话列表 |
+| `GET /api/alignments/sessions` | 返回最近对话列表；API 对象仍是 alignment session summary |
 | `GET /api/alignments/sessions/{id}` | 读取 session、状态、transcript 与校验摘要 |
 | `DELETE /api/alignments/sessions/{id}` | 删除非活动 alignment session、事件和临时 artifact |
 | `POST /api/alignments/sessions/{id}/messages` | 追加用户回复并继续对话 |
@@ -364,7 +367,7 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 
 稳定规则：
 
-- 这些 API 归属于 Web 内置入口；不要求 CLI 提供同构命令。
+- 这些 API 归属于 Web 内置入口；Agent-first CLI 使用 `loopora agent <adapter> gen/loop/next/submit`，不要求逐项镜像 Web 对话 API，但两者必须共享 bundle 校验、READY、导入、run 和 evidence 语义。
 - alignment session 创建、修订和导入入口的 `start_immediately` 使用统一布尔输入语义：literal `true` 或字符串 `1/true/yes/on` 才表示立即启动；`false/0/no/off`、空值和缺省外的其它字符串不能因为语言 truthiness 被当作启动指令。新建 session 显式不立即启动时必须保持可恢复的 `idle` 对话状态，不得后台启动 alignment worker。
 - `/api/alignments/workdir-context` 只返回轻量选项和 artifact refs，不返回 raw prompt、stdout/stderr、完整 transcript、完整 bundle YAML 或完整 spec；run 选项可暴露 task verdict、ledger、coverage 与 manifest 的 artifact path，但不内联 evidence summary、task verdict JSON 或 GateKeeper verdict JSON；真正注入上下文发生在用户选择 option 并创建 session 时。
 - `POST /api/alignments/sessions` 可携带 workdir context option id。服务端必须重新扫描同一 workdir 并解析该 option；无法重新发现、跨 workdir、引用不安全路径或要求继续已有 session 却走新建接口时应返回 4xx。选择已有 session 的“继续”语义由前端恢复该 session 并追加消息，不应创建另一个隐式 session。
@@ -399,8 +402,9 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 
 ## 12. 非目标
 
-- 不新增 CLI 命令。
+- 不新增 Web alignment 专属 CLI 命令。
 - 不提供外部 `loopora-task-alignment` Skill 安装路径。
+- 不把 Web 对话编排描述成 coding 场景唯一或默认 first-use path。
 - 不做 bundle 版本历史、diff 或回滚。
 - 不把 alignment session 变成长期用户人格建模。
 - 不让 Agent 在 READY 前直接物化 loop。
@@ -410,7 +414,7 @@ Web alignment 暴露 session 级 API，不新增 CLI interface。
 
 最小可接受版本必须满足：
 
-- 顶层“编排”和 Loop 工作台入口都能直接进入 Loop 对话页；旧创建入口仍能兼容进入该页面；对话页能从输入启动 alignment session。
+- 顶层“编排”和 Loop 工作台入口都能直接进入 Loop 对话页；旧创建入口仍能兼容进入该页面；对话页能从输入启动 alignment session。默认 first-use 文档和教程不得因此把 Web 对话压过 Agent-first 入口。
 - 聊天窗能实时展示 CLI 输出，并能继续多轮回答。
 - 多轮回答默认继承 provider CLI session；不支持或失败时有 transcript prompt fallback。
 - Agent 生成的 `bundle_yaml` 必须由服务层写入 session 指定路径。

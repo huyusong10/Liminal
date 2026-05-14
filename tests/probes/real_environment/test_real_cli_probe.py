@@ -21,6 +21,7 @@ import pytest
 
 from loopora.bundles import bundle_to_yaml
 from loopora.db import LooporaRepository
+from loopora.event_redaction import redact_sensitive_value
 from loopora.providers import executor_profile, normalize_executor_kind
 from loopora.service import LooporaService
 from loopora.settings import AppSettings
@@ -417,7 +418,10 @@ def _build_real_cli_phase_report(inputs: RealCliPhaseReportInput) -> dict:
 
 
 def _write_real_cli_phase_report(inputs: RealCliPhaseReportInput) -> tuple[dict, Path]:
-    report = _build_real_cli_phase_report(inputs)
+    raw_report = _build_real_cli_phase_report(inputs)
+    report = redact_sensitive_value("", raw_report)
+    if not isinstance(report, dict):
+        report = {}
     path = _phase_report_path(inputs.workdir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

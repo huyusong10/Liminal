@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -24,6 +25,12 @@ def _error_text(result) -> str:
         return result.stderr
     except ValueError:
         return result.output
+
+
+def _candidate_digest(bundle_text: str) -> tuple[str, int]:
+    normalized = bundle_text.rstrip() + "\n" if bundle_text.strip() else ""
+    data = normalized.encode("utf-8")
+    return (hashlib.sha256(data).hexdigest(), len(data)) if data else ("", 0)
 
 
 def _codex_skill_paths(workdir: Path) -> dict[str, Path]:
@@ -305,6 +312,13 @@ def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) 
     assert 'loopora agent claude gen --workdir "$PWD"' in gen_skill
     assert '--context-id "${CLAUDE_SESSION_ID}"' in gen_skill
     assert "--entry-source claude_project_skill" in gen_skill
+    assert "Loop preview" in gen_skill
+    assert "Web review" in gen_skill
+    assert "Web alignment URL" not in gen_skill
+    assert "reviewed Loop preview" in loop_skill
+    assert "confirmed Loop preview" not in loop_skill
+    assert "READY bundle" not in gen_skill
+    assert "READY bundle" not in loop_skill
     assert "LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill" in loop_skill
     assert 'loopora agent claude loop --workdir "$PWD"' in loop_skill
     assert "loopora agent claude submit" in loop_skill
@@ -352,6 +366,11 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert 'loopora agent opencode gen --workdir "$PWD"' in gen_command
     assert '--context-id "${OPENCODE_SESSION_ID:-}"' in gen_command
     assert "--entry-source opencode_project_command" in gen_command
+    assert "Loop preview" in gen_command
+    assert "reviewed Loop preview" in loop_command
+    assert "confirmed Loop preview" not in loop_command
+    assert "READY bundle" not in gen_command
+    assert "READY bundle" not in loop_command
     assert "LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command" in loop_command
     assert "agent: loopora-orchestrator" in loop_command
     assert "subtask: true" in loop_command
@@ -397,6 +416,11 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert 'loopora agent codex gen --workdir "$PWD"' in gen_skill
     assert "--bundle-file" in gen_skill
     assert "--entry-source codex_project_skill" in gen_skill
+    assert "Loop preview" in gen_skill
+    assert "reviewed Loop preview" in loop_skill
+    assert "confirmed Loop preview" not in loop_skill
+    assert "READY bundle" not in gen_skill
+    assert "READY bundle" not in loop_skill
     assert "name: loopora-loop" in loop_skill
     assert "LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill" in loop_skill
     assert 'loopora agent codex loop --workdir "$PWD"' in loop_skill
@@ -472,7 +496,10 @@ def test_cli_codex_loop_requires_ready_bundle(tmp_path: Path) -> None:
     result = runner.invoke(cli.app, ["agent", "codex", "loop", "--workdir", str(workdir), "--no-web"])
 
     assert result.exit_code == 1
-    assert "/loopora-gen" in _error_text(result)
+    error_text = _error_text(result)
+    assert "/loopora-gen" in error_text
+    assert "ready Loop preview" in error_text
+    assert "READY Loopora bundle" not in error_text
 
 
 def test_cli_claude_adapter_install_uninstall_are_idempotent_and_preserve_user_config(tmp_path: Path) -> None:
@@ -527,7 +554,10 @@ def test_cli_claude_loop_requires_ready_bundle(tmp_path: Path) -> None:
     result = runner.invoke(cli.app, ["agent", "claude", "loop", "--workdir", str(workdir), "--no-web"])
 
     assert result.exit_code == 1
-    assert "/loopora-gen" in _error_text(result)
+    error_text = _error_text(result)
+    assert "/loopora-gen" in error_text
+    assert "ready Loop preview" in error_text
+    assert "READY Loopora bundle" not in error_text
 
 
 def test_cli_opencode_adapter_install_uninstall_are_idempotent_and_preserve_user_config(tmp_path: Path) -> None:
@@ -582,7 +612,10 @@ def test_cli_opencode_loop_requires_ready_bundle(tmp_path: Path) -> None:
     result = runner.invoke(cli.app, ["agent", "opencode", "loop", "--workdir", str(workdir), "--no-web"])
 
     assert result.exit_code == 1
-    assert "/loopora-gen" in _error_text(result)
+    error_text = _error_text(result)
+    assert "/loopora-gen" in error_text
+    assert "ready Loop preview" in error_text
+    assert "READY Loopora bundle" not in error_text
 
 
 def test_agent_bundle_candidate_rejects_missing_workdir(service_factory, tmp_path: Path) -> None:
@@ -599,9 +632,88 @@ def test_agent_bundle_candidate_rejects_missing_workdir(service_factory, tmp_pat
         )
 
 
+def test_agent_bundle_candidate_without_yaml_opens_prefill_without_starting_alignment(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Prepare a governed implementation loop from the host Agent context.",
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "idle"
+    assert generated["requires_web_alignment"] is True
+    assert generated["candidate_sha256"] == ""
+    assert generated["candidate_bytes"] == 0
+    assert generated["session"]["transcript"][-1]["content"] == "Prepare a governed implementation loop from the host Agent context."
+    assert generated["binding"]["requires_web_alignment"] is True
+    assert generated["binding"]["candidate_sha256"] == ""
+    assert generated["binding"]["candidate_bytes"] == 0
+    assert generated["preview_path"].startswith("/loops/new/bundle?alignment_session_id=")
+    events = service.list_alignment_events(generated["session"]["id"])
+    candidate_event = next(event for event in events if event["event_type"] == "agent_candidate_received")
+    assert candidate_event["payload"]["has_candidate_yaml"] is False
+    assert candidate_event["payload"]["requires_web_alignment"] is True
+    assert candidate_event["payload"]["candidate_sha256"] == ""
+    assert candidate_event["payload"]["candidate_bytes"] == 0
+    assert not any(event["event_type"] == "alignment_started" for event in events)
+    with pytest.raises(LooporaConflictError, match="/loopora-gen"):
+        service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+
+
+def test_cli_agent_gen_without_bundle_reports_web_alignment_needed(sample_workdir: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "Prepare a governed implementation loop.",
+            "--entry-source",
+            "codex_project_skill",
+            "--no-web",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Loopora Loop preview needs Web review" in result.stdout
+    assert "Web alignment" not in result.stdout
+    assert "preview_url: /loops/new/bundle?alignment_session_id=" in result.stdout
+    assert "candidate_url:" not in result.stdout
+
+
+def test_agent_adapter_preview_fallback_uses_web_review_language() -> None:
+    root = Path(__file__).resolve().parents[3]
+    sources = "\n".join(
+        [
+            (root / "src" / "loopora" / "agent_adapters.py").read_text(encoding="utf-8"),
+            (root / "src" / "loopora" / "cli_agent_adapter_commands.py").read_text(encoding="utf-8"),
+        ]
+    )
+
+    assert "Web review" in sources
+    assert "Web alignment URL" not in sources
+    assert "needs Web alignment" not in sources
+    assert "more alignment before" not in sources
+
+
 def test_cli_codex_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path, sample_workdir: Path) -> None:
     bundle_file = tmp_path / "bundle.yml"
-    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    bundle_text = alignment_bundle_yaml(str(sample_workdir.resolve()))
+    expected_sha, expected_bytes = _candidate_digest(bundle_text)
+    bundle_file.write_text(bundle_text, encoding="utf-8")
     runner = CliRunner()
 
     result = runner.invoke(
@@ -625,6 +737,10 @@ def test_cli_codex_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path,
     payload = json.loads(result.stdout)
     assert payload["ready"] is True
     assert payload["status"] == "ready"
+    assert payload["candidate_sha256"] == expected_sha
+    assert payload["candidate_bytes"] == expected_bytes
+    assert payload["binding"]["candidate_sha256"] == expected_sha
+    assert payload["binding"]["candidate_bytes"] == expected_bytes
     assert payload["preview_url"].startswith("/loops/new/bundle?alignment_session_id=")
     assert "run" not in payload
 
@@ -658,12 +774,70 @@ def test_cli_claude_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert payload["adapter"] == "claude"
+    assert payload["candidate_origin"] == "agent_entry"
+    assert payload["candidate_entry_source"] == "claude_project_skill"
     assert payload["ready"] is True
     assert payload["status"] == "ready"
     assert payload["binding"]["context_source"] == "explicit"
+    assert payload["binding"]["candidate_origin"] == "agent_entry"
+    assert payload["binding"]["candidate_adapter"] == "claude"
+    assert payload["binding"]["candidate_entry_source"] == "claude_project_skill"
     assert payload["binding"]["entry_invocations"][-1]["entry_source"] == "claude_project_skill"
     assert payload["preview_url"].startswith("/loops/new/bundle?alignment_session_id=")
     assert "run" not in payload
+
+
+def test_agent_loop_after_web_imported_candidate_still_uses_agent_native(
+    service_factory,
+    monkeypatch,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_text = alignment_bundle_yaml(str(sample_workdir.resolve()))
+    expected_sha, expected_bytes = _candidate_digest(bundle_text)
+    bundle_file.write_text(bundle_text, encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Prepare a governed implementation loop.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    assert generated["candidate_sha256"] == expected_sha
+    assert generated["candidate_bytes"] == expected_bytes
+    candidate_event = next(
+        event for event in service.list_alignment_events(generated["session"]["id"]) if event["event_type"] == "agent_candidate_received"
+    )
+    assert candidate_event["payload"]["candidate_sha256"] == expected_sha
+    assert candidate_event["payload"]["candidate_bytes"] == expected_bytes
+    imported = service.import_alignment_bundle(generated["session"]["id"], start_immediately=False)
+    assert imported["session"]["status"] == "imported"
+    assert imported["session"]["linked_loop_id"]
+    assert not imported["session"].get("linked_run_id")
+
+    def fail_nested_worker(run_id: str) -> None:
+        raise AssertionError(f"Agent-first imported sessions must not start a headless worker for {run_id}")
+
+    monkeypatch.setattr(service, "start_run_async", fail_nested_worker)
+
+    started = service.start_agent_loop(
+        "codex",
+        workdir=sample_workdir,
+        entry_source="codex_project_skill",
+        execute_async=True,
+    )
+
+    assert started["execution_plane"] == "agent_native"
+    assert started["started_new_run"] is True
+    assert started["run"]["status"] == "awaiting_agent"
+    assert started["binding"]["execution_plane"] == "agent_native"
+    assert started["binding"]["linked_run_id"] == started["run"]["id"]
+    assert started["next_step"]["execution_plane"] == "agent_native"
 
 
 def test_cli_agent_runtime_accepts_managed_entry_source_from_env(monkeypatch, tmp_path: Path, sample_workdir: Path) -> None:
@@ -724,9 +898,14 @@ def test_cli_opencode_gen_accepts_ready_bundle_without_starting_run(monkeypatch,
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert payload["adapter"] == "opencode"
+    assert payload["candidate_origin"] == "agent_entry"
+    assert payload["candidate_entry_source"] == "opencode_project_command"
     assert payload["ready"] is True
     assert payload["status"] == "ready"
     assert payload["binding"]["context_source"] == "workdir"
+    assert payload["binding"]["candidate_origin"] == "agent_entry"
+    assert payload["binding"]["candidate_adapter"] == "opencode"
+    assert payload["binding"]["candidate_entry_source"] == "opencode_project_command"
     assert payload["binding"]["entry_invocations"][-1]["entry_source"] == "opencode_project_command"
     assert payload["preview_url"].startswith("/loops/new/bundle?alignment_session_id=")
     assert "run" not in payload
@@ -1797,9 +1976,23 @@ def test_claude_agent_gen_validates_ready_bundle_and_loop_starts_run(
     )
 
     assert generated["adapter"] == "claude"
+    assert generated["candidate_origin"] == "agent_entry"
+    assert generated["candidate_entry_source"] == "claude_project_skill"
     assert generated["ready"] is True
     assert generated["binding"]["context_source"] == "explicit"
+    assert generated["binding"]["candidate_origin"] == "agent_entry"
+    assert generated["binding"]["candidate_adapter"] == "claude"
+    assert generated["binding"]["candidate_entry_source"] == "claude_project_skill"
     assert generated["binding"]["entry_invocations"][-1]["entry_source"] == "claude_project_skill"
+    candidate_events = service.list_alignment_events(generated["session"]["id"], limit=20)
+    assert any(
+        event["event_type"] == "agent_candidate_received"
+        and event["payload"]["candidate_origin"] == "agent_entry"
+        and event["payload"]["adapter"] == "claude"
+        and event["payload"]["entry_source"] == "claude_project_skill"
+        and event["payload"]["has_candidate_yaml"] is True
+        for event in candidate_events
+    )
 
     started = service.start_agent_loop("claude", workdir=sample_workdir, context_id="claude-session-a", entry_source="claude_project_skill", execute_async=False)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 
@@ -46,7 +47,7 @@ def test_real_cli_phase_report_projects_model_resume_and_artifacts(tmp_path: Pat
             {
                 "id": 1,
                 "event_type": "codex_event",
-                "payload": {"type": "command", "message": "opencode run --model minimax-token-plan/MiniMax-M2.7 prompt"},
+                "payload": {"type": "command", "message": "opencode run --token CLI_PHASE_SECRET_MARKER --model minimax-token-plan/MiniMax-M2.7 prompt"},
             },
             {
                 "id": 2,
@@ -73,6 +74,9 @@ def test_real_cli_phase_report_projects_model_resume_and_artifacts(tmp_path: Pat
     assert report["phase_statuses"]["resume_session_observed"]["ok"] is True
     assert report["phase_statuses"]["resume_command_shape_observed"]["ok"] is True
     assert report["phase_statuses"]["artifacts_persisted"]["ok"] is True
+    report_text = json.dumps(report, ensure_ascii=False)
+    assert "CLI_PHASE_SECRET_MARKER" not in report_text
+    assert "--token <secret omitted>" in report_text
 
 
 def test_real_cli_default_model_policy_requires_explicit_override(monkeypatch) -> None:
@@ -122,7 +126,7 @@ def test_release_web_phase_report_projects_adapter_state_matrix(tmp_path: Path) 
         module.ReleaseWebPhaseReportInput(
             workdir=workdir,
             base_url="http://127.0.0.1:12345",
-            command=["python", "-m", "loopora", "serve"],
+            command=["python", "-m", "loopora", "serve", "--auth-token", "WEB_PHASE_SECRET_MARKER"],
             events=events,
             server_ready=True,
         )
@@ -131,6 +135,9 @@ def test_release_web_phase_report_projects_adapter_state_matrix(tmp_path: Path) 
     assert report_path == workdir / ".loopora" / "real-probes" / "release-web-phase-report.json"
     assert report_path.exists()
     assert report["phase_statuses"]["server_ready"]["ok"] is True
+    report_text = json.dumps(report, ensure_ascii=False)
+    assert "WEB_PHASE_SECRET_MARKER" not in report_text
+    assert "<secret omitted>" in report_text
     for adapter in module.ADAPTERS:
         assert report["phase_statuses"][f"{adapter}_states_observed"]["ok"] is True
         assert report["phase_statuses"][f"{adapter}_conflict_preserved"]["ok"] is True

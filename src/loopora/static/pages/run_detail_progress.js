@@ -130,7 +130,7 @@
         ),
         custom: localeText(
           "执行当前编排里定义的自定义步骤，并把结果交接给后续阶段。",
-          "Executes the custom workflow step defined in this orchestration and hands its result to the next stage."
+          "Executes the custom step defined in this flow and hands its result to the next stage."
         ),
       };
       const base = details[archetype] || details.custom;
@@ -182,7 +182,7 @@
       stages.push({
         key: "finished",
         kind: "finished",
-        title: localeText("完成", "Done"),
+        title: localeText("运行收束", "Run closed"),
         detail: localeText(
           "这次运行已经结束，可能是成功、失败或手动停止。",
           "The run has ended, whether by success, failure, or manual stop."
@@ -588,7 +588,7 @@
       if (status === "queued") {
         return {
           title: localeText("正在排队，马上轮到它", "Queued up and waiting for its turn"),
-          detail: localeText("还没真正进入执行器，队列一空就会开跑。", "It has not entered the executor yet; it will start as soon as a slot opens."),
+          detail: localeText("还在等待运行位置，前面的工作结束后会开始。", "It is waiting for a run slot and will start when earlier work clears."),
           duration: snapshots.checks?.durationLabel || formatDuration(run?.queued_at || run?.created_at, null),
           metaLeft: localeText("当前阶段 · 检查项", "Current stage · Checks"),
           metaRight: formatRelativeAge(run?.updated_at),

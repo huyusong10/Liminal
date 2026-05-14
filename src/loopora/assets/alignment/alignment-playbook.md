@@ -12,13 +12,13 @@ A weak alignment produces a valid-looking config. A strong alignment produces a 
 
 Think of alignment as a time-shifted conversation: the human corrections that would otherwise happen after future rounds should be surfaced before the run starts. The goal is not to make the model permanently learn the user; the goal is to make this Loop temporarily inherit the user's judgment for this task.
 
-Loopora's default experience must stay usable in five minutes: describe task, choose workdir, confirm Loop, run, inspect evidence. Ask in user language; compile advanced workflow controls only when they clearly reduce task error.
+Loopora's default experience must stay usable in five minutes: describe task, choose workdir, confirm the working agreement, review the READY Loop, run, inspect evidence. Ask in user language; compile advanced workflow controls only when they clearly reduce task error.
 
 ## The Loopora loop
 
 Every alignment should serve this main workflow:
 
-`compose Loop -> run Loop -> automatic iteration with evidence -> evidence verdict and result`
+`compose Loop -> run Loop -> automatic iteration with evidence -> run status, task verdict, and result`
 
 If a question does not improve that Loop, skip it. If a missing answer would change the Loop, ask it.
 If several answers are missing, ask the next answer that would most change the Loop. Do not turn alignment into a long questionnaire.

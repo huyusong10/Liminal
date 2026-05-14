@@ -188,7 +188,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function statusLabel(status) {
     const labels = {
       idle: localeText("未开始", "Idle"),
-      running: localeText("对齐中", "Running"),
+      running: localeText("编排中", "Composing"),
       waiting_user: localeText("等待回复", "Waiting"),
       validating: localeText("校验中", "Validating"),
       repairing: localeText("自动修复", "Repairing"),
@@ -1668,7 +1668,7 @@ document.addEventListener("DOMContentLoaded", () => {
       messageInput.value = "";
       closeTools();
     } catch (error) {
-      showError(error.message || localeText("启动对齐失败。", "Failed to start alignment."));
+      showError(error.message || localeText("启动对话失败。", "Failed to start conversation."));
       setBusy(false);
     }
   });

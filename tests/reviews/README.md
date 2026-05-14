@@ -38,6 +38,12 @@ uv run python tests/reviews/run.py --case default-path-language
 uv run python tests/reviews/run.py --case concept-coherence
 ```
 
+`default-path-language` keeps its expert-term hints scoped to default visible Web surfaces and localized strings. It may include a small set of conversation-guidance prompt assets as reviewer context, but internal compiler references, resource-library detail pages, and expert editing screens belong in `concept-coherence` or scenario review instead.
+
+`concept-coherence` uses machine hints for anti-framing terms such as prompt-pack, role-zoo, loop-script, or chat-wrapper drift on public reader surfaces. Design docs and prompt assets remain in the text index for human review, where those same terms often appear as intentional non-goals. Core product anchors like evidence, judgment, and GateKeeper also remain in the text index, but they should not flood the hint stream as findings by themselves.
+
+`agent-native-behavior` treats missing phase reports as the primary evidence gap. Its risk hints scan recorded phase reports for shortcut language such as inline, nested, prewritten, or host dispatch; the design and probe handbook remain text context because they intentionally name those shortcuts as prohibited behavior. READY and evidence are core Agent-native anchors and belong in the handbook/artifact reading context.
+
 Include real probe or run artifacts for Agent-native behavior review:
 
 ```bash
@@ -52,7 +58,7 @@ Supported target types:
 - `web_urls`: captures supplied Web URLs across configured viewports.
 - `text_globs`: builds a bounded text index from repository files.
 - `artifact_paths`: reads configured, environment-provided, or CLI-provided artifact files.
-- `term_hints`: scans configured terms and emits non-blocking machine hints.
+- `term_hints`: scans configured terms in reviewable text and emits non-blocking machine hints. For templates and SVGs this means visible text plus accessibility labels; for JavaScript it means localized `localeText(...)` strings. It deliberately ignores route names, DOM ids, `data-testid` values, selectors, variables, and file paths.
 
 ## What Counts As Evidence
 

@@ -62,7 +62,7 @@ The working agreement and bundle must therefore say:
 
 Loopora's main workflow is:
 
-`compose Loop -> run Loop -> automatic iteration with evidence -> evidence verdict and result`
+`compose Loop -> run Loop -> automatic iteration with evidence -> run status, task verdict, and result`
 
 Web conversation, manual composition, importing YAML, and improving an existing bundle through dialogue are scenarios for obtaining or adjusting a Loop. They are not the main workflow itself.
 
@@ -135,11 +135,11 @@ If you cannot explain this projection in the `collaboration_summary`, the bundle
 
 Loopora's run path is:
 
-`Loop -> run -> automatic iteration -> evidence -> verdict/result`
+`Loop -> run -> automatic iteration -> evidence -> run status + task verdict + result`
 
 Natural-language confidence is not evidence.
 
-Loopora separates run lifecycle from task verdict. A run can finish normally while the task is still unproven. The evidence verdict should be easy to project into stable buckets:
+Loopora separates run lifecycle from task verdict. A run can finish normally while the task is still unproven. The task verdict projection should be easy to map into stable buckets:
 
 | Bucket | Meaning |
 | --- | --- |

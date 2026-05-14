@@ -6,14 +6,15 @@
 
 最高产品原则见 `core-ideas/product-principle.md`：
 
-> Loopora 是面向长期 AI Agent 任务的本地任务平台。它把未来多轮任务中原本需要人类反复做的判断、纠偏、取证和阻断，提前编译成一个可运行的 human-shaped Loop。所有设计都必须服务于 `编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出证据裁决与结果` 的主工作流，而不是退化成 role zoo、prompt pack、loop script、通用聊天界面或内部资产 CRUD console。
+> Loopora 是面向长期 AI Agent 任务的本地任务平台。它把未来多轮任务中原本需要人类反复做的判断、纠偏、取证和阻断，提前编译成一个可运行的 human-shaped Loop。所有设计都必须服务于 `编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出运行状态、Loop 裁决与结果` 的主工作流，而不是退化成 role zoo、prompt pack、loop script、通用聊天界面或内部资产 CRUD console。
 
 同一原则还包含 human-shaped Loop、“主次关系”和“5 分钟上手”硬约束：核心概念必须围绕 Loop 的判断外化、编排、运行、自动迭代、证据和裁决；Web 问答、手动编排、导入 YAML 和对话改进只是取得或调整 Loop 的场景。
 
-文档分成两个子模块：
+文档分成三个子模块：
 
 - `core-ideas/`：只保留抽象规则、反例、非目标；作为项目级约束。
 - `detailed-design/`：按高内聚模块拆分实现设计；作为实现和演进的参考面。
+- `decisions/`：记录已经接受的重要架构取舍；只在取舍本身会影响多个模块或验证边界时新增。
 
 ## 2. 使用规则
 
@@ -52,9 +53,10 @@
 | 核心思想 | `core-ideas/core-contract.md` | 当前治理 surface、巡检流程与测试对齐锚点 | 全局 |
 | 核心思想 | `core-ideas/collaboration-posture.md` | 用户判断姿态如何成为治理输入 | 全局 |
 | 核心思想 | `core-ideas/task-scoped-alignment.md` | 任务驱动对齐、working agreement 与 Loop 编排场景 | 全局 |
-| 核心思想 | `core-ideas/agent-first-loopora.md` | Coding Agent 作为主入口和执行主体、Loopora 作为上层治理编排器的原始需求 | 全局 |
+| 核心思想 | `core-ideas/agent-first-loopora.md` | Coding Agent 作为主入口和执行主体、Loopora 作为上层治理编排器的当前产品边界 | 全局 |
 | 核心思想 / 参考资料 | `core-ideas/codex-goal-reference.md` | Codex `/goal` 的持久目标、自动续跑和受限模型工具机制参考 | 全局 |
 | 核心思想 / 参考资料 | `core-ideas/trellis-agent-orchestration-reference.md` | Trellis 的 Agent-first、本地编排、多平台 adapter 与上下文注入机制参考 | 全局 |
+| 架构决策 | `decisions/agent-native-execution-plane.md` | Agent-first 默认执行平面与 headless executor 的分界 | 全局 |
 | 细节设计 | `detailed-design/01-spec-subsystem.md` | `spec.md` 编译与 checks 冻结 | `src/loopora/specs.py`, `src/loopora/service.py` |
 | 细节设计 | `detailed-design/02-orchestration-service.md` | loop/run 编排与角色循环 | `src/loopora/service.py` |
 | 细节设计 | `detailed-design/03-executor-subsystem.md` | 执行器、provider 适配、命令模式 | `src/loopora/executor.py`, `src/loopora/providers.py` |
@@ -63,7 +65,7 @@
 | 细节设计 | `detailed-design/06-workflow-and-prompts.md` | workflow、prompt 与角色快照契约 | `src/loopora/workflows.py`, `src/loopora/context_flow.py` |
 | 细节设计 | `detailed-design/07-observability-and-diagnostics.md` | 统一日志契约、事件命名与分级规则 | `src/loopora/diagnostics.py`, `src/loopora/settings.py`, `src/loopora/db.py`, `src/loopora/service.py`, `src/loopora/web.py`, `src/loopora/cli.py` |
 | 细节设计 | `detailed-design/08-bundles-and-alignment.md` | bundle 生命周期、专家交换格式与 task-scoped alignment 落点 | `src/loopora/bundles.py`, `src/loopora/service_bundle_assets.py`, `src/loopora/service_alignment.py`, `src/loopora/assets/alignment/` |
-| 细节设计 | `detailed-design/09-web-bundle-alignment.md` | Web 内置任务对齐入口、alignment session、READY 预览与创建运行 | `src/loopora/web_route_*.py`, `src/loopora/templates/`, `src/loopora/static/`, `src/loopora/executor.py`, `src/loopora/bundles.py` |
+| 细节设计 | `detailed-design/09-web-bundle-alignment.md` | Web 内置对话编排入口、alignment session、READY 预览与创建运行 | `src/loopora/web_route_*.py`, `src/loopora/templates/`, `src/loopora/static/`, `src/loopora/executor.py`, `src/loopora/bundles.py` |
 | 细节设计 | `detailed-design/10-agent-adapters.md` | Agent-first Coding Agent adapter、安装卸载 ownership、`/loopora-gen` 与 `/loopora-loop` 入口边界 | `src/loopora/agent_adapters.py`, `src/loopora/service_agent_adapters.py`, `src/loopora/cli_agent_adapter_commands.py`, `src/loopora/web_route_agent_adapters_api.py`, `src/loopora/templates/tools.html`, `src/loopora/static/pages/tools.js` |
 
 ## 5. 读者约定

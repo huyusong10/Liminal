@@ -46,7 +46,7 @@
 - run status 与 task verdict 必须分开投影。`run_finished` 或 `succeeded` 只能说明系统生命周期，不代表任务已经通过。
 - GateKeeper 支持带残余风险的通过：当最新 GateKeeper 裁决明确接受有意义的 residual risk，task verdict projection 必须显示 `passed_with_residual_risk`，让用户知道这是“可见风险下通过”而不是无条件通过；历史风险信号可以留在 evidence bucket，但不能单独改变最终通过状态。
 - GateKeeper 的结构化 verdict 必须把可接受残余风险写入 `residual_risks`，并由 ledger item 的 `residual_risk`、coverage `latest_gatekeeper.residual_risk` 与 task verdict residual bucket 串联展示。`decision_summary` 可以解释风险，但不能成为唯一机器可读来源。
-- task verdict projection 必须把 required coverage target 作为通过锚点：GateKeeper 可以结束 run lifecycle，但若 required target 仍未证明或被阻断，用户看到的任务裁决必须保持 `insufficient_evidence` 或 `failed`。
+- task verdict projection 必须把 required coverage target 作为通过锚点：GateKeeper 可以结束 run lifecycle，但若 required target 仍未证明或被阻断，用户看到的 Loop 裁决必须保持 `insufficient_evidence` 或 `failed`。
 - task verdict bucket item 若来自 coverage target，必须保留该 target 的 `evidence_refs` 与可用 `artifact_refs`，让用户能从已证明、弱证据、未证明或阻断桶继续追到 ledger 与 proof artifact。
 - 面向用户的 evidence projection 应优先使用稳定语义桶：已证明、证据薄弱、未证明、阻断问题、残余风险。紧凑裁决摘要也不能省略弱证据或残余风险计数；残余风险必须作为独立信号展示，不能被压进阻断计数里。完整 ledger 与 manifest 仍通过追查入口访问。
 - evidence manifest、coverage、task verdict projection 与 workflow / iteration reporting 的布尔输入必须按 literal JSON boolean 处理；字符串 `"false"`、`"true"` 或数字不能提升为 measured proof、artifact-backed proof、advisory required target、passed verdict、passed metric 或通过摘要。证据计数、artifact 计数和观察序号必须是真正的 JSON integer；布尔值、字符串或小数不能被 `int()` 截断或提升为有效计数。GateKeeper / iteration score 必须是真正的有限 JSON number；字符串数字不能影响停滞判断、通过摘要或用户可见 score。`Done When` 与 `gatekeeper.finish` 的 required 语义来自派生 target 类型本身，不依赖持久化 `required` 字段；当 GateKeeper `passed` 不是 literal boolean 时，`decision_summary` 也不能单独成为用户可见的通过叙事。
@@ -92,10 +92,12 @@
 - `LOOPORA_REAL_CLI_TIMEOUT_SECONDS` 控制单条 run 的最长等待时间。
 - provider 模型覆盖通过可选环境变量注入：`LOOPORA_REAL_CLI_CODEX_MODEL`、`LOOPORA_REAL_CLI_CLAUDE_MODEL`、`LOOPORA_REAL_CLI_OPENCODE_MODEL`；普通发布 real probe 不应静默覆盖 Claude Code / OpenCode 默认模型，覆盖路径必须同时设置显式 real probe override 开关，让报告和断言都能区分默认套餐路径与覆盖路径。
 - 真实 CLI real probe 失败时应保留 `.loopora/real-probes/real-cli-phase-report.json`，至少包含 provider、实际模型、run 终态、命令事件摘要、resume 断言线索与关键 artifact 是否存在。
+- Real probe phase report 是可分享的诊断投影，只能保存脱敏后的命令、错误、事件和 artifact 摘要；不得把完整 prompt、schema、环境变量、token、认证头、Cookie 或命令中的 secret 原值写入报告。
 - 若环境缺少 CLI、浏览器或宿主权限，这类用例应明确 skip，而不是伪造成功结果。
 - 除基础设施矩阵外，仓库还允许保留 scenario-driven 的真实 workflow 用例；这类用例应围绕教程里的真实样例场景组织，并把复制后的 workspace、`.loopora` 运行目录、proof 结果和 review 摘要落到 `artifacts/real_search_loop_experiments/<run-id>/...`，避免真实 run 结束后被清理。
 - 这类 scenario fixture 可以是小型但真实的多模块 workspace，而不是单文件谜题；proof 应同时要求代码结果、设计说明和方向/复盘产物成立，避免模型只靠补报告或单点 hack 通过。
-- GitHub Actions 中的真实 provider 验证只能通过 `workflow_dispatch` 手动触发，不进入默认 CI；workflow 必须接受可配置 `targets`、`setup_command` 与 `pytest_args`。若目标 provider 缺少 CLI、必要 secret 或本地配置，workflow summary 必须明确 skip 原因，而不是伪绿通过。
+- GitHub Actions 中的真实环境验证只能通过 `workflow_dispatch` 手动触发，不进入默认 CI；workflow 必须接受可配置 `suites`、Agent targets、CLI targets、host setup 与 pytest 透传参数。若目标宿主、provider CLI、必要 secret 或本地配置缺失，workflow summary 与 runner 报告必须明确 skip 原因，而不是伪绿通过。
+- 手动真实验证 workflow 必须调用 `tests/probes/real_environment/run_real_probes.py`，而不是直接拼一条只覆盖 provider CLI 的 pytest 命令；release profile 应能选择 `real-agent`、`real-cli` 和 `release-web`，并把真实 workflow experiments 留在显式 experiment gate 中。
 
 最小高风险矩阵如下：
 

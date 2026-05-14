@@ -249,6 +249,8 @@ Compilation is not translating human judgment into a longer prompt. It puts judg
 
 In plain terms, judgment lives in four user-understandable running surfaces:
 
+Those four surfaces are a conceptual compression for this essay. The README asks whether a reviewable plan file is sufficient, so it splits **execution posture** into Agent responsibilities and run flow, yielding five reader-facing judgment faces. Both descriptions point at the same runtime contract: Loop contract, roles, workflow, and evidence; the verdict is their projection, not another fact source.
+
 - **Task contract**: what counts as done, what is fake done, what must block.
 - **Execution posture**: whether the next round should build, gather evidence, repair, or narrow.
 - **Evidence path**: what each round must leave behind, what was proven, and what remains unproven.

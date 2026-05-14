@@ -82,7 +82,7 @@ They have different jobs:
 | Entry | What happens |
 | --- | --- |
 | `/loopora-gen` | Turns the current task and your judgment into a reviewable candidate Loop. It does not start the run. |
-| `/loopora-loop` | Starts or resumes the task with the confirmed Loop, so the Agent advances through evidence. |
+| `/loopora-loop` | Starts or resumes the task with the reviewed Loop, so the Agent advances through evidence. |
 
 For the first run, you can say:
 
@@ -94,7 +94,7 @@ I need to build a refund request admin. Please generate a Loopora Loop:
 - the audit trail must reconstruct a refund
 ```
 
-Then run `/loopora-gen`. Loopora returns a local Web URL where you can see what the task became. After you confirm it, run `/loopora-loop`; the current Agent continues under that Loop.
+Then run `/loopora-gen`. Loopora returns a local Web URL where you can see what the task became. After you review or adjust it, run `/loopora-loop`; the current Agent continues under that Loop.
 
 ## What Gets Compiled?
 
@@ -131,14 +131,14 @@ Web is useful when you want to:
 
 The Agent entry and Web entry are not separate worlds. Even if a Loop starts inside your Agent, it is recorded in the same local system and can be viewed and managed in Web.
 
-## Technical Shape: How the Bundle Carries Judgment
+## Technical Shape: How the Plan File Carries Judgment
 
 <p align="center">
-  <img src="./assets/diagrams/bundle-judgment-structure.en.svg" alt="A Loopora Bundle carries task-local judgment through task contract, Agent responsibilities, run flow, evidence rules, and verdict rules" width="1000" />
+  <img src="./assets/diagrams/bundle-judgment-structure.en.svg" alt="A Loopora plan file carries task-local judgment through task contract, Agent responsibilities, run flow, evidence rules, and verdict rules" width="1000" />
 </p>
 
-Loopora compiles a reviewable Bundle. It does not try to encode all human judgment; it encodes the part of judgment that will repeatedly affect this long-running task.
+Loopora compiles a reviewable plan file. Internally, that exchange format is still a Bundle, but first-use readers can treat it as the portable form of the Loop. It does not try to encode all human judgment; it encodes the part of judgment that will repeatedly affect this long-running task.
 
-The Bundle is sufficient because five surfaces work together: the task contract prevents the goal from shrinking, Agent responsibilities keep each round focused, run flow says where to return when evidence is weak, evidence rules separate claims from proof, and verdict rules decide whether to pass, block, continue, or carry explicit residual risk.
+The plan file is sufficient because five reader-facing judgment faces work together: the task contract prevents the goal from shrinking, Agent responsibilities keep each round focused, run flow says where to return when evidence is weak, evidence rules separate claims from proof, and verdict rules decide whether to pass, block, continue, or carry explicit residual risk. At runtime those faces still reconcile back to the Loop contract, roles, workflow, and evidence; the verdict is a projection from them, not a separate fact source.
 
-At the end of each round, Loopora does not only ask whether the Agent said "done." It reconciles the output against the Bundle: what was proven, what is weak evidence, what remains unproven, which risk blocks closure, and which gap the next round should repair.
+At the end of each round, Loopora does not only ask whether the Agent said "done." It reconciles the output against those plan surfaces: what was proven, what is weak evidence, what remains unproven, which risk blocks closure, and which gap the next round should repair.

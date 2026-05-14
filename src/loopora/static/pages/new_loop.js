@@ -380,7 +380,7 @@ document.addEventListener("DOMContentLoaded", () => {
         completionModeNote.hidden = false;
         completionModeNote.textContent = localeText(
           "当前编排没有“通过即结束”的 GateKeeper 步骤，所以这里只能使用轮次推进。",
-          "This orchestration has no finish-on-pass GateKeeper step, so rounds is the only completion mode available here.",
+          "This flow has no finish-on-pass GateKeeper step, so rounds is the only completion mode available here.",
         );
       }
     }
@@ -404,7 +404,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const selected = currentOrchestration();
     if (!selected) {
       applyOrchestrationPolicy();
-      showStatus(orchestrationSummary, localeText("还没有可用的编排方案，请先去“流程编排”里创建。", "No orchestration is available yet. Create one from the Orchestrations page."), "error");
+      showStatus(orchestrationSummary, localeText("还没有可用的编排方案，请先去“流程编排”里创建。", "No flow is available yet. Create one from the Flow library."), "error");
       return;
     }
     const workflow = selected.workflow_json || {};
@@ -431,7 +431,7 @@ document.addEventListener("DOMContentLoaded", () => {
         orchestrationSummary,
         localeText(
           `当前方案是 ${selected.name} · ${source} · 角色 ${roles} · 步骤 ${steps} · 执行 ${runtimeSummary}${notes.length ? ` · ${notes.join(" · ")}` : ""}。如果你想用守门裁决收束，请先去编排页补一个“通过即结束”的守门者步骤。`,
-          `The selected orchestration is ${selected.name} · ${source} · Roles ${roles} · Steps ${steps} · Runtime ${runtimeSummary}${notes.length ? ` · ${notes.join(" · ")}` : ""}. Add a finish-on-pass GateKeeper step in Orchestrations if you want gate-based completion.`,
+          `The selected flow is ${selected.name} · ${source} · Roles ${roles} · Steps ${steps} · Runtime ${runtimeSummary}${notes.length ? ` · ${notes.join(" · ")}` : ""}. Add a finish-on-pass GateKeeper step in the Flow library if you want gate-based completion.`,
         ),
         "warning",
       );
@@ -841,7 +841,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     showStatus(formError, "");
     if (!currentOrchestration()) {
-      showStatus(formError, localeText("请先选择一个流程编排。", "Choose an orchestration first."), "error");
+      showStatus(formError, localeText("请先选择一个流程编排。", "Choose a flow first."), "error");
       return;
     }
     if (specEditorIsDirty()) {

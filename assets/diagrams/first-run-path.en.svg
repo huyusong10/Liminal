@@ -26,7 +26,7 @@
   <circle cx="380" cy="172" r="18" fill="#2563eb"/>
   <text x="380" y="179" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#ffffff">2</text>
   <text x="380" y="216" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#172033">/loopora-gen</text>
-  <text x="380" y="252" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#1e3a8a">Create a candidate Loop</text>
+  <text x="380" y="252" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#1e3a8a">Create Loop candidate</text>
   <text x="380" y="281" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#1e3a8a">No run starts yet</text>
 
   <rect x="532" y="158" width="176" height="144" rx="18" fill="#ffffff" stroke="#cbd5e1" filter="url(#shadow)"/>

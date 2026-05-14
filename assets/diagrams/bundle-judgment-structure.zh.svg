@@ -1,22 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="720" viewBox="0 0 1000 720" role="img" aria-labelledby="title desc">
-  <title id="title">Bundle 如何表达判断力</title>
-  <desc id="desc">图示 Loopora Bundle 通过任务契约、Agent 责任、运行流程、证据规则和裁决规则覆盖长期任务中最容易漂移的判断面。</desc>
+  <title id="title">方案文件如何表达判断力</title>
+  <desc id="desc">图示 Loopora 方案文件通过任务契约、Agent 责任、运行流程、证据规则和裁决规则覆盖长期任务中最容易漂移的判断面。</desc>
   <defs>
     <filter id="shadow" x="-8%" y="-8%" width="116%" height="124%">
       <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#0f172a" flood-opacity="0.10"/>
     </filter>
   </defs>
   <rect width="1000" height="720" rx="28" fill="#f6f8fb"/>
-  <text x="500" y="58" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="700" fill="#172033">Bundle 如何承载任务局部判断</text>
+  <text x="500" y="58" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="700" fill="#172033">方案文件如何承载任务局部判断</text>
   <text x="500" y="92" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" fill="#5b6475">不是模拟人的全部智慧，而是覆盖每轮最容易漂移的判断面</text>
 
   <rect x="58" y="126" width="884" height="492" rx="24" fill="#ffffff" stroke="#cbd5e1" filter="url(#shadow)"/>
   <rect x="104" y="154" width="792" height="64" rx="18" fill="#172033"/>
-  <text x="500" y="184" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Loopora Bundle</text>
+  <text x="500" y="184" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#ffffff">Loopora 方案文件</text>
   <text x="500" y="207" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14.5" fill="#dbeafe">一份可审查、可运行、可复用的任务判断结构</text>
 
   <rect x="98" y="252" width="220" height="42" rx="14" fill="#dbeafe" stroke="#bfdbfe"/>
-  <text x="208" y="278" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#1e3a8a">Bundle 面</text>
+  <text x="208" y="278" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#1e3a8a">方案文件面</text>
   <rect x="350" y="252" width="226" height="42" rx="14" fill="#dbeafe" stroke="#bfdbfe"/>
   <text x="463" y="278" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#1e3a8a">防止什么漂移</text>
   <rect x="608" y="252" width="294" height="42" rx="14" fill="#dbeafe" stroke="#bfdbfe"/>

@@ -20,18 +20,16 @@ targets:
     max_bytes_per_file: 10000
   - id: agent-native-risk-hints
     type: term_hints
-    title: Agent-native shortcut and evidence-risk hints
+    title: Agent-native shortcut-risk hints
+    optional: true
     globs:
-      - design/detailed-design/10-agent-adapters.md
-      - tests/probes/real_environment/*.py
-      - tests/probes/real_environment/README.md
+      - .loopora/real-probes/*phase-report.json
+      - .loopora/real-probes/**/*phase-report.json
     terms:
       - inline
       - nested
       - prewritten
-      - READY
       - host dispatch
-      - evidence
 ---
 
 Review a real or recorded Agent-host run for whether the host behaves like a Loopora-managed Agent path rather than an inline shortcut.

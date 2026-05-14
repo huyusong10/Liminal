@@ -101,9 +101,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const count = Array.isArray(payload?.[key]) ? payload[key].length : 0;
       total += count;
       const label = key === "orphan_alignment_dirs"
-        ? localeText("对话编排残留目录", "Alignment orphan dirs")
+        ? localeText("对话编排残留目录", "Conversation orphan dirs")
         : key === "orphan_bundle_dirs"
-          ? localeText("方案包残留目录", "Bundle orphan dirs")
+          ? localeText("方案包残留目录", "Plan file orphan dirs")
           : key === "orphan_run_dirs"
             ? localeText("运行残留目录", "Run orphan dirs")
             : localeText("记录缺失目录", "Records missing dirs");
@@ -116,8 +116,8 @@ document.addEventListener("DOMContentLoaded", () => {
   function localAssetIssueConfig(key) {
     const configs = {
       orphan_alignment_dirs: {
-        title: localeText("对话编排残留目录", "Alignment orphan directories"),
-        idLabel: localeText("Session", "Session"),
+        title: localeText("对话编排残留目录", "Conversation orphan directories"),
+        idLabel: localeText("对话", "Conversation"),
         idField: "session_id",
         action: localeText("打开目录", "Open folder"),
         suggestion: localeText(
@@ -126,8 +126,8 @@ document.addEventListener("DOMContentLoaded", () => {
         ),
       },
       orphan_bundle_dirs: {
-        title: localeText("方案包残留目录", "Bundle orphan directories"),
-        idLabel: localeText("方案包", "Bundle"),
+        title: localeText("方案包残留目录", "Plan file orphan directories"),
+        idLabel: localeText("方案包", "Plan file"),
         idField: "bundle_id",
         action: localeText("打开目录", "Open folder"),
         suggestion: localeText(

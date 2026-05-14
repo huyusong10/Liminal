@@ -20,4 +20,5 @@ Style contract:
 - Every diagram must remain a self-contained, parseable SVG with `role="img"`, `<title>`, and `<desc>`.
 - Use a neutral, high-contrast palette that can sit inside README/docs pages without inheriting a particular app theme.
 - Avoid fragile typography such as negative tracking or non-standard ad-hoc weight values; the exact copy may change, but the diagram should stay legible when scaled down in Markdown.
+- Diagrams referenced from the root README and Human-Shaped Loop documents must be included in source distributions through `MANIFEST.in` so those public docs do not ship with broken image references.
 - Rendered layout quality is reviewed through the shared opt-in review suite in `tests/reviews/`, not through deterministic contract or journey checks.

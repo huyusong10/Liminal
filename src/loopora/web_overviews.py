@@ -174,7 +174,12 @@ def _format_workspace_guard_triggered(payload: Mapping[str, object], _role: obje
 
 
 def _format_run_finished(payload: Mapping[str, object], _role: object, _event_type: str) -> tuple[str, str]:
-    title = f"Run {payload.get('status', 'finished')}"
+    status = str(payload.get("status") or "finished").strip()
+    title = {
+        "succeeded": "Run finished",
+        "failed": "Run failed",
+        "stopped": "Run stopped",
+    }.get(status, f"Run {status}" if status else "Run finished")
     reason = str(payload.get("reason", "")).strip()
     iter_id = payload.get("iter")
     detail_parts: list[str] = []
@@ -338,7 +343,7 @@ def _progress_stage_seed(run: Mapping[str, object] | None) -> list[dict[str, str
     stages.append(
         {
             "key": "finished",
-            "label": "Done",
+            "label": "Run closed",
             "kind": "finished",
         }
     )
@@ -399,7 +404,7 @@ def _build_run_summary_snapshot(run: dict) -> dict:
         "queued": ("运行已创建，正在等待执行。", "The run is created and waiting to start."),
         "running": ("当前运行正在推进，下面的摘要会持续更新。", "This run is in progress and the summary will keep updating."),
         "awaiting_agent": ("当前运行正在等待宿主 Agent 提交下一步结果。", "This run is waiting for the host Agent to submit the next step result."),
-        "succeeded": ("这次运行已顺利结束。", "This run finished successfully."),
+        "succeeded": ("这次运行已正常结束；任务是否通过仍看 Loop 裁决。", "This run finished normally; task pass or fail still comes from the Loop verdict."),
         "failed": ("这次运行已失败结束。", "This run finished with a failure."),
         "stopped": ("这次运行已被手动停止。", "This run was stopped manually."),
         "draft": ("运行还没有真正开始。", "The run has not started yet."),

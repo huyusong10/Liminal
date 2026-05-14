@@ -4,21 +4,53 @@ title: Default Path Language Quality
 targets:
   - id: default-path-text
     type: text_globs
-    title: Default path templates, static text, and alignment prompt assets
+    title: Default path templates, static text, and conversation guidance
     globs:
-      - src/loopora/templates/*.html
+      - src/loopora/templates/_display_preferences_bootstrap.html
+      - src/loopora/templates/auth.html
+      - src/loopora/templates/base.html
+      - src/loopora/templates/index.html
+      - src/loopora/templates/loop_detail.html
+      - src/loopora/templates/new_loop.html
+      - src/loopora/templates/run_console.html
+      - src/loopora/templates/run_detail.html
+      - src/loopora/templates/tools.html
+      - src/loopora/templates/tutorial.html
       - src/loopora/static/app.js
-      - src/loopora/static/pages/*.js
-      - src/loopora/assets/alignment/*.md
+      - src/loopora/static/pages/alignment.js
+      - src/loopora/static/pages/bundle_import.js
+      - src/loopora/static/pages/new_loop.js
+      - src/loopora/static/pages/run_console.js
+      - src/loopora/static/pages/run_detail*.js
+      - src/loopora/static/pages/tools.js
+      - src/loopora/static/pages/tutorial.js
+      - src/loopora/assets/alignment/alignment-playbook.md
+      - src/loopora/assets/alignment/compiler-policy.md
+      - src/loopora/assets/alignment/product-primer.md
+      - src/loopora/assets/alignment/system-prompt.md
     max_bytes_per_file: 6000
   - id: expert-language-hints
     type: term_hints
-    title: Expert-language and drift hints
+    title: Expert-language hints on default visible surfaces
     globs:
-      - src/loopora/templates/*.html
+      - src/loopora/templates/_display_preferences_bootstrap.html
+      - src/loopora/templates/auth.html
+      - src/loopora/templates/base.html
+      - src/loopora/templates/index.html
+      - src/loopora/templates/loop_detail.html
+      - src/loopora/templates/new_loop.html
+      - src/loopora/templates/run_console.html
+      - src/loopora/templates/run_detail.html
+      - src/loopora/templates/tools.html
+      - src/loopora/templates/tutorial.html
       - src/loopora/static/app.js
-      - src/loopora/static/pages/*.js
-      - src/loopora/assets/alignment/*.md
+      - src/loopora/static/pages/alignment.js
+      - src/loopora/static/pages/bundle_import.js
+      - src/loopora/static/pages/new_loop.js
+      - src/loopora/static/pages/run_console.js
+      - src/loopora/static/pages/run_detail*.js
+      - src/loopora/static/pages/tools.js
+      - src/loopora/static/pages/tutorial.js
     terms:
       - bundle
       - YAML
@@ -30,7 +62,7 @@ targets:
       - role zoo
 ---
 
-Review default user-facing paths as a non-expert user would encounter them.
+Review default user-facing paths as a non-expert user would encounter them. The text index may include conversation guidance that shapes the default Web compiler, but expert-term machine hints intentionally stay limited to visible Web surfaces and localized strings. Internal compiler references, resource-library detail pages, and expert editing screens belong in concept-coherence or scenario review, not this default-path hint stream.
 
 Look for:
 

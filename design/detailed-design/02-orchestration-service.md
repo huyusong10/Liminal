@@ -71,6 +71,13 @@
 
 `loop definition → 线性步骤 / 有限并行检视组执行 → 事件与产物汇聚 → run 状态与 Loop 裁决更新`
 
+运行注册与证据收束属于同一服务边界，但 step 的执行主体取决于 execution plane：
+
+| execution plane | 执行主体 | 服务层职责 |
+| --- | --- | --- |
+| `agent_native` | 宿主 Coding Agent 及其原生 role / subagent / task 机制 | 冻结 run contract，设置 `awaiting_agent`，分发 step capsule，校验 host dispatch proof，接收结构化回填并推进 evidence / handoff / verdict |
+| `headless` | Loopora worker 调用 executor 子进程 | 冻结 run contract，调度 executor，归一化结构化输出并推进 evidence / handoff / verdict |
+
 服务层必须完成：
 
 - 默认保持单轮内步骤为线性顺序
@@ -113,7 +120,7 @@
 - task verdict 回答任务语义：passed / failed / insufficient evidence / passed with residual risk / not evaluated。
 - 任何界面或 API 都不能把 `succeeded` 直接解释成 Loop 通过。
 - GateKeeper 通过且最新 GateKeeper 裁决明确接受有意义的残余风险时，task verdict 必须使用 `passed_with_residual_risk`，不能压平成普通 `passed`；历史失败迭代留下的风险信号仍可展示在 evidence bucket，但不能单独提升最终通过状态。
-- GateKeeper 通过不能越过 required coverage target：若 `Done When` 或 GateKeeper finish 等 required target 仍 missing / weak，或当前 run 的 coverage projection 缺失 / 不可读，task verdict 必须是 `insufficient_evidence`；若 required target 被阻断，task verdict 必须是 `failed`。这只改变任务裁决投影，不把 run lifecycle 的 `succeeded` 或 raw GateKeeper `passed=true` 解释成证明完成。legacy run 可继续按兼容模式展示旧 verdict。
+- GateKeeper 通过不能越过 required coverage target：若 `Done When` 或 GateKeeper finish 等 required target 仍 missing / weak，或当前 run 的 coverage projection 缺失 / 不可读，task verdict 必须是 `insufficient_evidence`；若 required target 被阻断，task verdict 必须是 `failed`。这只改变 Loop 裁决投影，不把 run lifecycle 的 `succeeded` 或 raw GateKeeper `passed=true` 解释成证明完成。legacy run 可继续按兼容模式展示旧 verdict。
 - `Done When` 与 `gatekeeper.finish` target 的 required 语义来自目标类型本身；即使持久化 coverage 中 `required` 字段损坏成字符串、数字或 false，也不能被降级为 advisory target。布尔字段仍按 literal JSON boolean 解释，损坏字段只能失败关闭，不能扩大通过范围。
 - GateKeeper 是 `gatekeeper` 模式下产生强 task verdict 的默认入口；`rounds` 模式若没有裁决 evidence，必须清楚表达“运行完成但任务未被证明”。
 

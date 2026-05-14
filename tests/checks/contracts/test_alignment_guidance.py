@@ -69,11 +69,13 @@ def test_alignment_guidance_preserves_product_and_bundle_contracts() -> None:
         (
             "Loopora fit gate",
             "Branch-aware pressure test",
+            "confirm the working agreement, review the READY Loop",
             "agreement-to-bundle traceability checklist",
             "long-chain phase workflow",
             "Do not use arbitrary DAG language",
         ),
     )
+    assert "confirm Loop" not in assets.alignment_playbook
     _assert_contains_all(
         assets.bundle_contract,
         (

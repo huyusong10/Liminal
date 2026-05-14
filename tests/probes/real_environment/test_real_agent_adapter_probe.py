@@ -18,6 +18,7 @@ import pytest
 
 from loopora.branding import state_dir_for_workdir
 from loopora.db import LooporaRepository
+from loopora.event_redaction import redact_sensitive_value
 from loopora.providers import CLAUDE_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL
 from loopora.service import LooporaService
 from loopora.service_types import TERMINAL_RUN_STATUSES
@@ -526,13 +527,16 @@ def _write_real_probe_phase_report(
     sentinel_log: Path,
     command: str,
 ) -> tuple[dict, Path]:
-    report = _build_real_probe_phase_report(
+    raw_report = _build_real_probe_phase_report(
         adapter=adapter,
         workdir=workdir,
         activity_snapshots=activity_snapshots,
         sentinel_log=sentinel_log,
         command=command,
     )
+    report = redact_sensitive_value("", raw_report)
+    if not isinstance(report, dict):
+        report = {}
     path = _phase_report_path(workdir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

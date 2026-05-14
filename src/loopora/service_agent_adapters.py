@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,17 @@ class AgentBundleCandidateRequest:
     entry_source: str = ""
 
 
+def _normalized_candidate_yaml(raw_yaml: str) -> str:
+    return raw_yaml.rstrip() + "\n" if raw_yaml.strip() else ""
+
+
+def _candidate_yaml_provenance(candidate_text: str) -> dict[str, Any]:
+    if not candidate_text:
+        return {"candidate_sha256": "", "candidate_bytes": 0}
+    data = candidate_text.encode("utf-8")
+    return {"candidate_sha256": hashlib.sha256(data).hexdigest(), "candidate_bytes": len(data)}
+
+
 class ServiceAgentAdapterMixin:
     def list_agent_adapters(self, *, workdir: Path | str | None = None) -> list[dict[str, Any]]:
         return list_agent_adapter_statuses(workdir or Path.cwd())
@@ -48,6 +60,7 @@ class ServiceAgentAdapterMixin:
         if adapter not in {"codex", "claude", "opencode"}:
             raise LooporaError(f"{adapter} adapter is not implemented yet")
         root = resolve_adapter_project_root(request.workdir)
+        entry_source = str(request.entry_source or "").strip() or "direct_cli"
         raw_yaml = str(request.bundle_yaml or "")
         source_path = ""
         if not raw_yaml.strip() and request.bundle_file is not None:
@@ -57,11 +70,13 @@ class ServiceAgentAdapterMixin:
             except OSError as exc:
                 raise LooporaError(str(exc)) from exc
             source_path = str(bundle_path)
+        candidate_text = _normalized_candidate_yaml(raw_yaml)
+        candidate_provenance = _candidate_yaml_provenance(candidate_text)
 
         session = self.create_alignment_session(
             workdir=root,
             message=request.message,
-            start_immediately=not bool(raw_yaml.strip()),
+            start_immediately=False,
             executor_kind=adapter,
             executor_mode="preset",
             command_cli="",
@@ -69,10 +84,23 @@ class ServiceAgentAdapterMixin:
             model="",
             reasoning_effort="",
         )
-        if raw_yaml.strip():
+        self.repository.append_alignment_event(
+            session["id"],
+            "agent_candidate_received",
+            {
+                "candidate_origin": "agent_entry",
+                "adapter": adapter,
+                "entry_source": entry_source,
+                "has_candidate_yaml": bool(candidate_text),
+                "requires_web_alignment": not bool(candidate_text),
+                "source_path": source_path,
+                **candidate_provenance,
+            },
+        )
+        if candidate_text:
             candidate_path = Path(session["bundle_path"])
             candidate_path.parent.mkdir(parents=True, exist_ok=True)
-            candidate_path.write_text(raw_yaml.rstrip() + "\n", encoding="utf-8")
+            candidate_path.write_text(candidate_text, encoding="utf-8")
             preview = self.sync_alignment_bundle_from_file(session["id"])
             session = preview["session"]
         existing_binding = read_agent_binding(adapter, root, context_id=request.context_id)
@@ -83,12 +111,17 @@ class ServiceAgentAdapterMixin:
                 "alignment_session_id": session["id"],
                 "alignment_status": session["status"],
                 "bundle_path": session.get("bundle_path", ""),
+                "candidate_origin": "agent_entry",
+                "candidate_adapter": adapter,
+                "candidate_entry_source": entry_source,
+                "requires_web_alignment": not bool(candidate_text),
                 "source_path": source_path,
+                **candidate_provenance,
                 "preview_path": f"/loops/new/bundle?alignment_session_id={session['id']}",
                 "entry_invocations": self._append_agent_entry_invocation(
                     existing_binding,
                     action="gen",
-                    entry_source=request.entry_source,
+                    entry_source=entry_source,
                 ),
             },
             context_id=request.context_id,
@@ -96,6 +129,10 @@ class ServiceAgentAdapterMixin:
         return {
             "adapter": adapter,
             "workdir": str(root),
+            "candidate_origin": "agent_entry",
+            "candidate_entry_source": entry_source,
+            "requires_web_alignment": not bool(candidate_text),
+            **candidate_provenance,
             "status": session["status"],
             "ready": session["status"] == "ready",
             "session": session,
@@ -120,12 +157,12 @@ class ServiceAgentAdapterMixin:
         binding = read_agent_binding(adapter, root, context_id=context_id)
         if not binding:
             raise LooporaConflictError(
-                f"no READY Loopora bundle is associated with this {_adapter_label_for_error(adapter)} session/workdir; run /loopora-gen first"
+                f"no ready Loop preview is associated with this {_adapter_label_for_error(adapter)} session/workdir; run /loopora-gen first"
             )
 
         session_id = str(binding.get("alignment_session_id") or "").strip()
         if not session_id:
-            raise LooporaConflictError("agent binding does not reference a READY Loopora bundle; run /loopora-gen first")
+            raise LooporaConflictError("agent binding does not reference a ready Loop preview; run /loopora-gen first")
         session = self.get_alignment_session(session_id)
         run = self._agent_bound_run(session)
         if run is not None:
@@ -169,7 +206,7 @@ class ServiceAgentAdapterMixin:
             session = imported["session"]
             run = imported.get("run")
             if not isinstance(run, dict):
-                raise LooporaError("Loopora did not return a run for the READY bundle")
+                raise LooporaError("Loopora did not return a run for the ready Loop preview")
             native = self.prepare_agent_native_run(adapter, run["id"], entry_source=entry_source)
             binding = write_agent_binding(
                 adapter,
@@ -248,7 +285,7 @@ class ServiceAgentAdapterMixin:
             )
 
         raise LooporaConflictError(
-            f"{_adapter_label_for_error(adapter)} session has no READY Loopora bundle (current status: {session['status']}); run /loopora-gen first"
+            f"{_adapter_label_for_error(adapter)} session has no ready Loop preview (current status: {session['status']}); run /loopora-gen first"
         )
 
     def _agent_bound_run(self, session: dict) -> dict | None:

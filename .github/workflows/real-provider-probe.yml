@@ -1,30 +1,61 @@
-name: Real Provider Probe
+name: Real Probe
 
 on:
   workflow_dispatch:
     inputs:
-      targets:
-        description: "Comma-separated provider targets, for example codex,claude,opencode"
+      suites:
+        description: "Comma-separated suites: real-agent, real-cli, release-web, or all"
+        required: false
+        default: "all"
+      agent_targets:
+        description: "Comma-separated real Agent host targets, for example codex,claude,opencode"
+        required: false
+        default: ""
+      cli_targets:
+        description: "Comma-separated real provider CLI targets, for example codex,claude,opencode"
+        required: false
+        default: ""
+      real_agent_command_template:
+        description: "Optional generic real Agent command template for Codex or fallback hosts"
+        required: false
+        default: ""
+      real_claude_agent_command_template:
+        description: "Optional Claude Code command template; release path should include Kimi-K2.6"
+        required: false
+        default: ""
+      real_opencode_agent_command_template:
+        description: "Optional OpenCode command template; release path should include minimax-token-plan/MiniMax-M2.7"
         required: false
         default: ""
       setup_command:
-        description: "Optional shell command to install or configure provider CLIs before availability checks"
+        description: "Optional shell command to install or configure real Agent hosts and provider CLIs"
         required: false
         default: ""
       pytest_args:
-        description: "Additional pytest arguments for the opt-in real-provider probe or experiments"
+        description: "Optional extra pytest args passed through the real probe runner after --"
         required: false
-        default: "tests/probes/real_environment/test_real_cli_probe.py tests/experiments/real_workflows/test_real_search_loop_examples.py -q -rs"
+        default: ""
+      max_parallel:
+        description: "Maximum independent probe subprocesses to run in parallel"
+        required: false
+        default: "3"
+      allow_model_override:
+        description: "Allow Claude/OpenCode real probes to use a non-default model for intentional override validation"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
-  real-provider-probe:
+  real-probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
-      LOOPORA_ENABLE_REAL_CLI_PROBE: "1"
-      LOOPORA_REAL_CLI_TARGETS: ${{ inputs.targets }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      LOOPORA_REAL_AGENT_COMMAND_TEMPLATE: ${{ inputs.real_agent_command_template || vars.LOOPORA_REAL_AGENT_COMMAND_TEMPLATE }}
+      LOOPORA_REAL_CLAUDE_AGENT_COMMAND_TEMPLATE: ${{ inputs.real_claude_agent_command_template || vars.LOOPORA_REAL_CLAUDE_AGENT_COMMAND_TEMPLATE }}
+      LOOPORA_REAL_OPENCODE_AGENT_COMMAND_TEMPLATE: ${{ inputs.real_opencode_agent_command_template || vars.LOOPORA_REAL_OPENCODE_AGENT_COMMAND_TEMPLATE }}
+      LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE: ${{ inputs.allow_model_override && '1' || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -37,79 +68,61 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v8.1.0
         with:
-          cache-suffix: real-provider-probe
+          cache-suffix: real-probe
 
       - name: Install dependencies
         run: uv sync
 
-      - name: Optional provider setup
+      - name: Optional host setup
         if: inputs.setup_command != ''
         shell: bash
         run: ${{ inputs.setup_command }}
 
-      - name: Check provider CLI availability
-        id: provider-check
-        shell: bash
-        run: |
-          targets="${LOOPORA_REAL_CLI_TARGETS:-codex,claude,opencode}"
-          available=""
-          skipped=""
-          IFS=',' read -ra names <<< "$targets"
-          for name in "${names[@]}"; do
-            trimmed="$(echo "$name" | xargs)"
-            if [[ -z "$trimmed" ]]; then
-              continue
-            fi
-            case "$trimmed" in
-              codex)
-                if ! command -v codex >/dev/null 2>&1; then
-                  skipped="${skipped}${skipped:+; }codex: missing codex CLI"
-                elif [[ -z "${OPENAI_API_KEY:-}" ]]; then
-                  skipped="${skipped}${skipped:+; }codex: missing OPENAI_API_KEY secret"
-                else
-                  available="${available}${available:+,}codex"
-                fi
-                ;;
-              claude)
-                if ! command -v claude >/dev/null 2>&1; then
-                  skipped="${skipped}${skipped:+; }claude: missing claude CLI"
-                elif [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-                  skipped="${skipped}${skipped:+; }claude: missing ANTHROPIC_API_KEY secret"
-                else
-                  available="${available}${available:+,}claude"
-                fi
-                ;;
-              opencode)
-                if ! command -v opencode >/dev/null 2>&1; then
-                  skipped="${skipped}${skipped:+; }opencode: missing opencode CLI"
-                elif [[ -z "${OPENAI_API_KEY:-}" && -z "${ANTHROPIC_API_KEY:-}" && ! -d "$HOME/.config/opencode" ]]; then
-                  skipped="${skipped}${skipped:+; }opencode: missing provider secret or local config"
-                else
-                  available="${available}${available:+,}opencode"
-                fi
-                ;;
-              *)
-                skipped="${skipped}${skipped:+; }${trimmed}: unknown target"
-                ;;
-            esac
-          done
-          {
-            echo "### Real provider probe readiness"
-            echo
-            echo "- Requested targets: ${targets}"
-            echo "- Ready targets: ${available:-none}"
-            echo "- Skipped: ${skipped:-none}"
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [[ -z "$available" ]]; then
-            echo "No configured provider target is ready; skipping opt-in real-provider probe."
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "targets=$available" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Install browser runtime for release-web
+        if: inputs.suites == '' || inputs.suites == 'all' || contains(inputs.suites, 'release-web')
+        run: uv run playwright install --with-deps chromium
 
-      - name: Run real provider probe
-        if: steps.provider-check.outputs.run == 'true'
+      - name: Summarize real probe selection
+        shell: bash
         env:
-          LOOPORA_REAL_CLI_TARGETS: ${{ steps.provider-check.outputs.targets }}
-        run: uv run pytest ${{ inputs.pytest_args }}
+          REAL_PROBE_SUITES: ${{ inputs.suites }}
+          REAL_PROBE_AGENT_TARGETS: ${{ inputs.agent_targets }}
+          REAL_PROBE_CLI_TARGETS: ${{ inputs.cli_targets }}
+        run: |
+          {
+            echo "### Loopora real probe"
+            echo
+            echo "- Suites: ${REAL_PROBE_SUITES:-all}"
+            echo "- Agent targets: ${REAL_PROBE_AGENT_TARGETS:-default}"
+            echo "- CLI targets: ${REAL_PROBE_CLI_TARGETS:-default}"
+            echo "- Agent command template configured: $([[ -n "${LOOPORA_REAL_AGENT_COMMAND_TEMPLATE:-}" ]] && echo yes || echo no)"
+            echo "- Claude command template configured: $([[ -n "${LOOPORA_REAL_CLAUDE_AGENT_COMMAND_TEMPLATE:-}" ]] && echo yes || echo no)"
+            echo "- OpenCode command template configured: $([[ -n "${LOOPORA_REAL_OPENCODE_AGENT_COMMAND_TEMPLATE:-}" ]] && echo yes || echo no)"
+            echo "- Model override allowed: $([[ "${LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE:-}" == "1" ]] && echo yes || echo no)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run real probe runner
+        shell: bash
+        env:
+          REAL_PROBE_SUITES: ${{ inputs.suites }}
+          REAL_PROBE_AGENT_TARGETS: ${{ inputs.agent_targets }}
+          REAL_PROBE_CLI_TARGETS: ${{ inputs.cli_targets }}
+          REAL_PROBE_MAX_PARALLEL: ${{ inputs.max_parallel }}
+          REAL_PROBE_PYTEST_ARGS: ${{ inputs.pytest_args }}
+        run: |
+          suites="${REAL_PROBE_SUITES:-all}"
+          max_parallel="${REAL_PROBE_MAX_PARALLEL:-3}"
+          args=(--suite "$suites" --max-parallel "$max_parallel" --keep-logs)
+          if [[ -n "${REAL_PROBE_AGENT_TARGETS:-}" ]]; then
+            args+=(--agent-targets "$REAL_PROBE_AGENT_TARGETS")
+          fi
+          if [[ -n "${REAL_PROBE_CLI_TARGETS:-}" ]]; then
+            args+=(--cli-targets "$REAL_PROBE_CLI_TARGETS")
+          fi
+          if [[ -n "${REAL_PROBE_PYTEST_ARGS:-}" ]]; then
+            # shellcheck disable=SC2206
+            extra_args=($REAL_PROBE_PYTEST_ARGS)
+            uv run python tests/probes/real_environment/run_real_probes.py "${args[@]}" -- "${extra_args[@]}"
+          else
+            uv run python tests/probes/real_environment/run_real_probes.py "${args[@]}"
+          fi

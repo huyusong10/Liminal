@@ -31,11 +31,25 @@ runtime input surfaces plus observable evidence output.
 | `roles` | Define task-scoped posture for building, inspecting, judging, and guiding. | Role definitions in the bundle and imported assets |
 | `workflow` | Define judgment order, bounded fan-out/fan-in, handoffs, information flow, controls, and stop semantics. | Workflow manifest |
 | `evidence` | Record what each run proves, fails to prove, and cites as support. | `evidence/ledger.jsonl` plus linked artifacts |
+
+First-use docs may describe a reviewable plan file through five reader-facing
+judgment faces. Those faces are a comprehension projection, not five independent
+runtime fact sources:
+
+| Reader-facing face | Canonical runtime anchor |
+| --- | --- |
+| Task contract | `spec` |
+| Agent responsibilities | `roles` |
+| Run flow | `workflow` |
+| Evidence rules | `evidence` plus workflow evidence queries and handoffs |
+| Verdict rules | GateKeeper / workflow finish semantics and the evidence-backed task verdict projection |
+
 Rules:
 
 - No surface is allowed to become a parallel fact source for another surface.
 - Web may hide internal terms on the default path, but every visible conclusion must
-  trace back to one of these surfaces.
+  trace back to these surfaces; verdict language must remain a projection from
+  workflow / GateKeeper semantics and evidence, not another fact source.
 - Legacy data may remain readable, but it must not be presented as having the same
   evidence quality as new runs.
 - Run status and task verdict are separate projections. A run can finish normally
@@ -61,7 +75,7 @@ Core flow inspection should follow this path, in order:
 | Stage | Question it must answer | Stable evidence of correctness |
 | --- | --- | --- |
 | Loop composition | Can the user compose or obtain a Loop through the selected scenario: Web conversation, manual expert composition, or direct bundle import? | Alignment session transcript, bundle preview/import validation, or manually selected `spec / roles / workflow / loop` assets |
-| Loop confirmation | Can the user inspect how the Loop controls fake done and weak evidence before running it? | READY projection for bundle paths, or expert views for manual assets |
+| Loop review | Can the user inspect how the Loop controls fake done and weak evidence before running it? | READY projection for bundle paths, or expert views for manual assets |
 | Run | Did execution freeze the Loop contract and produce structured handoffs? | Run contract, step context packets, step handoffs |
 | Automatic iteration | Did the system advance through roles and workflow because each round produced new evidence, handoff, or verdict context? | Iteration summaries, workflow events, step handoffs |
 | Evidence | Can the run answer what was proven and what remains unproven? | Evidence ledger, artifact refs, coverage projection |
@@ -78,7 +92,7 @@ one stage but disconnects it from the next stage is incomplete.
 Tests should primarily lock behavior at the governance boundary, not internal helper
 shape. The highest-value regression path is:
 
-`Loop composition -> Loop confirmation -> run -> automatic iteration -> evidence ledger -> run status + task verdict -> user decision`
+`Loop composition -> Loop review -> run -> automatic iteration -> evidence ledger -> run status + task verdict -> user decision`
 
 Stable test anchors:
 
@@ -93,7 +107,7 @@ Stable test anchors:
 
 Update this document when a change alters:
 
-- the four-surface contract,
+- the runtime surface contract or its reader-facing plan-file projection,
 - the default inspection flow,
 - the canonical evidence source,
 - GateKeeper finish semantics,

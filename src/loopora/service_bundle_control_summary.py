@@ -411,7 +411,7 @@ def _append_completion_mode_diagnostics(diagnostics: list[dict], bundle: dict) -
             "title_en": "Run closes without evidence-backed GateKeeper mode",
             "title_zh": "运行不是由证据守门模式收束",
             "message_en": "Expert bundles may use this, but the task verdict will lean more on runtime lifecycle than GateKeeper evidence closure.",
-            "message_zh": "专家方案可以这样运行，但任务裁决会更依赖运行生命周期，而不是 GateKeeper 的证据收口。",
+            "message_zh": "专家方案可以这样运行，但 Loop 裁决会更依赖运行生命周期，而不是 GateKeeper 的证据收口。",
             "surfaces": ["loop.completion_mode"],
         },
     )

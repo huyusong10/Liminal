@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from importlib.metadata import distribution
 from pathlib import Path
 
@@ -33,6 +34,105 @@ def test_cli_package_exposes_loopora_console_script() -> None:
     }
 
     assert console_scripts["loopora"] == "loopora.cli:app"
+
+
+def test_readme_first_use_commands_match_cli_entries() -> None:
+    root = Path(__file__).resolve().parents[3]
+    readmes = [
+        (root / "README.md").read_text(encoding="utf-8"),
+        (root / "README.zh-CN.md").read_text(encoding="utf-8"),
+    ]
+    agent_first_design = (root / "design" / "core-ideas" / "agent-first-loopora.md").read_text(encoding="utf-8")
+    product_principle = (root / "design" / "core-ideas" / "product-principle.md").read_text(encoding="utf-8")
+    core_contract = (root / "design" / "core-ideas" / "core-contract.md").read_text(encoding="utf-8")
+    web_alignment_design = (root / "design" / "detailed-design" / "09-web-bundle-alignment.md").read_text(
+        encoding="utf-8"
+    )
+    governance_scenario = (root / "tests" / "scenarios" / "long_running_governance_loop.md").read_text(
+        encoding="utf-8"
+    )
+    documented_adapters = [set(re.findall(r"\bloopora init ([a-z]+)\b", readme)) for readme in readmes]
+
+    assert documented_adapters == [{"codex", "claude", "opencode"}, {"codex", "claude", "opencode"}]
+    assert all("loopora serve " in readme for readme in readmes)
+    assert "After you review or adjust it, run `/loopora-loop`" in readmes[0]
+    assert "审查或调整后运行 `/loopora-loop`" in readmes[1]
+    assert all("confirmed Loop" not in readme for readme in readmes)
+    assert "查看、审查或修改候选 Loop" in agent_first_design
+    assert "确认候选 Loop" not in agent_first_design
+    assert "我审查并认可 Loop 的任务目标" in product_principle
+    assert "我确认 Loop" not in product_principle
+    assert "Loop composition -> Loop review -> run" in core_contract
+    assert "Loop confirmation" not in core_contract
+    assert "最近对话、三种编排模式入口" in web_alignment_design
+    assert "继续已有对话，基于已有 Loop、方案文件、运行证据或任务契约改进" in web_alignment_design
+    assert "最近 alignment sessions" not in web_alignment_design
+    assert "继续已有 alignment session" not in web_alignment_design
+    assert "已有 Loop / bundle / run / spec" not in web_alignment_design
+    assert "明确确认工作约定后进入 READY" in governance_scenario
+    assert "确认方案后进入 READY" not in governance_scenario
+
+    runner = CliRunner()
+    for adapter in sorted(documented_adapters[0]):
+        result = runner.invoke(cli.app, ["init", adapter, "--help"])
+        assert result.exit_code == 0, _result_error_text(result)
+
+    serve_result = runner.invoke(cli.app, ["serve", "--help"])
+    assert serve_result.exit_code == 0, _result_error_text(serve_result)
+
+
+def test_design_main_workflow_anchors_separate_run_status_and_loop_verdict() -> None:
+    root = Path(__file__).resolve().parents[3]
+    design_sources = {
+        "design/README.md": (root / "design" / "README.md").read_text(encoding="utf-8"),
+        "design/core-ideas/README.md": (root / "design" / "core-ideas" / "README.md").read_text(encoding="utf-8"),
+        "design/core-ideas/product-principle.md": (
+            root / "design" / "core-ideas" / "product-principle.md"
+        ).read_text(encoding="utf-8"),
+        "design/core-ideas/concept-map.md": (root / "design" / "core-ideas" / "concept-map.md").read_text(
+            encoding="utf-8"
+        ),
+        "design/core-ideas/task-scoped-alignment.md": (
+            root / "design" / "core-ideas" / "task-scoped-alignment.md"
+        ).read_text(encoding="utf-8"),
+    }
+
+    full_workflow = "`编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出运行状态、Loop 裁决与结果`"
+    runtime_tail = "`运行 Loop -> 自动迭代并收集证据 -> 输出运行状态、Loop 裁决与结果`"
+    assert full_workflow in design_sources["design/README.md"]
+    assert full_workflow in design_sources["design/core-ideas/README.md"]
+    assert full_workflow in design_sources["design/core-ideas/product-principle.md"]
+    assert full_workflow in design_sources["design/core-ideas/concept-map.md"]
+    assert runtime_tail in design_sources["design/core-ideas/task-scoped-alignment.md"]
+    assert "运行状态与 Loop 裁决必须分开表达" in design_sources["design/core-ideas/concept-map.md"]
+    assert "Web 内置对话编排入口" in design_sources["design/README.md"]
+    assert "Web 内置任务对齐入口" not in design_sources["design/README.md"]
+
+    for name, source in design_sources.items():
+        assert "输出证据裁决与结果" not in source, name
+
+
+def test_interface_design_uses_loop_verdict_for_user_result_surface() -> None:
+    root = Path(__file__).resolve().parents[3]
+    interface_design = (root / "design" / "detailed-design" / "05-interfaces.md").read_text(encoding="utf-8")
+
+    assert "查看 Loop 裁决后" in interface_design
+    assert "evidence verdict" not in interface_design
+
+
+def test_runtime_design_uses_loop_verdict_for_chinese_result_surface() -> None:
+    root = Path(__file__).resolve().parents[3]
+    design_paths = [
+        root / "design" / "detailed-design" / "02-orchestration-service.md",
+        root / "design" / "detailed-design" / "07-observability-and-diagnostics.md",
+        root / "design" / "detailed-design" / "08-bundles-and-alignment.md",
+        root / "design" / "detailed-design" / "09-web-bundle-alignment.md",
+    ]
+
+    for path in design_paths:
+        source = path.read_text(encoding="utf-8")
+        assert "Loop 裁决" in source, path.name
+        assert "任务裁决" not in source, path.name
 
 
 def test_cli_run_result_separates_run_status_and_task_verdict(capsys, tmp_path: Path) -> None:

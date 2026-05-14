@@ -37,7 +37,7 @@
         case "passed":
           return localeText("已通过", "Passed");
         case "completed":
-          return localeText("已完成", "Completed");
+          return localeText("已收口", "Finished");
         case "blocked":
           return localeText("待继续", "Needs another pass");
         case "failed":

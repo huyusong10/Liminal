@@ -11,7 +11,16 @@ PUBLIC_SVG_DIRS = (
     ROOT / "src/loopora/assets/logo",
     ROOT / "assets/diagrams",
 )
+PUBLIC_MARKDOWN_DOCS = (
+    ROOT / "README.md",
+    ROOT / "README.zh-CN.md",
+    ROOT / "HUMAN-SHAPED-LOOP.md",
+    ROOT / "HUMAN-SHAPED-LOOP.zh-CN.md",
+)
 ALLOWED_FONT_WEIGHTS = {"normal", "bold", "400", "500", "600", "700"}
+PUBLIC_MARKDOWN_SVG_REF_PATTERN = re.compile(
+    r'<img\s+[^>]*src="(\./(?:assets/diagrams|src/loopora/assets/logo)/[^"]+\.svg)"'
+)
 LEGACY_WARM_NEUTRALS = {
     "#faf9f6",
     "#f8f5ef",
@@ -30,6 +39,11 @@ def _public_svg_files() -> list[Path]:
 
 def _read_svg(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _public_markdown_svg_refs(path: Path) -> list[str]:
+    raw = path.read_text(encoding="utf-8")
+    return PUBLIC_MARKDOWN_SVG_REF_PATTERN.findall(raw)
 
 
 def test_public_svg_assets_are_parseable_and_avoid_fragile_typography() -> None:
@@ -68,3 +82,84 @@ def test_document_diagrams_keep_accessible_metadata_and_current_palette() -> Non
         lower_raw = raw.lower()
         leaked_legacy_colors = sorted(color for color in LEGACY_WARM_NEUTRALS if color in lower_raw)
         assert not leaked_legacy_colors, f"{path.relative_to(ROOT)} uses legacy warm-neutral palette: {leaked_legacy_colors}"
+
+
+def test_public_markdown_svg_refs_are_manifested_distribution_assets() -> None:
+    manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+
+    assert "include README.md README.zh-CN.md" in manifest
+    assert "include HUMAN-SHAPED-LOOP.md HUMAN-SHAPED-LOOP.zh-CN.md" in manifest
+    assert "recursive-include assets/diagrams *.svg *.md" in manifest
+    assert "recursive-include src/loopora/assets/logo *.svg" in manifest
+
+    for doc in PUBLIC_MARKDOWN_DOCS:
+        refs = _public_markdown_svg_refs(doc)
+        assert refs, f"{doc.relative_to(ROOT)} should keep its public SVG references explicit"
+        for ref in refs:
+            asset = ROOT / ref.removeprefix("./")
+            assert asset.is_file(), f"{doc.relative_to(ROOT)} references missing public SVG {ref}"
+
+    logo_ref = "./src/loopora/assets/logo/logo-with-text-horizontal.svg"
+    assert logo_ref in _public_markdown_svg_refs(ROOT / "README.md")
+    assert logo_ref in _public_markdown_svg_refs(ROOT / "README.zh-CN.md")
+
+
+def test_readme_first_use_docs_introduce_plan_files_before_bundle_internals() -> None:
+    readme_en = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    diagram_en = ET.fromstring((ROOT / "assets" / "diagrams" / "bundle-judgment-structure.en.svg").read_text(encoding="utf-8"))
+    diagram_zh = ET.fromstring((ROOT / "assets" / "diagrams" / "bundle-judgment-structure.zh.svg").read_text(encoding="utf-8"))
+
+    technical_en = readme_en.split("## Technical Shape:", 1)[1]
+    technical_zh = readme_zh.split("## 技术概览：", 1)[1]
+    heading_en = technical_en.splitlines()[0]
+    heading_zh = technical_zh.splitlines()[0]
+
+    assert "plan file" in heading_en.lower()
+    assert "bundle" not in heading_en.lower()
+    assert "方案文件" in heading_zh
+    assert "Bundle" not in heading_zh
+
+    assert technical_en.lower().index("plan file") < technical_en.index("Bundle")
+    assert "intern" in technical_en.lower()
+    assert "exchange format" in technical_en.lower()
+    assert technical_zh.index("方案文件") < technical_zh.index("Bundle")
+    assert "内部" in technical_zh
+    assert "交换格式" in technical_zh
+
+    diagram_en_text = " ".join(node.text or "" for node in diagram_en.iter())
+    diagram_zh_text = " ".join(node.text or "" for node in diagram_zh.iter())
+    assert "plan file" in diagram_en_text.lower()
+    assert "bundle" not in diagram_en_text.lower()
+    assert "方案文件" in diagram_zh_text
+    assert "Bundle" not in diagram_zh_text
+
+
+def test_public_plan_file_judgment_faces_map_to_runtime_contract() -> None:
+    readme_en = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    human_en = (ROOT / "HUMAN-SHAPED-LOOP.md").read_text(encoding="utf-8")
+    human_zh = (ROOT / "HUMAN-SHAPED-LOOP.zh-CN.md").read_text(encoding="utf-8")
+    core_contract = (ROOT / "design" / "core-ideas" / "core-contract.md").read_text(encoding="utf-8")
+    concept_map = (ROOT / "design" / "core-ideas" / "concept-map.md").read_text(encoding="utf-8")
+    bundle_design = (ROOT / "design" / "detailed-design" / "08-bundles-and-alignment.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "five reader-facing judgment faces" in readme_en
+    assert "five surfaces work together" not in readme_en
+    assert "五个面向阅读的判断面" in readme_zh
+    assert "五个面一起工作" not in readme_zh
+    assert "conceptual compression for this essay" in human_en
+    assert "splits **execution posture** into Agent responsibilities and run flow" in human_en
+    assert "文章里的概念压缩" in human_zh
+    assert "把 **执行姿态** 再拆成 Agent 责任和运行流程" in human_zh
+
+    for term in ("Task contract", "Agent responsibilities", "Run flow", "Evidence rules", "Verdict rules"):
+        assert term in core_contract
+    for anchor in ("`spec`", "`roles`", "`workflow`", "`evidence`", "task verdict projection"):
+        assert anchor in core_contract
+    assert "not another fact source" in core_contract
+    assert "不是第五个运行期治理 surface" in concept_map
+    assert "这是概念压缩，不是另一套 runtime surface" in concept_map
+    assert "不能因此新增第五个运行期事实源" in bundle_design

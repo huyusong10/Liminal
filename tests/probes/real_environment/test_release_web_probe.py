@@ -12,6 +12,8 @@ import urllib.request
 
 import pytest
 
+from loopora.event_redaction import redact_sensitive_text, redact_sensitive_value
+
 
 pytestmark = pytest.mark.release_web
 
@@ -20,6 +22,27 @@ TIMEOUT_ENV = "LOOPORA_RELEASE_WEB_TIMEOUT_SECONDS"
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SRC_ROOT = REPO_ROOT / "src"
 ADAPTERS = ("codex", "claude", "opencode")
+SENSITIVE_ARG_NAMES = {
+    "--access-token",
+    "--api-key",
+    "--auth-token",
+    "--authorization",
+    "--bearer-token",
+    "--client-secret",
+    "--cookie",
+    "--id-token",
+    "--password",
+    "--private-key",
+    "--proxy-authorization",
+    "--refresh-token",
+    "--secret",
+    "--secret-token",
+    "--session-token",
+    "--set-cookie",
+    "--token",
+    "--x-api-key",
+    "--x-loopora-token",
+}
 
 
 @dataclass(frozen=True)
@@ -154,6 +177,29 @@ def _file_state(path: Path | None) -> dict:
     }
 
 
+def _redact_command_args(command: list[str]) -> list[str]:
+    sanitized: list[str] = []
+    omit_next_value = False
+    for raw_arg in command:
+        arg = redact_sensitive_text(str(raw_arg))
+        if omit_next_value:
+            sanitized.append("<secret omitted>")
+            omit_next_value = False
+            continue
+        flag_name = arg.split("=", 1)[0].strip().lower().replace("_", "-")
+        if flag_name in SENSITIVE_ARG_NAMES:
+            if "=" in arg:
+                sanitized.append(f"{arg.split('=', 1)[0]}=<secret omitted>")
+            else:
+                sanitized.append(arg)
+                omit_next_value = True
+            continue
+        sanitized.append(arg)
+    if omit_next_value:
+        sanitized.append("<secret omitted>")
+    return sanitized
+
+
 def _record_release_web_event(events: list[dict], inputs: ReleaseWebEventInput) -> None:
     events.append(
         {
@@ -184,7 +230,7 @@ def _build_release_web_phase_report(inputs: ReleaseWebPhaseReportInput) -> dict:
         "suite": "release-web",
         "workdir": str(inputs.workdir),
         "base_url": inputs.base_url,
-        "command": inputs.command,
+        "command": _redact_command_args(inputs.command),
         "phase_statuses": statuses,
         "diagnostics": {
             "server_process": {"returncode": inputs.process.poll() if inputs.process is not None else None},
@@ -195,7 +241,10 @@ def _build_release_web_phase_report(inputs: ReleaseWebPhaseReportInput) -> dict:
 
 
 def _write_release_web_phase_report(inputs: ReleaseWebPhaseReportInput) -> tuple[dict, Path]:
-    report = _build_release_web_phase_report(inputs)
+    raw_report = _build_release_web_phase_report(inputs)
+    report = redact_sensitive_value("", raw_report)
+    if not isinstance(report, dict):
+        report = {}
     path = _phase_report_path(inputs.workdir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

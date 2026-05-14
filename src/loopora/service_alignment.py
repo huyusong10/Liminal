@@ -2303,6 +2303,7 @@ class ServiceAlignmentMixin:
                     "task verdict",
                     "evidence-based verdict",
                     "证据裁决",
+                    "loop 裁决",
                     "任务裁决",
                     "守门",
                 ),
@@ -2835,6 +2836,7 @@ class ServiceAlignmentMixin:
                     "task verdict",
                     "evidence-based verdict",
                     "证据裁决",
+                    "loop 裁决",
                     "任务裁决",
                     "守门",
                 ),
@@ -3326,7 +3328,7 @@ class ServiceAlignmentMixin:
                     "updated_at": session.get("updated_at", ""),
                     "label_zh": f"继续对话：{title}",
                     "label_en": f"Continue chat: {title}",
-                    "description_zh": "回到这个已有对话，并把下一条消息追加到同一个 session。",
+                    "description_zh": "回到这个已有对话，并把下一条消息追加到同一个对话。",
                     "description_en": "Return to this chat and append the next message to the same session.",
                 }
             )
@@ -3343,8 +3345,8 @@ class ServiceAlignmentMixin:
                     "updated_at": session.get("updated_at", ""),
                     "label_zh": f"基于 READY 方案改进：{title}",
                     "label_en": f"Improve READY plan: {title}",
-                    "description_zh": "把这个 session 的 READY bundle 和对话摘要作为新对话的来源上下文。",
-                    "description_en": "Use this session's READY bundle and conversation summary as source context for a new chat.",
+                    "description_zh": "把这个对话的 READY 方案文件和对话摘要作为新对话的来源上下文。",
+                    "description_en": "Use this session's READY plan file and conversation summary as source context for a new chat.",
                 }
             )
         return options
@@ -3359,8 +3361,8 @@ class ServiceAlignmentMixin:
             "bundle_path": str(bundle_path),
             "label_zh": f"基于本地 READY 方案改进：{source_session_id}",
             "label_en": f"Improve local READY plan: {source_session_id}",
-            "description_zh": "读取同目录 .loopora 中的 READY bundle 文件作为来源上下文。",
-            "description_en": "Read the READY bundle file from this workdir's .loopora state as source context.",
+            "description_zh": "读取同目录 .loopora 中的 READY 方案文件作为来源上下文。",
+            "description_en": "Read the READY plan file from this workdir's .loopora state as source context.",
         }
 
     @classmethod
@@ -3374,8 +3376,8 @@ class ServiceAlignmentMixin:
             "source_loop_id": str(loop.get("id") or ""),
             "label_zh": f"基于已有方案改进：{name}",
             "label_en": f"Improve existing plan: {name}",
-            "description_zh": "使用已导入 bundle 的 spec、roles 和 workflow 作为候选基础。",
-            "description_en": "Use the imported bundle's spec, roles, and workflow as the candidate base.",
+            "description_zh": "使用已导入方案文件里的任务契约、角色责任和运行流程作为候选基础。",
+            "description_en": "Use the imported plan file's task contract, role responsibilities, and run flow as the candidate base.",
         }
 
     @classmethod
@@ -3389,8 +3391,8 @@ class ServiceAlignmentMixin:
             "source_loop_id": loop_id,
             "label_zh": f"基于已有 Loop 改进：{name}",
             "label_en": f"Improve existing Loop: {name}",
-            "description_zh": "从这个 Loop 的已保存 spec、roles 和 workflow 派生候选方案。",
-            "description_en": "Derive a candidate plan from this Loop's saved spec, roles, and workflow.",
+            "description_zh": "从这个 Loop 已保存的任务契约、角色责任和运行流程派生候选方案。",
+            "description_en": "Derive a candidate plan from this Loop's saved task contract, role responsibilities, and run flow.",
         }
 
     @classmethod
@@ -3407,8 +3409,8 @@ class ServiceAlignmentMixin:
             "artifact_paths": cls._alignment_run_artifact_paths(run),
             "label_zh": f"基于最近运行证据改进：{loop_name}",
             "label_en": f"Improve from latest run evidence: {loop_name}",
-            "description_zh": "把最近一次 run 的 task verdict、coverage、GateKeeper 裁决和证据路径作为改进依据。",
-            "description_en": "Use the latest run's task verdict, coverage, GateKeeper verdict, and evidence refs as improvement input.",
+            "description_zh": "把最近一次运行的 Loop 裁决、证据覆盖、守门裁决和证据路径作为改进依据。",
+            "description_en": "Use the latest run's Loop verdict, evidence coverage, GateKeeper verdict, and evidence refs as improvement input.",
         }
 
     @classmethod
@@ -3418,10 +3420,10 @@ class ServiceAlignmentMixin:
             "action": "start_from_spec",
             "source_type": "spec_file",
             "spec_path": str(spec_path),
-            "label_zh": f"从已有 spec 开始：{spec_path.name}",
+            "label_zh": f"从已有任务契约开始：{spec_path.name}",
             "label_en": f"Start from existing spec: {spec_path.name}",
-            "description_zh": "把这份 spec 作为任务契约线索，但仍通过对话补齐 roles、workflow 和证据裁决。",
-            "description_en": "Use this spec as task-contract context while the chat still fills roles, workflow, and verdict evidence.",
+            "description_zh": "把这份任务契约作为线索，但仍通过对话补齐角色责任、运行流程和证据裁决。",
+            "description_en": "Use this task contract as context while the chat still fills role responsibilities, run flow, and verdict evidence.",
         }
 
     @staticmethod

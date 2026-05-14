@@ -117,6 +117,10 @@ def test_index_page_renders_with_saved_loops(
     assert "创建是低频动作" not in response.text
     assert "Loop 工作台" in response.text
     assert "对话编排 Loop" not in response.text
+    assert "Run flow" in response.text
+    assert "Agent execution" in response.text
+    assert "<span data-lang=\"en\">Orchestration</span>" not in response.text
+    assert "Role runtime" not in response.text
     assert 'href="/loops/new/bundle"' in response.text
     assert 'action="/loops/new/bundle"' not in response.text
     assert "data-open-card=" in response.text
@@ -459,6 +463,13 @@ def test_loop_detail_uses_summary_cards_for_latest_run(
     _assert_has_testid(response.text, "loop-detail-history-panel")
     _assert_has_testid(response.text, "loop-detail-summary-panel")
     assert "Original spec" in response.text
+    assert "Run flow" in response.text
+    assert "Agent execution" in response.text
+    assert "Closure" in response.text
+    assert "Task contract path" in response.text
+    assert "<span data-lang=\"en\">Orchestration</span>" not in response.text
+    assert "Role runtime" not in response.text
+    assert "Spec path" not in response.text
     assert "Ship the requested behavior." in response.text
     assert response.text.index("Configuration") < response.text.index("Original spec")
     assert response.text.index("Original spec") < response.text.index("Run history")
@@ -578,6 +589,20 @@ def _assert_new_loop_choice_page(html: str) -> None:
     assert "/static/pages/alignment.css?v=" in html
     assert 'href="/loops/new/bundle"' in html
     assert 'href="/loops/new/manual#manual-loop-form"' in html
+    for expected in (
+        "Compose Loop by Conversation",
+        "evidence that must not be faked",
+        "review roles, and run flow",
+        "Start Conversation",
+    ):
+        assert expected in html
+    for removed in (
+        "underlying runtime assets",
+        "Describe the request like a normal LLM chat",
+        "Generate a Loop Plan",
+        "Start Chat",
+    ):
+        assert removed not in html
     assert "<title>Create Loop</title>" in html
 
 
@@ -729,7 +754,7 @@ def _assert_manual_compose_page(html: str) -> None:
         assert spec_editor_marker in html
     for present_text in (
         "Spec editor",
-        "Generate from orchestration",
+        "Generate from flow",
         "Manual Expert Mode",
         'class="panel-header workflow-editor-header"',
         'class="card-actions card-actions-compact"',
@@ -1483,11 +1508,15 @@ def test_index_page_uses_bundle_delete_for_bundle_managed_loops(
 
     assert response.status_code == 200
     assert f'data-delete-bundle="{imported["id"]}"' in response.text
-    assert "Delete Plan" in response.text
-    assert "managed by plan" in response.text
+    assert "Delete source plan" in response.text
+    assert "came from plan file" in response.text
+    assert "Delete Plan" not in response.text
+    assert "managed by plan" not in response.text
     zh_response = client.get("/", headers={"accept-language": "zh-CN,zh;q=0.9"})
-    assert "删除方案包" in zh_response.text
-    assert "这条 Loop 由方案包" in zh_response.text
+    assert "删除来源方案" in zh_response.text
+    assert "这条 Loop 来自方案文件" in zh_response.text
+    assert "删除方案包" not in zh_response.text
+    assert "这条 Loop 由方案包" not in zh_response.text
 
 
 def _assert_tutorial_page(html: str) -> None:
@@ -1500,6 +1529,7 @@ def _assert_tutorial_page(html: str) -> None:
         "tutorial-core-spec",
         "tutorial-core-workflow",
         "tutorial-core-bundle",
+        "tutorial-core-survivability",
         "tutorial-core-loop",
         "tutorial-decision-tree-panel",
         "tutorial-workflow-scenarios-panel",
@@ -1510,13 +1540,22 @@ def _assert_tutorial_page(html: str) -> None:
         "tutorial-decision-tree-secondary-question",
         "tutorial-decision-tree-flow-stack",
         "tutorial-decision-tree-stop-card",
+        "tutorial-agent-entry-link",
+        "tutorial-web-compose-link",
+        "tutorial-manual-compose-link",
+        "tutorial-workflow-examples-link",
         "tutorial-spec-practice-modal",
         "tutorial-spec-practice-preview",
     )
     for expected in (
         'class="page-stack tutorial-page-stack"',
-        "human-shaped loop",
+        "human-shaped Loop",
+        "From repeated correction",
         "task-scoped judgment",
+        "Ask these five questions first",
+        "Should this judgment survive one chat?",
+        "inherited by the run",
+        "evidence rules",
         "Build + Parallel Review",
         "Evidence First",
         "Benchmark Gate",
@@ -1529,11 +1568,15 @@ def _assert_tutorial_page(html: str) -> None:
         "/orchestrations",
         "/loops/new/bundle",
         "/loops/new/manual",
-        "Generate Loop Plan",
+        "Loop preview",
+        "Install Agent entry",
+        "Compose in Web",
         "Manual Expert Mode",
     ):
         assert expected in html
+    assert html.index('data-testid="tutorial-agent-entry-link"') < html.index('data-testid="tutorial-web-compose-link"')
     for removed in (
+        "Generate Loop Plan",
         "Build First",
         "Inspect First",
         "Triage First",
@@ -1542,8 +1585,14 @@ def _assert_tutorial_page(html: str) -> None:
         "Quality Gate",
         "tutorial-decision-tree-copy",
         "tutorial-decision-tree-image",
+        "READY preview",
         'data-testid="tutorial-context-flow-panel"',
         'data-testid="tutorial-flow-examples-panel"',
+        "human-in-the-loop",
+        "Ask these four questions first",
+        "先问这四个问题",
+        "Runnable judgment needs three surfaces",
+        "可运行的判断力必须同时落到三层",
     ):
         assert removed not in html
 

@@ -85,7 +85,7 @@ def test_real_agent_phase_report_summarizes_real_probe_milestones(tmp_path: Path
         workdir=workdir,
         activity_snapshots=[{"running_count": 1, "queued_count": 0, "runs": [{"id": run_id, "status": "awaiting_agent"}]}],
         sentinel_log=sentinel_log,
-        command='opencode run --model "minimax-token-plan/MiniMax-M2.7" "...prompt..."',
+        command='opencode run --api-key AGENT_PHASE_SECRET_MARKER --model "minimax-token-plan/MiniMax-M2.7" "...prompt..."',
     )
 
     assert report_path == workdir / ".loopora" / "real-probes" / "real-agent-phase-report.json"
@@ -101,6 +101,8 @@ def test_real_agent_phase_report_summarizes_real_probe_milestones(tmp_path: Path
     assert phases["task_verdict_passed"]["ok"] is True
     assert report["diagnostics"]["task_verdict"]["status"] == "passed"
     assert "minimax-token-plan/MiniMax-M2.7" in report["command_preview"]
+    assert "AGENT_PHASE_SECRET_MARKER" not in json.dumps(report, ensure_ascii=False)
+    assert "--api-key <secret omitted>" in report["command_preview"]
     assert report["model_policy"]["default_model_observed"] is True
 
 

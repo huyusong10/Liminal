@@ -384,7 +384,7 @@ document.addEventListener("DOMContentLoaded", () => {
       bundle_yaml: yamlInput?.value || "",
     };
     if (!payload.bundle_path && !payload.bundle_yaml.trim()) {
-      showImportError(localeText("请填写方案文件路径或粘贴 YAML。", "Provide a bundle path or paste YAML."));
+      showImportError(localeText("请填写方案文件路径或粘贴方案文件内容。", "Provide a plan file path or paste plan file content."));
       form.scrollIntoView({block: "start", behavior: "smooth"});
       return;
     }
@@ -395,11 +395,11 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify(payload),
       });
       if (!preview.ok) {
-        throw new Error(preview.error || localeText("方案文件预览失败。", "Bundle preview failed."));
+        throw new Error(preview.error || localeText("方案文件预览失败。", "Plan file preview failed."));
       }
       renderBundlePreview(preview);
     } catch (error) {
-      showImportError(error.message || localeText("方案文件预览失败。", "Bundle preview failed."));
+      showImportError(error.message || localeText("方案文件预览失败。", "Plan file preview failed."));
     } finally {
       previewButton.disabled = false;
     }
@@ -407,7 +407,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   previewButton?.addEventListener("click", () => {
     previewBundle().catch((error) => {
-      showImportError(error.message || localeText("方案文件预览失败。", "Bundle preview failed."));
+      showImportError(error.message || localeText("方案文件预览失败。", "Plan file preview failed."));
     });
   });
   previewImportButton?.addEventListener("click", () => form.requestSubmit());

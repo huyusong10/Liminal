@@ -508,6 +508,22 @@ def test_bundle_preview_projects_error_control_summary(service_factory, sample_w
     assert "workflow.controls[]" in traceability["surfaces"]
 
 
+def test_bundle_control_summary_uses_loop_verdict_language_for_completion_diagnostics(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(
+        _bundle_yaml(sample_workdir).replace('  completion_mode: "gatekeeper"', '  completion_mode: "rounds"')
+    )
+
+    summary = service._bundle_control_summary(bundle)
+    diagnostic = next(item for item in summary["diagnostics"] if item["code"] == "completion_not_gatekeeper")
+
+    assert "Loop 裁决" in diagnostic["message_zh"]
+    assert "任务裁决" not in diagnostic["message_zh"]
+
+
 def test_bundle_preview_warns_about_legacy_guide_and_weak_builder_handoff(
     service_factory,
     sample_workdir: Path,

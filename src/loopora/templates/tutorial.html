@@ -5,8 +5,8 @@
   <section class="hero hero-tight">
     <div class="hero-copy-stack">
       <h1>
-        <span data-lang="zh">从 human-in-the-loop 到 human-shaped loop</span>
-        <span data-lang="en">From human-in-the-loop to human-shaped loop</span>
+        <span data-lang="zh">从反复纠偏到 human-shaped Loop</span>
+        <span data-lang="en">From repeated correction to a human-shaped Loop</span>
       </h1>
       <p>
         <span data-lang="zh">Loopora 把未来任务中人类本来要反复做的纠偏、质疑、取证、验收和阻断，提前编译成一个可运行的 Loop。模型学习通用能力，Loop 继承当前任务的判断方式。</span>
@@ -17,7 +17,7 @@
 
   <section class="panel tutorial-guide-panel" data-testid="tutorial-guide-panel">
     <header class="panel-header">
-      <h2><span data-lang="zh">先问这四个问题</span><span data-lang="en">Ask these four questions first</span></h2>
+      <h2><span data-lang="zh">先问这五个问题</span><span data-lang="en">Ask these five questions first</span></h2>
     </header>
     <div class="tutorial-guide-grid tutorial-guide-grid-compact">
       <article class="tutorial-guide-card" data-testid="tutorial-core-spec">
@@ -30,8 +30,8 @@
       <article class="tutorial-guide-card" data-testid="tutorial-core-workflow">
         <strong class="tutorial-guide-title"><span data-lang="zh">姿态为什么不能只写成提示词？</span><span data-lang="en">Why is posture not just a prompt?</span></strong>
         <p>
-          <span data-lang="zh">因为提示词只会影响说法。可运行的判断力必须同时落到三层：Loop 契约冻结边界，角色定义塑造判断视角，流程决定判断时机。</span>
-          <span data-lang="en">Because a prompt only changes the wording. Runnable judgment needs three surfaces: the <code>spec</code> freezes the contract, role definitions shape judgment views, and the workflow decides when judgment happens.</span>
+          <span data-lang="zh">因为提示词只会影响说法。可运行的判断力必须落到 Loop 契约、角色视角、流程时机和证据规则里，才能在每轮被追问、记录和裁决。</span>
+          <span data-lang="en">Because a prompt only changes the wording. Runnable judgment must land in the Loop contract, role views, workflow timing, and evidence rules so every round can be questioned, recorded, and judged.</span>
         </p>
       </article>
       <article class="tutorial-guide-card" data-testid="tutorial-core-bundle">
@@ -39,6 +39,13 @@
         <p>
           <span data-lang="zh">这次任务的判断有局部性、时效性和可争议性，不该静默写进模型权重。Loop 让它保持显式、可预览、可修改、可丢弃。</span>
           <span data-lang="en">This task's judgment is local, temporary, and debatable. It should not disappear into model weights. A Loop keeps it explicit, previewable, editable, and disposable.</span>
+        </p>
+      </article>
+      <article class="tutorial-guide-card" data-testid="tutorial-core-survivability">
+        <strong class="tutorial-guide-title"><span data-lang="zh">这套判断要不要活过一次聊天？</span><span data-lang="en">Should this judgment survive one chat?</span></strong>
+        <p>
+          <span data-lang="zh">如果判断只影响当前回复，直接聊天就够了。值得编译成 Loop 的判断，应被运行继承、导出复用，或作为之后审计证据的契约。</span>
+          <span data-lang="en">If the judgment only shapes this reply, direct chat is enough. A Loop-worthy judgment should be inherited by the run, exported for reuse, or audited later as evidence.</span>
         </p>
       </article>
       <article class="tutorial-guide-card" data-testid="tutorial-core-loop">
@@ -194,21 +201,25 @@
       <div>
         <h2><span data-lang="zh">想好了为什么用，然后怎么用？</span><span data-lang="en">Once you know why, how do you use it?</span></h2>
         <p class="tutorial-panel-copy">
-          <span data-lang="zh">不要从手搓流程开始。先在 Web 里对话编排 Loop，让本机智能体把“这次到底要继承哪类人工判断”问清楚，再由 Loopora 校验并预览治理结构。</span>
-          <span data-lang="en">Do not start by hand-building the flow. Generate a loop plan through the Web chat so a local AI Agent clarifies which human judgments this task should inherit, then let Loopora validate and preview the governance structure.</span>
+          <span data-lang="zh">默认从你正在使用的 Coding Agent 开始：先安装项目级入口，再用 /loopora-gen 生成 Loop 预览、在 Web 里审查或调整，最后用 /loopora-loop 继续任务。Web 仍可直接编排 Loop，但它不再是 coding 任务的唯一起点。</span>
+          <span data-lang="en">Start from the Coding Agent you are already using: install the project entry, generate a Loop preview with /loopora-gen, review or adjust it in Web, then continue with /loopora-loop. Web can still compose a Loop directly, but it is no longer the only starting point for coding work.</span>
         </p>
       </div>
     </header>
     <div class="card-actions">
-      <a class="primary-button" href="/loops/new/bundle">
-        <span data-lang="zh">对话编排 Loop</span>
-        <span data-lang="en">Generate Loop Plan</span>
+      <a class="primary-button" href="/tools" data-testid="tutorial-agent-entry-link">
+        <span data-lang="zh">安装 Agent 入口</span>
+        <span data-lang="en">Install Agent entry</span>
       </a>
-      <a class="ghost-button" href="/loops/new/manual">
+      <a class="ghost-button" href="/loops/new/bundle" data-testid="tutorial-web-compose-link">
+        <span data-lang="zh">Web 对话编排</span>
+        <span data-lang="en">Compose in Web</span>
+      </a>
+      <a class="ghost-button" href="/loops/new/manual" data-testid="tutorial-manual-compose-link">
         <span data-lang="zh">手动编排</span>
         <span data-lang="en">Manual Expert Mode</span>
       </a>
-      <a class="ghost-button" href="/orchestrations">
+      <a class="ghost-button" href="/orchestrations" data-testid="tutorial-workflow-examples-link">
         <span data-lang="zh">查看流程样例</span>
         <span data-lang="en">Browse workflow examples</span>
       </a>

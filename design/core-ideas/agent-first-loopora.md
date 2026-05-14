@@ -2,11 +2,11 @@
 
 ## 1. 文档定位
 
-本文记录一个新的产品图景和原始需求：
+本文记录当前已经进入产品契约的 Agent-first 图景：
 
 `Coding Agent 作为主入口和执行主体，Loopora 作为上层 Loop 编排与治理系统，Web 作为观察、编辑和控制台。`
 
-它不是实现方案，不绑定 slash command、plugin、hook、MCP、skill、扩展协议或某个宿主 Coding Agent 的具体能力。后续若进入实现，应再更新对应的 detailed design，例如接口、持久化、workflow、alignment、observability 和 provider adapter。
+它不是某个宿主的实现说明，不把 slash command、plugin、hook、MCP、skill、扩展协议或某个 Coding Agent 的临时能力写成产品本质。已落地的接口、ownership、context capsule、evidence 回填和验证责任见 `../detailed-design/10-agent-adapters.md`，跨入口语言与 Web/CLI/API 边界见 `../detailed-design/05-interfaces.md`。
 
 本文优先回答：
 
@@ -54,12 +54,12 @@ Web = 观察台 + 专家编辑器 + 历史与资源控制台
 
 Agent-first 的默认路径必须坚持：
 
-`/loopora-gen -> Web 预览 / 确认 / 可选编辑 -> /loopora-loop`
+`/loopora-gen -> Web 预览 / 审查 / 可选编辑 -> /loopora-loop`
 
 `/loopora-loop` 不应在缺少已生成候选 Loop 的情况下直接把一句话任务自动编译并运行。这个约束保护 Loopora 的核心价值：
 
 - 运行前必须有可审查的 bundle / Loop 治理结构。
-- 用户应能在 Web 中查看、修改或确认候选 Loop。
+- 用户应能在 Web 中查看、审查或修改候选 Loop。
 - 运行不是“再问一次 Agent”，而是进入一个已编译的判断协议。
 
 ### 4.2 `/loopora-gen`
@@ -74,7 +74,7 @@ Agent-first 的默认路径必须坚持：
 - 生成或更新候选 bundle。
 - 让 Loopora Core 完成校验、诊断和 READY 判断。
 - 拉起或复用本地 Web 服务。
-- 返回候选 Loop 的 Web URL，让用户查看、确认或修改。
+- 返回候选 Loop 的 Web URL，让用户查看、审查或修改。
 
 `/loopora-gen` 不默认启动 run。
 
@@ -82,16 +82,18 @@ Agent-first 的默认路径必须坚持：
 
 `/loopora-loop` 的用户语义是：
 
-> 用已确认的 Loop 协议启动或推进当前任务。
+> 用已审查或已接受的 Loop 协议启动或推进当前任务。
 
 它应该完成：
 
-- 找到当前 workdir / 当前会话关联的 READY bundle 或已确认 Loop。
+- 找到当前 workdir / 当前会话关联的 READY bundle 或已导入 Loop。
 - 若不存在可运行 Loop，提示用户先运行 `/loopora-gen`。
 - 启动 Loopora 管理的 Loop 状态。
 - 让 Coding Agent 在当前 Loop step 的治理上下文中执行任务。
 - 拉起或复用本地 Web 服务。
 - 返回 run / Loop 的 Web URL，方便用户查看状态、证据和裁决。
+
+当前 Agent-first 路径不维护一个独立的“已确认 preview”持久状态。Core 强制的是 READY 校验和当前会话 / workdir 绑定；用户在 Web 中审查或调整候选后主动调用 `/loopora-loop`，就是接受该 preview 进入运行的动作。若后续引入硬确认状态，必须同步改变 adapter 合约、Web 流程和测试。
 
 `/loopora-loop` 不要求 Web 作为执行主界面。用户从 slash command 启动后，Web 通常只是观察台；控制和专家编辑能力仍然存在，但不应强行打断 Coding Agent 里的工作流。
 
@@ -287,30 +289,29 @@ Agent-first 不意味着：
 
 ## 14. 与现有设计的关系
 
-现有设计中，Web alignment 是默认对话编排入口，CLI 是自动化和专家入口。Agent-first 图景要求后续重新审视这个默认关系：
+历史上，Web alignment 是默认对话编排入口，CLI 是自动化和专家入口。当前 README 已把 Coding Agent 入口提升为 coding 场景的推荐 first-use path，因此稳定关系调整为：
 
 - Web 仍可一站式完成所有能力。
 - Web 不再必须是默认发起入口。
 - Coding Agent slash command 成为 coding 场景下更自然的主入口。
 - CLI/Core 成为 Web 和 Coding Agent 的共同底座。
-- Loopora 的稳定职责从“调度底层 Agent CLI 执行每个 role”扩展为“管理 Loop 状态并向执行主体注入当前治理上下文”。
+- Agent-first 候选入口、Web 对话编排、手动编排和 YAML 导入都必须进入同一套 Core 校验、READY 预览、bundle 导入、run/evidence/capsule 语义。
+- Loopora 的稳定职责从“调度底层 Agent CLI 执行每个 role”收敛为“管理 Loop 状态并向执行主体注入当前治理上下文”；明确 headless run 才使用 executor 子进程。
 
-这会影响后续 detailed design，但本文不直接改写那些模块契约。落地前需要进一步更新接口、workflow、alignment、persistence、observability 和 executor / adapter 边界。
+若后续宿主能力改变，优先更新 `10-agent-adapters.md`、`05-interfaces.md`、`06-workflow-and-prompts.md`、`07-observability-and-diagnostics.md` 和相关 contract / real probe，而不是把这里退回成 Web-first 或 prompt-pack 图景。
 
-## 15. 待进一步设计的问题
+## 15. 待进一步演进的问题
 
-后续详细设计至少需要回答：
+第一阶段已回答 READY 绑定、agent-native run、context capsule、host dispatch proof、evidence 回填和多宿主安装 ownership；后续演进仍需持续收敛：
 
-- `/loopora-gen` 如何从 Coding Agent 当前上下文取得任务材料，而不把宿主会话当成唯一事实源？
-- `/loopora-loop` 如何选择最近 READY bundle，以及如何处理多个候选 Loop？
-- Loop 上下文胶囊如何表达给 Coding Agent，如何回收 handoff 和 evidence？
+- `/loopora-gen` 如何更可靠地从不同 Coding Agent 当前上下文取得任务材料，而不把宿主会话当成唯一事实源？
+- `/loopora-loop` 遇到多个候选 Loop 或 Web 修改后的候选时，如何让用户选择而不增加默认心智负担？
 - 变更归因如何对用户可见，哪些情况必须阻断 GateKeeper 通过？
 - Web 修改 bundle 后，Coding Agent 侧如何感知最新确认版本？
-- Web-only 与 Agent-first 两条路径如何共享同一对象模型和 URL？
-- 哪些能力必须进入 CLI/Core，哪些只是宿主 adapter 的体验层？
+- 各宿主的 per-turn 注入、subagent / task agent 能力和真实 session identity 如何在不破坏 Core 契约的前提下继续增强？
 
 ## 16. 参考资料
 
 - `codex-goal-reference.md` 记录 Codex `/goal` 的持久目标、受限模型工具、自动续跑和 TUI 状态面机制。该文档只作为外部机制参考，不构成 Agent-first Loopora 的产品契约。
 - `trellis-agent-orchestration-reference.md` 记录 Trellis 的 Agent-first、本地编排、多平台 adapter、session-scoped active task 和 per-turn workflow breadcrumb 机制。该文档只作为外部实现参考，不构成 Agent-first Loopora 的产品契约。
-- 第一阶段 Codex adapter 的实现边界、managed 文件 ownership 和 `/loopora-gen` / `/loopora-loop` 接口落点见 `../detailed-design/10-agent-adapters.md`。该细节设计只实现 Codex；Claude Code / OpenCode 仍是预留平台。
+- 第一阶段 Codex、Claude Code、OpenCode adapter 的实现边界、managed 文件 ownership 和 `/loopora-gen` / `/loopora-loop` 接口落点见 `../detailed-design/10-agent-adapters.md`。

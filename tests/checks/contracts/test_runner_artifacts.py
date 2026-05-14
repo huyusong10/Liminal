@@ -860,6 +860,8 @@ def test_builtin_prompts_define_runtime_evidence_fallback_rules() -> None:
     _assert_prompt_bucket_rules(prompts, zh_prompts)
     assert "run status is not a task pass" in prompts["gatekeeper"]
     assert "run 正常结束不等于任务通过" in zh_prompts["gatekeeper"]
+    assert "用稳定证据桶组织 Loop 裁决" in zh_prompts["gatekeeper"]
+    assert "用稳定证据桶组织任务裁决" not in zh_prompts["gatekeeper"]
     assert "downstream review steps run in a parallel_group" in system_prompt_prefix("builder")
     assert "this step is in a parallel_group" in system_prompt_prefix("inspector")
     assert "upstream reviewers ran in a parallel_group" in system_prompt_prefix("gatekeeper")

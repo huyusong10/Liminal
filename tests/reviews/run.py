@@ -234,6 +234,111 @@ def _normalize_terms(raw_terms: Any) -> list[tuple[str, str]]:
     return terms
 
 
+VISIBLE_ATTRIBUTE_NAMES = {"aria-label", "alt", "placeholder", "title"}
+
+
+def _reviewable_term_text(path: Path, line: str) -> str:
+    suffix = path.suffix.lower()
+    if suffix in {".html", ".svg"}:
+        return _markup_reviewable_text(line)
+    return line
+
+
+def _markup_reviewable_text(line: str) -> str:
+    attribute_text = " ".join(_visible_attribute_values(line))
+    if "<" not in line and ">" not in line:
+        return attribute_text
+    without_jinja = re.sub(r"{[#%].*?[#%]}", " ", line)
+    without_jinja = re.sub(r"{{.*?}}", " ", without_jinja)
+    visible_text = re.sub(r"<[^>]+>", " ", without_jinja)
+    return " ".join(part for part in [attribute_text, visible_text] if part).strip()
+
+
+def _visible_attribute_values(line: str) -> list[str]:
+    values: list[str] = []
+    for match in re.finditer(r"""([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(["'])(.*?)\2""", line):
+        name = match.group(1).split(":")[-1].lower()
+        if name not in VISIBLE_ATTRIBUTE_NAMES:
+            continue
+        values.extend(_static_text_fragments(match.group(3)))
+    return values
+
+
+def _static_text_fragments(value: str) -> list[str]:
+    fragments = [match.group(1) for match in re.finditer(r"""['"]([^'"]+)['"]""", value)]
+    if fragments:
+        return fragments
+    if "{{" in value or "{%" in value:
+        return []
+    return [value]
+
+
+def _javascript_reviewable_text_by_line(text: str) -> dict[int, str]:
+    visible_by_line: dict[int, list[str]] = {}
+    for match in re.finditer(r"\b(?:localeText|pickText)\s*\(", text):
+        open_paren = text.find("(", match.start())
+        close_paren = _find_matching_paren(text, open_paren)
+        if close_paren is None:
+            continue
+        arguments_start = open_paren + 1
+        arguments = text[arguments_start:close_paren]
+        for offset, literal in _javascript_string_literals_with_offsets(arguments):
+            line_no = text.count("\n", 0, arguments_start + offset) + 1
+            visible_by_line.setdefault(line_no, []).append(literal)
+    return {line_no: " ".join(parts) for line_no, parts in visible_by_line.items()}
+
+
+def _find_matching_paren(text: str, open_paren: int) -> int | None:
+    if open_paren < 0 or open_paren >= len(text) or text[open_paren] != "(":
+        return None
+    depth = 0
+    index = open_paren
+    while index < len(text):
+        char = text[index]
+        if char in {"'", '"', "`"}:
+            index = _javascript_string_end(text, index)
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def _javascript_string_end(text: str, start: int) -> int:
+    quote = text[start]
+    escaped = False
+    index = start + 1
+    while index < len(text):
+        char = text[index]
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == quote:
+            return index
+        index += 1
+    return len(text) - 1
+
+
+def _javascript_string_literals(value: str) -> list[str]:
+    return [literal for _offset, literal in _javascript_string_literals_with_offsets(value)]
+
+
+def _javascript_string_literals_with_offsets(value: str) -> list[tuple[int, str]]:
+    return [
+        (match.start(2), _decode_javascript_literal(match.group(2)))
+        for match in re.finditer(r"""(["'`])((?:\\.|(?!\1)[\s\S])*?)\1""", value)
+    ]
+
+
+def _decode_javascript_literal(value: str) -> str:
+    escapes = {"n": "\n", "r": "\r", "t": "\t", "\\": "\\", "'": "'", '"': '"', "`": "`"}
+    return re.sub(r"\\([nrt\\'\"`])", lambda match: escapes[match.group(1)], value)
+
+
 def _write_term_hints(target: dict[str, Any], output_dir: Path) -> Artifact:
     target_id = _slugify(str(target["id"]))
     exclude = _target_exclude_globs(target)
@@ -251,12 +356,19 @@ def _write_term_hints(target: dict[str, Any], output_dir: Path) -> Artifact:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             text = path.read_text(encoding="utf-8", errors="replace")
-        lowered_lines = text.splitlines()
-        for line_no, line in enumerate(lowered_lines, start=1):
-            line_lower = line.lower()
+        reviewable_by_line = (
+            _javascript_reviewable_text_by_line(text)
+            if path.suffix.lower() == ".js"
+            else {
+                line_no: _reviewable_term_text(path, line)
+                for line_no, line in enumerate(text.splitlines(), start=1)
+            }
+        )
+        for line_no, reviewable_text in reviewable_by_line.items():
+            line_lower = reviewable_text.lower()
             for term, label in terms:
                 if term.lower() in line_lower:
-                    hits.append((_artifact_rel_path(path), line_no, label, line.strip()))
+                    hits.append((_artifact_rel_path(path), line_no, label, reviewable_text.strip()))
 
     output_path = output_dir / f"{target_id}.md"
     lines = [f"# {_target_title(target, target_id)}", ""]
@@ -264,7 +376,7 @@ def _write_term_hints(target: dict[str, Any], output_dir: Path) -> Artifact:
         for rel_path, line_no, label, line in hits:
             lines.append(f"- `{rel_path}:{line_no}` `{label}`: {line}")
     else:
-        lines.append("No configured terms were found.")
+        lines.append("No configured terms were found in reviewable text.")
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     hints = [f"{rel_path}:{line_no}: review `{label}` wording" for rel_path, line_no, label, _line in hits[:120]]
     return Artifact(target_id=target_id, title=_target_title(target, target_id), kind="term_hints", path=output_path, hints=hints)

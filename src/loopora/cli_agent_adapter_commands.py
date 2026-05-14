@@ -37,7 +37,7 @@ ResultFileOption = Annotated[
 ]
 RunIdOption = Annotated[str, typer.Option("--run-id", help="Optional Loopora run id. Defaults to the run bound to the current host session/workdir.")]
 StepIdOption = Annotated[str, typer.Option("--step-id", help="Loopora step id being submitted.")]
-AdapterMessageOption = Annotated[str, typer.Option("--message", help="Short task summary for the candidate Loop.")]
+AdapterMessageOption = Annotated[str, typer.Option("--message", help="Short task summary for the Loop preview.")]
 NoWebOption = Annotated[bool, typer.Option("--no-web", hidden=True, help="Skip local Web service startup.")]
 
 
@@ -121,7 +121,7 @@ def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_te
         json_output: JsonOutputOption = False,
         no_web: NoWebOption = False,
     ) -> None:
-        """Validate a generated candidate bundle and return the READY preview URL."""
+        """Validate a generated Loop candidate and return the Loop preview URL."""
         try:
             request = AgentBundleCandidateRequest(
                 adapter=adapter,
@@ -145,7 +145,7 @@ def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_te
         json_output: JsonOutputOption = False,
         no_web: NoWebOption = False,
     ) -> None:
-        """Start or reuse the Loopora run associated with the current READY bundle."""
+        """Start or reuse the Loopora run associated with the current ready Loop preview."""
         try:
             service = get_service()
             result = service.start_agent_loop(
@@ -276,11 +276,13 @@ def _print_agent_gen_result(result: dict, *, json_output: bool) -> None:
         echo_json(result)
         return
     if result.get("ready"):
-        typer.echo("Loopora candidate READY")
+        typer.echo("Loopora Loop preview is ready")
+    elif result.get("requires_web_alignment"):
+        typer.echo("Loopora Loop preview needs Web review before /loopora-loop")
     else:
-        typer.echo(f"Loopora candidate status: {result.get('status')}")
+        typer.echo(f"Loopora Loop preview status: {result.get('status')}")
     typer.echo(f"session_id: {result['session']['id']}")
-    typer.echo(f"candidate_url: {result.get('preview_url') or result.get('preview_path')}")
+    typer.echo(f"preview_url: {result.get('preview_url') or result.get('preview_path')}")
 
 
 def _print_agent_loop_result(result: dict, *, json_output: bool) -> None:

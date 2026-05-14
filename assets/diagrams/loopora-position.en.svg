@@ -19,7 +19,7 @@
   <rect x="54" y="150" width="246" height="260" rx="18" fill="#ffffff" stroke="#cbd5e1" filter="url(#shadow)"/>
   <circle cx="96" cy="195" r="24" fill="#dbeafe"/>
   <text x="96" y="203" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#2563eb">H</text>
-  <text x="132" y="192" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#172033">Human judgment</text>
+  <text x="132" y="192" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#172033">Human judgment</text>
   <text x="82" y="245" font-family="Inter, Arial, sans-serif" font-size="16" fill="#334155">what to reject</text>
   <text x="82" y="286" font-family="Inter, Arial, sans-serif" font-size="16" fill="#334155">what evidence counts</text>
   <text x="82" y="327" font-family="Inter, Arial, sans-serif" font-size="16" fill="#334155">which risks block</text>
@@ -41,7 +41,7 @@
 
   <rect x="700" y="150" width="246" height="260" rx="18" fill="#ffffff" stroke="#cbd5e1" filter="url(#shadow)"/>
   <text x="823" y="192" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#172033">Agent rounds</text>
-  <rect x="728" y="232" width="190" height="44" rx="12" fill="#ecfdf5" stroke="#a7f3d0"/>
+  <rect x="717" y="232" width="212" height="44" rx="12" fill="#ecfdf5" stroke="#a7f3d0"/>
   <text x="823" y="260" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="600" fill="#065f46">Round 1: work + evidence</text>
   <rect x="728" y="293" width="190" height="44" rx="12" fill="#ecfdf5" stroke="#a7f3d0"/>
   <text x="823" y="321" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="600" fill="#065f46">Round 2: close gaps</text>
@@ -53,6 +53,6 @@
   <path d="M823 432 C820 504 634 516 526 450" fill="none" stroke="#d97706" stroke-width="3" stroke-dasharray="8 7" marker-end="url(#arrow-orange)"/>
   <text x="700" y="515" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="600" fill="#9a3412">evidence returns; the next round is constrained again</text>
 
-  <rect x="202" y="535" width="596" height="58" rx="18" fill="#172033"/>
+  <rect x="150" y="535" width="700" height="58" rx="18" fill="#172033"/>
   <text x="500" y="570" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="600" fill="#ffffff">Long tasks keep returning to human judgment, not only Agent summaries</text>
 </svg>

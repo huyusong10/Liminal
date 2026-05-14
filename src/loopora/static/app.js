@@ -5,7 +5,7 @@
       queued: "排队中",
       running: "运行中",
       awaiting_agent: "等待 Agent",
-      succeeded: "已完成",
+      succeeded: "正常结束",
       failed: "失败",
       stopped: "已停止",
     },
@@ -14,7 +14,7 @@
       queued: "queued",
       running: "running",
       awaiting_agent: "awaiting agent",
-      succeeded: "succeeded",
+      succeeded: "finished normally",
       failed: "failed",
       stopped: "stopped",
     },
@@ -342,14 +342,14 @@
         noteSelector: "[data-testid='bundle-grid-note']",
         detail(name) {
           return pickText({
-            zh: `“${name}” 和它导入的 loop、流程编排、角色定义都会一起清理。手动资源不会被影响。`,
-            en: `"${name}" and its imported loop, orchestration, and role definitions will be removed together. Unrelated manual assets stay intact.`,
+            zh: `“${name}” 和它导入的 Loop、流程、角色定义都会一起清理。手动资源不会被影响。`,
+            en: `"${name}" and its imported loop, flow, and role definitions will be removed together. Unrelated manual assets stay intact.`,
           });
         },
         failure() {
           return pickText({
-            zh: "无法删除这个方案包。",
-            en: "Unable to delete this bundle.",
+            zh: "无法删除这个方案。",
+            en: "Unable to delete this plan.",
           });
         },
       },

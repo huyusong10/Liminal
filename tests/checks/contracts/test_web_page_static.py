@@ -21,6 +21,16 @@ def test_run_detail_page_css_owns_progress_surface_rules() -> None:
         assert selector in run_detail_css
 
 
+def test_run_detail_progress_caption_uses_product_language() -> None:
+    root = Path(__file__).resolve().parents[3]
+    source = (root / "src" / "loopora" / "static" / "pages" / "run_detail_render.js").read_text(encoding="utf-8")
+
+    assert "No fake percentage here anymore" not in source
+    assert "虚假的百分比" not in source
+    assert "guessed completion percentage" in source
+    assert "stage timing" in source
+
+
 def test_run_detail_console_projector_maps_core_events_without_dom() -> None:
     node = shutil.which("node")
     if not node:
@@ -75,6 +85,28 @@ if (
 ) {
   throw new Error(`run finished console projection failed: ${JSON.stringify(runFinishedLines)}`);
 }
+const zhProjector = context.window.LooporaRunDetailConsole.createConsoleEventProjector({
+  buildConsoleEntry: (event, options) => ({eventType: event.event_type, ...options}),
+  localeText: (zh, _en) => zh,
+  prettyConsoleJson: (value) => JSON.stringify(value, null, 2),
+  resolvedPayloadRoleName: () => "Builder",
+  buildContextDetail: (payload) => `step=${payload.step_id || "-"}`,
+  displayIter: (value) => Number(value) + 1,
+  formatDurationMs: (value) => `${value}ms`,
+  translateStatus: (status) => `status:${status}`,
+});
+const zhRunFinishedLines = zhProjector.buildConsoleLines({
+  event_type: "run_finished",
+  created_at: "2026-04-30T00:00:00Z",
+  payload: {status: "succeeded", task_verdict_status: "insufficient_evidence"},
+});
+if (
+  zhRunFinishedLines.length !== 1 ||
+  !zhRunFinishedLines[0].summary.includes("Loop 裁决 insufficient_evidence") ||
+  zhRunFinishedLines[0].summary.includes("任务裁决")
+) {
+  throw new Error(`Chinese run finished console projection used the wrong verdict term: ${JSON.stringify(zhRunFinishedLines)}`);
+}
 const stringOkLines = projector.buildConsoleLines({
   event_type: "role_execution_summary",
   created_at: "2026-04-30T00:00:00Z",
@@ -112,6 +144,127 @@ if (stringPassedIterationLines.length !== 1 || stringPassedIterationLines[0].ton
 }
 """
     subprocess.run([node, "-e", script], cwd=root, check=True)
+
+
+def test_run_console_uses_loop_verdict_term_for_zh_terminal_summary() -> None:
+    root = Path(__file__).resolve().parents[3]
+
+    for path in [
+        root / "src" / "loopora" / "static" / "pages" / "run_detail_console.js",
+        root / "src" / "loopora" / "static" / "pages" / "run_console.js",
+        root / "src" / "loopora" / "static" / "pages" / "run_detail_timeline.js",
+    ]:
+        source = path.read_text(encoding="utf-8")
+        assert "Loop 裁决" in source
+        assert "任务裁决" not in source
+
+
+def test_tools_local_asset_diagnostics_use_default_plan_file_language() -> None:
+    root = Path(__file__).resolve().parents[3]
+    tools_template = (root / "src" / "loopora" / "templates" / "tools.html").read_text(encoding="utf-8")
+    tools_script = (root / "src" / "loopora" / "static" / "pages" / "tools.js").read_text(encoding="utf-8")
+    default_surface = f"{tools_template}\n{tools_script}"
+
+    assert "Alignment orphan dirs" not in default_surface
+    assert "Alignment orphan directories" not in default_surface
+    assert 'localeText("Session", "Session")' not in default_surface
+    assert "Bundle orphan dirs" not in default_surface
+    assert "Bundle orphan directories" not in default_surface
+    assert 'localeText("方案包", "Bundle")' not in default_surface
+    assert "Conversation orphan dirs" in default_surface
+    assert "Conversation orphan directories" in default_surface
+    assert 'localeText("对话", "Conversation")' in default_surface
+    assert "Plan file orphan dirs" in default_surface
+    assert "Plan file orphan directories" in default_surface
+    assert 'localeText("方案包", "Plan file")' in default_surface
+
+
+def test_manual_import_surface_uses_plan_file_language() -> None:
+    root = Path(__file__).resolve().parents[3]
+    new_loop_template = (root / "src" / "loopora" / "templates" / "new_loop.html").read_text(encoding="utf-8")
+    import_script = (root / "src" / "loopora" / "static" / "pages" / "bundle_import.js").read_text(encoding="utf-8")
+    import_surface = f"{new_loop_template}\n{import_script}"
+
+    for forbidden in [
+        "Import Existing Bundle / YAML",
+        "bundle file or YAML",
+        "Bundle path",
+        "Replace bundle id",
+        "Bundle YAML",
+        "Provide a bundle path",
+        "Bundle preview failed",
+        "/absolute/path/to/bundle.yml",
+    ]:
+        assert forbidden not in import_surface
+    assert "Import existing plan file" in import_surface
+    assert "Plan file path" in import_surface
+    assert "Replace plan id" in import_surface
+    assert "Plan file content" in import_surface
+    assert "Provide a plan file path or paste plan file content." in import_surface
+    assert "Plan file preview failed." in import_surface
+    assert "/absolute/path/to/plan.yml" in import_surface
+
+
+def test_manual_loop_surface_uses_flow_language_for_default_copy() -> None:
+    root = Path(__file__).resolve().parents[3]
+    new_loop_template = (root / "src" / "loopora" / "templates" / "new_loop.html").read_text(encoding="utf-8")
+    new_loop_script = (root / "src" / "loopora" / "static" / "pages" / "new_loop.js").read_text(encoding="utf-8")
+    manual_surface = f"{new_loop_template}\n{new_loop_script}"
+
+    for forbidden in [
+        "Generate from orchestration",
+        ">Orchestration<",
+        ">Orchestrations<",
+        "Choose orchestration",
+        "No orchestration is available yet",
+        "Choose an orchestration first",
+        "The selected orchestration is",
+        "This orchestration has no finish-on-pass",
+    ]:
+        assert forbidden not in manual_surface
+    assert "Generate from flow" in manual_surface
+    assert ">Run flow<" in manual_surface
+    assert ">Flow library<" in manual_surface
+    assert "Choose flow" in manual_surface
+    assert "No flow is available yet" in manual_surface
+    assert "Choose a flow first" in manual_surface
+    assert "The selected flow is" in manual_surface
+
+
+def test_compose_workspace_uses_conversation_language_for_default_copy() -> None:
+    root = Path(__file__).resolve().parents[3]
+    new_loop_template = (root / "src" / "loopora" / "templates" / "new_loop.html").read_text(encoding="utf-8")
+    alignment_script = (root / "src" / "loopora" / "static" / "pages" / "alignment.js").read_text(
+        encoding="utf-8"
+    )
+    compose_surface = f"{new_loop_template}\n{alignment_script}"
+
+    for forbidden in [
+        "对齐中",
+        "启动对齐失败",
+        "对齐事件分组",
+        "Alignment event lanes",
+        "对齐执行器配置方式",
+        "Alignment executor configuration mode",
+        "align that judgment",
+    ]:
+        assert forbidden not in compose_surface
+    assert "编排中" in compose_surface
+    assert "Failed to start conversation." in compose_surface
+    assert "Conversation event lanes" in compose_surface
+    assert "Conversation executor configuration mode" in compose_surface
+    assert "shape that judgment into a candidate Loop" in compose_surface
+
+
+def test_bundle_detail_uses_flow_language_for_chinese_governance_copy() -> None:
+    root = Path(__file__).resolve().parents[3]
+    bundle_detail_template = (root / "src" / "loopora" / "templates" / "bundle_detail.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert not re.findall(r'data-lang="zh">[^<]*workflow[^<]*<', bundle_detail_template, flags=re.IGNORECASE)
+    assert "流程风险" in bundle_detail_template
+    assert "流程提醒" in bundle_detail_template
 
 
 def test_run_detail_projectors_map_progress_timeline_and_takeaways_without_dom() -> None:
@@ -182,6 +335,14 @@ if (progress.getCurrentStage(run) !== "step:builder_step") {
 if (progress.getProgressStages(run).filter((stage) => stage.kind === "workflow_step").length !== 1) {
   throw new Error("workflow step projection missing");
 }
+const terminalStage = progress.getProgressStages(run).find((stage) => stage.kind === "finished");
+if (!terminalStage || terminalStage.title !== "Run closed" || terminalStage.chipLabel !== "Run closed") {
+  throw new Error(`run closure stage used task-completion wording: ${JSON.stringify(terminalStage)}`);
+}
+const queuedDetail = progress.describeLiveWork({...run, status: "queued"}).detail;
+if (queuedDetail.includes("executor") || !queuedDetail.includes("run slot")) {
+  throw new Error(`queued progress hint leaked executor language: ${queuedDetail}`);
+}
 const installHint = context.window.LooporaRunDetailProgressActivity.createProgressActivityProjector({
   localeText: (_zh, en) => en,
   truncateText: (value) => String(value || ""),
@@ -225,6 +386,21 @@ if (stringOkTone !== "danger") {
 const runFinished = timeline.formatTimelineEvent({event_type: "run_finished", payload: {status: "succeeded", task_verdict_status: "insufficient_evidence", iter: 1}});
 if (!runFinished.detail.includes("Task verdict insufficient_evidence")) {
   throw new Error(`run finished verdict projection failed: ${JSON.stringify(runFinished)}`);
+}
+const zhTimeline = context.window.LooporaRunDetailTimeline.createTimelineProjector({
+  localeText: (zh, _en) => zh,
+  escapeHtml: (value) => String(value || ""),
+  formatClock: () => "00:00:00",
+  formatAbsoluteDate: () => "date",
+  formatDurationMs: (value) => `${value}ms`,
+  displayIter: (value) => Number(value) + 1,
+  resolvedPayloadRoleName: () => "Builder",
+  translateRole: (role) => `role:${role}`,
+  translateStatus: (status) => `status:${status}`,
+});
+const zhRunFinished = zhTimeline.formatTimelineEvent({event_type: "run_finished", payload: {status: "succeeded", task_verdict_status: "insufficient_evidence", iter: 1}});
+if (!zhRunFinished.detail.includes("Loop 裁决 insufficient_evidence") || zhRunFinished.detail.includes("任务裁决")) {
+  throw new Error(`Chinese run finished timeline projection used the wrong verdict term: ${JSON.stringify(zhRunFinished)}`);
 }
 const malformedRunFinished = timeline.formatTimelineEvent({event_type: "run_finished", payload: {status: "succeeded", iter: "3"}});
 if (malformedRunFinished.detail.includes("Iter 4")) {
@@ -781,7 +957,12 @@ def test_static_app_js_bootstraps_theme_and_locale_without_mount_flash(service_f
     assert "data-toggle-nav-menu" in script
     assert "[data-testid='loop-grid-note']" in script
     assert "[data-testid='bundle-grid-note']" in script
-    assert "Unable to delete this bundle." in script
+    assert "Unable to delete this plan." in script
+    assert "Unable to delete this bundle." not in script
     assert 'setAttribute("title", title)' not in script
     assert 'removeAttribute("title")' in script
+    assert 'succeeded: "正常结束"' in script
+    assert 'succeeded: "finished normally"' in script
+    assert 'succeeded: "已完成"' not in script
+    assert 'succeeded: "succeeded"' not in script
     assert "ui-mounted" not in script

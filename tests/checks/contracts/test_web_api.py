@@ -30,7 +30,7 @@ from loopora.web_url_utils import safe_attachment_filename, safe_local_return_pa
 import loopora.service_run_lifecycle as service_run_lifecycle
 import loopora.web as web_module
 from loopora.web import build_app
-from loopora.web_overviews import _build_run_summary_snapshot, _decorate_loop_overview, _format_timeline_event
+from loopora.web_overviews import _build_run_summary_snapshot, _decorate_loop_overview, _format_timeline_event, _progress_stage_seed
 
 
 def _read_service_log_records() -> list[dict]:
@@ -48,6 +48,13 @@ def test_streaming_cursor_helpers_require_strict_integer_boundaries() -> None:
     assert stream_error_payload(owner_key="run_id", owner_id="run_test", after_id="42")["after_id"] == 0
     assert stream_error_payload(owner_key="run_id", owner_id="run_test", after_id=True)["after_id"] == 0
     assert stream_error_payload(owner_key="run_id", owner_id="run_test", after_id=MAX_EVENT_CURSOR_ID + 1)["after_id"] == 0
+
+
+def test_progress_stage_seed_keeps_run_closure_language_neutral() -> None:
+    stages = _progress_stage_seed({"workflow_json": {"roles": [], "steps": []}})
+
+    assert stages[-1] == {"key": "finished", "label": "Run closed", "kind": "finished", "sequence": 2}
+    assert all(stage["label"] != "Done" for stage in stages)
 
 
 def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
@@ -183,13 +190,13 @@ def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
     assert malformed_failure_summary["detail"] == "failed as string"
     assert list_payload_summary["title"] == "Builder failed"
     assert list_payload_summary["detail"] == ""
-    assert overflow_iter_finished["title"] == "Run succeeded"
+    assert overflow_iter_finished["title"] == "Run finished"
     assert overflow_iter_finished["detail"] == ""
     assert control_event["title"] == "Control triggered"
     assert control_event["detail"] == "no_evidence_progress -> inspector"
     assert parallel_event["title"] == "Parallel review started"
     assert parallel_event["detail"] == "inspection_pack, steps=2"
-    assert run_finished["title"] == "Run succeeded"
+    assert run_finished["title"] == "Run finished"
     assert run_finished["detail"] == "planned rounds completed, task_verdict_status=insufficient_evidence"
     assert accepted["title"] == "Conclusion accepted"
     assert accepted["detail"] == "status=succeeded, task_verdict_status=passed"
@@ -232,6 +239,8 @@ def test_loop_overview_preserves_residual_risk_task_verdict() -> None:
     assert summary["verdict_title_en"] == "Task verdict: passed with residual risk"
     assert summary["verdict_title_zh"] == "Loop 裁决：有残余风险地通过"
     assert summary["verdict_note_en"] == "follow-up"
+    assert "Loop verdict" in summary["status_note_en"]
+    assert "任务是否通过" in summary["status_note_zh"]
 
 
 def test_loop_overview_surfaces_unproven_terminal_task_verdicts() -> None:
@@ -352,6 +361,8 @@ def _assert_run_artifact_catalog(client: TestClient, run_id: str) -> None:
     assert "Residual Risk" in artifacts_by_id["compiled-spec"]["description_en"]
     assert artifacts_by_id["workflow-manifest"]["label_zh"] == "流程清单"
     assert "规范证据账本" in artifacts_by_id["evidence-ledger"]["description_zh"]
+    assert artifacts_by_id["task-verdict"]["label_zh"] == "Loop 裁决"
+    assert "终态 Loop 裁决" in artifacts_by_id["task-verdict"]["description_zh"]
     for artifact_id in (
         "summary",
         "original-spec",
@@ -372,6 +383,7 @@ def _assert_run_artifact_catalog(client: TestClient, run_id: str) -> None:
         assert "workflow" not in zh_metadata
         assert "canonical" not in zh_metadata
         assert " run " not in f" {zh_metadata} "
+        assert "任务裁决" not in zh_metadata
 
 
 def _assert_artifact_file(

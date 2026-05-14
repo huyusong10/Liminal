@@ -42,6 +42,24 @@ def _confirm_alignment_agreement(service, session_id: str, *final_statuses: str)
     return confirmed
 
 
+def test_alignment_prompt_assets_separate_run_status_from_task_verdict() -> None:
+    root = Path(__file__).resolve().parents[3]
+    asset_dir = root / "src" / "loopora" / "assets" / "alignment"
+    playbook = (asset_dir / "alignment-playbook.md").read_text(encoding="utf-8")
+    primer = (asset_dir / "product-primer.md").read_text(encoding="utf-8")
+
+    main_workflow = "`compose Loop -> run Loop -> automatic iteration with evidence -> run status, task verdict, and result`"
+    assert main_workflow in playbook
+    assert main_workflow in primer
+    assert "`Loop -> run -> automatic iteration -> evidence -> run status + task verdict + result`" in primer
+    assert "The task verdict projection should be easy to map into stable buckets" in primer
+
+    for path in sorted(asset_dir.glob("*.md")):
+        source = path.read_text(encoding="utf-8")
+        assert "evidence verdict and result" not in source, path.name
+        assert "The evidence verdict should" not in source, path.name
+
+
 def test_alignment_service_writes_validates_previews_imports_and_runs(
     service_factory,
     sample_workdir: Path,
@@ -2151,6 +2169,60 @@ def test_alignment_improvement_bundle_requires_completion_mode_delta_for_rounds_
     assert "improvement bundle must state the source completion-mode governance delta" in issues
 
 
+def test_alignment_improvement_bundle_accepts_loop_verdict_marker_for_completion_mode_delta(
+    service_factory,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = {
+        "metadata": {},
+        "collaboration_summary": (
+            "保留来源 Loop 的稳定意图；基于反馈变化，新的方案把 rounds completion mode 的"
+            "运行生命周期与 Loop 裁决分开，并把证据放回治理面。"
+        ),
+        "loop": {},
+        "spec": {},
+        "workflow": {},
+        "role_definitions": [],
+    }
+    session = {
+        "working_agreement": {
+            "mode": "improvement",
+            "source": {
+                "source_completion_mode": "rounds",
+            },
+        },
+    }
+
+    issues = service._alignment_improvement_bundle_issues(session, bundle)
+
+    assert "improvement bundle must state the source completion-mode governance delta" not in issues
+
+
+def test_alignment_improvement_readiness_accepts_loop_verdict_marker_for_completion_mode_delta(
+    service_factory,
+) -> None:
+    service = service_factory(scenario="success")
+    session = {
+        "working_agreement": {
+            "mode": "improvement",
+            "source": {
+                "source_completion_mode": "rounds",
+            },
+        },
+    }
+    output = {
+        "agreement_summary": (
+            "保留既有意图，基于反馈调整治理面；原完成模式是 rounds，新的运行生命周期"
+            "与 Loop 裁决分开。"
+        ),
+        "readiness_evidence": {},
+    }
+
+    issues = service._alignment_improvement_readiness_issues(session, output)
+
+    assert "improvement_completion_mode_delta" not in issues
+
+
 def test_alignment_improvement_bundle_rejects_reusing_source_bundle_id(
     service_factory,
     sample_workdir: Path,
@@ -2499,6 +2571,10 @@ def test_alignment_workdir_context_discovers_spec_and_requires_explicit_selectio
     assert context["requires_choice"] is True
     spec_option = next(option for option in context["options"] if option["source_type"] == "spec_file")
     assert spec_option["spec_path"] == str(spec_path)
+    assert spec_option["label_zh"].startswith("从已有任务契约开始")
+    assert "角色责任" in spec_option["description_zh"]
+    assert "roles" not in spec_option["description_zh"]
+    assert "workflow" not in spec_option["description_zh"]
     assert any(option["action"] == "regenerate" for option in context["options"])
 
     session = service.create_alignment_session(
@@ -2553,6 +2629,8 @@ def test_alignment_workdir_context_only_lists_validated_local_ready_bundles(
 
     assert [option["source_alignment_session_id"] for option in local_options] == ["align_valid"]
     assert local_options[0]["bundle_path"] == str(valid_bundle)
+    assert "方案文件" in local_options[0]["description_zh"]
+    assert "bundle" not in local_options[0]["description_zh"]
 
 
 def test_alignment_workdir_context_preserves_regenerate_option_when_source_list_is_bounded(
@@ -2617,6 +2695,9 @@ def test_alignment_source_context_redacts_sensitive_transcript_and_spec_material
     assert "TRANSCRIPT_COOKIE_SECRET_MARKER" not in context_text
 
     session_option = next(option for option in context["options"] if option.get("source_alignment_session_id") == source_session_id)
+    assert "方案文件" in session_option["description_zh"]
+    assert "bundle" not in session_option["description_zh"]
+    assert "session" not in session_option["description_zh"]
     session = service.create_alignment_session(
         workdir=sample_workdir,
         message="Use the old alignment as source context.",
@@ -2749,6 +2830,16 @@ def test_alignment_workdir_context_run_option_exposes_artifact_refs_and_rehydrat
     run_option = next(option for option in context["options"] if option.get("source_run_id") == run["id"])
 
     assert run_option["source_type"] == "run"
+    assert "Loop 裁决" in run_option["description_zh"]
+    assert "守门裁决" in run_option["description_zh"]
+    for option in context["options"]:
+        description_zh = option.get("description_zh", "")
+        assert "task verdict" not in description_zh
+        assert "最近一次 run" not in description_zh
+        assert "GateKeeper" not in description_zh
+        assert "bundle" not in description_zh
+        assert "spec、roles" not in description_zh
+        assert "workflow" not in description_zh
     assert run_option["artifact_paths"] == {
         "task_verdict": "evidence/task_verdict.json",
         "evidence_ledger": "evidence/ledger.jsonl",
