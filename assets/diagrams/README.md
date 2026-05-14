@@ -6,8 +6,9 @@ Current canonical diagrams:
 
 | File family | Purpose |
 | --- | --- |
+| `loopora-overview.*.svg` | Shows the README opening overview: task judgment becomes a plan, Agent rounds run under it, and Web shows evidence and verdicts. |
 | `first-run-path.*.svg` | Shows the README-first path: start from the Coding Agent, preview in Web, then run with evidence flowing into one local record. |
-| `bundle-judgment-structure.*.svg` | Shows the README technical overview: the Bundle surfaces that make task-local judgment runnable across rounds. |
+| `plan-judgment-structure.*.svg` | Shows the README plan-file overview: the surfaces that make task-local judgment runnable across rounds. |
 | `loopora-position.*.svg` | Places Loopora outside the Agent as the running structure that keeps human judgment active across rounds. |
 | `error-propagation.*.svg` | Shows how an unguided loop can turn an early proxy goal into a convincing but unsafe completion story. |
 | `refund-evidence-loop.*.svg` | Uses the refund case to show the stable run pattern: output, evidence accounting, decision, and narrowed next action. |

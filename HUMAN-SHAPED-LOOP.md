@@ -2,7 +2,7 @@
 
 [简体中文](./HUMAN-SHAPED-LOOP.zh-CN.md) | **English**
 
-This is an engineering blog about Loopora's engineering thinking and collaboration philosophy. For installation and usage, start with the [README](./README.md).
+This article explains the engineering thinking and collaboration philosophy behind Loopora. For installation and usage, start with the [README](./README.md).
 
 Loopora begins from a plain desire: laziness.
 
@@ -58,19 +58,21 @@ So the human says:
 
 > Not ready. Prove authorization, eligibility, payment failure, and the audit trail first. Only then polish the UI.
 
-Round two looks more product-like. It adds more page states, more confirmation copy, more mock data, and more happy-path tests.
+Round two may also look more product-like. It adds more page states, more confirmation copy, more mock data, and it mentions "authorization," "eligibility," and "audit" in the summary.
 
-The trouble is exactly there: the Agent did a lot, but the main risk barely moved. It polished a completion story that could not stand. The danger did not disappear. It hid behind a more product-like interface and a more confident summary.
+The trouble is exactly there: the human correction was right, and the Agent did not completely ignore it. The problem is that, in an ordinary chat, the judgment still exists only as static text. It has not been decomposed into evidence that must be cited, blocking conditions that cannot be waived, next-round priorities, and stop conditions that prevent closure.
 
-If the task keeps running in that direction, it may not suddenly go off the rails. Each round may drift a little further in a way that feels reasonable: round one treats "the page submits" as completion, round two polishes the page, round three adds tests around easy paths, round four writes a nicer README and a final summary. The result looks more and more real, while refund safety remains unproven.
+So the Agent may locally respond to the correction while still returning to easier work: put authorization into copy, leave eligibility in mocked rules, add more happy-path tests, then say with more confidence that safety has been improved. It did a lot, but the main risk barely moved. The danger did not disappear. It hid behind a more product-like interface and a more coherent completion story.
 
-The problem exposed by this story is not that the Agent is lazy, or that we did not run enough rounds. At the surface, the missing piece is a correct human judgment at the right moment. Deeper down, that intervention would recur throughout a long task.
+If the task keeps running in that direction, it may not suddenly go off the rails. Each round may drift a little further in a way that feels reasonable: round one treats "the page submits" as completion, round two treats "authorization was mentioned" as proof, round three adds tests around easy paths, round four writes a nicer README and a final summary. The result looks more and more real, while refund safety remains unproven.
 
-Every time the human returns, they are not merely adding requirement detail. They are applying control signals to the system: what to reject, what to trust, what must block, what to change next, and when to close.
+The problem exposed by this story is not that the Agent is lazy, or that we did not run enough rounds. It is not even that the human failed to say the right judgment. The real problem is that the right judgment did not get a runtime shape that keeps acting in later rounds.
+
+Every time the human returns, they are not merely adding requirement detail. They are applying control signals to the system: what to reject, what to trust, what must block, what to change next, and when to close. In long tasks, the human cost is that these control signals have to be applied by hand again and again.
 
 ## 2. Why PRDs, Fixed Cases, And Plain Loops Are Not Enough
 
-We should take the engineering alternatives seriously.
+Can we simply think through every issue before the task begins? Many AI harnesses and prompt routines try to do exactly that.
 
 ### A Better PRD Helps, But It Is a Map
 
@@ -105,6 +107,16 @@ Those facts only exist after execution, so each round must answer runtime contro
 | Improves first-round quality | Controls multi-round error propagation |
 | Can be selectively quoted or locally satisfied | Records gaps, blocking issues, and residual risk |
 | Mainly answers "what should be done" | Keeps asking "was it proven, should we turn, can we close" |
+
+### Real Engineering Teams Do Not Rely On Saying Everything Once
+
+This is not unique to AI. Real engineering teams do not treat a PRD as the final artifact either.
+
+If an engineering team were shipping a refund flow, they would absolutely clarify requirements, write a design, list risks, and add cases. But even a strong team would not expect product, engineering, and review to discover every issue on day one. Many facts only appear during implementation: an authorization path does not fit the real organization model, a provider failure state conflicts with the ledger, or a test appears to cover a boundary while routing around the riskiest branch.
+
+That is why mature engineering has design review, code review, tests, staged rollout, launch gates, monitoring, and retrospectives. They do not exist because up-front clarity is unimportant. They exist because "say everything perfectly at the start" is a false premise. Engineering judgment has to return to the task as new evidence appears.
+
+Much of Loopora's philosophy comes from that real engineering experience: a requirement is not a magic sentence written once. It is a set of judgments that keep being applied during execution. Long Agent tasks need the same thing. They need a better opening brief, but they also need a mechanism that keeps later rounds constrained by the same engineering judgment.
 
 ### Fixed Cases Help, But They Guard Known Boundaries
 
@@ -165,9 +177,11 @@ That is what "hard to benchmark, but can be structured" means. It does not aband
 
 ## 3. The Same Refund Task, If Given To Loopora
 
-Loopora's core move is to bring recurring future human correction before the run, then turn it into runnable control structure.
+If a real engineering team took this refund task, they would not only ask whether the first delivery looked like a product. They would inspect the authorization path, check whether eligibility uses real business rules, require traceable records for provider failure, block unauthorized refund risk, and push the next round back to whatever remains unproven.
 
-Human-shaped Loop is not "humans say more up front." More precisely, it lets human judgment keep acting during the run.
+Loopora is not trying to copy the org chart of an engineering team. It is learning the harder management constraints underneath: delivery cannot rely on self-report, risk needs gates, evidence must be traceable, and unproven work cannot be packaged as done.
+
+Human-shaped Loop turns those constraints into a task structure the Agent can keep running inside. It is not "humans say more up front"; it lets human judgment keep acting during the run.
 
 Return to the refund task. If it is given to Loopora, the run shape changes.
 
@@ -175,18 +189,18 @@ Return to the refund task. If it is given to Loopora, the run shape changes.
   <img src="./assets/diagrams/refund-evidence-loop.en.svg" alt="The refund task in Loopora is pulled into the next round by evidence gaps" width="1000" />
 </p>
 
-**Before the run: make recurring future corrections explicit.**
+**Before the loop starts: turn recurring future correction into structure.**
 
-The user should not need to hand-write a large configuration, but the system should help reveal these judgments:
+The user should not need to hand-write a large configuration. Loopora turns these judgments into runnable structure:
 
 - A submitting page is not completion.
 - Authorization, eligibility, provider failure, audit, and support handoff require evidence.
 - Unauthorized refunds, double refunds, and missing audit trails must block.
 - Rare provider edges may remain as residual risk, but only if visible, named, and owned.
 
-**After the first round: the Agent cannot only say "done."**
+**After the Agent completes the first round inside the Loop: it cannot only say "done."**
 
-Assume the first round still returns a page, a form, mocked eligibility rules, and happy-path tests. In an ordinary flow, the Agent may summarize:
+Assume this round still returns a page, a form, mocked eligibility rules, and happy-path tests. In an ordinary flow, the Agent may summarize:
 
 > The page and refund request flow are complete, and tests pass.
 
@@ -198,9 +212,9 @@ Inside Loopora, that answer is not enough. The Agent has to account for evidence
 - After provider failure, is there a record, ledger state, and support handoff?
 - Can support, finance, or compliance reconstruct what happened from the audit material?
 
-The first round might then be organized like this:
+This round might then be organized like this:
 
-| Verdict surface | First-round reality |
+| Verdict surface | This round's reality |
 | --- | --- |
 | Proven | The page can submit, and happy-path tests pass |
 | Weak evidence | Refund eligibility still mainly comes from mocked rules |
@@ -227,7 +241,9 @@ A good result is not necessarily "all risk disappeared." It should clearly separ
 - Blocking: which findings prevent closure if present.
 - Residual risk: which gaps can move forward, but only visibly, with an owner and follow-up path.
 
-That is Loopora's character. It does not promise the automated artifact is absolutely correct. It changes how error is handled. Error should surface earlier and be harder to package as completion; if risk must be carried forward, it should be named, visible, and decided on.
+That is Loopora's character: it does not make the Agent a lone genius. It makes the Agent operate more like work inside an engineering process. Delivery cannot rest on self-report, risk has to pass gates, evidence must be traceable, and unproven work cannot be packaged as done.
+
+The automated artifact can still be wrong. Loopora changes what happens to that error after it enters the system: it should surface earlier and become harder to hide behind a polished summary. If risk must move forward, it has to be named, visible, decided on, and owned.
 
 ## 4. After "Compilation," Where Does Judgment Live?
 
@@ -248,8 +264,6 @@ Compilation is not translating human judgment into a longer prompt. It puts judg
 | "Some tails can remain" | Residual risk | Gaps can move forward only if explicit, visible, and owned |
 
 In plain terms, judgment lives in four user-understandable running surfaces:
-
-Those four surfaces are a conceptual compression for this essay. The README asks whether a reviewable plan file is sufficient, so it splits **execution posture** into Agent responsibilities and run flow, yielding five reader-facing judgment faces. Both descriptions point at the same runtime contract: Loop contract, roles, workflow, and evidence; the verdict is their projection, not another fact source.
 
 - **Task contract**: what counts as done, what is fake done, what must block.
 - **Execution posture**: whether the next round should build, gather evidence, repair, or narrow.
@@ -298,6 +312,8 @@ These judgments should be explicit, previewable, editable, exportable, and dispo
 Future AI collaboration will not advance only by making models smarter.
 
 Models will improve, but complex work will still need human judgment: what is worth doing, what counts as truly done, whether evidence can be trusted, which risks are acceptable, and when to continue, stop, or turn.
+
+This philosophy does not come out of abstract AI theory alone. It is closer to learning from what human engineering management has already proven useful: review, gates, evidence, traceability, retrospectives, and a healthy distrust of work that merely looks complete. Loopora does not copy organizational process. It compresses those constraints into a task structure an Agent can run inside.
 
 Higher-order collaboration is not pulling humans back at every step, and it is not pretending humans can disappear. It is letting human judgment participate in a better time shape.
 

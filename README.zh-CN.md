@@ -13,40 +13,62 @@
   </a>
   <img alt="Agent first" src="https://img.shields.io/badge/agent--first-loop-2563EB">
   <img alt="Local first" src="https://img.shields.io/badge/local--first-evidence-0D7C66">
-  <img alt="Status" src="https://img.shields.io/badge/status-实验中-D66A36">
+  <img alt="Status" src="https://img.shields.io/badge/status-%E5%AE%9E%E9%AA%8C%E4%B8%AD-D66A36">
 </p>
 
 # Loopora
 
-**在 Agent 里启动 Loop，在 Web 里看证据。**
+**把一次性的 Agent 请求，变成有方案、有证据、有裁决的长期任务 Loop。**
 
-Loopora 给长期 AI Agent 任务加一层可见的运行结构：先把这次任务里反复会用到的判断、证据要求和停止条件整理出来，再让 Agent 带着这些约束一轮轮推进。
+Loopora 是面向长期 AI Agent 任务的本地运行层。它将任务目标、判断标准、证据要求和终止条件整理为可审查的方案，然后驱动 Agent 按此方案多轮推进，并在 Web 界面中持续呈现证据、缺口、阻断项与最终裁决。
 
-README 只讲第一次怎么用。想理解为什么需要这一层，读 [Human-Shaped Loop](./HUMAN-SHAPED-LOOP.zh-CN.md)。
+README 介绍如何安装和使用。若想理解为何需要这一层，请阅读 [Human-Shaped Loop](./HUMAN-SHAPED-LOOP.zh-CN.md)。
 
 <p align="center">
-  <img src="./assets/diagrams/first-run-path.zh.svg" alt="Loopora 推荐从 Agent 内部生成并运行 Loop，Web 同步观察和管理证据" width="1000" />
+  <img src="./assets/diagrams/loopora-overview.zh.svg" alt="Loopora 将人的任务判断整理成方案文件，让 Agent 循环执行，并把证据与裁决呈现在 Web 中" width="1000" />
 </p>
 
-## 先看一个任务
+## 它能做什么？
 
-比如你正在让 Coding Agent 做一个退款后台：
+Loopora 不是新的聊天界面，也不是 prompt 模板集合。它为长期 Agent 任务增加了一层工程化的运行支持：
 
-> 帮我实现退款申请后台。不要只做一个能点的页面，必须证明管理员权限、退款资格、支付失败处理和审计链路。
+| 能力 | 说明 |
+| --- | --- |
+| 显性化判断 | 明确"什么不算完成""什么证据可信""哪些风险必须拦截"。 |
+| 生成方案 | 在 Agent 启动前，先输出一份可审查的候选 Loop 方案。 |
+| 多轮推进 | 让 Agent 始终遵循方案执行；证据不足时，回到具体缺口补齐。 |
+| 证据裁决 | 在 Web 中区分已证明、弱证据、未证明、阻断项与残余风险。 |
+| 本地优先 | 任务方案、运行记录和证据均保存在本地环境。 |
 
-如果只是一次 prompt，Agent 可能很快给你一个看起来完整的页面和几条 happy-path 测试。真正麻烦的是下一轮：它有没有证明权限边界？资格判断是不是模拟的？支付失败后有没有记录和人工交接？审计日志能不能还原一次退款？
+## 什么时候适合用？
 
-Loopora 做的事很朴素：把这些“后面一定会反复追问的问题”提前整理成 Loop，让 Agent 每轮都带着证据回来，而不是只给一个更漂亮的总结。
+Loopora 并非适用于所有任务。它适合那些"单次 Agent 回复看似顺利，但你担心后续会出现伪完成、证据不足或判断漂移"的任务。
+
+| 场景 | 建议 |
+| --- | --- |
+| 一次 Agent 执行 + 一次人工 review 即可 | 无需 Loopora，直接让 Agent 执行成本更低。 |
+| 已有稳定测试、benchmark 或 proof harness 可直接判定 | 优先使用这些硬性反馈。 |
+| 任务需要多轮执行，且每轮都会产生新证据 | Loopora 开始有价值。 |
+| 结果可能"看起来已完成"，但核心风险尚未证明 | 非常适合 Loopora。 |
+| 这套判断需要保留、审查、复用或通过 Web 管理 | 非常适合 Loopora。 |
+
+典型示例：退款自助流程、账单权限重构、跨服务支付回调问题、复杂迁移、需要多轮探索但必须保留判断标准的产品任务。
 
 ## 安装
 
-目前先从源码安装。在仓库根目录运行：
+当前仅支持源码安装。需要：
+
+- Python 3.11+
+- `uv`
+- 至少一个 Coding Agent：Codex、Claude Code 或 OpenCode
+
+在 Loopora 仓库根目录执行：
 
 ```bash
 uv tool install --editable .
 ```
 
-如果 uv 提示工具目录不在 `PATH`，执行一次：
+若 uv 提示工具目录不在 `PATH` 中，执行一次：
 
 ```bash
 uv tool update-shell
@@ -54,67 +76,94 @@ uv tool update-shell
 
 然后重启 shell。
 
-## 推荐路径：在 Agent 里用
+## 推荐用法：在 Agent 中使用斜杠命令
 
-Loopora 的默认入口是你已经在使用的 Coding Agent。以 Codex 为例，切到你要让 Agent 工作的项目目录，然后安装 Loopora 入口：
+Loopora 的默认入口是你正在使用的 Coding Agent。以 Codex 为例，切换到 Agent 将要工作的项目目录，然后安装 Loopora 入口：
 
 ```bash
 cd /path/to/your/project
 loopora init codex
 ```
 
-Claude Code 和 OpenCode 也可以接入：
+Claude Code 与 OpenCode 同样可接入：
 
 ```bash
 loopora init claude
 loopora init opencode
 ```
 
-之后回到你的 Agent，对当前任务使用两个入口：
+然后回到 Agent，使用以下两个命令处理当前任务：
 
 ```text
 /loopora-gen
 /loopora-loop
 ```
 
-它们的分工很清楚：
+<p align="center">
+  <img src="./assets/diagrams/first-run-path.zh.svg" alt="Loopora 推荐从 Agent 内部生成并运行 Loop，Web 同步观察和管理证据" width="1000" />
+</p>
 
-| 入口 | 发生什么 |
+二者分工如下：
+
+| 入口 | 作用 |
 | --- | --- |
-| `/loopora-gen` | 把当前任务和你的判断整理成一个可审查的候选 Loop，不启动运行。 |
-| `/loopora-loop` | 用已经审查的 Loop 启动或继续任务，让 Agent 按证据推进。 |
+| `/loopora-gen` | 与你对话，澄清任务判断，生成可审查的候选 Loop，但不启动运行。 |
+| `/loopora-loop` | 用已审查的 Loop 启动或继续长期任务，驱动 Agent 按证据推进。 |
 
-第一次使用时，你可以这样说：
+首次使用时，可在 Agent 中运行 `/loopora-gen`，然后描述任务和关键判断：
 
 ```text
-我要实现退款申请后台。请用 Loopora 生成一个 Loop：
+我要实现退款申请后台：
 - 页面能提交不算完成
 - 必须证明管理员权限和退款资格
 - 支付失败必须可追踪、可交接
 - 审计链路必须能还原一次退款
 ```
 
-然后运行 `/loopora-gen`。Loopora 会返回一个本地 Web URL，让你看到这次任务被整理成了什么。审查或调整后运行 `/loopora-loop`，当前 Agent 就会在这个 Loop 下继续工作。
+Loopora 会继续追问影响运行结构的问题，将你的判断整理为候选方案，并返回本地 Web URL 供你审查。确认或调整后，运行 `/loopora-loop`，当前 Agent 即进入该 Loop 下的多轮任务执行。
 
-## 编译后是什么样？
+## `/loopora-gen` 会产出什么？
 
-你不需要先理解内部格式。把它想成一张运行时白板：
+`/loopora-gen` 的目的不是立即执行，而是生成一份可审查的任务方案。首次使用时，可将其理解为 Loop 的便携形态。
 
-| 你原本会反复追问的话 | Loop 中变成什么 |
+这份方案通常包含：
+
+| 产物 | 作用 |
 | --- | --- |
-| “别只给我一个能点的页面。” | 页面可提交不算完成，真实退款路径必须被证明。 |
-| “先证明权限和资格。” | 每轮都要说明权限、资格和边界证据在哪里。 |
-| “越权退款绝对不行。” | 发现越权、重复退款或审计缺失时不能收口。 |
-| “先别美化 UI。” | 下一轮优先补业务链路证据，而不是继续 polish。 |
-| “有些尾巴可以留。” | 残余风险可以留下，但必须显式、可见、有人接管。 |
+| 任务契约 | 明确目标、完成标准、伪完成模式与阻断风险。 |
+| Agent 职责 | 明确 Agent 每轮应关注什么、避免什么、交付什么。 |
+| 运行流程 | 明确先做什么、何时检查、证据不足时回到哪里。 |
+| 证据规则 | 明确哪些材料算强证据，哪些只是自述或弱证据。 |
+| 裁决规则 | 明确何时通过、何时阻断、何时继续、何时留下残余风险。 |
+| Web 预览 | 让你在运行前审查、确认或调整方案。 |
 
-这就是 Loopora 和普通 prompt 的区别：prompt 主要告诉 Agent “这次怎么做”；Loopora 让任务在后续轮次里持续回到同一组判断和证据上。
+<p align="center">
+  <img src="./assets/diagrams/plan-judgment-structure.zh.svg" alt="Loopora 方案文件用任务契约、Agent 职责、运行流程、证据规则和裁决规则表达任务局部判断" width="1000" />
+</p>
 
-## Web 入口
+方案文件并不试图涵盖人的全部判断能力。它只编码那些会在本次长期任务中反复影响结果的判断：什么算完成，什么必须拒绝，什么证据足够，下一轮应补哪里，何时可以收尾。
 
-Web 是更完整的观察和管理界面。你可以从 Agent 里启动 Loop，也可以随时打开 Web 查看和管理它们。
+## `/loopora-loop` 如何运行？
 
-启动本地 Web：
+`/loopora-loop` 启动或继续一个由 Loopora 管理的长期任务。Agent 仍是主要执行者：读代码、改文件、跑测试、解释结果。Loopora 负责将每轮工作对齐到方案中的判断与证据要求。
+
+一次运行大致按以下方式推进：
+
+1. Loopora 找到已审查的候选 Loop。
+2. Agent 根据当前轮次的目标和边界执行任务。
+3. Agent 提交工作产物、测试结果、说明和证据引用。
+4. Loopora 进行核对：哪些已证明，哪些只是弱证据，哪些仍未证明。
+5. 若存在阻断风险，运行不会被粉饰为完成。
+6. 若证据不足，下一轮将被拉回具体缺口。
+7. 若可以收尾，Loopora 给出可审查的任务裁决与残余风险说明。
+
+这就是 Loopora 与普通 prompt 的区别：prompt 主要影响下一次回答；Loopora 让同一组判断在多轮任务中持续生效。
+
+## Web 能做什么？
+
+Web 是更完整的观察和管理界面。你可以从 Agent 中启动 Loop，也可以随时打开 Web 查看和管理。
+
+手动启动本地 Web 服务：
 
 ```bash
 loopora serve --host 127.0.0.1 --port 8742
@@ -122,23 +171,32 @@ loopora serve --host 127.0.0.1 --port 8742
 
 打开 [http://127.0.0.1:8742](http://127.0.0.1:8742)。
 
-Web 适合做这些事：
+Web 适合以下场景：
 
-- 查看正在运行和已经完成的 Loop。
-- 查看每轮留下的证据、缺口、阻断和最终裁决。
-- 安装或更新 Codex、Claude Code、OpenCode 的 Agent 入口。
-- 在需要时编辑候选 Loop，或者从 Web 直接创建一个 Loop。
+| 场景 | 可查看或操作的内容 |
+| --- | --- |
+| 审查候选 Loop | 查看任务契约、Agent 职责、运行流程、证据规则与裁决规则。 |
+| 观察运行 | 查看当前 Loop 执行到何处、最近一轮发生了什么。 |
+| 查看证据 | 区分已证明、弱证据、未证明、阻断项与残余风险。 |
+| 管理入口 | 安装或更新 Codex、Claude Code、OpenCode 的项目级入口。 |
+| 调整方案 | 在需要时编辑候选方案，或从 Web 直接创建 Loop。 |
 
-Agent 入口和 Web 入口不互斥。即便 Loop 是从 Agent 里生成的，也会进入同一套本地记录，并能在 Web 上看到和管理。
+Agent 入口与 Web 入口并不互斥。即使 Loop 从 Agent 中生成，也会进入同一套本地记录，可在 Web 上查看和管理。
 
-## 技术概览：方案文件如何表达判断
+## 技术形态
 
-<p align="center">
-  <img src="./assets/diagrams/bundle-judgment-structure.zh.svg" alt="Loopora 方案文件用任务契约、Agent 责任、运行流程、证据规则和裁决规则表达任务局部判断" width="1000" />
-</p>
+Loopora 是 local-first 的 Python 项目，本地 Web 基于 FastAPI。当前支持 Codex、Claude Code 与 OpenCode 的项目级入口。
 
-Loopora 编译出来的是一份可审查的方案文件。内部交换格式仍然叫 Bundle，但第一次使用时可以把它理解为 Loop 的便携形态。它不试图表达人的全部判断力，只表达这次长期任务里每轮都会影响结果的那部分判断。
+核心逻辑：
 
-方案文件的充分性来自五个面向阅读的判断面一起工作：任务契约防止目标被悄悄缩小；Agent 责任让每轮知道该关注和避免什么；运行流程决定证据不足时回到哪里；证据规则把自述和证明分开；裁决规则决定通过、阻断、继续，还是显式留下残余风险。运行时，这些判断面仍会落回 Loop 契约、角色、流程和证据；裁决是它们共同形成的投影，不是另一份独立事实源。
+```text
+你的任务判断 -> 候选 Loop 方案 -> Agent 多轮执行 -> 证据核对 -> 任务裁决
+```
 
-所以每轮结束时，Loopora 不只看 Agent 有没有说“完成”。它会把产物放回这些方案判断面对账：哪些已证明，哪些只是弱证据，哪些还没证明，哪个风险会阻断，下一轮应该补哪个缺口。
+Loopora 不替代 Coding Agent 的日常能力。Agent 继续负责读代码、写代码、运行工具；Loopora 负责让长期任务始终回到同一套方案、证据和裁决结构。
+
+## 下一步
+
+- 想快速开始：按上述步骤安装，然后使用 `/loopora-gen` / `/loopora-loop`。
+- 想理解为何需要这一层：阅读 [Human-Shaped Loop](./HUMAN-SHAPED-LOOP.zh-CN.md)。
+- 想先通过 Web 探索：启动 `loopora serve --host 127.0.0.1 --port 8742`。

@@ -104,28 +104,35 @@ def test_public_markdown_svg_refs_are_manifested_distribution_assets() -> None:
     assert logo_ref in _public_markdown_svg_refs(ROOT / "README.zh-CN.md")
 
 
-def test_readme_first_use_docs_introduce_plan_files_before_bundle_internals() -> None:
+def test_plan_judgment_diagrams_keep_table_rows_inside_panel() -> None:
+    for locale in ("en", "zh"):
+        root = ET.fromstring((ROOT / "assets" / "diagrams" / f"plan-judgment-structure.{locale}.svg").read_text(encoding="utf-8"))
+        panel = next(
+            rect
+            for rect in root.findall("svg:rect", SVG_NAMESPACE)
+            if rect.attrib.get("x") == "58" and rect.attrib.get("y") == "126"
+        )
+        panel_bottom = float(panel.attrib["y"]) + float(panel.attrib["height"])
+        row_rects = [
+            rect
+            for rect in root.findall("svg:rect", SVG_NAMESPACE)
+            if rect.attrib.get("x") == "98" and rect.attrib.get("width") == "804"
+        ]
+
+        assert len(row_rects) == 5
+        assert max(float(rect.attrib["y"]) + float(rect.attrib["height"]) for rect in row_rects) < panel_bottom
+
+
+def test_readme_first_use_docs_describe_plan_files_without_bundle_internals() -> None:
     readme_en = (ROOT / "README.md").read_text(encoding="utf-8")
     readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-    diagram_en = ET.fromstring((ROOT / "assets" / "diagrams" / "bundle-judgment-structure.en.svg").read_text(encoding="utf-8"))
-    diagram_zh = ET.fromstring((ROOT / "assets" / "diagrams" / "bundle-judgment-structure.zh.svg").read_text(encoding="utf-8"))
+    diagram_en = ET.fromstring((ROOT / "assets" / "diagrams" / "plan-judgment-structure.en.svg").read_text(encoding="utf-8"))
+    diagram_zh = ET.fromstring((ROOT / "assets" / "diagrams" / "plan-judgment-structure.zh.svg").read_text(encoding="utf-8"))
 
-    technical_en = readme_en.split("## Technical Shape:", 1)[1]
-    technical_zh = readme_zh.split("## 技术概览：", 1)[1]
-    heading_en = technical_en.splitlines()[0]
-    heading_zh = technical_zh.splitlines()[0]
-
-    assert "plan file" in heading_en.lower()
-    assert "bundle" not in heading_en.lower()
-    assert "方案文件" in heading_zh
-    assert "Bundle" not in heading_zh
-
-    assert technical_en.lower().index("plan file") < technical_en.index("Bundle")
-    assert "intern" in technical_en.lower()
-    assert "exchange format" in technical_en.lower()
-    assert technical_zh.index("方案文件") < technical_zh.index("Bundle")
-    assert "内部" in technical_zh
-    assert "交换格式" in technical_zh
+    assert "plan file" in readme_en.lower()
+    assert "Bundle" not in readme_en
+    assert "方案文件" in readme_zh
+    assert "Bundle" not in readme_zh
 
     diagram_en_text = " ".join(node.text or "" for node in diagram_en.iter())
     diagram_zh_text = " ".join(node.text or "" for node in diagram_zh.iter())
@@ -138,22 +145,23 @@ def test_readme_first_use_docs_introduce_plan_files_before_bundle_internals() ->
 def test_public_plan_file_judgment_faces_map_to_runtime_contract() -> None:
     readme_en = (ROOT / "README.md").read_text(encoding="utf-8")
     readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-    human_en = (ROOT / "HUMAN-SHAPED-LOOP.md").read_text(encoding="utf-8")
-    human_zh = (ROOT / "HUMAN-SHAPED-LOOP.zh-CN.md").read_text(encoding="utf-8")
     core_contract = (ROOT / "design" / "core-ideas" / "core-contract.md").read_text(encoding="utf-8")
     concept_map = (ROOT / "design" / "core-ideas" / "concept-map.md").read_text(encoding="utf-8")
     bundle_design = (ROOT / "design" / "detailed-design" / "08-bundles-and-alignment.md").read_text(
         encoding="utf-8"
     )
 
-    assert "five reader-facing judgment faces" in readme_en
-    assert "five surfaces work together" not in readme_en
-    assert "五个面向阅读的判断面" in readme_zh
-    assert "五个面一起工作" not in readme_zh
-    assert "conceptual compression for this essay" in human_en
-    assert "splits **execution posture** into Agent responsibilities and run flow" in human_en
-    assert "文章里的概念压缩" in human_zh
-    assert "把 **执行姿态** 再拆成 Agent 责任和运行流程" in human_zh
+    for term in (
+        "Task contract",
+        "Agent responsibilities",
+        "Run flow",
+        "Evidence rules",
+        "Verdict rules",
+    ):
+        assert term in readme_en
+
+    for term in ("任务契约", "Agent 职责", "运行流程", "证据规则", "裁决规则"):
+        assert term in readme_zh
 
     for term in ("Task contract", "Agent responsibilities", "Run flow", "Evidence rules", "Verdict rules"):
         assert term in core_contract
