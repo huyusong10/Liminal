@@ -12,7 +12,7 @@ from loopora.utils import utc_now
 
 AGENT_ADAPTER_KINDS = ("codex", "claude", "opencode")
 IMPLEMENTED_AGENT_ADAPTERS = {"codex", "claude", "opencode"}
-ADAPTER_VERSION = 6
+ADAPTER_VERSION = 7
 CODEX_ADAPTER_VERSION = ADAPTER_VERSION
 CLAUDE_ADAPTER_VERSION = ADAPTER_VERSION
 OPENCODE_ADAPTER_VERSION = ADAPTER_VERSION
@@ -995,12 +995,12 @@ Compile the current coding task into a Loopora Loop preview. Do not start a run.
 ## Required path
 
 1. Summarize the current task, workdir, constraints, local governance files, fake-done risks, evidence expectations, and residual-risk policy from the current Codex context.
-2. Create a complete Loopora `version: 1` bundle YAML for that task. The bundle must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. If the current task explicitly provides a candidate bundle YAML path, submit that file instead of reauthoring it.
+2. Create a complete Loopora `version: 1` bundle YAML for that task. The bundle must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. Preserve the current task's high-signal objects, risks, and evidence terms in the runnable surfaces, not only in the short CLI summary. If the current task explicitly provides a candidate bundle YAML path, submit that file instead of reauthoring it.
 3. Save newly authored candidate YAML to a temporary file under `.loopora/agent_inbox/codex/`; if a candidate path was explicitly provided, use that path.
 4. Run:
 
 ```bash
-LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex gen --workdir "$PWD" --message "<short task summary>" --bundle-file <candidate-yaml-path> --entry-source codex_project_skill
+LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex gen --workdir "$PWD" --message "<non-empty short task summary>" --bundle-file <candidate-yaml-path> --entry-source codex_project_skill
 ```
 
 5. Report the returned Loop preview URL. If validation fails, report the Loopora error and fix the YAML before trying again.
@@ -1047,12 +1047,12 @@ Compile the current Claude Code task into a Loopora Loop preview. Do not start a
 ## Required path
 
 1. Summarize the current task, workdir, constraints, local governance files, fake-done risks, evidence expectations, and residual-risk policy from the current Claude Code context.
-2. Create a complete Loopora `version: 1` bundle YAML for that task. The bundle must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. If the current task explicitly provides a candidate bundle YAML path, submit that file instead of reauthoring it.
+2. Create a complete Loopora `version: 1` bundle YAML for that task. The bundle must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. Preserve the current task's high-signal objects, risks, and evidence terms in the runnable surfaces, not only in the short CLI summary. If the current task explicitly provides a candidate bundle YAML path, submit that file instead of reauthoring it.
 3. Save newly authored candidate YAML to a temporary file under `.loopora/agent_inbox/claude/`; if a candidate path was explicitly provided, use that path.
 4. Run:
 
 ```bash
-LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen --workdir "$PWD" --context-id "${{CLAUDE_SESSION_ID}}" --message "<short task summary>" --bundle-file <candidate-yaml-path> --entry-source claude_project_skill
+LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen --workdir "$PWD" --context-id "${{CLAUDE_SESSION_ID}}" --message "<non-empty short task summary>" --bundle-file <candidate-yaml-path> --entry-source claude_project_skill
 ```
 
 5. Report the returned Loop preview URL. If validation fails, report the Loopora error and fix the YAML before trying again.
@@ -1131,12 +1131,12 @@ Compile the current OpenCode task into a Loopora Loop preview. Do not start a ru
 ## Required path
 
 1. Summarize the current task, workdir, constraints, local governance files, fake-done risks, evidence expectations, and residual-risk policy from the current OpenCode context.
-2. Create a complete Loopora `version: 1` bundle YAML for that task. The bundle must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. If `$ARGUMENTS` provides a candidate path, use that path.
+2. Create a complete Loopora `version: 1` bundle YAML for that task. The bundle must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. Preserve the current task's high-signal objects, risks, and evidence terms in the runnable surfaces, not only in the short CLI summary. If `$ARGUMENTS` provides a candidate path, use that path.
 3. Save newly authored candidate YAML to a temporary file under `.loopora/agent_inbox/opencode/`; if a candidate path was provided, use that path.
 4. Run:
 
 ```bash
-LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command loopora agent opencode gen --workdir "$PWD" --context-id "${{OPENCODE_SESSION_ID:-}}" --message "<short task summary>" --bundle-file <candidate-yaml-path> --entry-source opencode_project_command
+LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command loopora agent opencode gen --workdir "$PWD" --context-id "${{OPENCODE_SESSION_ID:-}}" --message "<non-empty short task summary>" --bundle-file <candidate-yaml-path> --entry-source opencode_project_command
 ```
 
 5. Report the returned Loop preview URL. If validation fails, report the Loopora error and fix the YAML before trying again.

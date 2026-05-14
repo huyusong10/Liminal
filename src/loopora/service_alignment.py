@@ -335,6 +335,69 @@ ALIGNMENT_TRACEABILITY_GENERIC_CJK_TERMS = {
     "复退",
 }
 ALIGNMENT_TRACEABILITY_CJK_STOP_CHARS = frozenset("的一是在和与或及并但而为由让把被只已未就才需能会应可其此个这那")
+ALIGNMENT_AGENT_CANDIDATE_GENERIC_TERMS = {
+    "agent-native",
+    "already",
+    "across",
+    "after",
+    "bind",
+    "build",
+    "bundle",
+    "candidate",
+    "claim",
+    "codex",
+    "control",
+    "context",
+    "counts",
+    "coverage",
+    "dispatch",
+    "evidence",
+    "evidence-backed",
+    "elapses",
+    "enforce",
+    "enters",
+    "exhausted",
+    "fire",
+    "governed",
+    "host",
+    "inside",
+    "invented",
+    "isolated",
+    "iterations",
+    "keep",
+    "known",
+    "ledger",
+    "lifecycle",
+    "limit",
+    "malformed",
+    "native",
+    "non-gatekeeper",
+    "outputs",
+    "parallel",
+    "peer",
+    "plane",
+    "proof",
+    "ready",
+    "ref",
+    "refs",
+    "rejection",
+    "require",
+    "required",
+    "requires",
+    "reviewers",
+    "separate",
+    "set",
+    "skip",
+    "stalled",
+    "stay",
+    "submit",
+    "submitted",
+    "surface",
+    "this",
+    "thread",
+    "treat",
+    "window",
+}
 ALIGNMENT_LANGUAGE_NEUTRAL_CONFIRMATIONS = {
     "确认",
     "已确认",
@@ -902,6 +965,7 @@ class ServiceAlignmentMixin:
             self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_workdir_fact_issues(session, bundle))
             self._extend_unique_alignment_issues(semantic_issues, self._alignment_improvement_bundle_issues(session, bundle))
             self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_agreement_traceability_issues(session, bundle))
+            self._extend_unique_alignment_issues(semantic_issues, self._alignment_agent_candidate_traceability_issues(session, bundle))
             if semantic_issues:
                 raise LooporaError("bundle semantic lint failed: " + "; ".join(semantic_issues))
             normalized_yaml = bundle_to_yaml(bundle)
@@ -2339,6 +2403,51 @@ class ServiceAlignmentMixin:
         issues.extend(cls._alignment_governance_marker_responsibility_issues(evidence, normalized_bundle_text=normalized_bundle_text))
         return issues
 
+    def _alignment_agent_candidate_traceability_issues(self, session: dict, bundle: dict) -> list[str]:
+        session_id = str(session.get("id") or "").strip()
+        if not session_id or not self._alignment_session_has_agent_candidate_yaml(session_id):
+            return []
+        task_text = self._alignment_session_user_task_text(session)
+        terms = self._agent_candidate_traceability_terms(task_text)
+        if not terms:
+            return []
+        normalized_bundle_text = self._normalize_traceability_text(self._alignment_bundle_agreement_projection_text(bundle))
+        matched = [term for term in terms if self._traceability_term_is_present(term, normalized_bundle_text=normalized_bundle_text)]
+        required_matches = 1 if len(terms) < 4 else 2
+        if len(matched) >= required_matches:
+            return []
+        return [
+            "agent-first candidate must project the host Agent task summary into runnable surfaces: "
+            + "missing "
+            + ", ".join(terms[:5])
+        ]
+
+    def _alignment_session_has_agent_candidate_yaml(self, session_id: str) -> bool:
+        return any(
+            event.get("event_type") == "agent_candidate_received"
+            and isinstance(event.get("payload"), dict)
+            and event["payload"].get("has_candidate_yaml") is True
+            for event in self.repository.list_alignment_events(session_id, limit=50)
+        )
+
+    @staticmethod
+    def _alignment_session_user_task_text(session: dict) -> str:
+        transcript = session.get("transcript") if isinstance(session.get("transcript"), list) else []
+        user_messages = [
+            str(entry.get("content") or "").strip()
+            for entry in transcript
+            if isinstance(entry, dict) and entry.get("role") == "user" and str(entry.get("content") or "").strip()
+        ]
+        return "\n".join(user_messages[:4])
+
+    @classmethod
+    def _agent_candidate_traceability_terms(cls, value: object) -> list[str]:
+        terms = cls._agreement_traceability_terms(value)
+        for term in cls._agreement_cjk_traceability_terms(value):
+            if term not in terms:
+                terms.append(term)
+        return [term for term in terms if term not in ALIGNMENT_AGENT_CANDIDATE_GENERIC_TERMS][:12]
+
     @classmethod
     def _alignment_governance_marker_responsibility_issues(cls, evidence: dict, *, normalized_bundle_text: str) -> list[str]:
         agreement_evidence_text = cls._normalize_traceability_text(" ".join(str(value or "") for value in evidence.values()))
@@ -3082,6 +3191,7 @@ class ServiceAlignmentMixin:
             self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_workdir_fact_issues(session, bundle))
             self._extend_unique_alignment_issues(semantic_issues, self._alignment_improvement_bundle_issues(session, bundle))
             self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_agreement_traceability_issues(session, bundle))
+            self._extend_unique_alignment_issues(semantic_issues, self._alignment_agent_candidate_traceability_issues(session, bundle))
             if semantic_issues:
                 raise LooporaError("bundle semantic lint failed: " + "; ".join(semantic_issues))
             normalized_yaml = bundle_to_yaml(bundle)

@@ -312,6 +312,7 @@ def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) 
     assert 'loopora agent claude gen --workdir "$PWD"' in gen_skill
     assert '--context-id "${CLAUDE_SESSION_ID}"' in gen_skill
     assert "--entry-source claude_project_skill" in gen_skill
+    assert "high-signal objects, risks, and evidence terms" in gen_skill
     assert "Loop preview" in gen_skill
     assert "Web review" in gen_skill
     assert "Web alignment URL" not in gen_skill
@@ -366,6 +367,7 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert 'loopora agent opencode gen --workdir "$PWD"' in gen_command
     assert '--context-id "${OPENCODE_SESSION_ID:-}"' in gen_command
     assert "--entry-source opencode_project_command" in gen_command
+    assert "high-signal objects, risks, and evidence terms" in gen_command
     assert "Loop preview" in gen_command
     assert "reviewed Loop preview" in loop_command
     assert "confirmed Loop preview" not in loop_command
@@ -416,6 +418,7 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert 'loopora agent codex gen --workdir "$PWD"' in gen_skill
     assert "--bundle-file" in gen_skill
     assert "--entry-source codex_project_skill" in gen_skill
+    assert "high-signal objects, risks, and evidence terms" in gen_skill
     assert "Loop preview" in gen_skill
     assert "reviewed Loop preview" in loop_skill
     assert "confirmed Loop preview" not in loop_skill
@@ -725,7 +728,7 @@ def test_cli_codex_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path,
             "--workdir",
             str(sample_workdir),
             "--message",
-            "Prepare a governed implementation loop.",
+            "Ship contract inspection for implementation handoff.",
             "--bundle-file",
             str(bundle_file),
             "--no-web",
@@ -743,6 +746,60 @@ def test_cli_codex_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path,
     assert payload["binding"]["candidate_bytes"] == expected_bytes
     assert payload["preview_url"].startswith("/loops/new/bundle?alignment_session_id=")
     assert "run" not in payload
+
+
+def test_cli_agent_gen_rejects_candidate_bundle_without_task_summary(tmp_path: Path, sample_workdir: Path) -> None:
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--bundle-file",
+            str(bundle_file),
+            "--no-web",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--message task summary" in _error_text(result)
+
+
+def test_agent_bundle_candidate_rejects_task_context_mismatch(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Build a governed refund self-service flow with authorization, audit, and payment failure evidence.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "host Agent task summary" in generated["session"]["error_message"]
+    assert "refund" in generated["session"]["error_message"]
+    assert "audit" in generated["session"]["error_message"]
+    assert any(
+        event["event_type"] == "alignment_bundle_sync_failed"
+        and "host Agent task summary" in event["payload"].get("error", "")
+        for event in service.list_alignment_events(generated["session"]["id"])
+    )
 
 
 def test_cli_claude_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path, sample_workdir: Path) -> None:

@@ -37,7 +37,10 @@ ResultFileOption = Annotated[
 ]
 RunIdOption = Annotated[str, typer.Option("--run-id", help="Optional Loopora run id. Defaults to the run bound to the current host session/workdir.")]
 StepIdOption = Annotated[str, typer.Option("--step-id", help="Loopora step id being submitted.")]
-AdapterMessageOption = Annotated[str, typer.Option("--message", help="Short task summary for the Loop preview.")]
+AdapterMessageOption = Annotated[
+    str,
+    typer.Option("--message", help="Short task summary for the Loop preview; required when submitting candidate YAML."),
+]
 NoWebOption = Annotated[bool, typer.Option("--no-web", hidden=True, help="Skip local Web service startup.")]
 
 

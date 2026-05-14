@@ -135,6 +135,7 @@ Web 编排场景：
 - Agent-first `/loopora-gen` 生成或发现候选后必须回到同一 READY 预览；用户从 Web 查看或修改候选，但继续执行时仍可回到 `/loopora-loop`。
 - Agent-first `/loopora-gen` 若没有随请求提交候选 YAML，只能创建带当前任务摘要的 Web 对齐预填入口，并明确标记为未 READY；Core 不得替宿主 Agent 自动启动后端 Web compiler 来伪造 Agent-first 候选。
 - Agent-first 候选 YAML 是后续 READY 校验的输入事实；Core 必须把规范化内容哈希和字节数写入 alignment event 与 adapter binding，让预览、导入和后续 run 能追溯候选文件到底是哪一份。
+- Agent-first 候选 YAML 还必须通过非空宿主任务摘要到运行 surface 的轻量 traceability 检查：当前任务中的高信号对象、风险或证据词必须出现在 `collaboration_summary`、`spec.markdown`、role prompt / posture、`workflow.collaboration_intent`、step `inputs`、workflow controls 或 GateKeeper evidence 规则中；metadata、loop 名称和 CLI `--message` 本身不能证明候选已经编译了本次判断，缺少宿主任务摘要的候选请求应在写入候选前被拒绝。
 - `bundle` 是内部交换单元和专家导入 / 导出格式。
 - 方案详情和 run 详情可以提供“对话改进方案”入口；它复用 Web alignment session，把当前 bundle 或 run evidence 作为临时输入生成独立候选 Loop，随后仍走 READY 预览和导入 / 运行。
 - READY 预览必须包含从 bundle 派生的控制摘要，至少覆盖主要风险、证据路径、workflow 形状、GateKeeper 门禁、agreement-to-bundle traceability 投影、bundle diagnostics 和可选 runtime controls；这些摘要是 projection，不是新的事实源。

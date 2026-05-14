@@ -120,11 +120,12 @@ I need to build a refund request admin:
 - the audit trail must reconstruct a refund
 ```
 
-Loopora asks follow-up questions that affect the running structure, turns your judgment into a candidate plan, and returns a local Web URL for review. After you confirm or adjust it, run `/loopora-loop`; the current Agent enters the multi-round task under that Loop.
+Loopora asks follow-up questions that affect the running structure, turns your judgment into a candidate plan, and returns a local Web URL for review. After you review or adjust it, run `/loopora-loop`; the current Agent enters the multi-round task under that Loop.
 
 ## What Does `/loopora-gen` Produce?
 
 `/loopora-gen` does not start execution immediately. Its job is to create a reviewable task plan. For first-use readers, think of that plan as the portable form of the Loop.
+In the Agent-first path, the candidate plan must do more than pass YAML shape checks: high-signal task objects, risks, and evidence expectations from the current session must appear in the runnable task contract, role responsibilities, and workflow. A short task summary alone is not judgment externalization.
 
 The plan usually contains:
 

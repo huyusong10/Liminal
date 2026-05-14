@@ -74,7 +74,7 @@ Core flow inspection should follow this path, in order:
 
 | Stage | Question it must answer | Stable evidence of correctness |
 | --- | --- | --- |
-| Loop composition | Can the user compose or obtain a Loop through the selected scenario: Web conversation, manual expert composition, or direct bundle import? | Alignment session transcript, bundle preview/import validation, or manually selected `spec / roles / workflow / loop` assets |
+| Loop composition | Can the user compose or obtain a Loop through the selected scenario: Agent-first candidate, Web conversation, manual expert composition, or direct bundle import? | Agent candidate provenance plus task-summary traceability, alignment session transcript, bundle preview/import validation, or manually selected `spec / roles / workflow / loop` assets |
 | Loop review | Can the user inspect how the Loop controls fake done and weak evidence before running it? | READY projection for bundle paths, or expert views for manual assets |
 | Run | Did execution freeze the Loop contract and produce structured handoffs? | Run contract, step context packets, step handoffs |
 | Automatic iteration | Did the system advance through roles and workflow because each round produced new evidence, handoff, or verdict context? | Iteration summaries, workflow events, step handoffs |

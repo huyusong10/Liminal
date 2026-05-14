@@ -72,10 +72,13 @@ class ServiceAgentAdapterMixin:
             source_path = str(bundle_path)
         candidate_text = _normalized_candidate_yaml(raw_yaml)
         candidate_provenance = _candidate_yaml_provenance(candidate_text)
+        task_message = str(request.message or "").strip()
+        if candidate_text and not task_message:
+            raise LooporaError("agent candidate bundle requires --message task summary for traceability")
 
         session = self.create_alignment_session(
             workdir=root,
-            message=request.message,
+            message=task_message,
             start_immediately=False,
             executor_kind=adapter,
             executor_mode="preset",

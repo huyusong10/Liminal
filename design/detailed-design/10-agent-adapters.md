@@ -52,6 +52,8 @@ OpenCode 选择官方项目级 custom command 路径：`.opencode/commands/<comm
 - `/loopora-gen` 不启动 run。
 - READY 的事实源是 Loopora Core 校验后的 alignment session 和 `artifacts/bundle.yml`，不是 Codex 的自然语言说明。
 - Coding Agent 可以生成候选 YAML，但不能自己宣布 READY；READY 只由 Core 校验产生。
+- Agent-first 候选不能只把当前任务写进 CLI `--message` 或候选文件名；Core 会用宿主任务摘要做轻量 traceability 检查，要求高信号任务对象、风险或证据词投影到候选 bundle 的可运行 surface。
+- 提交候选 YAML 时必须同时提供非空宿主任务摘要；缺少摘要时 Core 在写入候选前拒绝请求，而不是降级为无 traceability 检查。
 - 宿主入口和 CLI 的人类可读输出应把结果说成 Loop 预览与 preview URL；`READY`、`candidate`、bundle hash 和候选字节数是 Core/JSON/诊断事实，不是用户默认要阅读的成功主语。
 - 宿主入口提交候选 YAML 时，Core binding 与 `agent_candidate_received` event 必须记录规范化候选内容的 `candidate_sha256` 与 `candidate_bytes`；未提交候选 YAML 时这些字段为空哈希 / `0` 字节，并与 `requires_web_alignment` 一起说明当前只是预填入口。
 - 若宿主入口无法可靠取得完整会话上下文或没有提交候选 YAML，adapter 只能退化为打开 Web Loop setup / review 预填入口；该入口保留用户消息与来源 provenance，但不得自动启动后端 alignment Agent，也不得伪装成 READY 或可运行 Loop。JSON/API 字段可继续使用 `requires_web_alignment` 表达内部状态。
