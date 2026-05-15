@@ -108,15 +108,15 @@ Those facts only exist after execution, so each round must answer runtime contro
 | Can be selectively quoted or locally satisfied | Records gaps, blocking issues, and residual risk |
 | Mainly answers "what should be done" | Keeps asking "was it proven, should we turn, can we close" |
 
-### Real Engineering Teams Do Not Rely On Saying Everything Once
+### Saying It Once Is Not Enough
 
-This is not unique to AI. Real engineering teams do not treat a PRD as the final artifact either.
+This is not unique to AI. In engineering work, a PRD is not the final artifact either.
 
 If an engineering team were shipping a refund flow, they would absolutely clarify requirements, write a design, list risks, and add cases. But even a strong team would not expect product, engineering, and review to discover every issue on day one. Many facts only appear during implementation: an authorization path does not fit the real organization model, a provider failure state conflicts with the ledger, or a test appears to cover a boundary while routing around the riskiest branch.
 
 That is why mature engineering has design review, code review, tests, staged rollout, launch gates, monitoring, and retrospectives. They do not exist because up-front clarity is unimportant. They exist because "say everything perfectly at the start" is a false premise. Engineering judgment has to return to the task as new evidence appears.
 
-Much of Loopora's philosophy comes from that real engineering experience: a requirement is not a magic sentence written once. It is a set of judgments that keep being applied during execution. Long Agent tasks need the same thing. They need a better opening brief, but they also need a mechanism that keeps later rounds constrained by the same engineering judgment.
+Much of Loopora's philosophy comes from that engineering experience: a requirement is not a magic sentence written once. It is a set of judgments that keep being applied during execution. Long Agent tasks need the same thing. They need a better opening brief, but they also need a mechanism that keeps later rounds constrained by the same engineering judgment.
 
 ### Fixed Cases Help, But They Guard Known Boundaries
 
@@ -177,7 +177,7 @@ That is what "hard to benchmark, but can be structured" means. It does not aband
 
 ## 3. The Same Refund Task, If Given To Loopora
 
-If a real engineering team took this refund task, they would not only ask whether the first delivery looked like a product. They would inspect the authorization path, check whether eligibility uses real business rules, require traceable records for provider failure, block unauthorized refund risk, and push the next round back to whatever remains unproven.
+Put the same refund flow on an engineering review table, and the first question is not only whether the delivery looks like a product. The authorization path has to be inspected, eligibility has to use real business rules, provider failure has to leave traceable records, unauthorized refund risk has to be blocked, and the next round has to return to whatever remains unproven.
 
 Loopora is not trying to copy the org chart of an engineering team. It is learning the harder management constraints underneath: delivery cannot rely on self-report, risk needs gates, evidence must be traceable, and unproven work cannot be packaged as done.
 
@@ -251,6 +251,10 @@ Loopora often uses the word "compile," but it cannot be only a nice metaphor.
 
 Compilation is not translating human judgment into a longer prompt. It puts judgment into running surfaces so it keeps acting during the task.
 
+The same conversion happens in ordinary engineering work. When a reviewer says, "Do not just build the page; prove authorization and auditability first," that sentence does not remain only in meeting notes. It turns into design constraints, test plans, release gates, audit checks, rollback conditions, and handoff instructions. The judgment is not merely remembered. It is placed where later work cannot avoid it.
+
+That is what Loopora means by compilation: judgment from one conversation becomes a running structure that each later round has to meet.
+
 <p align="center">
   <img src="./assets/diagrams/judgment-surfaces.en.svg" alt="Human judgment becomes a task contract, execution posture, evidence path, and decision rule" width="1000" />
 </p>
@@ -270,11 +274,19 @@ In plain terms, judgment lives in four user-understandable running surfaces:
 - **Evidence path**: what each round must leave behind, what was proven, and what remains unproven.
 - **Decision rule**: when the run can close, and when it must stop or continue with residual risk.
 
+These surfaces are not complexity for its own sake. They compress control points engineering already depends on: requirement boundaries keep the goal from shrinking, execution posture keeps the work from drifting toward only the easy parts, evidence paths keep confidence from replacing proof, and decision rules keep "looks complete" from being packaged as deliverable.
+
 A prompt can remind the model. Loopora tries to turn the reminder into something the run can ask about, record, and decide from.
 
 ## 5. When Does Loopora Fit?
 
 Loopora is not for every complex task. Complexity is not the reason. Repeated judgment is.
+
+Engineering process has a cost, so it is not spread evenly across every task. Changing button copy does not need design review, release gates, and a retrospective. Fixing a small bug with a clear stack trace usually does not need them either. Heavy process on light work only slows the work down.
+
+Refunds, billing permissions, payment callbacks, and data migration are different. Design has to name the risks, tests have to prove key boundaries, someone has to decide before release, and failure paths have to be traceable. Not because these tasks deserve more ceremony, but because risk accumulates across rounds, evidence has to be retained, and completion cannot rest only on the implementer's summary.
+
+Loopora makes the same tradeoff. It is not a tool for "complex tasks" in general. It becomes worthwhile when a task requires repeated judgment about evidence, risk, direction, and closure.
 
 Ask in this order:
 
@@ -296,7 +308,11 @@ More concrete examples:
 
 The model should learn general capability: language, coding, planning, tool use, reasoning patterns, and broad taste. Those abilities should transfer across users and tasks.
 
-But judgment inside one task is often local, temporary, and debatable:
+Stronger models will absolutely make many tasks easier. They are like more senior engineers: they can notice more risks up front, write a better first plan, and avoid many basic mistakes.
+
+But nobody cancels code review, tests, release gates, audit trails, and incident retrospectives just because the engineer is senior. That is not distrust of individual ability. It is an acknowledgement that delivery judgment does not live only inside individual ability. Which risks are acceptable, what evidence is sufficient, and when residual risk can ship depend on the specific task, team commitment, and business environment. They have to be explicit enough to be debated and changed.
+
+That is why judgment inside one task should often be treated as local, temporary, and debatable:
 
 - this refund flow should be conservative; not every product task should be.
 - this prototype can accept rough visuals; not every prototype can.
