@@ -74,7 +74,7 @@ Every time the human returns, they are not merely adding requirement detail. The
 
 Can we simply think through every issue before the task begins? Many AI harnesses and prompt routines try to do exactly that.
 
-### A Better PRD Helps, But It Is a Map
+### A Better PRD Helps, But It Cannot Replace Runtime Gates
 
 If we asked better questions at the start, wrote a strong PRD, then asked the Agent to plan, execute, and self-review, the result would often improve a lot.
 
@@ -82,7 +82,7 @@ Up-front clarity reduces the chance of a bad first pass. A PRD can state goals, 
 
 All of those are useful. But they mainly improve the starting input or one class of hard validation. They reduce initial error, but they do not automatically become a correction mechanism during execution.
 
-A PRD or prompt is more like a map at the start of the task. Even a good map does not guarantee the runner will take the right turn at every fork. It also does not guarantee that, after drifting, the system will expose the drift, gather missing evidence, and admit that it cannot close.
+In a real engineering team, no matter how detailed the design doc is, no one cancels code review and CI gates because of it. A document can state intent, but it cannot automatically block deviations during execution. PRDs and prompts for Agent tasks face the same limit: they describe goals and constraints, but they do not guarantee the runner will take the right turn at every fork, nor do they automatically expose drift, gather missing evidence, and admit the task cannot close after it has drifted.
 
 Once the refund task enters a multi-round run, every round creates new facts:
 
@@ -116,7 +116,7 @@ If an engineering team were shipping a refund flow, they would absolutely clarif
 
 That is why mature engineering has design review, code review, tests, staged rollout, launch gates, monitoring, and retrospectives. They do not exist because up-front clarity is unimportant. They exist because "say everything perfectly at the start" is a false premise. Engineering judgment has to return to the task as new evidence appears.
 
-Much of Loopora's philosophy comes from that engineering experience: a requirement is not a magic sentence written once. It is a set of judgments that keep being applied during execution. Long Agent tasks need the same thing. They need a better opening brief, but they also need a mechanism that keeps later rounds constrained by the same engineering judgment.
+Much of Loopora's philosophy comes from that engineering experience: a requirement is not a document that takes effect once written. It is a set of judgments that keep being applied during execution. Long Agent tasks need the same thing. They need a better opening brief, but they also need a mechanism that keeps later rounds constrained by the same engineering judgment.
 
 ### Fixed Cases Help, But They Guard Known Boundaries
 
@@ -129,7 +129,7 @@ In the refund task, some things absolutely should become fixed cases:
 
 The harder those cases are, the better. Loopora does not replace them.
 
-But fixed cases mainly guard known, stable, enumerable boundaries. Long tasks also have higher-level questions:
+But fixed cases mainly guard known, stable, enumerable boundaries. This is much like unit tests in engineering: they cover the known input-output boundaries of a function, but they cannot answer the unknown problems that only surface after integration. Long tasks also have higher-level questions:
 
 - If a case fails, what should the next round fix first?
 - If no case covers an issue but evidence is clearly weak, can the run close?
@@ -147,7 +147,7 @@ These methods work very well when external feedback is clear. Benchmarks, contra
 
 But the refund flow is harder. Its key judgment does not cleanly fit into one score. Tests matter, but passing happy-path tests does not prove business safety. A nice UI matters, but it can hide the fact that authorization, auditability, provider failure, and support handoff remain unproven.
 
-An unguided loop is like opening blind boxes. It lets the Agent act many times, but it does not steadily answer:
+This is much like a CI pipeline with no mandatory gates: commits can be pushed and tests can run repeatedly, but without enforced admission checks, problematic code can still merge into main. In an unguided loop, the Agent may act many times, yet it cannot steadily answer:
 
 - What counts as truly done?
 - What is fake completion?
@@ -156,7 +156,7 @@ An unguided loop is like opening blind boxes. It lets the Agent act many times, 
 - Why should the next round change direction?
 - When should the loop stop?
 
-When these questions are not answered steadily, early error is inherited and refined by later rounds until it becomes a more complete and more coherent completion story.
+When these questions are not answered steadily, early error is inherited and refined by later rounds until it becomes a more complete and more coherent completion story. The logic is similar to how technical debt accumulates: each round adds code that makes the system look more complete, while the underlying risks remain unaddressed.
 
 <p align="center">
   <img src="./assets/diagrams/error-propagation.en.svg" alt="How a plain automated loop packages early error into a more convincing completion story" width="1000" />
@@ -253,7 +253,7 @@ Compilation is not translating human judgment into a longer prompt. It puts judg
 
 The same conversion happens in ordinary engineering work. When a reviewer says, "Do not just build the page; prove authorization and auditability first," that sentence does not remain only in meeting notes. It turns into design constraints, test plans, release gates, audit checks, rollback conditions, and handoff instructions. The judgment is not merely remembered. It is placed where later work cannot avoid it.
 
-That is what Loopora means by compilation: judgment from one conversation becomes a running structure that each later round has to meet.
+This is much like what happens after a requirements review: a sentence spoken in the meeting eventually becomes JIRA tickets, test plans, CI gate rules, release checklists, and on-call handoff docs. That is what Loopora means by compilation: judgment from one conversation becomes a running structure that each later round has to meet.
 
 <p align="center">
   <img src="./assets/diagrams/judgment-surfaces.en.svg" alt="Human judgment becomes a task contract, execution posture, evidence path, and decision rule" width="1000" />
