@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const localAssetsDetails = document.getElementById("local-assets-details");
   const agentAdapterStatusBox = document.getElementById("agent-adapter-status");
   const agentAdapterWorkdirInput = document.getElementById("agent-adapter-workdir");
+  const agentAdapterTargetNote = document.getElementById("agent-adapter-target-note");
   const agentAdapterRefreshButton = document.querySelector("[data-testid='agent-adapter-refresh']");
   const agentAdapterCards = Array.from(document.querySelectorAll("[data-agent-adapter]"));
   const agentAdapterStatusNodes = Array.from(document.querySelectorAll("[data-agent-adapter-status]"));
@@ -315,6 +316,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderAgentAdapters(payload) {
+    updateAgentAdapterTargetNote(payload);
     const adapters = Array.isArray(payload?.adapters) ? payload.adapters : [payload].filter(Boolean);
     const byKind = new Map(adapters.map((item) => [String(item?.adapter || ""), item]));
     const implementedFallbacks = new Set(["codex", "claude", "opencode"]);
@@ -352,6 +354,33 @@ document.addEventListener("DOMContentLoaded", () => {
       opencode: "OpenCode",
     };
     return labels[adapter] || adapter || "Agent";
+  }
+
+  function updateAgentAdapterTargetNote(payload) {
+    if (!agentAdapterTargetNote) {
+      return;
+    }
+    const workdir = String(payload?.workdir || "").trim();
+    if (!workdir) {
+      agentAdapterTargetNote.textContent = localeText(
+        "通常填写你会运行 Codex、Claude Code 或 OpenCode 的项目目录；留空会使用服务当前目录。",
+        "Usually set the project directory where you will run Codex, Claude Code, or OpenCode; blank uses the server current directory.",
+      );
+      agentAdapterTargetNote.title = "";
+      return;
+    }
+    agentAdapterTargetNote.textContent = localeText(
+      `实际安装目标：${workdir}。确认这是 Agent 将工作的项目。`,
+      `Install target: ${workdir}. Confirm this is the project where the Agent will work.`,
+    );
+    agentAdapterTargetNote.title = workdir;
+  }
+
+  function agentAdapterInstallSuccessMessage(label) {
+    return localeText(
+      `${label} 接入已安装或更新。回到 ${label}，先运行 /loopora-gen；审查预览后再运行 /loopora-loop。`,
+      `${label} entry is installed or updated. Return to ${label} and run /loopora-gen first; after reviewing the preview, run /loopora-loop.`,
+    );
   }
 
   function readAgentAdapterWorkdirPreference() {
@@ -397,7 +426,9 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     renderAgentAdapters(payload);
-    showStatus(agentAdapterStatusBox, "");
+    if (!quiet) {
+      showStatus(agentAdapterStatusBox, "");
+    }
   }
 
   async function mutateAgentAdapter(adapter, action, trigger) {
@@ -425,7 +456,7 @@ document.addEventListener("DOMContentLoaded", () => {
       showStatus(
         agentAdapterStatusBox,
         action === "install"
-          ? localeText(`${label} 接入已安装或更新。`, `${label} entry is installed or updated.`)
+          ? agentAdapterInstallSuccessMessage(label)
           : localeText(`${label} 接入已卸载。`, `${label} entry is uninstalled.`),
         "success",
       );

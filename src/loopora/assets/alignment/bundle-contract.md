@@ -181,7 +181,7 @@ format rules exactly:
 - `# Task` is required and must contain concrete task prose, not generic placeholders such as "requested behavior", "do the task", or "the alignment agreement".
 - `# Done When` may be omitted for exploratory runs, but when present it must contain at least one top-level `-` bullet.
 - `# Success Surface`, `# Fake Done`, and `# Evidence Preferences` are optional for manually imported bundles, but when present each must contain at least one top-level `-` bullet.
-- `# Residual Risk` is optional prose for manually imported bundles.
+- `# Residual Risk` is optional prose for manually imported bundles. When a generated or reviewed bundle accepts any residual risk, name what may remain plus the owner, follow-up, or acceptance path; otherwise say the task fails closed.
 - `# Role Notes` is optional, but when present it must use `## <Role Name> Notes` subheadings. Put each role's note under its own second-level heading.
 - Do not use legacy headings such as `# Goal`, `# Checks`, or `# Constraints`.
 
@@ -192,14 +192,17 @@ Use the spec for:
 - success criteria
 - explicit fake-done states
 - evidence preferences
+- execution priorities or deliberate deferrals
 - residual-risk stance
+- task-level judgment tradeoffs
+- project-local governance obligations when they affect the task contract
 - role-specific notes that belong in the task contract
 
 Do not use the bundle as personality memory. If the user names a preference, compile only the preference that changes this task's success surface, evidence expectations, role posture, or workflow. Do not turn it into a global persona, permanent preference, or cross-task user profile.
 
 Write evidence expectations so the run result can separate lifecycle status from task verdict. The final evidence projection should be able to classify important claims as Proven, Weak, Unproven, Blocking, or Residual risk instead of collapsing them into one narrative summary. Web alignment bundles must make that bucket projection visible somewhere in the governance prose.
 
-If the Workdir Snapshot shows project-local governance markers such as `AGENTS.md`, `design/README.md`, `design/`, or `tests/`, do not claim their contents unless observed. Mention their existence only as an obligation or evidence path: Builder should read applicable project-local rules and design, Inspector / Custom review should verify relevant design or test contracts, and GateKeeper should treat skipped project rules or missing expected validation as Weak, Unproven, or Blocking according to the task.
+If the Workdir Snapshot shows project-local governance markers such as `AGENTS.md`, applicable parent `AGENTS.md`, `design/README.md`, `design/`, or `tests/`, do not claim their contents unless observed. Mention their existence only as an obligation or evidence path: Builder should read applicable project-local rules and design, Inspector / Custom review should verify relevant design or test contracts, and GateKeeper should treat skipped project rules or missing expected validation as Weak, Unproven, or Blocking according to the task.
 
 ### 2. Role definitions
 
@@ -229,6 +232,9 @@ Use `workflow.collaboration_intent` to capture the high-level execution bias.
 
 Runtime invariant:
 - Default Web compiler bundles should set `loop.completion_mode` to `gatekeeper` so task verdicts come from evidence and GateKeeper judgment rather than run lifecycle completion.
+- `loop.completion_mode` only supports `gatekeeper` and `rounds`; do not emit unknown, boolean, or numeric modes.
+- `loop.executor_kind` / `loop.executor_mode` must use the same supported executor contract as normal Loop creation; custom executors require command mode and valid command arguments.
+- If a role omits executor fields, Loopora Core treats it as inheriting the normalized loop executor defaults; prefer emitting the fields explicitly for generated bundles so the selected runtime is visible before import.
 - In `gatekeeper` mode, the workflow must include a role whose role definition has `archetype: "gatekeeper"` and at least one step for that role with `on_pass: "finish_run"`.
 - For fresh implementation bundles where the target is clear enough to build, prefer Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper.
 - Use Inspector -> Builder -> GateKeeper when the first safe change is unclear.
@@ -272,11 +278,11 @@ Optional runtime controls:
 ## Output rules
 
 - Make the bundle readable first, then runnable.
-- Produce a bundle only after Loopora fit is established; do not use YAML to force direct Agent work, one-review tasks, or benchmark-only work into a governed Loop.
+- Produce a bundle only after Loopora fit is established; do not use YAML to force direct Agent work, one-review tasks, direct-answer / one-off tasks, or benchmark/test-harness-only work into a governed Loop.
 - Before emitting YAML, privately rehearse one complete intended run path: Builder output and handoff, Inspector / Custom review evidence, optional Guide repair direction, any second Builder pass, GateKeeper evidence-backed verdict, and the user's evidence audit. If any step depends on ambient chat context instead of explicit `inputs.handoffs_from`, `inputs.evidence_query`, role posture, or evidence buckets, revise the bundle or ask one focused question before producing YAML.
 - Before emitting YAML, privately pressure-test the candidate Loop with one plausible future failure: a shallow completion, weak proof, drift, missing coverage, or unacceptable residual risk. If the `spec`, role posture, workflow, handoffs, evidence queries, and GateKeeper rules would not expose, repair, or block it, revise those surfaces or ask another focused question before producing the bundle.
-- Project the working agreement into all governance surfaces: `collaboration_summary` tells how future human proof demands, user-facing rejection criteria, correction roles, timing / stop decisions, strict-vs-pragmatic closure choices, and durable proof expectations become `spec`, `roles`, and `workflow`; it must describe that mapping, not merely list the surface names. `spec.markdown` carries concrete task scope / success / fake-done / evidence / residual risk / judgment tradeoffs; `role_definitions` carry Builder / Inspector / Guide / GateKeeper / Custom posture and role-level tradeoffs when those archetypes are used; and `workflow.collaboration_intent` plus step `inputs` and workflow controls carry judgment order, closure choices, error exposure, and evidence flow.
-- Run an agreement-to-bundle traceability checklist before final YAML: every confirmed judgment item must land in `collaboration_summary`, `spec.markdown`, `role_definitions[].prompt_markdown` / `posture_notes`, `workflow.collaboration_intent`, step `inputs`, workflow controls, or GateKeeper evidence rules. Metadata and loop names are not enough. If the only copy of a judgment is in `agreement_summary`, readiness evidence, transcript memory, metadata / loop names, or private reasoning, the bundle is not complete.
+- Project the working agreement into all governance surfaces: `collaboration_summary` tells why this task needs multi-round Loopora governance and how future human proof demands, user-facing rejection criteria, correction roles, execution priorities, local-governance responsibilities, timing / stop decisions, strict-vs-pragmatic closure choices, and durable proof expectations become `spec`, `roles`, and `workflow`; it must describe that mapping, not merely list the surface names. `spec.markdown` carries concrete task scope / success / fake-done / evidence / residual-risk policy / execution priorities / judgment tradeoffs; `spec.markdown` `# Role Notes` or `role_definitions` carry Builder / Inspector / Guide / GateKeeper / Custom posture, role-level tradeoffs, and project-local governance responsibilities when those archetypes or markers are used; and `workflow.collaboration_intent` plus step `inputs` and workflow controls carry judgment order, build/prove/repair/narrow/expand/defer priorities, local-governance checkpoints, closure choices, error exposure, and evidence flow.
+- Run an agreement-to-bundle traceability checklist before final YAML: every confirmed judgment item must land in `collaboration_summary`, `spec.markdown` / `# Role Notes`, `role_definitions[].prompt_markdown` / `posture_notes`, `workflow.collaboration_intent`, step `inputs`, workflow controls, or GateKeeper evidence rules. Metadata and loop names are not enough. If the only copy of a judgment is in `agreement_summary`, readiness evidence, transcript memory, metadata / loop names, or private reasoning, the bundle is not complete.
 - Make it clear how GateKeeper should distinguish Proven, Weak, Unproven, Blocking, and Residual risk evidence. A bundle that lets a normal run status masquerade as task proof is not aligned with Loopora's verdict contract.
 - Preserve one coherent story across summary, spec, roles, and workflow.
 - Keep workdir grounding consistent across readiness evidence and final YAML. Bundle prose may use the user's requested stack, but it must not say the Workdir Snapshot observed a framework, test suite, or build capability unless snapshot markers support that claim.

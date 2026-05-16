@@ -102,6 +102,19 @@ class RepositoryBundleRecordsMixin:
             row = connection.execute("SELECT * FROM bundle_definitions WHERE id = ?", (bundle_id,)).fetchone()
         return self._decode_row(row) if row else None
 
+    def get_bundle_by_loop_id(self, loop_id: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM bundle_definitions
+                WHERE loop_id = ?
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                (loop_id,),
+            ).fetchone()
+        return self._decode_row(row) if row else None
+
     def list_bundles(self) -> list[dict]:
         with self._connect() as connection:
             rows = connection.execute("SELECT * FROM bundle_definitions ORDER BY updated_at DESC, created_at DESC").fetchall()

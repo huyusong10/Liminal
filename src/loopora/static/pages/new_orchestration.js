@@ -666,7 +666,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const executorMode = String(role.executor_mode || "").trim();
     const executorLabel = executorKind
       ? (EXECUTOR_LABELS[executorKind] || executorKind)
-      : localeText("沿用旧 loop 级回退", "Legacy loop-level fallback");
+      : localeText("沿用旧 Loop 层级回退", "Legacy loop-level fallback");
     const parts = [executorLabel];
     if (executorMode) {
       parts.push(executorMode);

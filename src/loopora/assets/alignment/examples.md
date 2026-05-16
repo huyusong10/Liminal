@@ -120,13 +120,13 @@ Before YAML, silently trace each confirmed agreement item into bundle surfaces.
 
 For the CRM example, the private checklist should show:
 
-> Loopora fit and why one Agent pass is not enough goes to `collaboration_summary`; lead ownership, report provenance, success, fake done, evidence preference, residual risk, and strict blocking go to `spec.markdown`; Permission Inspector, Report Evidence Inspector, Guide, Builder, and GateKeeper responsibilities go to role prompts and `posture_notes`; parallel inspection, Guide repair, second Builder repair, and GateKeeper fan-in go to `workflow.collaboration_intent` plus `inputs.handoffs_from`, `inputs.evidence_query`, and `inputs.iteration_memory`; Proven / Weak / Unproven / Blocking / Residual risk acceptance goes to GateKeeper posture and evidence rules.
+> Loopora fit and why one Agent pass is not enough goes to `collaboration_summary`; lead ownership, report provenance, success, fake done, evidence preference, execution priority, residual risk, tradeoff order, and strict blocking go to `spec.markdown`; Permission Inspector, Report Evidence Inspector, Guide, Builder, and GateKeeper responsibilities, including any project-local governance reading or verification duties, go to role prompts and `posture_notes`; parallel inspection, Guide repair, second Builder repair, local-governance checkpoints, and GateKeeper fan-in go to `workflow.collaboration_intent` plus `inputs.handoffs_from`, `inputs.evidence_query`, and `inputs.iteration_memory`; Proven / Weak / Unproven / Blocking / Residual risk acceptance goes to GateKeeper posture and evidence rules.
 
 If “data provenance must block” only appears in the working agreement but not in `spec`, Evidence Inspector posture, workflow evidence query, or GateKeeper rules, do not emit YAML. Revise those surfaces or ask one focused question.
 
 ## Workdir governance marker example
 
-If the Workdir Snapshot shows `AGENTS.md`, `design/README.md`, and `tests/`, do not invent what they say.
+If the Workdir Snapshot shows `AGENTS.md`, applicable parent `AGENTS.md`, `design/README.md`, and `tests/`, do not invent what they say.
 
 Better bundle posture:
 

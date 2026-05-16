@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from loopora.context_flow import IterationSummaryContext, build_iteration_summary
+from loopora.context_flow import (
+    IterationSummaryContext,
+    StepResultContext,
+    build_iteration_summary,
+    build_step_handoff,
+    render_handoff_list_section,
+    render_previous_iteration_summary,
+)
 from loopora.run_artifacts import RunArtifactLayout
 from loopora.service_workflow_support import ServiceWorkflowSupportMixin, WorkflowSummaryRequest
 from loopora.stagnation import StagnationUpdateRequest, update_stagnation
@@ -27,6 +34,99 @@ def test_gatekeeper_output_rejects_unknown_evidence_refs() -> None:
     assert output["blocking_issues"] == ["gatekeeper_evidence_refs_unknown: missing_ev"]
 
 
+def test_previous_iteration_summary_keeps_blocking_items_as_next_round_inputs() -> None:
+    handoff = {
+        "source": {
+            "step_order": 1,
+            "role_name": "GateKeeper",
+            "archetype": "gatekeeper",
+        },
+        "status": "blocked",
+        "summary": "Evidence is still weak.",
+        "blocking_items": ["permission proof missing", "audit trail unproven"],
+        "evidence_refs": ["ev_000_01_gatekeeper"],
+        "recommended_next_action": "Produce direct permission and audit evidence.",
+    }
+    summary = {
+        "iter": 0,
+        "workflow": [{"step_id": "builder_step"}, {"step_id": "gatekeeper_step"}],
+        "step_handoffs": [handoff],
+        "score": {"composite": 0.42, "delta": None, "passed": False},
+        "stagnation": {
+            "mode": "none",
+            "evidence_progress_mode": "stalled",
+            "covered_check_count": 0,
+            "missing_check_count": 2,
+            "consecutive_no_required_coverage_delta": 1,
+        },
+    }
+
+    rendered = render_previous_iteration_summary(summary)
+
+    assert 'blocking=["permission proof missing", "audit trail unproven"]' in rendered
+    assert "evidence=[\"ev_000_01_gatekeeper\"]" in rendered
+    assert "next=Produce direct permission and audit evidence." in rendered
+
+
+def test_completed_handoff_list_keeps_blocking_items_for_downstream_roles() -> None:
+    rendered = render_handoff_list_section(
+        "Completed steps in this iteration",
+        [
+            {
+                "source": {
+                    "step_order": 0,
+                    "role_name": "Contract Inspector",
+                    "archetype": "inspector",
+                },
+                "status": "blocked",
+                "summary": "Authorization check did not run.",
+                "blocking_items": ["authorization coverage missing"],
+                "evidence_refs": ["ev_000_00_inspector"],
+                "recommended_next_action": "Run the authorization proof before GateKeeper.",
+            }
+        ],
+        empty_text="No earlier steps have completed in this iteration yet.",
+    )
+
+    assert 'blocking=["authorization coverage missing"]' in rendered
+    assert "evidence=[\"ev_000_00_inspector\"]" in rendered
+    assert "next=Run the authorization proof before GateKeeper." in rendered
+
+
+def test_gatekeeper_handoff_projects_blocking_issues_and_hard_constraints(tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "run")
+    layout.initialize()
+
+    handoff = build_step_handoff(
+        StepResultContext(
+            layout=layout,
+            iter_id=0,
+            step={"id": "gatekeeper_step"},
+            step_order=2,
+            role={"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper"},
+            runtime_role="gatekeeper",
+            output={
+                "passed": False,
+                "decision_summary": "Primary-flow evidence is not sufficient.",
+                "feedback_to_builder": "Produce direct primary-flow proof before asking for closure.",
+                "blocking_issues": ["primary_flow_unproven"],
+                "hard_constraint_violations": ["audit_chain_missing"],
+                "failed_check_ids": ["done_when.check_001"],
+                "priority_failures": [{"summary": "Payment failure path has no traceable handoff."}],
+            },
+        )
+    )
+
+    assert handoff["status"] == "blocked"
+    assert handoff["blocking_items"] == [
+        "primary_flow_unproven",
+        "audit_chain_missing",
+        "done_when.check_001",
+        "Payment failure path has no traceable handoff.",
+    ]
+    assert handoff["recommended_next_action"] == "Produce direct primary-flow proof before asking for closure."
+
+
 def test_gatekeeper_output_rejects_unknown_coverage_result_evidence_refs() -> None:
     output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
         {
@@ -44,7 +144,16 @@ def test_gatekeeper_output_rejects_unknown_coverage_result_evidence_refs() -> No
                 }
             ],
         },
-        evidence_context={"items": [{"id": "known_ev", "archetype": "inspector", "result": "passed"}]},
+        evidence_context={
+            "items": [
+                {
+                    "id": "known_ev",
+                    "archetype": "inspector",
+                    "result": "passed",
+                    "verifies": ["check_results:known_ev_check:passed"],
+                }
+            ]
+        },
         current_evidence_id="ev_gatekeeper",
     )
 
@@ -327,6 +436,193 @@ def test_gatekeeper_output_rejects_plain_builder_handoff_as_supporting_evidence(
     assert output["composite_score"] == 0.89
     assert output["evidence_gate_status"] == "blocked"
     assert output["blocking_issues"] == ["gatekeeper_pass_refs_not_supporting_evidence"]
+
+
+def test_gatekeeper_output_rejects_plain_inspector_observation_as_supporting_evidence() -> None:
+    output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
+        {
+            "passed": True,
+            "decision_summary": "The Inspector says the task is done.",
+            "composite_score": 1.0,
+            "evidence_refs": ["inspector_ev"],
+            "evidence_claims": ["A concrete claim that incorrectly treats reviewer self-report as proof."],
+        },
+        evidence_context={
+            "items": [
+                {
+                    "id": "inspector_ev",
+                    "archetype": "inspector",
+                    "evidence_kind": "inspection",
+                    "result": "passed",
+                    "artifact_refs": [],
+                    "verifies": [],
+                }
+            ]
+        },
+        current_evidence_id="ev_gatekeeper",
+    )
+
+    assert output["passed"] is False
+    assert output["composite_score"] == 0.89
+    assert output["evidence_gate_status"] == "blocked"
+    assert output["blocking_issues"] == ["gatekeeper_pass_refs_not_supporting_evidence"]
+
+
+def test_gatekeeper_output_allows_inspector_structured_check_as_supporting_evidence() -> None:
+    output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
+        {
+            "passed": True,
+            "decision_summary": "The Inspector ran a structured proof check.",
+            "composite_score": 1.0,
+            "evidence_refs": ["inspector_ev"],
+            "evidence_claims": ["The structured inspection check verified the required proof boundary."],
+        },
+        evidence_context={
+            "items": [
+                {
+                    "id": "inspector_ev",
+                    "archetype": "inspector",
+                    "evidence_kind": "inspection",
+                    "result": "passed",
+                    "artifact_refs": [],
+                    "verifies": ["check_results:required_proof:passed"],
+                }
+            ]
+        },
+        current_evidence_id="ev_gatekeeper",
+    )
+
+    assert output["passed"] is True
+    assert output["evidence_gate_status"] == "passed"
+    assert output["evidence_refs"] == ["inspector_ev"]
+
+
+def test_gatekeeper_output_rejects_unmanaged_residual_risk_on_pass() -> None:
+    output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
+        {
+            "passed": True,
+            "decision_summary": "The proof is covered, with some residual risk.",
+            "composite_score": 1.0,
+            "evidence_refs": ["inspector_ev"],
+            "evidence_claims": ["The structured inspection check verified the required proof boundary."],
+            "residual_risks": ["Some residual risk remains."],
+        },
+        evidence_context={
+            "items": [
+                {
+                    "id": "inspector_ev",
+                    "archetype": "inspector",
+                    "evidence_kind": "inspection",
+                    "result": "passed",
+                    "artifact_refs": [],
+                    "verifies": ["check_results:required_proof:passed"],
+                }
+            ]
+        },
+        current_evidence_id="ev_gatekeeper",
+    )
+
+    assert output["passed"] is False
+    assert output["composite_score"] == 0.89
+    assert output["evidence_gate_status"] == "blocked"
+    assert output["blocking_issues"] == ["gatekeeper_pass_has_unmanaged_residual_risk"]
+    assert output["residual_risks"] == ["Some residual risk remains."]
+
+
+def test_gatekeeper_output_rejects_manual_visible_residual_risk_without_management_on_pass() -> None:
+    output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
+        {
+            "passed": True,
+            "decision_summary": "The proof is covered, but a manual risk remains visible.",
+            "composite_score": 1.0,
+            "evidence_refs": ["inspector_ev"],
+            "evidence_claims": ["The structured inspection check verified the required proof boundary."],
+            "residual_risks": ["Ownerless manual billing export remains visible."],
+        },
+        evidence_context={
+            "items": [
+                {
+                    "id": "inspector_ev",
+                    "archetype": "inspector",
+                    "evidence_kind": "inspection",
+                    "result": "passed",
+                    "artifact_refs": [],
+                    "verifies": ["check_results:required_proof:passed"],
+                }
+            ]
+        },
+        current_evidence_id="ev_gatekeeper",
+    )
+
+    assert output["passed"] is False
+    assert output["composite_score"] == 0.89
+    assert output["evidence_gate_status"] == "blocked"
+    assert output["blocking_issues"] == ["gatekeeper_pass_has_unmanaged_residual_risk"]
+    assert output["residual_risks"] == ["Ownerless manual billing export remains visible."]
+
+
+def test_gatekeeper_output_rejects_residual_risk_when_contract_disallows_acceptance_on_pass() -> None:
+    output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
+        {
+            "passed": True,
+            "decision_summary": "The proof is covered, with an accepted follow-up risk.",
+            "composite_score": 1.0,
+            "evidence_refs": ["inspector_ev"],
+            "evidence_claims": ["The structured inspection check verified the required proof boundary."],
+            "residual_risks": ["Manual billing export remains visible as a follow-up owned by Support."],
+        },
+        evidence_context={
+            "items": [
+                {
+                    "id": "inspector_ev",
+                    "archetype": "inspector",
+                    "evidence_kind": "inspection",
+                    "result": "passed",
+                    "artifact_refs": [],
+                    "verifies": ["check_results:required_proof:passed"],
+                }
+            ]
+        },
+        current_evidence_id="ev_gatekeeper",
+        compiled_spec={"residual_risk": "No residual risk is acceptable; any remaining risk must fail closed."},
+    )
+
+    assert output["passed"] is False
+    assert output["composite_score"] == 0.89
+    assert output["evidence_gate_status"] == "blocked"
+    assert output["blocking_issues"] == ["gatekeeper_pass_violates_no_residual_risk_policy"]
+    assert output["residual_risks"] == ["Manual billing export remains visible as a follow-up owned by Support."]
+
+
+def test_gatekeeper_output_rejects_negated_residual_risk_with_exception_on_pass() -> None:
+    output = ServiceWorkflowSupportMixin()._coerce_gatekeeper_output(
+        {
+            "passed": True,
+            "decision_summary": "The proof is covered, with an exception hidden behind no blocking residual risk wording.",
+            "composite_score": 1.0,
+            "evidence_refs": ["inspector_ev"],
+            "evidence_claims": ["The structured inspection check verified the required proof boundary."],
+            "residual_risks": ["No blocking residual risk except untested billing export."],
+        },
+        evidence_context={
+            "items": [
+                {
+                    "id": "inspector_ev",
+                    "archetype": "inspector",
+                    "evidence_kind": "inspection",
+                    "result": "passed",
+                    "artifact_refs": [],
+                    "verifies": ["check_results:required_proof:passed"],
+                }
+            ]
+        },
+        current_evidence_id="ev_gatekeeper",
+    )
+
+    assert output["passed"] is False
+    assert output["evidence_gate_status"] == "blocked"
+    assert output["blocking_issues"] == ["gatekeeper_pass_has_unmanaged_residual_risk"]
+    assert output["residual_risks"] == ["No blocking residual risk except untested billing export."]
 
 
 def test_gatekeeper_output_allows_measured_self_evidence_with_plain_builder_context() -> None:

@@ -27,6 +27,8 @@ def test_compile_markdown_spec_extracts_sections(sample_spec_text: str) -> None:
     assert target_ids == [
         "done_when.check_001",
         "done_when.check_002",
+        "success_surface.surface_001",
+        "success_surface.surface_002",
         "fake_done.risk_001",
         "evidence_preference.pref_001",
         "gatekeeper.finish",

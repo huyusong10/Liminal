@@ -11,6 +11,7 @@ from loopora.diagnostics import get_logger
 from loopora.evidence_coverage import with_coverage_targets
 from loopora.markdown_tools import render_safe_markdown_html
 from loopora.numeric_inputs import coerce_integral_number
+from loopora.residual_risk_support import residual_risk_is_unmanaged
 from loopora.service_bundle_control_summary import build_bundle_control_summary, preview_list_items
 from loopora.service_bundle_graph_preflight import BundleGraphLinks, bundle_graph_links, preflight_bundle_graph_delete
 from loopora.service_cleanup_diagnostics import best_effort_rmtree, cleanup_diagnostic_payload, log_cleanup_diagnostic
@@ -257,17 +258,36 @@ class ServiceBundleAssetMixin:
         if not isinstance(raw_sections, dict):
             raw_sections = {}
         control_summary = self._bundle_control_summary(bundle)
+        coverage = dict(control_summary.get("coverage") or {})
         gatekeeper = dict(control_summary.get("gatekeeper") or {})
         gatekeeper_enabled = structured_bool_is_true(gatekeeper.get("enabled"))
-        evidence_preferences = preview_list_items(str(raw_sections.get("Evidence Preferences") or ""), limit=3)
+        success_surface = list(control_summary.get("success_surface") or [])[:3]
+        if not success_surface:
+            success_surface = preview_list_items(str(raw_sections.get("Success Surface") or ""), limit=3)
+        failure_modes = list(control_summary.get("fake_done_risks") or [])[:3]
+        if not failure_modes:
+            failure_modes = preview_list_items(str(raw_sections.get("Fake Done") or ""), limit=3)
+        evidence_preferences = list(control_summary.get("evidence_preferences") or [])[:3]
+        if not evidence_preferences:
+            evidence_preferences = preview_list_items(str(raw_sections.get("Evidence Preferences") or ""), limit=3)
         if not evidence_preferences:
             evidence_preferences = list(control_summary.get("evidence") or [])[:3]
+        residual_risk_policy = list(control_summary.get("residual_risk_policy") or [])[:3]
+        raw_residual_risk = str(raw_sections.get("Residual Risk") or "").strip()
+        if not residual_risk_policy and raw_residual_risk and not residual_risk_is_unmanaged(raw_residual_risk):
+            residual_risk_policy = preview_list_items(raw_residual_risk, limit=3)
         return {
-            "failure_modes": preview_list_items(
-                str(raw_sections.get("Fake Done") or "") + "\n" + str(raw_sections.get("Residual Risk") or ""),
-                limit=3,
-            ),
+            "success_surface": success_surface,
+            "failure_modes": failure_modes,
             "evidence_style": evidence_preferences,
+            "loop_fit_reasons": list(control_summary.get("loop_fit_reasons") or [])[:3],
+            "residual_risk_policy": residual_risk_policy,
+            "execution_strategy": list(control_summary.get("execution_strategy") or [])[:3],
+            "local_governance": list(control_summary.get("local_governance") or [])[:3],
+            "role_postures": list(control_summary.get("role_postures") or [])[:3],
+            "judgment_tradeoffs": list(control_summary.get("judgment_tradeoffs") or [])[:3],
+            "coverage_summary": str(coverage.get("summary") or "").strip(),
+            "coverage_targets": list(coverage.get("targets") or [])[:6],
             "workflow_shape": str((control_summary.get("workflow") or {}).get("summary") or "").strip(),
             "workflow_step_count": int((control_summary.get("workflow") or {}).get("step_count") or 0),
             "parallel_groups": list((control_summary.get("workflow") or {}).get("parallel_groups") or []),
@@ -282,8 +302,17 @@ class ServiceBundleAssetMixin:
     @staticmethod
     def _empty_bundle_governance_summary() -> dict:
         return {
+            "success_surface": [],
             "failure_modes": [],
             "evidence_style": [],
+            "loop_fit_reasons": [],
+            "residual_risk_policy": [],
+            "execution_strategy": [],
+            "local_governance": [],
+            "role_postures": [],
+            "judgment_tradeoffs": [],
+            "coverage_summary": "",
+            "coverage_targets": [],
             "workflow_shape": "",
             "workflow_step_count": 0,
             "parallel_groups": [],

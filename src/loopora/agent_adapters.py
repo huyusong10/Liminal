@@ -12,7 +12,7 @@ from loopora.utils import utc_now
 
 AGENT_ADAPTER_KINDS = ("codex", "claude", "opencode")
 IMPLEMENTED_AGENT_ADAPTERS = {"codex", "claude", "opencode"}
-ADAPTER_VERSION = 7
+ADAPTER_VERSION = 16
 CODEX_ADAPTER_VERSION = ADAPTER_VERSION
 CLAUDE_ADAPTER_VERSION = ADAPTER_VERSION
 OPENCODE_ADAPTER_VERSION = ADAPTER_VERSION
@@ -780,12 +780,14 @@ def _role_agent_body(role: str) -> str:
 
 You do not perform Builder, Inspector, GateKeeper, or Guide work yourself. For each Loopora next_step capsule, read next_step.role_dispatch.target_agent and invoke that exact host-native role agent or task agent. If the host cannot invoke the named agent, stop and report the missing native dispatch capability instead of submitting inline work.
 
+Pass the full `next_step.prompt`, `next_step.judgment_contract`, `next_step.required_coverage`, `next_step.output_schema`, `next_step.action_policy`, `next_step.known_evidence_ids`, and the capsule context refs (`context_path` and `context_absolute_path`) to the target role agent. Do not summarize, trim, or rewrite that prompt or judgment projection; they contain the frozen run contract, current step context, evidence rules, and output instructions the role must execute.
+
 When the role agent returns, preserve its structured result and dispatch metadata. Submit a wrapper JSON with `loopora_host_dispatch` and `result`; the `result` object must match next_step.output_schema exactly, while `loopora_host_dispatch.actual_agent` and `.target_agent` must both equal next_step.role_dispatch.target_agent.
 """
     label = role.capitalize() if role != "gatekeeper" else "GateKeeper"
     return f"""You are the Loopora {label} role agent.
 
-Use only the step capsule provided by Loopora as the stable contract for this invocation. Respect the capsule's action_policy, run contract, output schema, evidence refs, and context paths.
+Use only the step capsule provided by Loopora as the stable contract for this invocation. Respect the capsule's action_policy, judgment_contract, run contract, output schema, evidence refs, and context paths.
 
 Return exactly one wrapper JSON object with `loopora_host_dispatch` and `result`. The `result` object must match the capsule's output_schema exactly. Do not change the frozen Loopora run contract. If the task contract is wrong or evidence is missing, report that as blocker, weak evidence, or residual risk in the structured output instead of silently relaxing the bar.
 
@@ -915,7 +917,7 @@ def _agent_native_dispatch_guidance(adapter: str) -> str:
     return """
 Codex native dispatch guidance:
 - When using Codex `spawn_agent`, set `agent_type` to the exact `role_dispatch.target_agent` and omit `fork_context`; do not combine a custom agent type with a full-history fork.
-- Pass only the current step capsule essentials, output schema, known evidence ids, and relevant artifact paths to the role agent. Do not pass the full conversation or unrelated run history.
+- Pass only the current step capsule essentials, `next_step.judgment_contract`, `next_step.required_coverage`, `next_step.output_schema`, `next_step.action_policy`, `next_step.known_evidence_ids`, and relevant artifact paths to the role agent. Do not pass the full conversation or unrelated run history.
 - Ask the role agent to return the required structured result directly. Prefer empty proof arrays over creating extra proof files unless the capsule requires an artifact.
 - Wait for the role agent with a bounded timeout that is shorter than the surrounding command timeout. If native dispatch cannot complete, report that as unavailable instead of waiting indefinitely or submitting inline work.
 """
@@ -934,15 +936,16 @@ def _agent_native_loop_body(*, adapter: str, marker_source: str, context_arg: st
 LOOPORA_AGENT_ENTRY_SOURCE={marker_source} loopora agent {adapter} loop --workdir "$PWD"{context_bits} --entry-source {marker_source} --json
 ```
 
-2. Read the returned JSON. It contains `run_url` and, unless the run is already complete, `next_step`.
+2. Read the returned JSON. It contains `run_url`, run-level `judgment_contract`, and, unless the run is already complete, `next_step` with its own `next_step.judgment_contract` projection.
 3. Act as the Loopora Orchestrator. Do not perform role work inline. Read `next_step.role_dispatch.target_agent` and invoke that exact host-native role agent / task agent:
    - builder step -> `loopora-builder`
    - inspector/custom step -> `loopora-inspector`
    - gatekeeper step -> `loopora-gatekeeper`
    - guide step -> `loopora-guide`
 {dispatch_guidance.rstrip()}
-4. Treat `next_step.output_schema`, `next_step.evidence_rules`, `next_step.evidence_ref_contract`, and `next_step.role_dispatch` as the result contract. If the host cannot invoke the required role agent, stop and report that native dispatch is unavailable rather than submitting inline work.
-5. Save one wrapper JSON object under `.loopora/agent_outbox/{adapter}/`, then submit it. The wrapper must have exactly this shape:
+4. Pass the full `next_step.prompt`, `next_step.judgment_contract`, `next_step.required_coverage`, `next_step.output_schema`, `next_step.action_policy`, `next_step.known_evidence_ids`, and the capsule context refs (`next_step.context_path` and `next_step.context_absolute_path`) to the target role agent. Do not summarize, trim, or rewrite the prompt or judgment projection; they contain the frozen run contract, current step context, evidence rules, and output instructions.
+5. Treat `next_step.judgment_contract`, `next_step.output_schema`, `next_step.action_policy`, `next_step.evidence_rules`, `next_step.evidence_ref_contract`, `next_step.known_evidence_ids`, and `next_step.role_dispatch` as the immutable step contract. If the host cannot invoke the required role agent, stop and report that native dispatch is unavailable rather than submitting inline work.
+6. Save one wrapper JSON object under `.loopora/agent_outbox/{adapter}/`, then submit it. The wrapper must have exactly this shape:
 
 ```json
 {{
@@ -967,7 +970,7 @@ For GateKeeper, `result` means `passed`, `decision_summary`, `evidence_refs`, an
 LOOPORA_AGENT_ENTRY_SOURCE={marker_source} loopora agent {adapter} submit --workdir "$PWD"{context_bits} --run-id <run-id> --step-id <step-id> --result-file <result-json> --entry-source {marker_source} --json
 ```
 
-6. If the submit response returns another `next_step`, repeat native role dispatch and submit. Stop only when `complete` is true or Loopora returns a domain error.
+7. If the submit response returns another `next_step`, repeat native role dispatch and submit. Stop only when `complete` is true or Loopora returns a domain error. When `complete` is true, report `run.run_status`, `run.task_verdict`, and `judgment_contract` separately so lifecycle status is not treated as task proof.
 
 Copy the Loopora commands with `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source`; those markers prove this run came from the Loopora-managed Agent entry.
 
@@ -994,16 +997,17 @@ Compile the current coding task into a Loopora Loop preview. Do not start a run.
 
 ## Required path
 
-1. Summarize the current task, workdir, constraints, local governance files, fake-done risks, evidence expectations, and residual-risk policy from the current Codex context.
-2. Create a complete Loopora `version: 1` bundle YAML for that task. The bundle must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. Preserve the current task's high-signal objects, risks, and evidence terms in the runnable surfaces, not only in the short CLI summary. If the current task explicitly provides a candidate bundle YAML path, submit that file instead of reauthoring it.
-3. Save newly authored candidate YAML to a temporary file under `.loopora/agent_inbox/codex/`; if a candidate path was explicitly provided, use that path.
-4. Run:
+1. Summarize the current task, workdir, constraints, Loopora fit, local governance files, fake-done risks, evidence expectations, execution strategy, judgment tradeoffs, and residual-risk policy from the current Codex context. Loopora fit must say why one Agent pass, one review, direct chat / direct answer, one-off task handling, or benchmark/test-harness-only validation is not enough, and what later rounds will add as new evidence, handoffs, or a GateKeeper verdict. If `AGENTS.md`, `design/README.md`, `design/`, or `tests/` matter, compile them into Builder reading, Inspector / Custom verification, and GateKeeper Weak / Unproven / Blocking responsibility rather than a marker list. Execution strategy must say what to build, prove, repair, narrow, expand, or defer first; residual risk must name what can be accepted plus an owner, follow-up, or acceptance path, or say the task fails closed. Preserve task-specific categories such as notification, audit, permission, payment, export, browser journey, command evidence, owner, follow-up, and acceptance path; do not let a bundle pass merely because it repeats one or two object words from the task.
+2. Check Loopora fit and judgment sufficiency before authoring a Loop plan file: Loopora fit, success surface, fake-done risks, evidence expectations, execution strategy, judgment tradeoffs, residual-risk policy, and local governance responsibilities must be explicit enough to shape `spec`, roles, workflow, evidence flow, and GateKeeper strictness. If Loopora fit is false or a missing human decision would change the Loop shape, explain that or ask one focused question; if the host cannot continue that conversation, call `loopora agent codex gen` with `--message "<non-empty short task summary>"` but without `--bundle-file` to return a Web review prefill. Do not invent human judgment just to pass validation.
+3. Create a complete Loopora `version: 1` candidate plan file for that task. The plan file must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. Preserve the current task's Loopora fit reason, high-signal objects, success outcome categories, fake-done risk categories, concrete evidence modes, execution priorities, judgment tradeoffs, local governance responsibilities, and risk terms in the runnable surfaces, not only in the short CLI summary. If the current task explicitly provides a candidate plan file path, submit that file instead of reauthoring it.
+4. Save a newly authored candidate plan file to a temporary file under `.loopora/agent_inbox/codex/`; if a candidate path was explicitly provided, use that path.
+5. Run:
 
 ```bash
-LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex gen --workdir "$PWD" --message "<non-empty short task summary>" --bundle-file <candidate-yaml-path> --entry-source codex_project_skill
+LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex gen --workdir "$PWD" --message "<non-empty short task summary>" --bundle-file <candidate-plan-file> --entry-source codex_project_skill
 ```
 
-5. Report the returned Loop preview URL. If validation fails, report the Loopora error and fix the YAML before trying again.
+6. Report the returned Loop preview URL. If validation fails, report the Loopora error and repair the plan file before trying again.
 
 Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source`; those markers bind this invocation to Loopora's Core evidence trail.
 
@@ -1012,6 +1016,7 @@ Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-so
 - `/loopora-gen` never starts a run.
 - READY is decided by Loopora Core validation, not by Codex prose.
 - If the task does not need a long-running evidence-governed Loop, explain that before generating.
+- If judgment is missing, do not fill it with generic best practices; ask the user or return the Web review prefill.
 - If `loopora agent codex gen` returns a Web review URL instead of a ready preview, tell the user it needs Web review or more Loop setup before `/loopora-loop`.
 """
 
@@ -1046,16 +1051,17 @@ Compile the current Claude Code task into a Loopora Loop preview. Do not start a
 
 ## Required path
 
-1. Summarize the current task, workdir, constraints, local governance files, fake-done risks, evidence expectations, and residual-risk policy from the current Claude Code context.
-2. Create a complete Loopora `version: 1` bundle YAML for that task. The bundle must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. Preserve the current task's high-signal objects, risks, and evidence terms in the runnable surfaces, not only in the short CLI summary. If the current task explicitly provides a candidate bundle YAML path, submit that file instead of reauthoring it.
-3. Save newly authored candidate YAML to a temporary file under `.loopora/agent_inbox/claude/`; if a candidate path was explicitly provided, use that path.
-4. Run:
+1. Summarize the current task, workdir, constraints, Loopora fit, local governance files, fake-done risks, evidence expectations, execution strategy, judgment tradeoffs, and residual-risk policy from the current Claude Code context. Loopora fit must say why one Agent pass, one review, direct chat / direct answer, one-off task handling, or benchmark/test-harness-only validation is not enough, and what later rounds will add as new evidence, handoffs, or a GateKeeper verdict. If `AGENTS.md`, `design/README.md`, `design/`, or `tests/` matter, compile them into Builder reading, Inspector / Custom verification, and GateKeeper Weak / Unproven / Blocking responsibility rather than a marker list. Execution strategy must say what to build, prove, repair, narrow, expand, or defer first; residual risk must name what can be accepted plus an owner, follow-up, or acceptance path, or say the task fails closed. Preserve task-specific categories such as notification, audit, permission, payment, export, browser journey, command evidence, owner, follow-up, and acceptance path; do not let a bundle pass merely because it repeats one or two object words from the task.
+2. Check Loopora fit and judgment sufficiency before authoring a Loop plan file: Loopora fit, success surface, fake-done risks, evidence expectations, execution strategy, judgment tradeoffs, residual-risk policy, and local governance responsibilities must be explicit enough to shape `spec`, roles, workflow, evidence flow, and GateKeeper strictness. If Loopora fit is false or a missing human decision would change the Loop shape, ask one focused question; if the host cannot continue that conversation, call `loopora agent claude gen` with `--message "<non-empty short task summary>"` but without `--bundle-file` to return a Web review prefill. Do not invent human judgment just to pass validation.
+3. Create a complete Loopora `version: 1` candidate plan file for that task. The plan file must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. Preserve the current task's Loopora fit reason, high-signal objects, success outcome categories, fake-done risk categories, concrete evidence modes, execution priorities, judgment tradeoffs, local governance responsibilities, and risk terms in the runnable surfaces, not only in the short CLI summary. If the current task explicitly provides a candidate plan file path, submit that file instead of reauthoring it.
+4. Save a newly authored candidate plan file to a temporary file under `.loopora/agent_inbox/claude/`; if a candidate path was explicitly provided, use that path.
+5. Run:
 
 ```bash
-LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen --workdir "$PWD" --context-id "${{CLAUDE_SESSION_ID}}" --message "<non-empty short task summary>" --bundle-file <candidate-yaml-path> --entry-source claude_project_skill
+LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen --workdir "$PWD" --context-id "${{CLAUDE_SESSION_ID}}" --message "<non-empty short task summary>" --bundle-file <candidate-plan-file> --entry-source claude_project_skill
 ```
 
-5. Report the returned Loop preview URL. If validation fails, report the Loopora error and fix the YAML before trying again.
+6. Report the returned Loop preview URL. If validation fails, report the Loopora error and repair the plan file before trying again.
 
 Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`, and `--entry-source`; those markers bind the current Claude Code session to Loopora's Core evidence trail.
 
@@ -1064,6 +1070,7 @@ Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`
 - `/loopora-gen` never starts a run.
 - READY is decided by Loopora Core validation, not by Claude Code prose.
 - If the task does not need a long-running evidence-governed Loop, explain that before generating.
+- If judgment is missing, do not fill it with generic best practices; ask the user or return the Web review prefill.
 - If `loopora agent claude gen` returns a Web review URL instead of a ready preview, tell the user it needs Web review or more Loop setup before `/loopora-loop`.
 """
 
@@ -1126,20 +1133,21 @@ Compile the current OpenCode task into a Loopora Loop preview. Do not start a ru
 
 ## Arguments
 
-`$ARGUMENTS` may contain an existing candidate bundle YAML path. If it does, submit that file instead of authoring a different bundle.
+`$ARGUMENTS` may contain an existing candidate plan file path. If it does, submit that file instead of authoring a different plan file.
 
 ## Required path
 
-1. Summarize the current task, workdir, constraints, local governance files, fake-done risks, evidence expectations, and residual-risk policy from the current OpenCode context.
-2. Create a complete Loopora `version: 1` bundle YAML for that task. The bundle must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. Preserve the current task's high-signal objects, risks, and evidence terms in the runnable surfaces, not only in the short CLI summary. If `$ARGUMENTS` provides a candidate path, use that path.
-3. Save newly authored candidate YAML to a temporary file under `.loopora/agent_inbox/opencode/`; if a candidate path was provided, use that path.
-4. Run:
+1. Summarize the current task, workdir, constraints, Loopora fit, local governance files, fake-done risks, evidence expectations, execution strategy, judgment tradeoffs, and residual-risk policy from the current OpenCode context. Loopora fit must say why one Agent pass, one review, direct chat / direct answer, one-off task handling, or benchmark/test-harness-only validation is not enough, and what later rounds will add as new evidence, handoffs, or a GateKeeper verdict. If `AGENTS.md`, `design/README.md`, `design/`, or `tests/` matter, compile them into Builder reading, Inspector / Custom verification, and GateKeeper Weak / Unproven / Blocking responsibility rather than a marker list. Execution strategy must say what to build, prove, repair, narrow, expand, or defer first; residual risk must name what can be accepted plus an owner, follow-up, or acceptance path, or say the task fails closed. Preserve task-specific categories such as notification, audit, permission, payment, export, browser journey, command evidence, owner, follow-up, and acceptance path; do not let a bundle pass merely because it repeats one or two object words from the task.
+2. Check Loopora fit and judgment sufficiency before authoring a Loop plan file: Loopora fit, success surface, fake-done risks, evidence expectations, execution strategy, judgment tradeoffs, residual-risk policy, and local governance responsibilities must be explicit enough to shape `spec`, roles, workflow, evidence flow, and GateKeeper strictness. If Loopora fit is false or a missing human decision would change the Loop shape, ask one focused question; if the host cannot continue that conversation, call `loopora agent opencode gen` with `--message "<non-empty short task summary>"` but without `--bundle-file` to return a Web review prefill. Do not invent human judgment just to pass validation.
+3. Create a complete Loopora `version: 1` candidate plan file for that task. The plan file must express `spec`, `role_definitions`, `workflow`, evidence flow, and a GateKeeper finish step. Preserve the current task's Loopora fit reason, high-signal objects, success outcome categories, fake-done risk categories, concrete evidence modes, execution priorities, judgment tradeoffs, local governance responsibilities, and risk terms in the runnable surfaces, not only in the short CLI summary. If `$ARGUMENTS` provides a candidate path, use that path.
+4. Save a newly authored candidate plan file to a temporary file under `.loopora/agent_inbox/opencode/`; if a candidate path was provided, use that path.
+5. Run:
 
 ```bash
-LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command loopora agent opencode gen --workdir "$PWD" --context-id "${{OPENCODE_SESSION_ID:-}}" --message "<non-empty short task summary>" --bundle-file <candidate-yaml-path> --entry-source opencode_project_command
+LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command loopora agent opencode gen --workdir "$PWD" --context-id "${{OPENCODE_SESSION_ID:-}}" --message "<non-empty short task summary>" --bundle-file <candidate-plan-file> --entry-source opencode_project_command
 ```
 
-5. Report the returned Loop preview URL. If validation fails, report the Loopora error and fix the YAML before trying again.
+6. Report the returned Loop preview URL. If validation fails, report the Loopora error and repair the plan file before trying again.
 
 Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`, and `--entry-source`; those markers bind this invocation to Loopora's Core evidence trail. If OpenCode does not expose `OPENCODE_SESSION_ID`, keep the flag as shown and Loopora will fall back to workdir binding.
 
@@ -1148,6 +1156,7 @@ Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`
 - `/loopora-gen` never starts a run.
 - READY is decided by Loopora Core validation, not by OpenCode prose.
 - If the task does not need a long-running evidence-governed Loop, explain that before generating.
+- If judgment is missing, do not fill it with generic best practices; ask the user or return the Web review prefill.
 - If `loopora agent opencode gen` returns a Web review URL instead of a ready preview, tell the user it needs Web review or more Loop setup before `/loopora-loop`.
 """
 

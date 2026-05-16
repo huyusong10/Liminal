@@ -73,7 +73,7 @@ BundleFileOption = Annotated[
         exists=True,
         file_okay=True,
         dir_okay=False,
-        help="Path to a single YAML bundle file.",
+        help="Path to a Loop plan file (YAML).",
     ),
 ]
 BundleOutputOption = Annotated[
@@ -82,7 +82,7 @@ BundleOutputOption = Annotated[
         "--output",
         file_okay=True,
         dir_okay=False,
-        help="Write the YAML bundle to this path instead of printing it.",
+        help="Write the Loop plan file to this path instead of printing it.",
     ),
 ]
 StartOption = Annotated[bool, typer.Option("--start", help="Start a run immediately after creating the loop definition.")]

@@ -17,9 +17,9 @@
 
 | 层 | 核心问题 | 稳定能力 |
 |----|----------|----------|
-| `spec` | 什么算对，什么不能放过？ | 定义判断对象：任务契约、成功面、假完成、证据偏好和残余风险 |
-| `roles` | 谁以什么判断姿态看问题？ | 定义判断主体：构建、检查、裁决、纠偏的责任与 posture |
-| `workflow` | 这些判断何时发生、如何影响推进？ | 定义判断机制：顺序、信息流、行动权限、迭代、阻断和收束 |
+| `spec` | 什么算对，什么不能放过？ | 定义判断对象：任务契约、成功面、假完成、证据偏好、执行策略、判断取舍和残余风险政策 |
+| `roles` | 谁以什么判断姿态看问题？ | 定义判断主体：构建、检查、裁决、纠偏、本地治理的责任与 posture |
+| `workflow` | 这些判断何时发生、如何影响推进？ | 定义判断机制：顺序、证据流、本地治理 checkpoint、行动权限、迭代、阻断和收束 |
 
 `spec` 写“什么必须被证明”；`roles` 写“这个角色如何判断和寻找证明”；`workflow` 写“什么时候让它判断，以及判断结果如何改变流程”。
 
@@ -106,6 +106,9 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 - Web 编排编辑器、Web API 与 bundle projection 对 `inherit_session` 使用同一组表单兼容布尔值：literal boolean、`1/0` 与字符串 `true/false/yes/no/on/off`。前端不得用 JavaScript truthiness 把字符串 `"false"` 误解释为续接会话；非法值在服务层归一化时仍应失败关闭。
 - `posture_notes` 是 task-scoped 治理注入位，不是 archetype 本身，也不是全局 task contract 的替代品。
 - posture 可以承载用户难以完全规则化的隐性判断；Inspector 可以按 posture 做语义检视，只要输出能落到 evidence、handoff、blocker 或 residual risk。
+- 运行时 prompt 必须把 bundle `collaboration_summary`、`workflow.collaboration_intent`、role posture 和 `spec` 字段一起视为冻结契约：角色不能重新解释或降低其中的取舍；如果发现冲突、过窄或无法证明，应作为证据缺口、blocker 或 Loop 调整建议暴露，而不是在执行中静默放松。
+- run contract 必须把 READY 预览里的 Loopora fit 理由投影为 `loop_fit_reasons`，把判断取舍投影为 `judgment_tradeoffs`，把执行策略投影为 `execution_strategy`，把已进入运行责任链的本地治理投影为 `local_governance`，并把非空 role posture 投影为 `role_postures`；`success_surface`、`fake_done_states`、`evidence_preferences` 与 `residual_risk` 必须作为顶层冻结判断字段保留，而不能只藏在嵌套的 `compiled_spec` 中。`judgment_tradeoffs` 与 `execution_strategy` 必须覆盖 bundle summary、spec、workflow、role posture 以及已持久化的 role prompt 文件。本地治理责任可以被 summary 解释，但只有进入 `Role Notes`、role prompt / posture、workflow intent / step inputs / controls 或 GateKeeper evidence 规则，并形成 Builder 读取、Inspector / Custom 验证、GateKeeper 阻断 / 弱证据处理链路时，才能冻结为运行期 `local_governance`。否则预览中可见但只落在 role prompt 或 collaboration summary 的取舍 / 执行优先级 / 本地治理责任 / fit 理由会在执行期判断契约里消失或被诊断为 traceability 缺口。
+- 探索型 run 在 check planner 生成 Done When checks 后，必须重新读取或同步更新内存中的 run contract，再生成任何 `StepContextPacket`、step prompt 或 Agent-native capsule；`contract.check_mode`、`check_count` 与 `coverage_targets` 不能落后于磁盘 `contract/run_contract.json` 中冻结的自动 checks。
 - `action_policy` 归属于 step。Builder archetype 通常获得写入权限，Inspector / GateKeeper / Guide / Custom 通常只读或只产出判断；例外必须在 workflow 中显式表达。
 - `action_policy.workspace` 必须是明确的字符串枚举；缺失可使用 archetype 默认值，但显式布尔值、数字或其他非字符串值不能被 falsy/default 逻辑吞成默认权限。
 - `extra_cli_args` 必须是可被 shell 风格分词解析的字符串。
@@ -119,7 +122,7 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 - Guide step 是只读的方向转换步骤，不会因当前未停滞而被服务层自动跳过。若 workflow 显式安排 Guide，它必须通过 `inputs.handoffs_from` / `inputs.evidence_query` 读取上游审查、阻断或未证明证据；条件式 Guide 应通过 `controls[]` 表达。
 - `inputs.handoffs_from` 可按 step id、role id、runtime role、archetype 或 role name 选择当前轮上游 handoff；字符串数组项必须本身就是字符串，不能把数字、布尔值或对象经 `str()` 隐式转成引用。
 - `inputs.evidence_query` 可按 evidence 生产角色、验证目标和数量上限裁剪 evidence ledger 摘要；`archetypes`、`verifies` 的字符串数组项必须本身就是字符串；`limit` 若显式声明，创建、导入和运行时读取持久化 workflow 都必须把它当作受限正整数，布尔值、小数、字符串数字或非数字必须失败关闭。显式声明时，下游 prompt 中可引用的 evidence ids 也必须跟随裁剪结果，避免角色绕过 workflow 信息流引用未路由证据。完整 ledger 仍是 canonical source。
-- `inputs.iteration_memory` 可选择 `default / none / same_step / same_role / summary_only`，用于控制轮次间信息传递。
+- `inputs.iteration_memory` 可选择 `default / none / same_step / same_role / summary_only`，用于控制轮次间信息传递。Web alignment / Agent-first 生成的 review、Guide 和修复 Builder 步骤如果承担跨轮修复或取证责任，应使用 `summary_only`，避免把上一轮 GateKeeper verdict、blockers、修复反馈或 residual risks 从 prompt 中裁掉；手写专家 workflow 可以更窄裁剪，但需要承担相应诊断责任。
 - `controls[].when.signal` v1 只允许 `no_evidence_progress / role_timeout / step_failed / gatekeeper_rejected`。
 - `no_evidence_progress` 不只表示 composite score 停滞；当多轮后 required `Done When` coverage count 没有增加且仍有缺失 check 时，也应触发同一控制信号，让系统尽早暴露“故事在动但证明没动”。
 - control 只能调用当前 workflow 中已有的 Inspector、Guide 或 GateKeeper；不能调用 Builder，避免自动修复污染工作区。
@@ -187,9 +190,9 @@ workflow 保存前必须满足：
 - `rounds` completion mode 允许没有 GateKeeper。
 - 只有 GateKeeper step 可以声明 `on_pass=finish_run`。
 - evidence ledger item 必须标记证据类型，例如 `handoff`、`inspection`、`verdict`、`advisory` 或 `observation`。
-- GateKeeper 输出通过时必须引用上游支持性 `evidence_refs`；Inspector / Custom / control 输出可以作为取证或检视支持，Builder handoff 只有在携带 proof artifact 或 measured evidence 时才可以作为支持。普通 Builder 自述、GateKeeper verdict、blocked / failed / rejected 的上游 evidence 不能作为通过依据。如果 GateKeeper 是本轮第一个证据读取者，则必须提供可度量 `metric_scores` 和具体 `evidence_claims`。自然语言 claims 单独不能结束 run。
-- GateKeeper 输出契约必须包含 `residual_risks` 数组；无残余风险时返回空数组，有可接受残余风险时逐项命名。通过态的有意义 residual risk 会进入 task verdict 的 `passed_with_residual_risk`，不能只藏在 `decision_summary` 自由文本里。
-- GateKeeper 与 Inspector 一样可以通过 `coverage_results` 明确覆盖或拒绝 coverage target；这主要用于 Fake Done 与 Evidence Preferences 这类裁决期风险 / 证据偏好。ledger item 必须保留每条 `coverage_results` 的 `target_id / status / evidence_refs / note`，不能只把 refs 压平成 item 级关系。`coverage_results.status` 使用覆盖词汇，满足目标时首选 `covered`；`Proven / Weak / Unproven / Blocking / Residual risk` 是裁决投影桶，不应被提示成 coverage status。Core 可兼容常见正向别名并归一到 `covered`，但 positive coverage 必须由当前支持性 item、measured evidence，或当前 target 自己的 `coverage_results.evidence_refs` 指向的支持性 evidence 支撑，否则 projection 只能标记为 weak。schema、prompt 与 ledger `verifies` 必须保持一致，不能提示模型输出一个会被 schema 拒绝的字段。
+- GateKeeper 输出通过时必须引用上游支持性 `evidence_refs`；Inspector / Custom 只有在携带结构化通过检查、覆盖目标、proof artifact 或 measured evidence 时才可作为支持，control 输出可以作为支持，Builder handoff 只有在携带 proof artifact 或 measured evidence 时才可以作为支持。普通 Builder 自述、普通 Inspector / Custom 观察、GateKeeper verdict、blocked / failed / rejected 的上游 evidence 不能作为通过依据。如果 GateKeeper 是本轮第一个证据读取者，则必须提供可度量 `metric_scores` 和具体 `evidence_claims`。自然语言 claims 单独不能结束 run。若 GateKeeper 同时返回 `passed: true` 与 `blocking_issues`、`hard_constraint_violations`、`failed_check_ids` 或 `priority_failures`，Core 必须按失败裁决处理，不能让自相矛盾的通过态掩盖阻断项。
+- GateKeeper 输出契约必须包含 `residual_risks` 数组；无残余风险时返回空数组，有可接受残余风险时逐项命名，并说明负责人、后续处理或接受路径。通过态只有 run contract 允许且已管理的 residual risk 才会进入 task verdict 的 `passed_with_residual_risk`；若 `Residual Risk` 明确不接受残余风险，GateKeeper 必须把任何剩余风险作为 blocking issue 而不是通过时的 `residual_risks`。模糊残余风险应阻断通过，不能只藏在 `decision_summary` 自由文本里。
+- GateKeeper 与 Inspector 一样可以通过 `coverage_results` 明确覆盖或拒绝 coverage target；这主要用于 Success Surface、Fake Done 与 Evidence Preferences 这类裁决期成功面 / 风险 / 证据偏好。ledger item 必须保留每条 `coverage_results` 的 `target_id / status / evidence_refs / note`，不能只把 refs 压平成 item 级关系。`coverage_results.status` 使用覆盖词汇，满足目标时首选 `covered`；`Proven / Weak / Unproven / Blocking / Residual risk` 是裁决投影桶，不应被提示成 coverage status。Agent-native submit 的 `coverage_results[].target_id` 必须来自 capsule 冻结的 `judgment_contract.coverage_targets[].id`，未知 target id 在写入 raw output、handoff 或 evidence ledger 前拒绝；历史 headless ledger projection 可继续忽略未知 target 以兼容旧数据。Core 可兼容常见正向别名并归一到 `covered`，但 positive coverage 必须由当前支持性 item、measured evidence，或当前 target 自己的 `coverage_results.evidence_refs` 指向的支持性 evidence 支撑，否则 projection 只能标记为 weak。Success Surface、Fake Done 与 Evidence Preferences 缺失或弱覆盖只降低为 advisory evidence gap；但一旦任一 coverage target 明确进入 `blocked`，即使它不是 required target，也必须让 coverage status 与 task verdict fail，不能让已发现的假完成或裁决期阻断被 GateKeeper pass 掩盖。schema、prompt 与 ledger `verifies` 必须保持一致，不能提示模型输出一个会被 schema 拒绝的字段。
 - `custom` role 可以进入编排，但不能成为收敛裁决入口。
 - 并行组必须是连续 step，且每组至少 2 个 step。
 - 并行组内第一阶段只允许 `inspector` 与 `custom`，不允许 `builder`、`gatekeeper` 或 `guide`，避免并发写入和并发收敛污染 run 状态。
@@ -241,9 +244,9 @@ step 级执行附加项只影响当前 step：
 
 运行时 prompt 由稳定协议装配，顺序固定为：
 
-`系统安全约束 -> 输出契约 -> 用户 prompt -> run contract 摘要 -> 当前角色 note -> 当前轮次 / step 说明 -> step input policy -> 被选中的上游 handoff -> 被选中的上一轮信息 -> 被选中的 evidence ledger 摘要 -> artifact refs`
+`系统安全约束 -> 输出契约 -> 用户 prompt -> run contract 摘要 -> 当前角色 note -> 当前轮次 / step 说明 -> step input policy -> 被选中的上游 handoff -> 被选中的上一轮信息（含 GateKeeper verdict、修复反馈与 residual risks） -> 被选中的 evidence ledger 摘要 -> artifact refs`
 
-在 `agent_native` execution plane 中，Core 对同一协议生成 step capsule。capsule 至少表达当前 run / step 标识、角色职责、role dispatch contract、行动边界、上下文 artifact、输出契约、可引用 evidence 范围和提交入口；它不是另一个聊天界面，也不包含宿主私有 prompt 包。宿主 Agent 负责把 capsule 交给 `role_dispatch.target_agent` 指定的原生角色机制执行，并把带 `loopora_host_dispatch` 证明块的结构化结果提交回 Loopora。
+在 `agent_native` execution plane 中，Core 对同一协议生成 step capsule。capsule 至少表达当前 run / step 标识、角色职责、role dispatch contract、行动边界、完整 step prompt、上下文 artifact / refs、输出契约、可引用 evidence 范围和提交入口；它不是另一个聊天界面，也不包含宿主私有 prompt 包。StepContextPacket 与 capsule 的判断契约字段必须以冻结 run contract 为兜底：旧版或裁剪 context 缺少 Loopora fit、执行策略、判断取舍、本地治理、成功面、假完成、证据偏好或残余风险时，不能把这些字段投影为空。宿主 Agent 负责把完整 `next_step.prompt` 与 `context_path` / `context_absolute_path` 交给 `role_dispatch.target_agent` 指定的原生角色机制执行，不得先摘要、裁剪或改写 prompt，并把带 `loopora_host_dispatch` 证明块的结构化结果提交回 Loopora。
 
 稳定规则：
 
@@ -251,14 +254,14 @@ step 级执行附加项只影响当前 step：
 - 后续轮次必须显式声明轮次编号和上一轮关键结果。
 - 后续轮次必须显式继承 evidence progress 状态：当 required coverage 没有新增证明且仍有缺口时，当前 step prompt 与上一轮 summary 都应暴露 `evidence_progress_mode`、covered / missing check count 和连续无覆盖增量，避免模型只看到分数变化而看不到“故事在动但证明没动”。
 - 系统安全边界、输出契约和 context packet shape 不能被自定义 prompt 绕开。
-- evidence ledger 摘要只传递近期 item、已知 evidence id 列表、ledger 路径和当前 step 可引用 claims 的 manifest proof-strength 摘要，避免把证据账本或 manifest 全文复制进每个 prompt。服务层校验 GateKeeper `evidence_refs` 时必须回到 canonical ledger 补全已允许 id 的完整 evidence item；不能因为 prompt 摘要裁剪掉旧 item 就把仍在信息流权限内的 evidence ref 误判为未知或非支持。
+- evidence ledger 摘要只传递近期 item、已知 evidence id 列表、ledger 路径、每条 item 的 GateKeeper 支持性分类、可管理 residual risk 信号，以及当前 step 可引用 claims 的 manifest proof-strength 摘要，避免把证据账本或 manifest 全文复制进每个 prompt。服务层校验 GateKeeper `evidence_refs` 时必须回到 canonical ledger 补全已允许 id 的完整 evidence item；不能因为 prompt 摘要裁剪掉旧 item 就把仍在信息流权限内的 evidence ref 误判为未知或非支持。
 - 显式 `inputs.evidence_query` 必须先从当前可见 evidence 集合按 query 匹配，再应用 limit；普通 step 的当前可见集合是完整 canonical ledger，并行 peer 的当前可见集合是组起点快照。未声明 query 时可以只渲染近期 item 摘要，但 `known_ids` 仍表达当前 step 可引用的 canonical evidence id 集合。
 - `inputs.evidence_query` 裁剪 evidence 时，prompt 中的 known ids、manifest claim rows 与 proof-strength summary 都必须跟随同一可引用集合；manifest claim rows 应保留有界 coverage target trace，包括 target id、覆盖状态、required 语义和支持 refs；proof-strength 不得泄露裁剪外证据，也不得让 UI 事后投影成为 GateKeeper 决策时看不到的事实。
 - `inputs` 只能裁剪当前 prompt 的可见上下文，不能改变 run 的 canonical evidence ledger、step output、handoff 或 iteration summary。
 - Guide 的运行时 prompt 与输出契约必须把 Blocking、Unproven 或停滞信号转成最小修复 / 收窄方向；Weak 证据只有在会改变裁决时才优先补强，Residual risk 必须保持可见。
 - control prompt 必须显式说明触发信号、原因、读取的 evidence refs 和模式；它产生的 ledger item 使用 `evidence_kind=control`。
-- `Role Notes` / `posture_notes` / `collaboration_intent` 可以影响角色工作姿态，但不能改写 `Task / Done When / Guardrails / Success Surface / Fake Done / Evidence Preferences / Residual Risk`。
-- 所有运行期 archetype 的 system prompt 前缀都必须提醒角色：run contract 已冻结；若发现 `Task / Done When / Guardrails / Success Surface / Fake Done / Evidence Preferences / Residual Risk` 过窄、过松或冲突，应作为 evidence gap / blocker / Loop 调整建议暴露，而不能在 run 内静默降级或改写。
+- `Role Notes` / `posture_notes` / `collaboration_intent` 可以影响角色工作姿态，但不能改写 `Task / Done When / Guardrails / Success Surface / Fake Done / Evidence Preferences / Execution Strategy / Judgment Tradeoffs / Local Governance / Residual Risk`。
+- 所有运行期 archetype 的 system prompt 前缀都必须提醒角色：run contract 已冻结；若发现 `Task / Done When / Guardrails / Success Surface / Fake Done / Evidence Preferences / Execution Strategy / Judgment Tradeoffs / Local Governance / Residual Risk` 过窄、过松或冲突，应作为 evidence gap / blocker / Loop 调整建议暴露，而不能在 run 内静默降级或改写。
 - step `action_policy` 可以收窄或授予当前调用的行动边界，但不能让角色越过系统安全约束、workspace guard 或 completion mode 语义。
 - 当环境阻断浏览器、截图或桌面控制能力时，prompt 应引导角色切换到可重复 fallback 证据，并把环境限制写入 handoff。
 - agent-native step result 与 headless executor result 进入同一结构化归一化、evidence ledger 和 GateKeeper 裁决边界；接口差异不能改变证据事实源。
@@ -271,7 +274,7 @@ step 级执行附加项只影响当前 step：
 | 对象 | 作用 | 稳定承诺 |
 |------|------|----------|
 | `RunContractSnapshot` | 冻结 spec、workflow、prompt refs、runtime 配置 | run 生命周期内不漂移 |
-| `StepContextPacket` | step 开始前装配当前轮次、步骤、上游 handoff 与 artifact refs | shape 由代码固定生成 |
+| `StepContextPacket` | step 开始前装配当前轮次、步骤、上游 handoff、冻结判断契约与 artifact refs | shape 由代码固定生成；contract 中的判断数组只接受真实字符串项，coverage targets 只接受对象项，不能把字符串拆成字符或把布尔 / 数字提升为判断文本 |
 | `StepHandoff` | step 结束后给下游角色消费的结构化交接包 | 至少稳定包含 `status / summary / blocking_items / recommended_next_action` |
 | `IterationSummary` | 汇总本轮 handoff、得分、停滞状态与 latest refs | 作为下一轮统一回看入口 |
 

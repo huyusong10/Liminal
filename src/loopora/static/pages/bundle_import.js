@@ -120,6 +120,33 @@ document.addEventListener("DOMContentLoaded", () => {
     return localeText("轮次预算", "round budget");
   }
 
+  function coverageSummary(summary) {
+    const coverage = summary?.coverage || {};
+    const checkCount = Number(coverage.check_count || 0);
+    const targetCount = Number(coverage.target_count || 0);
+    const requiredCount = Number(coverage.required_target_count || 0);
+    const summaryText = localeText(coverage.summary_zh || "", coverage.summary_en || coverage.summary || "");
+    if (summaryText && !checkCount && !targetCount) {
+      return summaryText;
+    }
+    if (checkCount && targetCount) {
+      return localeText(
+        `${checkCount} 项检查 · ${targetCount} 个覆盖目标（${requiredCount} 必需）`,
+        `${checkCount} checks · ${targetCount} coverage targets (${requiredCount} required)`
+      );
+    }
+    if (checkCount) {
+      return localeText(`${checkCount} 项检查`, `${checkCount} checks`);
+    }
+    if (targetCount) {
+      return localeText(
+        `${targetCount} 个覆盖目标（${requiredCount} 必需）`,
+        `${targetCount} coverage targets (${requiredCount} required)`
+      );
+    }
+    return "";
+  }
+
   function judgmentStatus(summary) {
     const traceability = summary?.traceability || {};
     const mapped = Number(traceability.mapped_count || 0);
@@ -136,14 +163,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function traceItemLabel(item) {
     const labels = {
+      loop_fit: localeText("Loopora 适配", "Loopora fit"),
       collaboration_story: localeText("协作判断", "Collaboration"),
       task_scope: localeText("任务边界", "Task scope"),
       success_surface: localeText("成功面", "Success"),
       fake_done_risks: localeText("假完成", "Fake done"),
       evidence_preferences: localeText("证据偏好", "Evidence"),
+      coverage_targets: localeText("覆盖目标", "Coverage"),
+      execution_strategy: localeText("执行策略", "Execution strategy"),
       residual_risk_policy: localeText("残余风险", "Risk policy"),
+      judgment_tradeoffs: localeText("判断取舍", "Tradeoffs"),
+      local_governance: localeText("本地治理", "Local governance"),
       role_posture: localeText("角色姿态", "Role posture"),
-      workflow_judgment: localeText("流程判断", "Workflow"),
+      workflow_judgment: localeText("运行流程", "Run flow"),
       gatekeeper_closure: localeText("裁决收口", "Closure"),
       runtime_controls: localeText("运行控制", "Controls"),
     };
@@ -166,7 +198,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const items = Array.isArray(traceability?.items) ? traceability.items : [];
-    const visibleItems = items.slice(0, 9);
+    const visibleItems = items.slice(0, 12);
     if (!visibleItems.length) {
       judgmentMap.hidden = true;
       judgmentMap.innerHTML = "";
@@ -221,15 +253,64 @@ document.addEventListener("DOMContentLoaded", () => {
       .join(" / ");
     const cards = [
       {
+        label: localeText("Loopora 适配", "Loopora fit"),
+        value: listSnippet(summary.loop_fit_reasons)
+          || localeText("长期治理理由未声明。", "Long-running governance reason not declared."),
+      },
+      {
+        label: localeText("成功面", "Success"),
+        value: listSnippet(summary.success_surface)
+          || localeText("按 Done When 与任务成功面裁决。", "Judged by Done When and the success surface."),
+      },
+      {
+        label: localeText("假完成", "Fake done"),
+        value: listSnippet(summary.fake_done_risks)
+          || localeText("未声明额外假完成风险。", "No extra fake-done risks declared."),
+      },
+      {
+        label: localeText("证据偏好", "Evidence preferences"),
+        value: listSnippet(summary.evidence_preferences)
+          || localeText("按任务契约选择证据。", "Evidence follows the task contract."),
+      },
+      {
+        label: localeText("覆盖目标", "Coverage targets"),
+        value: coverageSummary(summary)
+          || localeText("由 Done When 和裁决面派生。", "Derived from Done When and verdict surfaces."),
+      },
+      {
         label: localeText("主要风险", "Main risk"),
         value: listSnippet(summary.risks) || localeText("从 Loop 契约中读取。", "Read from spec."),
       },
       {
-        label: localeText("证据路径", "Evidence path"),
-        value: listSnippet(summary.evidence) || localeText("由流程运行时落账。", "Recorded by the workflow runtime."),
+        label: localeText("残余风险", "Residual risk"),
+        value: listSnippet(summary.residual_risk_policy)
+          || localeText("按任务契约失败关闭。", "Fail closed by the task contract."),
       },
       {
-        label: localeText("流程", "workflow"),
+        label: localeText("执行策略", "Execution strategy"),
+        value: listSnippet(summary.execution_strategy)
+          || localeText("下一轮优先级未声明。", "Next-round priority not declared."),
+      },
+      {
+        label: localeText("判断取舍", "Tradeoffs"),
+        value: listSnippet(summary.judgment_tradeoffs)
+          || localeText("按任务契约裁决。", "Judged by the task contract."),
+      },
+      {
+        label: localeText("角色姿态", "Role posture"),
+        value: listSnippet(summary.role_postures)
+          || localeText("角色执行姿态未声明。", "Role posture not declared."),
+      },
+      {
+        label: localeText("证据路径", "Evidence path"),
+        value: listSnippet(summary.evidence) || localeText("由运行流程落账。", "Recorded during the run flow."),
+      },
+      ...(Array.isArray(summary.local_governance) && summary.local_governance.length ? [{
+        label: localeText("本地治理", "Local governance"),
+        value: listSnippet(summary.local_governance),
+      }] : []),
+      {
+        label: localeText("运行流程", "Run flow"),
         value: workflow.summary || localeText(`${workflow.step_count || 0} 个步骤`, `${workflow.step_count || 0} steps`),
       },
       {
@@ -351,7 +432,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     artifactWorkdir.textContent = labeledSummary("目录", "Workdir", basename(payload.bundle?.loop?.workdir || ""));
     artifactWorkdir.title = payload.bundle?.loop?.workdir || "";
-    renderControlSummary(null);
+    renderControlSummary(summary);
     renderJudgmentMap(payload.traceability || summary.traceability || {}, diagnostics);
     specPreview.innerHTML = payload.spec_rendered_html || "";
     if (sourceOpenButton) {

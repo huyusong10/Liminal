@@ -107,7 +107,7 @@
       <h2><span data-lang="zh">手动编排 Loop</span><span data-lang="en">Create Loop Manually</span></h2>
       <p>
         <span data-lang="zh">直接选择 Loop 契约、工作目录、流程和运行参数。适合你已经知道要用哪份契约、哪些检视角色和怎样的运行流程。</span>
-        <span data-lang="en">Choose the Loop contract, workdir, flow, and runtime settings directly. Use this when you already know the contract, review roles, and run flow you want.</span>
+        <span data-lang="en">Choose the Loop contract, run directory, flow, and runtime settings directly. Use this when you already know the contract, review roles, and run flow you want.</span>
       </p>
     </div>
     <a class="secondary-button" href="/loops/new/manual#manual-loop-form" data-testid="loop-create-manual-link">
@@ -141,9 +141,48 @@
     {% endif %}
     <div class="bundle-chat-empty" id="alignment-empty-state" data-testid="alignment-empty-state">
       <h1>
-        <span data-lang="zh">想编排一个什么 Loop？</span>
-        <span data-lang="en">What task should Loopora handle?</span>
+        <span data-lang="zh">要把哪件任务编排成 Loop？</span>
+        <span data-lang="en">What task should become a Loop?</span>
       </h1>
+      <p class="alignment-empty-lede">
+        <span data-lang="zh">先写任务，再写什么不算完成、需要哪些证据、哪些风险必须阻断收尾。</span>
+        <span data-lang="en">Describe the task, what would be fake-done, what evidence is required, and which risks must block closure.</span>
+      </p>
+      <div class="alignment-starter-grid" data-testid="alignment-starter-grid" aria-label="{{ '任务样例' if page_locale == 'zh' else 'Task examples' }}">
+        <button
+          class="alignment-starter-card"
+          type="button"
+          data-testid="alignment-starter-card"
+          data-starter-zh="我要做一个退款自助流程。页面能提交不算完成，必须证明管理员权限、退款资格、支付失败接管和审计链路；越权退款或审计缺失必须阻断，少量罕见支付边界可以作为残余风险但要有人接手。"
+          data-starter-en="I want to build a self-service refund flow. A clickable page is not enough: prove admin authorization, refund eligibility, payment-failure handoff, and auditability. Unauthorized refunds or missing audit evidence must block closure; rare payment-provider edges can remain only as owned residual risk."
+        >
+          <strong><span data-lang="zh">退款流程上线前证据</span><span data-lang="en">Refund launch evidence</span></strong>
+          <span data-lang="zh">权限、资格、失败接管、审计</span>
+          <span data-lang="en">Permission, eligibility, failure handoff, audit</span>
+        </button>
+        <button
+          class="alignment-starter-card"
+          type="button"
+          data-testid="alignment-starter-card"
+          data-starter-zh="我要重构账单权限。不能只让测试变绿，要证明客户、财务和客服视角下的数据可见性没有越权；先修根因和补证据，暂缓 UI 打磨。"
+          data-starter-en="I want to refactor billing permissions. Green tests alone are not enough: prove customer, finance, and support visibility cannot overreach. Fix the root cause and evidence first; defer UI polish."
+        >
+          <strong><span data-lang="zh">账单权限重构</span><span data-lang="en">Billing permission refactor</span></strong>
+          <span data-lang="zh">防越权、强证据、先根因</span>
+          <span data-lang="en">No overreach, strong proof, root cause first</span>
+        </button>
+        <button
+          class="alignment-starter-card"
+          type="button"
+          data-testid="alignment-starter-card"
+          data-starter-zh="我要排查偶发支付回调丢失。先固定可复现证据和日志边界，再小步修复；不能用“无法复现”包装完成，GateKeeper 必须看到失败路径和恢复路径。"
+          data-starter-en="I want to investigate intermittent missing payment callbacks. First pin reproducible evidence and logging boundaries, then repair narrowly. Do not package 'cannot reproduce' as done; GateKeeper must see the failure path and recovery path."
+        >
+          <strong><span data-lang="zh">支付回调丢失排查</span><span data-lang="en">Missing payment callback triage</span></strong>
+          <span data-lang="zh">先固定证据，再修复</span>
+          <span data-lang="en">Pin evidence first, then repair</span>
+        </button>
+      </div>
     </div>
 
     <section class="alignment-chat" id="alignment-chat" data-testid="alignment-chat" hidden>
@@ -210,7 +249,10 @@
           <span id="alignment-artifact-evidence">-</span>
           <span id="alignment-artifact-judgment">-</span>
           <span id="alignment-artifact-verdict">-</span>
-          <span id="alignment-artifact-workdir">-</span>
+          <span id="alignment-artifact-workdir">
+            <span data-lang="zh">运行目录：-</span>
+            <span data-lang="en">Run directory: -</span>
+          </span>
           <div class="alignment-artifact-source" id="alignment-artifact-source" data-testid="alignment-artifact-source" hidden>
             <span class="alignment-artifact-source-path" id="alignment-source-path" hidden></span>
             <button class="ghost-button" type="button" id="alignment-source-open-button" data-testid="alignment-source-open-button" hidden>
@@ -224,6 +266,7 @@
           </div>
         </div>
       </div>
+      <section class="alignment-control-summary" id="alignment-control-summary" data-testid="alignment-control-summary"></section>
       <section class="alignment-judgment-map" id="alignment-judgment-map" data-testid="alignment-judgment-map" hidden></section>
       <section class="alignment-diagnostics-strip" id="alignment-diagnostics-strip" data-testid="alignment-diagnostics-strip" hidden></section>
       <div class="alignment-preview-tabs" data-testid="alignment-preview-tabs" role="tablist" aria-label="{{ 'Loop 预览' if page_locale == 'zh' else 'Loop plan preview' }}">
@@ -253,14 +296,14 @@
           name="alignment_message"
           rows="1"
           data-testid="alignment-message-input"
-          placeholder="{{ '你想让 Loopora 做什么？' if page_locale == 'zh' else 'What should Loopora do?' }}"
+          placeholder="{{ '任务 + 假完成风险 + 必需证据…' if page_locale == 'zh' else 'Task + fake-done risk + required evidence...' }}"
         >{{ request.query_params.get('alignment_message', '') }}</textarea>
         <button class="alignment-send-button" type="submit" id="alignment-send-button" data-testid="alignment-send-button" aria-label="{{ '发送' if page_locale == 'zh' else 'Send' }}">↑</button>
       </div>
       <div class="alignment-composer-chips">
         <button class="alignment-chip" type="button" id="alignment-workdir-chip" data-open-panel="workdir" data-testid="alignment-workdir-chip" aria-expanded="false" aria-controls="alignment-tools-menu">
-          <span data-lang="zh">选择工作目录</span>
-          <span data-lang="en">Choose workdir</span>
+          <span data-lang="zh">选择运行目录</span>
+          <span data-lang="en">Choose run directory</span>
         </button>
         <button class="alignment-chip" type="button" id="alignment-agent-chip" data-open-panel="advanced" data-testid="alignment-agent-chip" aria-expanded="false" aria-controls="alignment-tools-menu">
           <span data-lang="zh">Codex</span>
@@ -277,8 +320,8 @@
       <div class="alignment-tool-popover-head">
         <div class="alignment-tool-tabs">
         <button type="button" data-open-panel="workdir">
-          <span data-lang="zh">工作目录</span>
-          <span data-lang="en">Workdir</span>
+          <span data-lang="zh">运行目录</span>
+          <span data-lang="en">Run directory</span>
         </button>
         <button type="button" data-open-panel="advanced">
           <span data-lang="zh">智能体</span>
@@ -288,7 +331,7 @@
         <button class="ghost-button alignment-tools-close" type="button" id="alignment-tools-close" data-testid="alignment-tools-close" aria-label="{{ '关闭设置' if page_locale == 'zh' else 'Close settings' }}">×</button>
       </div>
       <section class="alignment-tool-panel" data-tool-panel="workdir" data-testid="alignment-workdir-panel">
-        <h3><span data-lang="zh">目标项目目录</span><span data-lang="en">Target workdir</span></h3>
+        <h3><span data-lang="zh">目标项目目录</span><span data-lang="en">Target project directory</span></h3>
         <div class="input-with-action">
           <input
             id="alignment-workdir"
@@ -504,7 +547,10 @@
       <div class="alignment-decision-facts">
         <span id="alignment-artifact-verdict">-</span>
         <span id="alignment-artifact-judgment">-</span>
-        <span id="alignment-artifact-workdir">-</span>
+        <span id="alignment-artifact-workdir">
+          <span data-lang="zh">运行目录：-</span>
+          <span data-lang="en">Run directory: -</span>
+        </span>
         <div class="alignment-artifact-source" id="alignment-artifact-source" data-testid="alignment-artifact-source" hidden>
           <span class="alignment-artifact-source-path" id="alignment-source-path" hidden></span>
           <button class="ghost-button" type="button" id="alignment-source-open-button" data-testid="alignment-source-open-button" hidden>
@@ -514,6 +560,7 @@
         </div>
       </div>
     </div>
+    <section class="alignment-control-summary" id="alignment-control-summary" data-testid="alignment-control-summary"></section>
     <section class="alignment-judgment-map" id="alignment-judgment-map" data-testid="alignment-judgment-map" hidden></section>
     <section class="alignment-diagnostics-strip" id="alignment-diagnostics-strip" data-testid="alignment-diagnostics-strip" hidden></section>
     <div class="alignment-preview-tabs" data-testid="alignment-preview-tabs" role="tablist" aria-label="{{ 'Loop 预览' if page_locale == 'zh' else 'Loop plan preview' }}">
@@ -598,7 +645,7 @@
     <label>
       <span class="label-row">
         <span class="label-with-help">
-          <span><span data-lang="zh">工作目录</span><span data-lang="en">Workdir</span></span>
+          <span><span data-lang="zh">运行目录</span><span data-lang="en">Run directory</span></span>
           {{ tip_button(
             "指向这个 Loop 要持续推进的项目目录。网络访问模式下，这里必须填写服务端机器上的绝对路径。",
             "Point this to the project directory that the loop should keep advancing. In network access mode, this must be an absolute path on the server machine.",
@@ -624,8 +671,8 @@
       </div>
       {% if recent_workdirs %}
       <small class="field-note">
-        <span data-lang="zh">最近用过的目录：</span>
-        <span data-lang="en">Recent workdirs:</span>
+        <span data-lang="zh">最近运行目录：</span>
+        <span data-lang="en">Recent run directories:</span>
       </small>
       <div class="card-actions recent-workdir-actions" data-testid="recent-workdir-actions">
         {% for recent_workdir in recent_workdirs[:6] %}

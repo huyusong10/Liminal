@@ -11,7 +11,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from textwrap import dedent
 import urllib.request
 
 import pytest
@@ -695,150 +694,6 @@ print(json.dumps({"type": "stdout", "message": f"loopora-agent-release-executor 
     return script
 
 
-def _agent_release_bundle_yaml(workdir: Path, executor_script: Path) -> str:
-    return (
-        dedent(
-            f"""\
-            version: 1
-            collaboration_summary: "This release-profile probe proves conversation-guided bundle generation, managed entry provenance, runtime activity, evidence-backed handoff, and GateKeeper verification through Agent-native step submission."
-            metadata:
-              name: Agent Adapter Release Gate
-            loop:
-              workdir: {workdir.resolve()}
-              completion_mode: gatekeeper
-              executor_kind: custom
-              executor_mode: command
-              command_cli: {sys.executable}
-              command_args_text: |
-                {executor_script}
-                builder
-                {{output_path}}
-                {{prompt}}
-              iteration_interval_seconds: 0
-              max_iters: 1
-              max_role_retries: 1
-              delta_threshold: 0.005
-              trigger_window: 2
-              regression_window: 2
-              model: ""
-              reasoning_effort: ""
-            role_definitions:
-              - key: builder
-                name: Agent Release Builder
-                description: "Writes a deterministic Builder result and proof file for the Agent adapter release-profile probe."
-                archetype: builder
-                prompt_ref: builder.md
-                prompt_markdown: |
-                  ---
-                  version: 1
-                  archetype: builder
-                  ---
-
-                  # Agent Release Builder
-
-                  Create `loopora-agent-release-proof.json` in the workdir with concise JSON proof that the conversation-generated candidate, managed run binding, runtime visibility, and Agent-native submission path were observed. Return a structured Builder result whose `proof_files` contains `loopora-agent-release-proof.json`; empty `changed_files`, `proof_artifacts`, and `artifact_paths` are valid.
-                posture_notes: "Keep this release-profile probe deterministic and evidence-oriented; leave a concrete proof file for GateKeeper."
-                executor_kind: custom
-                executor_mode: command
-                command_cli: {sys.executable}
-                command_args_text: |
-                  {executor_script}
-                  builder
-                  {{output_path}}
-                  {{prompt}}
-                model: ""
-                reasoning_effort: ""
-              - key: gatekeeper
-                name: Agent Release GateKeeper
-                description: "Checks Builder evidence and closes the release-profile probe."
-                archetype: gatekeeper
-                prompt_ref: gatekeeper.md
-                prompt_markdown: |
-                  ---
-                  version: 1
-                  archetype: gatekeeper
-                  ---
-
-                  # Agent Release GateKeeper
-
-                  Cite only exact upstream Builder evidence ids from known_evidence_ids. Use `covered` for every satisfied coverage_results target; keep Proven, Weak, Unproven, Blocking, and Residual risk as verdict bucket prose, not coverage status strings.
-                posture_notes: "Fail closed unless the Builder evidence id is available and cited exactly."
-                executor_kind: custom
-                executor_mode: command
-                command_cli: {sys.executable}
-                command_args_text: |
-                  {executor_script}
-                  gatekeeper
-                  {{output_path}}
-                  {{prompt}}
-                model: ""
-                reasoning_effort: ""
-            workflow:
-              version: 1
-              preset: custom
-              collaboration_intent: "Prove conversation-guided bundle generation, managed entry provenance, runtime activity, evidence-backed handoff, and GateKeeper verification through Agent-native step submission."
-              roles:
-                - id: builder
-                  role_definition_key: builder
-                - id: gatekeeper
-                  role_definition_key: gatekeeper
-              steps:
-                - id: builder_step
-                  role_id: builder
-                - id: gatekeeper_step
-                  role_id: gatekeeper
-                  on_pass: finish_run
-                  inputs:
-                    handoffs_from:
-                      - builder_step
-                    evidence_query:
-                      archetypes:
-                        - builder
-                      limit: 4
-            spec:
-              markdown: |
-                # Task
-
-                Prove the installed Loopora Agent entry can guide a short task conversation into a READY bundle, start a managed run, expose runtime activity, and finish through Agent-native step submission.
-
-                # Done When
-
-                - A managed run binding exposes a run URL that is visible while the run is active.
-                - Builder returns a structured result with a proof file for this release-profile probe.
-                - GateKeeper can inspect Builder evidence and cite exact upstream evidence ids.
-
-                # Success Surface
-
-                - Candidate bundle is generated from conversation guidance and validated as READY by Loopora Core.
-                - Managed entry provenance records `/loopora-gen` before `/loopora-loop`.
-                - Runtime activity is observable before terminal completion.
-                - The run finishes through Agent-native claim and submit events for both steps.
-
-                # Guardrails
-
-                - Do not invoke codex, claude, or opencode from inside this Agent session.
-                - Do not invent evidence refs outside known_evidence_ids.
-                - Use the installed Loopora project entry commands, not hand-written direct CLI shortcuts.
-
-                # Fake Done
-
-                - A visible run without Builder evidence is not a task pass.
-                - A GateKeeper pass without exact upstream evidence refs is not a task pass.
-
-                # Evidence Preferences
-
-                - GateKeeper projects the final task verdict into Proven, Weak, Unproven, Blocking, and Residual risk buckets.
-                - Prefer run events, runtime activity, binding provenance, and exact evidence ids over role self-report.
-
-                # Residual Risk
-
-                This release-profile probe accepts only the residual risk that host-native role dispatch is represented by the non-interactive host's available role mechanism.
-            """
-        ).strip()
-        + "\n"
-    )
-
-
 def _wait_for_host_command_with_runtime_monitoring(request: HostCommandMonitorRequest) -> HostCommandMonitorResult:
     deadline = time.monotonic() + request.timeout
     activity_snapshots: list[dict] = []
@@ -1027,7 +882,6 @@ def test_real_agent_host_can_guide_bundle_then_monitor_loop(adapter: str, tmp_pa
     executor_script = _write_custom_executor(workdir)
     bundle_file = workdir / ".loopora" / "agent_inbox" / adapter / "conversation-candidate.yml"
     prompt_file = workdir / "loopora-agent-release-prompt.md"
-    candidate_yaml = _agent_release_bundle_yaml(workdir, executor_script)
     command = ""
     activity_snapshots: list[dict] = []
     prompt_file.write_text(
@@ -1037,14 +891,20 @@ Use the Loopora {_agent_label(adapter)} project entry installed in this workdir.
 
 Current task: prove the installed Loopora Agent entry can guide a short task conversation into a READY bundle, start a managed run, expose runtime activity, and finish through Agent-native step submission.
 
-Author the candidate bundle from the conversation brief below and save it to `{bundle_file}`. Create the parent directory if needed. The pytest harness deliberately does not pre-create this candidate file; this real probe must prove the host can turn conversation guidance into a bundle before invoking `/loopora-gen`.
+Author the candidate bundle from the conversation brief below and save it to `{bundle_file}`. Create the parent directory if needed. The pytest harness deliberately does not pre-create or prewrite this candidate file; this real probe must prove the host can turn conversation guidance into a bundle before invoking `/loopora-gen`.
 
 Before invoking anything, read these installed project entry files: `{_entry_file_hint(adapter)}`. Use them as the only source for shell command syntax, and preserve their provenance markers exactly.
 
-The conversation has converged on this canonical candidate bundle draft. Save the YAML between the fences exactly to `{bundle_file}` before invoking `/loopora-gen`. The saved file must not include Markdown fences or prose.
+Use these requirements to author, not copy, the candidate:
 
-```yaml
-{candidate_yaml}```
+- Produce one raw `version: 1` Loopora bundle file, with no Markdown fences or prose outside YAML.
+- Use `completion_mode: gatekeeper`, `executor_kind: custom`, `executor_mode: command`, `command_cli: {sys.executable}`, and this executor script for both the loop defaults and the role definitions: `{executor_script}`.
+- The Builder command args must pass the executor script, the literal role `builder`, `{{output_path}}`, and `{{prompt}}`; the GateKeeper command args must pass the executor script, the literal role `gatekeeper`, `{{output_path}}`, and `{{prompt}}`.
+- Keep the workflow minimal and explicit: `builder_step` runs first; `gatekeeper_step` reads `handoffs_from: [builder_step]`, queries Builder evidence, and uses `on_pass: finish_run`.
+- The Builder role must create `loopora-agent-release-proof.json` and return it in `proof_files`.
+- The GateKeeper role must cite only exact upstream Builder evidence ids from `known_evidence_ids`, use `covered` as the coverage status for satisfied targets, and keep Proven, Weak, Unproven, Blocking, and Residual risk as verdict bucket prose.
+- The spec must include Task, Done When, Success Surface, Guardrails, Fake Done, Evidence Preferences, and Residual Risk sections covering managed entry provenance, runtime visibility, Builder proof evidence, GateKeeper exact evidence refs, task verdict buckets, no nested host CLI, and the limited residual risk of non-interactive host-native role dispatch.
+- The user-facing bundle prose should say this is a release-profile probe for conversation-guided bundle generation, managed run binding, runtime activity, and Agent-native submission. Do not reduce it to a generic smoke test.
 
 Required order:
 

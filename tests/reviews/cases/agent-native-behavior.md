@@ -16,8 +16,9 @@ targets:
     globs:
       - design/detailed-design/10-agent-adapters.md
       - tests/probes/real_environment/README.md
+      - tests/probes/real_environment/test_real_agent_adapter_probe.py
       - tests/probes/real_environment/run_real_probes.py
-    max_bytes_per_file: 10000
+    max_bytes_per_file: 48000
   - id: agent-native-risk-hints
     type: term_hints
     title: Agent-native shortcut-risk hints

@@ -31,7 +31,7 @@ Loopora 的稳定主工作流是：
 - `Loop` 是默认用户主对象；“循环方案”可以作为中文解释，但文档应避免让 bundle/YAML 看起来比 Loop 更核心。
 - `bundle`、YAML、READY、Bundle ID 是交换、状态或调试对象，不是默认用户概念。
 - `spec / roles / workflow` 是专家可见的 Loop 运行面；默认用户不需要先理解它们才能开始，但所有默认结论都必须能追溯到这些运行面如何承载人类判断。
-- README 这类 first-use 文档可以把方案文件解释成任务契约、Agent 责任、运行流程、证据规则和裁决规则五个面向阅读的判断面；这是 `spec / roles / workflow / evidence` 加 Loop 裁决投影的用户理解层，不是第五个运行期治理 surface。Human-Shaped Loop 文章可以为了叙事可读性把 Agent 责任与运行流程压缩成“执行姿态”一个概念面，但必须说明这是概念压缩，不是另一套 runtime surface。
+- README 这类 first-use 文档可以把方案文件解释成任务契约、Agent 责任、执行策略、运行流程、证据规则和裁决规则这些面向阅读的判断面；这是 `spec / roles / workflow / evidence` 加 Loop 裁决投影的用户理解层，不是新的运行期治理 surface。Human-Shaped Loop 文章可以为了叙事可读性把 Agent 责任与运行流程压缩成“执行策略”一个概念面，但必须说明这是概念压缩，不是另一套 runtime surface；面向中文公开读者时应优先使用“运行契约、任务包、任务判断、必需证据覆盖、运行状态、任务裁决”等读者级语言，而不是把内部字段名或英文实现词当作理念解释的核心。
 - “对话改进方案”是用户主动调整 Loop 的一种场景，不是 run 完成后的默认阶段。
 - 运行状态与 Loop 裁决必须分开表达；`run succeeded` 不能被界面暗示为“Loop 已证明完成”。
 
@@ -46,9 +46,9 @@ Loopora 的稳定主工作流是：
 | 主工作流 | `iteration` | run 内部的一轮角色执行和证据积累。 |
 | 主工作流 | `run status` | 系统执行生命周期状态，例如运行中、成功结束、失败、停止或超时。 |
 | 主工作流 | `task verdict` | 基于 evidence 对 Loop 达标程度的裁决，例如通过、未通过、证据不足或带残余风险通过。 |
-| 治理 surface | `spec` | 任务契约、成功面、假完成风险、guardrails、证据偏好与残余风险。 |
-| 治理 surface | `role definitions` / `roles` | 各角色在本任务中的构建、取证、裁决、纠偏姿态。 |
-| 治理 surface | `workflow` | 步骤顺序、handoff、fan-out / fan-in、controls 与收束方式。 |
+| 治理 surface | `spec` | 任务契约、成功面、假完成风险、guardrails、证据偏好、残余风险政策、执行优先级与判断取舍。 |
+| 治理 surface | `role definitions` / `roles` | 各角色在本任务中的构建、取证、裁决、纠偏姿态，以及适用的本地治理责任。 |
+| 治理 surface | `workflow` | 步骤顺序、handoff、fan-out / fan-in、证据流、controls、本地治理检查点与收束方式。 |
 | 证据 surface | `evidence` | ledger、coverage、artifact refs 与裁决事实源。 |
 | 打包与交换 | `bundle` | 单文件 YAML 交换单元，承载完整 Loop 编排、metadata 与来源关系。 |
 | 编排资产 | `orchestration` | 可复用 workflow 与 prompt 资产边界。 |
@@ -163,8 +163,8 @@ Loopora 的稳定主工作流是：
 | `GateKeeper` vs `roles` | roles 是集合 / surface；GateKeeper 是其中一种 role archetype，也可在 workflow 和 evidence 中形成 step / verdict 投影。 |
 | READY vs imported | READY 只表示 bundle 文件存在且通过校验；不表示已经导入、创建 Loop 或启动 run。 |
 | `workflow` vs `orchestration` | workflow 是角色与步骤结构；orchestration 是可复用资产边界。 |
-| `spec` vs `workflow` | spec 冻结任务契约、成功面、假完成、证据偏好和边界；workflow 决定判断顺序、handoff 和收束方式。 |
-| 方案文件五个判断面 vs runtime surface | 五个判断面是面向新用户的阅读投影；运行期契约仍是 `spec / roles / workflow / evidence`，裁决规则落在 workflow / GateKeeper 收束语义和证据支持的 Loop 裁决里。 |
+| `spec` vs `workflow` | spec 冻结任务契约、成功面、假完成、证据偏好、残余风险政策、执行优先级、判断取舍和边界；workflow 决定判断顺序、handoff、证据流、本地治理检查点和收束方式。 |
+| 方案文件判断面 vs runtime surface | 这些判断面是面向新用户的阅读投影；运行期契约仍是 `spec / roles / workflow / evidence`，执行策略落在 `spec / roles / workflow` 的优先级语言里，裁决规则落在 workflow / GateKeeper 收束语义和证据支持的 Loop 裁决里。 |
 | `posture` vs `contract` | posture 是本任务里用户如何判断风险和证据的信号；它必须投影到 `spec / roles / workflow`，不能在 run 内静默改写已确认 contract。 |
 | `evidence ledger` vs 日志 | evidence ledger 是裁决和证据结论的证明事实源；日志、事件和 raw output 是追溯材料。 |
 | `run status` vs `task verdict` | run status 说明系统生命周期是否结束；task verdict 说明证据是否证明 Loop 达标。 |

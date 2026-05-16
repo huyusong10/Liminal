@@ -564,6 +564,9 @@ def test_legacy_runtime_prompts_treat_run_contract_as_frozen(service_factory, tm
 
     for prompt in prompts:
         assert "Treat the run contract as frozen" in prompt
-        assert "do not reinterpret or lower the Task, Done When, checks, guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk" in prompt
+        assert (
+            "do not reinterpret or lower the Task, Done When, checks, guardrails, bundle collaboration summary, Loopora fit, workflow intent, role posture, "
+            "Success Surface, Fake Done, Evidence Preferences, Execution Strategy, Judgment Tradeoffs, Local Governance, or Residual Risk"
+        ) in prompt
         assert "evidence gap, blocker, or Loop-adjustment recommendation" in prompt
         assert "project-local instructions, design docs, and tests" in prompt

@@ -7,10 +7,9 @@ from loopora.context_flow import (
     StepContextPacketRequest,
     build_step_context_packet,
     normalize_manifest_claim_coverage_targets,
-    output_contract_prompt,
     render_step_prompt,
-    system_prompt_prefix,
 )
+from loopora.evidence_coverage import load_or_build_evidence_coverage_projection, summarize_evidence_coverage_projection
 from loopora.executor import CodexExecutor, RoleRequest, coerce_reasoning_effort, normalize_reasoning_effort, validate_command_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode
 from loopora.recovery import RetryConfig
@@ -22,7 +21,6 @@ from loopora.structured_numbers import structured_non_negative_int
 from loopora.utils import read_json, write_json
 from loopora.workflows import (
     WorkflowError,
-    default_step_action_policy,
     normalize_step_evidence_limit,
     role_uses_execution_snapshot,
 )
@@ -60,17 +58,6 @@ class WorkflowStepRuntimeRequest:
     consecutive_no_required_coverage_delta: int
     retry_config: RetryConfig
     evidence_items_snapshot: list[dict] | None = None
-
-
-@dataclass(frozen=True)
-class StepPromptBuildRequest:
-    role: dict
-    compiled_spec: dict
-    prompt_markdown: str
-    iter_id: int
-    current_outputs_by_role: dict[str, dict]
-    current_outputs_by_archetype: dict[str, dict]
-    previous_outputs_by_archetype: dict[str, dict]
 
 
 def _manifest_prompt_context(layout: RunArtifactLayout, known_ids: list[str]) -> tuple[dict, list[dict]]:
@@ -255,6 +242,10 @@ class ServiceWorkflowRuntimeMixin:
             evidence_items = all_evidence_items[-40:]
             evidence_known_ids = self._evidence_known_ids(all_evidence_items)
         evidence_manifest_summary, evidence_manifest_claims = _manifest_prompt_context(layout, evidence_known_ids)
+        evidence_coverage_summary = summarize_evidence_coverage_projection(
+            load_or_build_evidence_coverage_projection(layout),
+            coverage_path_available=layout.evidence_coverage_path.exists(),
+        )
         context_packet = build_step_context_packet(
             StepContextPacketRequest(
                 run_contract=runtime_request.run_contract,
@@ -275,6 +266,7 @@ class ServiceWorkflowRuntimeMixin:
                 covered_check_count=runtime_request.covered_check_count,
                 missing_check_count=runtime_request.missing_check_count,
                 consecutive_no_required_coverage_delta=runtime_request.consecutive_no_required_coverage_delta,
+                evidence_coverage_summary=evidence_coverage_summary,
                 evidence_items=evidence_items,
                 evidence_known_ids=evidence_known_ids,
                 evidence_manifest_summary=evidence_manifest_summary,
@@ -514,80 +506,6 @@ class ServiceWorkflowRuntimeMixin:
             "extra_cli_args_text": step_extra_cli_args,
         }
 
-    def _build_step_prompt(
-        self,
-        request: StepPromptBuildRequest,
-    ) -> str:
-        prompt_metadata, prompt_body = self._parse_runtime_prompt(
-            request.prompt_markdown,
-            expected_archetype=request.role["archetype"],
-        )
-        return render_step_prompt(
-            role=request.role,
-            prompt_label=str(prompt_metadata.get("label", request.role["name"])),
-            prompt_body=prompt_body,
-            packet={
-                "contract": {
-                    "path": "contract/run_contract.json",
-                    "goal": str(request.compiled_spec.get("goal") or "").strip(),
-                    "constraints": str(request.compiled_spec.get("constraints") or "No explicit constraints were provided.").strip(),
-                    "check_mode": str(request.compiled_spec.get("check_mode") or "specified"),
-                    "check_count": len(request.compiled_spec.get("checks") or []),
-                    "completion_mode": "gatekeeper",
-                    "workflow_preset": "custom",
-                    "workflow_collaboration_intent": "",
-                    "coverage_targets": list(request.compiled_spec.get("coverage_targets") or []),
-                    "success_surface": list(request.compiled_spec.get("success_surface") or []),
-                    "fake_done_states": list(request.compiled_spec.get("fake_done_states") or []),
-                    "evidence_preferences": list(request.compiled_spec.get("evidence_preferences") or []),
-                    "residual_risk": str(request.compiled_spec.get("residual_risk") or "").strip(),
-                },
-                "iteration": {
-                    "iter_index": request.iter_id,
-                    "is_first_iteration": request.iter_id == 0,
-                    "previous_iteration_exists": bool(request.previous_outputs_by_archetype),
-                    "previous_composite": None,
-                    "stagnation_mode": "none",
-                    "evidence_progress_mode": "none",
-                    "covered_check_count": 0,
-                    "missing_check_count": 0,
-                    "consecutive_no_required_coverage_delta": 0,
-                },
-                "current_step": {
-                    "step_id": request.role.get("id") or request.role["name"],
-                    "step_order": 0,
-                    "role_id": request.role.get("id") or request.role["name"],
-                    "role_name": request.role["name"],
-                    "archetype": request.role["archetype"],
-                    "model": "",
-                    "executor_kind": "",
-                    "executor_mode": "",
-                    "parallel_group": "",
-                    "inputs": {},
-                    "action_policy": default_step_action_policy(
-                        archetype=request.role["archetype"],
-                        on_pass="continue",
-                    ),
-                    "control": {},
-                },
-                "upstream": {
-                    "immediate_previous_step": None,
-                    "completed_steps_this_iteration": [],
-                    "previous_iteration_same_step": None,
-                    "previous_iteration_same_role": None,
-                    "previous_iteration_summary": None,
-                },
-                "artifacts": [],
-            },
-            compiled_spec=request.compiled_spec,
-        )
-
-    def _system_prompt_prefix(self, archetype: str) -> str:
-        return system_prompt_prefix(archetype)
-
-    def _output_contract_prompt(self, archetype: str) -> str:
-        return output_contract_prompt(archetype)
-
     def _parse_runtime_prompt(self, prompt_markdown: str, *, expected_archetype: str) -> tuple[dict, str]:
         try:
             from loopora.workflows import validate_prompt_markdown
@@ -595,9 +513,6 @@ class ServiceWorkflowRuntimeMixin:
             return validate_prompt_markdown(prompt_markdown, expected_archetype=expected_archetype)
         except WorkflowError as exc:
             raise LooporaError(str(exc)) from exc
-
-    def _sandbox_for_archetype(self, archetype: str) -> str:
-        return self._sandbox_for_action_policy(default_step_action_policy(archetype=archetype, on_pass="continue"))
 
     def _sandbox_for_action_policy(self, action_policy: dict | None) -> str:
         policy = action_policy if isinstance(action_policy, dict) else {}

@@ -5,49 +5,13 @@
 <section class="hero hero-tight">
   <div class="hero-copy-stack">
     <h1>
-      <span data-lang="zh">把这些顺手工具放在一处，主流程就能少绕弯。</span>
-      <span data-lang="en">Keep the handy side tools together so the main flow stays out of its own way.</span>
+      <span data-lang="zh">先接上 Agent 入口，其余维护工具留在这里。</span>
+      <span data-lang="en">Connect the Agent entry first; keep the maintenance tools here.</span>
     </h1>
     <p>
-      <span data-lang="zh">这里放运行辅助和本机维护，让 Loop 主流程保持清爽。</span>
-      <span data-lang="en">This is where run helpers and local maintenance live, so the main workflow can stay out of its own way.</span>
+      <span data-lang="zh">默认从当前 Coding Agent 开始；防休眠和本机资产健康放在后面，服务需要时再打开。</span>
+      <span data-lang="en">Start from the Coding Agent you already use; wake lock and local asset health sit below for when they are needed.</span>
     </p>
-  </div>
-</section>
-
-<section class="panel">
-  <header class="panel-header">
-    <div class="tools-heading">
-      <h2><span data-lang="zh">防止自动休眠</span><span data-lang="en">Keep This Screen Awake</span></h2>
-      <button
-        class="help-dot help-dot--tips"
-        type="button"
-        data-title-zh="只会在检测到有运行正在执行时请求浏览器保持屏幕唤醒，没有运行中的 Loop 会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收防休眠锁，页面也会在重新可见后自动重试。"
-        data-title-en="The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock."
-        aria-label="{{ '查看提示：只会在检测到有运行正在执行时请求浏览器保持屏幕唤醒，没有运行中的 Loop 会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收防休眠锁，页面也会在重新可见后自动重试。' if page_locale == 'zh' else 'Show tip: The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock.' }}"
-      >i</button>
-    </div>
-  </header>
-  <div class="wake-lock-panel" id="wake-lock-panel">
-    <label class="checkbox-row wake-lock-toggle-row" for="wake-lock-toggle">
-      <input id="wake-lock-toggle" type="checkbox" />
-      <span>
-        <span data-lang="zh">运行中防休眠</span>
-        <span data-lang="en">Prevent sleep while running</span>
-      </span>
-    </label>
-    <div class="wake-lock-summary" id="wake-lock-summary">
-      <span class="wake-lock-pill wake-lock-pill-neutral" id="wake-lock-runtime-pill">
-        <span data-lang="zh">正在读取运行状态…</span>
-        <span data-lang="en">Loading run activity…</span>
-      </span>
-      <span class="wake-lock-pill wake-lock-pill-neutral" id="wake-lock-hold-pill">
-        <span data-lang="zh">尚未持有防休眠锁</span>
-        <span data-lang="en">Wake lock not held</span>
-      </span>
-    </div>
-    <div class="field-status" id="wake-lock-status" hidden></div>
-    <div class="wake-lock-runs" id="wake-lock-runs"></div>
   </div>
 </section>
 
@@ -63,8 +27,8 @@
   </header>
   <div class="agent-adapter-target">
     <label for="agent-adapter-workdir">
-      <span data-lang="zh">目标项目目录</span>
-      <span data-lang="en">Target project directory</span>
+      <span data-lang="zh">Agent 工作项目目录</span>
+      <span data-lang="en">Agent working project directory</span>
     </label>
     <div class="input-with-action">
       <input
@@ -72,7 +36,7 @@
         type="text"
         autocomplete="off"
         spellcheck="false"
-        placeholder="{{ '留空则使用服务当前目录' if page_locale == 'zh' else 'Leave blank to use the server current directory' }}"
+        placeholder="{{ '填写 Agent 将要工作的项目目录' if page_locale == 'zh' else 'Path to the project where the Agent will work' }}"
         data-testid="agent-adapter-workdir"
       />
       <button class="ghost-button" type="button" data-testid="agent-adapter-refresh">
@@ -80,6 +44,20 @@
         <span data-lang="en">Refresh</span>
       </button>
     </div>
+    <p class="agent-adapter-target-note" id="agent-adapter-target-note" data-testid="agent-adapter-target-note" aria-live="polite">
+      <span data-lang="zh">通常填写你会运行 Codex、Claude Code 或 OpenCode 的项目目录；只有服务已从目标项目启动时才适合留空。</span>
+      <span data-lang="en">Usually set the project directory where you will run Codex, Claude Code, or OpenCode; leave blank only when the server was started from that target project.</span>
+    </p>
+  </div>
+  <div class="agent-adapter-next-steps" data-testid="agent-adapter-next-steps">
+    <strong>
+      <span data-lang="zh">安装后</span>
+      <span data-lang="en">After install</span>
+    </strong>
+    <span>
+      <span data-lang="zh">回到对应 Agent，在当前任务里先运行 <code>/loopora-gen</code>；审查预览后再运行 <code>/loopora-loop</code>。</span>
+      <span data-lang="en">Return to that Agent, run <code>/loopora-gen</code> for the current task, then run <code>/loopora-loop</code> after reviewing the preview.</span>
+    </span>
   </div>
   <div class="agent-adapter-grid" id="agent-adapter-grid" data-testid="agent-adapter-grid">
     <article class="agent-adapter-card" data-agent-adapter="codex" data-testid="agent-adapter-codex">
@@ -159,6 +137,42 @@
     </article>
   </div>
   <div class="field-status" id="agent-adapter-status" data-testid="agent-adapter-status" hidden></div>
+</section>
+
+<section class="panel" data-testid="wake-lock-panel-section">
+  <header class="panel-header">
+    <div class="tools-heading">
+      <h2><span data-lang="zh">防止自动休眠</span><span data-lang="en">Keep This Screen Awake</span></h2>
+      <button
+        class="help-dot help-dot--tips"
+        type="button"
+        data-title-zh="只会在检测到有运行正在执行时请求浏览器保持屏幕唤醒，没有运行中的 Loop 会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收防休眠锁，页面也会在重新可见后自动重试。"
+        data-title-en="The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock."
+        aria-label="{{ '查看提示：只会在检测到有运行正在执行时请求浏览器保持屏幕唤醒，没有运行中的 Loop 会自动释放。保持这个工具页标签可见时更稳；如果浏览器或系统回收防休眠锁，页面也会在重新可见后自动重试。' if page_locale == 'zh' else 'Show tip: The page only requests a wake lock while a run is actively executing, and releases it automatically when nothing is running. It works best while this Tools tab stays visible, and retries automatically if the browser or system releases the wake lock.' }}"
+      >i</button>
+    </div>
+  </header>
+  <div class="wake-lock-panel" id="wake-lock-panel">
+    <label class="checkbox-row wake-lock-toggle-row" for="wake-lock-toggle">
+      <input id="wake-lock-toggle" type="checkbox" />
+      <span>
+        <span data-lang="zh">运行中防休眠</span>
+        <span data-lang="en">Prevent sleep while running</span>
+      </span>
+    </label>
+    <div class="wake-lock-summary" id="wake-lock-summary">
+      <span class="wake-lock-pill wake-lock-pill-neutral" id="wake-lock-runtime-pill">
+        <span data-lang="zh">正在读取运行状态…</span>
+        <span data-lang="en">Loading run activity…</span>
+      </span>
+      <span class="wake-lock-pill wake-lock-pill-neutral" id="wake-lock-hold-pill">
+        <span data-lang="zh">尚未持有防休眠锁</span>
+        <span data-lang="en">Wake lock not held</span>
+      </span>
+    </div>
+    <div class="field-status" id="wake-lock-status" hidden></div>
+    <div class="wake-lock-runs" id="wake-lock-runs"></div>
+  </div>
 </section>
 
 <section class="panel" data-testid="local-assets-diagnostics-panel">

@@ -21,6 +21,7 @@ from loopora.run_takeaways import (
     build_minimal_run_takeaway_projection,
     build_role_takeaway_from_handoff,
     display_iter,
+    empty_judgment_contract,
     normalize_run_takeaway_projection_shape,
 )
 from loopora.providers import CLAUDE_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL
@@ -106,6 +107,28 @@ def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
             "event_type": "run_result_accepted",
             "created_at": "2026-05-05T00:00:03Z",
             "payload": {"status": "succeeded", "task_verdict_status": "passed"},
+        }
+    )
+    accepted_with_judgment = _format_timeline_event(
+        {
+            "id": 5,
+            "event_type": "run_result_accepted",
+            "created_at": "2026-05-05T00:00:04Z",
+            "payload": {
+                "status": "succeeded",
+                "task_verdict_status": "passed",
+                "run_contract_path": "contract/run_contract.json",
+                "judgment_contract_summary": "Prefer proof before closure.",
+                "loop_fit_reasons": ["Future rounds keep proof alive."],
+                "execution_strategy": ["Prove the contract before polish."],
+                "local_governance": ["GateKeeper treats skipped AGENTS.md obligations as Blocking."],
+                "role_postures": ["GateKeeper: Fail closed when evidence is weak."],
+                "judgment_tradeoffs": ["Proof beats polish."],
+                "success_surface": ["Support admin can approve a refund."],
+                "fake_done_states": ["CSV export without permission audit is fake done."],
+                "evidence_preferences": ["Use browser journey and audit log evidence."],
+                "residual_risk": "No residual risk is acceptable.",
+            },
         }
     )
     malformed_role_summary = _format_timeline_event(
@@ -200,6 +223,15 @@ def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
     assert run_finished["detail"] == "planned rounds completed, task_verdict_status=insufficient_evidence"
     assert accepted["title"] == "Conclusion accepted"
     assert accepted["detail"] == "status=succeeded, task_verdict_status=passed"
+    assert accepted_with_judgment["detail"] == (
+        "status=succeeded, task_verdict_status=passed, judgment=Prefer proof before closure., "
+        "loop_fit=Future rounds keep proof alive., strategy=Prove the contract before polish., "
+        "local_governance=GateKeeper treats skipped AGENTS.md obligations as Blocking., "
+        "role_posture=GateKeeper: Fail closed when evidence is weak., "
+        "tradeoff=Proof beats polish., success=Support admin can approve a refund., "
+        "fake_done=CSV export without permission audit is fake done., "
+        "evidence=Use browser journey and audit log evidence., residual_risk=No residual risk is acceptable."
+    )
 
 
 def test_loop_overview_preserves_residual_risk_task_verdict() -> None:
@@ -357,7 +389,9 @@ def _assert_run_artifact_catalog(client: TestClient, run_id: str) -> None:
     assert artifacts_by_id["original-spec"]["label_zh"] == "原始 Loop 契约"
     assert artifacts_by_id["compiled-spec"]["label_zh"] == "编译后契约"
     assert "假完成风险" in artifacts_by_id["compiled-spec"]["description_zh"]
+    assert "执行策略" in artifacts_by_id["compiled-spec"]["description_zh"]
     assert "Evidence Preferences" in artifacts_by_id["compiled-spec"]["description_en"]
+    assert "Execution Strategy" in artifacts_by_id["compiled-spec"]["description_en"]
     assert "Residual Risk" in artifacts_by_id["compiled-spec"]["description_en"]
     assert artifacts_by_id["workflow-manifest"]["label_zh"] == "流程清单"
     assert "规范证据账本" in artifacts_by_id["evidence-ledger"]["description_zh"]
@@ -415,6 +449,30 @@ def _assert_acceptance_evidence_payload(payload: dict) -> None:
     assert payload["evidence_source_event_id"] > 0
     assert payload["evidence_available"] is True
     assert payload["task_verdict_summary"]
+    _assert_key_takeaway_judgment_contract(payload["judgment_contract"])
+    assert payload["run_contract_path"] == "contract/run_contract.json"
+    assert payload["judgment_contract_summary"] == "Ship the requested behavior."
+    assert payload["check_mode"] == "specified"
+    assert payload["check_count"] == 2
+    assert payload["completion_mode"] == "gatekeeper"
+    assert payload["workflow_preset"]
+    assert any(target["id"] == "done_when.check_001" for target in payload["coverage_targets"])
+    assert any(target["id"] == "gatekeeper.finish" for target in payload["coverage_targets"])
+    assert isinstance(payload["loop_fit_reasons"], list)
+    assert isinstance(payload["execution_strategy"], list)
+    assert payload["execution_strategy"]
+    assert isinstance(payload["local_governance"], list)
+    assert isinstance(payload["role_postures"], list)
+    assert any("Prefer structured run artifacts" in item for item in payload["judgment_tradeoffs"])
+    assert payload["success_surface"] == [
+        "The result remains easy for the next role to verify.",
+        "The surrounding contract stays clear enough to revise safely.",
+    ]
+    assert payload["fake_done_states"] == ["A happy-path-only result that leaves the edge path unverifiable."]
+    assert payload["evidence_preferences"] == [
+        "Prefer structured run artifacts and reproducible checks over role self-report."
+    ]
+    assert payload["residual_risk"] == "Minor copy polish can wait, but unverifiable completion should fail closed."
     assert payload["task_verdict_path"] == "evidence/task_verdict.json"
     assert payload["coverage_path"] == "evidence/coverage.json"
     assert payload["manifest_path"] == "evidence/manifest.json"
@@ -711,6 +769,30 @@ def test_api_loop_creation_run_preview_and_stream(
     _assert_run_event_streaming(client, run_id)
 
 
+def _assert_key_takeaway_judgment_contract(judgment_contract: dict) -> None:
+    assert judgment_contract["contract_path"] == "contract/run_contract.json"
+    assert judgment_contract["goal"] == "Ship the requested behavior."
+    assert judgment_contract["check_mode"] == "specified"
+    assert judgment_contract["check_count"] == 2
+    assert judgment_contract["completion_mode"] == "gatekeeper"
+    assert judgment_contract["workflow_preset"]
+    assert any(target["id"] == "done_when.check_001" for target in judgment_contract["coverage_targets"])
+    assert any(target["id"] == "gatekeeper.finish" for target in judgment_contract["coverage_targets"])
+    assert judgment_contract["success_surface"] == [
+        "The result remains easy for the next role to verify.",
+        "The surrounding contract stays clear enough to revise safely.",
+    ]
+    assert judgment_contract["fake_done_states"] == ["A happy-path-only result that leaves the edge path unverifiable."]
+    assert judgment_contract["evidence_preferences"] == [
+        "Prefer structured run artifacts and reproducible checks over role self-report."
+    ]
+    assert judgment_contract["execution_strategy"]
+    assert isinstance(judgment_contract["local_governance"], list)
+    assert "Prefer structured run artifacts and reproducible checks over role self-report." in judgment_contract["judgment_tradeoffs"]
+    assert any("one coherent attempt that improves the main path" in item for item in judgment_contract["judgment_tradeoffs"])
+    assert judgment_contract["residual_risk"] == "Minor copy polish can wait, but unverifiable completion should fail closed."
+
+
 def test_api_run_key_takeaways_returns_iteration_role_conclusions(
     service_factory,
     sample_spec_file: Path,
@@ -743,6 +825,7 @@ def test_api_run_key_takeaways_returns_iteration_role_conclusions(
     assert payload["task_verdict"]["status"] == "passed"
     assert payload["task_verdict"]["source"] == "gatekeeper"
     assert payload["task_verdict_path"] == "evidence/task_verdict.json"
+    _assert_key_takeaway_judgment_contract(payload["judgment_contract"])
     assert set(payload["evidence_buckets"]) == {"proven", "weak", "unproven", "blocking", "residual_risk"}
     assert payload["iteration_count"] >= 1
     assert payload["role_conclusion_count"] >= 2
@@ -819,6 +902,7 @@ def test_api_run_key_takeaways_tolerates_invalid_utf8_json_artifacts(
     payload = response.json()
     assert payload["evidence_count"] == 0
     assert payload["run_status"] == "succeeded"
+    assert payload["judgment_contract"] == empty_judgment_contract()
 
 
 def test_minimal_run_takeaway_projection_keeps_status_verdict_and_empty_evidence_shape(tmp_path: Path) -> None:
@@ -924,6 +1008,35 @@ def test_takeaway_projection_normalization_does_not_promote_boolean_counts() -> 
                 "direct_proof_claim_count": 2,
                 "problem_count": True,
             },
+            "judgment_contract": {
+                "contract_path": True,
+                "source_bundle": {
+                    "id": "bundle_projection",
+                    "name": "Projection Bundle",
+                    "bundle_sha256": "abc123",
+                    "bundle_bytes": 42,
+                    "bundle_yaml_path": "/tmp/loopora/bundle_projection.yml",
+                },
+                "collaboration_summary": True,
+                "loop_fit_reasons": [False, "Future rounds keep proof alive."],
+                "goal": "  Keep the frozen task visible.  ",
+                "workflow_collaboration_intent": 8,
+                "execution_strategy": [False, "Prove the focused path first."],
+                "local_governance": [False, "GateKeeper treats skipped AGENTS.md evidence as Blocking."],
+                "role_postures": [
+                    {
+                        "role_name": "Builder",
+                        "archetype": "builder",
+                        "posture_notes": "Keep the change narrow and verifiable.",
+                    },
+                    False,
+                ],
+                "judgment_tradeoffs": [False, "Prefer proof before polish."],
+                "success_surface": ["Stable surface", True],
+                "fake_done_states": [False, "Only the happy path"],
+                "evidence_preferences": ["Proof artifact", 3],
+                "residual_risk": "  Minor copy polish.  ",
+            },
             "iteration_count": True,
             "role_conclusion_count": "1",
             "latest_display_iter": True,
@@ -945,6 +1058,28 @@ def test_takeaway_projection_normalization_does_not_promote_boolean_counts() -> 
     assert projection["evidence_manifest"]["artifact_backed_claim_count"] == 0
     assert projection["evidence_manifest"]["direct_proof_claim_count"] == 2
     assert projection["evidence_manifest"]["problem_count"] == 0
+    assert projection["judgment_contract"]["contract_path"] == ""
+    assert projection["judgment_contract"]["source_bundle"]["id"] == "bundle_projection"
+    assert projection["judgment_contract"]["source_bundle"]["bundle_sha256"] == "abc123"
+    assert projection["judgment_contract"]["source_bundle"]["bundle_bytes"] == 42
+    assert projection["judgment_contract"]["source_bundle"]["bundle_yaml_path"] == "/tmp/loopora/bundle_projection.yml"
+    assert projection["judgment_contract"]["collaboration_summary"] == ""
+    assert projection["judgment_contract"]["loop_fit_reasons"] == ["Future rounds keep proof alive."]
+    assert projection["judgment_contract"]["goal"] == "Keep the frozen task visible."
+    assert projection["judgment_contract"]["check_mode"] == ""
+    assert projection["judgment_contract"]["check_count"] == 0
+    assert projection["judgment_contract"]["completion_mode"] == ""
+    assert projection["judgment_contract"]["workflow_preset"] == ""
+    assert projection["judgment_contract"]["workflow_collaboration_intent"] == ""
+    assert projection["judgment_contract"]["execution_strategy"] == ["Prove the focused path first."]
+    assert projection["judgment_contract"]["local_governance"] == ["GateKeeper treats skipped AGENTS.md evidence as Blocking."]
+    assert projection["judgment_contract"]["role_postures"] == ["Builder: Keep the change narrow and verifiable."]
+    assert projection["judgment_contract"]["judgment_tradeoffs"] == ["Prefer proof before polish."]
+    assert projection["judgment_contract"]["coverage_targets"] == []
+    assert projection["judgment_contract"]["success_surface"] == ["Stable surface"]
+    assert projection["judgment_contract"]["fake_done_states"] == ["Only the happy path"]
+    assert projection["judgment_contract"]["evidence_preferences"] == ["Proof artifact"]
+    assert projection["judgment_contract"]["residual_risk"] == "Minor copy polish."
     assert projection["iteration_count"] == 0
     assert projection["role_conclusion_count"] == 0
     assert projection["latest_display_iter"] is None
@@ -2111,6 +2246,23 @@ def test_run_accept_result_keeps_audit_shape_when_evidence_summary_is_unavailabl
     assert payload["evidence_source_event_id"] < accepted_event["id"]
     assert payload["evidence_available"] is False
     assert payload["evidence_error"] == "acceptance_evidence_unavailable"
+    assert payload["judgment_contract"] == empty_judgment_contract()
+    assert payload["run_contract_path"] == ""
+    assert payload["judgment_contract_summary"] == ""
+    assert payload["check_mode"] == ""
+    assert payload["check_count"] == 0
+    assert payload["completion_mode"] == ""
+    assert payload["workflow_preset"] == ""
+    assert payload["coverage_targets"] == []
+    assert payload["loop_fit_reasons"] == []
+    assert payload["execution_strategy"] == []
+    assert payload["local_governance"] == []
+    assert payload["role_postures"] == []
+    assert payload["judgment_tradeoffs"] == []
+    assert payload["success_surface"] == []
+    assert payload["fake_done_states"] == []
+    assert payload["evidence_preferences"] == []
+    assert payload["residual_risk"] == ""
     assert payload["task_verdict_path"] == ""
     assert payload["coverage_path"] == ""
     assert payload["manifest_path"] == ""
@@ -3281,6 +3433,34 @@ Inspect release work instead.
     assert delete_response.json()["deleted"] is True
 
 
+def _assert_bundle_preview_control_summary(preview: dict) -> None:
+    preview_control_summary = preview["control_summary"]
+    assert preview_control_summary["gatekeeper"]["requires_evidence_refs"] is True
+    assert preview_control_summary["coverage"]["check_count"] >= 1
+    assert preview_control_summary["coverage"]["target_count"] >= preview_control_summary["coverage"]["check_count"]
+    assert isinstance(preview_control_summary["loop_fit_reasons"], list)
+    assert preview_control_summary["residual_risk_policy"] and preview_control_summary["role_postures"]
+    assert "traceability" in preview_control_summary
+    assert preview["traceability"] == preview_control_summary["traceability"]
+    assert isinstance(preview["traceability"]["items"], list)
+    assert preview["traceability"]["required_count"] >= preview["traceability"]["mapped_count"] >= 0
+    assert preview["diagnostics"] == preview_control_summary["diagnostics"]
+    assert isinstance(preview["diagnostics"], list)
+
+
+def _assert_bundle_governance_summary(governance_summary: dict) -> None:
+    assert governance_summary["workflow_step_count"] >= 1
+    assert (
+        governance_summary["residual_risk_policy"]
+        and governance_summary["execution_strategy"]
+        and governance_summary["role_postures"]
+    )
+    assert governance_summary["coverage_summary"]
+    assert governance_summary["coverage_targets"]
+    assert isinstance(governance_summary["loop_fit_reasons"], list)
+    assert governance_summary["gatekeeper"]["strictness"] == "evidence_refs_required"
+
+
 def test_api_bundles_import_export_and_delete(
     service_factory,
     sample_spec_file: Path,
@@ -3319,6 +3499,7 @@ def test_api_bundles_import_export_and_delete(
     assert preview["roles"]
     assert preview["workflow_preview"]["steps"]
     assert preview["spec_rendered_html"].strip()
+    _assert_bundle_preview_control_summary(preview)
 
     import_response = client.post("/api/bundles/import", json={"bundle_yaml": bundle_yaml})
 
@@ -3330,9 +3511,7 @@ def test_api_bundles_import_export_and_delete(
     list_response = client.get("/api/bundles")
     assert list_response.status_code == 200
     listed_bundle = next(item for item in list_response.json() if item["id"] == bundle["id"])
-    governance_summary = listed_bundle["governance_summary"]
-    assert governance_summary["workflow_step_count"] >= 1
-    assert governance_summary["gatekeeper"]["strictness"] == "evidence_refs_required"
+    _assert_bundle_governance_summary(listed_bundle["governance_summary"])
 
     get_response = client.get(f"/api/bundles/{bundle['id']}")
     assert get_response.status_code == 200
@@ -3747,6 +3926,10 @@ def test_bundle_api_and_detail_hide_legacy_lineage_surfaces(
     assert f'data-testid="bundle-governance-card-{imported["id"]}"' in list_response.text
     assert 'data-testid="bundle-governance-failure"' in list_response.text
     assert 'data-testid="bundle-governance-evidence"' in list_response.text
+    assert 'data-testid="bundle-governance-coverage"' in list_response.text
+    assert 'data-testid="bundle-governance-residual-risk"' in list_response.text
+    assert 'data-testid="bundle-governance-execution-strategy"' in list_response.text
+    assert 'data-testid="bundle-governance-local"' in list_response.text
     assert 'data-testid="bundle-governance-workflow"' in list_response.text
     assert 'data-testid="bundle-governance-gatekeeper"' in list_response.text
     assert 'data-testid="bundle-governance-changed-surfaces"' not in list_response.text

@@ -520,6 +520,27 @@ def test_builtin_guide_steps_read_upstream_handoffs_and_evidence() -> None:
             assert inputs["iteration_memory"] == "summary_only"
 
 
+def test_builtin_builder_steps_after_guide_keep_previous_gatekeeper_summary_visible() -> None:
+    for preset in ("triage_first", "repair_loop"):
+        workflow = build_preset_workflow(preset)
+        role_archetypes = {role["id"]: role["archetype"] for role in workflow["roles"]}
+        guide_seen = False
+        builder_after_guide_inputs = []
+        for step in workflow["steps"]:
+            archetype = role_archetypes[step["role_id"]]
+            if archetype == "guide":
+                guide_seen = True
+                continue
+            if archetype == "builder" and guide_seen:
+                builder_after_guide_inputs.append(step["inputs"])
+                guide_seen = False
+
+        assert builder_after_guide_inputs, preset
+        for inputs in builder_after_guide_inputs:
+            assert inputs["handoffs_from"], preset
+            assert inputs["iteration_memory"] == "summary_only"
+
+
 def test_normalize_workflow_preserves_collaboration_intent() -> None:
     workflow = normalize_workflow(
         {

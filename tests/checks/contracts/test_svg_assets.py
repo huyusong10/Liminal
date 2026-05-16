@@ -84,6 +84,16 @@ def test_document_diagrams_keep_accessible_metadata_and_current_palette() -> Non
         assert not leaked_legacy_colors, f"{path.relative_to(ROOT)} uses legacy warm-neutral palette: {leaked_legacy_colors}"
 
 
+def test_judgment_surfaces_diagrams_use_execution_strategy_language() -> None:
+    diagram_en = _read_svg(ROOT / "assets" / "diagrams" / "judgment-surfaces.en.svg")
+    diagram_zh = _read_svg(ROOT / "assets" / "diagrams" / "judgment-surfaces.zh.svg")
+
+    assert "Execution strategy" in diagram_en
+    assert "execution posture" not in diagram_en.lower()
+    assert "执行策略" in diagram_zh
+    assert "执行姿态" not in diagram_zh
+
+
 def test_public_markdown_svg_refs_are_manifested_distribution_assets() -> None:
     manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
 
@@ -119,8 +129,14 @@ def test_plan_judgment_diagrams_keep_table_rows_inside_panel() -> None:
             if rect.attrib.get("x") == "98" and rect.attrib.get("width") == "804"
         ]
 
-        assert len(row_rects) == 5
+        assert len(row_rects) == 6
         assert max(float(rect.attrib["y"]) + float(rect.attrib["height"]) for rect in row_rects) < panel_bottom
+
+        diagram_text = " ".join(node.text or "" for node in root.iter())
+        if locale == "en":
+            assert "Execution strategy" in diagram_text
+        else:
+            assert "执行策略" in diagram_text
 
 
 def test_readme_first_use_docs_describe_plan_files_without_bundle_internals() -> None:
@@ -154,20 +170,28 @@ def test_public_plan_file_judgment_faces_map_to_runtime_contract() -> None:
     for term in (
         "Task contract",
         "Agent responsibilities",
+        "Execution strategy",
         "Run flow",
         "Evidence rules",
         "Verdict rules",
     ):
         assert term in readme_en
 
-    for term in ("任务契约", "Agent 职责", "运行流程", "证据规则", "裁决规则"):
+    for term in ("任务契约", "Agent 职责", "执行策略", "运行流程", "证据规则", "裁决规则"):
         assert term in readme_zh
 
-    for term in ("Task contract", "Agent responsibilities", "Run flow", "Evidence rules", "Verdict rules"):
+    for term in (
+        "Task contract",
+        "Agent responsibilities",
+        "Execution strategy",
+        "Run flow",
+        "Evidence rules",
+        "Verdict rules",
+    ):
         assert term in core_contract
     for anchor in ("`spec`", "`roles`", "`workflow`", "`evidence`", "task verdict projection"):
         assert anchor in core_contract
     assert "not another fact source" in core_contract
-    assert "不是第五个运行期治理 surface" in concept_map
+    assert "不是新的运行期治理 surface" in concept_map
     assert "这是概念压缩，不是另一套 runtime surface" in concept_map
-    assert "不能因此新增第五个运行期事实源" in bundle_design
+    assert "不能因此新增新的运行期事实源" in bundle_design

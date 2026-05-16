@@ -13,7 +13,12 @@ from loopora.db_event_records import RunObservationSnapshotRowsRequest
 from loopora.diagnostics import get_logger, log_event, log_exception
 from loopora.file_previews import preview_existing_path
 from loopora.run_observation_events import PROGRESS_EVENT_TYPES, TAKEAWAY_PROJECTION_EVENT_TYPES, TIMELINE_EVENT_TYPES
-from loopora.run_takeaways import build_minimal_run_takeaway_projection, build_run_key_takeaways, normalize_run_takeaway_projection_shape
+from loopora.run_takeaways import (
+    build_minimal_run_takeaway_projection,
+    build_run_key_takeaways,
+    empty_judgment_contract,
+    normalize_run_takeaway_projection_shape,
+)
 from loopora.service_cleanup_diagnostics import best_effort_rmtree, record_cleanup_failure
 from loopora.service_run_finalization import TerminalRunFinalizationRequest
 from loopora.service_types import ACTIVE_RUN_STATUSES, LooporaConflictError, LooporaError, LooporaNotFoundError, TERMINAL_RUN_STATUSES
@@ -22,6 +27,51 @@ from loopora.structured_numbers import structured_non_negative_int
 logger = get_logger(__name__)
 
 ACCEPTANCE_EVIDENCE_BUCKETS = ("proven", "weak", "unproven", "blocking", "residual_risk")
+
+
+def _acceptance_text(value: object, *, limit: int | None = None) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    if limit is not None:
+        return text[:limit]
+    return text
+
+
+def _acceptance_string_list(judgment_contract: dict, field: str, *, limit: int = 4) -> list[str]:
+    values = judgment_contract.get(field)
+    if not isinstance(values, list):
+        return []
+    items = [value.strip() for value in values if isinstance(value, str) and value.strip()]
+    return items[:limit]
+
+
+def _acceptance_coverage_targets(judgment_contract: dict, *, limit: int = 40) -> list[dict]:
+    values = judgment_contract.get("coverage_targets")
+    if not isinstance(values, list):
+        return []
+    return [dict(value) for value in values if isinstance(value, dict)][:limit]
+
+
+def _acceptance_judgment_summary(judgment_contract: dict) -> str:
+    for field in ("collaboration_summary", "goal", "workflow_collaboration_intent", "residual_risk"):
+        value = _acceptance_text(judgment_contract.get(field), limit=240)
+        if value:
+            return value
+    for field in (
+        "loop_fit_reasons",
+        "execution_strategy",
+        "local_governance",
+        "role_postures",
+        "judgment_tradeoffs",
+        "success_surface",
+        "fake_done_states",
+        "evidence_preferences",
+    ):
+        values = _acceptance_string_list(judgment_contract, field, limit=1)
+        if values:
+            return values[0][:240]
+    return ""
 
 
 class ServiceRunLifecycleMixin:
@@ -204,12 +254,32 @@ class ServiceRunLifecycleMixin:
             )
         evidence_coverage = takeaways.get("evidence_coverage") if isinstance(takeaways.get("evidence_coverage"), dict) else {}
         evidence_manifest = takeaways.get("evidence_manifest") if isinstance(takeaways.get("evidence_manifest"), dict) else {}
+        judgment_contract = takeaways.get("judgment_contract") if isinstance(takeaways.get("judgment_contract"), dict) else empty_judgment_contract()
+        source_bundle = judgment_contract.get("source_bundle") if isinstance(judgment_contract.get("source_bundle"), dict) else {}
         buckets = takeaways.get("evidence_buckets") if isinstance(takeaways.get("evidence_buckets"), dict) else {}
         bucket_counts = {bucket: 0 for bucket in ACCEPTANCE_EVIDENCE_BUCKETS}
         bucket_counts.update({bucket: len(items) for bucket, items in buckets.items() if isinstance(bucket, str) and isinstance(items, list)})
         return {
             "evidence_source_event_id": structured_non_negative_int(evidence_source_event_id),
             "evidence_available": True,
+            "judgment_contract": dict(judgment_contract),
+            "source_bundle": dict(source_bundle),
+            "run_contract_path": _acceptance_text(judgment_contract.get("contract_path")),
+            "judgment_contract_summary": _acceptance_judgment_summary(judgment_contract),
+            "check_mode": _acceptance_text(judgment_contract.get("check_mode")),
+            "check_count": structured_non_negative_int(judgment_contract.get("check_count")),
+            "completion_mode": _acceptance_text(judgment_contract.get("completion_mode")),
+            "workflow_preset": _acceptance_text(judgment_contract.get("workflow_preset")),
+            "coverage_targets": _acceptance_coverage_targets(judgment_contract),
+            "loop_fit_reasons": _acceptance_string_list(judgment_contract, "loop_fit_reasons"),
+            "execution_strategy": _acceptance_string_list(judgment_contract, "execution_strategy"),
+            "local_governance": _acceptance_string_list(judgment_contract, "local_governance"),
+            "role_postures": _acceptance_string_list(judgment_contract, "role_postures", limit=6),
+            "judgment_tradeoffs": _acceptance_string_list(judgment_contract, "judgment_tradeoffs"),
+            "success_surface": _acceptance_string_list(judgment_contract, "success_surface"),
+            "fake_done_states": _acceptance_string_list(judgment_contract, "fake_done_states"),
+            "evidence_preferences": _acceptance_string_list(judgment_contract, "evidence_preferences"),
+            "residual_risk": _acceptance_text(judgment_contract.get("residual_risk"), limit=600),
             "task_verdict_path": str(takeaways.get("task_verdict_path") or ""),
             "coverage_path": str(evidence_coverage.get("coverage_path") or ""),
             "coverage_status": str(evidence_coverage.get("status") or ""),
@@ -224,6 +294,24 @@ class ServiceRunLifecycleMixin:
             "evidence_source_event_id": structured_non_negative_int(evidence_source_event_id),
             "evidence_available": evidence_available,
             "evidence_error": "acceptance_evidence_unavailable",
+            "judgment_contract": empty_judgment_contract(),
+            "source_bundle": {},
+            "run_contract_path": "",
+            "judgment_contract_summary": "",
+            "check_mode": "",
+            "check_count": 0,
+            "completion_mode": "",
+            "workflow_preset": "",
+            "coverage_targets": [],
+            "loop_fit_reasons": [],
+            "execution_strategy": [],
+            "local_governance": [],
+            "role_postures": [],
+            "judgment_tradeoffs": [],
+            "success_surface": [],
+            "fake_done_states": [],
+            "evidence_preferences": [],
+            "residual_risk": "",
             "task_verdict_path": "",
             "coverage_path": "",
             "coverage_status": "",

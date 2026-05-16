@@ -26,38 +26,46 @@ def _result_error_text(result) -> str:
         return result.output
 
 
-def test_cli_package_exposes_loopora_console_script() -> None:
-    console_scripts = {
-        entry_point.name: entry_point.value
-        for entry_point in distribution("loopora").entry_points
-        if entry_point.group == "console_scripts"
-    }
-
-    assert console_scripts["loopora"] == "loopora.cli:app"
-
-
-def test_readme_first_use_commands_match_cli_entries() -> None:
-    root = Path(__file__).resolve().parents[3]
-    readmes = [
-        (root / "README.md").read_text(encoding="utf-8"),
-        (root / "README.zh-CN.md").read_text(encoding="utf-8"),
-    ]
-    agent_first_design = (root / "design" / "core-ideas" / "agent-first-loopora.md").read_text(encoding="utf-8")
-    product_principle = (root / "design" / "core-ideas" / "product-principle.md").read_text(encoding="utf-8")
-    core_contract = (root / "design" / "core-ideas" / "core-contract.md").read_text(encoding="utf-8")
-    web_alignment_design = (root / "design" / "detailed-design" / "09-web-bundle-alignment.md").read_text(
-        encoding="utf-8"
-    )
-    governance_scenario = (root / "tests" / "scenarios" / "long_running_governance_loop.md").read_text(
-        encoding="utf-8"
-    )
-    documented_adapters = [set(re.findall(r"\bloopora init ([a-z]+)\b", readme)) for readme in readmes]
-
+def _assert_readme_entry_points(readmes: list[str], documented_adapters: list[set[str]]) -> None:
     assert documented_adapters == [{"codex", "claude", "opencode"}, {"codex", "claude", "opencode"}]
     assert all("loopora serve " in readme for readme in readmes)
-    assert "After you review or adjust it, run `/loopora-loop`" in readmes[0]
-    assert "审查或调整后运行 `/loopora-loop`" in readmes[1]
+    assert "After the preview looks right, run `/loopora-loop`" in readmes[0]
+    assert "预览看起来正确后，运行 `/loopora-loop`" in readmes[1]
     assert all("confirmed Loop" not in readme for readme in readmes)
+
+
+def _assert_public_anchor_default_language(
+    english_readme: str,
+    chinese_readme: str,
+    human_shaped_loop_docs: list[str],
+) -> None:
+    readmes = [english_readme, chinese_readme]
+    assert all("judgment_contract" not in readme for readme in readmes)
+    assert all("GateKeeper" not in readme for readme in readmes)
+    assert "automated proof" in english_readme
+    for forbidden in ("benchmark or proof harness", "benchmarks", "proof harness"):
+        assert forbidden not in english_readme
+    assert "基准评测" in chinese_readme
+    assert "证明脚本" in chinese_readme
+    for forbidden in ("benchmark", "proof harness", "required coverage", "run contract"):
+        assert forbidden not in chinese_readme
+    assert "Readers do not need to understand Loopora's internal terms first" in human_shaped_loop_docs[0]
+    assert "读者不需要先理解 Loopora 的内部名词" in human_shaped_loop_docs[1]
+    for doc in human_shaped_loop_docs:
+        for forbidden in ("judgment_contract", "run contract", "step capsule", "GateKeeper", "Builder", "Inspector"):
+            assert forbidden not in doc
+    hsl_intro = human_shaped_loop_docs[1].split("## 2.", 1)[0]
+    for forbidden in ("happy path", "coverage", "artifact 引用", "workflow handoff", "GateKeeper", "blocking issue"):
+        assert forbidden not in hsl_intro
+
+
+def _assert_alignment_language_assets(
+    agent_first_design: str,
+    product_principle: str,
+    core_contract: str,
+    web_alignment_design: str,
+    governance_scenario: str,
+) -> None:
     assert "查看、审查或修改候选 Loop" in agent_first_design
     assert "确认候选 Loop" not in agent_first_design
     assert "我审查并认可 Loop 的任务目标" in product_principle
@@ -72,6 +80,8 @@ def test_readme_first_use_commands_match_cli_entries() -> None:
     assert "明确确认工作约定后进入 READY" in governance_scenario
     assert "确认方案后进入 READY" not in governance_scenario
 
+
+def _assert_documented_cli_entries_available(documented_adapters: list[set[str]]) -> None:
     runner = CliRunner()
     for adapter in sorted(documented_adapters[0]):
         result = runner.invoke(cli.app, ["init", adapter, "--help"])
@@ -79,6 +89,106 @@ def test_readme_first_use_commands_match_cli_entries() -> None:
 
     serve_result = runner.invoke(cli.app, ["serve", "--help"])
     assert serve_result.exit_code == 0, _result_error_text(serve_result)
+
+    help_result = runner.invoke(cli.app, ["--help"])
+    assert help_result.exit_code == 0, _result_error_text(help_result)
+    assert "Start here:" in help_result.stdout
+    assert re.search(r"loopora\s+init\s+codex", help_result.stdout)
+    assert "/loopora-gen" in help_result.stdout
+    assert "/loopora-loop" in help_result.stdout
+    assert help_result.stdout.index("Start here:") < help_result.stdout.index("Expert: create and run")
+    assert help_result.stdout.index("Install /loopora-gen") < help_result.stdout.index(
+        "Expert: create and inspect reusable run flows"
+    )
+
+
+def test_cli_package_exposes_loopora_console_script() -> None:
+    console_scripts = {
+        entry_point.name: entry_point.value
+        for entry_point in distribution("loopora").entry_points
+        if entry_point.group == "console_scripts"
+    }
+
+    assert console_scripts["loopora"] == "loopora.cli:app"
+
+
+def test_readme_first_use_commands_match_cli_entries() -> None:
+    root = Path(__file__).resolve().parents[3]
+    english_readme = (root / "README.md").read_text(encoding="utf-8")
+    chinese_readme = (root / "README.zh-CN.md").read_text(encoding="utf-8")
+    readmes = [english_readme, chinese_readme]
+    human_shaped_loop_docs = [
+        (root / "HUMAN-SHAPED-LOOP.md").read_text(encoding="utf-8"),
+        (root / "HUMAN-SHAPED-LOOP.zh-CN.md").read_text(encoding="utf-8"),
+    ]
+    agent_first_design = (root / "design" / "core-ideas" / "agent-first-loopora.md").read_text(encoding="utf-8")
+    product_principle = (root / "design" / "core-ideas" / "product-principle.md").read_text(encoding="utf-8")
+    core_contract = (root / "design" / "core-ideas" / "core-contract.md").read_text(encoding="utf-8")
+    web_alignment_design = (root / "design" / "detailed-design" / "09-web-bundle-alignment.md").read_text(
+        encoding="utf-8"
+    )
+    governance_scenario = (root / "tests" / "scenarios" / "long_running_governance_loop.md").read_text(
+        encoding="utf-8"
+    )
+    documented_adapters = [set(re.findall(r"\bloopora init ([a-z]+)\b", readme)) for readme in readmes]
+
+    _assert_readme_entry_points(readmes, documented_adapters)
+    _assert_public_anchor_default_language(english_readme, chinese_readme, human_shaped_loop_docs)
+    _assert_alignment_language_assets(
+        agent_first_design,
+        product_principle,
+        core_contract,
+        web_alignment_design,
+        governance_scenario,
+    )
+    _assert_documented_cli_entries_available(documented_adapters)
+
+
+def test_cli_help_keeps_first_use_language_on_plan_files() -> None:
+    runner = CliRunner()
+
+    root_help = runner.invoke(cli.app, ["--help"])
+    assert root_help.exit_code == 0, _result_error_text(root_help)
+    assert "Import, export, and manage Loop plan files" in root_help.stdout
+    assert "Install /loopora-gen and /loopora-loop project entries" in root_help.stdout
+    assert "Remove Loopora-managed Coding Agent project entries" in root_help.stdout
+    assert "Internal runtime used by /loopora-gen and /loopora-loop" in root_help.stdout
+    assert "project entries" in root_help.stdout
+    assert "Import and manage YAML bundles" not in root_help.stdout
+    assert "Coding Agent adapters" not in root_help.stdout
+
+    init_help = runner.invoke(cli.app, ["init", "codex", "--help"])
+    assert init_help.exit_code == 0, _result_error_text(init_help)
+    assert "Install or update the Codex project entry." in init_help.stdout
+    assert "Project directory where the Coding Agent will" in init_help.stdout
+    assert "work." in init_help.stdout
+    assert "adapter" not in init_help.stdout.lower()
+
+    uninstall_help = runner.invoke(cli.app, ["uninstall", "codex", "--help"])
+    assert uninstall_help.exit_code == 0, _result_error_text(uninstall_help)
+    assert "Remove the Loopora-managed Codex project entry." in uninstall_help.stdout
+    assert "Project directory where the Coding Agent will" in uninstall_help.stdout
+    assert "work." in uninstall_help.stdout
+    assert "adapter" not in uninstall_help.stdout.lower()
+
+    agent_help = runner.invoke(cli.app, ["agent", "codex", "gen", "--help"])
+    assert agent_help.exit_code == 0, _result_error_text(agent_help)
+    assert "Validate a generated Loop plan and return the Loop preview URL." in agent_help.stdout
+    assert "Candidate Loop plan file" in agent_help.stdout
+    assert "produced by the Coding Agent." in agent_help.stdout
+    assert "--plan-file" in agent_help.stdout
+    assert "Candidate Loopora bundle YAML" not in agent_help.stdout
+
+    agent_group_help = runner.invoke(cli.app, ["agent", "codex", "--help"])
+    assert agent_group_help.exit_code == 0, _result_error_text(agent_group_help)
+    assert "Internal Codex runtime used by Loopora project entries" in agent_group_help.stdout
+    assert "adapter runtime" not in agent_group_help.stdout.lower()
+
+    import_help = runner.invoke(cli.app, ["bundles", "import", "--help"])
+    assert import_help.exit_code == 0, _result_error_text(import_help)
+    assert "Import one Loop plan file and materialize its run-ready assets." in import_help.stdout
+    assert "Path to a Loop plan file" in import_help.stdout
+    assert "YAML bundle" not in import_help.stdout
 
 
 def test_design_main_workflow_anchors_separate_run_status_and_loop_verdict() -> None:
@@ -117,6 +227,7 @@ def test_interface_design_uses_loop_verdict_for_user_result_surface() -> None:
     interface_design = (root / "design" / "detailed-design" / "05-interfaces.md").read_text(encoding="utf-8")
 
     assert "查看 Loop 裁决后" in interface_design
+    assert "Loopora fit、执行策略、判断取舍、本地治理责任与角色姿态" in interface_design
     assert "evidence verdict" not in interface_design
 
 
@@ -133,6 +244,52 @@ def test_runtime_design_uses_loop_verdict_for_chinese_result_surface() -> None:
         source = path.read_text(encoding="utf-8")
         assert "Loop 裁决" in source, path.name
         assert "任务裁决" not in source, path.name
+
+
+def test_workflow_design_freezes_execution_strategy_in_runtime_contract() -> None:
+    root = Path(__file__).resolve().parents[3]
+    workflow_design = (root / "design" / "detailed-design" / "06-workflow-and-prompts.md").read_text(
+        encoding="utf-8"
+    )
+
+    frozen_fields = (
+        "Task / Done When / Guardrails / Success Surface / Fake Done / Evidence Preferences / "
+        "Execution Strategy / Judgment Tradeoffs / Local Governance / Residual Risk"
+    )
+    assert frozen_fields in workflow_design
+    assert "Evidence Preferences / Judgment Tradeoffs / Local Governance / Residual Risk" not in workflow_design
+    assert "已进入运行责任链的本地治理" in workflow_design
+    assert "形成 Builder 读取、Inspector / Custom 验证、GateKeeper 阻断 / 弱证据处理链路" in workflow_design
+
+
+def test_bundle_alignment_design_traceability_includes_local_governance() -> None:
+    root = Path(__file__).resolve().parents[3]
+    bundle_design = (root / "design" / "detailed-design" / "08-bundles-and-alignment.md").read_text(
+        encoding="utf-8"
+    )
+    web_alignment_design = (root / "design" / "detailed-design" / "09-web-bundle-alignment.md").read_text(
+        encoding="utf-8"
+    )
+    agent_adapter_design = (root / "design" / "detailed-design" / "10-agent-adapters.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "执行策略、残余风险、本地治理责任、判断取舍" in bundle_design
+    assert "本地治理责任不能只停留在 `collaboration_summary`" in bundle_design
+    assert "`spec.markdown` 的 `Role Notes`" in bundle_design
+    assert "本地治理责任没有进入 `Role Notes` / 角色 prompt / posture / `workflow`" in bundle_design
+    assert "残余风险策略只有命名可接受风险及其负责人" in bundle_design
+    assert "本地治理责任的预览卡片只展示已形成 Builder 读取" in bundle_design
+    assert "READY 预览、导入或 Agent-first `/loopora-loop` 启动前必须重新读取当前 canonical `bundle.yml`" in bundle_design
+    assert "旧 `validation.json` 或 DB validation 不能让已被改坏或指向其他目录的文件继续成为候选来源" in bundle_design
+    assert "`spec.markdown` / `Role Notes`" in web_alignment_design
+    assert "空泛风险话术只能暴露为 warning 和 traceability 缺口" in web_alignment_design
+    assert "本地治理责任卡片只展示已形成 Builder 读取" in web_alignment_design
+    assert "READY 预览必须读取当前 canonical `artifacts/bundle.yml`" in web_alignment_design
+    assert "旧 validation 不能让已被改坏或指向其他目录的文件继续成为可改进来源" in web_alignment_design
+    assert "重新读取当前 bundle 文件并执行同一套结构、语义与 traceability 校验" in agent_adapter_design
+    assert "binding 与 alignment session 的 workdir 都等于当前 adapter root" in agent_adapter_design
+    assert "冻结 `judgment_contract` 投影" in agent_adapter_design
 
 
 def test_cli_run_result_separates_run_status_and_task_verdict(capsys, tmp_path: Path) -> None:
@@ -155,6 +312,85 @@ def test_cli_run_result_separates_run_status_and_task_verdict(capsys, tmp_path: 
     assert "task_verdict: insufficient_evidence" in output
     assert "task_verdict_source: rounds_completion" in output
     assert "task_verdict_summary: The run ended, but evidence is still too thin." in output
+
+
+def test_cli_run_result_prints_not_evaluated_when_task_verdict_is_missing(capsys, tmp_path: Path) -> None:
+    print_run_result(
+        {
+            "id": "run_legacy",
+            "status": "succeeded",
+            "run_status": "succeeded",
+            "runs_dir": str(tmp_path / "runs" / "run_legacy"),
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert "run_status: succeeded" in output
+    assert "task_verdict: not_evaluated" in output
+
+
+def test_cli_run_result_prints_frozen_judgment_contract_summary(capsys, tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "runs" / "run_bundle")
+    layout.initialize()
+    layout.run_contract_path.write_text(
+        json.dumps(
+            {
+                "collaboration_summary": "Prefer proof before speed.",
+                "loop_fit_reasons": ["Future rounds keep proof alive."],
+                "judgment_tradeoffs": ["Proof beats speed when closure is uncertain."],
+                "execution_strategy": ["Prove the focused path first, then expand after evidence is strong."],
+                "local_governance": ["GateKeeper treats skipped tests/ evidence as Blocking."],
+                "role_postures": [
+                    {
+                        "role_name": "GateKeeper",
+                        "archetype": "gatekeeper",
+                        "posture_notes": "Fail closed when evidence is weak.",
+                    }
+                ],
+                "completion_mode": "gatekeeper",
+                "workflow": {
+                    "preset": "build_then_parallel_review",
+                    "collaboration_intent": "Builder evidence feeds Inspector review before GateKeeper closure.",
+                },
+                "compiled_spec": {
+                    "goal": "Ship the requested behavior.",
+                    "check_mode": "specified",
+                    "checks": [{"id": "check_001"}, {"id": "check_002"}],
+                    "coverage_targets": [
+                        {"id": "done_when.check_001", "required": True},
+                        {"id": "gatekeeper.finish", "required": True},
+                    ],
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    print_run_result(
+        {
+            "id": "run_bundle",
+            "status": "succeeded",
+            "run_status": "succeeded",
+            "runs_dir": str(layout.run_dir),
+            "task_verdict": {"status": "passed"},
+        }
+    )
+
+    output = capsys.readouterr().out
+    assert f"run_contract_path: {layout.run_contract_path}" in output
+    assert "judgment_contract_summary: Prefer proof before speed." in output
+    assert "check_mode: specified" in output
+    assert "completion_mode: gatekeeper" in output
+    assert "workflow_preset: build_then_parallel_review" in output
+    assert "workflow_collaboration_intent: Builder evidence feeds Inspector review before GateKeeper closure." in output
+    assert "check_count: 2" in output
+    assert 'coverage_targets: ["done_when.check_001 (required)", "gatekeeper.finish (required)"]' in output
+    assert 'loop_fit_reasons: ["Future rounds keep proof alive."]' in output
+    assert 'judgment_tradeoffs: ["Proof beats speed when closure is uncertain."]' in output
+    assert 'execution_strategy: ["Prove the focused path first, then expand after evidence is strong."]' in output
+    assert 'local_governance: ["GateKeeper treats skipped tests/ evidence as Blocking."]' in output
+    assert 'role_postures: ["GateKeeper: Fail closed when evidence is weak."]' in output
 
 
 def test_cli_run_allows_zero_max_iters(monkeypatch, tmp_path: Path) -> None:

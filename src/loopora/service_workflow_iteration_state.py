@@ -6,7 +6,7 @@ from pathlib import Path
 
 from loopora.context_flow import StepEvidenceEntryRequest, StepResultContext, build_step_evidence_entry, build_step_handoff
 from loopora.diagnostics import get_logger, log_event
-from loopora.evidence_coverage import write_evidence_coverage_projection
+from loopora.evidence_coverage import summarize_evidence_coverage_projection, write_evidence_coverage_projection
 from loopora.evidence_manifest import write_evidence_manifest_projection
 from loopora.run_artifacts import append_jsonl_with_mirrors, write_json_with_mirrors
 from loopora.service_run_finalization import TerminalRunFinalizationRequest
@@ -198,8 +198,12 @@ class ServiceWorkflowIterationStateMixin:
             coverage = {}
         if not isinstance(coverage, dict):
             coverage = {}
-        covered_checks = structured_non_negative_int(coverage.get("covered_check_count"))
-        missing_checks = structured_non_negative_int(coverage.get("missing_check_count"))
+        coverage_summary = summarize_evidence_coverage_projection(
+            coverage,
+            coverage_path_available=request.layout.evidence_coverage_path.exists(),
+        )
+        covered_checks = structured_non_negative_int(coverage_summary.get("covered_check_count"))
+        missing_checks = structured_non_negative_int(coverage_summary.get("missing_check_count"))
         raw_recent_counts = stagnation.get("recent_covered_check_counts", [])
         recent_counts = (
             [structured_non_negative_int(item) for item in raw_recent_counts]
@@ -215,8 +219,12 @@ class ServiceWorkflowIterationStateMixin:
         return {
             **stagnation,
             "recent_covered_check_counts": [*recent_counts, covered_checks][-20:],
+            "latest_coverage_status": str(coverage_summary.get("status") or "pending"),
             "latest_covered_check_count": covered_checks,
             "latest_missing_check_count": missing_checks,
+            "latest_covered_check_ids": list(coverage_summary.get("covered_check_ids") or [])[:20],
+            "latest_missing_check_ids": list(coverage_summary.get("missing_check_ids") or [])[:20],
+            "latest_coverage_top_gaps": list(coverage_summary.get("top_gaps") or [])[:5],
             "consecutive_no_required_coverage_delta": consecutive_no_progress,
             "evidence_progress_mode": evidence_progress_mode,
         }

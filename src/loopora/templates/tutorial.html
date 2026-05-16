@@ -12,6 +12,16 @@
         <span data-lang="zh">Loopora 把未来任务中人类本来要反复做的纠偏、质疑、取证、验收和阻断，提前编译成一个可运行的 Loop。模型学习通用能力，Loop 继承当前任务的判断方式。</span>
         <span data-lang="en">Loopora moves the human corrections, doubts, evidence demands, acceptance calls, and blockers that would happen later into a runnable Loop shaped before execution. The model learns general capability; the Loop inherits task-scoped judgment.</span>
       </p>
+      <div class="card-actions tutorial-hero-actions" data-testid="tutorial-hero-actions">
+        <a class="primary-button" href="/tools" data-testid="tutorial-hero-agent-entry-link">
+          <span data-lang="zh">安装 Agent 入口</span>
+          <span data-lang="en">Install Agent entry</span>
+        </a>
+        <a class="ghost-button" href="/loops/new/bundle" data-testid="tutorial-hero-web-compose-link">
+          <span data-lang="zh">Web 对话编排</span>
+          <span data-lang="en">Compose in Web</span>
+        </a>
+      </div>
     </div>
   </section>
 
@@ -28,10 +38,10 @@
         </p>
       </article>
       <article class="tutorial-guide-card" data-testid="tutorial-core-workflow">
-        <strong class="tutorial-guide-title"><span data-lang="zh">姿态为什么不能只写成提示词？</span><span data-lang="en">Why is posture not just a prompt?</span></strong>
+        <strong class="tutorial-guide-title"><span data-lang="zh">判断为什么不能只写成提示词？</span><span data-lang="en">Why is judgment not just a prompt?</span></strong>
         <p>
-          <span data-lang="zh">因为提示词只会影响说法。可运行的判断力必须落到 Loop 契约、角色视角、流程时机和证据规则里，才能在每轮被追问、记录和裁决。</span>
-          <span data-lang="en">Because a prompt only changes the wording. Runnable judgment must land in the Loop contract, role views, workflow timing, and evidence rules so every round can be questioned, recorded, and judged.</span>
+          <span data-lang="zh">因为提示词主要影响下一次回答。可运行的判断必须落到 Loop 契约、角色责任、流程时机和证据规则里，才能在每轮被追问、记录和裁决。</span>
+          <span data-lang="en">Because a prompt mainly shapes the next answer. Runnable judgment must land in the Loop contract, role responsibilities, run-flow timing, and evidence rules so every round can be questioned, recorded, and judged.</span>
         </p>
       </article>
       <article class="tutorial-guide-card" data-testid="tutorial-core-bundle">
@@ -51,7 +61,7 @@
       <article class="tutorial-guide-card" data-testid="tutorial-core-loop">
         <strong class="tutorial-guide-title"><span data-lang="zh">什么时候别开 Loop？</span><span data-lang="en">When should you not open a loop?</span></strong>
         <p>
-          <span data-lang="zh">如果下一轮不会产生新证据，或者一次人工复核就能定案，就别开 Loop。没有治理结构和新证据的 loop 不是收敛器，只是开盲盒。</span>
+          <span data-lang="zh">如果下一轮不会产生新证据，或者一次人工复核就能定案，就别开 Loop。没有治理结构和新证据的 Loop 不是收敛器，只是开盲盒。</span>
           <span data-lang="en">If another round will not create new evidence, or one human review can settle it, do not open a loop. A loop without governance and new evidence is not convergence; it is a blind box.</span>
         </p>
       </article>
@@ -64,11 +74,14 @@
     </header>
     <div class="tutorial-decision-tree-shell">
       <section class="tutorial-decision-tree-canvas" data-testid="tutorial-decision-tree-canvas" aria-label="{{ 'Loopora 使用决策树' if page_locale == 'zh' else 'Loopora decision tree' }}">
-        <div class="tutorial-decision-tree-kicker" data-testid="tutorial-decision-tree-kicker">构建 · 检查 · 守门 · 引导</div>
+        <div class="tutorial-decision-tree-kicker" data-testid="tutorial-decision-tree-kicker">
+          <span data-lang="zh">构建 · 检查 · 守门 · 引导</span>
+          <span data-lang="en">Build · Inspect · Gate · Guide</span>
+        </div>
         <div class="tutorial-decision-tree-intro">
           <span class="tutorial-decision-tree-eyebrow">
             <span data-lang="zh">不要先选流程名。先问未来哪些人类纠偏会反复发生，再问能否把那些判断提前塑形成 Loop。</span>
-            <span data-lang="en">Do not start with workflow names. First ask which human corrections would repeat later, then ask whether those judgments can shape the Loop now.</span>
+            <span data-lang="en">Do not start with flow names. First ask which human corrections would repeat later, then ask whether those judgments can shape the Loop now.</span>
           </span>
           <h3>
             <span data-lang="zh">如果不用 Loopora，人类会回来几次？</span>
@@ -76,7 +89,7 @@
           </h3>
           <p>
             <span data-lang="zh">如果答案是“一次”，别开 Loop。如果答案是“每轮都要回来判断”，才继续往下选流程形状。</span>
-            <span data-lang="en">If the answer is "once", skip the loop. If the answer is "after every round", continue and choose the workflow shape.</span>
+            <span data-lang="en">If the answer is "once", skip the loop. If the answer is "after every round", continue and choose the flow shape.</span>
           </p>
         </div>
         <div class="tutorial-decision-tree-stage">
@@ -122,7 +135,7 @@
               </h4>
               <p>
                 <span data-lang="zh">哪一种回答最能减少下一次人工回场，就选最能暴露它、约束它、留下证据的流程。</span>
-                <span data-lang="en">Choose the workflow that surfaces that answer, constrains it, and leaves evidence for it.</span>
+                <span data-lang="en">Choose the flow that surfaces that answer, constrains it, and leaves evidence for it.</span>
               </p>
             </article>
           </div>
@@ -135,7 +148,7 @@
             </span>
             <span class="tutorial-decision-tree-flow-stack-label">
               <span data-lang="zh">更适合的流程</span>
-              <span data-lang="en">Closer workflow fit</span>
+              <span data-lang="en">Closer flow fit</span>
             </span>
           </div>
           {% for orchestration in builtin_orchestrations %}
@@ -157,10 +170,10 @@
   <section class="panel" data-testid="tutorial-workflow-scenarios-panel">
     <header class="panel-header">
       <div>
-        <h2><span data-lang="zh">如果需要，哪种流程最像这次姿态？</span><span data-lang="en">If it does, which workflow matches this posture?</span></h2>
+        <h2><span data-lang="zh">如果需要，哪种流程最像这次判断？</span><span data-lang="en">If it does, which flow matches this judgment?</span></h2>
         <p class="tutorial-panel-copy">
           <span data-lang="zh">别把流程当静态规则背。它们是复杂判断的几种可运行形状：这次最先稀缺的是完整路径、根因证据、问题切片、二次修复证据，还是最新基准？</span>
-          <span data-lang="en">Do not memorize workflows as static rules. They are runnable shapes for complex judgment: is this task first missing a complete path, root-cause evidence, a narrowed slice, second-pass repair evidence, or the latest benchmark?</span>
+          <span data-lang="en">Do not memorize flows as static rules. They are runnable shapes for complex judgment: is this task first missing a complete path, root-cause evidence, a narrowed slice, second-pass repair evidence, or the latest benchmark?</span>
         </p>
       </div>
     </header>
@@ -188,8 +201,8 @@
           data-testid="tutorial-open-spec-practice-button"
           aria-haspopup="dialog"
         >
-          <span data-lang="zh">看它如何承载姿态</span>
-          <span data-lang="en">See how it carries posture</span>
+          <span data-lang="zh">看它如何承载判断</span>
+          <span data-lang="en">See how it carries judgment</span>
         </button>
       </article>
       {% endfor %}
@@ -221,7 +234,7 @@
       </a>
       <a class="ghost-button" href="/orchestrations" data-testid="tutorial-workflow-examples-link">
         <span data-lang="zh">查看流程样例</span>
-        <span data-lang="en">Browse workflow examples</span>
+        <span data-lang="en">Browse flow examples</span>
       </a>
     </div>
   </section>
@@ -234,10 +247,10 @@
       <div class="spec-preview-header">
         <div class="spec-preview-copy">
           <span class="spec-preview-kicker"><span data-lang="zh">只读参考</span><span data-lang="en">Read-only reference</span></span>
-          <h2 id="tutorial-spec-practice-title"><span data-lang="zh">流程样例</span><span data-lang="en">Workflow example</span></h2>
+          <h2 id="tutorial-spec-practice-title"><span data-lang="zh">流程样例</span><span data-lang="en">Flow example</span></h2>
           <p class="spec-preview-status" id="tutorial-spec-practice-status">
-            <span data-lang="zh">这里展示的是同一个搜索升级项目里的真实长程 Loop 切片：它先问未来哪些人类判断会反复发生，再展示这条流程如何把那种判断变成可运行姿态。</span>
-            <span data-lang="en">This dialog shows a long task slice from the same search rollout: first which human judgments would repeat later, then how this workflow turns that judgment into runnable posture.</span>
+            <span data-lang="zh">这里展示的是同一个搜索升级项目里的真实长程 Loop 切片：它先问未来哪些人类判断会反复发生，再展示这条流程如何把那种判断变成可运行结构。</span>
+            <span data-lang="en">This dialog shows a long task slice from the same search rollout: first which human judgments would repeat later, then how this flow turns that judgment into runnable structure.</span>
           </p>
         </div>
         <div class="card-actions card-actions-compact spec-preview-actions">

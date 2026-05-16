@@ -6,6 +6,7 @@ from typing import Any
 
 from loopora.coverage_target_semantics import coverage_target_is_required
 from loopora.evidence_support import evidence_item_is_non_supporting_gatekeeper_ref, evidence_item_is_supporting_gatekeeper_ref
+from loopora.residual_risk_support import residual_risk_is_meaningful
 from loopora.run_artifacts import RunArtifactLayout, read_jsonl
 from loopora.structured_booleans import structured_bool_is_true
 from loopora.structured_numbers import structured_non_negative_int
@@ -26,21 +27,6 @@ POSITIVE_COVERAGE_STATUSES = {
 }
 WEAK_COVERAGE_STATUSES = {"partial", "weak", "skipped", "unknown", "inconclusive"}
 NEGATIVE_COVERAGE_STATUSES = {"failed", "fail", "error", "errored", "blocked", "rejected", "missing"}
-NO_RESIDUAL_RISK_MARKERS = {
-    "none",
-    "n/a",
-    "na",
-    "no residual risk",
-    "no blocking residual risk",
-    "no blocking residual risk was reported by gatekeeper",
-    "no meaningful residual risk",
-    "无",
-    "无残余风险",
-    "没有残余风险",
-    "没有阻断残余风险",
-}
-
-
 def with_coverage_targets(compiled_spec: Mapping[str, Any], *, completion_mode: str = "gatekeeper") -> dict:
     spec = dict(compiled_spec)
     spec["coverage_targets"] = build_coverage_targets(spec, completion_mode=completion_mode)
@@ -66,6 +52,19 @@ def build_coverage_targets(compiled_spec: Mapping[str, Any], *, completion_mode:
                 "label": title,
                 "text": text,
                 "required": True,
+            }
+        )
+
+    for index, text in enumerate(_string_list(compiled_spec.get("success_surface")), start=1):
+        targets.append(
+            {
+                "id": f"success_surface.surface_{index:03d}",
+                "kind": "success_surface",
+                "source_section": "Success Surface",
+                "source_id": f"surface_{index:03d}",
+                "label": f"Success surface {index}",
+                "text": text,
+                "required": False,
             }
         )
 
@@ -526,7 +525,7 @@ def _safe_int(value: object) -> int:
 
 def _overall_coverage_status(target_state: Mapping[str, dict]) -> str:
     rows = list(target_state.values())
-    if any(coverage_target_is_required(row) and row.get("status") == "blocked" for row in rows):
+    if any(row.get("status") == "blocked" for row in rows):
         return "blocked"
     if any(coverage_target_is_required(row) and row.get("status") != "covered" for row in rows):
         return "partial"
@@ -607,9 +606,4 @@ def _clean_text(value: object, *, max_length: int = 500) -> str:
 
 def _is_meaningful_residual_risk(value: object) -> bool:
     text = _clean_text(value, max_length=240)
-    normalized = text.lower().strip(" .。")
-    if not normalized:
-        return False
-    if normalized in NO_RESIDUAL_RISK_MARKERS:
-        return False
-    return not (normalized.startswith("no ") and "residual risk" in normalized)
+    return residual_risk_is_meaningful(text)

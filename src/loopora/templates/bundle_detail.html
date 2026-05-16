@@ -58,7 +58,41 @@
       {% for item in bundle_traceability_items %}
       <article class="bundle-traceability-row" data-mapped="{{ 'true' if item.mapped else 'false' }}" data-testid="bundle-traceability-item">
         <div>
-          <strong>{{ item.label or item.key }}</strong>
+          <strong>
+            {% if item.key == "loop_fit" %}
+            <span data-lang="zh">Loopora 适配</span><span data-lang="en">Loopora fit</span>
+            {% elif item.key == "collaboration_story" %}
+            <span data-lang="zh">协作判断</span><span data-lang="en">Collaboration</span>
+            {% elif item.key == "task_scope" %}
+            <span data-lang="zh">任务边界</span><span data-lang="en">Task scope</span>
+            {% elif item.key == "success_surface" %}
+            <span data-lang="zh">成功面</span><span data-lang="en">Success</span>
+            {% elif item.key == "fake_done_risks" %}
+            <span data-lang="zh">假完成</span><span data-lang="en">Fake done</span>
+            {% elif item.key == "evidence_preferences" %}
+            <span data-lang="zh">证据偏好</span><span data-lang="en">Evidence</span>
+            {% elif item.key == "coverage_targets" %}
+            <span data-lang="zh">覆盖目标</span><span data-lang="en">Coverage</span>
+            {% elif item.key == "execution_strategy" %}
+            <span data-lang="zh">执行策略</span><span data-lang="en">Execution strategy</span>
+            {% elif item.key == "residual_risk_policy" %}
+            <span data-lang="zh">残余风险</span><span data-lang="en">Risk policy</span>
+            {% elif item.key == "judgment_tradeoffs" %}
+            <span data-lang="zh">判断取舍</span><span data-lang="en">Tradeoffs</span>
+            {% elif item.key == "local_governance" %}
+            <span data-lang="zh">本地治理</span><span data-lang="en">Local governance</span>
+            {% elif item.key == "role_posture" %}
+            <span data-lang="zh">角色姿态</span><span data-lang="en">Role posture</span>
+            {% elif item.key == "workflow_judgment" %}
+            <span data-lang="zh">运行流程</span><span data-lang="en">Run flow</span>
+            {% elif item.key == "gatekeeper_closure" %}
+            <span data-lang="zh">裁决收口</span><span data-lang="en">Closure</span>
+            {% elif item.key == "runtime_controls" %}
+            <span data-lang="zh">运行控制</span><span data-lang="en">Controls</span>
+            {% else %}
+            {{ item.label or item.key }}
+            {% endif %}
+          </strong>
           <span>
             {% if item.mapped %}
             {{ item.surfaces[:2]|join(" / ") }}
@@ -82,10 +116,16 @@
       {% for diagnostic in bundle_diagnostic_warnings[:4] %}
       <article class="bundle-diagnostic-row" data-testid="bundle-diagnostic-row">
         <div>
-          <strong>{{ diagnostic.title }}</strong>
+          <strong>
+            <span data-lang="zh">{{ diagnostic.title_zh or diagnostic.title }}</span>
+            <span data-lang="en">{{ diagnostic.title_en or diagnostic.title }}</span>
+          </strong>
           <span>{{ diagnostic.code }}</span>
         </div>
-        <p>{{ diagnostic.message }}</p>
+        <p>
+          <span data-lang="zh">{{ diagnostic.message_zh or diagnostic.message }}</span>
+          <span data-lang="en">{{ diagnostic.message_en or diagnostic.message }}</span>
+        </p>
         {% if diagnostic.surfaces %}
         <small>{{ diagnostic.surfaces|join(" / ") }}</small>
         {% endif %}

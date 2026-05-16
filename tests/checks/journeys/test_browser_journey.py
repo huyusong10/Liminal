@@ -496,13 +496,16 @@ def _assert_preview_has_expert_tabs_and_stable_hover(page) -> None:
 def _assert_plan_preview_has_default_summary_and_expert_tabs(page) -> None:
     page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
     page.get_by_test_id("alignment-workflow-diagram").locator("svg").wait_for(state="visible", timeout=5_000)
-    page.get_by_test_id("alignment-artifact-summary").wait_for(state="visible", timeout=5_000)
-    summary_text = page.get_by_test_id("alignment-artifact-summary").text_content() or ""
+    ready_preview = page.get_by_test_id("alignment-ready-preview")
+    summary = ready_preview.get_by_test_id("alignment-artifact-summary")
+    summary.wait_for(state="visible", timeout=5_000)
+    summary_text = summary.text_content() or ""
     assert "Risk" in summary_text or "风险" in summary_text
     assert "Evidence" in summary_text or "证据" in summary_text
     assert "Judgment" in summary_text or "判断" in summary_text
     assert "Verdict" in summary_text or "裁决" in summary_text
-    assert "Workdir" in summary_text or "目录" in summary_text
+    workdir_text = ready_preview.locator("#alignment-artifact-workdir").text_content() or ""
+    assert "Run directory" in workdir_text or "运行目录" in workdir_text
     page.get_by_test_id("alignment-judgment-map").wait_for(state="visible", timeout=5_000)
     assert page.get_by_test_id("alignment-preview-tab-spec").get_attribute("aria-selected") == "true"
     assert page.get_by_test_id("alignment-spec-preview").is_visible()
@@ -782,6 +785,20 @@ def _assert_bundle_shell_layout_for_viewport(browser, base_url: str, viewport: d
     page.get_by_test_id("alignment-empty-state").wait_for(state="visible", timeout=5_000)
     assert page.get_by_test_id("alignment-chat").is_hidden()
     assert page.get_by_test_id("alignment-ready-preview").is_hidden()
+    assert page.get_by_test_id("alignment-starter-card").count() == 3
+    assert page.get_by_test_id("alignment-workdir-chip").inner_text() == "Choose run directory"
+    input_metrics = page.get_by_test_id("alignment-message-input").evaluate(
+        """(textarea) => ({
+          clientHeight: textarea.clientHeight,
+          scrollHeight: textarea.scrollHeight,
+          clientWidth: textarea.clientWidth,
+          scrollWidth: textarea.scrollWidth,
+        })"""
+    )
+    assert input_metrics["scrollHeight"] <= input_metrics["clientHeight"] + 1
+    assert input_metrics["scrollWidth"] <= input_metrics["clientWidth"] + 1
+    page.get_by_test_id("alignment-starter-card").first.click()
+    assert "refund flow" in page.get_by_test_id("alignment-message-input").input_value().lower()
     assert page.locator("#bundle-import-yaml").count() == 0
     assert page.get_by_test_id("alignment-import-open-button").count() == 0
     assert page.get_by_test_id("alignment-tools-menu").is_hidden()
@@ -795,15 +812,28 @@ def _assert_bundle_shell_layout_for_viewport(browser, base_url: str, viewport: d
           docScrollHeight: document.documentElement.scrollHeight,
           viewportHeight: window.innerHeight,
           viewportWidth: window.innerWidth,
+          sidebar: document.querySelector('[data-testid="alignment-history-panel"]').getBoundingClientRect(),
           composer: document.querySelector('[data-testid="alignment-start-form"]').getBoundingClientRect(),
-          chipHeights: Array.from(document.querySelectorAll(".alignment-chip")).map((chip) => Math.round(chip.getBoundingClientRect().height))
+          chipHeights: Array.from(document.querySelectorAll(".alignment-chip")).map((chip) => Math.round(chip.getBoundingClientRect().height)),
+          starterGrid: {
+            scrollWidth: document.querySelector('[data-testid="alignment-starter-grid"]').scrollWidth,
+            clientWidth: document.querySelector('[data-testid="alignment-starter-grid"]').clientWidth,
+          },
+          starterCardsFit: Array.from(document.querySelectorAll('[data-testid="alignment-starter-card"]')).every((card) => {
+            const rect = card.getBoundingClientRect();
+            return rect.left >= -1 && rect.right <= window.innerWidth + 1;
+          })
         })"""
     )
     assert metrics["bodyWidth"] <= metrics["viewportWidth"] + 1
     assert metrics["docScrollHeight"] <= metrics["viewportHeight"] + 1
     assert metrics["composer"]["left"] >= -1
     assert metrics["composer"]["right"] <= metrics["viewportWidth"] + 1
+    if viewport["width"] <= 980:
+        assert metrics["sidebar"]["height"] <= 86
     assert min(metrics["chipHeights"]) >= 34
+    assert metrics["starterGrid"]["scrollWidth"] <= metrics["starterGrid"]["clientWidth"] + 1
+    assert metrics["starterCardsFit"] is True
 
     page.get_by_test_id("alignment-message-input").focus()
     focus_metrics = page.evaluate(
@@ -857,6 +887,8 @@ def _assert_manual_import_layout(page) -> None:
     assert manual_metrics["tallTextCount"] == 0
     if manual_metrics["viewportWidth"] >= 900:
         assert manual_metrics["main"]["left"] >= manual_metrics["sidebar"]["right"] - 1
+    else:
+        assert manual_metrics["sidebar"]["height"] <= 86
 
 
 def _assert_manual_form_layout(page, base_url: str) -> None:
@@ -1051,6 +1083,8 @@ def _exercise_browser_adapter_install_uninstall(page, adapter: str, gen_skill: P
         "installed",
         timeout=5_000,
     )
+    playwright.expect(page.get_by_test_id("agent-adapter-status")).to_contain_text("/loopora-gen", timeout=5_000)
+    playwright.expect(page.get_by_test_id("agent-adapter-status")).to_contain_text("/loopora-loop", timeout=5_000)
     page.get_by_test_id(f"agent-adapter-uninstall-{adapter}").click()
     _wait_for_path_state(gen_skill, exists=False)
     _wait_for_path_state(loop_skill, exists=False)
@@ -1073,6 +1107,12 @@ def _exercise_browser_adapter_conflict(page, adapter: str, gen_skill: Path, cont
     page.get_by_test_id(f"agent-adapter-install-{adapter}").click()
     page.get_by_test_id("agent-adapter-status").wait_for(state="visible", timeout=5_000)
     assert gen_skill.read_text(encoding="utf-8") == content
+
+
+def _assert_agent_adapter_setup_guidance(page, workdir: Path) -> None:
+    playwright.expect(page.get_by_test_id("agent-adapter-target-note")).to_contain_text(str(workdir), timeout=5_000)
+    playwright.expect(page.get_by_test_id("agent-adapter-target-note")).to_contain_text("Agent will work")
+    playwright.expect(page.get_by_test_id("agent-adapter-next-steps")).to_contain_text("/loopora-gen")
 
 
 def test_tools_agent_adapter_installs_uninstalls_target_project_from_browser(tmp_path: Path) -> None:
@@ -1109,6 +1149,7 @@ def test_tools_agent_adapter_installs_uninstalls_target_project_from_browser(tmp
             page.goto(f"{base_url}/tools", wait_until="networkidle")
             page.get_by_test_id("agent-adapter-workdir").fill(str(workdir))
             page.get_by_test_id("agent-adapter-refresh").click()
+            _assert_agent_adapter_setup_guidance(page, workdir)
             _exercise_browser_adapter_install_uninstall(page, "codex", gen_skill, loop_skill)
             assert user_agents.read_text(encoding="utf-8") == "# User rules stay untouched\n"
             assert user_codex_config.read_text(encoding="utf-8") == 'model = "user-model"\n'
@@ -1324,18 +1365,26 @@ def _assert_nav_item_state_for_viewports(page, base_url: str) -> None:
                 const style = getComputedStyle(element);
                 return {
                   testid,
+                  left: rect.left,
+                  right: rect.right,
                   width: Math.round(rect.width),
                   height: Math.round(rect.height),
                   background: style.backgroundColor,
                   boxShadow: style.boxShadow,
                 };
               });
+              const railElement = document.querySelector(".top-nav-links");
+              const rail = railElement.getBoundingClientRect();
+              const active = document.querySelector(".top-nav-link.active").getBoundingClientRect();
               return {
                 widths: items.map((item) => item.width),
                 heights: items.map((item) => item.height),
                 resourceBackground: items.find((item) => item.testid === "nav-resource-toggle").background,
                 toolsBackground: items.find((item) => item.testid === "nav-tools-link").background,
                 resourceShadow: items.find((item) => item.testid === "nav-resource-toggle").boxShadow,
+                activeVisibleInRail: active.left >= rail.left - 1 && active.right <= rail.right + 1,
+                allVisibleInRail: items.every((item) => item.left >= rail.left - 1 && item.right <= rail.right + 1),
+                railScrollable: railElement.scrollWidth > railElement.clientWidth + 1,
               };
             }"""
         )
@@ -1343,6 +1392,9 @@ def _assert_nav_item_state_for_viewports(page, base_url: str) -> None:
         assert len(set(nav_state["heights"])) == 1
         assert nav_state["resourceBackground"] == nav_state["toolsBackground"]
         assert nav_state["resourceShadow"] == "none"
+        assert nav_state["activeVisibleInRail"] is True
+        assert nav_state["allVisibleInRail"] is True
+        assert nav_state["railScrollable"] is False
     page.evaluate(
         """() => {
           window.localStorage.setItem("loopora:theme", "light");
@@ -1364,6 +1416,39 @@ def _assert_top_nav_heights_stable(page, base_url: str) -> None:
         nav_heights_by_viewport[width] = heights
     for heights in nav_heights_by_viewport.values():
         assert max(heights) - min(heights) <= 1
+
+
+def _assert_tutorial_primary_actions_in_first_viewport(page, base_url: str) -> None:
+    for width, height in ((390, 844), (1280, 900)):
+        page.set_viewport_size({"width": width, "height": height})
+        page.goto(f"{base_url}/tutorial", wait_until="networkidle")
+        state = page.evaluate(
+            """() => {
+              const rect = (testid) => {
+                const element = document.querySelector(`[data-testid='${testid}']`);
+                const box = element.getBoundingClientRect();
+                return {
+                  top: box.top,
+                  bottom: box.bottom,
+                  width: box.width,
+                  height: box.height,
+                  visible: box.width > 0 && box.height > 0,
+                };
+              };
+              return {
+                viewportHeight: window.innerHeight,
+                heroActions: rect("tutorial-hero-actions"),
+                heroAgent: rect("tutorial-hero-agent-entry-link"),
+                heroWeb: rect("tutorial-hero-web-compose-link"),
+                guidePanel: rect("tutorial-guide-panel"),
+              };
+            }"""
+        )
+        assert state["heroActions"]["visible"] is True
+        assert state["heroAgent"]["visible"] is True
+        assert state["heroWeb"]["visible"] is True
+        assert state["heroActions"]["top"] < state["viewportHeight"]
+        assert state["heroActions"]["bottom"] <= state["guidePanel"]["top"]
 
 
 def _assert_desktop_manual_form_layout(page, base_url: str) -> dict:
@@ -1554,6 +1639,7 @@ def test_web_layout_brand_and_form_are_responsive_and_cleanup_created_loops(
             _assert_desktop_nav_and_display_panel(page, base_url)
             _assert_nav_item_state_for_viewports(page, base_url)
             _assert_top_nav_heights_stable(page, base_url)
+            _assert_tutorial_primary_actions_in_first_viewport(page, base_url)
             _assert_desktop_manual_form_layout(page, base_url)
             _assert_tools_page_width_and_tip_button(page, base_url, index_desktop["pageStackWidth"])
             _assert_shared_page_stack_widths(page, base_url, service, created_loop_ids[0], index_desktop["pageStackWidth"])
@@ -1785,6 +1871,23 @@ def test_run_detail_renders_sanitized_command_event_summary(tmp_path: Path) -> N
             page.wait_for_function(
                 "() => ['ready', 'finished'].includes(document.querySelector('[data-testid=\"run-observation-status\"]')?.dataset.observationState)"
             )
+            page.get_by_test_id("takeaway-evidence-strip").wait_for(state="visible", timeout=5_000)
+            run_detail_metrics = page.evaluate(
+                """() => {
+                      const metaItems = Array.from(document.querySelectorAll('.hero-run-detail .hero-meta-row > *'));
+                      const metaBoxes = metaItems.map((node) => node.getBoundingClientRect());
+                      const strip = document.querySelector('[data-testid="takeaway-evidence-strip"]').getBoundingClientRect();
+                      const shortcuts = document.querySelector('[data-testid="takeaway-trace-shortcuts"]').getBoundingClientRect();
+                      return {
+                        metaSameRow: metaBoxes.length >= 3 && metaBoxes.every((box) => Math.abs(box.top - metaBoxes[0].top) <= 2),
+                        workspaceWidth: Math.round(metaBoxes[1]?.width || 0),
+                        evidenceBeforeTrace: strip.top < shortcuts.top,
+                      };
+                    }"""
+            )
+            assert run_detail_metrics["metaSameRow"] is True
+            assert run_detail_metrics["workspaceWidth"] >= 280
+            assert run_detail_metrics["evidenceBeforeTrace"] is True
             command_line = page.get_by_test_id("run-console-line").filter(has_text="$ codex exec")
             command_line.wait_for(state="visible", timeout=5_000)
             console_text = page.get_by_test_id("run-console-output").text_content() or ""

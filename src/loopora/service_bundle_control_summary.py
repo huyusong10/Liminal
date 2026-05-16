@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import json
 import re
+from collections.abc import Mapping
 
+from loopora.alignment_semantics import loop_fit_governance_trace, trace_text_units
+from loopora.residual_risk_support import residual_risk_is_unmanaged
+from loopora.evidence_coverage import with_coverage_targets
 from loopora.specs import SpecError, compile_markdown_spec
 from loopora.structured_booleans import structured_bool_is_true
 
@@ -25,6 +30,7 @@ def preview_list_items(markdown_text: str, *, limit: int = 4) -> list[str]:
 def build_bundle_control_summary(bundle: dict) -> dict:
     compiled_spec = _compile_bundle_spec(bundle)
     raw_sections = _raw_sections(compiled_spec)
+    coverage = _coverage_projection(compiled_spec)
     roles = list(bundle.get("role_definitions") or [])
     workflow = dict(bundle.get("workflow") or {})
     steps = list(workflow.get("steps") or [])
@@ -32,6 +38,36 @@ def build_bundle_control_summary(bundle: dict) -> dict:
     workflow_projection = _workflow_projection(steps, role_lookup)
     gatekeeper = _gatekeeper_projection(steps, role_lookup)
     controls = _control_summaries(workflow, role_lookup)
+    collaboration_summary = str(bundle.get("collaboration_summary") or "").strip()
+    loop_fit_reasons = loop_fit_governance_trace(collaboration_summary)
+    judgment_tradeoffs = _judgment_tradeoff_trace(
+        bundle=bundle,
+        raw_sections=raw_sections,
+        roles=roles,
+        workflow=workflow,
+    )
+    execution_strategy = _execution_strategy_trace(
+        bundle=bundle,
+        raw_sections=raw_sections,
+        roles=roles,
+        workflow=workflow,
+    )
+    residual_risk_policy = _residual_risk_policy_trace(raw_sections)
+    role_postures = _role_posture_trace(roles)
+    success_surface = preview_list_items(str(raw_sections.get("Success Surface") or ""), limit=3)
+    fake_done_risks = preview_list_items(str(raw_sections.get("Fake Done") or ""), limit=3)
+    evidence_preferences = preview_list_items(str(raw_sections.get("Evidence Preferences") or ""), limit=3)
+    local_governance_signals = _local_governance_trace(
+        bundle=bundle,
+        raw_sections=raw_sections,
+        roles=roles,
+        workflow=workflow,
+    )
+    local_governance = build_runtime_local_governance_trace(
+        raw_sections=raw_sections,
+        roles=roles,
+        workflow=workflow,
+    )
     traceability = _traceability_projection(
         {
             "bundle": bundle,
@@ -41,10 +77,18 @@ def build_bundle_control_summary(bundle: dict) -> dict:
             "workflow_projection": workflow_projection,
             "gatekeeper": gatekeeper,
             "controls": controls,
+            "loop_fit_reasons": loop_fit_reasons,
+            "judgment_tradeoffs": judgment_tradeoffs,
+            "execution_strategy": execution_strategy,
+            "residual_risk_policy": residual_risk_policy,
+            "local_governance": local_governance_signals,
+            "role_postures": role_postures,
+            "coverage": coverage,
         }
     )
     diagnostics = _diagnostics_projection(
         bundle=bundle,
+        raw_sections=raw_sections,
         steps=steps,
         role_lookup=role_lookup,
         traceability=traceability,
@@ -56,6 +100,16 @@ def build_bundle_control_summary(bundle: dict) -> dict:
             limit=4,
         ),
         "evidence": _evidence_titles(compiled_spec),
+        "coverage": coverage,
+        "success_surface": success_surface,
+        "fake_done_risks": fake_done_risks,
+        "evidence_preferences": evidence_preferences,
+        "loop_fit_reasons": loop_fit_reasons,
+        "residual_risk_policy": residual_risk_policy,
+        "execution_strategy": execution_strategy,
+        "local_governance": local_governance,
+        "role_postures": role_postures,
+        "judgment_tradeoffs": judgment_tradeoffs,
         "workflow": workflow_projection,
         "gatekeeper": gatekeeper,
         "traceability": traceability,
@@ -64,12 +118,87 @@ def build_bundle_control_summary(bundle: dict) -> dict:
     }
 
 
+def build_judgment_tradeoff_trace(
+    *,
+    collaboration_summary: object = "",
+    raw_sections: object = None,
+    roles: object = None,
+    workflow: object = None,
+) -> list[str]:
+    role_items = [dict(role) for role in list(roles or []) if isinstance(role, Mapping)] if isinstance(roles, list) else []
+    return _judgment_tradeoff_trace(
+        bundle={"collaboration_summary": collaboration_summary},
+        raw_sections=dict(raw_sections) if isinstance(raw_sections, Mapping) else {},
+        roles=role_items,
+        workflow=dict(workflow) if isinstance(workflow, Mapping) else {},
+    )
+
+
+def build_execution_strategy_trace(
+    *,
+    collaboration_summary: object = "",
+    raw_sections: object = None,
+    roles: object = None,
+    workflow: object = None,
+) -> list[str]:
+    role_items = [dict(role) for role in list(roles or []) if isinstance(role, Mapping)] if isinstance(roles, list) else []
+    return _execution_strategy_trace(
+        bundle={"collaboration_summary": collaboration_summary},
+        raw_sections=dict(raw_sections) if isinstance(raw_sections, Mapping) else {},
+        roles=role_items,
+        workflow=dict(workflow) if isinstance(workflow, Mapping) else {},
+    )
+
+
+def build_local_governance_trace(
+    *,
+    collaboration_summary: object = "",
+    raw_sections: object = None,
+    roles: object = None,
+    workflow: object = None,
+) -> list[str]:
+    role_items = [dict(role) for role in list(roles or []) if isinstance(role, Mapping)] if isinstance(roles, list) else []
+    return _local_governance_trace(
+        bundle={"collaboration_summary": collaboration_summary},
+        raw_sections=dict(raw_sections) if isinstance(raw_sections, Mapping) else {},
+        roles=role_items,
+        workflow=dict(workflow) if isinstance(workflow, Mapping) else {},
+    )
+
+
+def build_runtime_local_governance_trace(
+    *,
+    raw_sections: object = None,
+    roles: object = None,
+    workflow: object = None,
+) -> list[str]:
+    role_items = [dict(role) for role in list(roles or []) if isinstance(role, Mapping)] if isinstance(roles, list) else []
+    traces = _local_governance_trace(
+        bundle={},
+        raw_sections=dict(raw_sections) if isinstance(raw_sections, Mapping) else {},
+        roles=role_items,
+        workflow=dict(workflow) if isinstance(workflow, Mapping) else {},
+        runtime_only=True,
+    )
+    if not _local_governance_runtime_chain_complete(traces):
+        return []
+    return traces
+
+
+def build_loop_fit_trace(collaboration_summary: object = "") -> list[str]:
+    return loop_fit_governance_trace(collaboration_summary)
+
+
 def _compile_bundle_spec(bundle: dict) -> dict:
     try:
         compiled_spec = compile_markdown_spec(str(bundle.get("spec", {}).get("markdown") or ""))
     except SpecError:
         return {"raw_sections": {}}
-    return compiled_spec if isinstance(compiled_spec, dict) else {"raw_sections": {}}
+    if not isinstance(compiled_spec, dict):
+        return {"raw_sections": {}}
+    loop = bundle.get("loop") if isinstance(bundle.get("loop"), dict) else {}
+    completion_mode = str(loop.get("completion_mode") or "gatekeeper").strip() or "gatekeeper"
+    return with_coverage_targets(compiled_spec, completion_mode=completion_mode)
 
 
 def _raw_sections(compiled_spec: dict) -> dict:
@@ -83,6 +212,61 @@ def _evidence_titles(compiled_spec: dict) -> list[str]:
         for check in list(compiled_spec.get("checks") or [])[:4]
         if isinstance(check, dict) and str(check.get("title") or "").strip()
     ]
+
+
+def _coverage_projection(compiled_spec: dict) -> dict:
+    checks = [check for check in list(compiled_spec.get("checks") or []) if isinstance(check, dict)]
+    targets = [target for target in list(compiled_spec.get("coverage_targets") or []) if isinstance(target, dict)]
+    target_rows = [
+        {
+            "id": str(target.get("id") or "").strip(),
+            "kind": str(target.get("kind") or "").strip(),
+            "source_section": str(target.get("source_section") or "").strip(),
+            "required": target.get("required") is True,
+        }
+        for target in targets
+        if str(target.get("id") or "").strip()
+    ]
+    check_count = len(checks)
+    target_count = len(target_rows)
+    required_target_count = sum(1 for target in target_rows if target["required"])
+    return {
+        "check_mode": str(compiled_spec.get("check_mode") or "").strip(),
+        "check_count": check_count,
+        "target_count": target_count,
+        "required_target_count": required_target_count,
+        "targets": target_rows[:12],
+        "summary": _coverage_summary_text_en(check_count, target_count, required_target_count),
+        "summary_en": _coverage_summary_text_en(check_count, target_count, required_target_count),
+        "summary_zh": _coverage_summary_text_zh(check_count, target_count, required_target_count),
+    }
+
+
+def _coverage_summary_text_en(check_count: int, target_count: int, required_target_count: int) -> str:
+    if check_count and target_count:
+        return f"{check_count} checks / {target_count} coverage targets ({required_target_count} required)"
+    if check_count:
+        return f"{check_count} checks"
+    if target_count:
+        return f"{target_count} coverage targets ({required_target_count} required)"
+    return ""
+
+
+def _coverage_summary_text_zh(check_count: int, target_count: int, required_target_count: int) -> str:
+    if check_count and target_count:
+        return f"{check_count} 项检查 / {target_count} 个覆盖目标（{required_target_count} 必需）"
+    if check_count:
+        return f"{check_count} 项检查"
+    if target_count:
+        return f"{target_count} 个覆盖目标（{required_target_count} 必需）"
+    return ""
+
+
+def _residual_risk_policy_trace(raw_sections: dict) -> list[str]:
+    residual_risk = str(raw_sections.get("Residual Risk") or "").strip()
+    if not residual_risk or residual_risk_is_unmanaged(residual_risk):
+        return []
+    return preview_list_items(residual_risk, limit=3)
 
 
 def _role_lookup(*, roles: list[dict], workflow_roles: list[dict]) -> dict:
@@ -150,15 +334,16 @@ def _gatekeeper_projection(steps: list[dict], role_lookup: dict) -> dict:
         for step in steps
         if str(_role_for_step(step, role_lookup).get("archetype") or "").strip().lower() == "gatekeeper"
     ]
+    gatekeeper_enabled = bool(gatekeeper_steps)
     return {
-        "enabled": bool(gatekeeper_steps),
+        "enabled": gatekeeper_enabled,
         "roles": _gatekeeper_role_names(gatekeeper_steps, role_lookup),
         "finish_steps": [
             str(step.get("id") or "").strip()
             for step in gatekeeper_steps
             if str(step.get("on_pass") or "").strip() == "finish_run"
         ],
-        "requires_evidence_refs": True,
+        "requires_evidence_refs": gatekeeper_enabled,
     }
 
 
@@ -214,8 +399,53 @@ def _traceability_projection(context: dict) -> dict:
     workflow_projection = dict(context.get("workflow_projection") or {})
     gatekeeper = dict(context.get("gatekeeper") or {})
     controls = list(context.get("controls") or [])
+    coverage = dict(context.get("coverage") or {})
+    judgment_tradeoffs = list(
+        context.get("judgment_tradeoffs")
+        or _judgment_tradeoff_trace(
+            bundle=bundle,
+            raw_sections=raw_sections,
+            roles=roles,
+            workflow=workflow,
+        )
+    )
+    execution_strategy = list(
+        context.get("execution_strategy")
+        or _execution_strategy_trace(
+            bundle=bundle,
+            raw_sections=raw_sections,
+            roles=roles,
+            workflow=workflow,
+        )
+    )
+    residual_risk_policy = list(context.get("residual_risk_policy") or _residual_risk_policy_trace(raw_sections))
+    local_governance = list(
+        context.get("local_governance")
+        or _local_governance_trace(
+            bundle=bundle,
+            raw_sections=raw_sections,
+            roles=roles,
+            workflow=workflow,
+        )
+    )
+    role_postures = list(context.get("role_postures") or _role_posture_trace(roles))
+    runtime_local_governance = _local_governance_trace(
+        bundle=bundle,
+        raw_sections=raw_sections,
+        roles=roles,
+        workflow=workflow,
+        runtime_only=True,
+    )
     items: list[dict] = []
     collaboration_summary = str(bundle.get("collaboration_summary") or "").strip()
+    loop_fit_reasons = list(context.get("loop_fit_reasons") or loop_fit_governance_trace(collaboration_summary))
+    _append_trace_item(
+        items,
+        key="loop_fit",
+        label="Loopora fit",
+        surfaces=["collaboration_summary"],
+        evidence=loop_fit_reasons,
+    )
     _append_trace_item(
         items,
         key="collaboration_story",
@@ -234,11 +464,8 @@ def _traceability_projection(context: dict) -> dict:
         items,
         key="success_surface",
         label="Success surface",
-        surfaces=["spec.markdown#Done When", "spec.markdown#Success Surface"],
-        evidence=preview_list_items(
-            str(raw_sections.get("Done When") or "") + "\n" + str(raw_sections.get("Success Surface") or ""),
-            limit=3,
-        ),
+        surfaces=["spec.markdown#Success Surface"],
+        evidence=preview_list_items(str(raw_sections.get("Success Surface") or ""), limit=3),
     )
     _append_trace_item(
         items,
@@ -254,24 +481,79 @@ def _traceability_projection(context: dict) -> dict:
         surfaces=["spec.markdown#Evidence Preferences"],
         evidence=preview_list_items(str(raw_sections.get("Evidence Preferences") or ""), limit=3),
     )
+    if coverage.get("target_count"):
+        _append_trace_item(
+            items,
+            key="coverage_targets",
+            label="Coverage targets",
+            surfaces=[
+                "spec.markdown#Done When",
+                "spec.markdown#Success Surface",
+                "spec.markdown#Fake Done",
+                "spec.markdown#Evidence Preferences",
+            ],
+            evidence=_coverage_trace(coverage),
+        )
+    _append_trace_item(
+        items,
+        key="execution_strategy",
+        label="Execution strategy",
+        surfaces=[
+            "collaboration_summary",
+            "spec.markdown",
+            "role_definitions[].posture_notes",
+            "workflow.collaboration_intent",
+            "workflow.steps[].inputs",
+        ],
+        evidence=execution_strategy,
+    )
     _append_trace_item(
         items,
         key="residual_risk_policy",
         label="Residual risk policy",
         surfaces=["spec.markdown#Residual Risk"],
-        evidence=preview_list_items(str(raw_sections.get("Residual Risk") or ""), limit=2),
+        evidence=residual_risk_policy,
+    )
+    local_governance_traceability = (
+        runtime_local_governance if _local_governance_runtime_chain_complete(runtime_local_governance) else []
+    )
+    if local_governance or _local_governance_markers_present(bundle=bundle, raw_sections=raw_sections, roles=roles, workflow=workflow):
+        _append_trace_item(
+            items,
+            key="local_governance",
+            label="Local governance",
+            surfaces=[
+                "spec.markdown#Role Notes",
+                "role_definitions[].prompt_markdown",
+                "role_definitions[].posture_notes",
+                "workflow.collaboration_intent",
+                "workflow.steps[].inputs",
+            ],
+            evidence=local_governance_traceability,
+        )
+    _append_trace_item(
+        items,
+        key="judgment_tradeoffs",
+        label="Judgment tradeoffs",
+        surfaces=[
+            "collaboration_summary",
+            "spec.markdown",
+            "role_definitions[].posture_notes",
+            "workflow.collaboration_intent",
+        ],
+        evidence=judgment_tradeoffs,
     )
     _append_trace_item(
         items,
         key="role_posture",
         label="Role posture",
         surfaces=["role_definitions[].prompt_markdown", "role_definitions[].posture_notes"],
-        evidence=_role_posture_trace(roles),
+        evidence=role_postures,
     )
     _append_trace_item(
         items,
         key="workflow_judgment",
-        label="Workflow judgment",
+        label="Run flow",
         surfaces=["workflow.collaboration_intent", "workflow.steps[].inputs"],
         evidence=_workflow_trace(workflow, workflow_projection),
     )
@@ -301,6 +583,19 @@ def _traceability_projection(context: dict) -> dict:
     }
 
 
+def _coverage_trace(coverage: dict) -> list[str]:
+    traces = [str(coverage.get("summary") or "").strip()]
+    for target in list(coverage.get("targets") or [])[:3]:
+        if not isinstance(target, dict):
+            continue
+        target_id = str(target.get("id") or "").strip()
+        if not target_id:
+            continue
+        suffix = "required" if target.get("required") is True else "advisory"
+        traces.append(f"{target_id} ({suffix})")
+    return [trace for trace in traces if trace]
+
+
 def _append_trace_item(
     items: list[dict],
     *,
@@ -328,11 +623,25 @@ def _role_posture_trace(roles: list[dict]) -> list[str]:
             continue
         role_name = str(role.get("name") or role.get("key") or "").strip()
         archetype = str(role.get("archetype") or "").strip()
-        posture = preview_list_items(str(role.get("posture_notes") or role.get("description") or ""), limit=1)
-        if role_name or archetype:
+        posture = role_posture_preview(role)
+        if posture and (role_name or archetype):
             base = f"{role_name or 'Role'} ({archetype or 'custom'})"
-            traces.append(f"{base}: {posture[0]}" if posture else base)
+            traces.append(f"{base}: {posture}")
     return traces[:4]
+
+
+def role_posture_preview(role: dict) -> str:
+    for field in ("posture_notes", "description", "prompt_markdown"):
+        for unit in trace_text_units(str(role.get(field) or "")):
+            compact = re.sub(r"\s+", " ", unit).strip()
+            if not compact or _role_prompt_mechanics_unit(compact):
+                continue
+            return compact[:180].rstrip() + ("..." if len(compact) > 180 else "")
+    return ""
+
+
+def _role_prompt_mechanics_unit(text: str) -> bool:
+    return bool(re.fullmatch(r"(?:version|archetype)\s*:\s*.+", text.strip(), re.I))
 
 
 def _workflow_trace(workflow: dict, workflow_projection: dict) -> list[str]:
@@ -341,6 +650,340 @@ def _workflow_trace(workflow: dict, workflow_projection: dict) -> list[str]:
     if summary:
         traces.append(summary)
     return traces[:4]
+
+
+_TRADEOFF_PATTERNS = (
+    r"\bprefer\b.{0,120}\b(over|rather than|instead of|before|to)\b",
+    r"\b(rather than|instead of)\b",
+    r"\b(reject|block|fail closed)\b.{0,120}\b(when|if|over|rather than|instead|weak|speed|proof|evidence|fake[- ]done)\b",
+    r"\b(proof|evidence)\b.{0,80}\b(before|over|beats?|wins?|must beat|higher than|above)\b.{0,80}\b(speed|polish|surface|breadth|completion|progress)\b",
+    r"\b(speed|polish|surface completeness|progress)\b.{0,80}\b(loses?|must lose|rejected|blocked)\b.{0,80}\b(proof|evidence)\b",
+    r"\b(strict|blocking|block|reject|fail closed)\b.{0,80}\b(before|over|beats?|wins?|rather than|instead of)\b.{0,80}\b(pragmatic|pragmatism|progress)\b",
+    r"\b(pragmatic|pragmatism|progress)\b.{0,80}\b(loses?|must lose|wait|after|behind|rather than|instead of)\b.{0,80}\b(strict|blocking|block|reject|fail closed)\b",
+    r"(优先|先).{0,80}(而不是|不是|先于|高于|超过|证明|证据|阻断|拒绝)",
+    r"(而不是|先于|高于)",
+    r"(拒绝|阻断|失败关闭).{0,80}(速度|美化|漂亮|证据|证明|假完成|未证明|薄弱|不足)",
+    r"(证据|证明).{0,80}(优先|先于|高于).{0,80}(速度|进度|美化|漂亮|完整)",
+    r"(严格|阻断|拒绝).{0,80}(优先|先于|高于|超过|胜过).{0,80}(务实|推进|进度)",
+    r"(务实|推进|进度).{0,80}(让位|低于|后于|等待).{0,80}(严格|阻断|拒绝)",
+)
+
+_HIGH_SIGNAL_TRADEOFF_PATTERNS = (
+    r"\b(proof|evidence)\b.{0,80}\b(before|over|beats?|wins?|must beat|higher than|above)\b.{0,80}\b(speed|polish|surface|breadth|completion|progress)\b",
+    r"\b(speed|polish|surface completeness|progress)\b.{0,80}\b(loses?|must lose|rejected|blocked)\b.{0,80}\b(proof|evidence)\b",
+    r"\b(strict|blocking|block|reject|fail closed)\b.{0,80}\b(before|over|beats?|wins?|rather than|instead of)\b.{0,80}\b(pragmatic|pragmatism|progress)\b",
+    r"\b(pragmatic|pragmatism|progress)\b.{0,80}\b(loses?|must lose|wait|after|behind|rather than|instead of)\b.{0,80}\b(strict|blocking|block|reject|fail closed)\b",
+    r"\b(reject|block|fail closed)\b.{0,120}\b(weak|proof|evidence|fake[- ]done|unproven|completion)\b",
+    r"(证据|证明).{0,80}(优先|先于|高于).{0,80}(速度|进度|美化|漂亮|完整)",
+    r"(严格|阻断|拒绝).{0,80}(优先|先于|高于|超过|胜过).{0,80}(务实|推进|进度)",
+    r"(务实|推进|进度).{0,80}(让位|低于|后于|等待).{0,80}(严格|阻断|拒绝)",
+    r"(拒绝|阻断|失败关闭).{0,80}(假完成|未证明|薄弱|不足)",
+)
+
+
+def _judgment_tradeoff_trace(
+    *,
+    bundle: dict,
+    raw_sections: dict,
+    roles: list[dict],
+    workflow: dict,
+) -> list[str]:
+    traces: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+    for index, candidate in enumerate(_judgment_tradeoff_candidates(
+        bundle=bundle,
+        raw_sections=raw_sections,
+        roles=roles,
+        workflow=workflow,
+    )):
+        compact = re.sub(r"\s+", " ", candidate).strip()
+        if not compact or compact.lower() in seen:
+            continue
+        if not any(re.search(pattern, compact, re.I) for pattern in _TRADEOFF_PATTERNS):
+            continue
+        seen.add(compact.lower())
+        traces.append((_tradeoff_trace_priority(compact), index, compact[:240].rstrip() + ("..." if len(compact) > 240 else "")))
+    return [trace for _priority, _index, trace in sorted(traces, key=lambda item: (item[0], item[1]))[:4]]
+
+
+def _tradeoff_trace_priority(text: str) -> int:
+    if any(re.search(pattern, text, re.I) for pattern in _HIGH_SIGNAL_TRADEOFF_PATTERNS):
+        return 0
+    if re.search(r"\bprefer\b|优先|先于|高于", text, re.I):
+        return 1
+    return 2
+
+
+def _judgment_tradeoff_candidates(
+    *,
+    bundle: dict,
+    raw_sections: dict,
+    roles: list[dict],
+    workflow: dict,
+) -> list[str]:
+    text_blocks: list[str] = [str(bundle.get("collaboration_summary") or "")]
+    text_blocks.extend(str(value or "") for value in raw_sections.values())
+    for role in roles:
+        if not isinstance(role, dict):
+            continue
+        text_blocks.extend(
+            [
+                str(role.get("posture_notes") or ""),
+                str(role.get("prompt_markdown") or ""),
+                str(role.get("description") or ""),
+            ]
+        )
+    text_blocks.append(str(workflow.get("collaboration_intent") or ""))
+
+    candidates: list[str] = []
+    for text in text_blocks:
+        candidates.extend(trace_text_units(text))
+    return candidates
+
+
+_EXECUTION_STRATEGY_PATTERNS = (
+    r"\b(?:execution\s+priorit(?:y|ies)|order\s+of\s+attack|priority\s+order)\b.{0,140}\b(?:build|implement|prove|proof|evidence|repair|fix|narrow|scope|expand|polish|closure|gatekeeper|inspect|review)\b",
+    r"\b(?:build|implement|prove|proof|evidence|repair|fix|narrow|scope|expand|polish|inspect|review)\b.{0,140}\b(?:execution\s+priorit(?:y|ies)|order\s+of\s+attack|priority\s+order)\b",
+    r"\b(?:first|next|then|before|after|defer|postpone|hold off|delay|pause|prioriti[sz]e)\b.{0,120}\b(?:build|prove|evidence|repair|fix|narrow|scope|expand|polish|closure|gatekeeper|inspect|review)\b",
+    r"\b(?:build|prove|gather|collect|repair|fix|narrow|scope|expand|polish|inspect|review)\b.{0,120}\b(?:first|next|then|before|after|defer|postpone|hold off|delay|pause|prioriti[sz]e)\b",
+    r"\b(?:root cause|primary flow|focused slice|smallest real flow|direct proof|evidence gap|weak proof)\b.{0,120}\b(?:first|before|defer|repair|narrow|expand|polish)\b",
+    r"\b(?:future|later|next)\s+(?:rounds?|iterations?|passes?)\b.{0,120}\b(?:build|prove|evidence|repair|narrow|expand|defer|polish)\b",
+    r"(?:先|首先|下一轮|下一步|再|然后|之后|暂缓|推迟|先别|不要先|优先).{0,80}(?:构建|实现|证明|取证|证据|修复|根因|收窄|范围|扩展|打磨|美化|裁决)",
+    r"(?:构建|实现|证明|取证|证据|修复|根因|收窄|范围|扩展|打磨|美化|裁决).{0,80}(?:先|首先|下一轮|下一步|再|然后|之后|暂缓|推迟|先别|不要先|优先)",
+)
+
+
+def _execution_strategy_trace(
+    *,
+    bundle: dict,
+    raw_sections: dict,
+    roles: list[dict],
+    workflow: dict,
+) -> list[str]:
+    traces: list[str] = []
+    seen: set[str] = set()
+    for candidate in _execution_strategy_candidates(
+        bundle=bundle,
+        raw_sections=raw_sections,
+        roles=roles,
+        workflow=workflow,
+    ):
+        compact = re.sub(r"\s+", " ", candidate).strip()
+        if not compact or compact.lower() in seen:
+            continue
+        if not any(re.search(pattern, compact, re.I) for pattern in _EXECUTION_STRATEGY_PATTERNS):
+            continue
+        seen.add(compact.lower())
+        traces.append(compact[:240].rstrip() + ("..." if len(compact) > 240 else ""))
+        if len(traces) >= 4:
+            break
+    return traces
+
+
+def _execution_strategy_candidates(
+    *,
+    bundle: dict,
+    raw_sections: dict,
+    roles: list[dict],
+    workflow: dict,
+) -> list[str]:
+    text_blocks: list[str] = [str(bundle.get("collaboration_summary") or "")]
+    text_blocks.extend(str(value or "") for value in raw_sections.values())
+    for role in roles:
+        if not isinstance(role, dict):
+            continue
+        text_blocks.extend(
+            [
+                str(role.get("posture_notes") or ""),
+                str(role.get("prompt_markdown") or ""),
+                str(role.get("description") or ""),
+            ]
+        )
+    text_blocks.append(str(workflow.get("collaboration_intent") or ""))
+    for step in list(workflow.get("steps") or []):
+        if isinstance(step, Mapping):
+            inputs = step.get("inputs")
+            if isinstance(inputs, Mapping) and inputs:
+                text_blocks.append(_json_dumps_compact(inputs))
+    candidates: list[str] = []
+    for text in text_blocks:
+        candidates.extend(trace_text_units(text))
+    return candidates
+
+
+_LOCAL_GOVERNANCE_MARKER_PATTERN = r"agents\.md|design/readme\.md|design/|tests/"
+
+
+def _local_governance_trace(
+    *,
+    bundle: dict,
+    raw_sections: dict,
+    roles: list[dict],
+    workflow: dict,
+    runtime_only: bool = False,
+) -> list[str]:
+    traces: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+    for index, candidate in enumerate(_local_governance_candidates(
+        bundle=bundle,
+        raw_sections=raw_sections,
+        roles=roles,
+        workflow=workflow,
+        runtime_only=runtime_only,
+    )):
+        compact = re.sub(r"\s+", " ", candidate).strip()
+        if not compact or compact.lower() in seen:
+            continue
+        if not re.search(_LOCAL_GOVERNANCE_MARKER_PATTERN, compact, re.I):
+            continue
+        priority = _local_governance_trace_priority(compact)
+        if priority is None:
+            continue
+        seen.add(compact.lower())
+        traces.append((priority, index, compact[:240].rstrip() + ("..." if len(compact) > 240 else "")))
+    ordered_traces = sorted(traces, key=lambda item: (item[0], item[1]))
+    selected: list[tuple[int, int, str]] = []
+    selected_keys: set[tuple[int, int]] = set()
+    covered_priorities: set[int] = set()
+    for priority, index, trace in ordered_traces:
+        if priority in covered_priorities:
+            continue
+        selected.append((priority, index, trace))
+        selected_keys.add((priority, index))
+        covered_priorities.add(priority)
+    for priority, index, trace in ordered_traces:
+        if len(selected) >= 4:
+            break
+        if (priority, index) in selected_keys:
+            continue
+        selected.append((priority, index, trace))
+    return [trace for _priority, _index, trace in selected[:4]]
+
+
+def _local_governance_trace_priority(text: str) -> int | None:
+    if _local_governance_role_responsibility_present(
+        text,
+        actor_pattern=r"\b(?:builder|generator)\b|构建者|构建",
+        action_pattern=r"\b(?:read|reads|consult|consults|follow|follows|respect|respects)\b|读取|查阅|遵守|遵循",
+    ):
+        return 0
+    if _local_governance_role_responsibility_present(
+        text,
+        actor_pattern=r"\b(?:inspector|custom|review|reviewer)\b|检查者|巡检|检查|审查|验证",
+        action_pattern=r"\b(?:verify|verifies|check|checks|review|reviews|validate|validates|test|tests)\b|检查|审查|验证|测试",
+    ):
+        return 1
+    if _local_governance_role_responsibility_present(
+        text,
+        actor_pattern=r"\b(?:gatekeeper|gate keeper|verifier)\b|守门|裁决",
+        action_pattern=(
+            r"\b(?:weak|unproven|blocking|block|blocks|missing|skipped|fail closed|reject|rejects)\b"
+            r"|弱证据|未证明|阻断|缺少|跳过|拒绝"
+        ),
+    ):
+        return 2
+    return None
+
+
+def _local_governance_runtime_chain_complete(traces: list[str]) -> bool:
+    text = "\n".join(str(item) for item in traces if str(item).strip())
+    if not text.strip():
+        return False
+    builder_reads = _local_governance_role_responsibility_present(
+        text,
+        actor_pattern=r"\b(?:builder|generator)\b|构建者|构建",
+        action_pattern=r"\b(?:read|reads|consult|consults|follow|follows|respect|respects)\b|读取|查阅|遵守|遵循",
+    )
+    review_checks = _local_governance_role_responsibility_present(
+        text,
+        actor_pattern=r"\b(?:inspector|custom|review|reviewer)\b|检查者|巡检|检查|审查|验证",
+        action_pattern=r"\b(?:verify|verifies|check|checks|review|reviews|validate|validates|test|tests)\b|检查|审查|验证|测试",
+    )
+    gatekeeper_gates = _local_governance_role_responsibility_present(
+        text,
+        actor_pattern=r"\b(?:gatekeeper|gate keeper|verifier)\b|守门|裁决",
+        action_pattern=(
+            r"\b(?:weak|unproven|blocking|block|blocks|missing|skipped|fail closed|reject|rejects)\b"
+            r"|弱证据|未证明|阻断|缺少|跳过|拒绝"
+        ),
+    )
+    return builder_reads and review_checks and gatekeeper_gates
+
+
+def _local_governance_role_responsibility_present(
+    text: str,
+    *,
+    actor_pattern: str,
+    action_pattern: str,
+) -> bool:
+    return bool(
+        re.search(actor_pattern, text, re.I)
+        and re.search(_LOCAL_GOVERNANCE_MARKER_PATTERN, text, re.I)
+        and re.search(action_pattern, text, re.I)
+    )
+
+
+def _local_governance_candidates(
+    *,
+    bundle: dict,
+    raw_sections: dict,
+    roles: list[dict],
+    workflow: dict,
+    runtime_only: bool = False,
+) -> list[str]:
+    text_blocks: list[str] = []
+    if runtime_only:
+        text_blocks.append(str(raw_sections.get("Role Notes") or ""))
+    else:
+        text_blocks.append(str(bundle.get("collaboration_summary") or ""))
+        text_blocks.extend(str(value or "") for value in raw_sections.values())
+    for role in roles:
+        if not isinstance(role, dict):
+            continue
+        text_blocks.extend(
+            [
+                str(role.get("posture_notes") or ""),
+                str(role.get("prompt_markdown") or ""),
+                str(role.get("description") or ""),
+            ]
+        )
+    text_blocks.append(str(workflow.get("collaboration_intent") or ""))
+    for step in list(workflow.get("steps") or []):
+        if isinstance(step, Mapping):
+            inputs = step.get("inputs")
+            if isinstance(inputs, Mapping) and inputs:
+                text_blocks.append(_json_dumps_compact(inputs))
+
+    candidates: list[str] = []
+    for text in text_blocks:
+        candidates.extend(trace_text_units(text))
+    return candidates
+
+
+def _local_governance_markers_present(
+    *,
+    bundle: dict,
+    raw_sections: dict,
+    roles: list[dict],
+    workflow: dict,
+) -> bool:
+    return any(
+        re.search(_LOCAL_GOVERNANCE_MARKER_PATTERN, candidate, re.I)
+        for candidate in _local_governance_candidates(
+            bundle=bundle,
+            raw_sections=raw_sections,
+            roles=roles,
+            workflow=workflow,
+            runtime_only=False,
+        )
+    )
+
+
+def _json_dumps_compact(value: object) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        return str(value or "")
 
 
 def _gatekeeper_trace(gatekeeper: dict) -> list[str]:
@@ -369,12 +1012,14 @@ def _control_trace(controls: list[dict]) -> list[str]:
 def _diagnostics_projection(
     *,
     bundle: dict,
+    raw_sections: dict,
     steps: list[dict],
     role_lookup: dict,
     traceability: dict,
 ) -> list[dict]:
     diagnostics: list[dict] = []
     _append_traceability_diagnostics(diagnostics, traceability)
+    _append_residual_risk_policy_diagnostics(diagnostics, raw_sections)
     _append_completion_mode_diagnostics(diagnostics, bundle)
     _append_workflow_input_diagnostics(diagnostics, steps, role_lookup)
     return diagnostics
@@ -395,6 +1040,24 @@ def _append_traceability_diagnostics(diagnostics: list[dict], traceability: dict
             "message_zh": "部分已确认判断没有映射到可运行的方案表面。",
             "surfaces": ["collaboration_summary", "spec.markdown", "role_definitions[]", "workflow"],
             "details": {"missing": missing},
+        },
+    )
+
+
+def _append_residual_risk_policy_diagnostics(diagnostics: list[dict], raw_sections: dict) -> None:
+    residual_risk = str(raw_sections.get("Residual Risk") or "").strip()
+    if not residual_risk or not residual_risk_is_unmanaged(residual_risk):
+        return
+    _append_diagnostic(
+        diagnostics,
+        {
+            "code": "residual_risk_unmanaged",
+            "severity": "warning",
+            "title_en": "Residual risk policy is not actionable",
+            "title_zh": "残余风险策略不可执行",
+            "message_en": "Residual risk must name what may remain and who owns, tracks, follows up, accepts, or blocks it.",
+            "message_zh": "残余风险必须说明哪些风险可以留下，以及由谁负责、如何跟踪、后续处理、接受或阻断。",
+            "surfaces": ["spec.markdown#Residual Risk"],
         },
     )
 

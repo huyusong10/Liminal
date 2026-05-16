@@ -91,6 +91,16 @@
             </div>
           </div>
           <div class="bundle-governance-grid" data-testid="bundle-governance-summary">
+            <div class="bundle-governance-item" data-testid="bundle-governance-success">
+              <span><span data-lang="zh">成功面</span><span data-lang="en">Success surface</span></span>
+              <strong>
+                {% if governance.success_surface %}
+                {{ governance.success_surface[:2]|join(" / ") }}
+                {% else %}
+                <span data-lang="zh">未声明</span><span data-lang="en">Not declared</span>
+                {% endif %}
+              </strong>
+            </div>
             <div class="bundle-governance-item" data-testid="bundle-governance-failure">
               <span><span data-lang="zh">失败模式</span><span data-lang="en">Failure mode</span></span>
               <strong>
@@ -108,6 +118,56 @@
                 {{ governance.evidence_style[:2]|join(" / ") }}
                 {% else %}
                 <span data-lang="zh">运行时落账</span><span data-lang="en">Runtime ledger</span>
+                {% endif %}
+              </strong>
+            </div>
+            <div class="bundle-governance-item" data-testid="bundle-governance-coverage">
+              <span><span data-lang="zh">覆盖目标</span><span data-lang="en">Coverage targets</span></span>
+              <strong>
+                {% if governance.coverage_summary %}
+                {{ governance.coverage_summary }}
+                {% else %}
+                <span data-lang="zh">运行时派生</span><span data-lang="en">Runtime-derived</span>
+                {% endif %}
+              </strong>
+            </div>
+            <div class="bundle-governance-item" data-testid="bundle-governance-residual-risk">
+              <span><span data-lang="zh">残余风险</span><span data-lang="en">Residual risk</span></span>
+              <strong>
+                {% if governance.residual_risk_policy %}
+                {{ governance.residual_risk_policy[:1]|join(" / ") }}
+                {% else %}
+                <span data-lang="zh">失败关闭</span><span data-lang="en">Fail closed</span>
+                {% endif %}
+              </strong>
+            </div>
+            <div class="bundle-governance-item" data-testid="bundle-governance-execution-strategy">
+              <span><span data-lang="zh">执行策略</span><span data-lang="en">Execution strategy</span></span>
+              <strong>
+                {% if governance.execution_strategy %}
+                {{ governance.execution_strategy[:1]|join(" / ") }}
+                {% else %}
+                <span data-lang="zh">下一步未声明</span><span data-lang="en">Next step not declared</span>
+                {% endif %}
+              </strong>
+            </div>
+            <div class="bundle-governance-item" data-testid="bundle-governance-tradeoffs">
+              <span><span data-lang="zh">判断取舍</span><span data-lang="en">Tradeoffs</span></span>
+              <strong>
+                {% if governance.judgment_tradeoffs %}
+                {{ governance.judgment_tradeoffs[:1]|join(" / ") }}
+                {% else %}
+                <span data-lang="zh">未声明</span><span data-lang="en">Not declared</span>
+                {% endif %}
+              </strong>
+            </div>
+            <div class="bundle-governance-item" data-testid="bundle-governance-local">
+              <span><span data-lang="zh">本地治理</span><span data-lang="en">Local governance</span></span>
+              <strong>
+                {% if governance.local_governance %}
+                {{ governance.local_governance[:1]|join(" / ") }}
+                {% else %}
+                <span data-lang="zh">未声明</span><span data-lang="en">Not declared</span>
                 {% endif %}
               </strong>
             </div>

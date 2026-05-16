@@ -7,7 +7,10 @@ import pytest
 
 from loopora.branding import state_dir_for_workdir
 from loopora.context_flow import (
+    RunContractSnapshotRequest,
+    STEP_CONTEXT_PACKET_SCHEMA,
     StepContextPacketRequest,
+    build_run_contract_snapshot,
     build_step_context_packet,
     output_contract_prompt,
     render_evidence_section,
@@ -16,6 +19,7 @@ from loopora.context_flow import (
 )
 from loopora.executor import CodexExecutor, FakeCodexExecutor, build_command_event_payload
 from loopora.run_artifacts import RunArtifactLayout
+from loopora.run_takeaways import build_judgment_contract
 from loopora.service import LooporaError
 from loopora.service_types import LooporaConflictError
 from loopora.service_workflow_runtime import _manifest_prompt_context
@@ -35,6 +39,15 @@ from runner_helpers import (
     _runtime_prompt_assets,
     _step_outputs_by_archetype,
 )
+
+
+def _assert_run_contract_freezes_spec_judgment_surfaces(run_contract: dict) -> None:
+    compiled_spec = run_contract["compiled_spec"]
+    assert run_contract["success_surface"] == compiled_spec["success_surface"]
+    assert run_contract["fake_done_states"] == compiled_spec["fake_done_states"]
+    assert run_contract["evidence_preferences"] == compiled_spec["evidence_preferences"]
+    assert run_contract["residual_risk"] == compiled_spec["residual_risk"]
+    assert run_contract["source_bundle"] == {}
 
 
 def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_file: Path, sample_workdir: Path) -> None:
@@ -72,6 +85,7 @@ def test_successful_run_writes_expected_artifacts(service_factory, sample_spec_f
     assert run["task_verdict"]["status"] == "passed"
     assert run["task_verdict"]["source"] == "gatekeeper"
     assert json.loads((run_dir / "evidence" / "task_verdict.json").read_text(encoding="utf-8")) == run["task_verdict"]
+    _assert_run_contract_freezes_spec_judgment_surfaces(run_contract)
     assert run_contract["workflow"]["steps"] == [
         {
             "id": step["id"],
@@ -230,7 +244,24 @@ def test_step_context_packet_preserves_manifest_claim_target_trace(tmp_path: Pat
     layout.initialize()
     packet = build_step_context_packet(
         StepContextPacketRequest(
-            run_contract={"compiled_spec": {}, "workflow": {"preset": "custom"}, "completion_mode": "gatekeeper"},
+            run_contract={
+                "compiled_spec": {},
+                "workflow": {"preset": "custom"},
+                "completion_mode": "gatekeeper",
+                "collaboration_summary": "Prefer evidence before closure.",
+                "loop_fit_reasons": ["Future iterations keep the proof target visible."],
+                "judgment_tradeoffs": ["Evidence before polish."],
+                "execution_strategy": ["Prove the smallest path first, then expand only after evidence is strong."],
+                "local_governance": ["GateKeeper treats skipped AGENTS.md responsibilities as Blocking."],
+                "role_postures": [
+                    {
+                        "role_id": "gatekeeper",
+                        "role_name": "GateKeeper",
+                        "archetype": "gatekeeper",
+                        "posture_notes": "Fail closed when evidence is weak.",
+                    }
+                ],
+            },
             layout=layout,
             iter_id=0,
             step={"id": "gatekeeper_step", "role_id": "gatekeeper"},
@@ -284,6 +315,29 @@ def test_step_context_packet_preserves_manifest_claim_target_trace(tmp_path: Pat
         )
     )
 
+    assert packet["contract"]["collaboration_summary"] == "Prefer evidence before closure."
+    assert packet["contract"]["loop_fit_reasons"] == ["Future iterations keep the proof target visible."]
+    assert packet["contract"]["judgment_tradeoffs"] == ["Evidence before polish."]
+    assert packet["contract"]["execution_strategy"] == ["Prove the smallest path first, then expand only after evidence is strong."]
+    assert packet["contract"]["local_governance"] == ["GateKeeper treats skipped AGENTS.md responsibilities as Blocking."]
+    assert packet["contract"]["role_postures"] == [
+        {
+            "role_id": "gatekeeper",
+            "role_name": "GateKeeper",
+            "archetype": "gatekeeper",
+            "posture_notes": "Fail closed when evidence is weak.",
+        }
+    ]
+    assert "loop_fit_reasons" in STEP_CONTEXT_PACKET_SCHEMA["properties"]["contract"]["required"]
+    assert STEP_CONTEXT_PACKET_SCHEMA["properties"]["contract"]["properties"]["loop_fit_reasons"]["type"] == "array"
+    assert "judgment_tradeoffs" in STEP_CONTEXT_PACKET_SCHEMA["properties"]["contract"]["required"]
+    assert STEP_CONTEXT_PACKET_SCHEMA["properties"]["contract"]["properties"]["judgment_tradeoffs"]["type"] == "array"
+    assert "execution_strategy" in STEP_CONTEXT_PACKET_SCHEMA["properties"]["contract"]["required"]
+    assert STEP_CONTEXT_PACKET_SCHEMA["properties"]["contract"]["properties"]["execution_strategy"]["type"] == "array"
+    assert "local_governance" in STEP_CONTEXT_PACKET_SCHEMA["properties"]["contract"]["required"]
+    assert STEP_CONTEXT_PACKET_SCHEMA["properties"]["contract"]["properties"]["local_governance"]["type"] == "array"
+    assert "role_postures" in STEP_CONTEXT_PACKET_SCHEMA["properties"]["contract"]["required"]
+    assert STEP_CONTEXT_PACKET_SCHEMA["properties"]["contract"]["properties"]["role_postures"]["type"] == "array"
     target_trace = packet["evidence"]["manifest_claims"][0]["coverage_targets"][0]
     assert target_trace == {
         "id": "done_when.check",
@@ -297,6 +351,348 @@ def test_step_context_packet_preserves_manifest_claim_target_trace(tmp_path: Pat
     prompt_section = render_evidence_section(packet["evidence"])
     assert '"id": "done_when.check"' in prompt_section
     assert '"required": true' in prompt_section
+
+
+def test_step_context_packet_derives_legacy_local_governance_before_prompting(tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "run_prompt_legacy_governance")
+    layout.initialize()
+
+    packet = build_step_context_packet(
+        StepContextPacketRequest(
+            run_contract={
+                "compiled_spec": {
+                    "raw_sections": {
+                        "Role Notes": (
+                            "Builder reads AGENTS.md and design/README.md before editing.\n"
+                            "Inspector verifies design/ and tests/ obligations against the result.\n"
+                            "GateKeeper treats skipped AGENTS.md or tests/ validation as Weak, Unproven, or Blocking."
+                        )
+                    }
+                },
+                "workflow": {
+                    "preset": "custom",
+                    "collaboration_intent": "Route project-local governance proof through the handoffs before closure.",
+                    "roles": [
+                        {
+                            "id": "gatekeeper",
+                            "name": "GateKeeper",
+                            "archetype": "gatekeeper",
+                            "posture_notes": "Fail closed when local governance evidence is skipped.",
+                        }
+                    ],
+                },
+                "completion_mode": "gatekeeper",
+                "collaboration_summary": "Future iterations keep inherited project rules visible.",
+            },
+            layout=layout,
+            iter_id=0,
+            step={"id": "gatekeeper_step", "role_id": "gatekeeper"},
+            step_order=1,
+            role={"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper"},
+            execution_settings={},
+            immediate_previous_step=None,
+            completed_steps_this_iteration=[],
+            previous_iteration_same_step=None,
+            previous_iteration_same_role=None,
+            previous_iteration_summary=None,
+            previous_composite=None,
+            stagnation_mode="none",
+        )
+    )
+
+    assert any("Builder reads AGENTS.md" in item for item in packet["contract"]["local_governance"])
+    assert any("Inspector verifies design/" in item for item in packet["contract"]["local_governance"])
+    assert any("GateKeeper treats skipped AGENTS.md" in item for item in packet["contract"]["local_governance"])
+
+
+def test_step_context_packet_normalizes_judgment_contract_field_types(tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "run_prompt_contract_types")
+    layout.initialize()
+
+    packet = build_step_context_packet(
+        StepContextPacketRequest(
+            run_contract={
+                "compiled_spec": {
+                    "goal": "Keep the step contract typed.",
+                    "coverage_targets": [{"id": "done_when.typed"}, "not-a-target"],
+                    "success_surface": ["Stable user-visible result.", True],
+                    "fake_done_states": "happy path only",
+                    "evidence_preferences": [False, "Direct command proof."],
+                    "residual_risk": True,
+                },
+                "workflow": {"preset": "custom", "collaboration_intent": "Route proof before closure."},
+                "completion_mode": "gatekeeper",
+                "collaboration_summary": "Keep frozen judgment typed.",
+                "loop_fit_reasons": ["Future rounds use the same contract.", False],
+                "judgment_tradeoffs": "proof before polish",
+                "execution_strategy": ["Prove the typed packet first.", 3],
+                "local_governance": [False, "GateKeeper blocks skipped local rules."],
+                "role_postures": [
+                    {
+                        "role_id": "builder",
+                        "role_name": "Builder",
+                        "archetype": "builder",
+                        "posture_notes": "Keep the implementation narrow.",
+                    },
+                    {"role_id": "inspector", "role_name": "Inspector", "archetype": "inspector"},
+                    "not-a-posture",
+                ],
+                "success_surface": ["Top-level stable user-visible result.", False],
+                "fake_done_states": ["Top-level happy-path-only proof is fake done.", 7],
+                "evidence_preferences": ["Top-level direct command proof.", False],
+                "residual_risk": "Top-level manual copy polish remains a visible follow-up.",
+            },
+            layout=layout,
+            iter_id=0,
+            step={"id": "builder_step", "role_id": "builder"},
+            step_order=0,
+            role={"id": "builder", "name": "Builder", "archetype": "builder"},
+            execution_settings={},
+            immediate_previous_step=None,
+            completed_steps_this_iteration=[],
+            previous_iteration_same_step=None,
+            previous_iteration_same_role=None,
+            previous_iteration_summary=None,
+            previous_composite=None,
+            stagnation_mode="none",
+        )
+    )
+
+    assert packet["contract"]["coverage_targets"] == [{"id": "done_when.typed"}]
+    assert packet["contract"]["loop_fit_reasons"] == ["Future rounds use the same contract."]
+    assert packet["contract"]["judgment_tradeoffs"] == []
+    assert packet["contract"]["execution_strategy"] == ["Prove the typed packet first."]
+    assert packet["contract"]["local_governance"] == ["GateKeeper blocks skipped local rules."]
+    assert packet["contract"]["role_postures"] == [
+        {
+            "role_id": "builder",
+            "role_name": "Builder",
+            "archetype": "builder",
+            "posture_notes": "Keep the implementation narrow.",
+        }
+    ]
+    assert packet["contract"]["success_surface"] == ["Top-level stable user-visible result."]
+    assert packet["contract"]["fake_done_states"] == ["Top-level happy-path-only proof is fake done."]
+    assert packet["contract"]["evidence_preferences"] == ["Top-level direct command proof."]
+    assert packet["contract"]["residual_risk"] == "Top-level manual copy polish remains a visible follow-up."
+
+
+def test_run_contract_tradeoffs_include_role_prompt_files(tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "run_prompt_tradeoffs")
+    layout.initialize()
+
+    contract = build_run_contract_snapshot(
+        RunContractSnapshotRequest(
+            run={
+                "id": "run_tradeoff",
+                "loop_id": "loop_tradeoff",
+                "workdir": str(tmp_path),
+                "completion_mode": "gatekeeper",
+                "max_iters": 4,
+                "max_role_retries": 1,
+                "delta_threshold": 0.005,
+                "trigger_window": 2,
+                "regression_window": 2,
+                "iteration_interval_seconds": 0,
+                "executor_kind": "codex",
+                "executor_mode": "preset",
+                "model": "gpt-5.4",
+                "reasoning_effort": "medium",
+            },
+            compiled_spec={"checks": [], "raw_sections": {}},
+            workflow={
+                "preset": "custom",
+                "collaboration_intent": "First route evidence before GateKeeper closure, then expand only after proof is strong.",
+                "roles": [
+                    {
+                        "id": "gatekeeper",
+                        "name": "GateKeeper",
+                        "archetype": "gatekeeper",
+                        "prompt_ref": "gatekeeper.md",
+                        "posture_notes": "Reject weak proof even when the happy path looks polished.",
+                    }
+                ],
+                "steps": [],
+            },
+            prompt_files={
+                "builder.md": "Builder reads AGENTS.md before changing work.",
+                "inspector.md": "Inspector verifies AGENTS.md and tests/ obligations.",
+                "gatekeeper.md": (
+                    "Strict blocking beats pragmatic progress when evidence is weak. "
+                    "GateKeeper treats skipped AGENTS.md or tests/ validation as Blocking."
+                ),
+            },
+            workspace_baseline={"file_count": 0},
+            layout=layout,
+            collaboration_summary="Future iterations stay anchored to the contract as new evidence appears.",
+        )
+    )
+
+    assert any("Strict blocking beats pragmatic progress" in item for item in contract["judgment_tradeoffs"])
+    assert any("First route evidence before GateKeeper closure" in item for item in contract["execution_strategy"])
+    assert any("Builder reads AGENTS.md" in item for item in contract["local_governance"])
+    assert any("Inspector verifies AGENTS.md" in item for item in contract["local_governance"])
+    assert any("GateKeeper treats skipped AGENTS.md" in item for item in contract["local_governance"])
+    assert contract["role_postures"] == [
+        {
+            "role_id": "gatekeeper",
+            "role_name": "GateKeeper",
+            "archetype": "gatekeeper",
+            "posture_notes": "Reject weak proof even when the happy path looks polished.",
+        }
+    ]
+    assert contract["loop_fit_reasons"] == ["Future iterations stay anchored to the contract as new evidence appears."]
+
+
+def test_run_contract_role_postures_can_fall_back_to_role_prompt_body(tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "run_prompt_role_posture")
+    layout.initialize()
+
+    contract = build_run_contract_snapshot(
+        RunContractSnapshotRequest(
+            run={
+                "id": "run_prompt_posture",
+                "loop_id": "loop_prompt_posture",
+                "workdir": str(tmp_path),
+                "completion_mode": "gatekeeper",
+                "max_iters": 4,
+                "max_role_retries": 1,
+                "delta_threshold": 0.005,
+                "trigger_window": 2,
+                "regression_window": 2,
+                "iteration_interval_seconds": 0,
+                "executor_kind": "codex",
+                "executor_mode": "preset",
+                "model": "gpt-5.4",
+                "reasoning_effort": "medium",
+            },
+            compiled_spec={"checks": [], "raw_sections": {}},
+            workflow={
+                "preset": "custom",
+                "collaboration_intent": "Keep role-specific evidence visible.",
+                "roles": [
+                    {
+                        "id": "contract_inspector",
+                        "name": "Contract Inspector",
+                        "archetype": "inspector",
+                        "prompt_ref": "inspector.md",
+                    }
+                ],
+                "steps": [],
+            },
+            prompt_files={
+                "inspector.md": (
+                    "---\nversion: 1\narchetype: inspector\n---\n\n"
+                    "Inspect the Builder handoff against fake-done risk before GateKeeper closes."
+                ),
+            },
+            workspace_baseline={"file_count": 0},
+            layout=layout,
+        )
+    )
+
+    assert contract["role_postures"] == [
+        {
+            "role_id": "contract_inspector",
+            "role_name": "Contract Inspector",
+            "archetype": "inspector",
+            "posture_notes": "Inspect the Builder handoff against fake-done risk before GateKeeper closes.",
+        }
+    ]
+
+
+def test_run_contract_does_not_freeze_summary_only_local_governance(tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "run_prompt_summary_only_governance")
+    layout.initialize()
+
+    contract = build_run_contract_snapshot(
+        RunContractSnapshotRequest(
+            run={
+                "id": "run_summary_governance",
+                "loop_id": "loop_summary_governance",
+                "workdir": str(tmp_path),
+                "completion_mode": "gatekeeper",
+                "max_iters": 4,
+                "max_role_retries": 1,
+                "delta_threshold": 0.005,
+                "trigger_window": 2,
+                "regression_window": 2,
+                "iteration_interval_seconds": 0,
+                "executor_kind": "codex",
+                "executor_mode": "preset",
+                "model": "gpt-5.4",
+                "reasoning_effort": "medium",
+            },
+            compiled_spec={"checks": [], "raw_sections": {}},
+            workflow={
+                "preset": "custom",
+                "collaboration_intent": "Use the handoff and evidence flow before GateKeeper closure.",
+                "roles": [
+                    {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                    {"id": "inspector", "name": "Inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+                    {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+                ],
+                "steps": [],
+            },
+            prompt_files={},
+            workspace_baseline={"file_count": 0},
+            layout=layout,
+            collaboration_summary=(
+                "Future iterations stay anchored to the contract. Builder reads AGENTS.md, Inspector verifies "
+                "design/ and tests/, and GateKeeper treats skipped AGENTS.md responsibilities as Blocking."
+            ),
+        )
+    )
+
+    assert contract["local_governance"] == []
+
+
+def test_judgment_contract_preserves_empty_runtime_local_governance(tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "run_prompt_empty_governance_takeaway")
+    layout.initialize()
+    layout.run_contract_path.write_text(
+        json.dumps(
+            {
+                "contract_path": "contract/run_contract.json",
+                "completion_mode": "gatekeeper",
+                "compiled_spec": {
+                    "check_mode": "specified",
+                    "checks": [{"id": "check_001"}],
+                    "coverage_targets": [{"id": "done_when.check_001", "required": True}],
+                    "raw_sections": {},
+                },
+                "workflow": {"preset": "custom", "collaboration_intent": "Keep evidence moving."},
+                "collaboration_summary": (
+                    "Builder reads AGENTS.md, Inspector verifies design/ and tests/, and GateKeeper treats "
+                    "skipped AGENTS.md responsibilities as Blocking."
+                ),
+                "local_governance": [],
+                "role_postures": [
+                    {
+                        "role_id": "builder",
+                        "role_name": "Builder",
+                        "archetype": "builder",
+                        "posture_notes": "Treat project-local rules as part of the task evidence.",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    judgment_contract = build_judgment_contract({"runs_dir": str(layout.run_dir)})
+
+    assert judgment_contract["local_governance"] == []
+    assert judgment_contract["contract_path"] == "contract/run_contract.json"
+    assert judgment_contract["check_mode"] == "specified"
+    assert judgment_contract["check_count"] == 1
+    assert judgment_contract["completion_mode"] == "gatekeeper"
+    assert judgment_contract["workflow_preset"] == "custom"
+    assert judgment_contract["coverage_targets"] == [{"id": "done_when.check_001", "required": True}]
+    assert judgment_contract["role_postures"] == [
+        "Builder: Treat project-local rules as part of the task evidence."
+    ]
 
 
 def test_command_events_do_not_persist_prompt_or_secret_markers(
@@ -445,7 +841,7 @@ def test_coverage_results_cover_advisory_targets(
                         "note": "Inspector explicitly verified this advisory target.",
                     }
                     for target in targets
-                    if target.get("kind") in {"fake_done", "evidence_preference"}
+                    if target.get("kind") in {"success_surface", "fake_done", "evidence_preference"}
                 ]
             return payload
 
@@ -462,8 +858,11 @@ def test_coverage_results_cover_advisory_targets(
 
     assert run["status"] == "succeeded"
     assert coverage["status"] == "covered"
+    assert target_status["success_surface.surface_001"] == "covered"
+    assert target_status["success_surface.surface_002"] == "covered"
     assert target_status["fake_done.risk_001"] == "covered"
     assert target_status["evidence_preference.pref_001"] == "covered"
+    assert any("target:success_surface.surface_001:covered" in entry["verifies"] for entry in evidence_ledger)
     assert any("target:fake_done.risk_001:covered" in entry["verifies"] for entry in evidence_ledger)
     assert any("target:evidence_preference.pref_001:covered" in entry["verifies"] for entry in evidence_ledger)
 
@@ -529,7 +928,7 @@ def test_gatekeeper_coverage_results_cover_advisory_targets(
                             "note": "GateKeeper accepted this advisory target from the supporting inspection.",
                         }
                         for target in targets
-                        if target.get("kind") in {"fake_done", "evidence_preference"}
+                        if target.get("kind") in {"success_surface", "fake_done", "evidence_preference"}
                     ],
                 }
             request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -560,11 +959,15 @@ def test_gatekeeper_coverage_results_cover_advisory_targets(
 
     assert run["status"] == "succeeded"
     assert coverage["status"] == "covered"
+    assert target_status["success_surface.surface_001"] == "covered"
+    assert target_status["success_surface.surface_002"] == "covered"
     assert target_status["fake_done.risk_001"] == "covered"
     assert target_status["evidence_preference.pref_001"] == "covered"
+    assert "target:success_surface.surface_001:covered" in gatekeeper_entry["verifies"]
     assert "target:fake_done.risk_001:covered" in gatekeeper_entry["verifies"]
     assert "target:evidence_preference.pref_001:covered" in gatekeeper_entry["verifies"]
     assert {item["target_id"] for item in gatekeeper_entry["coverage_results"]} >= {
+        "success_surface.surface_001",
         "fake_done.risk_001",
         "evidence_preference.pref_001",
     }
@@ -621,6 +1024,7 @@ def test_run_persists_role_request_snapshots_and_iteration_handoff(
     prompt_text = prompt_path.read_text(encoding="utf-8")
     assert "This is iteration 2." in prompt_text
     assert "Previous iteration summary:" in prompt_text
+    assert " :: blocking=" in prompt_text
     assert "Repair the smallest Blocking or Unproven gap without lowering the frozen contract." in prompt_text
     assert "Immediate upstream handoff" in prompt_text
 

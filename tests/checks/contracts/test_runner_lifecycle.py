@@ -204,13 +204,26 @@ def test_exploratory_run_generates_and_freezes_checks(
 
     run_dir = Path(run["runs_dir"])
     compiled_spec = json.loads((run_dir / "contract" / "compiled_spec.json").read_text(encoding="utf-8"))
+    run_contract = json.loads((run_dir / "contract" / "run_contract.json").read_text(encoding="utf-8"))
     auto_checks = json.loads((run_dir / "contract" / "auto_checks.json").read_text(encoding="utf-8"))
+    step_contexts = sorted(run_dir.glob("iterations/iter_000/steps/*/input.context.json"))
+    first_step_context = json.loads(step_contexts[0].read_text(encoding="utf-8"))
     tester_output = json.loads((run_dir / "tester_output.json").read_text(encoding="utf-8"))
+    snapshot_contract = service.run_observation_snapshot(run["id"])["key_takeaways"]["judgment_contract"]
 
     assert compiled_spec["check_mode"] == "auto_generated"
     assert len(compiled_spec["checks"]) >= 3
     assert any(target["id"] == "done_when.check_001" for target in compiled_spec["coverage_targets"])
+    assert run_contract["compiled_spec"]["check_mode"] == "auto_generated"
+    assert run_contract["compiled_spec"]["checks"] == compiled_spec["checks"]
+    assert run_contract["compiled_spec"]["coverage_targets"] == compiled_spec["coverage_targets"]
+    assert snapshot_contract["check_mode"] == "auto_generated"
+    assert snapshot_contract["check_count"] == len(compiled_spec["checks"])
+    assert any(target["id"] == "done_when.check_001" for target in snapshot_contract["coverage_targets"])
     assert auto_checks["count"] == len(compiled_spec["checks"])
+    assert first_step_context["contract"]["check_mode"] == "auto_generated"
+    assert first_step_context["contract"]["check_count"] == len(compiled_spec["checks"])
+    assert any(target["id"] == "done_when.check_001" for target in first_step_context["contract"]["coverage_targets"])
     assert tester_output["execution_summary"]["total_checks"] == len(compiled_spec["checks"])
     assert tester_output["check_results"]
 

@@ -11,6 +11,7 @@ import pytest
 from loopora.bundles import bundle_to_yaml, load_bundle_text
 from loopora.executor import FakeCodexExecutor
 from loopora.executor_fake_payloads import alignment_bundle_yaml
+from loopora.service_bundle_control_summary import build_bundle_control_summary
 from loopora.web import build_app
 from loopora.web_streaming import MAX_EVENT_CURSOR_ID
 import loopora.service_alignment as alignment_module
@@ -36,10 +37,26 @@ def _confirm_alignment_agreement(service, session_id: str, *final_statuses: str)
     assert agreement["working_agreement"]["readiness_evidence"]["loop_fit"]
     assert agreement["working_agreement"]["readiness_evidence"]["task_scope"]
     assert agreement["working_agreement"]["readiness_evidence"]["residual_risk_policy"]
+    assert agreement["working_agreement"]["readiness_evidence"]["local_governance"]
     service.append_alignment_message(session_id, "确认")
     confirmed = _wait_for_status(service, session_id, *(final_statuses or ("ready",)))
     assert confirmed["working_agreement"]["readiness_checklist"]["explicit_confirmation"] is True
     return confirmed
+
+
+def _assert_run_succeeds_and_joins(service, run_id: str, *, timeout: float = 5.0) -> None:
+    deadline = time.time() + timeout
+    run = service.get_run(run_id)
+    while time.time() < deadline:
+        run = service.get_run(run_id)
+        if run["status"] in {"succeeded", "failed", "stopped"}:
+            break
+        time.sleep(0.05)
+    thread = service._threads.get(run_id)
+    if thread is not None:
+        thread.join(timeout=max(0.0, deadline - time.time()))
+    run = service.get_run(run_id)
+    assert run["status"] == "succeeded"
 
 
 def test_alignment_prompt_assets_separate_run_status_from_task_verdict() -> None:
@@ -58,6 +75,33 @@ def test_alignment_prompt_assets_separate_run_status_from_task_verdict() -> None
         source = path.read_text(encoding="utf-8")
         assert "evidence verdict and result" not in source, path.name
         assert "The evidence verdict should" not in source, path.name
+
+
+def test_alignment_fake_bundle_keeps_runtime_judgment_surfaces_visible(sample_workdir: Path) -> None:
+    bundle_text = alignment_bundle_yaml(str(sample_workdir.resolve()))
+
+    assert "Execution Strategy, Judgment Tradeoffs, Local Governance, and Residual Risk" in bundle_text
+    assert "sequencing drift, lowered tradeoffs, local-governance gaps" in bundle_text
+    assert "prove the task contract, execution strategy, judgment tradeoffs, local governance when present" in bundle_text
+
+
+def _assert_alignment_preview_control_summary(preview: dict) -> None:
+    control_summary = preview["control_summary"]
+    assert control_summary["gatekeeper"]["requires_evidence_refs"] is True
+    assert control_summary["coverage"]["check_count"] >= 1
+    assert control_summary["coverage"]["target_count"] >= control_summary["coverage"]["check_count"]
+    assert any(target["id"].startswith("done_when.") for target in control_summary["coverage"]["targets"])
+    assert (
+        any("fail closed" in item for item in control_summary["residual_risk_policy"])
+        and any("smaller proven flow" in item for item in control_summary["judgment_tradeoffs"])
+        and any("Focused Builder (builder): Keep implementation narrow" in item for item in control_summary["role_postures"])
+        and any("Future iterations stay anchored" in item for item in control_summary["loop_fit_reasons"])
+    )
+    assert preview["traceability"] == control_summary["traceability"]
+    assert any(item["key"] == "loop_fit" and item["mapped"] for item in preview["traceability"]["items"])
+    assert any(item["key"] == "coverage_targets" and item["mapped"] for item in preview["traceability"]["items"])
+    assert any(item["key"] == "judgment_tradeoffs" and item["mapped"] for item in preview["traceability"]["items"])
+    assert preview["traceability"]["mapped_count"] == preview["traceability"]["required_count"]
 
 
 def test_alignment_service_writes_validates_previews_imports_and_runs(
@@ -103,9 +147,7 @@ def test_alignment_service_writes_validates_previews_imports_and_runs(
     assert preview["ok"] is True
     assert preview["bundle"]["loop"]["workdir"] == str(sample_workdir.resolve())
     assert preview["workflow_preview"]["roles"][0]["name"] == "Focused Builder"
-    assert preview["control_summary"]["gatekeeper"]["requires_evidence_refs"] is True
-    assert preview["traceability"] == preview["control_summary"]["traceability"]
-    assert preview["traceability"]["mapped_count"] == preview["traceability"]["required_count"]
+    _assert_alignment_preview_control_summary(preview)
     assert "Ship the focused starter experience" in preview["spec_rendered_html"]
 
     imported = service.import_alignment_bundle(session["id"], start_immediately=True)
@@ -116,6 +158,7 @@ def test_alignment_service_writes_validates_previews_imports_and_runs(
     assert final_session["linked_bundle_id"] == imported["bundle"]["id"]
     assert final_session["linked_loop_id"] == imported["bundle"]["loop_id"]
     assert final_session["linked_run_id"] == imported["run"]["id"]
+    _assert_run_succeeds_and_joins(service, imported["run"]["id"])
 
 
 def test_alignment_manifest_and_session_summary_redact_transcript_preview_secrets(
@@ -699,10 +742,17 @@ def test_alignment_service_materializes_visible_working_agreement(
     assert "Loopora fit:" in visible_agreement
     assert "Task scope:" in visible_agreement
     assert "Success surface:" in visible_agreement
+    assert "Fake-done risks:" in visible_agreement
+    assert "Evidence preferences:" in visible_agreement
+    assert "Execution strategy:" in visible_agreement
     assert "Residual risk:" in visible_agreement
     assert "Judgment tradeoffs:" in visible_agreement
+    assert "Local governance:" in visible_agreement
     assert "Role posture:" in visible_agreement
-    assert "Workflow shape:" in visible_agreement
+    assert "Run-flow shape:" in visible_agreement
+    assert "Workflow shape:" not in visible_agreement
+    assert "Project facts:" in visible_agreement
+    assert "Workdir facts:" not in visible_agreement
     assert "Proven, Weak, Unproven, Blocking" in visible_agreement
     assert visible_agreement != "Please confirm."
     assert session["transcript"][-1]["decision_options"][0]["recommended"] is True
@@ -725,8 +775,17 @@ def test_alignment_service_materializes_chinese_working_agreement(
     assert visible_agreement.startswith("请先确认这份工作协议。")
     assert "为什么用 Loopora：" in visible_agreement
     assert "后续轮次需要新证据" in visible_agreement
+    assert "成功面：" in visible_agreement
+    assert "假完成风险：" in visible_agreement
+    assert "证据偏好：" in visible_agreement
+    assert "执行策略：" in visible_agreement
+    assert "残余风险：" in visible_agreement
     assert "判断取舍：" in visible_agreement
-    assert "workflow 形状：" in visible_agreement
+    assert "本地治理：" in visible_agreement
+    assert "运行流程形状：" in visible_agreement
+    assert "workflow 形状：" not in visible_agreement
+    assert "项目事实：" in visible_agreement
+    assert "workdir 事实：" not in visible_agreement
     assert visible_agreement != "Please confirm."
     assert session["transcript"][-1]["decision_options"][0]["recommended"] is True
     assert "采用这个方向" in session["transcript"][-1]["decision_options"][0]["label"]
@@ -939,23 +998,33 @@ def test_alignment_service_blocks_chinese_bundle_with_english_visible_names(
     )
 
 
+@pytest.mark.parametrize(
+    ("scenario", "missing_key", "message"),
+    [
+        ("alignment_incomplete_agreement_checklist", "workflow_shape", "Build a starter experience without workflow judgment."),
+        ("alignment_incomplete_tradeoff_checklist", "judgment_tradeoffs", "Build a starter experience without tradeoff judgment."),
+    ],
+)
 def test_alignment_service_blocks_agreement_with_incomplete_checklist(
     service_factory,
     sample_workdir: Path,
+    scenario: str,
+    missing_key: str,
+    message: str,
 ) -> None:
-    service = service_factory(scenario="alignment_incomplete_agreement_checklist")
+    service = service_factory(scenario=scenario)
 
     created = service.create_alignment_session(
         workdir=sample_workdir,
-        message="Build a starter experience without workflow judgment.",
+        message=message,
     )
     session = _wait_for_status(service, created["id"], "waiting_user")
 
     assert session["alignment_stage"] == "clarifying"
     assert not session["working_agreement"]
-    assert "workflow_shape" in session["transcript"][-1]["content"]
+    assert missing_key in session["transcript"][-1]["content"]
     events = service.list_alignment_events(created["id"])
-    assert any(event["event_type"] == "alignment_checklist_incomplete" and "workflow_shape" in event["payload"].get("missing", []) for event in events)
+    assert any(event["event_type"] == "alignment_checklist_incomplete" and missing_key in event["payload"].get("missing", []) for event in events)
 
 
 def test_alignment_service_blocks_agreement_with_unresolved_open_questions(
@@ -1032,19 +1101,40 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
         "state your current best judgment first",
         "Repairable issues may be fixed by the Agent",
         "Human-required issues must go back to conversation",
+        "execution strategy, residual-risk policy, judgment tradeoff, local-governance responsibility",
+        "execution priorities, residual-risk policy, local-governance responsibility",
         "Loopora Product Primer",
         "local-first platform for composing human-shaped governance loops",
         "human-in-the-loop -> human-shaped loop",
         "Loopora fit gate",
         "one Agent pass plus one human review",
+        "direct answer or one-off task handling",
         "survive this chat as a run-owned, exportable, auditable contract",
         "new proof / artifact / handoff / observation / verdict context later rounds will create",
         "run-owned/exportable/auditable contract",
+        "`readiness_checklist`: booleans for `loop_fit`, `task_scope`, `success_surface`, `fake_done_risks`, `evidence_preferences`, `execution_strategy`, `residual_risk_policy`, `judgment_tradeoffs`, `local_governance`",
+        "`residual_risk_policy` must explain which remaining risks may be accepted and who or what follow-up / acceptance path owns them",
         "`judgment_tradeoffs` must capture a concrete preference order or contrast",
+        "`local_governance` must explain whether project-local governance markers affect this Loop",
         "judgment structure quality × evidence feedback quality × error exposure speed",
         "prompt pack, role zoo, loop script, benchmark grinder",
         "global persona, or permanent preferences",
         "Project the confirmed working agreement into the bundle surfaces",
+        "execution priorities",
+        "project-local governance responsibilities",
+        "local-governance checkpoints",
+        "build/prove/repair/narrow/expand/defer priorities",
+        "execution strategy",
+        "judgment tradeoffs",
+        "local-governance responsibility when project markers matter",
+        "what should be built, proved, narrowed, repaired, expanded, or deliberately deferred first",
+        "which imperfect result should be rejected, when proof beats speed, or when blocking beats pragmatic progress",
+        "including any project-local governance reading or verification duties",
+        "`spec.markdown` `# Role Notes` or `role_definitions` must carry",
+        "`spec.markdown` / `# Role Notes`",
+        "execution priorities or deliberate deferrals",
+        "task-level judgment tradeoffs",
+        "project-local governance obligations when they affect the task contract",
         "Builder / Inspector / Guide / GateKeeper / Custom posture",
         "user-facing rejection criteria",
         "exhaust available context",
@@ -1160,6 +1250,42 @@ def test_alignment_bundle_source_file_rejects_invalid_utf8(service_factory, samp
     assert recovered_session["status"] == "ready"
     assert recovered_session["error_message"] == ""
     assert recovered_session["finished_at"] is None
+
+
+def test_alignment_bundle_preview_revalidates_current_file_without_mutating_session(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    session = _confirm_alignment_agreement(
+        service,
+        service.create_alignment_session(workdir=sample_workdir, message="Create a previewable Loop.")["id"],
+    )
+    bundle_path = Path(session["bundle_path"])
+    ready_bundle = load_bundle_text(bundle_path.read_text(encoding="utf-8"))
+    ready_bundle["spec"]["markdown"] = ready_bundle["spec"]["markdown"].replace(
+        "Accept minor polish gaps only when they are explicitly named and tracked as an owned follow-up; fail closed on unproven primary-flow behavior or weak verification evidence.",
+        "Some risk is fine.",
+    )
+    bundle_path.write_text(bundle_to_yaml(ready_bundle), encoding="utf-8")
+
+    preview = service.get_alignment_bundle(session["id"])
+
+    assert preview["ok"] is False
+    assert preview["validation"]["ok"] is False
+    assert "Residual Risk guidance" in preview["validation"]["error"]
+    assert service.get_alignment_session(session["id"])["status"] == "ready"
+
+
+def test_alignment_bundle_source_file_recovers_after_invalid_utf8(service_factory, sample_workdir: Path) -> None:
+    service = service_factory(scenario="success")
+    preview_session = _confirm_alignment_agreement(
+        service,
+        service.create_alignment_session(workdir=sample_workdir, message="Create a previewable Loop.")["id"],
+    )
+    Path(preview_session["bundle_path"]).write_bytes(b"\xff")
+    sync_result = service.sync_alignment_bundle_from_file(preview_session["id"])
+    assert sync_result["ok"] is False
 
     import_session = _confirm_alignment_agreement(
         service,
@@ -1319,6 +1445,296 @@ def test_alignment_service_blocks_bundle_without_residual_risk_readiness_evidenc
     assert any(event["event_type"] == "alignment_stage_blocked" and "residual_risk_policy" in event["payload"].get("error", "") for event in events)
 
 
+def test_alignment_service_blocks_bundle_without_execution_strategy_readiness_evidence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_missing_execution_strategy_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience without deciding what the next rounds should prioritize.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert "execution_strategy" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(event["event_type"] == "alignment_stage_blocked" and "execution_strategy" in event["payload"].get("error", "") for event in events)
+
+
+def test_alignment_service_blocks_bundle_without_local_governance_readiness_evidence(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="alignment_missing_local_governance_readiness_evidence")
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="Build a starter experience without clarifying local governance responsibilities.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert "local_governance" in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(event["event_type"] == "alignment_stage_blocked" and "local_governance" in event["payload"].get("error", "") for event in events)
+
+
+@pytest.mark.parametrize(
+    ("scenario", "missing_key"),
+    [
+        ("alignment_vague_success_surface_readiness_evidence", "success_surface"),
+        ("alignment_vague_fake_done_readiness_evidence", "fake_done_risks"),
+        ("alignment_vague_evidence_preferences_readiness_evidence", "evidence_preferences"),
+        ("alignment_vague_role_posture_readiness_evidence", "role_posture"),
+        ("alignment_role_posture_without_gatekeeper_readiness_evidence", "role_posture"),
+    ],
+)
+def test_alignment_service_blocks_placeholder_judgment_readiness_evidence(
+    service_factory,
+    sample_workdir: Path,
+    scenario: str,
+    missing_key: str,
+) -> None:
+    service = service_factory(scenario=scenario)
+
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message=f"Build a starter experience with placeholder {missing_key} evidence.",
+    )
+    _wait_for_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    session = _wait_for_status(service, created["id"], "waiting_user")
+
+    assert not Path(session["bundle_path"]).exists()
+    assert missing_key in session["transcript"][-1]["content"]
+    events = service.list_alignment_events(created["id"])
+    assert any(
+        event["event_type"] == "alignment_stage_blocked" and missing_key in event["payload"].get("error", "")
+        for event in events
+    )
+
+
+def test_alignment_readiness_evidence_rejects_placeholder_judgment_surfaces() -> None:
+    service = alignment_module.ServiceAlignmentMixin
+    readiness_evidence = {
+        "loop_fit": "Loopora is needed because roles must gather proof, compare findings, and keep judgment alive across iterations.",
+        "task_scope": "The task scope is the requested starter workflow and its evidence-bearing bundle surfaces.",
+        "success_surface": "The success surface is the user-visible primary path plus the runnable checks that prove it works.",
+        "fake_done_risks": "Blocking fake-done findings include screenshots without checks and claims without direct artifacts.",
+        "evidence_preferences": "Evidence must project Proven, Weak, Unproven, Blocking, and Residual risk before closure.",
+        "execution_strategy": "Build the focused flow first, then repair evidence gaps before expanding or polishing.",
+        "residual_risk_policy": "Minor polish risk may remain visible as a tracked follow-up owned by product; ownerless primary-flow risk fails closed.",
+        "judgment_tradeoffs": "Prefer proof over speed when the primary flow or evidence boundary is uncertain.",
+        "local_governance": "No extra repository-rule content is claimed; roles follow the task contract and evidence rules.",
+        "role_posture": "Builder implements, Inspector verifies direct evidence, and GateKeeper decides from the evidence buckets.",
+        "workflow_shape": "Builder, Inspector, and GateKeeper exchange explicit handoffs before any finish decision.",
+        "workdir_facts": "Snapshot assumptions remain unknown until observed in the workdir.",
+    }
+    valid_issues = service._readiness_evidence_issues({"readiness_evidence": readiness_evidence})
+    assert not {
+        "success_surface",
+        "fake_done_risks",
+        "evidence_preferences",
+        "role_posture",
+    }.intersection(valid_issues)
+
+    placeholders = {
+        "success_surface": "The final result should be good and useful for the user.",
+        "fake_done_risks": "The result should avoid bugs and should be high quality.",
+        "evidence_preferences": "The user needs enough proof to feel confident before the result is accepted.",
+        "role_posture": "Use three roles to complete the task well.",
+    }
+    for key, value in placeholders.items():
+        candidate = dict(readiness_evidence)
+        candidate[key] = value
+        issues = service._readiness_evidence_issues({"readiness_evidence": candidate})
+        assert key in issues
+
+    no_gatekeeper = dict(readiness_evidence)
+    no_gatekeeper["role_posture"] = "Builder leaves evidence and Inspector reviews the handoff carefully."
+    assert "role_posture" in service._readiness_evidence_issues({"readiness_evidence": no_gatekeeper})
+    chinese_no_gatekeeper = dict(readiness_evidence)
+    chinese_no_gatekeeper["role_posture"] = "Builder 负责构建，Inspector 验证证据。"
+    assert "role_posture" in service._readiness_evidence_issues({"readiness_evidence": chinese_no_gatekeeper})
+
+
+def test_alignment_readiness_evidence_rejects_unmanaged_residual_risk_policy() -> None:
+    readiness_evidence = {
+        "loop_fit": "Loopora is needed because roles must gather proof, compare findings, and keep judgment alive across iterations.",
+        "task_scope": "The task scope is the requested starter workflow and its evidence-bearing bundle surfaces.",
+        "success_surface": "The success surface is the user-visible primary path plus the runnable checks that prove it works.",
+        "fake_done_risks": "Blocking fake-done findings include screenshots without checks and claims without direct artifacts.",
+        "evidence_preferences": (
+            "Evidence must project Proven direct checks, Weak indirect signals, Unproven claims, "
+            "Blocking findings, and Residual risk."
+        ),
+        "execution_strategy": "Build the focused flow first, then repair evidence gaps before expanding or polishing.",
+        "residual_risk_policy": "Minor polish risk may remain visible as a tracked follow-up owned by product; ownerless primary-flow risk fails closed.",
+        "judgment_tradeoffs": "Prefer proof over speed when the primary flow or evidence boundary is uncertain.",
+        "local_governance": "No extra repository-rule content is claimed; roles follow the task contract and evidence rules.",
+        "role_posture": "Builder implements, Inspector verifies direct evidence, and GateKeeper decides from the evidence buckets.",
+        "workflow_shape": "Builder, Inspector, and GateKeeper exchange explicit handoffs before any finish decision.",
+        "workdir_facts": "Snapshot assumptions remain unknown until observed in the workdir.",
+    }
+    valid_issues = alignment_module.ServiceAlignmentMixin._readiness_evidence_issues({"readiness_evidence": readiness_evidence})
+    assert "residual_risk_policy" not in valid_issues
+
+    readiness_evidence["residual_risk_policy"] = "Some risk is fine."
+    issues = alignment_module.ServiceAlignmentMixin._readiness_evidence_issues({"readiness_evidence": readiness_evidence})
+
+    assert "residual_risk_policy" in issues
+
+    readiness_evidence["residual_risk_policy"] = "有些风险可以接受。"
+    issues = alignment_module.ServiceAlignmentMixin._readiness_evidence_issues({"readiness_evidence": readiness_evidence})
+
+    assert "residual_risk_policy" in issues
+
+    readiness_evidence["residual_risk_policy"] = "有些风险可以接受，但必须由客服负责人跟进工单。"
+    issues = alignment_module.ServiceAlignmentMixin._readiness_evidence_issues({"readiness_evidence": readiness_evidence})
+
+    assert "residual_risk_policy" not in issues
+
+
+def test_alignment_readiness_evidence_rejects_local_governance_marker_lists_without_responsibility() -> None:
+    service = alignment_module.ServiceAlignmentMixin
+    readiness_evidence = {
+        "loop_fit": "Loopora is needed because roles must gather proof, compare findings, and keep judgment alive across iterations.",
+        "task_scope": "The task scope is the requested starter workflow and its evidence-bearing bundle surfaces.",
+        "success_surface": "The success surface is the user-visible primary path plus the runnable checks that prove it works.",
+        "fake_done_risks": "Blocking fake-done findings include screenshots without checks and claims without direct artifacts.",
+        "evidence_preferences": "Evidence must project Proven, Weak, Unproven, Blocking, and Residual risk before closure.",
+        "execution_strategy": "Build the focused flow first, then repair evidence gaps before expanding or polishing.",
+        "residual_risk_policy": "Minor polish risk may remain visible as a tracked follow-up owned by product; ownerless primary-flow risk fails closed.",
+        "judgment_tradeoffs": "Prefer proof over speed when the primary flow or evidence boundary is uncertain.",
+        "local_governance": "AGENTS.md, design/README.md, design/, and tests/ are visible governance markers.",
+        "role_posture": "Builder implements, Inspector verifies direct evidence, and GateKeeper decides from the evidence buckets.",
+        "workflow_shape": "Builder, Inspector, and GateKeeper exchange explicit handoffs before any finish decision.",
+        "workdir_facts": "Snapshot assumptions remain unknown until observed in the workdir.",
+    }
+
+    issues = service._readiness_evidence_issues({"readiness_evidence": readiness_evidence})
+    assert "local_governance" in issues
+
+    readiness_evidence["local_governance"] = (
+        "Builder reads AGENTS.md and design/README.md before editing; Inspector verifies design/ and tests/ "
+        "obligations against the result; GateKeeper treats skipped AGENTS.md or tests/ validation as Weak, "
+        "Unproven, or Blocking."
+    )
+    issues = service._readiness_evidence_issues({"readiness_evidence": readiness_evidence})
+    assert "local_governance" not in issues
+
+
+def test_alignment_readiness_evidence_uses_workdir_snapshot_for_local_governance() -> None:
+    service = alignment_module.ServiceAlignmentMixin
+    readiness_evidence = {
+        "loop_fit": "Loopora is needed because roles must gather proof, compare findings, and keep judgment alive across iterations.",
+        "task_scope": "The task scope is the requested starter workflow and its evidence-bearing bundle surfaces.",
+        "success_surface": "The success surface is the user-visible primary path plus the runnable checks that prove it works.",
+        "fake_done_risks": "Blocking fake-done findings include screenshots without checks and claims without direct artifacts.",
+        "evidence_preferences": "Evidence must project Proven, Weak, Unproven, Blocking, and Residual risk before closure.",
+        "execution_strategy": "Build the focused flow first, then repair evidence gaps before expanding or polishing.",
+        "residual_risk_policy": "Minor polish risk may remain visible as a tracked follow-up owned by product; ownerless primary-flow risk fails closed.",
+        "judgment_tradeoffs": "Prefer proof over speed when the primary flow or evidence boundary is uncertain.",
+        "local_governance": "No extra repository-rule content is claimed.",
+        "role_posture": "Builder implements, Inspector verifies direct evidence, and GateKeeper decides from the evidence buckets.",
+        "workflow_shape": "Builder, Inspector, and GateKeeper exchange explicit handoffs before any finish decision.",
+        "workdir_facts": "Snapshot observed project markers.",
+    }
+    snapshot = "\n".join(
+        [
+            "AGENTS.md exists: yes",
+            "design/ exists: yes",
+            "design/README.md exists: yes",
+            "tests/ exists: yes",
+        ]
+    )
+
+    issues = service._readiness_evidence_issues({"readiness_evidence": readiness_evidence}, workdir_snapshot=snapshot)
+    assert "local_governance" in issues
+
+    readiness_evidence["local_governance"] = (
+        "Builder reads AGENTS.md and design/README.md before editing; Inspector verifies design/ and tests/ "
+        "obligations against the result; GateKeeper treats skipped AGENTS.md or tests/ validation as Weak, "
+        "Unproven, or Blocking."
+    )
+    issues = service._readiness_evidence_issues({"readiness_evidence": readiness_evidence}, workdir_snapshot=snapshot)
+    assert "local_governance" not in issues
+
+
+def test_alignment_traceability_uses_workdir_snapshot_for_local_governance(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
+    (sample_workdir / "AGENTS.md").write_text("Project rules.\n", encoding="utf-8")
+    (sample_workdir / "design").mkdir()
+    (sample_workdir / "design" / "README.md").write_text("# Design\n", encoding="utf-8")
+    (sample_workdir / "tests").mkdir()
+    session = {
+        "workdir": str(sample_workdir),
+        "working_agreement": {
+            "readiness_evidence": {
+                "local_governance": (
+                    "If project-local governance markers are present, Builder reads applicable rules, "
+                    "Inspector verifies related obligations, and GateKeeper blocks skipped governance."
+                ),
+            }
+        },
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert any("project-local governance markers" in issue for issue in issues)
+
+
+def test_alignment_workdir_snapshot_detects_applicable_parent_agents_file(tmp_path: Path) -> None:
+    service = alignment_module.ServiceAlignmentMixin
+    project = tmp_path / "project"
+    workdir = project / "packages" / "app"
+    workdir.mkdir(parents=True)
+    (project / ".git").mkdir()
+    (project / "AGENTS.md").write_text("Project rules.\n", encoding="utf-8")
+
+    snapshot = service._alignment_workdir_snapshot(workdir)
+
+    assert "AGENTS.md exists: no" in snapshot
+    assert "Applicable AGENTS.md exists: yes" in snapshot
+    assert "Applicable AGENTS.md paths: ../../AGENTS.md" in snapshot
+    assert service._workdir_snapshot_has_governance_markers(snapshot)
+
+
+def test_alignment_traceability_uses_parent_agents_snapshot_for_local_governance(
+    service_factory,
+    tmp_path: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    project = tmp_path / "project"
+    workdir = project / "packages" / "app"
+    workdir.mkdir(parents=True)
+    (project / ".git").mkdir()
+    (project / "AGENTS.md").write_text("Project rules.\n", encoding="utf-8")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(workdir)))
+    session = {
+        "workdir": str(workdir),
+        "working_agreement": {
+            "readiness_evidence": {
+                "local_governance": "No direct AGENTS.md file is visible in the selected workdir.",
+            }
+        },
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert any("project-local governance markers" in issue for issue in issues)
+
+
 def test_alignment_service_blocks_invented_workdir_facts_readiness_evidence(
     service_factory,
     sample_workdir: Path,
@@ -1376,7 +1792,7 @@ def test_alignment_service_blocks_bundle_observed_stack_claims_not_in_workdir_sn
     assert any(event["event_type"] == "alignment_validation_failed" and "bundle field spec.markdown" in event["payload"].get("error", "") for event in events)
 
 
-def test_alignment_service_blocks_governance_markers_without_role_responsibilities(
+def test_alignment_service_blocks_governance_markers_without_bundle_responsibilities(
     service_factory,
     sample_workdir: Path,
 ) -> None:
@@ -1425,6 +1841,107 @@ def test_alignment_traceability_checks_governance_markers_across_readiness_evide
     assert any("project-local governance markers" in issue for issue in issues)
 
 
+def test_alignment_traceability_checks_loop_fit_task_terms(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
+    session = {
+        "working_agreement": {
+            "readiness_evidence": {
+                "loop_fit": (
+                    "Browsertrace needs Loopora because later rounds must create new browsertrace proof "
+                    "before GateKeeper can close."
+                ),
+            }
+        }
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert any("loop_fit missing browsertrace" in issue for issue in issues)
+
+
+def test_alignment_traceability_checks_agreement_success_categories(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        "Ship the refund approval path so Support admin can approve a refund and audit log records the actor.",
+    )
+    session = {
+        "working_agreement": {
+            "readiness_evidence": {
+                "success_surface": (
+                    "Success means Support admin can approve a refund, audit log records the actor, "
+                    "and customer receives an email notification."
+                ),
+            }
+        }
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert any("success surface" in issue and "notification/message" in issue for issue in issues)
+
+
+def test_alignment_traceability_checks_agreement_evidence_preference_categories(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Prefer project-owned checks, direct run output, and concrete artifacts before screenshots or claims.",
+        "Prefer browser journey proof before screenshots or claims.",
+    )
+    session = {
+        "working_agreement": {
+            "readiness_evidence": {
+                "evidence_preferences": (
+                    "Evidence must include a browser journey and audit log command output before GateKeeper can pass."
+                ),
+            }
+        }
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert any("evidence preferences" in issue and "audit/log" in issue for issue in issues)
+
+
+def test_alignment_traceability_checks_agreement_accessibility_and_locale_categories(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
+    session = {
+        "working_agreement": {
+            "readiness_evidence": {
+                "success_surface": (
+                    "Success means keyboard users can complete checkout, screen reader labels are available, "
+                    "and Chinese and English variants preserve the same action."
+                ),
+                "evidence_preferences": (
+                    "Evidence must include keyboard navigation proof and Chinese and English locale verification."
+                ),
+            }
+        }
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert any("success surface" in issue and "accessibility/a11y" in issue for issue in issues)
+    assert any("success surface" in issue and "locale/i18n" in issue for issue in issues)
+    assert any("evidence preferences" in issue and "accessibility/a11y" in issue for issue in issues)
+    assert any("evidence preferences" in issue and "locale/i18n" in issue for issue in issues)
+
+
 def test_alignment_traceability_rejects_disconnected_governance_marker_responsibilities(
     service_factory,
     sample_workdir: Path,
@@ -1457,6 +1974,62 @@ def test_alignment_traceability_accepts_marker_specific_role_responsibilities(
 ) -> None:
     service = service_factory(scenario="success")
     bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    role_by_key["builder"]["prompt_markdown"] += (
+        "\n\nBuilder reads AGENTS.md, design/README.md, design/, and tests/ before editing."
+    )
+    role_by_key["contract-inspector"]["prompt_markdown"] += (
+        "\n\nInspector verifies AGENTS.md, design/README.md, design/, and tests/ obligations against the result."
+    )
+    role_by_key["gatekeeper"]["prompt_markdown"] += (
+        "\n\nGateKeeper treats skipped AGENTS.md, design/README.md, design/, or tests/ evidence as Weak, Unproven, or Blocking."
+    )
+    session = {
+        "working_agreement": {
+            "readiness_evidence": {
+                "workdir_facts": "AGENTS.md, design/README.md, design/, and tests/ must shape runtime governance.",
+            }
+        }
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert not any("project-local governance markers" in issue for issue in issues)
+
+
+def test_alignment_traceability_accepts_role_notes_governance_responsibilities(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
+    spec_without_role_notes = bundle["spec"]["markdown"].split("\n# Role Notes\n", 1)[0]
+    bundle["spec"]["markdown"] = (
+        spec_without_role_notes
+        + "\n\n# Role Notes\n\n"
+        + "## Builder Notes\n\nBuilder reads AGENTS.md, design/README.md, design/, and tests/ before editing.\n\n"
+        + "## Inspector Notes\n\nInspector verifies AGENTS.md, design/README.md, design/, and tests/ obligations against the result.\n\n"
+        + "## GateKeeper Notes\n\nGateKeeper treats skipped AGENTS.md, design/README.md, design/, or tests/ evidence as Weak, Unproven, or Blocking.\n"
+    )
+    session = {
+        "working_agreement": {
+            "readiness_evidence": {
+                "workdir_facts": "AGENTS.md, design/README.md, design/, and tests/ must shape runtime governance.",
+            }
+        }
+    }
+
+    issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
+
+    assert not any("project-local governance markers" in issue for issue in issues)
+
+
+def test_alignment_traceability_rejects_summary_only_governance_responsibilities(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
     bundle["collaboration_summary"] += (
         "\nBuilder reads AGENTS.md, design/README.md, design/, and tests/ before editing. "
         "Inspector verifies AGENTS.md, design/README.md, design/, and tests/ obligations against the result. "
@@ -1472,7 +2045,7 @@ def test_alignment_traceability_accepts_marker_specific_role_responsibilities(
 
     issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
 
-    assert not any("project-local governance markers" in issue for issue in issues)
+    assert any("project-local governance markers" in issue for issue in issues)
 
 
 def test_alignment_traceability_ignores_metadata_and_loop_names(
@@ -1515,6 +2088,15 @@ def test_alignment_traceability_counts_workflow_step_inputs_as_runtime_surface(
     issues = service._alignment_bundle_agreement_traceability_issues(session, bundle)
 
     assert not any("evidence_preferences" in issue for issue in issues)
+
+
+def test_bundle_control_summary_projects_execution_strategy(sample_workdir: Path) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir)))
+
+    summary = build_bundle_control_summary(bundle)
+
+    assert any("Build one focused starter slice" in item for item in summary["execution_strategy"])
+    assert any(item["key"] == "execution_strategy" and item["mapped"] for item in summary["traceability"]["items"])
 
 
 def test_alignment_service_blocks_generated_bundle_lineage_metadata(
@@ -1601,6 +2183,7 @@ def test_alignment_service_blocks_chinese_bundle_that_drops_confirmed_agreement_
     [
         ("alignment_vague_task_scope_readiness_evidence", "task_scope"),
         ("alignment_vague_judgment_tradeoffs_readiness_evidence", "judgment_tradeoffs"),
+        ("alignment_vague_execution_strategy_readiness_evidence", "execution_strategy"),
         ("alignment_workflow_shape_without_gatekeeper_readiness_evidence", "workflow_shape"),
     ],
 )
@@ -2352,6 +2935,11 @@ def test_alignment_improvement_session_can_start_from_run_evidence(
         )
     )
     run = service.rerun(source["loop_id"])
+    run_contract_path = Path(run["runs_dir"]) / "contract" / "run_contract.json"
+    run_contract_payload = json.loads(run_contract_path.read_text(encoding="utf-8"))
+    run_contract_payload["execution_strategy"] = ["Repair evidence gaps before broad polishing."]
+    run_contract_payload["local_governance"] = ["GateKeeper treats skipped AGENTS.md evidence as Blocking."]
+    run_contract_path.write_text(json.dumps(run_contract_payload, ensure_ascii=False), encoding="utf-8")
 
     session = service.create_run_revision_session(run["id"], start_immediately=False)
 
@@ -2362,11 +2950,16 @@ def test_alignment_improvement_session_can_start_from_run_evidence(
     assert agreement["source"]["source_run_id"] == run["id"]
     assert agreement["source"]["run_status"] == run["status"]
     assert agreement["source"]["artifact_paths"] == {
+        "run_contract": "contract/run_contract.json",
         "task_verdict": "evidence/task_verdict.json",
         "evidence_ledger": "evidence/ledger.jsonl",
         "evidence_coverage": "evidence/coverage.json",
         "evidence_manifest": "evidence/manifest.json",
     }
+    assert agreement["source"]["judgment_contract"]["contract_path"] == "contract/run_contract.json"
+    assert agreement["source"]["judgment_contract"]["collaboration_summary"] == "Use GateKeeper evidence to improve the plan."
+    assert agreement["source"]["judgment_contract"]["execution_strategy"] == ["Repair evidence gaps before broad polishing."]
+    assert agreement["source"]["judgment_contract"]["local_governance"] == ["GateKeeper treats skipped AGENTS.md evidence as Blocking."]
     assert "coverage_summary" in agreement["source"]
     assert any(item["artifact_refs"] for item in agreement["source"]["evidence_summary"])
     assert agreement["source"]["task_verdict"]["status"]
@@ -2376,6 +2969,12 @@ def test_alignment_improvement_session_can_start_from_run_evidence(
     assert f"Source run status: {run['status']}" in context_text
     assert "Artifact paths:" in context_text
     assert "evidence/task_verdict.json" in context_text
+    assert "Frozen judgment contract:" in context_text
+    assert "Use GateKeeper evidence to improve the plan." in context_text
+    assert "Repair evidence gaps before broad polishing." in context_text
+    assert "GateKeeper treats skipped AGENTS.md evidence as Blocking." in context_text
+    assert "`execution_strategy` should say what the next version should build" in context_text
+    assert "`local_governance` should preserve or revise project-local governance responsibilities" in context_text
     assert "Task verdict:" in context_text
     assert agreement["source"]["task_verdict"]["status"] in context_text
     assert "GateKeeper verdict:" in context_text
@@ -2416,11 +3015,13 @@ def test_alignment_run_revision_tolerates_corrupt_evidence_ledger(
     assert agreement["source"]["source_type"] == "run"
     assert agreement["source"]["source_run_id"] == run["id"]
     assert agreement["source"]["artifact_paths"] == {
+        "run_contract": "contract/run_contract.json",
         "task_verdict": "evidence/task_verdict.json",
         "evidence_ledger": "evidence/ledger.jsonl",
         "evidence_coverage": "evidence/coverage.json",
         "evidence_manifest": "evidence/manifest.json",
     }
+    assert agreement["source"]["judgment_contract"]["contract_path"] == "contract/run_contract.json"
     assert agreement["source"]["evidence_summary"] == []
     preview = service.get_alignment_bundle(session["id"])
     assert preview["ok"] is True
@@ -2612,12 +3213,25 @@ def test_alignment_workdir_context_only_lists_validated_local_ready_bundles(
     service = service_factory(scenario="success")
     state_dir = sample_workdir / ".loopora"
     valid_bundle = state_dir / "alignment_sessions" / "align_valid" / "artifacts" / "bundle.yml"
+    stale_ready_bundle = state_dir / "alignment_sessions" / "align_stale_ready" / "artifacts" / "bundle.yml"
+    wrong_workdir_bundle = state_dir / "alignment_sessions" / "align_wrong_workdir" / "artifacts" / "bundle.yml"
     failed_bundle = state_dir / "alignment_sessions" / "align_failed" / "artifacts" / "bundle.yml"
     unknown_bundle = state_dir / "alignment_sessions" / "align_unknown" / "artifacts" / "bundle.yml"
-    for bundle_path in (valid_bundle, failed_bundle, unknown_bundle):
+    for bundle_path in (valid_bundle, stale_ready_bundle, wrong_workdir_bundle, failed_bundle, unknown_bundle):
         bundle_path.parent.mkdir(parents=True, exist_ok=True)
         bundle_path.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
     (valid_bundle.parent / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
+    stale_ready_bundle.write_text(
+        stale_ready_bundle.read_text(encoding="utf-8").replace(
+            "Accept minor polish gaps only when they are explicitly named and tracked as an owned follow-up; fail closed on unproven primary-flow behavior or weak verification evidence.",
+            "Some risk is fine.",
+        ),
+        encoding="utf-8",
+    )
+    (stale_ready_bundle.parent / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
+    wrong_workdir = sample_workdir.parent / "other-workdir"
+    wrong_workdir_bundle.write_text(alignment_bundle_yaml(str(wrong_workdir.resolve())), encoding="utf-8")
+    (wrong_workdir_bundle.parent / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
     (failed_bundle.parent / "validation.json").write_text('{"ok": false, "error": "semantic lint failed"}\n', encoding="utf-8")
 
     context = service.get_alignment_workdir_context(sample_workdir)
@@ -2631,6 +3245,51 @@ def test_alignment_workdir_context_only_lists_validated_local_ready_bundles(
     assert local_options[0]["bundle_path"] == str(valid_bundle)
     assert "方案文件" in local_options[0]["description_zh"]
     assert "bundle" not in local_options[0]["description_zh"]
+
+
+def test_alignment_workdir_context_does_not_seed_from_stale_ready_session_bundle(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    session = _confirm_alignment_agreement(
+        service,
+        service.create_alignment_session(workdir=sample_workdir, message="Create a reusable READY Loop.")["id"],
+    )
+    bundle_path = Path(session["bundle_path"])
+    stale_bundle = load_bundle_text(bundle_path.read_text(encoding="utf-8"))
+    stale_bundle["spec"]["markdown"] = stale_bundle["spec"]["markdown"].replace(
+        "Accept minor polish gaps only when they are explicitly named and tracked as an owned follow-up; fail closed on unproven primary-flow behavior or weak verification evidence.",
+        "Some risk is fine.",
+    )
+    bundle_path.write_text(bundle_to_yaml(stale_bundle), encoding="utf-8")
+    wrong_workdir_session = _confirm_alignment_agreement(
+        service,
+        service.create_alignment_session(workdir=sample_workdir, message="Create another reusable READY Loop.")["id"],
+    )
+    wrong_workdir_bundle_path = Path(wrong_workdir_session["bundle_path"])
+    wrong_workdir_bundle = load_bundle_text(wrong_workdir_bundle_path.read_text(encoding="utf-8"))
+    wrong_workdir_bundle["loop"]["workdir"] = str((sample_workdir.parent / "other-workdir").resolve())
+    wrong_workdir_bundle_path.write_text(bundle_to_yaml(wrong_workdir_bundle), encoding="utf-8")
+
+    context = service.get_alignment_workdir_context(sample_workdir)
+
+    assert any(
+        option.get("action") == "continue_session" and option.get("session_id") == session["id"]
+        for option in context["options"]
+    )
+    assert not any(
+        option.get("action") == "improve"
+        and option.get("source_type") == "alignment_session"
+        and option.get("source_alignment_session_id") == session["id"]
+        for option in context["options"]
+    )
+    assert not any(
+        option.get("action") == "improve"
+        and option.get("source_type") == "alignment_session"
+        and option.get("source_alignment_session_id") == wrong_workdir_session["id"]
+        for option in context["options"]
+    )
 
 
 def test_alignment_workdir_context_preserves_regenerate_option_when_source_list_is_bounded(
@@ -2841,6 +3500,7 @@ def test_alignment_workdir_context_run_option_exposes_artifact_refs_and_rehydrat
         assert "spec、roles" not in description_zh
         assert "workflow" not in description_zh
     assert run_option["artifact_paths"] == {
+        "run_contract": "contract/run_contract.json",
         "task_verdict": "evidence/task_verdict.json",
         "evidence_ledger": "evidence/ledger.jsonl",
         "evidence_coverage": "evidence/coverage.json",
@@ -2863,16 +3523,19 @@ def test_alignment_workdir_context_run_option_exposes_artifact_refs_and_rehydrat
     assert agreement["source"]["source_bundle_id"] == source["id"]
     assert agreement["source"]["source_run_id"] == run["id"]
     assert agreement["source"]["artifact_paths"] == {
+        "run_contract": "contract/run_contract.json",
         "task_verdict": "evidence/task_verdict.json",
         "evidence_ledger": "evidence/ledger.jsonl",
         "evidence_coverage": "evidence/coverage.json",
         "evidence_manifest": "evidence/manifest.json",
     }
+    assert agreement["source"]["judgment_contract"]["contract_path"] == "contract/run_contract.json"
     assert agreement["source"]["task_verdict"]["status"]
     assert agreement["source"]["gatekeeper_verdict"]["decision_summary"]
     assert any(item["artifact_refs"] for item in agreement["source"]["evidence_summary"])
     prompt = service._build_alignment_prompt(session, mode="normal")
     assert "Recent evidence summary:" in prompt
+    assert "Frozen judgment contract:" in prompt
     assert "artifact_refs" in prompt
 
 

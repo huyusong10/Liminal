@@ -9,9 +9,16 @@ from typing import Any
 
 import yaml
 
-from loopora.alignment_semantics import text_mentions_loop_fit_contradiction
-from loopora.executor import validate_extra_cli_args_text
+from loopora.alignment_semantics import (
+    semantic_antipattern_match_is_negated,
+    text_mentions_loop_fit_contradiction,
+    text_mentions_multiround_loopora_governance,
+)
+from loopora.executor import normalize_reasoning_effort, validate_command_args_text, validate_extra_cli_args_text
 from loopora.numeric_inputs import coerce_integral_number
+from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode
+from loopora.residual_risk_support import residual_risk_is_unmanaged
+from loopora.service_types import LooporaError, normalize_completion_mode
 from loopora.specs import SpecError, compile_markdown_spec
 from loopora.workflows import (
     WorkflowError,
@@ -45,6 +52,14 @@ BUNDLE_DEFAULT_LOOP = {
     "trigger_window": 4,
     "regression_window": 2,
 }
+BUNDLE_EXECUTION_FIELDS = (
+    "executor_kind",
+    "executor_mode",
+    "command_cli",
+    "command_args_text",
+    "model",
+    "reasoning_effort",
+)
 ROLE_DEFINITION_KEY_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -71,7 +86,10 @@ def normalize_bundle(payload: Mapping[str, object] | None) -> dict[str, Any]:
         raise BundleError("bundle collaboration_summary is required")
     loop = _normalize_bundle_loop(raw.get("loop"))
     spec = _normalize_bundle_spec(raw.get("spec"))
-    role_definitions = _normalize_bundle_role_definitions(raw.get("role_definitions"))
+    role_definitions = _normalize_bundle_role_definitions(
+        raw.get("role_definitions"),
+        default_execution=_bundle_loop_role_execution_defaults(loop),
+    )
     workflow = _normalize_bundle_workflow(raw.get("workflow"), role_definitions=role_definitions)
     _validate_bundle_runtime_contract(loop=loop, role_definitions=role_definitions, workflow=workflow)
     return {
@@ -159,18 +177,56 @@ def _normalize_bundle_loop(raw_loop: object) -> dict[str, Any]:
         raise BundleError("bundle loop.workdir is required")
     name = str(payload.get("name", "") or "").strip() or Path(workdir).expanduser().resolve().name
     runtime = _normalize_bundle_loop_runtime(payload)
+    execution = _normalize_bundle_loop_execution(payload)
     return {
         "name": name,
         "workdir": workdir,
-        "completion_mode": str(payload.get("completion_mode", "gatekeeper") or "gatekeeper").strip() or "gatekeeper",
-        "executor_kind": str(payload.get("executor_kind", "codex") or "codex").strip() or "codex",
-        "executor_mode": str(payload.get("executor_mode", "preset") or "preset").strip() or "preset",
-        "command_cli": str(payload.get("command_cli", "") or "").strip(),
-        "command_args_text": str(payload.get("command_args_text", "") or ""),
-        "model": str(payload.get("model", "") or "").strip(),
-        "reasoning_effort": str(payload.get("reasoning_effort", "") or "").strip(),
+        "completion_mode": _normalize_bundle_completion_mode(payload.get("completion_mode")),
+        **execution,
         **runtime,
     }
+
+
+def _normalize_bundle_completion_mode(value: object) -> str:
+    try:
+        if value is None:
+            return normalize_completion_mode(None)
+        return normalize_completion_mode(str(value))
+    except LooporaError as exc:
+        raise BundleError(str(exc)) from exc
+
+
+def _normalize_bundle_loop_execution(payload: Mapping[str, Any]) -> dict[str, str]:
+    try:
+        executor_kind = normalize_executor_kind(str(payload.get("executor_kind", "codex") or "codex").strip())
+        executor_mode = normalize_executor_mode(str(payload.get("executor_mode", "preset") or "preset").strip())
+        profile = executor_profile(executor_kind)
+        if profile.command_only and executor_mode != "command":
+            raise ValueError(f"{profile.label} only supports command mode")
+        command_cli = str(payload.get("command_cli", "") or "").strip()
+        command_args_text = str(payload.get("command_args_text", "") or "")
+        model = str(payload.get("model", "") or "").strip()
+        reasoning_effort = str(payload.get("reasoning_effort", "") or "").strip()
+        if executor_mode == "preset":
+            return {
+                "executor_kind": executor_kind,
+                "executor_mode": executor_mode,
+                "command_cli": "",
+                "command_args_text": "",
+                "model": model if model or profile.default_model == "" else profile.default_model,
+                "reasoning_effort": normalize_reasoning_effort(reasoning_effort, executor_kind),
+            }
+        validate_command_args_text(command_args_text, executor_kind=executor_kind)
+        return {
+            "executor_kind": executor_kind,
+            "executor_mode": executor_mode,
+            "command_cli": command_cli if command_cli else profile.cli_name,
+            "command_args_text": command_args_text,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+        }
+    except ValueError as exc:
+        raise BundleError(str(exc)) from exc
 
 
 def _normalize_bundle_loop_runtime(payload: Mapping[str, Any]) -> dict[str, int | float]:
@@ -241,13 +297,24 @@ def _normalize_bundle_spec(raw_spec: object) -> dict[str, str]:
     return {"markdown": markdown}
 
 
-def _normalize_bundle_role_definitions(raw_role_definitions: object) -> list[dict[str, Any]]:
+def _bundle_loop_role_execution_defaults(loop: Mapping[str, Any]) -> dict[str, str]:
+    return {field: str(loop.get(field, "") or "") for field in BUNDLE_EXECUTION_FIELDS}
+
+
+def _normalize_bundle_role_definitions(raw_role_definitions: object, *, default_execution: Mapping[str, str]) -> list[dict[str, Any]]:
     if not isinstance(raw_role_definitions, list) or not raw_role_definitions:
         raise BundleError("bundle role_definitions must be a non-empty array")
     normalized: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
     for index, raw_entry in enumerate(raw_role_definitions, start=1):
-        normalized.append(_normalize_bundle_role_definition(raw_entry, index=index, seen_keys=seen_keys))
+        normalized.append(
+            _normalize_bundle_role_definition(
+                raw_entry,
+                index=index,
+                seen_keys=seen_keys,
+                default_execution=default_execution,
+            )
+        )
     return normalized
 
 
@@ -256,6 +323,7 @@ def _normalize_bundle_role_definition(
     *,
     index: int,
     seen_keys: set[str],
+    default_execution: Mapping[str, str],
 ) -> dict[str, Any]:
     if not isinstance(raw_entry, Mapping):
         raise BundleError("bundle role_definitions entries must be objects")
@@ -266,7 +334,7 @@ def _normalize_bundle_role_definition(
     prompt_markdown = _require_bundle_role_definition_text(entry, key=key, field_name="prompt_markdown", strip=False)
     try:
         normalized_archetype = _normalize_bundle_role_archetype(archetype, prompt_markdown=prompt_markdown)
-        execution = _normalize_bundle_role_execution(entry)
+        execution = _normalize_bundle_role_execution(entry, default_execution=default_execution)
     except (WorkflowError, ValueError) as exc:
         raise BundleError(str(exc)) from exc
     return {
@@ -327,16 +395,33 @@ def _normalize_bundle_role_archetype(archetype: str, *, prompt_markdown: str) ->
     return normalized_archetype
 
 
-def _normalize_bundle_role_execution(entry: Mapping[str, Any]) -> dict[str, str]:
-    return normalize_role_execution_settings(
-        {
-            "executor_kind": entry.get("executor_kind", "codex"),
+def _normalize_bundle_role_execution(entry: Mapping[str, Any], *, default_execution: Mapping[str, str]) -> dict[str, str]:
+    if not any(field in entry for field in BUNDLE_EXECUTION_FIELDS):
+        return dict(default_execution)
+    try:
+        executor_kind_changed = (
+            "executor_kind" in entry
+            and normalize_executor_kind(str(entry.get("executor_kind") or "").strip()) != str(default_execution.get("executor_kind") or "codex")
+        )
+    except ValueError as exc:
+        raise BundleError(str(exc)) from exc
+    if executor_kind_changed:
+        settings = {
+            "executor_kind": entry.get("executor_kind"),
             "executor_mode": entry.get("executor_mode", "preset"),
             "command_cli": entry.get("command_cli", ""),
             "command_args_text": entry.get("command_args_text", ""),
             "model": entry.get("model", ""),
             "reasoning_effort": entry.get("reasoning_effort", ""),
         }
+    else:
+        settings = {field: default_execution.get(field, "") for field in BUNDLE_EXECUTION_FIELDS}
+        for field in BUNDLE_EXECUTION_FIELDS:
+            if field in entry:
+                settings[field] = entry.get(field)
+    return normalize_role_execution_settings(
+        settings,
+        default_executor_kind=str(default_execution.get("executor_kind") or "codex"),
     )
 
 
@@ -536,7 +621,7 @@ def _validate_bundle_runtime_contract(
     role_definitions: list[dict[str, Any]],
     workflow: Mapping[str, Any],
 ) -> None:
-    completion_mode = str(loop.get("completion_mode", "gatekeeper") or "gatekeeper").strip().lower()
+    completion_mode = _normalize_bundle_completion_mode(loop.get("completion_mode"))
     if completion_mode != "gatekeeper":
         return
     role_key_archetype = {item["key"]: item["archetype"] for item in role_definitions}
@@ -610,6 +695,29 @@ def _semantic_text_mentions_evidence_bucket_projection(text: object) -> bool:
     return all(re.search(pattern, value, re.I) for pattern in bucket_patterns.values())
 
 
+def _semantic_text_mentions_workflow_judgment_flow(text: object) -> bool:
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not value:
+        return False
+    evidence_flow = re.search(
+        r"\b(?:evidence|proof|handoffs?|inspect(?:ion|or)?|review)\b|证据|证明|交接|检查|审查|评审",
+        value,
+        re.I,
+    )
+    gatekeeper_closure = re.search(
+        r"\b(?:gatekeeper|gate keeper|final judgment|finish|closure|verdict)\b|守门|裁决|收束|结论",
+        value,
+        re.I,
+    )
+    early_exposure = re.search(
+        r"\b(?:weak|unproven|fake[- ]?done|fake completion|drift|block(?:ing|er)?|gap|unsupported)\b"
+        r"|弱证据|未证明|假完成|偏差|漂移|阻断|缺口|无支撑",
+        value,
+        re.I,
+    )
+    return bool(evidence_flow and gatekeeper_closure and early_exposure)
+
+
 def _semantic_text_mentions_personality_memory_antipattern(text: object) -> bool:
     value = re.sub(r"\s+", " ", str(text or "")).strip().lower()
     if not value:
@@ -630,7 +738,7 @@ def _semantic_text_mentions_personality_memory_antipattern(text: object) -> bool
     ]
     for pattern in patterns:
         for match in re.finditer(pattern, value, re.I):
-            if _semantic_antipattern_match_is_negated(value, match.start()):
+            if semantic_antipattern_match_is_negated(value, match.start()):
                 continue
             return True
     return False
@@ -650,22 +758,10 @@ def _semantic_text_mentions_named_loopora_antipattern(text: object) -> bool:
     ]
     for pattern in patterns:
         for match in re.finditer(pattern, value, re.I):
-            if _semantic_antipattern_match_is_negated(value, match.start()):
+            if semantic_antipattern_match_is_negated(value, match.start()):
                 continue
             return True
     return False
-
-
-def _semantic_antipattern_match_is_negated(value: str, start: int) -> bool:
-    context = value[max(0, start - 48) : start]
-    return bool(
-        re.search(
-            r"do not|don't|must not|should not|never|avoid|refuse|reject|rather than|instead of|"
-            r"\bnot\s+(?:a|an|as)?\s*$|\bno\s+$|不要|不能|不得|不应|不是|拒绝|避免",
-            context,
-            re.I,
-        )
-    )
 
 
 def lint_alignment_bundle_semantics(bundle: Mapping[str, object]) -> list[str]:
@@ -772,7 +868,10 @@ def _lint_alignment_task_scoped_antipatterns(normalized: Mapping[str, Any]) -> l
 def _lint_alignment_loop_fit_contradictions(normalized: Mapping[str, Any]) -> list[str]:
     if not text_mentions_loop_fit_contradiction(_alignment_bundle_governance_text(normalized)):
         return []
-    return ["alignment bundle must not claim a single pass, direct chat, no-new-evidence round, or benchmark-only path is sufficient while compiling a Loop"]
+    return [
+        "alignment bundle must not claim a single pass, direct chat / direct answer, one-off task handling, "
+        "no-new-evidence round, or benchmark/test-harness-only path is sufficient while compiling a Loop"
+    ]
 
 
 def _alignment_bundle_governance_text(normalized: Mapping[str, Any]) -> str:
@@ -826,6 +925,8 @@ def _alignment_bundle_runtime_governance_text(normalized: Mapping[str, Any]) -> 
 def _lint_alignment_collaboration_summary(summary: object) -> list[str]:
     if not _semantic_text_is_specific(summary, min_chars=72):
         return ["collaboration_summary must explain the governance story"]
+    if not text_mentions_multiround_loopora_governance(summary):
+        return ["collaboration_summary must explain why this task needs multi-round Loopora governance"]
     if not _semantic_text_mentions_evidence(summary):
         return ["collaboration_summary must mention evidence, proof, verification, handoff, or blockers"]
     if not re.search(r"gatekeeper|gate keeper|裁决|阻断|签字|收束", str(summary or ""), re.I):
@@ -869,8 +970,11 @@ def _lint_alignment_evidence_and_risk_semantics(compiled_spec: Mapping[str, Any]
     issues: list[str] = []
     if not compiled_spec.get("evidence_preferences"):
         issues.append("spec must include at least one Evidence Preferences bullet")
-    if not str(compiled_spec.get("residual_risk", "") or "").strip():
+    residual_risk = str(compiled_spec.get("residual_risk", "") or "").strip()
+    if not residual_risk:
         issues.append("spec must include Residual Risk guidance")
+    elif residual_risk_is_unmanaged(residual_risk):
+        issues.append("spec Residual Risk guidance must name accepted risk handling or fail closed")
     return issues
 
 
@@ -881,6 +985,8 @@ def _lint_alignment_workflow_intent(workflow: Mapping[str, Any]) -> list[str]:
         return ["workflow.collaboration_intent is required"]
     if not _semantic_text_is_specific(intent, min_chars=64):
         issues.append("workflow.collaboration_intent must explain the task-specific judgment order")
+    if not _semantic_text_mentions_workflow_judgment_flow(intent):
+        issues.append("workflow.collaboration_intent must explain evidence flow, GateKeeper closure, and weak-evidence or fake-done exposure")
     return issues
 
 
@@ -953,6 +1059,8 @@ def _parallel_review_iteration_memory_issues(
             continue
         if not _step_declares_iteration_memory(step):
             issues.append("parallel review step must declare inputs.iteration_memory so cross-iteration evidence flow is explicit: " + step_id)
+        elif not _step_iteration_memory_includes_summary(step):
+            issues.append("parallel review step must use inputs.iteration_memory=summary_only so previous GateKeeper verdict stays visible: " + step_id)
     return issues
 
 
@@ -973,6 +1081,11 @@ def _guide_review_iteration_memory_issues(
         if review_steps and not _step_declares_iteration_memory(step):
             issues.append(
                 "Guide step after review must declare inputs.iteration_memory so repair guidance can use prior iteration evidence explicitly: "
+                + str(step.get("id", "") or "").strip()
+            )
+        elif review_steps and not _step_iteration_memory_includes_summary(step):
+            issues.append(
+                "Guide step after review must use inputs.iteration_memory=summary_only so previous GateKeeper blockers and residual risks stay visible: "
                 + str(step.get("id", "") or "").strip()
             )
     return issues
@@ -1001,6 +1114,11 @@ def _builder_review_iteration_memory_issues(
             issues.append(
                 "Builder step after review must declare inputs.iteration_memory so evidence-first repair does not rely on ambient context: " + step_id
             )
+        elif review_steps_since_builder and not guide_seen_since_builder and not _step_iteration_memory_includes_summary(step):
+            issues.append(
+                "Builder step after review must use inputs.iteration_memory=summary_only so previous GateKeeper repair direction stays visible: "
+                + step_id
+            )
         review_steps_since_builder = []
         guide_seen_since_builder = False
     return issues
@@ -1023,13 +1141,23 @@ def _builder_guide_iteration_memory_issues(
             continue
         if guide_seen_since_builder and not _step_declares_iteration_memory(step):
             issues.append("Builder step after Guide must declare inputs.iteration_memory so repair pass does not rely on ambient context: " + step_id)
+        elif guide_seen_since_builder and not _step_iteration_memory_includes_summary(step):
+            issues.append("Builder step after Guide must use inputs.iteration_memory=summary_only so previous GateKeeper verdict stays visible: " + step_id)
         guide_seen_since_builder = False
     return issues
 
 
 def _step_declares_iteration_memory(step: Mapping[str, Any]) -> bool:
+    return bool(_step_iteration_memory(step))
+
+
+def _step_iteration_memory_includes_summary(step: Mapping[str, Any]) -> bool:
+    return _step_iteration_memory(step) == "summary_only"
+
+
+def _step_iteration_memory(step: Mapping[str, Any]) -> str:
     inputs = step.get("inputs") if isinstance(step.get("inputs"), Mapping) else {}
-    return bool(str(inputs.get("iteration_memory", "") if isinstance(inputs, Mapping) else "").strip())
+    return str(inputs.get("iteration_memory", "") if isinstance(inputs, Mapping) else "").strip()
 
 
 def _lint_alignment_review_builder_inputs(

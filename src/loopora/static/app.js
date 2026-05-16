@@ -497,6 +497,26 @@
     });
   }
 
+  function revealActiveTopNavItem() {
+    const rail = document.querySelector(".top-nav-links");
+    const active = rail?.querySelector(".top-nav-link.active");
+    if (!(rail instanceof HTMLElement) || !(active instanceof HTMLElement)) {
+      return;
+    }
+    if (rail.scrollWidth <= rail.clientWidth + 1) {
+      rail.scrollLeft = 0;
+      return;
+    }
+    const railBox = rail.getBoundingClientRect();
+    const activeBox = active.getBoundingClientRect();
+    const nextScrollLeft = rail.scrollLeft
+      + activeBox.left
+      - railBox.left
+      - ((rail.clientWidth - activeBox.width) / 2);
+    const maxScrollLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
+    rail.scrollLeft = Math.max(0, Math.min(nextScrollLeft, maxScrollLeft));
+  }
+
   function bindNavPreferences() {
     const roots = Array.from(document.querySelectorAll("[data-nav-menu]"));
     if (!roots.length) {
@@ -736,6 +756,7 @@
     bindDeleteLoopButtons();
     bindOpenCards();
     bindPrimaryNavigation();
+    revealActiveTopNavItem();
     bindNavPreferences();
     bindPathPickers();
     bindRevealPathButtons();
@@ -756,6 +777,7 @@
     bindDeleteLoopButtons,
     bindOpenCards,
     bindPrimaryNavigation,
+    revealActiveTopNavItem,
     bindPathPickers,
     bindHelpTooltips,
   };

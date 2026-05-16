@@ -31,6 +31,16 @@ def test_run_detail_progress_caption_uses_product_language() -> None:
     assert "stage timing" in source
 
 
+def test_run_detail_progress_uses_run_flow_language() -> None:
+    root = Path(__file__).resolve().parents[3]
+    source = (root / "src" / "loopora" / "static" / "pages" / "run_detail_progress.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "placed in the workflow" not in source
+    assert "placed in the run flow" in source
+
+
 def test_run_detail_console_projector_maps_core_events_without_dom() -> None:
     node = shutil.which("node")
     if not node:
@@ -177,6 +187,13 @@ def test_tools_local_asset_diagnostics_use_default_plan_file_language() -> None:
     assert "Plan file orphan dirs" in default_surface
     assert "Plan file orphan directories" in default_surface
     assert 'localeText("方案包", "Plan file")' in default_surface
+    assert "main workflow" not in default_surface
+    assert "Start from the Coding Agent you already use" in default_surface
+    assert "wake lock and local asset health sit below" in default_surface
+    assert "Agent working project directory" in default_surface
+    assert "Path to the project where the Agent will work" in default_surface
+    assert "leave blank only when the server was started from that target project" in default_surface
+    assert "Blank uses the server current directory; refresh to show the effective target" not in default_surface
 
 
 def test_manual_import_surface_uses_plan_file_language() -> None:
@@ -194,6 +211,9 @@ def test_manual_import_surface_uses_plan_file_language() -> None:
         "Provide a bundle path",
         "Bundle preview failed",
         "/absolute/path/to/bundle.yml",
+        "Recorded by the workflow runtime.",
+        'localeText("流程判断", "Workflow")',
+        'localeText("流程", "workflow")',
     ]:
         assert forbidden not in import_surface
     assert "Import existing plan file" in import_surface
@@ -203,6 +223,8 @@ def test_manual_import_surface_uses_plan_file_language() -> None:
     assert "Provide a plan file path or paste plan file content." in import_surface
     assert "Plan file preview failed." in import_surface
     assert "/absolute/path/to/plan.yml" in import_surface
+    assert "Recorded during the run flow." in import_surface
+    assert 'localeText("运行流程", "Run flow")' in import_surface
 
 
 def test_manual_loop_surface_uses_flow_language_for_default_copy() -> None:
@@ -247,6 +269,7 @@ def test_compose_workspace_uses_conversation_language_for_default_copy() -> None
         "对齐执行器配置方式",
         "Alignment executor configuration mode",
         "align that judgment",
+        'localeText("流程判断", "Workflow")',
     ]:
         assert forbidden not in compose_surface
     assert "编排中" in compose_surface
@@ -254,6 +277,71 @@ def test_compose_workspace_uses_conversation_language_for_default_copy() -> None
     assert "Conversation event lanes" in compose_surface
     assert "Conversation executor configuration mode" in compose_surface
     assert "shape that judgment into a candidate Loop" in compose_surface
+    assert 'localeText("运行流程", "Run flow")' in compose_surface
+
+
+def test_tutorial_decision_tree_kicker_is_bilingual() -> None:
+    root = Path(__file__).resolve().parents[3]
+    template = (root / "src" / "loopora" / "templates" / "tutorial.html").read_text(encoding="utf-8")
+
+    assert 'data-testid="tutorial-decision-tree-kicker"' in template
+    assert re.search(
+        r'<div class="tutorial-decision-tree-kicker" data-testid="tutorial-decision-tree-kicker">\s*'
+        r'<span data-lang="zh">构建 · 检查 · 守门 · 引导</span>\s*'
+        r'<span data-lang="en">Build · Inspect · Gate · Guide</span>\s*'
+        r"</div>",
+        template,
+    )
+    assert 'data-testid="tutorial-decision-tree-kicker">构建' not in template
+
+
+def test_tutorial_default_copy_uses_flow_language() -> None:
+    root = Path(__file__).resolve().parents[3]
+    template = (root / "src" / "loopora" / "templates" / "tutorial.html").read_text(encoding="utf-8")
+
+    for forbidden in [
+        "workflow names",
+        "workflow shape",
+        "Choose the workflow",
+        "Closer workflow fit",
+        "which workflow matches",
+        "memorize workflows",
+        "Browse workflow examples",
+        "Workflow example",
+        "how this workflow turns",
+        "posture",
+        "姿态",
+    ]:
+        assert forbidden not in template
+    assert "run-flow timing" in template
+    assert "flow names" in template
+    assert "choose the flow shape" in template
+    assert "Choose the flow that" in template
+    assert "Closer flow fit" in template
+    assert "which flow matches this judgment" in template
+    assert "Browse flow examples" in template
+    assert "Flow example" in template
+    assert "See how it carries judgment" in template
+
+
+def test_chinese_visible_copy_uses_loop_as_stable_object_word() -> None:
+    root = Path(__file__).resolve().parents[3]
+    paths = [
+        root / "src" / "loopora" / "templates" / "tutorial.html",
+        root / "src" / "loopora" / "static" / "pages" / "new_loop.js",
+        root / "src" / "loopora" / "static" / "pages" / "new_orchestration.js",
+    ]
+
+    for path in paths:
+        source = path.read_text(encoding="utf-8")
+        zh_template_strings = re.findall(r'data-lang="zh">([^<]*)<', source)
+        zh_locale_strings = re.findall(r'localeText\("([^"]*)"', source)
+        lowercase_loop_leaks = []
+        for text in [*zh_template_strings, *zh_locale_strings]:
+            text_without_commands = re.sub(r"/loopora-(?:gen|loop)\b", "", text)
+            if re.search(r"\bloop\b", text_without_commands):
+                lowercase_loop_leaks.append(text)
+        assert not lowercase_loop_leaks, f"{path} leaks lowercase loop in Chinese visible copy: {lowercase_loop_leaks}"
 
 
 def test_bundle_detail_uses_flow_language_for_chinese_governance_copy() -> None:
@@ -263,8 +351,47 @@ def test_bundle_detail_uses_flow_language_for_chinese_governance_copy() -> None:
     )
 
     assert not re.findall(r'data-lang="zh">[^<]*workflow[^<]*<', bundle_detail_template, flags=re.IGNORECASE)
+    assert '<span data-lang="en">Workflow</span>' not in bundle_detail_template
     assert "流程风险" in bundle_detail_template
     assert "流程提醒" in bundle_detail_template
+    assert "运行流程" in bundle_detail_template
+    assert "Run flow" in bundle_detail_template
+    assert "{{ diagnostic.title_zh or diagnostic.title }}" in bundle_detail_template
+    assert "{{ diagnostic.title_en or diagnostic.title }}" in bundle_detail_template
+    assert "{{ diagnostic.message_zh or diagnostic.message }}" in bundle_detail_template
+    assert "{{ diagnostic.message_en or diagnostic.message }}" in bundle_detail_template
+    assert "<strong>{{ diagnostic.title }}</strong>" not in bundle_detail_template
+    assert "<p>{{ diagnostic.message }}</p>" not in bundle_detail_template
+
+
+def test_bundle_list_exposes_success_surface_governance_card() -> None:
+    root = Path(__file__).resolve().parents[3]
+    bundles_template = (root / "src" / "loopora" / "templates" / "bundles.html").read_text(encoding="utf-8")
+
+    assert 'data-testid="bundle-governance-success"' in bundles_template
+    assert "governance.success_surface" in bundles_template
+    assert "Success surface" in bundles_template
+    assert "成功面" in bundles_template
+    assert 'data-testid="bundle-governance-coverage"' in bundles_template
+    assert "governance.coverage_summary" in bundles_template
+    assert "Coverage targets" in bundles_template
+    assert "覆盖目标" in bundles_template
+    assert 'data-testid="bundle-governance-residual-risk"' in bundles_template
+    assert "governance.residual_risk_policy" in bundles_template
+    assert "Residual risk" in bundles_template
+    assert "残余风险" in bundles_template
+    assert 'data-testid="bundle-governance-execution-strategy"' in bundles_template
+    assert "governance.execution_strategy" in bundles_template
+    assert "Execution strategy" in bundles_template
+    assert "执行策略" in bundles_template
+    assert 'data-testid="bundle-governance-tradeoffs"' in bundles_template
+    assert "governance.judgment_tradeoffs" in bundles_template
+    assert "Tradeoffs" in bundles_template
+    assert "判断取舍" in bundles_template
+    assert 'data-testid="bundle-governance-local"' in bundles_template
+    assert "governance.local_governance" in bundles_template
+    assert "Local governance" in bundles_template
+    assert "本地治理" in bundles_template
 
 
 def test_run_detail_projectors_map_progress_timeline_and_takeaways_without_dom() -> None:
@@ -387,6 +514,10 @@ const runFinished = timeline.formatTimelineEvent({event_type: "run_finished", pa
 if (!runFinished.detail.includes("Task verdict insufficient_evidence")) {
   throw new Error(`run finished verdict projection failed: ${JSON.stringify(runFinished)}`);
 }
+const acceptedTimeline = timeline.formatTimelineEvent({event_type: "run_result_accepted", payload: {status: "succeeded", task_verdict_status: "passed", judgment_contract_summary: "Prefer proof before closure.", loop_fit_reasons: ["Future rounds keep proof alive."], execution_strategy: ["Prove focused path before polish."], local_governance: ["GateKeeper treats skipped AGENTS.md checks as Blocking."], role_postures: ["GateKeeper: Fail closed when evidence is weak."], judgment_tradeoffs: ["Proof beats polish."], success_surface: ["Support admin can approve a refund."], fake_done_states: ["CSV export without permission audit is fake done."], evidence_preferences: ["Use browser journey and audit log evidence."], residual_risk: "No residual risk is acceptable."}});
+if (!acceptedTimeline.detail.includes("Task verdict passed") || !acceptedTimeline.detail.includes("Judgment Prefer proof before closure.") || !acceptedTimeline.detail.includes("Fit Future rounds keep proof alive.") || !acceptedTimeline.detail.includes("Strategy Prove focused path before polish.") || !acceptedTimeline.detail.includes("Local governance GateKeeper treats skipped AGENTS.md checks") || !acceptedTimeline.detail.includes("Role posture GateKeeper: Fail closed") || !acceptedTimeline.detail.includes("Tradeoff Proof beats polish.") || !acceptedTimeline.detail.includes("Success Support admin can approve a refund.") || !acceptedTimeline.detail.includes("Fake done CSV export without permission audit is fake done.") || !acceptedTimeline.detail.includes("Evidence Use browser journey and audit log evidence.") || !acceptedTimeline.detail.includes("Residual risk No residual risk is acceptable.")) {
+  throw new Error(`accepted timeline judgment projection failed: ${JSON.stringify(acceptedTimeline)}`);
+}
 const zhTimeline = context.window.LooporaRunDetailTimeline.createTimelineProjector({
   localeText: (zh, _en) => zh,
   escapeHtml: (value) => String(value || ""),
@@ -431,6 +562,21 @@ const snapshot = {
     },
   },
   task_verdict_path: "evidence/task_verdict.json",
+  judgment_contract: {
+    contract_path: "contract/run_contract.json",
+    source_bundle: {id: "bundle_run", name: "Run Detail Bundle", revision: 3, bundle_sha256: "abcdef1234567890", imported_from_path: "/tmp/loopora/bundle.yml"},
+    collaboration_summary: "Prefer proof before closure.",
+    workflow_collaboration_intent: "Route review evidence before closure.",
+    loop_fit_reasons: ["Future rounds keep proof alive."],
+    execution_strategy: ["Prove focused path before polish."],
+    local_governance: ["GateKeeper treats skipped AGENTS.md checks as Blocking."],
+    role_postures: ["GateKeeper: Fail closed when evidence is weak."],
+    judgment_tradeoffs: ["Proof beats polish when evidence is weak."],
+    success_surface: ["Checkout instrumentation records the buyer action."],
+    fake_done_states: ["A story without audit evidence is fake done."],
+    evidence_preferences: ["Use reproducible checks."],
+    residual_risk: "Manual billing export remains a Support-owned follow-up.",
+  },
   evidence_coverage: {coverage_path: "evidence/coverage.json", evidence_count: 1, summary: {reason: "covered"}},
   evidence_manifest: {manifest_path: "evidence/manifest.json", claim_count: 2, direct_proof_claim_count: 1, workspace_artifact_claim_count: 0, run_artifact_claim_count: 1, ledger_only_claim_count: 1, unverified_claim_count: 0},
   iterations: [{iter: 0, display_iter: 1, status: "passed", role_count: 1, roles: []}],
@@ -438,16 +584,23 @@ const snapshot = {
 if (!takeaways.evidenceOutcome(snapshot, run).title.includes("Passed")) {
   throw new Error("takeaway outcome projection failed");
 }
-if (!takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("View trace")) {
+const coverageHtml = takeaways.evidenceCoverageHtml(snapshot, "run_1");
+if (!coverageHtml.includes("View trace")) {
   throw new Error("takeaway coverage html projection failed");
 }
-if (!takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("View verdict")) {
+if (!coverageHtml.includes("View verdict")) {
   throw new Error("takeaway task verdict html projection failed");
 }
-if (!takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("View manifest") || !takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("Direct 1")) {
+if (!(coverageHtml.indexOf("Verdict status") < coverageHtml.indexOf("Proven") && coverageHtml.indexOf("Proven") < coverageHtml.indexOf("Weak") && coverageHtml.indexOf("Weak") < coverageHtml.indexOf("Unproven") && coverageHtml.indexOf("Unproven") < coverageHtml.indexOf("Blocking") && coverageHtml.indexOf("Blocking") < coverageHtml.indexOf("Residual risk") && coverageHtml.indexOf("Residual risk") < coverageHtml.indexOf("Proof strength") && coverageHtml.indexOf("Proof strength") < coverageHtml.indexOf("Judgment contract"))) {
+  throw new Error("takeaway evidence bucket order should put verdict and evidence buckets before trace material");
+}
+if (!coverageHtml.includes("View contract") || !coverageHtml.includes("Source plan: Run Detail Bundle") || !coverageHtml.includes("sha abcdef123456") || !coverageHtml.includes("Success: Checkout instrumentation records the buyer action.") || !coverageHtml.includes("Fake done: A story without audit evidence is fake done.") || !coverageHtml.includes("Evidence: Use reproducible checks.") || !coverageHtml.includes("Execution strategy: Prove focused path") || !coverageHtml.includes("Local governance: GateKeeper treats skipped AGENTS.md checks") || !coverageHtml.includes("Role posture: GateKeeper: Fail closed") || !coverageHtml.includes("Tradeoff: Proof beats polish") || !coverageHtml.includes("Residual risk: Manual billing export remains a Support-owned follow-up.")) {
+  throw new Error("takeaway judgment contract html projection failed");
+}
+if (!coverageHtml.includes("View manifest") || !coverageHtml.includes("Direct 1")) {
   throw new Error("takeaway manifest html projection failed");
 }
-if (!takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("1 evidence ref") || !takeaways.evidenceCoverageHtml(snapshot, "run_1").includes("1 artifact")) {
+if (!coverageHtml.includes("1 evidence ref") || !coverageHtml.includes("1 artifact")) {
   throw new Error("takeaway bucket trace count projection failed");
 }
 const malformedCoverageHtml = takeaways.evidenceCoverageHtml({
@@ -457,6 +610,48 @@ const malformedCoverageHtml = takeaways.evidenceCoverageHtml({
 }, "run_1");
 if (malformedCoverageHtml.includes("Direct 2") || malformedCoverageHtml.includes("2/5") || malformedCoverageHtml.includes("4 evidence")) {
   throw new Error(`takeaway promoted malformed evidence counts: ${malformedCoverageHtml}`);
+}
+const unmanagedRiskHtml = takeaways.evidenceCoverageHtml({
+  task_verdict: {
+    status: "passed",
+    buckets: {
+      weak: [{text: "Some residual risk remains."}],
+      residual_risk: [],
+    },
+  },
+  evidence_coverage: {residual_risk_count: 1},
+}, "run_1");
+if (
+  !unmanagedRiskHtml.includes("Some residual risk remains.") ||
+  !/Residual risk<\/span>\s*<strong>0<\/strong>/.test(unmanagedRiskHtml)
+) {
+  throw new Error(`unmanaged residual risk should stay weak instead of falling back to residual count: ${unmanagedRiskHtml}`);
+}
+const legacyBucketSnapshot = {
+  task_verdict: {
+    status: "failed",
+    summary: "",
+    buckets: {
+      blocking: [],
+      residual_risk: [],
+    },
+  },
+  evidence_buckets: {
+    blocking: [{text: "permission audit is blocked"}],
+    residual_risk: [{label: "Support owns the manual export follow-up"}],
+  },
+  evidence_coverage: {status: "blocked", blocked_target_count: 1},
+  evidence_manifest: {},
+  iterations: [],
+};
+const legacyBucketHtml = takeaways.evidenceCoverageHtml(legacyBucketSnapshot, "run_1");
+const legacyBucketOutcome = takeaways.evidenceOutcome(legacyBucketSnapshot, run);
+if (
+  !legacyBucketHtml.includes("permission audit is blocked") ||
+  !legacyBucketHtml.includes("Support owns the manual export follow-up") ||
+  !legacyBucketOutcome.detail.includes("permission audit is blocked")
+) {
+  throw new Error(`legacy evidence bucket fallback failed: ${legacyBucketHtml} ${JSON.stringify(legacyBucketOutcome)}`);
 }
 const stalledIterationHtml = takeaways.renderTakeawayIterationCard({
   iter: 1,
@@ -848,6 +1043,13 @@ def _assert_alignment_static_asset_regressions(client: TestClient) -> None:
     assert "gatekeeper.enabled === true" in alignment_js
     assert "gatekeeper.enabled)" not in alignment_js
     assert "summary?.gatekeeper?.enabled ?" not in alignment_js
+    assert 'status === "failed" && String(session.bundle_path || "").trim()' in alignment_js
+    assert "allowImport: false" in alignment_js
+    assert 'readyPreview.dataset.previewState = allowImport ? "ready" : "repair";' in alignment_js
+    assert "Plan file needs repair before running" in alignment_js
+    _assert_alignment_run_directory_language(alignment_js)
+    _assert_ready_preview_control_summary(alignment_js)
+    _assert_diagnostic_localization_contract(alignment_js)
 
     bundle_import_js_response = client.get("/static/pages/bundle_import.js")
     assert bundle_import_js_response.status_code == 200
@@ -855,7 +1057,48 @@ def _assert_alignment_static_asset_regressions(client: TestClient) -> None:
     assert "const mapped = item.mapped === true;" in bundle_import_js
     assert "const mapped = Boolean(item.mapped);" not in bundle_import_js
     assert "summary?.gatekeeper?.enabled === true" in bundle_import_js
+    _assert_ready_preview_control_summary(bundle_import_js)
+    assert 'label: localeText("残余风险", "Residual risk")' in bundle_import_js
+    assert "listSnippet(summary.residual_risk_policy)" in bundle_import_js
+    assert 'label: localeText("本地治理", "Local governance")' in bundle_import_js
+    assert "listSnippet(summary.local_governance)" in bundle_import_js
+    _assert_diagnostic_localization_contract(bundle_import_js)
+    assert 'local_governance: localeText("本地治理", "Local governance")' in bundle_import_js
     assert "gatekeeper.enabled === true" in bundle_import_js
+
+
+def _assert_diagnostic_localization_contract(script: str) -> None:
+    assert "localizedDiagnosticText(item, \"title\")" in script
+    assert "localizedDiagnosticText(item, \"message\")" in script
+    assert 'item?.[`${field}_zh`]' in script
+    assert 'item?.[`${field}_en`]' in script
+
+
+def _assert_alignment_run_directory_language(script: str) -> None:
+    assert "选择运行目录" in script
+    assert "Choose run directory" in script
+    assert "选择 workdir" not in script
+    assert "运行的 workdir" not in script
+    assert "This workdir has Loopora artifacts" not in script
+    assert "This run directory has Loopora artifacts" in script
+
+
+def _assert_ready_preview_control_summary(script: str) -> None:
+    assert "renderControlSummary(summary)" in script
+    assert 'label: localeText("Loopora 适配", "Loopora fit")' in script
+    assert "listSnippet(summary.loop_fit_reasons)" in script
+    assert 'label: localeText("成功面", "Success")' in script
+    assert "listSnippet(summary.success_surface)" in script
+    assert 'label: localeText("假完成", "Fake done")' in script
+    assert "listSnippet(summary.fake_done_risks)" in script
+    assert 'label: localeText("证据偏好", "Evidence preferences")' in script
+    assert "listSnippet(summary.evidence_preferences)" in script
+    assert 'label: localeText("执行策略", "Execution strategy")' in script
+    assert "listSnippet(summary.execution_strategy)" in script
+    assert 'label: localeText("判断取舍", "Tradeoffs")' in script
+    assert "listSnippet(summary.judgment_tradeoffs)" in script
+    assert 'label: localeText("角色姿态", "Role posture")' in script
+    assert "listSnippet(summary.role_postures)" in script
 
 
 def _assert_run_event_ok_static_regressions(client: TestClient) -> None:

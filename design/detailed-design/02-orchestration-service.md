@@ -89,9 +89,11 @@
 - 在 run 开始时冻结 `run contract`
 - 在每个 step 开始前生成稳定的 `StepContextPacket`
 - 在每个 step 结束后生成稳定的 `StepHandoff`
+- GateKeeper handoff 的 `blocking_items` 必须投影 `blocking_issues`、`hard_constraint_violations`、失败 check id 和 priority failures；iteration summary 还必须投影 GateKeeper 的 `decision_summary`、修复反馈、evidence refs、coverage results 与已管理 `residual_risks`。这些字段是下一轮修复和风险接手输入，不能只留在原始 output 或 evidence ledger 里。
 - 在每个 step 结束后写入 `evidence/ledger.jsonl`，并让 `StepHandoff.evidence_refs` 指向本 step 的 evidence item
 - 在 run 注册和每个 step evidence 落账后刷新 `evidence/coverage.json`，该文件只能从 run contract、ledger 与 GateKeeper verdict 重算
 - 在每轮结束后生成 `IterationSummary`
+- 下一轮 prompt 中的上一轮摘要必须保留每个上游 handoff 的阻断项、证据引用和推荐下一步；不能只保留分数、状态或一句 summary，否则“证据不足时回到具体缺口”会退化成泛泛继续。
 - 服务层生成或重写的 GateKeeper / iteration 摘要必须继续表达 task verdict 与 evidence 关系，不能把 run lifecycle、检查数量或分数摘要改写成任务已证明。
 - 执行分发只能在 run record 持有非空 workflow snapshot 时进入 workflow engine；旧数据的空 `workflow_json` 走 legacy 执行兼容路径。展示投影可以合成兼容 workflow，但不能把这个合成结果当成运行期冻结契约。
 - 角色上下文主键必须以 `step_id` 和 `role_id` 为主，`archetype` 只能作为聚类与回退
@@ -119,7 +121,7 @@
 - run status 只回答系统生命周期：running / succeeded / failed / stopped / timed out。
 - task verdict 回答任务语义：passed / failed / insufficient evidence / passed with residual risk / not evaluated。
 - 任何界面或 API 都不能把 `succeeded` 直接解释成 Loop 通过。
-- GateKeeper 通过且最新 GateKeeper 裁决明确接受有意义的残余风险时，task verdict 必须使用 `passed_with_residual_risk`，不能压平成普通 `passed`；历史失败迭代留下的风险信号仍可展示在 evidence bucket，但不能单独提升最终通过状态。
+- GateKeeper 通过且最新 GateKeeper 裁决明确接受已管理的残余风险时，task verdict 必须使用 `passed_with_residual_risk`，不能压平成普通 `passed`；已管理表示风险被命名，并有负责人、后续处理或接受路径。模糊残余风险不能触发通过，新 run 应在 GateKeeper 归一化时阻断，旧 artifact 读取时应投影为 `insufficient_evidence`。若 run contract 的 residual-risk stance 明确不接受残余风险，任何 GateKeeper `residual_risks` 都应阻断通过，即使它命名了 owner 或 follow-up。历史失败迭代留下的风险信号仍可展示在 evidence bucket，但不能单独提升最终通过状态。
 - GateKeeper 通过不能越过 required coverage target：若 `Done When` 或 GateKeeper finish 等 required target 仍 missing / weak，或当前 run 的 coverage projection 缺失 / 不可读，task verdict 必须是 `insufficient_evidence`；若 required target 被阻断，task verdict 必须是 `failed`。这只改变 Loop 裁决投影，不把 run lifecycle 的 `succeeded` 或 raw GateKeeper `passed=true` 解释成证明完成。legacy run 可继续按兼容模式展示旧 verdict。
 - `Done When` 与 `gatekeeper.finish` target 的 required 语义来自目标类型本身；即使持久化 coverage 中 `required` 字段损坏成字符串、数字或 false，也不能被降级为 advisory target。布尔字段仍按 literal JSON boolean 解释，损坏字段只能失败关闭，不能扩大通过范围。
 - GateKeeper 是 `gatekeeper` 模式下产生强 task verdict 的默认入口；`rounds` 模式若没有裁决 evidence，必须清楚表达“运行完成但任务未被证明”。
@@ -128,7 +130,7 @@ GateKeeper evidence gate：
 
 - GateKeeper 的 literal boolean `passed=true` 不是充分条件；字符串、数字或其它非布尔 truthy 值不能被当作通过裁决、metric pass、measured evidence 或 required coverage 标记。所有来自角色输出、ledger、coverage 和 manifest 的结构化布尔字段都必须按 JSON boolean 语义 fail closed。
 - 新 run 的 GateKeeper verdict 必须引用已有 supporting evidence item；若 GateKeeper 是首个证据读取者，只能在同时提供可落账的具体 `evidence_claims` 与带数值阈值的 measured evidence 时引用自身 evidence item，否则服务层必须把该 verdict 改写为未通过。
-- 被引用的上游 evidence 必须是支持性证据；Inspector / Custom / control 这类取证或只读检视输出可作为支持，Builder 只有在提供当前仍可访问的 proof artifact 或 measured evidence 时才可作为支持。普通 Builder handoff、已丢失 proof artifact 的 Builder evidence、GateKeeper verdict、blocked / failed / rejected 上游 evidence 都不能作为通过依据；如果 GateKeeper 通过只引用这些非支持 evidence，服务层必须把该 verdict 改写为未通过。
+- 被引用的上游 evidence 必须是支持性证据；Inspector / Custom 这类取证或只读检视输出只有在携带结构化通过检查、覆盖目标、当前仍可访问的 proof artifact 或 measured evidence 时才可作为支持，control 输出可作为支持，Builder 只有在提供当前仍可访问的 proof artifact 或 measured evidence 时才可作为支持。普通 Builder handoff、普通 Inspector / Custom 观察、已丢失 proof artifact 的 Builder evidence、GateKeeper verdict、blocked / failed / rejected 上游 evidence 都不能作为通过依据；如果 GateKeeper 通过只引用这些非支持 evidence，服务层必须把该 verdict 改写为未通过。
 - 未通过的 evidence gate 必须进入 `blocking_issues / hard_constraint_violations`，使 run 在 `gatekeeper` completion mode 下继续迭代或最终失败。
 - coverage projection 可以把 `Fake Done` 与 `Evidence Preferences` 缺口标记为 `weak`；这不改变当前 GateKeeper evidence gate 的硬失败边界。
 - 旧 run / legacy verdict 可以继续展示原文本，但不能被解释成同等级的强门禁通过。

@@ -15,18 +15,27 @@ from loopora.cli_root_commands import register_root_commands
 from loopora.cli_spec_commands import register_spec_commands
 from loopora.service import create_service
 
-app = typer.Typer(help=f"{APP_NAME} CLI")
-loops_app = typer.Typer(help="Inspect and control saved loops")
-orchestrations_app = typer.Typer(help="Create and inspect orchestrations")
-roles_app = typer.Typer(help="Create and inspect role definitions")
-bundles_app = typer.Typer(help="Import and manage YAML bundles")
-spec_app = typer.Typer(help="Work with Markdown loop specs")
-prompts_app = typer.Typer(help="Validate and inspect prompt templates")
+app = typer.Typer(
+    help=(
+        f"{APP_NAME} CLI\n\n"
+        "Start here: in the project where your Coding Agent will work, run "
+        "`loopora init codex`, `loopora init claude`, or `loopora init opencode`, "
+        "then return to that Agent and use `/loopora-gen` followed by `/loopora-loop`."
+    )
+)
+loops_app = typer.Typer(help="Inspect and run saved Loops")
+orchestrations_app = typer.Typer(help="Expert: create and inspect reusable run flows")
+roles_app = typer.Typer(help="Expert: create and inspect reusable role definitions")
+bundles_app = typer.Typer(help="Import, export, and manage Loop plan files")
+spec_app = typer.Typer(help="Expert: work with Markdown Loop contracts")
+prompts_app = typer.Typer(help="Developer: validate and inspect prompt templates")
 diagnose_app = typer.Typer(help="Inspect local diagnostics and repair safe historical issues")
-init_app = typer.Typer(help="Install Coding Agent adapters")
-uninstall_app = typer.Typer(help="Remove Loopora-managed Coding Agent adapters")
-agent_app = typer.Typer(help="Runtime entries used by Coding Agent adapters")
+init_app = typer.Typer(help="Install /loopora-gen and /loopora-loop project entries")
+uninstall_app = typer.Typer(help="Remove Loopora-managed Coding Agent project entries")
+agent_app = typer.Typer(help="Internal runtime used by /loopora-gen and /loopora-loop project entries")
 
+app.add_typer(init_app, name="init")
+app.add_typer(uninstall_app, name="uninstall")
 app.add_typer(loops_app, name="loops")
 app.add_typer(orchestrations_app, name="orchestrations")
 app.add_typer(roles_app, name="roles")
@@ -34,8 +43,6 @@ app.add_typer(bundles_app, name="bundles")
 app.add_typer(spec_app, name="spec")
 app.add_typer(prompts_app, name="prompts")
 app.add_typer(diagnose_app, name="diagnose")
-app.add_typer(init_app, name="init")
-app.add_typer(uninstall_app, name="uninstall")
 app.add_typer(agent_app, name="agent")
 
 register_root_commands(app)

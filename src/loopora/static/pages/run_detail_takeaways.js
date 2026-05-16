@@ -103,9 +103,28 @@
       return bucketItems(snapshot, bucketName).length;
     }
 
+    function bucketPayload(value) {
+      return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    }
+
     function bucketItems(snapshot, bucketName) {
-      const buckets = snapshot?.task_verdict?.buckets || snapshot?.evidence_buckets || {};
-      return Array.isArray(buckets[bucketName]) ? buckets[bucketName] : [];
+      const verdictBuckets = bucketPayload(snapshot?.task_verdict?.buckets);
+      const verdictItems = verdictBuckets[bucketName];
+      if (Array.isArray(verdictItems) && verdictItems.length) {
+        return verdictItems;
+      }
+      const evidenceBuckets = bucketPayload(snapshot?.evidence_buckets);
+      const evidenceItems = evidenceBuckets[bucketName];
+      if (Array.isArray(evidenceItems)) {
+        return evidenceItems;
+      }
+      return Array.isArray(verdictItems) ? verdictItems : [];
+    }
+
+    function hasBucketProjection(snapshot) {
+      return [bucketPayload(snapshot?.task_verdict?.buckets), bucketPayload(snapshot?.evidence_buckets)].some((buckets) =>
+        Object.values(buckets).some((items) => Array.isArray(items))
+      );
     }
 
     function firstBucketText(snapshot, ...bucketNames) {
@@ -183,15 +202,73 @@
       `;
     }
 
+    function judgmentContractDetail(contract) {
+      const bits = [];
+      const sourceBundle = contract?.source_bundle;
+      if (sourceBundle && typeof sourceBundle === "object" && sourceBundle.id) {
+        const sourceBits = [sourceBundle.name || sourceBundle.id];
+        const revision = nonNegativeInteger(sourceBundle.revision);
+        if (revision && revision > 0) {
+          sourceBits.push(localeText(`版本 ${revision}`, `rev ${revision}`));
+        }
+        if (sourceBundle.bundle_sha256) {
+          sourceBits.push(`sha ${String(sourceBundle.bundle_sha256).slice(0, 12)}`);
+        }
+        if (sourceBundle.imported_from_path) {
+          sourceBits.push(sourceBundle.imported_from_path);
+        }
+        bits.push(localeText(`来源方案：${sourceBits.join(" · ")}`, `Source plan: ${sourceBits.join(" · ")}`));
+      }
+      if (contract?.collaboration_summary) {
+        bits.push(contract.collaboration_summary);
+      }
+      if (contract?.workflow_collaboration_intent && contract.workflow_collaboration_intent !== contract?.collaboration_summary) {
+        bits.push(contract.workflow_collaboration_intent);
+      }
+      if (Array.isArray(contract?.loop_fit_reasons) && contract.loop_fit_reasons.length) {
+        bits.push(localeText(`Loopora 适配：${contract.loop_fit_reasons[0]}`, `Loopora fit: ${contract.loop_fit_reasons[0]}`));
+      }
+      if (Array.isArray(contract?.success_surface) && contract.success_surface.length) {
+        bits.push(localeText(`成功面：${contract.success_surface[0]}`, `Success: ${contract.success_surface[0]}`));
+      }
+      if (Array.isArray(contract?.execution_strategy) && contract.execution_strategy.length) {
+        bits.push(localeText(`执行策略：${contract.execution_strategy[0]}`, `Execution strategy: ${contract.execution_strategy[0]}`));
+      }
+      if (Array.isArray(contract?.local_governance) && contract.local_governance.length) {
+        bits.push(localeText(`本地治理：${contract.local_governance[0]}`, `Local governance: ${contract.local_governance[0]}`));
+      }
+      if (Array.isArray(contract?.role_postures) && contract.role_postures.length) {
+        bits.push(localeText(`角色姿态：${contract.role_postures[0]}`, `Role posture: ${contract.role_postures[0]}`));
+      }
+      if (Array.isArray(contract?.judgment_tradeoffs) && contract.judgment_tradeoffs.length) {
+        bits.push(localeText(`判断取舍：${contract.judgment_tradeoffs[0]}`, `Tradeoff: ${contract.judgment_tradeoffs[0]}`));
+      }
+      if (Array.isArray(contract?.evidence_preferences) && contract.evidence_preferences.length) {
+        bits.push(localeText(`证据偏好：${contract.evidence_preferences[0]}`, `Evidence: ${contract.evidence_preferences[0]}`));
+      }
+      if (Array.isArray(contract?.fake_done_states) && contract.fake_done_states.length) {
+        bits.push(localeText(`假完成：${contract.fake_done_states[0]}`, `Fake done: ${contract.fake_done_states[0]}`));
+      }
+      if (contract?.residual_risk) {
+        bits.push(localeText(`残余风险：${contract.residual_risk}`, `Residual risk: ${contract.residual_risk}`));
+      }
+      if (!bits.length && contract?.goal) {
+        bits.push(contract.goal);
+      }
+      return bits.slice(0, 12).join(" · ");
+    }
+
     function evidenceCoverageHtml(snapshot, runId) {
       const coverage = snapshot?.evidence_coverage || {};
       const manifest = snapshot?.evidence_manifest || {};
+      const judgmentContract = snapshot?.judgment_contract || {};
       const evidenceCount = firstDisplayCount(coverage.evidence_count, snapshot?.evidence_count);
       const checkCount = displayCount(coverage.check_count);
       const coveredChecks = displayCount(coverage.covered_check_count);
       const coveragePath = String(coverage.coverage_path || "");
       const manifestPath = String(manifest.manifest_path || "");
       const taskVerdictPath = String(snapshot?.task_verdict_path || "");
+      const contractPath = String(judgmentContract.contract_path || "");
       const gatekeeperRefs = Array.isArray(coverage.latest_gatekeeper?.evidence_refs)
         ? coverage.latest_gatekeeper.evidence_refs.length
         : 0;
@@ -205,6 +282,9 @@
         : "";
       const verdictAction = taskVerdictPath
         ? `<a class="takeaway-evidence-link" href="/api/runs/${encodeURIComponent(runId)}/artifacts/task-verdict" target="_blank" rel="noreferrer">${escapeHtml(localeText("查看裁决", "View verdict"))}</a>`
+        : "";
+      const contractAction = contractPath
+        ? `<a class="takeaway-evidence-link" href="/api/runs/${encodeURIComponent(runId)}/artifacts/run-contract" target="_blank" rel="noreferrer">${escapeHtml(localeText("查看契约", "View contract"))}</a>`
         : "";
       const statusDetail = statusReason
         ? statusReason
@@ -227,10 +307,9 @@
       const weakBucketCount = evidenceBucketCount(snapshot, "weak");
       const unprovenCount = evidenceBucketCount(snapshot, "unproven");
       const blockingCount = evidenceBucketCount(snapshot, "blocking");
-      const riskCount = evidenceBucketCount(snapshot, "residual_risk") || displayCount(coverage.residual_risk_count);
+      const riskCount = evidenceBucketCount(snapshot, "residual_risk") || (hasBucketProjection(snapshot) ? 0 : displayCount(coverage.residual_risk_count));
       return [
         evidenceCoverageCard("裁决状态", "Verdict status", taskVerdictStatusLabel(snapshot?.task_verdict?.status), statusDetail, `${verdictAction}${traceAction}`),
-        evidenceCoverageCard("证明强度", "Proof strength", claimCount ? `${directProofCount}/${claimCount}` : "-", proofDetail, manifestAction),
         evidenceCoverageCard("已证明", "Proven", String(provenCount || coveredChecks || 0), bucketDetailText(snapshot, "proven", checkCount ? `${coveredChecks}/${checkCount}` : "")),
         evidenceCoverageCard("偏弱", "Weak", String(weakBucketCount), bucketDetailText(snapshot, "weak")),
         evidenceCoverageCard("未证明", "Unproven", String(unprovenCount), bucketDetailText(snapshot, "unproven", primaryGap?.text || "")),
@@ -241,6 +320,14 @@
           bucketDetailText(snapshot, "blocking", gatekeeperRefs ? localeText("守门者已引用上游证据。", "GateKeeper cited upstream evidence.") : "")
         ),
         evidenceCoverageCard("残余风险", "Residual risk", String(riskCount), bucketDetailText(snapshot, "residual_risk")),
+        evidenceCoverageCard("证明强度", "Proof strength", claimCount ? `${directProofCount}/${claimCount}` : "-", proofDetail, manifestAction),
+        evidenceCoverageCard(
+          "判断契约",
+          "Judgment contract",
+          contractPath ? localeText("已冻结", "Frozen") : "-",
+          judgmentContractDetail(judgmentContract),
+          contractAction
+        ),
       ].join("");
     }
 

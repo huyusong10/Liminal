@@ -328,15 +328,26 @@ def _javascript_string_literals(value: str) -> list[str]:
 
 
 def _javascript_string_literals_with_offsets(value: str) -> list[tuple[int, str]]:
-    return [
-        (match.start(2), _decode_javascript_literal(match.group(2)))
-        for match in re.finditer(r"""(["'`])((?:\\.|(?!\1)[\s\S])*?)\1""", value)
-    ]
+    literals: list[tuple[int, str]] = []
+    for match in re.finditer(r"""(["'`])((?:\\.|(?!\1)[\s\S])*?)\1""", value):
+        decoded = _decode_javascript_literal(match.group(2))
+        if match.group(1) == "`":
+            decoded = _strip_javascript_template_interpolations(decoded)
+        literals.append((match.start(2), decoded))
+    return literals
 
 
 def _decode_javascript_literal(value: str) -> str:
     escapes = {"n": "\n", "r": "\r", "t": "\t", "\\": "\\", "'": "'", '"': '"', "`": "`"}
     return re.sub(r"\\([nrt\\'\"`])", lambda match: escapes[match.group(1)], value)
+
+
+def _strip_javascript_template_interpolations(value: str) -> str:
+    previous = None
+    while previous != value:
+        previous = value
+        value = re.sub(r"\$\{[^{}]*\}", "", value)
+    return value
 
 
 def _write_term_hints(target: dict[str, Any], output_dir: Path) -> Artifact:
@@ -365,9 +376,8 @@ def _write_term_hints(target: dict[str, Any], output_dir: Path) -> Artifact:
             }
         )
         for line_no, reviewable_text in reviewable_by_line.items():
-            line_lower = reviewable_text.lower()
             for term, label in terms:
-                if term.lower() in line_lower:
+                if _has_non_negated_term_hit(reviewable_text, term):
                     hits.append((_artifact_rel_path(path), line_no, label, reviewable_text.strip()))
 
     output_path = output_dir / f"{target_id}.md"
@@ -380,6 +390,37 @@ def _write_term_hints(target: dict[str, Any], output_dir: Path) -> Artifact:
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     hints = [f"{rel_path}:{line_no}: review `{label}` wording" for rel_path, line_no, label, _line in hits[:120]]
     return Artifact(target_id=target_id, title=_target_title(target, target_id), kind="term_hints", path=output_path, hints=hints)
+
+
+def _has_non_negated_term_hit(text: str, term: str) -> bool:
+    term_lower = term.lower()
+    text_lower = text.lower()
+    if not term_lower:
+        return False
+    start = 0
+    while True:
+        index = text_lower.find(term_lower, start)
+        if index < 0:
+            return False
+        if not _term_hit_is_negated(text_lower, index, term_lower):
+            return True
+        start = index + len(term_lower)
+
+
+def _term_hit_is_negated(text_lower: str, index: int, term_lower: str) -> bool:
+    before = text_lower[max(0, index - 48) : index]
+    compact_before = re.sub(r"\s+", " ", before)
+    compact_term = re.sub(r"\s+", " ", term_lower).strip()
+    if re.search(r"(?:^|[\s,.;:!?])(?:not|isn't|is not|is not a|are not|no)\s+(?:a\s+|an\s+|the\s+)?$", compact_before):
+        return True
+    if re.search(r"(?:不是|并非|并不是|不属于)\s*$", before):
+        return True
+    return bool(
+        re.search(
+            r"(?:not|isn't|is not|are not)\s+(?:a\s+|an\s+|the\s+)?" + re.escape(compact_term) + r"\b",
+            compact_before + compact_term,
+        )
+    )
 
 
 def _parse_named_paths(raw_paths: list[str], env_value: str | None) -> list[tuple[str, str]]:

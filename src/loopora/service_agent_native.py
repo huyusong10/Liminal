@@ -9,6 +9,7 @@ from loopora.agent_adapters import normalize_agent_adapter_kind, read_agent_bind
 from loopora.context_flow import evidence_entry_id
 from loopora.recovery import RetryConfig
 from loopora.run_artifacts import INITIAL_STAGNATION_STATE, read_jsonl
+from loopora.run_takeaways import build_judgment_contract
 from loopora.service_types import ACTIVE_RUN_STATUSES, LooporaConflictError, LooporaError, LooporaNotFoundError, TERMINAL_RUN_STATUSES, normalize_completion_mode
 from loopora.service_workflow_execution import (
     _WorkflowIterationState,
@@ -105,6 +106,28 @@ def _agent_native_string_list(value: object) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
+def _agent_native_role_posture_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    postures: list[str] = []
+    for item in value:
+        if isinstance(item, dict):
+            posture = str(item.get("posture_notes") or "").strip()
+            if not posture:
+                continue
+            role_name = str(item.get("role_name") or item.get("name") or "").strip()
+            archetype = str(item.get("archetype") or "").strip()
+            label = role_name or archetype
+            if label and archetype and archetype not in label.lower():
+                label = f"{label} ({archetype})"
+            postures.append(f"{label}: {posture}" if label else posture)
+            continue
+        text = str(item or "").strip()
+        if text:
+            postures.append(text)
+    return postures
+
+
 def _agent_native_output_evidence_refs(output: dict[str, Any]) -> list[str]:
     refs: list[str] = []
     refs.extend(_agent_native_string_list(output.get("evidence_refs")))
@@ -116,11 +139,10 @@ def _agent_native_output_evidence_refs(output: dict[str, Any]) -> list[str]:
 
 def _agent_native_known_evidence_ids(active: dict, context_packet: dict) -> set[str]:
     capsule = active.get("capsule") if isinstance(active.get("capsule"), dict) else {}
-    known_ids = _agent_native_string_list(capsule.get("known_evidence_ids"))
-    if not known_ids:
-        evidence = context_packet.get("evidence") if isinstance(context_packet.get("evidence"), dict) else {}
-        known_ids = _agent_native_string_list(evidence.get("known_ids"))
-    return set(known_ids)
+    if isinstance(capsule.get("known_evidence_ids"), list):
+        return set(_agent_native_string_list(capsule.get("known_evidence_ids")))
+    evidence = context_packet.get("evidence") if isinstance(context_packet.get("evidence"), dict) else {}
+    return set(_agent_native_string_list(evidence.get("known_ids")))
 
 
 def _agent_native_unknown_evidence_refs(output: dict[str, Any], *, active: dict, context_packet: dict) -> list[str]:
@@ -128,7 +150,117 @@ def _agent_native_unknown_evidence_refs(output: dict[str, Any], *, active: dict,
     return [item for item in _agent_native_output_evidence_refs(output) if item not in known_ids]
 
 
+def _agent_native_output_coverage_target_ids(output: dict[str, Any]) -> list[str]:
+    target_ids: list[str] = []
+    for item in list(output.get("coverage_results") or []):
+        if not isinstance(item, dict):
+            continue
+        target_id = str(item.get("target_id") or "").strip()
+        if target_id:
+            target_ids.append(target_id)
+    return list(dict.fromkeys(target_ids))
+
+
+def _agent_native_capsule_coverage_target_ids(active: dict[str, Any]) -> set[str]:
+    capsule = active.get("capsule") if isinstance(active.get("capsule"), dict) else {}
+    judgment_contract = capsule.get("judgment_contract") if isinstance(capsule.get("judgment_contract"), dict) else {}
+    target_ids: set[str] = set()
+    for item in list(judgment_contract.get("coverage_targets") or []):
+        if not isinstance(item, dict):
+            continue
+        target_id = str(item.get("id") or item.get("target_id") or "").strip()
+        if target_id:
+            target_ids.add(target_id)
+    return target_ids
+
+
+def _agent_native_unknown_coverage_target_ids(output: dict[str, Any], *, active: dict[str, Any]) -> list[str]:
+    known_target_ids = _agent_native_capsule_coverage_target_ids(active)
+    return [target_id for target_id in _agent_native_output_coverage_target_ids(output) if target_id not in known_target_ids]
+
+
+AGENT_NATIVE_WORKSPACE_ARTIFACT_FIELDS = ("changed_files", "generated_files", "proof_files", "proof_artifacts", "artifact_paths")
+
+
+def _agent_native_schema_type_name(value: object) -> str:
+    typed_names = (
+        (bool, "boolean"),
+        (dict, "object"),
+        (list, "array"),
+        (str, "string"),
+        (int, "integer"),
+        (float, "number"),
+    )
+    if value is None:
+        return "null"
+    for value_type, type_name in typed_names:
+        if isinstance(value, value_type):
+            return type_name
+    return type(value).__name__
+
+
+def _agent_native_schema_value_matches_type(value: object, expected_type: str) -> bool:
+    validators = {
+        "object": lambda item: isinstance(item, dict),
+        "array": lambda item: isinstance(item, list),
+        "string": lambda item: isinstance(item, str),
+        "boolean": lambda item: isinstance(item, bool),
+        "integer": lambda item: isinstance(item, int) and not isinstance(item, bool),
+        "number": lambda item: isinstance(item, (int, float)) and not isinstance(item, bool),
+    }
+    validator = validators.get(expected_type)
+    return True if validator is None else bool(validator(value))
+
+
+def _agent_native_schema_object_issues(value: dict, schema: dict[str, Any], *, path: str) -> list[str]:
+    issues: list[str] = []
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    required = [str(item) for item in list(schema.get("required") or []) if str(item)]
+    missing = [field for field in required if field not in value]
+    issues.extend(f"{path}.{field} is required" for field in missing)
+    if schema.get("additionalProperties") is False:
+        extra_fields = sorted(str(field) for field in value if str(field) not in properties)
+        issues.extend(f"{path}.{field} is not allowed by output_schema" for field in extra_fields)
+    for field, field_schema in properties.items():
+        if field in value:
+            issues.extend(_agent_native_schema_validation_issues(value[field], field_schema, path=f"{path}.{field}"))
+    return issues
+
+
+def _agent_native_schema_array_issues(value: list, schema: dict[str, Any], *, path: str) -> list[str]:
+    item_schema = schema.get("items")
+    if not isinstance(item_schema, dict):
+        return []
+    issues: list[str] = []
+    for index, item in enumerate(value):
+        issues.extend(_agent_native_schema_validation_issues(item, item_schema, path=f"{path}[{index}]"))
+    return issues
+
+
+def _agent_native_schema_validation_issues(value: object, schema: object, *, path: str = "$") -> list[str]:
+    if not isinstance(schema, dict):
+        return []
+    issues: list[str] = []
+    expected_type = str(schema.get("type") or "").strip()
+    if expected_type and not _agent_native_schema_value_matches_type(value, expected_type):
+        return [f"{path} expected {expected_type}, got {_agent_native_schema_type_name(value)}"]
+    enum_values = schema.get("enum")
+    if isinstance(enum_values, list) and value not in enum_values:
+        issues.append(f"{path} must be one of {enum_values!r}")
+    if expected_type == "object" and isinstance(value, dict):
+        issues.extend(_agent_native_schema_object_issues(value, schema, path=path))
+    elif expected_type == "array" and isinstance(value, list):
+        issues.extend(_agent_native_schema_array_issues(value, schema, path=path))
+    return issues
+
+
 class ServiceAgentNativeMixin:
+    @staticmethod
+    def _with_agent_native_judgment_contract(result: dict[str, Any]) -> dict[str, Any]:
+        run = result.get("run") if isinstance(result.get("run"), dict) else {}
+        result["judgment_contract"] = build_judgment_contract(run)
+        return result
+
     def prepare_agent_native_run(
         self,
         adapter: str,
@@ -139,7 +271,7 @@ class ServiceAgentNativeMixin:
         kind = normalize_agent_adapter_kind(adapter)
         run = self.get_run(run_id)
         if run["status"] in TERMINAL_RUN_STATUSES:
-            return {"run": run, "next_step": None, "complete": True}
+            return self._with_agent_native_judgment_contract({"run": run, "next_step": None, "complete": True})
         if run["status"] not in ACTIVE_RUN_STATUSES:
             raise LooporaConflictError(f"cannot prepare agent-native run in status {run['status']}")
 
@@ -171,23 +303,27 @@ class ServiceAgentNativeMixin:
                 entry_source=entry_source,
             )
         )
-        return {
-            "run": next_result["run"],
-            "next_step": next_result.get("next_step"),
-            "complete": bool(next_result.get("complete")),
-        }
+        return self._with_agent_native_judgment_contract(
+            {
+                "run": next_result["run"],
+                "next_step": next_result.get("next_step"),
+                "complete": bool(next_result.get("complete")),
+            }
+        )
 
     def claim_agent_native_step(self, request: AgentNativeStepClaimRequest) -> dict[str, Any]:
         kind = normalize_agent_adapter_kind(request.adapter)
         run = self._agent_native_resolve_run(kind, workdir=request.workdir, context_id=request.context_id, run_id=request.run_id)
         if run["status"] in TERMINAL_RUN_STATUSES:
-            return {
-                "adapter": kind,
-                "run": run,
-                "run_path": f"/runs/{run['id']}",
-                "next_step": None,
-                "complete": True,
-            }
+            return self._with_agent_native_judgment_contract(
+                {
+                    "adapter": kind,
+                    "run": run,
+                    "run_path": f"/runs/{run['id']}",
+                    "next_step": None,
+                    "complete": True,
+                }
+            )
         if run["status"] not in ACTIVE_RUN_STATUSES:
             raise LooporaConflictError(f"cannot claim agent-native step in status {run['status']}")
 
@@ -195,13 +331,24 @@ class ServiceAgentNativeMixin:
         state = self._agent_native_state(layout, adapter=kind, run=run)
         active = state.get("active_step") if isinstance(state.get("active_step"), dict) else {}
         if active and active.get("capsule"):
-            return {
-                "adapter": kind,
-                "run": run,
-                "run_path": f"/runs/{run['id']}",
-                "next_step": active["capsule"],
-                "complete": False,
-            }
+            capsule = self._agent_native_capsule_with_judgment_contract(
+                run,
+                active["capsule"],
+                context_packet=active.get("context_packet"),
+            )
+            if capsule != active["capsule"]:
+                active["capsule"] = capsule
+                state["active_step"] = active
+                self._write_agent_native_state(layout, state)
+            return self._with_agent_native_judgment_contract(
+                {
+                    "adapter": kind,
+                    "run": run,
+                    "run_path": f"/runs/{run['id']}",
+                    "next_step": capsule,
+                    "complete": False,
+                }
+            )
 
         context = self._agent_native_run_context(run, state)
         step_index = int(state.get("step_index") or 0)
@@ -288,6 +435,7 @@ class ServiceAgentNativeMixin:
             prompt=str(prepared["prompt"]),
             output_schema=role_request.output_schema,
             known_evidence_ids=[str(item) for item in list(evidence_context.get("known_ids") or []) if str(item).strip()],
+            context_packet=context_packet,
         )
         state["active_step"] = {
             "claimed_at": utc_now(),
@@ -319,13 +467,15 @@ class ServiceAgentNativeMixin:
             role=runtime_role,
         )
         self._agent_native_record_parallel_group_started(run, context, iteration, step, step_order)
-        return {
-            "adapter": kind,
-            "run": self._hydrate_run_files(run),
-            "run_path": f"/runs/{run['id']}",
-            "next_step": capsule,
-            "complete": False,
-        }
+        return self._with_agent_native_judgment_contract(
+            {
+                "adapter": kind,
+                "run": self._hydrate_run_files(run),
+                "run_path": f"/runs/{run['id']}",
+                "next_step": capsule,
+                "complete": False,
+            }
+        )
 
     def _agent_native_claim_input_snapshot(
         self,
@@ -528,6 +678,7 @@ class ServiceAgentNativeMixin:
             },
             request.host_dispatch,
         )
+        self._validate_agent_native_step_output_contract(output, active=active)
         if role["archetype"] != "gatekeeper":
             unknown_refs = _agent_native_unknown_evidence_refs(output, active=active, context_packet=context_packet)
             if unknown_refs:
@@ -601,13 +752,15 @@ class ServiceAgentNativeMixin:
             state["status"] = "complete"
             self._write_agent_native_state(layout, state)
             self.repository.release_run_slot(run["id"])
-            return {
-                "adapter": kind,
-                "run": finish_result,
-                "run_path": f"/runs/{run['id']}",
-                "next_step": None,
-                "complete": True,
-            }
+            return self._with_agent_native_judgment_contract(
+                {
+                    "adapter": kind,
+                    "run": finish_result,
+                    "run_path": f"/runs/{run['id']}",
+                    "next_step": None,
+                    "complete": True,
+                }
+            )
         return self.claim_agent_native_step(
             AgentNativeStepClaimRequest(
                 adapter=kind,
@@ -721,13 +874,15 @@ class ServiceAgentNativeMixin:
             self.repository.release_run_slot(run["id"])
             state["status"] = "complete"
             self._write_agent_native_state(layout, state)
-            return {
-                "adapter": adapter,
-                "run": finished,
-                "run_path": f"/runs/{run['id']}",
-                "next_step": None,
-                "complete": True,
-            }
+            return self._with_agent_native_judgment_contract(
+                {
+                    "adapter": adapter,
+                    "run": finished,
+                    "run_path": f"/runs/{run['id']}",
+                    "next_step": None,
+                    "complete": True,
+                }
+            )
 
         state.update(
             {
@@ -1101,6 +1256,7 @@ class ServiceAgentNativeMixin:
         prompt: str,
         output_schema: dict,
         known_evidence_ids: list[str] | None = None,
+        context_packet: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         context_path = layout.step_context_path(iter_id, step_order, step["id"])
         output_path = layout.step_output_raw_path(iter_id, step_order, step["id"])
@@ -1124,6 +1280,8 @@ class ServiceAgentNativeMixin:
                 "id": role["id"],
                 "name": role["name"],
                 "archetype": role["archetype"],
+                "prompt_ref": str(role.get("prompt_ref") or ""),
+                "posture_notes": str(role.get("posture_notes") or "").strip(),
                 "runtime_role": runtime_role,
             },
             "role_dispatch": {
@@ -1137,6 +1295,8 @@ class ServiceAgentNativeMixin:
                 "accepted_dispatch_modes": ["host_subagent", "host_task", "host_agent"],
             },
             "action_policy": dict(step.get("action_policy") or {}),
+            "required_coverage": self._agent_native_required_coverage(context_packet),
+            "judgment_contract": self._agent_native_capsule_judgment_contract(run, context_packet),
             "prompt": prompt,
             "output_schema": output_schema,
             "evidence_rules": self._agent_native_evidence_rules(role["archetype"]),
@@ -1153,6 +1313,70 @@ class ServiceAgentNativeMixin:
                 "result_file_contract": "Write one wrapper JSON object with loopora_host_dispatch and result; result must match output_schema.",
             },
             "known_evidence_ids": known_evidence_ids,
+        }
+
+    @classmethod
+    def _agent_native_capsule_with_judgment_contract(
+        cls,
+        run: dict,
+        capsule: object,
+        *,
+        context_packet: object = None,
+    ) -> dict[str, Any]:
+        if not isinstance(capsule, dict):
+            raise LooporaError("agent-native active step capsule is invalid")
+        normalized = dict(capsule)
+        normalized["judgment_contract"] = cls._agent_native_capsule_judgment_contract(run, context_packet)
+        return normalized
+
+    @staticmethod
+    def _agent_native_capsule_judgment_contract(run: dict, context_packet: object) -> dict[str, Any]:
+        packet = context_packet if isinstance(context_packet, dict) else {}
+        contract = packet.get("contract") if isinstance(packet.get("contract"), dict) else {}
+        if not contract:
+            return build_judgment_contract(run)
+        projection = build_judgment_contract(run)
+        contract_role_postures = _agent_native_role_posture_list(contract.get("role_postures"))
+        contract_coverage_targets = [dict(item) for item in list(contract.get("coverage_targets") or []) if isinstance(item, dict)]
+        projection.update(
+            {
+                "contract_path": str(contract.get("path") or projection.get("contract_path") or "").strip(),
+                "goal": str(contract.get("goal") or projection.get("goal") or "").strip(),
+                "constraints": str(contract.get("constraints") or projection.get("constraints") or "").strip(),
+                "check_mode": str(contract.get("check_mode") or projection.get("check_mode") or "").strip(),
+                "check_count": structured_non_negative_int(contract.get("check_count")),
+                "completion_mode": str(contract.get("completion_mode") or projection.get("completion_mode") or "").strip(),
+                "collaboration_summary": str(contract.get("collaboration_summary") or projection.get("collaboration_summary") or "").strip(),
+                "loop_fit_reasons": _agent_native_string_list(contract.get("loop_fit_reasons")) or projection.get("loop_fit_reasons", []),
+                "workflow_preset": str(contract.get("workflow_preset") or projection.get("workflow_preset") or "").strip(),
+                "workflow_collaboration_intent": str(
+                    contract.get("workflow_collaboration_intent") or projection.get("workflow_collaboration_intent") or ""
+                ).strip(),
+                "judgment_tradeoffs": _agent_native_string_list(contract.get("judgment_tradeoffs")) or projection.get("judgment_tradeoffs", []),
+                "execution_strategy": _agent_native_string_list(contract.get("execution_strategy")) or projection.get("execution_strategy", []),
+                "local_governance": _agent_native_string_list(contract.get("local_governance")) or projection.get("local_governance", []),
+                "role_postures": contract_role_postures or projection.get("role_postures", []),
+                "coverage_targets": contract_coverage_targets or projection.get("coverage_targets", []),
+                "success_surface": _agent_native_string_list(contract.get("success_surface")) or projection.get("success_surface", []),
+                "fake_done_states": _agent_native_string_list(contract.get("fake_done_states")) or projection.get("fake_done_states", []),
+                "evidence_preferences": _agent_native_string_list(contract.get("evidence_preferences")) or projection.get("evidence_preferences", []),
+                "residual_risk": str(contract.get("residual_risk") or projection.get("residual_risk") or "").strip(),
+            }
+        )
+        return projection
+
+    @staticmethod
+    def _agent_native_required_coverage(context_packet: dict[str, Any] | None) -> dict[str, Any]:
+        packet = context_packet if isinstance(context_packet, dict) else {}
+        iteration = packet.get("iteration") if isinstance(packet.get("iteration"), dict) else {}
+        return {
+            "status": str(iteration.get("coverage_status") or "pending"),
+            "evidence_progress_mode": str(iteration.get("evidence_progress_mode") or "none"),
+            "covered_check_count": structured_non_negative_int(iteration.get("covered_check_count")),
+            "missing_check_count": structured_non_negative_int(iteration.get("missing_check_count")),
+            "covered_check_ids": [str(item) for item in list(iteration.get("covered_check_ids") or []) if str(item).strip()],
+            "missing_check_ids": [str(item) for item in list(iteration.get("missing_check_ids") or []) if str(item).strip()],
+            "top_gaps": [dict(item) for item in list(iteration.get("coverage_top_gaps") or []) if isinstance(item, dict)][:5],
         }
 
     @staticmethod
@@ -1178,38 +1402,103 @@ class ServiceAgentNativeMixin:
         value = dispatch.get("schema_version")
         if value is None or value == "":
             return 1
-        if isinstance(value, (bool, float)):
+        if isinstance(value, bool) or not isinstance(value, int):
             raise LooporaConflictError("agent-native host dispatch schema_version must be an integer")
-        try:
-            return int(value)
-        except (TypeError, ValueError) as exc:
-            raise LooporaConflictError("agent-native host dispatch schema_version must be an integer") from exc
+        return value
 
     @staticmethod
     def _agent_native_role_dispatch_for_submit(active: dict[str, Any]) -> dict[str, Any]:
         capsule = active.get("capsule") if isinstance(active.get("capsule"), dict) else {}
         role_dispatch = capsule.get("role_dispatch") if isinstance(capsule.get("role_dispatch"), dict) else {}
         if not role_dispatch:
-            return {}
+            raise LooporaConflictError("agent-native role_dispatch is required")
         if not structured_bool_is_true(role_dispatch.get("required")):
             raise LooporaConflictError("agent-native role_dispatch.required must be literal true")
         if not isinstance(role_dispatch.get("inline_allowed"), bool):
             raise LooporaConflictError("agent-native role_dispatch.inline_allowed must be a literal boolean")
+        if not str(role_dispatch.get("target_agent") or "").strip():
+            raise LooporaConflictError("agent-native role_dispatch.target_agent is required")
+        accepted_modes = role_dispatch.get("accepted_dispatch_modes")
+        if not isinstance(accepted_modes, list) or not any(str(item).strip() for item in accepted_modes):
+            raise LooporaConflictError("agent-native role_dispatch.accepted_dispatch_modes must be a non-empty list")
         return role_dispatch
+
+    @staticmethod
+    def _agent_native_output_schema(active: dict[str, Any]) -> dict[str, Any]:
+        capsule = active.get("capsule") if isinstance(active.get("capsule"), dict) else {}
+        output_schema = capsule.get("output_schema") if isinstance(capsule.get("output_schema"), dict) else {}
+        return dict(output_schema)
+
+    @staticmethod
+    def _agent_native_required_capsule_object(active: dict[str, Any], field_name: str) -> dict[str, Any]:
+        capsule = active.get("capsule") if isinstance(active.get("capsule"), dict) else {}
+        value = capsule.get(field_name)
+        if not isinstance(value, dict) or not value:
+            raise LooporaConflictError(f"agent-native {field_name} is required")
+        return dict(value)
+
+    @staticmethod
+    def _validate_agent_native_known_evidence_ids(active: dict[str, Any]) -> None:
+        capsule = active.get("capsule") if isinstance(active.get("capsule"), dict) else {}
+        if "known_evidence_ids" not in capsule or not isinstance(capsule.get("known_evidence_ids"), list):
+            raise LooporaConflictError("agent-native known_evidence_ids must be a list")
+        if any(not isinstance(item, str) for item in capsule["known_evidence_ids"]):
+            raise LooporaConflictError("agent-native known_evidence_ids must contain strings")
+
+    @staticmethod
+    def _validate_agent_native_action_policy(action_policy: dict[str, Any]) -> None:
+        workspace = str(action_policy.get("workspace") or "").strip()
+        if workspace not in {"read_only", "workspace_write"}:
+            raise LooporaConflictError("agent-native action_policy.workspace must be read_only or workspace_write")
+        for field in ("can_block", "can_finish_run"):
+            if not isinstance(action_policy.get(field), bool):
+                raise LooporaConflictError(f"agent-native action_policy.{field} must be a literal boolean")
+
+    def _validate_agent_native_step_output_contract(self, output: dict[str, Any], *, active: dict[str, Any]) -> None:
+        output_schema = self._agent_native_output_schema(active)
+        if not output_schema:
+            raise LooporaConflictError("agent-native output_schema is required")
+
+        self._agent_native_required_capsule_object(active, "judgment_contract")
+        self._agent_native_required_capsule_object(active, "required_coverage")
+        action_policy = self._agent_native_required_capsule_object(active, "action_policy")
+        self._validate_agent_native_action_policy(action_policy)
+        self._validate_agent_native_known_evidence_ids(active)
+
+        if str(action_policy.get("workspace") or "").strip() != "workspace_write":
+            workspace_fields = [field for field in AGENT_NATIVE_WORKSPACE_ARTIFACT_FIELDS if _agent_native_string_list(output.get(field))]
+            if workspace_fields:
+                raise LooporaConflictError(
+                    "agent-native read-only step cannot claim workspace artifact fields: "
+                    + ", ".join(workspace_fields)
+                )
+
+        schema_issues = _agent_native_schema_validation_issues(output, output_schema)
+        if schema_issues:
+            raise LooporaConflictError(
+                "agent-native result does not match output_schema: "
+                + "; ".join(schema_issues[:6])
+                + ("..." if len(schema_issues) > 6 else "")
+            )
+
+        unknown_targets = _agent_native_unknown_coverage_target_ids(output, active=active)
+        if unknown_targets:
+            raise LooporaConflictError(
+                "agent-native coverage_results_unknown_target_id: "
+                + ", ".join(unknown_targets[:4])
+                + ("..." if len(unknown_targets) > 4 else "")
+            )
 
     def _validate_agent_native_host_dispatch(self, context: dict[str, Any], dispatch: dict[str, Any] | None) -> dict[str, Any]:
         adapter = str(context["adapter"])
         run = context["run"]
         step_id = str(context["step_id"])
-        role = context["role"]
         active = context["active"]
         role_dispatch = self._agent_native_role_dispatch_for_submit(active)
-        if not role_dispatch:
-            return {}
         if not isinstance(dispatch, dict) or not dispatch:
             raise LooporaConflictError("agent-native submit requires loopora_host_dispatch proof from the host native role agent")
 
-        expected_agent = str(role_dispatch.get("target_agent") or self._agent_native_target_agent(role.get("archetype", ""))).strip()
+        expected_agent = str(role_dispatch.get("target_agent") or "").strip()
         accepted_modes = {str(item) for item in list(role_dispatch.get("accepted_dispatch_modes") or []) if str(item).strip()}
         actual_agent = str(dispatch.get("actual_agent") or dispatch.get("agent_name") or "").strip()
         target_agent = str(dispatch.get("target_agent") or "").strip()
@@ -1259,6 +1548,11 @@ class ServiceAgentNativeMixin:
                 "id": "coverage_results.status_uses_coverage_vocabulary",
                 "severity": "hard",
                 "rule": "coverage_results.status must use coverage vocabulary such as covered, weak, blocked, or missing; keep Proven, Weak, Unproven, Blocking, and Residual risk as verdict buckets or notes.",
+            },
+            {
+                "id": "coverage_results.target_id_must_be_known_coverage_target",
+                "severity": "hard",
+                "rule": "Every coverage_results.target_id must be copied exactly from judgment_contract.coverage_targets[].id; do not invent or rename coverage target IDs.",
             }
         ]
         if archetype == "inspector":

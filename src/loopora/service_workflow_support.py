@@ -9,6 +9,7 @@ from loopora.evidence_support import (
     evidence_item_is_non_supporting_gatekeeper_ref,
     evidence_item_is_supporting_gatekeeper_ref,
 )
+from loopora.residual_risk_support import residual_risk_is_unmanaged, residual_risk_policy_disallows_acceptance
 from loopora.run_artifacts import RunArtifactLayout, append_jsonl_with_mirrors
 from loopora.service_prompts import BUILDER_SCHEMA, CUSTOM_SCHEMA, GATEKEEPER_SCHEMA, GUIDE_SCHEMA, INSPECTOR_SCHEMA
 from loopora.structured_booleans import structured_bool_is_true
@@ -329,6 +330,7 @@ class ServiceWorkflowSupportMixin:
                 request.output,
                 evidence_context=request.evidence_context,
                 current_evidence_id=request.current_evidence_id,
+                compiled_spec=request.compiled_spec,
             )
             return self._enrich_verifier_result(gatekeeper_output, request.compiled_spec, request.inspector_output or {})
         return dict(request.output)
@@ -339,6 +341,7 @@ class ServiceWorkflowSupportMixin:
         *,
         evidence_context: dict | None = None,
         current_evidence_id: str = "",
+        compiled_spec: dict | None = None,
     ) -> dict:
         result = dict(output)
         feedback = str(result.get("feedback_to_builder") or result.get("feedback_to_generator") or "").strip()
@@ -351,6 +354,14 @@ class ServiceWorkflowSupportMixin:
         composite_score = _composite_score_for_result(result, metric_scores)
         result["metrics"] = _metric_rows_from_scores(metric_scores)
         result["passed"] = structured_bool_is_true(result.get("passed"))
+        residual_risks = _string_list(result.get("residual_risks"))
+        residual_risk_policy = str((compiled_spec or {}).get("residual_risk") or "").strip()
+        if result["passed"] and residual_risks and residual_risk_policy_disallows_acceptance(residual_risk_policy):
+            blocking_issues.append("gatekeeper_pass_violates_no_residual_risk_policy")
+            result["passed"] = False
+        if result["passed"] and any(residual_risk_is_unmanaged(risk) for risk in residual_risks):
+            blocking_issues.append("gatekeeper_pass_has_unmanaged_residual_risk")
+            result["passed"] = False
         evidence_refs = _apply_gatekeeper_evidence_gate(
             GatekeeperEvidenceGateState(
                 result=result,

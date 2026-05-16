@@ -408,6 +408,214 @@ def test_gatekeeper_pass_with_residual_risk_projects_task_verdict(
     assert gatekeeper_entry["residual_risk"] == "Manual copy polish remains a visible follow-up."
 
 
+def test_loop_rejects_gatekeeper_residual_risk_when_contract_disallows_acceptance(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    class DisallowedResidualRiskExecutor(CodexExecutor):
+        def execute(self, request, _emit_event, _should_stop, set_child_pid):
+            set_child_pid(None)
+            if request.role_archetype == "inspector":
+                payload = {
+                    "execution_summary": {
+                        "total_checks": 1,
+                        "passed": 1,
+                        "failed": 0,
+                        "errored": 0,
+                        "total_duration_ms": 50,
+                    },
+                    "check_results": [
+                        {
+                            "id": "check_001",
+                            "title": "Primary experience",
+                            "status": "passed",
+                            "notes": "Primary path is proven.",
+                        },
+                    ],
+                    "dynamic_checks": [],
+                    "tester_observations": "The required check is covered.",
+                    "coverage_results": [],
+                }
+            else:
+                evidence_refs = [item["id"] for item in request.extra_context["context_packet"]["evidence"]["items"]]
+                payload = {
+                    "passed": True,
+                    "decision_summary": "GateKeeper accepted a managed residual risk.",
+                    "feedback_to_builder": "",
+                    "blocking_issues": [],
+                    "metrics": [
+                        {"name": "quality_score", "value": 1.0, "threshold": 0.9, "passed": True},
+                    ],
+                    "failed_check_ids": [],
+                    "priority_failures": [],
+                    "composite_score": 1.0,
+                    "evidence_refs": evidence_refs,
+                    "evidence_claims": ["The inspector evidence covers the required check."],
+                    "residual_risks": ["Manual billing export remains visible as a follow-up owned by Support."],
+                }
+            request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            return payload
+
+    service = service_factory(scenario="success")
+    service.executor_factory = DisallowedResidualRiskExecutor
+    spec_file = sample_spec_file.with_name("no_residual_risk_spec.md")
+    spec_file.write_text(
+        sample_spec_file.read_text(encoding="utf-8").replace(
+            "Minor copy polish can wait, but unverifiable completion should fail closed.",
+            "No residual risk is acceptable; any remaining risk must fail closed.",
+        ),
+        encoding="utf-8",
+    )
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "inspector", "name": "Inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+            {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+        ],
+        "steps": [
+            {"id": "inspector_step", "role_id": "inspector"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+        ],
+    }
+    loop = _create_loop(
+        service,
+        spec_file,
+        sample_workdir,
+        name="No Residual Risk Gate Loop",
+        max_iters=1,
+        workflow=workflow,
+    )
+
+    run = service.rerun(loop["id"])
+    run_dir = Path(run["runs_dir"])
+    gatekeeper_output = _step_outputs_by_archetype(run_dir)["gatekeeper"][-1]["output"]
+
+    assert run["status"] == "failed"
+    assert run["task_verdict"]["status"] == "failed"
+    assert gatekeeper_output["passed"] is False
+    assert gatekeeper_output["blocking_issues"] == ["gatekeeper_pass_violates_no_residual_risk_policy"]
+    assert gatekeeper_output["residual_risks"] == ["Manual billing export remains visible as a follow-up owned by Support."]
+
+
+def test_round_mode_carries_gatekeeper_residual_risk_into_next_iteration_prompt(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    second_builder_prompt = ""
+    second_builder_context: dict = {}
+
+    class ResidualRiskCarryForwardExecutor(CodexExecutor):
+        def execute(self, request, _emit_event, _should_stop, set_child_pid):
+            nonlocal second_builder_prompt, second_builder_context
+            set_child_pid(None)
+            iter_id = request.extra_context["iter_id"]
+            if request.role_archetype == "builder":
+                if iter_id == 1:
+                    second_builder_prompt = request.prompt
+                    second_builder_context = request.extra_context["context_packet"]
+                payload = {
+                    "attempted": "Built the primary slice.",
+                    "summary": "Builder changed only the focused primary slice.",
+                    "changed_files": [],
+                    "proof_files": [],
+                    "proof_artifacts": [],
+                    "artifact_paths": [],
+                }
+            elif request.role_archetype == "inspector":
+                payload = {
+                    "execution_summary": {
+                        "total_checks": 1,
+                        "passed": 1,
+                        "failed": 0,
+                        "errored": 0,
+                        "total_duration_ms": 20,
+                    },
+                    "check_results": [
+                        {
+                            "id": "primary_slice_check",
+                            "title": "Primary slice check",
+                            "status": "passed",
+                            "notes": "Inspector produced direct evidence for the primary slice.",
+                        }
+                    ],
+                    "dynamic_checks": [],
+                    "tester_observations": "Inspector evidence covers the primary slice.",
+                    "coverage_results": [],
+                }
+            else:
+                context_packet = request.extra_context["context_packet"]
+                evidence_refs = [
+                    item["id"]
+                    for item in context_packet["evidence"]["items"]
+                    if item.get("archetype") == "inspector"
+                ]
+                payload = {
+                    "passed": True,
+                    "decision_summary": "GateKeeper passed with a managed residual risk in round mode.",
+                    "feedback_to_builder": "Keep the named residual risk visible while continuing the next round.",
+                    "blocking_issues": [],
+                    "hard_constraint_violations": [],
+                    "metrics": [],
+                    "metric_scores": {
+                        "check_pass_rate": {"value": 1.0, "threshold": 0.9, "passed": True},
+                        "quality_score": {"value": 1.0, "threshold": 0.9, "passed": True},
+                    },
+                    "failed_check_ids": [],
+                    "priority_failures": [],
+                    "composite_score": 1.0,
+                    "evidence_refs": evidence_refs,
+                    "evidence_claims": ["Inspector proof covers the primary slice."],
+                    "residual_risks": ["Manual copy polish remains visible as a follow-up owned by docs."],
+                    "coverage_results": [],
+                }
+            request.output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            return payload
+
+    service = service_factory(scenario="success")
+    service.executor_factory = ResidualRiskCarryForwardExecutor
+    workflow = {
+        "version": 1,
+        "roles": [
+            {"id": "builder", "name": "Builder", "archetype": "builder", "prompt_ref": "builder.md"},
+            {"id": "inspector", "name": "Inspector", "archetype": "inspector", "prompt_ref": "inspector.md"},
+            {"id": "gatekeeper", "name": "GateKeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+        ],
+        "steps": [
+            {"id": "builder_step", "role_id": "builder"},
+            {"id": "inspector_step", "role_id": "inspector"},
+            {"id": "gatekeeper_step", "role_id": "gatekeeper"},
+        ],
+    }
+    loop = _create_loop(
+        service,
+        sample_spec_file,
+        sample_workdir,
+        name="Residual Risk Carry Forward Loop",
+        workflow=workflow,
+        completion_mode="rounds",
+        max_iters=2,
+    )
+
+    run = service.rerun(loop["id"])
+    run_dir = Path(run["runs_dir"])
+    first_iteration_summary = json.loads((run_dir / "iterations" / "iter_000" / "summary.json").read_text(encoding="utf-8"))
+    role_requests = _read_jsonl(run_dir / "context" / "role_requests.jsonl")
+    second_builder_request = next(item for item in role_requests if item["role_archetype"] == "builder" and item["iter"] == 1)
+
+    assert second_builder_prompt
+    assert first_iteration_summary["gatekeeper_verdict"]["residual_risks"] == [
+        "Manual copy polish remains visible as a follow-up owned by docs."
+    ]
+    assert second_builder_context["upstream"]["previous_iteration_summary"]["gatekeeper_verdict"]["residual_risks"] == [
+        "Manual copy polish remains visible as a follow-up owned by docs."
+    ]
+    assert 'GateKeeper residual risks: ["Manual copy polish remains visible as a follow-up owned by docs."]' in second_builder_prompt
+    assert "residual_risk=Manual copy polish remains visible as a follow-up owned by docs." in second_builder_prompt
+    assert second_builder_request["context_summary"]["previous_iteration_summary"]["gatekeeper_residual_risk_count"] == 1
+
+
 def test_gatekeeper_pass_citing_plain_builder_handoff_is_blocked(
     service_factory,
     sample_spec_file: Path,
@@ -927,16 +1135,27 @@ def test_workflow_control_triggers_when_required_coverage_stalls(
     assert stagnation["evidence_progress_mode"] == "stalled"
     assert stagnation["latest_missing_check_count"] == 2
     assert latest_iteration_summary["stagnation"]["evidence_progress_mode"] == "stalled"
+    assert latest_iteration_summary["stagnation"]["coverage_status"] == "blocked"
     assert latest_iteration_summary["stagnation"]["covered_check_count"] == 0
     assert latest_iteration_summary["stagnation"]["missing_check_count"] == 2
+    assert latest_iteration_summary["stagnation"]["missing_check_ids"] == ["check_001", "check_002"]
+    assert any(item["target_id"] == "done_when.check_001" for item in latest_iteration_summary["stagnation"]["coverage_top_gaps"])
     assert guide_request["context_summary"]["context_packet"]["evidence_progress_mode"] == "stalled"
+    assert guide_request["context_summary"]["context_packet"]["coverage_status"] == "blocked"
     assert guide_request["context_summary"]["context_packet"]["covered_check_count"] == 0
     assert guide_request["context_summary"]["context_packet"]["missing_check_count"] == 2
+    assert guide_request["context_summary"]["context_packet"]["missing_check_ids"] == ["check_001", "check_002"]
+    assert any(item["target_id"] == "done_when.check_001" for item in guide_request["context_summary"]["context_packet"]["coverage_top_gaps"])
     assert "Evidence progress mode: stalled" in guide_prompt
+    assert 'Missing required check ids: ["check_001", "check_002"]' in guide_prompt
+    assert '"target_id": "done_when.check_001"' in guide_prompt
     assert "Required coverage: 0 covered, 2 missing" in guide_prompt
     assert latest_takeaway["evidence_progress_mode"] == "stalled"
+    assert latest_takeaway["coverage_status"] == "blocked"
     assert latest_takeaway["covered_check_count"] == 0
     assert latest_takeaway["missing_check_count"] == 2
+    assert latest_takeaway["missing_check_ids"] == ["check_001", "check_002"]
+    assert any(item["target_id"] == "done_when.check_001" for item in latest_takeaway["coverage_top_gaps"])
     assert latest_takeaway["consecutive_no_required_coverage_delta"] == 1
     assert any(
         event["event_type"] == "control_triggered"
@@ -1273,6 +1492,7 @@ def test_evidence_query_filters_canonical_ledger_before_recent_prompt_window(
     assert recorded_gate_context["evidence"]["manifest_summary"]["claim_count"] == 1
     assert [item["id"] for item in recorded_gate_context["evidence"]["manifest_claims"]] == ["ev_000_00_inspector_step"]
     assert 'Known ids: ["ev_000_00_inspector_step"]' in recorded_gate_prompt
+    assert "gatekeeper_support=supporting" in recorded_gate_prompt
     assert "ev_000_01_filler_builder_00" not in recorded_gate_prompt
 
 

@@ -12,7 +12,10 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from loopora.alignment_semantics import text_mentions_loop_fit_contradiction
+from loopora.alignment_semantics import (
+    semantic_antipattern_match_is_negated,
+    text_mentions_loop_fit_contradiction,
+)
 from loopora.alignment_guidance import load_alignment_guidance_assets
 from loopora.branding import APP_STATE_DIRNAME, state_dir_for_workdir
 from loopora.bundles import (
@@ -28,7 +31,9 @@ from loopora.event_redaction import redact_alignment_event_payload, redact_sensi
 from loopora.evidence_coverage import load_or_build_evidence_coverage_projection, summarize_evidence_coverage_projection
 from loopora.executor import ExecutionStopped, ExecutorError, RoleRequest, validate_command_args_text
 from loopora.providers import executor_profile, normalize_executor_kind, normalize_executor_mode, normalize_reasoning_setting
+from loopora.residual_risk_support import residual_risk_is_unmanaged
 from loopora.run_artifacts import RunArtifactLayout, read_jsonl
+from loopora.run_takeaways import build_judgment_contract
 from loopora.service_alignment_diagnostics import (
     append_alignment_diagnostic_event,
     append_alignment_local_diagnostic_event,
@@ -36,6 +41,7 @@ from loopora.service_alignment_diagnostics import (
 )
 from loopora.service_cleanup_diagnostics import best_effort_rmtree, cleanup_diagnostic_payload, log_cleanup_diagnostic
 from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError
+from loopora.specs import SpecError, compile_markdown_spec
 from loopora.structured_numbers import structured_non_negative_int
 from loopora.utils import make_id, utc_now
 
@@ -49,7 +55,10 @@ ALIGNMENT_READINESS_KEYS = [
     "success_surface",
     "fake_done_risks",
     "evidence_preferences",
+    "execution_strategy",
     "residual_risk_policy",
+    "judgment_tradeoffs",
+    "local_governance",
     "role_posture",
     "workflow_shape",
     "explicit_confirmation",
@@ -60,8 +69,10 @@ ALIGNMENT_READINESS_EVIDENCE_KEYS = [
     "success_surface",
     "fake_done_risks",
     "evidence_preferences",
+    "execution_strategy",
     "residual_risk_policy",
     "judgment_tradeoffs",
+    "local_governance",
     "role_posture",
     "workflow_shape",
     "workdir_facts",
@@ -72,8 +83,10 @@ ALIGNMENT_AGREEMENT_TRACEABILITY_KEYS = [
     "success_surface",
     "fake_done_risks",
     "evidence_preferences",
+    "execution_strategy",
     "residual_risk_policy",
     "judgment_tradeoffs",
+    "local_governance",
     "role_posture",
     "workflow_shape",
     "workdir_facts",
@@ -89,6 +102,7 @@ ALIGNMENT_TRACEABILITY_GENERIC_TERMS = {
     "artifact",
     "artifacts",
     "assumptions",
+    "auditable",
     "behavior",
     "before",
     "because",
@@ -110,6 +124,7 @@ ALIGNMENT_TRACEABILITY_GENERIC_TERMS = {
     "cases",
     "change",
     "changes",
+    "chat",
     "check",
     "checks",
     "claims",
@@ -144,6 +159,7 @@ ALIGNMENT_TRACEABILITY_GENERIC_TERMS = {
     "expected",
     "experience",
     "exercise",
+    "exportable",
     "exposed",
     "fail",
     "failed",
@@ -232,6 +248,7 @@ ALIGNMENT_TRACEABILITY_GENERIC_TERMS = {
     "round",
     "rounds",
     "run",
+    "run-owned",
     "scope",
     "should",
     "slice",
@@ -245,6 +262,7 @@ ALIGNMENT_TRACEABILITY_GENERIC_TERMS = {
     "strongest",
     "success",
     "surface",
+    "survive",
     "task",
     "tasks",
     "target",
@@ -333,6 +351,15 @@ ALIGNMENT_TRACEABILITY_GENERIC_CJK_TERMS = {
     "具体",
     "技术",
     "复退",
+}
+ALIGNMENT_LOOP_FIT_TRACEABILITY_GENERIC_TERMS = {
+    "audit",
+    "export",
+    "human",
+    "material",
+    "plus",
+    "reuse",
+    "this",
 }
 ALIGNMENT_TRACEABILITY_CJK_STOP_CHARS = frozenset("的一是在和与或及并但而为由让把被只已未就才需能会应可其此个这那")
 ALIGNMENT_AGENT_CANDIDATE_GENERIC_TERMS = {
@@ -467,7 +494,10 @@ ALIGNMENT_RESPONSE_SCHEMA: dict[str, Any] = {
                 "success_surface": {"type": "boolean"},
                 "fake_done_risks": {"type": "boolean"},
                 "evidence_preferences": {"type": "boolean"},
+                "execution_strategy": {"type": "boolean"},
                 "residual_risk_policy": {"type": "boolean"},
+                "judgment_tradeoffs": {"type": "boolean"},
+                "local_governance": {"type": "boolean"},
                 "role_posture": {"type": "boolean"},
                 "workflow_shape": {"type": "boolean"},
                 "explicit_confirmation": {"type": "boolean"},
@@ -483,8 +513,10 @@ ALIGNMENT_RESPONSE_SCHEMA: dict[str, Any] = {
                 "success_surface": {"type": "string"},
                 "fake_done_risks": {"type": "string"},
                 "evidence_preferences": {"type": "string"},
+                "execution_strategy": {"type": "string"},
                 "residual_risk_policy": {"type": "string"},
                 "judgment_tradeoffs": {"type": "string"},
+                "local_governance": {"type": "string"},
                 "role_posture": {"type": "string"},
                 "workflow_shape": {"type": "string"},
                 "workdir_facts": {"type": "string"},
@@ -912,26 +944,77 @@ class ServiceAlignmentMixin:
                 "validation": session.get("validation") or {"ok": False, "error": "bundle file does not exist"},
             }
         raw_yaml = ""
+        semantic_issues: list[str] = []
         try:
             raw_yaml = read_bundle_file_text(bundle_path)
-            bundle = load_bundle_text(raw_yaml)
-        except (BundleError, OSError) as exc:
+            if session["status"] in {"ready", "imported", "running_loop"}:
+                bundle, normalized_yaml = self._load_validated_alignment_bundle_text(session, raw_yaml, semantic_issues)
+                validation = {
+                    "ok": True,
+                    "error": "",
+                    "bundle_path": str(bundle_path),
+                    "checked_at": utc_now(),
+                    "semantic_lint": {"ok": True, "issues": []},
+                }
+            else:
+                bundle = load_bundle_text(raw_yaml)
+                normalized_yaml = bundle_to_yaml(bundle)
+                validation = session.get("validation") or {"ok": True, "bundle_path": str(bundle_path)}
+        except (BundleError, LooporaError, OSError) as exc:
             return {
                 "ok": False,
                 "session": session,
                 "yaml": raw_yaml,
                 "bundle": None,
-                "validation": {"ok": False, "error": str(exc), "bundle_path": str(bundle_path)},
+                "validation": {
+                    "ok": False,
+                    "error": str(exc),
+                    "bundle_path": str(bundle_path),
+                    "checked_at": utc_now(),
+                    "semantic_lint": {"ok": not semantic_issues, "issues": semantic_issues},
+                },
             }
-        normalized_yaml = bundle_to_yaml(bundle)
         preview = self._bundle_preview_payload(
             bundle,
             source_path=str(bundle_path),
-            validation=session.get("validation") or {"ok": True, "bundle_path": str(bundle_path)},
+            validation=validation,
         )
         preview["session"] = session
         preview["yaml"] = normalized_yaml
         return preview
+
+    def _load_validated_alignment_bundle_text(
+        self,
+        session: dict,
+        bundle_yaml: str,
+        semantic_issues: list[str],
+    ) -> tuple[dict, str]:
+        semantic_issues.extend(lint_alignment_bundle_generation_text(bundle_yaml))
+        if semantic_issues:
+            raise LooporaError("bundle semantic lint failed: " + "; ".join(semantic_issues))
+
+        bundle = load_bundle_text(bundle_yaml)
+        self._assert_alignment_bundle_workdir(bundle, expected_workdir=Path(session["workdir"]))
+        issue_sources = (
+            lint_alignment_bundle_semantics(bundle),
+            self._alignment_bundle_executor_settings_issues(session, bundle),
+            self._alignment_bundle_language_issues(session, bundle),
+            self._alignment_bundle_workdir_fact_issues(session, bundle),
+            self._alignment_improvement_bundle_issues(session, bundle),
+            self._alignment_bundle_agreement_traceability_issues(session, bundle),
+            self._alignment_agent_candidate_traceability_issues(session, bundle),
+        )
+        for issues in issue_sources:
+            self._extend_unique_alignment_issues(semantic_issues, issues)
+        if semantic_issues:
+            raise LooporaError("bundle semantic lint failed: " + "; ".join(semantic_issues))
+
+        return bundle, bundle_to_yaml(bundle)
+
+    @staticmethod
+    def _alignment_bundle_content_fingerprint(bundle_yaml: str) -> dict[str, Any]:
+        data = bundle_yaml.encode("utf-8")
+        return {"bundle_sha256": sha256(data).hexdigest(), "bundle_bytes": len(data)}
 
     def sync_alignment_bundle_from_file(self, session_id: str) -> dict:
         session = self.get_alignment_session(session_id)
@@ -954,21 +1037,7 @@ class ServiceAlignmentMixin:
         semantic_issues: list[str] = []
         try:
             raw_yaml = read_bundle_file_text(bundle_path)
-            semantic_issues = lint_alignment_bundle_generation_text(raw_yaml)
-            if semantic_issues:
-                raise LooporaError("bundle semantic lint failed: " + "; ".join(semantic_issues))
-            bundle = load_bundle_text(raw_yaml)
-            self._assert_alignment_bundle_workdir(bundle, expected_workdir=Path(session["workdir"]))
-            self._extend_unique_alignment_issues(semantic_issues, lint_alignment_bundle_semantics(bundle))
-            self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_executor_settings_issues(session, bundle))
-            self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_language_issues(session, bundle))
-            self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_workdir_fact_issues(session, bundle))
-            self._extend_unique_alignment_issues(semantic_issues, self._alignment_improvement_bundle_issues(session, bundle))
-            self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_agreement_traceability_issues(session, bundle))
-            self._extend_unique_alignment_issues(semantic_issues, self._alignment_agent_candidate_traceability_issues(session, bundle))
-            if semantic_issues:
-                raise LooporaError("bundle semantic lint failed: " + "; ".join(semantic_issues))
-            normalized_yaml = bundle_to_yaml(bundle)
+            bundle, normalized_yaml = self._load_validated_alignment_bundle_text(session, raw_yaml, semantic_issues)
             bundle_path.write_text(normalized_yaml, encoding="utf-8")
         except (BundleError, LooporaError, OSError) as exc:
             validation = {
@@ -986,6 +1055,7 @@ class ServiceAlignmentMixin:
             "bundle_path": str(bundle_path),
             "checked_at": utc_now(),
             "semantic_lint": {"ok": True, "issues": []},
+            **self._alignment_bundle_content_fingerprint(normalized_yaml),
         }
         self._append_alignment_system_message(
             session_id,
@@ -1024,28 +1094,53 @@ class ServiceAlignmentMixin:
         bundle_path = Path(session["bundle_path"])
         if not bundle_path.exists():
             raise LooporaNotFoundError(f"alignment bundle does not exist: {bundle_path}")
+        semantic_issues: list[str] = []
         try:
             raw_yaml = read_bundle_file_text(bundle_path)
-            bundle = self.import_bundle_text(raw_yaml, imported_from_path=str(bundle_path))
+            _candidate_bundle, normalized_yaml = self._load_validated_alignment_bundle_text(
+                session,
+                raw_yaml,
+                semantic_issues,
+            )
+            bundle_path.write_text(normalized_yaml, encoding="utf-8")
+            bundle = self.import_bundle_text(normalized_yaml, imported_from_path=str(bundle_path))
         except (BundleError, LooporaError, OSError) as exc:
             error = str(exc)
-            self.repository.update_alignment_session(session_id, error_message=error)
+            validation = {
+                "ok": False,
+                "error": error,
+                "bundle_path": str(bundle_path),
+                "checked_at": utc_now(),
+                "semantic_lint": {"ok": not semantic_issues, "issues": semantic_issues},
+            }
+            self.repository.update_alignment_session(session_id, validation=validation, error_message=error)
+            self._write_alignment_validation_log(self.get_alignment_session(session_id), validation)
             self.repository.append_alignment_event(
                 session_id,
                 "alignment_import_failed",
-                {"error": error, "status": "ready"},
+                {"error": error, "status": "ready", "semantic_lint": validation["semantic_lint"]},
             )
             if isinstance(exc, LooporaError):
                 raise
             raise LooporaError(error) from exc
+        validation = {
+            "ok": True,
+            "error": "",
+            "bundle_path": str(bundle_path),
+            "checked_at": utc_now(),
+            "semantic_lint": {"ok": True, "issues": []},
+            **self._alignment_bundle_content_fingerprint(normalized_yaml),
+        }
         self.repository.update_alignment_session(
             session_id,
             status="imported",
             linked_bundle_id=bundle["id"],
             linked_loop_id=bundle.get("loop_id", ""),
             linked_run_id="",
+            validation=validation,
             error_message="",
         )
+        self._write_alignment_validation_log(self.get_alignment_session(session_id), validation)
         self.repository.append_alignment_event(
             session_id,
             "alignment_imported",
@@ -1153,6 +1248,7 @@ class ServiceAlignmentMixin:
                     "reason": "improve_from_run_evidence",
                     "run_status": str(run.get("status") or ""),
                     "artifact_paths": self._alignment_run_artifact_paths(run),
+                    "judgment_contract": self._alignment_run_judgment_contract(run),
                     "coverage_summary": self._alignment_run_coverage_summary(run),
                     "evidence_summary": self._alignment_run_evidence_summary(run),
                     "task_verdict": run.get("task_verdict") or {},
@@ -1227,11 +1323,16 @@ class ServiceAlignmentMixin:
         layout = RunArtifactLayout(Path(run["runs_dir"]))
 
         return {
+            "run_contract": layout.relative(layout.run_contract_path),
             "task_verdict": layout.relative(layout.task_verdict_path),
             "evidence_ledger": layout.relative(layout.evidence_ledger_path),
             "evidence_coverage": layout.relative(layout.evidence_coverage_path),
             "evidence_manifest": layout.relative(layout.evidence_manifest_path),
         }
+
+    @staticmethod
+    def _alignment_run_judgment_contract(run: dict) -> dict:
+        return build_judgment_contract(run)
 
     def _alignment_run_evidence_summary(self, run: dict, *, limit: int = 8) -> list[dict]:
         layout = self._run_artifact_layout(Path(run["runs_dir"]))
@@ -2380,27 +2481,123 @@ class ServiceAlignmentMixin:
     def _alignment_bundle_agreement_traceability_issues(cls, session: dict, bundle: dict) -> list[str]:
         agreement = session.get("working_agreement") if isinstance(session.get("working_agreement"), dict) else {}
         evidence = agreement.get("readiness_evidence") if isinstance(agreement.get("readiness_evidence"), dict) else {}
-        if not evidence:
-            return []
         bundle_text = cls._alignment_bundle_agreement_projection_text(bundle)
         normalized_bundle_text = cls._normalize_traceability_text(bundle_text)
-        repeated_cjk_terms = cls._agreement_repeated_cjk_traceability_terms(evidence.values())
+        normalized_runtime_text = cls._normalize_traceability_text(cls._alignment_bundle_runtime_responsibility_projection_text(bundle))
         issues: list[str] = []
-        for key in ALIGNMENT_AGREEMENT_TRACEABILITY_KEYS:
-            if key == "loop_fit":
+        if evidence:
+            repeated_cjk_terms = cls._agreement_repeated_cjk_traceability_terms(evidence.values())
+            for key in ALIGNMENT_AGREEMENT_TRACEABILITY_KEYS:
+                terms = cls._agreement_traceability_terms(evidence.get(key))
+                if key == "loop_fit":
+                    terms = [term for term in terms if term not in ALIGNMENT_LOOP_FIT_TRACEABILITY_GENERIC_TERMS]
+                terms.extend(term for term in repeated_cjk_terms if term in str(evidence.get(key) or "") and term not in terms)
+                if key == "workdir_facts":
+                    terms = [term for term in terms if "/" in term or "." in term]
+                if key == "local_governance":
+                    terms = [term for term in terms if "/" in term or "." in term]
+                if not terms:
+                    continue
+                matched = [term for term in terms if cls._traceability_term_is_present(term, normalized_bundle_text=normalized_bundle_text)]
+                required_matches = 1 if len(terms) < 4 else 2
+                if len(matched) >= required_matches:
+                    continue
+                issues.append(
+                    "alignment bundle must project confirmed working agreement evidence into runnable surfaces: "
+                    f"{key} missing {', '.join(terms[:5])}"
+                )
+            issues.extend(
+                cls._alignment_governance_marker_responsibility_issues(
+                    evidence,
+                    normalized_runtime_text=normalized_runtime_text,
+                )
+            )
+            issues.extend(
+                cls._alignment_agreement_category_projection_issues(
+                    evidence,
+                    normalized_bundle_text=normalized_bundle_text,
+                )
+            )
+        workdir_snapshot = cls._alignment_workdir_snapshot(Path(session["workdir"])) if session.get("workdir") else ""
+        if cls._workdir_snapshot_has_governance_markers(workdir_snapshot):
+            issues.extend(
+                cls._alignment_governance_marker_responsibility_issues(
+                    {"workdir_snapshot": workdir_snapshot},
+                    normalized_runtime_text=normalized_runtime_text,
+                )
+            )
+        return issues
+
+    @classmethod
+    def _alignment_agreement_category_projection_issues(cls, evidence: dict, *, normalized_bundle_text: str) -> list[str]:
+        category_checks = (
+            (
+                "success_surface",
+                "success surface",
+                cls._agent_candidate_success_surface_categories(
+                    str(evidence.get("success_surface") or ""),
+                    require_explicit_marker=False,
+                ),
+                1,
+            ),
+            (
+                "fake_done_risks",
+                "fake-done risks",
+                cls._agent_candidate_fake_done_categories(
+                    str(evidence.get("fake_done_risks") or ""),
+                    require_explicit_marker=False,
+                ),
+                1,
+            ),
+            (
+                "evidence_preferences",
+                "evidence preferences",
+                cls._agent_candidate_evidence_preference_categories(
+                    str(evidence.get("evidence_preferences") or ""),
+                    require_explicit_marker=False,
+                ),
+                1,
+            ),
+            (
+                "execution_strategy",
+                "execution strategy",
+                cls._agent_candidate_execution_strategy_categories(
+                    str(evidence.get("execution_strategy") or ""),
+                    require_explicit_marker=False,
+                ),
+                2,
+            ),
+            (
+                "residual_risk_policy",
+                "residual-risk policy",
+                cls._agent_candidate_residual_risk_policy_categories(
+                    str(evidence.get("residual_risk_policy") or ""),
+                    require_explicit_marker=False,
+                ),
+                1,
+            ),
+            (
+                "judgment_tradeoffs",
+                "judgment tradeoffs",
+                cls._agent_candidate_tradeoff_categories(str(evidence.get("judgment_tradeoffs") or "")),
+                2,
+            ),
+        )
+        issues: list[str] = []
+        for _key, label, categories, minimum_category_count in category_checks:
+            if len(categories) < minimum_category_count:
                 continue
-            terms = cls._agreement_traceability_terms(evidence.get(key))
-            terms.extend(term for term in repeated_cjk_terms if term in str(evidence.get(key) or "") and term not in terms)
-            if key == "workdir_facts":
-                terms = [term for term in terms if "/" in term or "." in term]
-            if not terms:
+            missing = [
+                category_label
+                for category_label, bundle_pattern in categories
+                if not re.search(bundle_pattern, normalized_bundle_text, re.I)
+            ]
+            if not missing:
                 continue
-            matched = [term for term in terms if cls._traceability_term_is_present(term, normalized_bundle_text=normalized_bundle_text)]
-            required_matches = 1 if len(terms) < 4 else 2
-            if len(matched) >= required_matches:
-                continue
-            issues.append(f"alignment bundle must project confirmed working agreement evidence into runnable surfaces: {key} missing {', '.join(terms[:5])}")
-        issues.extend(cls._alignment_governance_marker_responsibility_issues(evidence, normalized_bundle_text=normalized_bundle_text))
+            issues.append(
+                "alignment bundle must project confirmed working agreement "
+                f"{label} into runnable surfaces: missing {', '.join(missing)}"
+            )
         return issues
 
     def _alignment_agent_candidate_traceability_issues(self, session: dict, bundle: dict) -> list[str]:
@@ -2408,19 +2605,569 @@ class ServiceAlignmentMixin:
         if not session_id or not self._alignment_session_has_agent_candidate_yaml(session_id):
             return []
         task_text = self._alignment_session_user_task_text(session)
-        terms = self._agent_candidate_traceability_terms(task_text)
-        if not terms:
-            return []
+        issues: list[str] = []
+        if text_mentions_loop_fit_contradiction(task_text):
+            issues.append(
+                "agent-first candidate cannot compile a Loop when the host Agent task summary says Loopora is not fit; "
+                "ask the user or use Web review before generating a runnable Loop"
+            )
         normalized_bundle_text = self._normalize_traceability_text(self._alignment_bundle_agreement_projection_text(bundle))
-        matched = [term for term in terms if self._traceability_term_is_present(term, normalized_bundle_text=normalized_bundle_text)]
-        required_matches = 1 if len(terms) < 4 else 2
-        if len(matched) >= required_matches:
+        normalized_runtime_text = self._normalize_traceability_text(self._alignment_bundle_runtime_responsibility_projection_text(bundle))
+        terms = self._agent_candidate_traceability_terms(task_text)
+        if terms:
+            matched = [term for term in terms if self._traceability_term_is_present(term, normalized_bundle_text=normalized_bundle_text)]
+            required_matches = 1 if len(terms) < 4 else 2
+            if len(matched) < required_matches:
+                issues.append(
+                    "agent-first candidate must project the host Agent task summary into runnable surfaces: "
+                    + "missing "
+                    + ", ".join(terms[:5])
+                )
+        issues.extend(
+            self._alignment_governance_marker_responsibility_issues(
+                {"agent_candidate": task_text},
+                normalized_runtime_text=normalized_runtime_text,
+            )
+        )
+        issues.extend(
+            self._alignment_agent_candidate_tradeoff_issues(
+                task_text,
+                normalized_bundle_text=normalized_bundle_text,
+            )
+        )
+        issues.extend(
+            self._alignment_agent_candidate_execution_strategy_issues(
+                task_text,
+                normalized_bundle_text=normalized_bundle_text,
+            )
+        )
+        issues.extend(
+            self._alignment_agent_candidate_residual_risk_policy_issues(
+                task_text,
+                normalized_bundle_text=normalized_bundle_text,
+            )
+        )
+        issues.extend(
+            self._alignment_agent_candidate_success_surface_issues(
+                task_text,
+                normalized_bundle_text=normalized_bundle_text,
+            )
+        )
+        issues.extend(
+            self._alignment_agent_candidate_fake_done_issues(
+                task_text,
+                normalized_bundle_text=normalized_bundle_text,
+            )
+        )
+        issues.extend(
+            self._alignment_agent_candidate_evidence_preference_issues(
+                task_text,
+                normalized_bundle_text=normalized_bundle_text,
+            )
+        )
+        return issues
+
+    @classmethod
+    def _alignment_agent_candidate_tradeoff_issues(cls, task_text: str, *, normalized_bundle_text: str) -> list[str]:
+        categories = cls._agent_candidate_tradeoff_categories(task_text)
+        if len(categories) < 2:
+            return []
+        missing = [
+            label
+            for label, bundle_pattern in categories
+            if not re.search(bundle_pattern, normalized_bundle_text, re.I)
+        ]
+        if not missing:
             return []
         return [
-            "agent-first candidate must project the host Agent task summary into runnable surfaces: "
+            "agent-first candidate must project explicit host Agent judgment tradeoffs into runnable surfaces: "
             + "missing "
-            + ", ".join(terms[:5])
+            + ", ".join(missing)
         ]
+
+    @staticmethod
+    def _agent_candidate_tradeoff_categories(task_text: str) -> list[tuple[str, str]]:
+        text = str(task_text or "").strip()
+        if not text:
+            return []
+        explicit_tradeoff_markers = (
+            r"\b(?:proof|evidence|verify|verification)\b.{0,80}\b(?:over|before|rather than|instead of)\b.{0,80}\b(?:speed|fast|quick|polish|ui|narrative|story)\b",
+            r"\b(?:speed|fast|quick|polish|ui|narrative|story)\b.{0,80}\b(?:wait|after|behind|until|rather than|instead of)\b.{0,80}\b(?:proof|evidence|verify|verification)\b",
+            r"\b(?:strict|blocking|block|reject|fail closed)\b.{0,80}\b(?:over|before|rather than|instead of|beats?)\b.{0,80}\b(?:pragmatic|pragmatism|progress)\b",
+            r"\b(?:pragmatic|pragmatism|progress)\b.{0,80}\b(?:wait|after|behind|until|rather than|instead of)\b.{0,80}\b(?:strict|blocking|block|reject|fail closed)\b",
+            r"\b(?:prioriti[sz]e|prefer)\b.{0,80}\b(?:proof|evidence|verify|verification|blocking|fail closed)\b",
+            r"\b(?:block|reject|fail closed)\b.{0,80}\b(?:fake[- ]?done|fake completion|polished-looking|narrative)\b",
+            r"(?:优先|先).{0,24}(?:证明|证据|验证|阻断)",
+            r"(?:证明|证据|验证|阻断).{0,24}(?:优先|先于|高于)",
+            r"(?:严格|阻断|拒绝).{0,20}(?:优先|先于|高于).{0,20}(?:务实|推进|进度)",
+            r"(?:务实|推进|进度).{0,20}(?:等|让位|后于).{0,20}(?:严格|阻断|拒绝)",
+            r"(?:先别|不要|别).{0,16}(?:美化|润色|打磨|漂亮|界面)",
+            r"(?:阻断|拒绝).{0,20}(?:假完成|漂亮叙事|证据不足)",
+        )
+        if not any(re.search(pattern, text, re.I) for pattern in explicit_tradeoff_markers):
+            return []
+        category_patterns = (
+            (
+                "proof/evidence",
+                r"\b(?:proof|prove|proven|evidence|verify|verification)\b|证明|证据|验证|已证明",
+            ),
+            (
+                "speed/polish",
+                r"\b(?:speed|fast|quick|polish|ui|narrative|story|pretty|polished-looking)\b|速度|快速|美化|润色|打磨|界面|漂亮|叙事",
+            ),
+            (
+                "blocking/fake-completion",
+                r"\b(?:block|blocking|reject|fail closed|fake[- ]?done|fake completion|unproven|weak)\b|阻断|拒绝|假完成|未证明|弱证据|证据不足",
+            ),
+            (
+                "pragmatic/progress",
+                r"\b(?:pragmatic|pragmatism|progress)\b|务实|推进|进度",
+            ),
+        )
+        return [(label, pattern) for label, pattern in category_patterns if re.search(pattern, text, re.I)]
+
+    @classmethod
+    def _alignment_agent_candidate_execution_strategy_issues(cls, task_text: str, *, normalized_bundle_text: str) -> list[str]:
+        categories = cls._agent_candidate_execution_strategy_categories(task_text)
+        if not categories:
+            return []
+        if len(categories) < 2 and not cls._agent_candidate_has_labeled_execution_strategy(task_text):
+            return []
+        missing = [
+            label
+            for label, bundle_pattern in categories
+            if not re.search(bundle_pattern, normalized_bundle_text, re.I)
+        ]
+        if not missing:
+            return []
+        return [
+            "agent-first candidate must project explicit host Agent execution strategy into runnable surfaces: "
+            + "missing "
+            + ", ".join(missing)
+        ]
+
+    @staticmethod
+    def _agent_candidate_has_labeled_execution_strategy(task_text: str) -> bool:
+        return bool(
+            re.search(
+                r"\b(?:execution strategy|priority|priorities|priority order|next round|next pass)\b|执行策略|优先级|下一轮|下一步",
+                str(task_text or ""),
+                re.I,
+            )
+        )
+
+    @staticmethod
+    def _agent_candidate_execution_strategy_categories(task_text: str, *, require_explicit_marker: bool = True) -> list[tuple[str, str]]:
+        text = str(task_text or "").strip()
+        if not text:
+            return []
+        explicit_strategy_markers = (
+            r"\b(?:execution strategy|next round|next pass|priority|priorities)\b",
+            r"\b(?:first|before|then|after|defer|prioriti[sz]e|start with|do not start|don't start|avoid)\b",
+            r"(?:执行策略|下一轮|下一步|优先级|优先|先|再|然后|之后|暂缓|推迟|先别|不要先|别先)",
+        )
+        if require_explicit_marker and not any(re.search(pattern, text, re.I) for pattern in explicit_strategy_markers):
+            return []
+        category_patterns = (
+            (
+                "repair/root-cause",
+                r"\b(?:root[- ]?cause|regression|failure|failing|bug)\b|根因|故障|失败|回归|缺陷",
+            ),
+            (
+                "evidence/proof",
+                r"\b(?:proof|prove|proven|evidence|verify|verification|audit|test|tests)\b|证明|证据|验证|审计|测试|已证明",
+            ),
+            (
+                "scope/narrow",
+                r"\b(?:scope|narrow|focused|focus|small|minimal|limit|bounded)\b|范围|收窄|聚焦|小而|最小|有限",
+            ),
+            (
+                "expand/breadth",
+                r"\b(?:expand|expansion|broaden|broad|breadth|new feature|dashboard|report)\b|扩展|扩大|铺开|宽泛|新功能|看板|报表",
+            ),
+            (
+                "polish/ui",
+                r"\b(?:polish|ui|visual|pretty|styling|copy|narrative|story)\b|美化|打磨|润色|界面|视觉|文案|叙事|漂亮",
+            ),
+        )
+        return [(label, pattern) for label, pattern in category_patterns if re.search(pattern, text, re.I)]
+
+    @classmethod
+    def _alignment_agent_candidate_residual_risk_policy_issues(cls, task_text: str, *, normalized_bundle_text: str) -> list[str]:
+        categories = cls._agent_candidate_residual_risk_policy_categories(task_text)
+        if not categories:
+            return []
+        missing = [
+            label
+            for label, bundle_pattern in categories
+            if not re.search(bundle_pattern, normalized_bundle_text, re.I)
+        ]
+        if not missing:
+            return []
+        return [
+            "agent-first candidate must project explicit host Agent residual-risk policy into runnable surfaces: "
+            + "missing "
+            + ", ".join(missing)
+        ]
+
+    @staticmethod
+    def _agent_candidate_residual_risk_policy_categories(task_text: str, *, require_explicit_marker: bool = True) -> list[tuple[str, str]]:
+        text = str(task_text or "").strip()
+        if not text:
+            return []
+        explicit_policy_markers = (
+            r"\bresidual risks?\b",
+            r"\bremaining risks?\b",
+            r"残余风险",
+            r"剩余风险",
+        )
+        if require_explicit_marker and not any(re.search(pattern, text, re.I) for pattern in explicit_policy_markers):
+            return []
+        no_acceptance_pattern = (
+            r"\b(?:no|none|zero)\b.{0,60}\b(?:accepted|acceptable|allowed)?\s*residual risks?\b"
+            r"|\b(?:do not|don't|cannot|can't|must not|never)\b.{0,60}\baccept\b.{0,60}\bresidual risks?\b"
+            r"|(?:不接受|不能接受|不可接受|不允许).{0,24}残余风险"
+            r"|残余风险.{0,24}(?:不接受|不能接受|不可接受|不允许)"
+        )
+        categories: list[tuple[str, str]] = [
+            ("residual-risk", r"\bresidual risks?\b|\bremaining risks?\b|残余风险|剩余风险"),
+        ]
+        if re.search(no_acceptance_pattern, text, re.I):
+            categories.append(
+                (
+                    "no-accepted-residual-risk",
+                    (
+                        r"\b(?:no|none|zero)\b.{0,80}\b(?:accepted|acceptable|allowed)?\s*residual risks?\b"
+                        r"|\b(?:do not|don't|cannot|can't|must not|never)\b.{0,80}\baccept\b.{0,80}\bresidual risks?\b"
+                        r"|(?:不接受|不能接受|不可接受|不允许).{0,30}残余风险"
+                        r"|残余风险.{0,30}(?:不接受|不能接受|不可接受|不允许)"
+                    ),
+                )
+            )
+            return categories
+        category_patterns = (
+            (
+                "acceptance",
+                r"\b(?:accept|accepted|acceptable|allow|allowed|carry)\b|接受|可接受|允许|带着走",
+                (
+                    r"(?:\bresidual risks?\b|残余风险|剩余风险).{0,160}"
+                    r"(?:\b(?:accept|accepted|acceptable|allow|allowed|carry)\b|接受|可接受|允许|带着走)"
+                    r"|(?:\b(?:accept|accepted|acceptable|allow|allowed|carry)\b|接受|可接受|允许|带着走)"
+                    r".{0,160}(?:\bresidual risks?\b|残余风险|剩余风险)"
+                ),
+            ),
+            (
+                "owner/follow-up",
+                (
+                    r"\b(?:owner|owned|assignee|follow[- ]?up|followup|ticket|tracked|tracking|"
+                    r"revisit|monitor|mitigation)\b|负责人|负责|接手|接管|后续|跟进|工单|跟踪|追踪|监控|缓解"
+                ),
+                (
+                    r"(?:\bresidual risks?\b|残余风险|剩余风险).{0,180}"
+                    r"(?:\b(?:owner|owned|assignee|follow[- ]?up|followup|ticket|tracked|tracking|"
+                    r"revisit|monitor|mitigation)\b|负责人|负责|接手|接管|后续|跟进|工单|跟踪|追踪|监控|缓解)"
+                    r"|(?:\b(?:owner|owned|assignee|follow[- ]?up|followup|ticket|tracked|tracking|"
+                    r"revisit|monitor|mitigation)\b|负责人|负责|接手|接管|后续|跟进|工单|跟踪|追踪|监控|缓解)"
+                    r".{0,180}(?:\bresidual risks?\b|残余风险|剩余风险)"
+                ),
+            ),
+            (
+                "fail-closed",
+                r"\b(?:fail closed|must block|must fail|block|blocking|reject)\b|失败关闭|必须阻断|必须失败|阻断|拒绝",
+                (
+                    r"(?:\bresidual risks?\b|残余风险|剩余风险).{0,180}"
+                    r"(?:\b(?:fail closed|must block|must fail|block|blocking|reject)\b|失败关闭|必须阻断|必须失败|阻断|拒绝)"
+                    r"|(?:\b(?:fail closed|must block|must fail|block|blocking|reject)\b|失败关闭|必须阻断|必须失败|阻断|拒绝)"
+                    r".{0,180}(?:\bresidual risks?\b|残余风险|剩余风险)"
+                ),
+            ),
+        )
+        categories.extend(
+            (label, bundle_pattern)
+            for label, task_pattern, bundle_pattern in category_patterns
+            if re.search(task_pattern, text, re.I)
+        )
+        return categories
+
+    @classmethod
+    def _alignment_agent_candidate_success_surface_issues(cls, task_text: str, *, normalized_bundle_text: str) -> list[str]:
+        categories = cls._agent_candidate_success_surface_categories(task_text)
+        if not categories:
+            return []
+        missing = [
+            label
+            for label, bundle_pattern in categories
+            if not re.search(bundle_pattern, normalized_bundle_text, re.I)
+        ]
+        if not missing:
+            return []
+        return [
+            "agent-first candidate must project explicit host Agent success criteria into runnable surfaces: "
+            + "missing "
+            + ", ".join(missing)
+        ]
+
+    @staticmethod
+    def _agent_candidate_success_surface_categories(task_text: str, *, require_explicit_marker: bool = True) -> list[tuple[str, str]]:
+        text = str(task_text or "").strip()
+        if not text:
+            return []
+        explicit_success_markers = (
+            r"\bsuccess\s+(?:means|requires|is)\b",
+            r"\bdone when\b",
+            r"\bcomplete when\b",
+            r"\bacceptance criteria\b",
+            r"\bto pass\b.{0,80}\b(?:must|needs?|should|requires?)\b",
+            r"\b(?:must|needs?|should|requires?)\b.{0,80}\b(?:pass|succeed|be complete|be done)\b",
+            r"成功(?:标准|意味着|要求|面)",
+            r"完成(?:标准|条件|时)",
+            r"验收(?:标准|条件)",
+        )
+        if require_explicit_marker and not any(re.search(pattern, text, re.I) for pattern in explicit_success_markers):
+            return []
+        categories: list[tuple[str, str]] = [
+            (
+                "success/done-when",
+                r"\b(?:success|done when|acceptance criteria|complete when|completion criteria)\b|成功|完成标准|验收",
+            ),
+        ]
+        category_patterns = (
+            (
+                "actor/user-facing-outcome",
+                r"\b(?:user|customer|admin|operator|buyer|merchant|support)\b|用户|客户|管理员|运营|买家|商家|客服",
+            ),
+            (
+                "notification/message",
+                r"\b(?:notification|notify|email|message|receipt|alert)\b|通知|邮件|消息|回执|提醒",
+            ),
+            (
+                "audit/log",
+                r"\b(?:audit|auditing|audit[- ]?log|log|logs|ledger|trace|recorded|records?)\b|审计|日志|账本|记录|追踪",
+            ),
+            (
+                "permission/auth",
+                r"\b(?:permission|permissions|authorization|auth|access|role)\b|权限|授权|访问|角色",
+            ),
+            (
+                "payment/refund/billing",
+                r"\b(?:payment|payments|refund|refunds|billing|invoice|checkout)\b|支付|退款|账单|发票|结账",
+            ),
+            (
+                "data/export/report",
+                r"\b(?:data|export|download|csv|report|dashboard)\b|数据|导出|下载|报表|看板",
+            ),
+            (
+                "accessibility/a11y",
+                r"\b(?:accessibility|a11y|screen[- ]?reader|keyboard|aria|focus|wcag)\b|无障碍|可访问|读屏|屏幕阅读器|键盘|焦点",
+            ),
+            (
+                "locale/i18n",
+                r"\b(?:locale|locali[sz]ation|i18n|translation|language|chinese|english)\b|多语言|国际化|本地化|翻译|语言|中文|英文|英语",
+            ),
+        )
+        categories.extend((label, pattern) for label, pattern in category_patterns if re.search(pattern, text, re.I))
+        return categories
+
+    @classmethod
+    def _alignment_agent_candidate_fake_done_issues(cls, task_text: str, *, normalized_bundle_text: str) -> list[str]:
+        categories = cls._agent_candidate_fake_done_categories(task_text)
+        if not categories:
+            return []
+        missing = [
+            label
+            for label, bundle_pattern in categories
+            if not re.search(bundle_pattern, normalized_bundle_text, re.I)
+        ]
+        if not missing:
+            return []
+        return [
+            "agent-first candidate must project explicit host Agent fake-done risks into runnable surfaces: "
+            + "missing "
+            + ", ".join(missing)
+        ]
+
+    @staticmethod
+    def _agent_candidate_fake_done_categories(task_text: str, *, require_explicit_marker: bool = True) -> list[tuple[str, str]]:
+        text = str(task_text or "").strip()
+        if not text:
+            return []
+        explicit_fake_done_markers = (
+            r"\bfake[- ]?(?:done|completion)\b",
+            r"\b(?:do not|don't|cannot|can't|must not|never)\s+pass\b",
+            r"\b(?:looks|appears|seems)\s+(?:done|complete|finished|working)\b",
+            r"\b(?:only|just|merely)\s+(?:a\s+)?(?:claim|screenshot|download|export|mock|stub|static)\b",
+            r"\bhappy[- ]path[- ]only\b",
+            r"假完成",
+            r"看起来.{0,12}(?:完成|可用|通过)",
+            r"(?:不能|不可|不要|不得).{0,16}(?:通过|算完成|收尾)",
+        )
+        if require_explicit_marker and not any(re.search(pattern, text, re.I) for pattern in explicit_fake_done_markers):
+            return []
+        categories: list[tuple[str, str]] = [
+            (
+                "fake-done/blocking",
+                r"\bfake[- ]?(?:done|completion)\b|\b(?:do not|don't|cannot|can't|must not|never)\s+pass\b|假完成|阻断|不得通过|不能通过",
+            ),
+        ]
+        category_patterns = (
+            (
+                "permission/audit",
+                r"\b(?:permission|permissions|authorization|auth|access|audit|auditing|audit[- ]?log)\b|权限|授权|审计|日志",
+                r"\b(?:permission|permissions|authorization|auth|access|audit|auditing|audit[- ]?log)\b|权限|授权|审计|日志",
+            ),
+            (
+                "download/export-only",
+                r"\b(?:csv|download|export|file)\b|下载|导出|文件",
+                r"\b(?:csv|download|export|file)\b|下载|导出|文件",
+            ),
+            (
+                "payment/refund/billing",
+                (
+                    r"(?:\bfake[- ]?(?:done|completion)\b(?!\s+findings)|\b(?:do not|don't|cannot|can't|must not|never)\s+pass\b|"
+                    r"\b(?:only|just|merely)\b|假完成|阻断|不得通过|不能通过).{0,80}"
+                    r"(?:\b(?:payment|payments|refund|refunds|billing|invoice|checkout)\b|支付|退款|账单|发票|结账)"
+                    r"|(?:\b(?:payment|payments|refund|refunds|billing|invoice|checkout)\b|支付|退款|账单|发票|结账)"
+                    r".{0,80}(?:\bfake[- ]?(?:done|completion)\b(?!\s+findings)|\b(?:do not|don't|cannot|can't|must not|never)\s+pass\b|"
+                    r"\b(?:only|just|merely)\b|假完成|阻断|不得通过|不能通过)"
+                ),
+                (
+                    r"(?:\bfake[- ]?(?:done|completion)\b(?!\s+findings)|\b(?:do not|don't|cannot|can't|must not|never)\s+pass\b|"
+                    r"\b(?:only|just|merely)\b|假完成|不得通过|不能通过).{0,80}"
+                    r"(?:\b(?:payment|payments|refund|refunds|billing|invoice|checkout)\b|支付|退款|账单|发票|结账)"
+                    r"|(?:\b(?:payment|payments|refund|refunds|billing|invoice|checkout)\b|支付|退款|账单|发票|结账)"
+                    r".{0,80}(?:\bfake[- ]?(?:done|completion)\b(?!\s+findings)|\b(?:do not|don't|cannot|can't|must not|never)\s+pass\b|"
+                    r"\b(?:only|just|merely)\b|假完成|不得通过|不能通过)"
+                ),
+            ),
+            (
+                "data/export/report",
+                (
+                    r"(?:\bfake[- ]?(?:done|completion)\b(?!\s+findings)|\b(?:do not|don't|cannot|can't|must not|never)\s+pass\b|"
+                    r"\b(?:only|just|merely)\b|假完成|阻断|不得通过|不能通过).{0,80}"
+                    r"(?:\b(?:data|export|download|csv|report|dashboard)\b|数据|导出|下载|报表|看板)"
+                    r"|(?:\b(?:data|export|download|csv|report|dashboard)\b|数据|导出|下载|报表|看板)"
+                    r".{0,80}(?:\bfake[- ]?(?:done|completion)\b(?!\s+findings)|\b(?:do not|don't|cannot|can't|must not|never)\s+pass\b|"
+                    r"\b(?:only|just|merely)\b|假完成|阻断|不得通过|不能通过)"
+                ),
+                (
+                    r"(?:\bfake[- ]?(?:done|completion)\b(?!\s+findings)|\b(?:do not|don't|cannot|can't|must not|never)\s+pass\b|"
+                    r"\b(?:only|just|merely)\b|假完成|不得通过|不能通过).{0,80}"
+                    r"(?:\b(?:data|export|download|csv|report|dashboard)\b|数据|导出|下载|报表|看板)"
+                    r"|(?:\b(?:data|export|download|csv|report|dashboard)\b|数据|导出|下载|报表|看板)"
+                    r".{0,80}(?:\bfake[- ]?(?:done|completion)\b(?!\s+findings)|\b(?:do not|don't|cannot|can't|must not|never)\s+pass\b|"
+                    r"\b(?:only|just|merely)\b|假完成|不得通过|不能通过)"
+                ),
+            ),
+            (
+                "visual/polish/screenshot-only",
+                r"\b(?:screenshot|visual|polish|ui|pretty|polished-looking)\b|截图|视觉|界面|美化|漂亮",
+                r"\b(?:screenshot|visual|polish|ui|pretty|polished-looking)\b|截图|视觉|界面|美化|漂亮",
+            ),
+            (
+                "claim/narrative-only",
+                r"\b(?:claim|claims|narrative|story|description|self[- ]?report)\b|声明|叙事|描述|自述",
+                r"\b(?:claim|claims|narrative|story|description|self[- ]?report)\b|声明|叙事|描述|自述",
+            ),
+            (
+                "happy-path-only",
+                r"\bhappy[- ]?path\b|主路径|快乐路径",
+                r"\bhappy[- ]?path\b|主路径|快乐路径",
+            ),
+            (
+                "mock/static/stub-only",
+                r"\b(?:mock|stub|static|placeholder|fixture)\b|模拟|桩|静态|占位",
+                r"\b(?:mock|stub|static|placeholder|fixture)\b|模拟|桩|静态|占位",
+            ),
+            (
+                "accessibility/i18n",
+                r"\b(?:accessibility|a11y|screen[- ]?reader|keyboard|aria|focus|wcag|locale|locali[sz]ation|i18n|translation|language)\b|无障碍|可访问|读屏|屏幕阅读器|键盘|焦点|多语言|国际化|本地化|翻译|语言",
+                r"\b(?:accessibility|a11y|screen[- ]?reader|keyboard|aria|focus|wcag|locale|locali[sz]ation|i18n|translation|language)\b|无障碍|可访问|读屏|屏幕阅读器|键盘|焦点|多语言|国际化|本地化|翻译|语言",
+            ),
+        )
+        categories.extend((label, bundle_pattern) for label, task_pattern, bundle_pattern in category_patterns if re.search(task_pattern, text, re.I))
+        return categories
+
+    @classmethod
+    def _alignment_agent_candidate_evidence_preference_issues(cls, task_text: str, *, normalized_bundle_text: str) -> list[str]:
+        categories = cls._agent_candidate_evidence_preference_categories(task_text)
+        if not categories:
+            return []
+        missing = [
+            label
+            for label, bundle_pattern in categories
+            if not re.search(bundle_pattern, normalized_bundle_text, re.I)
+        ]
+        if not missing:
+            return []
+        return [
+            "agent-first candidate must project explicit host Agent evidence preferences into runnable surfaces: "
+            + "missing "
+            + ", ".join(missing)
+        ]
+
+    @staticmethod
+    def _agent_candidate_evidence_preference_categories(task_text: str, *, require_explicit_marker: bool = True) -> list[tuple[str, str]]:
+        text = str(task_text or "").strip()
+        if not text:
+            return []
+        explicit_evidence_markers = (
+            r"\b(?:evidence|proof|verification|verify)\b.{0,80}\b(?:must|should|prefer|include|require|needs?)\b",
+            r"\b(?:must|should|prefer|include|require|needs?)\b.{0,80}\b(?:evidence|proof|verification|verify)\b",
+            r"证据.{0,24}(?:必须|需要|优先|包括|包含)",
+            r"(?:必须|需要|优先|包括|包含).{0,24}(?:证据|证明|验证)",
+        )
+        if require_explicit_marker and not any(re.search(pattern, text, re.I) for pattern in explicit_evidence_markers):
+            return []
+        categories: list[tuple[str, str]] = [
+            (
+                "evidence/proof",
+                r"\b(?:evidence|proof|verify|verification|verified|proven)\b|证据|证明|验证|已证明",
+            ),
+        ]
+        category_patterns = (
+            (
+                "browser/journey",
+                r"\b(?:browser|playwright|journey|end[- ]?to[- ]?end|e2e)\b|浏览器|旅程|端到端",
+            ),
+            (
+                "command/test",
+                r"\b(?:command|cli|script|test|tests|pytest|unit|contract|lint|typecheck)\b|命令|脚本|测试|契约|类型检查",
+            ),
+            (
+                "audit/log",
+                r"\b(?:audit|auditing|audit[- ]?log|log|logs|ledger|trace)\b|审计|日志|账本|追踪",
+            ),
+            (
+                "permission/auth",
+                r"\b(?:permission|permissions|authorization|auth|access)\b|权限|授权|访问",
+            ),
+            (
+                "payment/refund/billing",
+                r"\b(?:payment|payments|refund|refunds|billing|invoice|checkout)\b|支付|退款|账单|发票|结账",
+            ),
+            (
+                "data/export/report",
+                r"\b(?:data|export|download|csv|report|dashboard)\b|数据|导出|下载|报表|看板",
+            ),
+            (
+                "artifact/ref",
+                r"\b(?:artifact|artifacts|file|files|ref|refs|report)\b|产物|文件|引用|报告",
+            ),
+            (
+                "accessibility/a11y",
+                r"\b(?:accessibility|a11y|screen[- ]?reader|keyboard|aria|focus|wcag|axe)\b|无障碍|可访问|读屏|屏幕阅读器|键盘|焦点",
+            ),
+            (
+                "locale/i18n",
+                r"\b(?:locale|locali[sz]ation|i18n|translation|language|chinese|english)\b|多语言|国际化|本地化|翻译|语言|中文|英文|英语",
+            ),
+            (
+                "screenshot-is-weak",
+                r"\b(?:screenshot|screenshots)\b|截图",
+            ),
+        )
+        categories.extend((label, pattern) for label, pattern in category_patterns if re.search(pattern, text, re.I))
+        return categories
 
     def _alignment_session_has_agent_candidate_yaml(self, session_id: str) -> bool:
         return any(
@@ -2449,12 +3196,12 @@ class ServiceAlignmentMixin:
         return [term for term in terms if term not in ALIGNMENT_AGENT_CANDIDATE_GENERIC_TERMS][:12]
 
     @classmethod
-    def _alignment_governance_marker_responsibility_issues(cls, evidence: dict, *, normalized_bundle_text: str) -> list[str]:
+    def _alignment_governance_marker_responsibility_issues(cls, evidence: dict, *, normalized_runtime_text: str) -> list[str]:
         agreement_evidence_text = cls._normalize_traceability_text(" ".join(str(value or "") for value in evidence.values()))
         governance_markers = ("agents.md", "design/readme.md", "design/", "tests/")
         if not any(marker in agreement_evidence_text for marker in governance_markers):
             return []
-        if cls._governance_marker_responsibilities_present(normalized_bundle_text):
+        if cls._governance_marker_responsibilities_present(normalized_runtime_text):
             return []
         return [
             "alignment bundle must convert project-local governance markers into Builder reading, "
@@ -2619,6 +3366,51 @@ class ServiceAlignmentMixin:
         return "\n".join(parts)
 
     @staticmethod
+    def _alignment_bundle_runtime_responsibility_projection_text(bundle: dict) -> str:
+        spec_role_notes = ServiceAlignmentMixin._alignment_bundle_spec_role_notes_projection_text(bundle)
+        workflow = bundle.get("workflow") if isinstance(bundle.get("workflow"), dict) else {}
+        parts: list[str] = [spec_role_notes]
+        for role in bundle.get("role_definitions", []):
+            if not isinstance(role, dict):
+                continue
+            parts.extend(
+                [
+                    str(role.get("prompt_markdown", "") or ""),
+                    str(role.get("posture_notes", "") or ""),
+                    str(role.get("description", "") or ""),
+                ]
+            )
+        if isinstance(workflow, dict):
+            parts.append(str(workflow.get("collaboration_intent", "") or ""))
+            workflow_projection = {
+                "steps": [
+                    {
+                        "inputs": step.get("inputs") if isinstance(step.get("inputs"), dict) else {},
+                        "action_policy": step.get("action_policy") if isinstance(step.get("action_policy"), dict) else {},
+                        "control": step.get("control") if isinstance(step.get("control"), dict) else {},
+                    }
+                    for step in list(workflow.get("steps") or [])
+                    if isinstance(step, dict)
+                ],
+                "controls": list(workflow.get("controls") or []) if isinstance(workflow.get("controls"), list) else [],
+            }
+            parts.append(json.dumps(workflow_projection, ensure_ascii=False, sort_keys=True))
+        return "\n".join(parts)
+
+    @staticmethod
+    def _alignment_bundle_spec_role_notes_projection_text(bundle: dict) -> str:
+        spec = bundle.get("spec") if isinstance(bundle.get("spec"), dict) else {}
+        markdown = str(spec.get("markdown", "") or "") if isinstance(spec, dict) else ""
+        if not markdown.strip():
+            return ""
+        try:
+            compiled_spec = compile_markdown_spec(markdown)
+        except SpecError:
+            return ""
+        raw_sections = compiled_spec.get("raw_sections") if isinstance(compiled_spec, dict) else {}
+        return str(raw_sections.get("Role Notes") or "") if isinstance(raw_sections, dict) else ""
+
+    @staticmethod
     def _text_has_cjk(value: object) -> bool:
         return any("\u4e00" <= char <= "\u9fff" for char in str(value or ""))
 
@@ -2636,8 +3428,10 @@ class ServiceAlignmentMixin:
                 "success_surface",
                 "fake_done_risks",
                 "evidence_preferences",
+                "execution_strategy",
                 "residual_risk_policy",
                 "judgment_tradeoffs",
+                "local_governance",
                 "role_posture",
                 "workflow_shape",
                 "workdir_facts",
@@ -2654,11 +3448,13 @@ class ServiceAlignmentMixin:
                     f"成功面：{values['success_surface']}",
                     f"假完成风险：{values['fake_done_risks']}",
                     f"证据偏好：{values['evidence_preferences']}",
+                    f"执行策略：{values['execution_strategy']}",
                     f"残余风险：{values['residual_risk_policy']}",
                     f"判断取舍：{values['judgment_tradeoffs']}",
+                    f"本地治理：{values['local_governance']}",
                     f"角色姿态：{values['role_posture']}",
-                    f"workflow 形状：{values['workflow_shape']}",
-                    f"workdir 事实：{values['workdir_facts']}",
+                    f"运行流程形状：{values['workflow_shape']}",
+                    f"项目事实：{values['workdir_facts']}",
                 ]
             )
         return "\n".join(
@@ -2671,11 +3467,13 @@ class ServiceAlignmentMixin:
                 f"Success surface: {values['success_surface']}",
                 f"Fake-done risks: {values['fake_done_risks']}",
                 f"Evidence preferences: {values['evidence_preferences']}",
+                f"Execution strategy: {values['execution_strategy']}",
                 f"Residual risk: {values['residual_risk_policy']}",
                 f"Judgment tradeoffs: {values['judgment_tradeoffs']}",
+                f"Local governance: {values['local_governance']}",
                 f"Role posture: {values['role_posture']}",
-                f"Workflow shape: {values['workflow_shape']}",
-                f"Workdir facts: {values['workdir_facts']}",
+                f"Run-flow shape: {values['workflow_shape']}",
+                f"Project facts: {values['workdir_facts']}",
             ]
         )
 
@@ -2765,22 +3563,10 @@ class ServiceAlignmentMixin:
         value = text.lower()
         for pattern in patterns:
             for match in re.finditer(pattern, value, re.I):
-                if ServiceAlignmentMixin._alignment_antipattern_match_is_negated(value, match.start()):
+                if semantic_antipattern_match_is_negated(value, match.start()):
                     continue
                 return True
         return False
-
-    @staticmethod
-    def _alignment_antipattern_match_is_negated(value: str, start: int) -> bool:
-        context = value[max(0, start - 48) : start]
-        return bool(
-            re.search(
-                r"do not|don't|must not|should not|never|avoid|refuse|reject|rather than|instead of|"
-                r"\bnot\s+(?:a|an|as)?\s*$|\bno\s+$|不要|不能|不得|不应|不是|拒绝|避免",
-                context,
-                re.I,
-            )
-        )
 
     @staticmethod
     def _open_questions_readiness_issue(evidence: dict) -> bool:
@@ -2829,15 +3615,110 @@ class ServiceAlignmentMixin:
     @staticmethod
     def _readiness_evidence_semantic_issue(key: str, text: str, *, workdir_snapshot: str = "") -> bool:
         normalized = str(text or "").lower()
-        if key == "loop_fit":
-            return ServiceAlignmentMixin._loop_fit_evidence_contradiction_issue(normalized)
+        simple_checks = {
+            "loop_fit": ServiceAlignmentMixin._loop_fit_evidence_contradiction_issue,
+            "success_surface": ServiceAlignmentMixin._success_surface_evidence_placeholder_issue,
+            "fake_done_risks": ServiceAlignmentMixin._fake_done_evidence_placeholder_issue,
+            "evidence_preferences": ServiceAlignmentMixin._evidence_preference_placeholder_issue,
+            "role_posture": ServiceAlignmentMixin._role_posture_placeholder_issue,
+        }
+        if key in simple_checks:
+            return simple_checks[key](normalized)
+        if key == "local_governance":
+            return ServiceAlignmentMixin._local_governance_evidence_issue(
+                normalized,
+                workdir_snapshot=workdir_snapshot,
+            )
         if key == "workdir_facts":
             return ServiceAlignmentMixin._workdir_facts_evidence_issue(normalized, workdir_snapshot=workdir_snapshot)
+        if key == "residual_risk_policy":
+            return residual_risk_is_unmanaged(text)
         return False
 
     @staticmethod
     def _loop_fit_evidence_contradiction_issue(value: str) -> bool:
         return text_mentions_loop_fit_contradiction(value)
+
+    @staticmethod
+    def _success_surface_evidence_placeholder_issue(value: str) -> bool:
+        generic_patterns = (
+            r"\b(?:good and useful|works? well|high[- ]quality result|successful result|good result)\b",
+            r"(?:好用|有用|效果好|高质量|结果好)",
+        )
+        return any(re.search(pattern, value, re.I) for pattern in generic_patterns)
+
+    @staticmethod
+    def _fake_done_evidence_placeholder_issue(value: str) -> bool:
+        if not re.search(r"\b(?:avoid bugs?|no bugs?|high[- ]quality|bug[- ]free)\b|避免\s*bug|高质量|没有\s*bug", value, re.I):
+            return False
+        concrete_risk_markers = (
+            r"\b(?:claim|claims|screenshot|happy[- ]path|proof|evidence|artifact|audit|permission|export|download|unproven|weak)\b",
+            r"声称|截图|happy path|证明|证据|产物|审计|权限|导出|下载|未证明|弱证据",
+        )
+        return not any(re.search(pattern, value, re.I) for pattern in concrete_risk_markers)
+
+    @staticmethod
+    def _evidence_preference_placeholder_issue(value: str) -> bool:
+        if not re.search(r"\b(?:need proof|enough proof|feel confident|evidence is needed|needs evidence)\b|需要证明|足够证明|有信心", value, re.I):
+            return False
+        proof_type_markers = (
+            r"\b(?:test|tests|command|browser|journey|artifact|log|audit|screenshot|fixture|trace|coverage|contract|schema|lint)\b",
+            r"测试|命令|浏览器|旅程|产物|日志|审计|截图|fixture|覆盖|契约|schema|lint",
+        )
+        return not any(re.search(pattern, value, re.I) for pattern in proof_type_markers)
+
+    @staticmethod
+    def _role_posture_placeholder_issue(value: str) -> bool:
+        if ServiceAlignmentMixin._role_posture_without_gatekeeper_judgment_issue(value):
+            return True
+        if not re.search(r"\b(?:use|add|configure)\s+(?:two|three|multiple|[2-9])\s+roles?\b|使用.{0,8}(?:两个|三个|多个|[2-9]\s*个).{0,6}角色", value, re.I):
+            return False
+        role_responsibility_markers = (
+            r"\b(?:builder|inspector|guide|gatekeeper|custom|build|inspect|verify|judge|block|repair)\b",
+            r"builder|inspector|guide|gatekeeper|构建|检查|验证|裁决|阻断|修复",
+        )
+        return not any(re.search(pattern, value, re.I) for pattern in role_responsibility_markers)
+
+    @staticmethod
+    def _role_posture_without_gatekeeper_judgment_issue(value: str) -> bool:
+        mentions_role_work = re.search(
+            r"\b(?:builder|inspector|guide|custom|build|inspect|verify|review|handoff)\b|构建|检查|验证|审查|交接",
+            value,
+            re.I,
+        )
+        if not mentions_role_work:
+            return False
+        gatekeeper_judgment = re.search(
+            r"\bgatekeeper\b.{0,80}\b(?:judges?|decides?|verdict|blocks?|blockers?|closes?|finishes?|fails?[- ]closed|final|strict)\b|"
+            r"\b(?:judges?|decides?|verdict|blocks?|blockers?|closes?|finishes?|fails?[- ]closed|final|strict)\b.{0,80}\bgatekeeper\b|"
+            r"gatekeeper.{0,40}(?:裁决|判定|判断|阻断|收束|关闭|严格|失败关闭|最终)",
+            value,
+            re.I,
+        )
+        return gatekeeper_judgment is None
+
+    @staticmethod
+    def _local_governance_evidence_issue(text: str, *, workdir_snapshot: str = "") -> bool:
+        marker_pattern = r"agents\.md|design/readme\.md|design/|tests/|project-local|project local|项目本地|本地治理"
+        if not re.search(marker_pattern, text, re.I) and not ServiceAlignmentMixin._workdir_snapshot_has_governance_markers(
+            workdir_snapshot
+        ):
+            return False
+        return not ServiceAlignmentMixin._governance_marker_responsibilities_present(text)
+
+    @staticmethod
+    def _workdir_snapshot_has_governance_markers(workdir_snapshot: str) -> bool:
+        snapshot = str(workdir_snapshot or "").lower()
+        return any(
+            marker in snapshot
+            for marker in (
+                "agents.md exists: yes",
+                "applicable agents.md exists: yes",
+                "design/ exists: yes",
+                "design/readme.md exists: yes",
+                "tests/ exists: yes",
+            )
+        )
 
     @staticmethod
     def _alignment_improvement_readiness_issues(session: dict, output: dict) -> list[str]:
@@ -3180,21 +4061,7 @@ class ServiceAlignmentMixin:
         )
         semantic_issues: list[str] = []
         try:
-            semantic_issues = lint_alignment_bundle_generation_text(bundle_yaml)
-            if semantic_issues:
-                raise LooporaError("bundle semantic lint failed: " + "; ".join(semantic_issues))
-            bundle = load_bundle_text(bundle_yaml)
-            self._assert_alignment_bundle_workdir(bundle, expected_workdir=Path(session["workdir"]))
-            self._extend_unique_alignment_issues(semantic_issues, lint_alignment_bundle_semantics(bundle))
-            self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_executor_settings_issues(session, bundle))
-            self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_language_issues(session, bundle))
-            self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_workdir_fact_issues(session, bundle))
-            self._extend_unique_alignment_issues(semantic_issues, self._alignment_improvement_bundle_issues(session, bundle))
-            self._extend_unique_alignment_issues(semantic_issues, self._alignment_bundle_agreement_traceability_issues(session, bundle))
-            self._extend_unique_alignment_issues(semantic_issues, self._alignment_agent_candidate_traceability_issues(session, bundle))
-            if semantic_issues:
-                raise LooporaError("bundle semantic lint failed: " + "; ".join(semantic_issues))
-            normalized_yaml = bundle_to_yaml(bundle)
+            _bundle, normalized_yaml = self._load_validated_alignment_bundle_text(session, bundle_yaml, semantic_issues)
             bundle_path.write_text(normalized_yaml, encoding="utf-8")
         except (BundleError, LooporaError) as exc:
             error = str(exc)
@@ -3219,6 +4086,7 @@ class ServiceAlignmentMixin:
             "bundle_path": str(bundle_path),
             "checked_at": utc_now(),
             "semantic_lint": {"ok": True, "issues": []},
+            **self._alignment_bundle_content_fingerprint(normalized_yaml),
         }
         self.repository.update_alignment_session(session_id, validation=validation)
         self._write_alignment_validation_log(self.get_alignment_session(session_id), validation)
@@ -3266,7 +4134,9 @@ class ServiceAlignmentMixin:
         content = zh if self._alignment_prefers_chinese(session) else en
         transcript.append({"role": "assistant", "content": content, "created_at": utc_now()})
         self.repository.update_alignment_session(session_id, transcript=transcript)
-        return self.get_alignment_session(session_id)
+        updated = self.get_alignment_session(session_id)
+        self._write_alignment_transcript_log(updated)
+        return updated
 
     @staticmethod
     def _alignment_prefers_chinese(session: dict) -> bool:
@@ -3359,12 +4229,13 @@ class ServiceAlignmentMixin:
     ) -> None:
         if not state_dir.exists():
             return
+        expected_workdir = state_dir.parent
         for bundle_path in sorted((state_dir / "alignment_sessions").glob("*/artifacts/bundle.yml"))[:20]:
             resolved_bundle_path = str(bundle_path.expanduser().resolve())
             if resolved_bundle_path in seen_bundle_paths:
                 continue
             seen_bundle_paths.add(resolved_bundle_path)
-            if not self._alignment_bundle_file_has_ready_validation(bundle_path):
+            if not self._alignment_bundle_file_has_ready_validation(bundle_path, expected_workdir=expected_workdir):
                 continue
             self._add_alignment_context_option(
                 self._alignment_file_bundle_context_option(
@@ -3382,13 +4253,35 @@ class ServiceAlignmentMixin:
             self._add_alignment_context_option(self._alignment_spec_file_context_option(spec_path), options, seen_option_ids)
 
     @staticmethod
-    def _alignment_bundle_file_has_ready_validation(bundle_path: Path) -> bool:
+    def _alignment_bundle_file_has_ready_validation(bundle_path: Path, *, expected_workdir: Path | None = None) -> bool:
         validation_path = bundle_path.parent / "validation.json"
         try:
             payload = json.loads(validation_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError):
             return False
-        return isinstance(payload, dict) and payload.get("ok") is True
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            return False
+        return ServiceAlignmentMixin._alignment_bundle_file_is_valid_alignment_bundle(
+            bundle_path,
+            expected_workdir=expected_workdir,
+        )
+
+    @staticmethod
+    def _alignment_bundle_file_is_valid_alignment_bundle(
+        bundle_path: Path,
+        *,
+        expected_workdir: Path | None = None,
+    ) -> bool:
+        try:
+            raw_yaml = read_bundle_file_text(bundle_path)
+            generation_issues = lint_alignment_bundle_generation_text(raw_yaml)
+            bundle = load_bundle_text(raw_yaml)
+            if expected_workdir is not None:
+                ServiceAlignmentMixin._assert_alignment_bundle_workdir(bundle, expected_workdir=expected_workdir)
+            semantic_issues = lint_alignment_bundle_semantics(bundle)
+        except (BundleError, LooporaError, OSError):
+            return False
+        return not generation_issues and not semantic_issues
 
     @staticmethod
     def _same_alignment_workdir(candidate: object, expected: Path) -> bool:
@@ -3443,7 +4336,7 @@ class ServiceAlignmentMixin:
                 }
             )
         bundle_path = Path(str(session.get("bundle_path") or ""))
-        if status == "ready" and bundle_path.exists():
+        if status == "ready" and bundle_path.exists() and cls._alignment_session_has_current_ready_bundle(session, bundle_path):
             options.append(
                 {
                     "option_id": cls._alignment_source_option_id("alignment_session", session_id),
@@ -3460,6 +4353,17 @@ class ServiceAlignmentMixin:
                 }
             )
         return options
+
+    @classmethod
+    def _alignment_session_has_current_ready_bundle(cls, session: dict, bundle_path: Path) -> bool:
+        expected_workdir = Path(session["workdir"]) if session.get("workdir") else None
+        validation = session.get("validation") if isinstance(session.get("validation"), dict) else {}
+        if validation.get("ok") is True:
+            return cls._alignment_bundle_file_is_valid_alignment_bundle(
+                bundle_path,
+                expected_workdir=expected_workdir,
+            )
+        return cls._alignment_bundle_file_has_ready_validation(bundle_path, expected_workdir=expected_workdir)
 
     @classmethod
     def _alignment_file_bundle_context_option(cls, *, source_session_id: str, bundle_path: Path) -> dict:
@@ -3642,6 +4546,7 @@ class ServiceAlignmentMixin:
             "reason": "improve_from_workdir_run_evidence",
             "run_status": str(run.get("status") or ""),
             "artifact_paths": self._alignment_run_artifact_paths(run),
+            "judgment_contract": self._alignment_run_judgment_contract(run),
             "coverage_summary": self._alignment_run_coverage_summary(run),
             "evidence_summary": self._alignment_run_evidence_summary(run),
             "task_verdict": run.get("task_verdict") or {},
@@ -3764,6 +4669,34 @@ class ServiceAlignmentMixin:
         }
 
     @staticmethod
+    def _alignment_project_boundary(root: Path) -> Path | None:
+        project_markers = (".git", "pyproject.toml", "package.json", "Cargo.toml", "go.mod")
+        for candidate in (root, *root.parents):
+            if any((candidate / marker).exists() for marker in project_markers):
+                return candidate
+        return None
+
+    @staticmethod
+    def _alignment_applicable_agents_paths(root: Path) -> list[Path]:
+        boundary = ServiceAlignmentMixin._alignment_project_boundary(root)
+        search_dirs = [root]
+        if boundary is not None:
+            for parent in root.parents:
+                search_dirs.append(parent)
+                if parent == boundary:
+                    break
+
+        agents_paths: list[Path] = []
+        seen: set[Path] = set()
+        for directory in search_dirs:
+            agents_path = directory / "AGENTS.md"
+            if agents_path in seen or not agents_path.is_file():
+                continue
+            seen.add(agents_path)
+            agents_paths.append(agents_path)
+        return agents_paths
+
+    @staticmethod
     def _alignment_workdir_snapshot(workdir: Path) -> str:
         try:
             root = workdir.expanduser().resolve()
@@ -3773,8 +4706,7 @@ class ServiceAlignmentMixin:
         except OSError as exc:
             return f"Workdir could not be inspected: {exc}"
         visible = [item for item in entries if item.name not in {".DS_Store", APP_STATE_DIRNAME}][:40]
-        if not visible:
-            return "Workdir appears empty. Treat technology choices as assumptions until the run verifies them."
+        workdir_appears_empty = not visible
         marker_names = {
             "README.md",
             "README.zh-CN.md",
@@ -3792,13 +4724,20 @@ class ServiceAlignmentMixin:
         design_readme = design_dir / "README.md"
         tests_dir = root / "tests"
         agents_file = root / "AGENTS.md"
+        applicable_agents = ServiceAlignmentMixin._alignment_applicable_agents_paths(root)
         lines = [f"Top-level entries ({len(visible)} shown):"]
+        if workdir_appears_empty:
+            lines.append("Workdir appears empty. Treat technology choices as assumptions until the run verifies them.")
         for item in visible:
             suffix = "/" if item.is_dir() else ""
             lines.append(f"- {item.name}{suffix}")
         if markers:
             lines.append("Detected markers: " + ", ".join(markers))
         lines.append(f"AGENTS.md exists: {'yes' if agents_file.is_file() else 'no'}")
+        lines.append(f"Applicable AGENTS.md exists: {'yes' if applicable_agents else 'no'}")
+        if applicable_agents:
+            agents_relpaths = [os.path.relpath(path, root) for path in applicable_agents]
+            lines.append("Applicable AGENTS.md paths: " + ", ".join(agents_relpaths))
         lines.append(f"design/ exists: {'yes' if design_dir.is_dir() else 'no'}")
         lines.append(f"design/README.md exists: {'yes' if design_readme.is_file() else 'no'}")
         lines.append(f"tests/ exists: {'yes' if tests_dir.is_dir() else 'no'}")
@@ -3839,6 +4778,7 @@ class ServiceAlignmentMixin:
         evidence_items = source.get("evidence_summary") if isinstance(source.get("evidence_summary"), list) else []
         evidence_text = redact_sensitive_text(json.dumps(evidence_items[:8], ensure_ascii=False, indent=2))
         coverage_text = redact_sensitive_text(json.dumps(source.get("coverage_summary") or {}, ensure_ascii=False, indent=2))
+        judgment_contract_text = redact_sensitive_text(json.dumps(source.get("judgment_contract") or {}, ensure_ascii=False, indent=2))
         task_verdict_text = redact_sensitive_text(json.dumps(source.get("task_verdict") or {}, ensure_ascii=False, indent=2))
         verdict_text = redact_sensitive_text(json.dumps(source.get("gatekeeper_verdict") or {}, ensure_ascii=False, indent=2))
         improvement_context = ServiceAlignmentMixin._render_alignment_template(
@@ -3847,6 +4787,7 @@ class ServiceAlignmentMixin:
                 **source_values,
                 "run_status": source.get("run_status", ""),
                 "source_completion_mode": source.get("source_completion_mode", ""),
+                "judgment_contract_json": judgment_contract_text,
                 "coverage_summary_json": coverage_text,
                 "task_verdict_json": task_verdict_text,
                 "evidence_summary_json": evidence_text,

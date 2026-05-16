@@ -44,6 +44,18 @@ Loopora 的范式是 human-shaped loop：
 - 复杂判断通常不是单一分数，而是偏序：真实闭环优先于漂亮假完成，强证据优先于乐观叙事，可接受残余风险必须显式暴露，不可接受风险必须阻断。
 - Alignment 的价值是帮助用户通过案例、对比和 tradeoff 自省 task-scoped judgment；runtime 的价值是让这份 judgment 真正约束 Agent，而不是停留在 prompt 文案。
 
+Loopora 应把长期任务中反复出现的人类控制信号投影到可运行 surface，而不是只把它们写成说明文字：
+
+| 控制信号 | 产品含义 | 主要投影 |
+| --- | --- | --- |
+| 拒绝 | 看起来完成但不算完成。 | task contract、fake-done、blocking rules |
+| 信任 | 哪些证据足够硬，哪些只是自述。 | evidence path、coverage、artifact refs |
+| 转向 | 下一轮应回到哪个缺口。 | execution strategy、workflow handoff、Guide / Inspector feedback |
+| 阻断 | 哪些风险不能包装成完成。 | GateKeeper、hard constraints、blocking issues |
+| 收尾 | 哪些已证明，哪些只能作为显式残余风险。 | task verdict、residual risk、result summary |
+
+因此，默认产品体验和运行时能力都应能回答同一组问题：这套 Loop 会拒绝什么、信任什么、优先补什么、何时阻断、怎样收尾。不能回答这些问题的功能，即使看起来增强了自动化，也不应进入默认主路径。
+
 ## 1.1 主次关系
 
 核心概念必须围绕主工作流和 human-shaped Loop，而不是围绕某个取得 Loop 的场景。
@@ -98,9 +110,9 @@ Loopora 的核心对象是 `Loop`。
 
 | 类型 | surface | 职责 |
 |------|---------|------|
-| 运行输入 | `spec` | 冻结任务范围、成功面、假完成、guardrails、证据偏好与残余风险 |
-| 运行输入 | `roles` | 冻结各 AI Agent 角色在本任务中的构建、检查、裁决或纠偏姿态 |
-| 运行输入 | `workflow` | 冻结判断顺序、handoff、纠偏入口、自动迭代和收束方式 |
+| 运行输入 | `spec` | 冻结任务范围、成功面、假完成、guardrails、证据偏好、残余风险政策、执行优先级与判断取舍 |
+| 运行输入 | `roles` | 冻结各 AI Agent 角色在本任务中的构建、检查、裁决、纠偏姿态和本地治理责任 |
+| 运行输入 | `workflow` | 冻结判断顺序、handoff、证据流、本地治理检查点、纠偏入口、自动迭代和收束方式 |
 | 观察输出 | `evidence` | 记录每轮行动、检查、裁决、失败原因和未证明内容 |
 | 结果投影 | 运行状态 | 说明本次 run 是否正常结束、失败、停止或超时 |
 | 结果投影 | Loop 裁决 | 说明证据是否证明 Loop 达标、未达标、证据不足或存在残余风险 |
@@ -118,7 +130,7 @@ Loopora 的核心对象是 `Loop`。
 1. 我有一个长期任务。
 2. 我需要编排一个 Loop，让系统知道如何执行、检查、裁决和停止。
 3. Loopora 可以通过问答帮我创建 Loop；我也可以手动编排或导入已有 YAML。
-4. 我审查并认可 Loop 的任务目标、风险、证据路径和裁决方式。
+4. 我审查并认可 Loop 的任务目标、风险、执行策略、证据路径和裁决方式。
 5. Loopora 运行这个 Loop，并按角色和 workflow 自动迭代。
 6. 我查看白盒证据、运行状态和 Loop 裁决结果。
 7. 如果我不满意，可以手动改 Loop、导入新 YAML，或再次通过对话让 Agent 生成候选改进；这些都是编排场景，不是 run 的默认阶段。

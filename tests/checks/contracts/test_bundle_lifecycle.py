@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -12,6 +13,7 @@ from loopora.bundles import (
     load_bundle_text,
 )
 from loopora.executor_fake_payloads import alignment_bundle_yaml
+from loopora.run_takeaways import build_run_key_takeaways
 from loopora.service import LooporaError
 from loopora.service_types import LooporaConflictError
 from loopora.settings import app_home, configure_logging
@@ -142,6 +144,75 @@ def _bundle_yaml(workdir: Path, *, collaboration_summary: str = "Prefer evidence
     )
 
 
+def _assert_imported_bundle_runtime_judgment_projection(run_contract: dict, prompt_text: str, imported: dict) -> None:
+    source_bundle = run_contract["source_bundle"]
+    assert source_bundle == _expected_imported_source_bundle(imported)
+    assert run_contract["collaboration_summary"].startswith("Prefer evidence")
+    assert any("Prefer evidence before rushing forward" in item for item in run_contract["judgment_tradeoffs"])
+    assert any("Start with evidence, then commit to one repair slice." in item for item in run_contract["execution_strategy"])
+    assert any(item["posture_notes"] == "Treat maintainability debt as first-class in this task." for item in run_contract["role_postures"])
+    assert any(item["posture_notes"] == "Prefer project-owned commands and primary artifacts." for item in run_contract["role_postures"])
+    assert any(item["posture_notes"] == "Do not pass brittle fixes just because the happy path moved." for item in run_contract["role_postures"])
+    assert "Bundle collaboration summary: Prefer evidence before rushing forward." in prompt_text
+    assert "Judgment tradeoffs:" in prompt_text
+    assert "Execution strategy:" in prompt_text
+    assert "Role postures:" in prompt_text
+    assert "Prefer evidence before rushing forward" in prompt_text
+    assert "Start with evidence, then commit to one repair slice." in prompt_text
+    assert "Success surface:" in prompt_text
+    assert "The implementation stays maintainable for the next round." in prompt_text
+    assert "Fake done states:" in prompt_text
+    assert "A patch that only fixes the happy path while leaving obvious duplication behind." in prompt_text
+    assert "Evidence preferences:" in prompt_text
+    assert "Prefer real project commands and reproducible tests over screenshots alone." in prompt_text
+    assert "Residual risk:" in prompt_text
+    assert "Minor copy polish can wait, but structural regressions should fail closed." in prompt_text
+    assert "Role definition posture:" in prompt_text
+    assert "Treat maintainability debt as first-class in this task." in prompt_text
+
+
+def _assert_imported_bundle_takeaway_projection(takeaways: dict, imported: dict) -> None:
+    judgment_contract = takeaways["judgment_contract"]
+    assert judgment_contract["source_bundle"] == _expected_imported_source_bundle(imported)
+    assert judgment_contract["collaboration_summary"].startswith("Prefer evidence")
+    assert any("Prefer evidence before rushing forward" in item for item in judgment_contract["judgment_tradeoffs"])
+    assert any("Treat maintainability debt as first-class in this task." in item for item in judgment_contract["role_postures"])
+    assert any("Prefer project-owned commands and primary artifacts." in item for item in judgment_contract["role_postures"])
+    assert judgment_contract["goal"] == "Ship the requested behavior without creating brittle structure."
+
+
+def _assert_imported_bundle_acceptance_projection(accepted_payload: dict, imported: dict) -> None:
+    expected_source_bundle = _expected_imported_source_bundle(imported)
+    assert accepted_payload["source_bundle"] == expected_source_bundle
+    assert accepted_payload["judgment_contract"]["source_bundle"] == expected_source_bundle
+    assert accepted_payload["run_contract_path"] == "contract/run_contract.json"
+    assert accepted_payload["judgment_contract_summary"].startswith("Prefer evidence")
+    assert any("Prefer evidence before rushing forward" in item for item in accepted_payload["judgment_tradeoffs"])
+    assert any("Treat maintainability debt as first-class" in item for item in accepted_payload["role_postures"])
+    assert accepted_payload["success_surface"] == ["The implementation stays maintainable for the next round."]
+    assert accepted_payload["fake_done_states"] == [
+        "A patch that only fixes the happy path while leaving obvious duplication behind."
+    ]
+    assert accepted_payload["evidence_preferences"] == [
+        "Prefer real project commands and reproducible tests over screenshots alone."
+    ]
+    assert accepted_payload["residual_risk"] == "Minor copy polish can wait, but structural regressions should fail closed."
+
+
+def _expected_imported_source_bundle(imported: dict) -> dict:
+    exported_bundle_data = Path(imported["bundle_yaml_path"]).read_bytes()
+    return {
+        "id": imported["id"],
+        "name": imported["name"],
+        "revision": imported["revision"],
+        "source_bundle_id": imported["source_bundle_id"],
+        "imported_from_path": imported["imported_from_path"],
+        "bundle_sha256": hashlib.sha256(exported_bundle_data).hexdigest(),
+        "bundle_bytes": len(exported_bundle_data),
+        "bundle_yaml_path": imported["bundle_yaml_path"],
+    }
+
+
 def test_service_imports_and_exports_bundle_round_trip(service_factory, sample_workdir: Path) -> None:
     service = service_factory(scenario="success")
 
@@ -161,6 +232,18 @@ def test_service_imports_and_exports_bundle_round_trip(service_factory, sample_w
 
     rerun = service.rerun(imported["loop_id"])
     assert rerun["status"] == "succeeded"
+    run_dir = Path(rerun["runs_dir"])
+    run_contract = json.loads((run_dir / "contract" / "run_contract.json").read_text(encoding="utf-8"))
+    prompt_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((run_dir / "context" / "role_requests").glob("*.prompt.txt"))
+    )
+    _assert_imported_bundle_runtime_judgment_projection(run_contract, prompt_text, imported)
+    takeaways = build_run_key_takeaways(rerun)
+    _assert_imported_bundle_takeaway_projection(takeaways, imported)
+    service.accept_run_result(rerun["id"])
+    accepted_payload = service.recent_run_events(rerun["id"], event_types={"run_result_accepted"})[-1]["payload"]
+    _assert_imported_bundle_acceptance_projection(accepted_payload, imported)
 
 
 @pytest.mark.parametrize(
@@ -490,6 +573,9 @@ def test_bundle_preview_projects_error_control_summary(service_factory, sample_w
 
     summary = preview["control_summary"]
     traceability = summary["traceability"]
+    assert summary["success_surface"]
+    assert summary["fake_done_risks"]
+    assert summary["evidence_preferences"]
     assert summary["risks"]
     assert summary["evidence"]
     assert summary["gatekeeper"]["enabled"] is True
@@ -503,9 +589,13 @@ def test_bundle_preview_projects_error_control_summary(service_factory, sample_w
         "gatekeeper_missing_evidence_fan_in",
     }
     assert preview["traceability"] == traceability
-    assert traceability["mapped_count"] == traceability["required_count"]
+    assert "loop_fit" in traceability["missing"]
+    assert traceability["mapped_count"] == traceability["required_count"] - 1
     assert "spec.markdown#Fake Done" in traceability["surfaces"]
     assert "workflow.controls[]" in traceability["surfaces"]
+    workflow_trace = next(item for item in traceability["items"] if item["key"] == "workflow_judgment")
+    assert workflow_trace["label"] == "Run flow"
+    assert workflow_trace["label"] != "Workflow judgment"
 
 
 def test_bundle_control_summary_uses_loop_verdict_language_for_completion_diagnostics(
@@ -522,6 +612,218 @@ def test_bundle_control_summary_uses_loop_verdict_language_for_completion_diagno
 
     assert "Loop 裁决" in diagnostic["message_zh"]
     assert "任务裁决" not in diagnostic["message_zh"]
+
+
+def test_bundle_control_summary_marks_gatekeeper_refs_not_applicable_when_disabled(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = load_bundle_text(
+        dedent(
+            f"""
+            version: 1
+            metadata:
+              name: "Round Builder"
+            collaboration_summary: |
+              Use a short rounds loop where no GateKeeper finish step is configured.
+            loop:
+              name: "Round Builder"
+              workdir: "{sample_workdir}"
+              completion_mode: "rounds"
+              executor_kind: "codex"
+              executor_mode: "preset"
+              model: "gpt-5.4"
+              reasoning_effort: "medium"
+              max_iters: 2
+              max_role_retries: 1
+              delta_threshold: 0.005
+              trigger_window: 2
+              regression_window: 2
+            spec:
+              markdown: |
+                # Task
+
+                Build one small, reviewable change.
+
+                # Done When
+
+                - The primary path has a reproducible check.
+
+                # Guardrails
+
+                - Keep changes narrow.
+
+                # Success Surface
+
+                - The change is visible in a focused artifact.
+
+                # Fake Done
+
+                - A self-report without command evidence is fake done.
+
+                # Evidence Preferences
+
+                - Prefer project command output.
+
+                # Residual Risk
+
+                Minor polish can remain as a tracked follow-up owned by product.
+            role_definitions:
+              - key: "builder"
+                name: "Builder"
+                archetype: "builder"
+                prompt_markdown: |
+                  ---
+                  version: 1
+                  archetype: builder
+                  ---
+
+                  Build the focused change.
+            workflow:
+              version: 1
+              preset: "round_builder"
+              collaboration_intent: "Run a bounded builder-only loop."
+              roles:
+                - id: "builder"
+                  role_definition_key: "builder"
+              steps:
+                - id: "builder_step"
+                  role_id: "builder"
+            """
+        ).strip()
+        + "\n"
+    )
+
+    summary = service._bundle_control_summary(bundle)
+    gatekeeper = summary["gatekeeper"]
+    closure_trace = next(item for item in summary["traceability"]["items"] if item["key"] == "gatekeeper_closure")
+
+    assert gatekeeper["enabled"] is False
+    assert gatekeeper["requires_evidence_refs"] is False
+    assert gatekeeper["roles"] == []
+    assert gatekeeper["finish_steps"] == []
+    assert closure_trace["mapped"] is False
+    assert "gatekeeper_closure" in summary["traceability"]["missing"]
+
+
+@pytest.mark.parametrize(
+    ("replacement", "message"),
+    [
+        ('  completion_mode: "unknown"', "unsupported completion mode: unknown"),
+        ("  completion_mode: false", "unsupported completion mode: False"),
+        ("  completion_mode: 1", "unsupported completion mode: 1"),
+    ],
+)
+def test_bundle_preview_rejects_invalid_completion_mode(
+    service_factory,
+    sample_workdir: Path,
+    replacement: str,
+    message: str,
+) -> None:
+    service = service_factory(scenario="success")
+    invalid_yaml = _bundle_yaml(sample_workdir).replace('  completion_mode: "gatekeeper"', replacement, 1)
+
+    with pytest.raises(LooporaError, match=message):
+        service.preview_bundle_text(invalid_yaml)
+
+
+def test_bundle_loader_normalizes_supported_completion_mode(sample_workdir: Path) -> None:
+    bundle = load_bundle_text(
+        _bundle_yaml(sample_workdir).replace('  completion_mode: "gatekeeper"', '  completion_mode: " RoundS "', 1)
+    )
+
+    assert bundle["loop"]["completion_mode"] == "rounds"
+
+
+@pytest.mark.parametrize(
+    ("yaml_edit", "message"),
+    [
+        (
+            lambda text: text.replace('  executor_kind: "codex"', '  executor_kind: "unknown"', 1),
+            "unsupported executor kind",
+        ),
+        (
+            lambda text: text.replace('  executor_mode: "preset"', '  executor_mode: "unknown"', 1),
+            "unsupported executor mode",
+        ),
+        (
+            lambda text: text.replace('  executor_kind: "codex"', '  executor_kind: "custom"', 1),
+            "Custom Command only supports command mode",
+        ),
+        (
+            lambda text: text.replace('  executor_mode: "preset"', '  executor_mode: "command"', 1),
+            "custom command arguments are required in command mode",
+        ),
+    ],
+)
+def test_bundle_preview_rejects_invalid_loop_executor_settings(
+    service_factory,
+    sample_workdir: Path,
+    yaml_edit,
+    message: str,
+) -> None:
+    service = service_factory(scenario="success")
+
+    with pytest.raises(LooporaError, match=message):
+        service.preview_bundle_text(yaml_edit(_bundle_yaml(sample_workdir)))
+
+
+def test_bundle_loader_normalizes_loop_executor_aliases(sample_workdir: Path) -> None:
+    bundle = load_bundle_text(
+        _bundle_yaml(sample_workdir)
+        .replace('  executor_kind: "codex"', '  executor_kind: "claude-code"', 1)
+        .replace('  executor_mode: "preset"', '  executor_mode: " PRESET "', 1)
+        .replace('  model: "gpt-5.4"', '  model: ""', 1)
+        .replace('  reasoning_effort: "medium"', '  reasoning_effort: "xhigh"', 1)
+    )
+
+    assert bundle["loop"]["executor_kind"] == "claude"
+    assert bundle["loop"]["executor_mode"] == "preset"
+    assert bundle["loop"]["command_cli"] == ""
+    assert bundle["loop"]["command_args_text"] == ""
+    assert bundle["loop"]["model"] == "Kimi-K2.6"
+    assert bundle["loop"]["reasoning_effort"] == "max"
+
+
+def test_bundle_roles_inherit_loop_executor_when_role_fields_are_omitted(sample_workdir: Path) -> None:
+    bundle = load_bundle_text(
+        _bundle_yaml(sample_workdir)
+        .replace('  executor_kind: "codex"', '  executor_kind: "claude-code"', 1)
+        .replace('  model: "gpt-5.4"', '  model: ""', 1)
+        .replace('  reasoning_effort: "medium"', '  reasoning_effort: "xhigh"', 1)
+    )
+
+    assert {role["executor_kind"] for role in bundle["role_definitions"]} == {"claude"}
+    assert {role["executor_mode"] for role in bundle["role_definitions"]} == {"preset"}
+    assert {role["model"] for role in bundle["role_definitions"]} == {"Kimi-K2.6"}
+    assert {role["reasoning_effort"] for role in bundle["role_definitions"]} == {"max"}
+
+
+def test_bundle_roles_inherit_loop_command_executor_when_role_fields_are_omitted(sample_workdir: Path) -> None:
+    bundle = load_bundle_text(
+        _bundle_yaml(sample_workdir)
+        .replace('  executor_kind: "codex"', '  executor_kind: "custom"', 1)
+        .replace(
+            '  executor_mode: "preset"',
+            '  executor_mode: "command"\n'
+            '  command_cli: "my-agent"\n'
+            "  command_args_text: |\n"
+            "    {prompt}\n"
+            "    --output\n"
+            "    {output_path}",
+            1,
+        )
+        .replace('  model: "gpt-5.4"', '  model: ""', 1)
+        .replace('  reasoning_effort: "medium"', '  reasoning_effort: ""', 1)
+    )
+
+    assert {role["executor_kind"] for role in bundle["role_definitions"]} == {"custom"}
+    assert {role["executor_mode"] for role in bundle["role_definitions"]} == {"command"}
+    assert {role["command_cli"] for role in bundle["role_definitions"]} == {"my-agent"}
+    assert {role["command_args_text"] for role in bundle["role_definitions"]} == {
+        "{prompt}\n--output\n{output_path}\n"
+    }
 
 
 def test_bundle_preview_warns_about_legacy_guide_and_weak_builder_handoff(

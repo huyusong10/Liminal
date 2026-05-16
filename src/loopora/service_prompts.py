@@ -11,7 +11,7 @@ from loopora.specs import resolve_role_note
 
 FROZEN_CONTRACT_GUIDANCE = (
     "Treat the run contract as frozen: do not reinterpret or lower the Task, Done When, checks, guardrails, "
-    "Success Surface, Fake Done, Evidence Preferences, or Residual Risk. "
+    "bundle collaboration summary, Loopora fit, workflow intent, role posture, Success Surface, Fake Done, Evidence Preferences, Execution Strategy, Judgment Tradeoffs, Local Governance, or Residual Risk. "
     "If the contract seems too narrow, too loose, or conflicted, surface that as an evidence gap, blocker, "
     "or Loop-adjustment recommendation instead of silently changing the target. "
     "Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
@@ -197,6 +197,7 @@ class ServiceRunPromptMixin:
             "For every `coverage_results` item, return `target_id`, `status`, `evidence_refs`, and `note`; use `covered` for a verified target.\n"
             "When passing, cite concrete supporting Evidence ledger item ids in `evidence_refs`; a plain Builder handoff is not support unless it carries a proof artifact or measured evidence. "
             "If this GateKeeper step is the first evidence reader, prose claims alone are not enough; include measured `metric_scores` and put concise proof statements in `evidence_claims`.\n"
+            "Accepted `residual_risks` must name the risk plus an owner, follow-up, or acceptance path; vague residual risk keeps the pass blocked.\n"
             "Return `metrics`, `blocking_issues`, `hard_constraint_violations`, `failed_check_ids`, `priority_failures`, `evidence_refs`, `evidence_claims`, `residual_risks`, and `coverage_results` as arrays; "
             "use empty arrays when there are no items.\n"
             "Return JSON with passed, decision_summary, composite_score, metrics, metric_scores, blocking_issues, "
@@ -347,7 +348,7 @@ COVERAGE_RESULT_ARRAY_SCHEMA = {
         "required": ["target_id", "status", "evidence_refs", "note"],
         "properties": {
             "target_id": {"type": "string"},
-            "status": {"type": "string"},
+            "status": {"type": "string", "enum": ["covered", "weak", "blocked", "missing"]},
             "evidence_refs": {"type": "array", "items": {"type": "string"}},
             "note": {"type": "string"},
         },

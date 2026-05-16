@@ -57,13 +57,13 @@
 | 核心思想 / 参考资料 | `core-ideas/codex-goal-reference.md` | Codex `/goal` 的持久目标、自动续跑和受限模型工具机制参考 | 全局 |
 | 核心思想 / 参考资料 | `core-ideas/trellis-agent-orchestration-reference.md` | Trellis 的 Agent-first、本地编排、多平台 adapter 与上下文注入机制参考 | 全局 |
 | 架构决策 | `decisions/agent-native-execution-plane.md` | Agent-first 默认执行平面与 headless executor 的分界 | 全局 |
-| 细节设计 | `detailed-design/01-spec-subsystem.md` | `spec.md` 编译与 checks 冻结 | `src/loopora/specs.py`, `src/loopora/service.py` |
-| 细节设计 | `detailed-design/02-orchestration-service.md` | loop/run 编排与角色循环 | `src/loopora/service.py` |
+| 细节设计 | `detailed-design/01-spec-subsystem.md` | `spec.md` 编译与 checks 冻结 | `src/loopora/specs.py`, `src/loopora/context_flow.py`, `src/loopora/service_prompts.py` |
+| 细节设计 | `detailed-design/02-orchestration-service.md` | loop/run 编排与角色循环 | `src/loopora/service.py`, `src/loopora/service_run_*.py`, `src/loopora/service_workflow_*.py`, `src/loopora/service_agent_native.py` |
 | 细节设计 | `detailed-design/03-executor-subsystem.md` | 执行器、provider 适配、命令模式 | `src/loopora/executor.py`, `src/loopora/providers.py` |
-| 细节设计 | `detailed-design/04-persistence-and-reliability.md` | 存储、事件、锁、恢复、安全守卫 | `src/loopora/db.py`, `src/loopora/settings.py`, `src/loopora/recovery.py`, `src/loopora/stagnation.py`, `src/loopora/service.py` |
-| 细节设计 | `detailed-design/05-interfaces.md` | Web / CLI / API 交互面 | `src/loopora/cli.py`, `src/loopora/web.py`, `src/loopora/templates/`, `src/loopora/static/` |
+| 细节设计 | `detailed-design/04-persistence-and-reliability.md` | 存储、事件、锁、恢复、安全守卫 | `src/loopora/db*.py`, `src/loopora/settings.py`, `src/loopora/recovery.py`, `src/loopora/stagnation.py`, `src/loopora/service_cleanup_diagnostics.py` |
+| 细节设计 | `detailed-design/05-interfaces.md` | Web / CLI / API 交互面 | `src/loopora/cli*.py`, `src/loopora/web*.py`, `src/loopora/web_route_*.py`, `src/loopora/templates/`, `src/loopora/static/` |
 | 细节设计 | `detailed-design/06-workflow-and-prompts.md` | workflow、prompt 与角色快照契约 | `src/loopora/workflows.py`, `src/loopora/context_flow.py` |
-| 细节设计 | `detailed-design/07-observability-and-diagnostics.md` | 统一日志契约、事件命名与分级规则 | `src/loopora/diagnostics.py`, `src/loopora/settings.py`, `src/loopora/db.py`, `src/loopora/service.py`, `src/loopora/web.py`, `src/loopora/cli.py` |
+| 细节设计 | `detailed-design/07-observability-and-diagnostics.md` | 统一日志契约、事件命名与分级规则 | `src/loopora/diagnostics.py`, `src/loopora/settings.py`, `src/loopora/db*.py`, `src/loopora/service_*diagnostics.py`, `src/loopora/service_run_lifecycle.py`, `src/loopora/web*.py`, `src/loopora/cli*.py` |
 | 细节设计 | `detailed-design/08-bundles-and-alignment.md` | bundle 生命周期、专家交换格式与 task-scoped alignment 落点 | `src/loopora/bundles.py`, `src/loopora/service_bundle_assets.py`, `src/loopora/service_alignment.py`, `src/loopora/assets/alignment/` |
 | 细节设计 | `detailed-design/09-web-bundle-alignment.md` | Web 内置对话编排入口、alignment session、READY 预览与创建运行 | `src/loopora/web_route_*.py`, `src/loopora/templates/`, `src/loopora/static/`, `src/loopora/executor.py`, `src/loopora/bundles.py` |
 | 细节设计 | `detailed-design/10-agent-adapters.md` | Agent-first Coding Agent adapter、安装卸载 ownership、`/loopora-gen` 与 `/loopora-loop` 入口边界 | `src/loopora/agent_adapters.py`, `src/loopora/service_agent_adapters.py`, `src/loopora/cli_agent_adapter_commands.py`, `src/loopora/web_route_agent_adapters_api.py`, `src/loopora/templates/tools.html`, `src/loopora/static/pages/tools.js` |

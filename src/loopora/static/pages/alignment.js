@@ -290,7 +290,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const currentWorkdir = currentSession?.workdir || workdirInput.value.trim();
     workdirChip.textContent = currentWorkdir
       ? basename(currentWorkdir)
-      : localeText("选择 workdir", "Choose workdir");
+      : localeText("选择运行目录", "Choose run directory");
     workdirChip.title = currentWorkdir || "";
     if (profile.command_only || isCommandMode()) {
       agentChip.textContent = `${agentChip.textContent} · ${localeText("自定义命令", "Custom")}`;
@@ -739,6 +739,17 @@ document.addEventListener("DOMContentLoaded", () => {
       loadReadyBundle({reveal: options.revealReady !== false}).catch((error) => {
         renderBundleLoadError(error.message || localeText("无法加载 Loop 方案。", "Unable to load the loop plan."));
       });
+    } else if (status === "failed" && String(session.bundle_path || "").trim()) {
+      loadReadyBundle({
+        reveal: options.revealRepair !== false,
+        allowImport: false,
+        repairNote: session.error_message || localeText(
+          "方案文件未通过校验；可以打开源文件修复，然后重新同步。",
+          "The plan file did not pass validation; open the source, repair it, then reload."
+        ),
+      }).catch((error) => {
+        renderBundleLoadError(error.message || localeText("无法加载待修复的方案文件。", "Unable to load the plan file that needs repair."));
+      });
     } else {
       readyPreview.hidden = true;
       shell?.classList.remove("has-artifact");
@@ -761,6 +772,23 @@ document.addEventListener("DOMContentLoaded", () => {
       window.localStorage.removeItem(SESSION_STORAGE_KEY);
     } catch (_) {
       return;
+    }
+  }
+
+  function fillStarterPrompt(button) {
+    if (!messageInput || !button) {
+      return;
+    }
+    const prompt = window.LooporaUI.currentLocale() === "zh" ? button.dataset.starterZh : button.dataset.starterEn;
+    if (!prompt) {
+      return;
+    }
+    messageInput.value = prompt;
+    showError("");
+    messageInput.focus();
+    messageInput.dispatchEvent(new Event("input", {bubbles: true}));
+    if (typeof messageInput.setSelectionRange === "function") {
+      messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
     }
   }
 
@@ -1109,7 +1137,7 @@ document.addEventListener("DOMContentLoaded", () => {
       renderBundleLoadError(payload.error || localeText("方案暂时无法读取。", "The plan cannot be read right now."));
       return;
     }
-    renderBundlePreview(payload, {reveal: options.reveal !== false});
+    renderBundlePreview(payload, options);
   }
 
   function renderBundleLoadError(message) {
@@ -1137,7 +1165,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     artifactWorkdir.textContent = localeText(
       `运行目录：${basename(currentSession?.workdir || "") || "-"}`,
-      `Workdir: ${basename(currentSession?.workdir || "") || "-"}`
+      `Run directory: ${basename(currentSession?.workdir || "") || "-"}`
     );
     renderControlSummary(null);
     renderJudgmentMap({}, []);
@@ -1209,19 +1237,54 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function evidencePathSummary(summary) {
     const evidence = listSnippet(summary?.evidence) || localeText("运行时写入证据账本。", "Recorded into the run evidence ledger.");
+    const coverage = coverageSummary(summary);
+    const evidenceText = coverage ? `${evidence}; ${coverage}` : evidence;
     const traceability = summary?.traceability || {};
     if (Number(traceability.mapped_count || 0) > 0) {
       return localeText(
-        `${evidence}；${traceability.mapped_count}/${traceability.required_count || traceability.mapped_count} 项判断已投影。`,
-        `${evidence}; ${traceability.mapped_count}/${traceability.required_count || traceability.mapped_count} judgments projected.`
+        `${evidenceText}；${traceability.mapped_count}/${traceability.required_count || traceability.mapped_count} 项判断已投影。`,
+        `${evidenceText}; ${traceability.mapped_count}/${traceability.required_count || traceability.mapped_count} judgments projected.`
       );
     }
-    return evidence;
+    return evidenceText;
+  }
+
+  function coverageSummary(summary) {
+    const coverage = summary?.coverage || {};
+    const checkCount = Number(coverage.check_count || 0);
+    const targetCount = Number(coverage.target_count || 0);
+    const requiredCount = Number(coverage.required_target_count || 0);
+    const summaryText = localeText(coverage.summary_zh || "", coverage.summary_en || coverage.summary || "");
+    if (summaryText && !checkCount && !targetCount) {
+      return summaryText;
+    }
+    if (checkCount && targetCount) {
+      return localeText(
+        `${checkCount} 项检查 · ${targetCount} 个覆盖目标（${requiredCount} 必需）`,
+        `${checkCount} checks · ${targetCount} coverage targets (${requiredCount} required)`
+      );
+    }
+    if (checkCount) {
+      return localeText(`${checkCount} 项检查`, `${checkCount} checks`);
+    }
+    if (targetCount) {
+      return localeText(
+        `${targetCount} 个覆盖目标（${requiredCount} 必需）`,
+        `${targetCount} coverage targets (${requiredCount} required)`
+      );
+    }
+    return "";
   }
 
   function evidenceStatus(summary) {
     const count = (summary?.evidence || []).filter((value) => String(value || "").trim()).length;
+    const coverage = summary?.coverage || {};
+    const targetCount = Number(coverage.target_count || 0);
     const traceabilityCount = Number(summary?.traceability?.mapped_count || 0);
+    if (targetCount) {
+      const checkCount = Number(coverage.check_count || count || 0);
+      return localeText(`${checkCount} 检查 · ${targetCount} 目标`, `${checkCount} checks · ${targetCount} targets`);
+    }
     if (count) {
       if (traceabilityCount) {
         return localeText(`${count} 项 · ${traceabilityCount} 映射`, `${count} checks · ${traceabilityCount} mapped`);
@@ -1284,8 +1347,53 @@ document.addEventListener("DOMContentLoaded", () => {
       .join(" / ");
     const cards = [
       {
+        label: localeText("Loopora 适配", "Loopora fit"),
+        value: listSnippet(summary.loop_fit_reasons)
+          || localeText("长期治理理由未声明。", "Long-running governance reason not declared."),
+      },
+      {
+        label: localeText("成功面", "Success"),
+        value: listSnippet(summary.success_surface)
+          || localeText("按 Done When 与任务成功面裁决。", "Judged by Done When and the success surface."),
+      },
+      {
+        label: localeText("假完成", "Fake done"),
+        value: listSnippet(summary.fake_done_risks)
+          || localeText("未声明额外假完成风险。", "No extra fake-done risks declared."),
+      },
+      {
+        label: localeText("证据偏好", "Evidence preferences"),
+        value: listSnippet(summary.evidence_preferences)
+          || localeText("按任务契约选择证据。", "Evidence follows the task contract."),
+      },
+      {
+        label: localeText("覆盖目标", "Coverage targets"),
+        value: coverageSummary(summary)
+          || localeText("由 Done When 和裁决面派生。", "Derived from Done When and verdict surfaces."),
+      },
+      {
         label: localeText("主要风险", "Main risk"),
         value: listSnippet(summary.risks) || localeText("从 Loop 契约中读取。", "Read from the task contract."),
+      },
+      {
+        label: localeText("残余风险", "Residual risk"),
+        value: listSnippet(summary.residual_risk_policy)
+          || localeText("按任务契约失败关闭。", "Fail closed by the task contract."),
+      },
+      {
+        label: localeText("执行策略", "Execution strategy"),
+        value: listSnippet(summary.execution_strategy)
+          || localeText("下一轮优先级未声明。", "Next-round priority not declared."),
+      },
+      {
+        label: localeText("判断取舍", "Tradeoffs"),
+        value: listSnippet(summary.judgment_tradeoffs)
+          || localeText("按任务契约裁决。", "Judged by the task contract."),
+      },
+      {
+        label: localeText("角色姿态", "Role posture"),
+        value: listSnippet(summary.role_postures)
+          || localeText("角色执行姿态未声明。", "Role posture not declared."),
       },
       {
         label: localeText("证据路径", "Evidence path"),
@@ -1295,6 +1403,10 @@ document.addEventListener("DOMContentLoaded", () => {
         label: localeText("执行顺序", "Execution path"),
         value: workflow.summary || localeText(`${workflow.step_count || 0} 个步骤`, `${workflow.step_count || 0} steps`),
       },
+      ...(Array.isArray(summary.local_governance) && summary.local_governance.length ? [{
+        label: localeText("本地治理", "Local governance"),
+        value: listSnippet(summary.local_governance),
+      }] : []),
       {
         label: localeText("守门者", "GateKeeper"),
         value: gatekeeper.enabled === true
@@ -1316,14 +1428,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function traceItemLabel(item) {
     const labels = {
+      loop_fit: localeText("Loopora 适配", "Loopora fit"),
       collaboration_story: localeText("协作判断", "Collaboration"),
       task_scope: localeText("任务边界", "Task scope"),
       success_surface: localeText("成功面", "Success"),
       fake_done_risks: localeText("假完成", "Fake done"),
       evidence_preferences: localeText("证据偏好", "Evidence"),
+      coverage_targets: localeText("覆盖目标", "Coverage"),
+      execution_strategy: localeText("执行策略", "Execution strategy"),
       residual_risk_policy: localeText("残余风险", "Risk policy"),
+      judgment_tradeoffs: localeText("判断取舍", "Tradeoffs"),
+      local_governance: localeText("本地治理", "Local governance"),
       role_posture: localeText("角色姿态", "Role posture"),
-      workflow_judgment: localeText("流程判断", "Workflow"),
+      workflow_judgment: localeText("运行流程", "Run flow"),
       gatekeeper_closure: localeText("裁决收口", "Closure"),
       runtime_controls: localeText("运行控制", "Controls"),
     };
@@ -1346,7 +1463,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const items = Array.isArray(traceability?.items) ? traceability.items : [];
-    const visibleItems = items.slice(0, 9);
+    const visibleItems = items.slice(0, 12);
     if (!visibleItems.length) {
       judgmentMap.hidden = true;
       judgmentMap.innerHTML = "";
@@ -1449,16 +1566,28 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderBundlePreview(payload, options = {}) {
     shell?.classList.add("has-artifact");
     readyPreview.hidden = false;
-    readyPreview.dataset.previewState = "ready";
+    const allowImport = options.allowImport !== false && String(payload.session?.status || currentSession?.status || "") === "ready";
+    readyPreview.dataset.previewState = allowImport ? "ready" : "repair";
     if (importRunButton) {
-      importRunButton.hidden = false;
-      importRunButton.closest(".card-actions")?.removeAttribute("hidden");
+      importRunButton.hidden = !allowImport;
+      importRunButton.disabled = !allowImport;
+      if (allowImport) {
+        importRunButton.closest(".card-actions")?.removeAttribute("hidden");
+      } else {
+        importRunButton.closest(".card-actions")?.setAttribute("hidden", "");
+      }
     }
     const metadata = payload.metadata || payload.bundle?.metadata || {};
     artifactName.textContent = metadata.name || localeText("Loop 方案", "Loop plan");
-    previewTitle.textContent = localeText("Loop 已准备好，可以创建并运行", "Plan is ready to create and run");
-    readyNote.textContent = "";
-    importRunButton.hidden = false;
+    previewTitle.textContent = allowImport
+      ? localeText("Loop 已准备好，可以创建并运行", "Plan is ready to create and run")
+      : localeText("方案文件需要修复后才能运行", "Plan file needs repair before running");
+    readyNote.textContent = allowImport
+      ? ""
+      : String(options.repairNote || payload.validation?.error || localeText(
+        "修复源文件后重新同步，校验通过才可以创建并运行。",
+        "Reload after repairing the source file; creation is enabled only after validation passes."
+      ));
     const summary = payload.control_summary || {};
     if (artifactRisk) {
       const risk = primaryRiskSummary(summary);
@@ -1479,9 +1608,9 @@ document.addEventListener("DOMContentLoaded", () => {
       artifactVerdict.textContent = labeledSummary("裁决", "Verdict", summary?.gatekeeper?.enabled === true ? "GateKeeper" : verdictSummary(summary));
       artifactVerdict.title = verdictSummary(summary);
     }
-    artifactWorkdir.textContent = labeledSummary("目录", "Workdir", basename(payload.bundle?.loop?.workdir || ""));
+    artifactWorkdir.textContent = labeledSummary("运行目录", "Run directory", basename(payload.bundle?.loop?.workdir || ""));
     artifactWorkdir.title = payload.bundle?.loop?.workdir || "";
-    renderControlSummary(null);
+    renderControlSummary(summary);
     renderJudgmentMap(payload.traceability || summary.traceability || {}, diagnostics);
     specPreview.innerHTML = payload.spec_rendered_html || "";
     if (sourceOpenButton) {
@@ -1636,13 +1765,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     const payload = collectStartPayload();
     if (!payload.workdir) {
-      showError(localeText("先选择这次循环要运行的 workdir。", "Choose the workdir for this loop first."));
+      showError(localeText("先选择这次 Loop 的运行目录。", "Choose the run directory for this Loop first."));
       openTools("workdir");
       return;
     }
     await loadWorkdirContext();
     if (shouldRequireWorkdirContextChoice()) {
-      showError(localeText("这个目录已有 Loopora 产物，请先选择继续、改进或重新生成。", "This workdir has Loopora artifacts. Choose continue, improve, or start fresh first."));
+      showError(localeText("这个运行目录已有 Loopora 产物，请先选择继续、改进或重新生成。", "This run directory has Loopora artifacts. Choose continue, improve, or start fresh first."));
       openTools("workdir");
       return;
     }
@@ -1686,6 +1815,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   messageInput.addEventListener("input", () => showError(""));
+  panel.querySelectorAll("[data-starter-zh][data-starter-en]").forEach((button) => {
+    button.addEventListener("click", () => fillStarterPrompt(button));
+  });
   workdirInput.addEventListener("input", () => {
     showError("");
     workdirContextState = {

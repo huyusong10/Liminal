@@ -33,8 +33,8 @@ RUN_ARTIFACT_SPECS = (
         "relative_path": "contract/compiled_spec.json",
         "label_zh": "编译后契约",
         "label_en": "Compiled spec",
-        "description_zh": "本次运行实际使用的任务、检查项、边界、假完成风险、证据偏好、残余风险和角色备注。",
-        "description_en": "The Task, checks, Guardrails, Success Surface, Fake Done, Evidence Preferences, Residual Risk, and role notes used by this run.",
+        "description_zh": "本次运行实际使用的任务、检查项、边界、流程意图、角色姿态、假完成风险、证据偏好、执行策略、判断取舍、本地治理责任和残余风险。",
+        "description_en": "The Task, checks, Guardrails, workflow intent, role posture, Success Surface, Fake Done, Evidence Preferences, Execution Strategy, Judgment Tradeoffs, Local Governance, and Residual Risk used by this run.",
     },
     {
         "id": "workflow-manifest",

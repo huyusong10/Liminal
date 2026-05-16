@@ -34,7 +34,7 @@
 
 .hero-run-detail {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   column-gap: 24px;
   row-gap: 16px;
@@ -46,13 +46,17 @@
 
 .hero-run-detail .hero-meta-row {
   display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, 320px) minmax(280px, 1fr) max-content;
   align-items: stretch;
 }
 
 .hero-run-detail .hero-meta-pill {
   min-width: 0;
   height: 100%;
+}
+
+.hero-run-detail .hero-actions {
+  justify-content: flex-start;
 }
 
 /* ── Progress Panel ── */
@@ -877,7 +881,7 @@ html[data-locale="zh"] .highlight-label {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
-  margin-bottom: 16px;
+  margin: 0 0 16px;
   align-items: start;
 }
 
@@ -948,7 +952,7 @@ html[data-locale="zh"] .takeaway-path-label {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
-  margin: 0 0 16px;
+  margin: 0 0 14px;
 }
 
 .takeaway-evidence-card {

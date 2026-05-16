@@ -89,7 +89,7 @@ Hard waiting signal: the job reaches its timeout, the host exits non-zero, the l
 
 Only stable facts should fail a real probe:
 
-- The host must create the candidate bundle; the harness must not prewrite it.
+- The host must create the candidate bundle from the conversation requirements; the harness must not prewrite it or embed a complete candidate YAML for the host to copy.
 - Managed entry provenance must show `/loopora-gen` before `/loopora-loop`.
 - Runtime activity must observe the linked run before terminal completion.
 - Builder and GateKeeper must both have context, role request, claim, and submit events.

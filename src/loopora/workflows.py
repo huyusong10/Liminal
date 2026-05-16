@@ -1096,7 +1096,7 @@ WORKFLOW_PRESETS = {
                 step_id="builder_step",
                 role_id="builder",
                 archetype="builder",
-                inputs={"handoffs_from": ["guide_step"], "iteration_memory": "same_step"},
+                inputs={"handoffs_from": ["guide_step"], "iteration_memory": "summary_only"},
             ),
             _preset_step(
                 step_id="gatekeeper_step",
@@ -1180,7 +1180,7 @@ WORKFLOW_PRESETS = {
                 step_id="builder_repair_step",
                 role_id="builder",
                 archetype="builder",
-                inputs={"handoffs_from": ["guide_step"], "iteration_memory": "same_step"},
+                inputs={"handoffs_from": ["guide_step"], "iteration_memory": "summary_only"},
             ),
             _preset_step(
                 step_id="gatekeeper_step",

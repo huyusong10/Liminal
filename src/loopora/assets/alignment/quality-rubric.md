@@ -8,28 +8,31 @@ For each dimension, write concrete evidence. A bare `true` is not enough.
 
 | Dimension | Good evidence | Weak evidence |
 |-----------|---------------|---------------|
-| `loop_fit` | Explains why direct Agent work, one review, direct chat, or benchmark-only validation is not enough; names the new proof / artifact / handoff / observation / verdict context later rounds will create; and states the repeated judgment, fake-done risk, GateKeeper decision, or run-owned/exportable/auditable contract that makes that evidence worth governing | “It is complex” |
+| `loop_fit` | Explains why direct Agent work, one review, direct chat / direct answer, one-off task handling, or benchmark/test-harness-only validation is not enough; names the new proof / artifact / handoff / observation / verdict context later rounds will create; and states the repeated judgment, fake-done risk, GateKeeper decision, or run-owned/exportable/auditable contract that makes that evidence worth governing | “It is complex” |
 | `task_scope` | Names the deliverable, phase, and intentional non-goals | “Build the thing” |
 | `success_surface` | States what the user can observe or run when it succeeds | “It works well” |
 | `fake_done_risks` | Names unacceptable shallow outcomes | “Avoid bugs” |
 | `evidence_preferences` | Names the proof type the user trusts most | “Need proof” |
-| `residual_risk_policy` | States what can remain visible, what must fail closed, or why no residual risk is acceptable | “Some risk is fine” |
+| `execution_strategy` | States what later rounds should build, prove, narrow, repair, expand, or deliberately defer first | “Work iteratively” |
+| `residual_risk_policy` | States what can remain visible, who or what follow-up / acceptance path owns it, what must fail closed, or why no residual risk is acceptable | “Some risk is fine” |
 | `judgment_tradeoffs` | Captures a concrete preference order or contrast: which imperfect result to reject, when speed loses to proof, or when strict blocking beats pragmatic progress | “Balance quality and progress” |
+| `local_governance` | States whether project-local governance markers affect this Loop; if `AGENTS.md`, applicable parent `AGENTS.md`, `design/README.md`, `design/`, or `tests/` are relevant, maps them to Builder reading, Inspector / Custom verification, and GateKeeper Weak / Unproven / Blocking treatment without inventing contents | Marker lists with no runtime responsibility |
 | `role_posture` | Says how Builder, each Inspector responsibility, Guide, GateKeeper, and Custom reviewers should behave differently for this task when present | “Use three roles” |
 | `workflow_shape` | Explains why the chosen order, any parallel inspection group, information flow, final GateKeeper judgment / closure, and early error-exposure path fit this task | “Builder then checker” |
-| `workdir_facts` | Lists observed facts supported by the Workdir Snapshot or clearly labels assumptions; when governance markers such as `AGENTS.md`, `design/README.md`, `design/`, or `tests/` exist, explains how roles will read, verify, or gate against them without inventing their contents | Empty, invented facts, or marker lists with no role responsibility |
+| `workdir_facts` | Lists observed facts supported by the Workdir Snapshot or clearly labels assumptions; when governance markers such as `AGENTS.md`, applicable parent `AGENTS.md`, `design/README.md`, `design/`, or `tests/` exist, explains how roles will read, verify, or gate against them without inventing their contents | Empty, invented facts, or marker lists with no role responsibility |
 
 ## Working agreement quality bar
 
 A working agreement is ready only when it includes:
 
-- Loopora fit: why direct Agent work, one review, or benchmark-only validation is not enough
+- Loopora fit: why direct Agent work, one review, direct answer / one-off handling, or benchmark/test-harness-only validation is not enough
 - why the judgment should be inherited by a run, exported, reused, or audited rather than staying as chat-only advice
 - user intent in the user's language
 - success criteria that would change implementation behavior
 - fake-done states that would block GateKeeper
 - evidence preferences that can be executed or inspected
-- residual-risk policy that tells GateKeeper what can remain visible and what must block
+- execution strategy that says which proof, repair, narrowing, expansion, or deferral should guide later rounds before polishing or closure
+- residual-risk policy that tells GateKeeper what can remain visible, who or what follow-up / acceptance path owns it, and what must block
 - evidence bucket expectations: what should count as Proven, Weak, Unproven, Blocking, or Residual risk for this task
 - role posture tradeoffs, not just role names
 - workflow rationale, not just workflow order
@@ -37,7 +40,7 @@ A working agreement is ready only when it includes:
 - if the workflow is a 5+ role or multi-Builder long chain, why each phase creates a new artifact, proof target, handoff, or review boundary instead of role-zoo complexity
 - an explicit reason when the workflow chooses parallel inspection or avoids it
 - role-to-role and iteration-to-iteration information flow when the workflow has more than one reviewer or repair pass
-- an agreement-to-bundle traceability check: every confirmed judgment item can be mapped to `collaboration_summary`, `spec.markdown`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, workflow controls, or GateKeeper evidence rules; metadata and loop names do not count
+- an agreement-to-bundle traceability check: every confirmed judgment item can be mapped to `collaboration_summary`, `spec.markdown` / `# Role Notes`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, workflow controls, or GateKeeper evidence rules; metadata and loop names do not count
 - a private complete-run rehearsal: Builder, Inspector / Custom review, optional Guide repair direction, any second Builder pass, GateKeeper verdict, and user evidence audit can all be followed through explicit handoffs, evidence queries, and evidence buckets
 - a private failed-round pressure test: at least one plausible fake-done, weak-proof, drift, or residual-risk failure would be exposed, repaired, or blocked by the proposed `spec`, roles, workflow, handoffs, evidence queries, and GateKeeper rules
 - if `workflow.controls` exist, the specific error risk each control reduces
@@ -67,7 +70,7 @@ Treat this section as quality guidance, not a fixed regex vocabulary. Loopora's 
 - `collaboration_summary` explains how the working agreement projects across `spec`, `roles`, and `workflow`; it must not merely list those surface names.
 - every confirmed judgment item has a concrete bundle destination; nothing important exists only in `agreement_summary`, readiness evidence, transcript memory, or private reasoning.
 - The bundle projects judgment tradeoffs into final running surfaces: the `spec`, role posture, workflow, or GateKeeper strictness must preserve which imperfect result should be rejected, when proof beats speed, or when blocking beats pragmatic progress.
-- `spec.markdown` carries concrete, judgeable Done When checks, observable success surfaces, task contract, fake-done risks, evidence preferences, and residual risk; Fake Done must name shallow completion shapes, evidence preferences must name proof types rather than only saying “need evidence,” and residual risk must say what can remain visible and what must block or fail closed.
+- `spec.markdown` carries concrete, judgeable Done When checks, observable success surfaces, task contract, fake-done risks, evidence preferences, execution priorities, judgment tradeoffs, and residual-risk policy; Fake Done must name shallow completion shapes, evidence preferences must name proof types rather than only saying “need evidence,” execution priorities must say what to build / prove / repair / narrow / expand / defer first, judgment tradeoffs must preserve concrete preference order, and residual risk must say what can remain visible, who or what follow-up / acceptance path owns it, and what must block or fail closed.
 - role definition names are task-specific enough to shape behavior, not bare archetypes or numbered placeholders.
 - role prompts tell each role how to act, what to distrust, and what evidence or handoff to produce.
 - role prompts match archetype responsibility: Builder builds or modifies, Inspector inspects / reviews / verifies, Guide narrows / redirects / guides repair, GateKeeper judges / blocks / closes, and Custom stays low-permission and specialized. Generic evidence language alone is not enough.
@@ -141,5 +144,5 @@ Reject these patterns:
 - workdir assumptions stated as facts
 - observed stack, framework, test-suite, or build-script claims not supported by the Workdir Snapshot
 - bundle prose that repeats unsupported observed workdir claims even when readiness evidence labels the stack unknown
-- `AGENTS.md`, `design/`, or `tests/` markers listed as facts but never connected to Builder reading, Inspector / Custom verification, or GateKeeper gating
+- `AGENTS.md`, applicable parent `AGENTS.md`, `design/`, or `tests/` markers listed as facts but never connected to Builder reading, Inspector / Custom verification, or GateKeeper gating
 - unresolved success, evidence, role, residual-risk, or workflow choices hidden inside `open_questions`

@@ -258,7 +258,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     showStatus(
       draftStatus,
-      localeText("已恢复这台浏览器里上次没提交完的 loop 草稿。", "Restored the unfinished loop draft saved in this browser."),
+      localeText("已恢复这台浏览器里上次没提交完的 Loop 草稿。", "Restored the unfinished loop draft saved in this browser."),
       "success",
     );
     return true;
@@ -343,7 +343,7 @@ document.addEventListener("DOMContentLoaded", () => {
       counts.set(label, (counts.get(label) || 0) + 1);
     });
     if (!counts.size) {
-      return localeText("沿用旧 loop 级回退", "Legacy loop-level fallback");
+      return localeText("沿用旧 Loop 层级回退", "Legacy loop-level fallback");
     }
     return Array.from(counts.entries()).map(([label, count]) => (count > 1 ? `${label} x${count}` : label)).join(" · ");
   }
@@ -800,7 +800,7 @@ document.addEventListener("DOMContentLoaded", () => {
         },
       });
       specEditorInput.addEventListener("input", () => {
-        setSpecEditorSaveState(localeText("有未保存的改动。提交 loop 前会先尝试自动保存。", "There are unsaved changes. Loop submission will try to save them first."), "warning");
+        setSpecEditorSaveState(localeText("有未保存的改动。提交 Loop 前会先尝试自动保存。", "There are unsaved changes. Loop submission will try to save them first."), "warning");
         setSpecEditorValidation({
           state: "dirty",
           error: localeText("编辑器里有未保存的改动。", "There are unsaved editor changes."),
@@ -889,11 +889,11 @@ document.addEventListener("DOMContentLoaded", () => {
         body: JSON.stringify(payload),
       });
       if (error || !response) {
-        showStatus(formError, errorMessage(error, localeText("保存 loop 失败。", "Unable to save the loop.")), "error");
+        showStatus(formError, errorMessage(error, localeText("保存 Loop 失败。", "Unable to save the loop.")), "error");
         return;
       }
       if (!response.ok) {
-        showStatus(formError, responsePayload.error || localeText("保存 loop 失败。", "Unable to save the loop."), "error");
+        showStatus(formError, responsePayload.error || localeText("保存 Loop 失败。", "Unable to save the loop."), "error");
         return;
       }
       clearDraft();

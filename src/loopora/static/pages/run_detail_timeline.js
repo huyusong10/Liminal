@@ -28,6 +28,11 @@
       return count === null ? fallback : count;
     }
 
+    function compactDetailText(value, limit = 96) {
+      const text = String(value || "").trim();
+      return text.length > limit ? `${text.slice(0, limit - 1).trim()}…` : text;
+    }
+
     function formatTimelineEvent(event) {
       const payload = event.payload || {};
       const role = payload.role || event.role || "role";
@@ -131,9 +136,48 @@
         return {title: localeText("已请求停止", "Stop requested"), detail: ""};
       }
       if (event.event_type === "run_result_accepted") {
+        const detailParts = [];
+        if (payload.status) {
+          detailParts.push(String(payload.status));
+        }
+        if (payload.task_verdict_status) {
+          detailParts.push(`${localeText("Loop 裁决", "Task verdict")} ${payload.task_verdict_status}`);
+        }
+        if (payload.judgment_contract_summary) {
+          detailParts.push(`${localeText("判断", "Judgment")} ${compactDetailText(payload.judgment_contract_summary)}`);
+        } else if (payload.run_contract_path) {
+          detailParts.push(`${localeText("契约", "Contract")} ${payload.run_contract_path}`);
+        }
+        if (Array.isArray(payload.loop_fit_reasons) && payload.loop_fit_reasons.length) {
+          detailParts.push(`${localeText("适配", "Fit")} ${compactDetailText(payload.loop_fit_reasons[0])}`);
+        }
+        if (Array.isArray(payload.execution_strategy) && payload.execution_strategy.length) {
+          detailParts.push(`${localeText("策略", "Strategy")} ${compactDetailText(payload.execution_strategy[0])}`);
+        }
+        if (Array.isArray(payload.local_governance) && payload.local_governance.length) {
+          detailParts.push(`${localeText("本地治理", "Local governance")} ${compactDetailText(payload.local_governance[0])}`);
+        }
+        if (Array.isArray(payload.role_postures) && payload.role_postures.length) {
+          detailParts.push(`${localeText("角色姿态", "Role posture")} ${compactDetailText(payload.role_postures[0])}`);
+        }
+        if (Array.isArray(payload.judgment_tradeoffs) && payload.judgment_tradeoffs.length) {
+          detailParts.push(`${localeText("取舍", "Tradeoff")} ${compactDetailText(payload.judgment_tradeoffs[0])}`);
+        }
+        if (Array.isArray(payload.success_surface) && payload.success_surface.length) {
+          detailParts.push(`${localeText("成功面", "Success")} ${compactDetailText(payload.success_surface[0])}`);
+        }
+        if (Array.isArray(payload.fake_done_states) && payload.fake_done_states.length) {
+          detailParts.push(`${localeText("假完成", "Fake done")} ${compactDetailText(payload.fake_done_states[0])}`);
+        }
+        if (Array.isArray(payload.evidence_preferences) && payload.evidence_preferences.length) {
+          detailParts.push(`${localeText("证据", "Evidence")} ${compactDetailText(payload.evidence_preferences[0])}`);
+        }
+        if (payload.residual_risk) {
+          detailParts.push(`${localeText("残余风险", "Residual risk")} ${compactDetailText(payload.residual_risk)}`);
+        }
         return {
-          title: localeText("已接受结论", "Conclusion accepted"),
-          detail: String(payload.task_verdict_status || payload.status || ""),
+          title: localeText("已接受证据结论", "Evidence conclusion accepted"),
+          detail: detailParts.join(" · "),
         };
       }
       if (event.event_type === "run_aborted") {

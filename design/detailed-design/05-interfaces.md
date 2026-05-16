@@ -29,7 +29,9 @@
 | CLI | 自动化、脚本化创建 / 运行 / 校验 / 导入导出 | 维护独立业务状态 |
 | HTTP API | Web 与集成调用方的结构化访问面 | 暴露底层存储实现 |
 
-Coding 场景的推荐 first-use path 是从宿主 Agent 触发 `/loopora-gen` 和 `/loopora-loop`；Web 信息架构仍必须完整支持 Web-only 编排、观察和专家编辑，但默认教程和 README 不应把用户先拉离当前 Coding Agent 才能开始。
+Coding 场景的推荐 first-use path 是从宿主 Agent 触发 `/loopora-gen` 和 `/loopora-loop`；Web 信息架构仍必须完整支持 Web-only 编排、观察和专家编辑，但默认教程和 README 不应把用户先拉离当前 Coding Agent 才能开始。Tools 页承接“安装 Coding Agent 入口”的 first-run 出口时，Coding Agent 接入必须先于防休眠、本地资产健康等低频维护工具出现，避免用户从默认路径落入维护面板。
+
+CLI 顶层帮助页也属于 first-use surface：即使保留专家命令，帮助描述必须先说明 `loopora init <agent>` -> `/loopora-gen` -> `/loopora-loop` 的默认路径，并让安装入口在子命令列表中先于资源库、角色、流程和 spec 等专家入口出现。
 
 Web 顶层信息架构按用户反复回来的理由组织：
 
@@ -38,10 +40,10 @@ Web 顶层信息架构按用户反复回来的理由组织：
 | Loop / Loops | 高频工作台：查看活动 Loop、进入已有 Loop 与最近运行 | `/`、`/loops/{id}` |
 | 编排 / Compose | 专业编排工作台：通过对话编排 Loop，并保留导入方案文件与手动编排的二级入口 | `/loops/new/bundle`、`/loops/new/manual` |
 | 资源库 / Library | 管理方案文件、可复用角色定义与流程编排 | `/bundles`、`/roles`、`/orchestrations` |
-| 工具 / Tools | 运行辅助与本机维护 | `/tools` |
+| 工具 / Tools | Coding Agent 入口接入、运行辅助与本机维护 | `/tools` |
 | 教程 / Tutorial | 帮用户判断何时使用 Loopora，以及从哪条路径开始 | `/tutorial` |
 
-教程页是顶层 fit 判断的公开投影，必须与 product primer 和 Human-Shaped Loop 的适配门保持同一语义：一次 Agent + review 是否足够、后续是否产生新证据、判断是否已能稳定 benchmark 化、是否存在假完成阻断价值，以及这套判断是否需要活过一次聊天并成为运行继承、导出复用或后续审计的对象。页面可以调整表达和顺序，但不得把“判断是否需要活过一次聊天”从新手判断入口里丢掉。教程解释 prompt / posture 差异时，也必须保留 `spec / roles / workflow / evidence` 的核心语义，不得把 evidence 降成运行后的附属日志。
+教程页是顶层 fit 判断的公开投影，必须与 product primer 和 Human-Shaped Loop 的适配门保持同一语义：一次 Agent + review 是否足够、后续是否产生新证据、判断是否已能稳定 benchmark 化、是否存在假完成阻断价值，以及这套判断是否需要活过一次聊天并成为运行继承、导出复用或后续审计的对象。页面可以调整表达和顺序，但不得把“判断是否需要活过一次聊天”从新手判断入口里丢掉。教程页也属于 README first-use 的延伸：首屏必须给出安装 Coding Agent 入口和 Web 对话编排的直接出口，不能让用户必须读完多屏概念解释才能回到默认路径。教程解释 prompt / 可运行判断差异时，默认文案应先使用“判断 / judgment”，只有专家编辑或运行追踪语境才暴露 posture；同时必须保留 `spec / roles / workflow / evidence` 的核心语义，不得把 evidence 降成运行后的附属日志。
 
 创建 Loop 不是单一频率动作：`对话编排 Loop` 是专业主入口，必须是一级导航可达的完整工作台；Loop 工作台不重复编排模式按钮，也不得把它压成内嵌表单。编排工作台稳定提供：
 
@@ -49,7 +51,11 @@ Web 顶层信息架构按用户反复回来的理由组织：
 - 导入方案文件：已有 YAML / bundle 文件入口，路由 `/loops/new/manual#bundle-import-form`。
 - 手动编排：专家直接选择 Loop 契约、工作目录、流程和运行策略，路由 `/loops/new/manual#manual-loop-form`。
 
-创建方式选择页属于默认路径：推荐项应表达为用自然语言整理任务判断和证据要求，而不是通用聊天；手动分支应表达为用户已明确契约、检视角色和运行流程，而不是要求新手理解底层运行资产。
+创建方式选择页属于默认路径：推荐项应表达为用自然语言整理任务判断和证据要求，而不是通用聊天；对话编排空态和 composer placeholder 必须提示用户输入任务、假完成风险、必需证据和阻断风险，不得退回“你想让 Loopora 做什么”这类普通助手输入框心智。手动分支应表达为用户已明确契约、检视角色和运行流程，而不是要求新手理解底层运行资产。
+
+对话编排 composer 是 README-first Web 路径的首个输入控件。窄屏下它必须完整显示默认 placeholder 或已输入的首行任务判断提示，不能因为 `rows=1`、固定高度或发送按钮占位导致文本在控件内部裁切或滚动。
+
+编排工作台的侧栏在桌面承担历史和模式切换；窄屏下不得以整块侧栏占据首屏主要纵向空间。新对话、对话编排、导入方案文件和手动编排入口应压缩成紧凑模式条，使用户进入 Web 编排后优先看到任务判断问题和 composer。
 
 三条编排路径共享同一个工作台导航框架：左侧稳定保留新对话、最近对话和模式入口；右侧根据模式呈现对话编排、方案文件导入或手动编排内容。用户进入导入或手动模式后仍能回到对话编排和历史对话，不应被带到一个脱离编排上下文的普通表单页。
 
@@ -60,7 +66,7 @@ Web 顶层信息架构按用户反复回来的理由组织：
 
 主题和语言设置属于顶栏显示偏好控件，不混入资源或创建菜单。显示偏好是低频辅助动作，顶栏只保留轻量触发器；主题和语言的完整切换控件应放在弹出面板里，不能以两个常驻 segmented control 的面积和选中态抢占主导航优先级。
 
-顶层导航的同级选择必须使用同一套尺寸和状态语法：普通链接、当前项和带二级菜单的入口不能因为实现元素不同而改变宽度、边框、阴影或选中形态。带二级菜单的入口用轻量方向提示表达“可展开”，不得表现成独立卡片或表单按钮。顶栏属于全局 chrome，不能被具体页面 shell 或 `100dvh` 内容区压缩；同一 viewport 下，Loop 工作台、编排工作台、资源库、工具和教程页面的顶栏高度必须一致。
+顶层导航的同级选择必须使用同一套尺寸和状态语法：普通链接、当前项和带二级菜单的入口不能因为实现元素不同而改变宽度、边框、阴影或选中形态。带二级菜单的入口用轻量方向提示表达“可展开”，不得表现成独立卡片或表单按钮。顶栏属于全局 chrome，不能被具体页面 shell 或 `100dvh` 内容区压缩；同一 viewport 下，Loop 工作台、编排工作台、资源库、工具和教程页面的顶栏高度必须一致。常见手机宽度应让所有顶层入口同时可见；更窄设备横向导航装不下所有入口时，当前页面入口仍必须在首屏可见，不能只露出选中背景或要求用户先猜测并横向拖动。
 
 图标型提示控件属于表单辅助动作，不承载主要命令；它们可以比主按钮更轻，但必须保留稳定可点区域、焦点态和明暗主题下相同的视觉语法，不能因为只显示一个符号而退化成不可点击的小字标。
 
@@ -85,7 +91,7 @@ Web 顶层信息架构按用户反复回来的理由组织：
 | 场景 | 默认语言 | 可出现的专家语言 |
 |------|----------|------------------|
 | 创建 Loop 主路径 | Loop、运行、证据、运行状态、Loop 裁决 | 只在展开的专家视图、tab 标签或源文件操作中出现 `spec / roles / workflow` |
-| READY 预览 | Loop 目标、主要风险、证据路径、裁决方式、运行目录 | YAML、bundle、import、orchestration 只属于专家操作或调试材料 |
+| READY 预览 | Loop 目标、主要风险、证据路径、覆盖目标、执行策略、裁决方式、运行目录 | YAML、bundle、import、orchestration 只属于专家操作或调试材料 |
 | 运行详情首屏 | 运行状态、Loop 裁决、已证明、未证明、阻断问题、残余风险 | ledger、artifact、event stream、raw output 只属于追查入口 |
 | 结果后动作 | 接受结果、再次运行、修改 Loop、导出、停止 | 对话改进、YAML、source artifact 只属于用户主动入口 |
 | Loop 工作台 | 活动 Loop、已保存 Loop、最近运行、最近裁决、启动运行、进入编排工作台 | Bundle ID、YAML、linked assets 属于方案包详情或专家区 |
@@ -95,7 +101,7 @@ Web 顶层信息架构按用户反复回来的理由组织：
 
 稳定规则：
 
-- 默认路径不要求用户先理解 `bundle / orchestration / workflow controls / YAML`。
+- 默认路径不要求用户先理解 `bundle / orchestration / workflow controls / YAML / GateKeeper`；README 与 first-use surfaces 应先使用 Loop 裁决、任务裁决和证据覆盖这类用户级语言，只有在专家编辑、运行追踪或内部角色解释中才暴露角色名。
 - Loop 工作台与 Loop 详情页的稳定字段应使用“运行流程 / Run flow”、“Agent 执行 / Agent execution”、“收束方式 / Closure”和“任务契约路径 / Task contract path”这类用户级标签；`orchestration`、`role runtime`、`completion mode`、`spec path` 只属于专家源文件、API、测试 ID 或调试语境。
 - 由方案文件导入或派生的 Loop 可以说明“来源方案”和删除时的关联资源清理，但默认卡片不能把 `bundle-managed` 或整包 lifecycle 当成已有 Loop 日常管理的主心智。
 - Web 问答、直接导入 bundle 与专家手动创建 Loop 是取得 Loop 的并列场景；默认创建动作可推荐 Web 问答，但不能把它写成唯一主工作流。
@@ -135,9 +141,9 @@ Agent-first 入口必须仍然遵守“接口层 -> Core”的依赖方向。CLI
 | `loopora init codex` | 在当前项目安装或更新 Codex 项目级 Loopora entry |
 | `loopora init claude` | 在当前项目安装或更新 Claude Code 项目级 Loopora entry |
 | `loopora init opencode` | 在当前项目安装或更新 OpenCode 项目级 Loopora entry |
-| `loopora uninstall codex` | 只删除 Loopora 管理的 Codex adapter 文件或 manifest |
-| `loopora uninstall claude` | 只删除 Loopora 管理的 Claude Code adapter 文件或 manifest |
-| `loopora uninstall opencode` | 只删除 Loopora 管理的 OpenCode adapter 文件或 manifest |
+| `loopora uninstall codex` | 只删除 Loopora 管理的 Codex 项目级入口文件或 manifest |
+| `loopora uninstall claude` | 只删除 Loopora 管理的 Claude Code 项目级入口文件或 manifest |
+| `loopora uninstall opencode` | 只删除 Loopora 管理的 OpenCode 项目级入口文件或 manifest |
 | `loopora agent codex gen` / `loopora agent claude gen` / `loopora agent opencode gen` | 宿主 entry 使用的底层入口，把候选 bundle 交给 Core 校验，并返回 Loop 预览 URL |
 | `loopora agent codex loop` / `loopora agent claude loop` / `loopora agent opencode loop` | 宿主 entry 使用的底层入口，查找当前 session / workdir 关联的 READY Loop 预览，创建或复用 agent-native run，并返回 run URL 与首个可执行 step capsule |
 | `loopora agent codex next` / `loopora agent claude next` / `loopora agent opencode next` | 宿主 entry 使用的底层入口，领取当前 run 的下一个 step capsule；只分发上下文、输出契约和提交提示，不启动宿主 CLI |
@@ -147,12 +153,13 @@ Agent-first 入口必须仍然遵守“接口层 -> Core”的依赖方向。CLI
 稳定规则：
 
 - 必须坚持 `/loopora-gen -> READY preview -> /loopora-loop`。缺少 ready Loop preview 时，`loopora agent <adapter> loop` 返回明确错误，提示先 gen；人类可读错误不把 `READY bundle` 当作默认主语。
+- Tools 页安装 Coding Agent 入口时，目标目录必须表达为 Agent 将实际工作的项目目录；留空使用服务当前目录只是便利默认值，文案必须提醒用户只有服务已从目标项目启动时才适合留空，避免把入口装到 Loopora 服务目录或错误仓库。
 - Codex / Claude Code / OpenCode adapter 只负责宿主入口和 binding，不复制 bundle validation、alignment import、run lifecycle、step context assembly、evidence ledger 或 Web serve 逻辑。
 - Agent-first 默认执行平面是 `agent_native`：Loopora Core 冻结 run、维护 `awaiting_agent` 状态、分发 step capsule 并接收带 `loopora_host_dispatch` 的结构化 wrapper result；宿主 Agent 用自身 slash command、skill、subagent、task 或等价机制完成具体角色工作。
 - Agent-first adapter 不得在 `/loopora-loop`、`next` 或 `submit` 内部再启动 `codex`、`claude`、`opencode` CLI。需要无人值守自动跑完整 run 时，应走明确的 headless run / executor 路径，而不是假装成宿主 Agent-first。
 - `loopora agent <adapter> loop` 可以领取首个 step，后续由宿主 entry 循环调用 `submit -> next`；重复调用必须复用同一 READY preview / active run，不创建相互竞争的 run。
-- `loopora agent <adapter> gen` 的人类可读输出应把主对象说成 Loop 预览和 preview URL；`READY`、`candidate` 和 bundle hash 只作为 JSON 字段或诊断事实保留，不能成为默认成功提示的主文案。
-- Agent-first runtime 的人类可读输出在终态完成时必须继续分开报告 `run_status` 与 `task_verdict`；宿主 Agent 不能只看 `succeeded` 就判断 Loop 已被证据证明。
+- `loopora agent <adapter> gen` 的人类可读输出应把主对象说成 Loop 预览和 preview URL；当它为 preview 或 run URL 自动启动或复用本地 Web 服务时，必须同时显示 Web 状态，避免用户拿到 localhost 链接却不知道服务是否已经可用；`READY`、`candidate` 和 bundle hash 只作为 JSON 字段或诊断事实保留，不能成为默认成功提示的主文案。
+- Agent-first runtime 的同步输出必须保留冻结判断契约的可追溯入口；当 run artifacts 可用时，人类可读 `loop/next/submit` 输出应打印 `run_contract_path`、source plan provenance、判断摘要、Loopora fit、执行策略、判断取舍、本地治理责任与角色姿态，JSON 输出应返回同义的 `judgment_contract` 投影，并保留 `source_bundle` provenance、check mode、completion mode、workflow preset 与 coverage target trace 这类执行锚点；在终态完成时继续分开报告 `run_status` 与 `task_verdict`。宿主 Agent 不能只看 `succeeded` 就判断 Loop 已被证据证明。
 - `loopora agent <adapter> submit` 只接受当前 capsule 对应的结构化输出和匹配的 host dispatch proof；缺失 step、step 不匹配、run 已终态、dispatch proof 缺失 / inline / agent 不匹配，或输出不满足角色契约时返回领域错误，不让宿主 entry 猜测内部状态。
 - 未实现平台可以出现在类型、API 投影和 Web UI 中，但状态必须是未实现，不能生成假入口。
 - Web status 只展示 `not_installed / installed / needs_update / error / not_implemented` 这类 adapter 投影，不把它们写成 Loop 或 run 状态。
@@ -165,15 +172,15 @@ Agent-first 入口必须仍然遵守“接口层 -> Core”的依赖方向。CLI
 
 | 能力 | 一致性要求 |
 |------|------------|
-| 创建 loop | 相同参数表达相同 loop definition；计数、重试次数和窗口类运行参数不能在 Web / CLI / API 边界被小数静默截断 |
+| 创建 loop | 相同参数表达相同 loop definition；executor、completion mode、计数、重试次数和窗口类运行参数不能在 Web / CLI / API / bundle 预览边界绕过同一校验 |
 | 导入 / 导出 / 派生 / 删除 bundle | 表达同一整包生命周期语义 |
 | 预览 bundle | 只读校验与投影，不创建底层资产 |
 | 选择 orchestration | 引用同一编排资产 |
 | 编辑 role definition | 角色模版、判断姿态、执行默认值与 prompt 语义一致；写入、只读和收束等本次行动权限属于 workflow step |
-| 配置 completion mode | `gatekeeper` 与 `rounds` 的收敛语义一致 |
+| 配置 completion mode | 只接受 `gatekeeper` 与 `rounds`，且二者的收敛语义一致；未知模式必须失败关闭 |
 | 启动、停止、删除 run | 生命周期语义一致 |
 | 观察 run artifacts / evidence | artifact 列表用于追查细节，`evidence/ledger.jsonl` 是证明项与 GateKeeper verdict 的事实源 |
-| 展示 run status / task verdict | run status 表达系统生命周期；task verdict 表达 Loop 达标、未达标、证据不足或残余风险 |
+| 展示 run status / task verdict / judgment contract | run status 表达系统生命周期；task verdict 表达 Loop 达标、未达标、证据不足或残余风险；Web、API 与同步 CLI 输出都应能追到本次运行冻结的判断契约 |
 
 允许交互形态不同，例如 Web 可以提供可视化 workflow 编辑器、对话式 alignment、主题和语言偏好；CLI 可以提供同步等待与后台执行开关。但这些差异不能改变底层语义。
 
@@ -205,6 +212,8 @@ CLI 对高阶 workflow 的稳定承诺：
 
 旧路由可以保持兼容跳转，但新的默认心智不得再要求新手先理解内部对象，也不得把创建动作和已有 Loop 高频浏览混成同一个一级页面。
 
+Loop 工作台为空时可以提供两个轻量 first-run 出口：安装 Coding Agent 入口，以及进入 Web 对话编排。它们只服务“还没有任何 Loop 时如何开始”的空态，不把工作台重新变成创建表单或专家资源入口。
+
 ## 5.1 Run 观察 API
 
 run 详情页依赖两类稳定接口：
@@ -230,7 +239,7 @@ run 详情页依赖两类稳定接口：
 - snapshot 必须由 service/repository 只读边界构建，route 只做 HTTP 包装和 timeline 展示格式化；接口层不得再次拼装 key takeaways。
 - snapshot 必须基于同一次只读 cutoff 构建：读取 run row、当前 `latest_event_id`、timeline / console / progress 投影必须共享同一个观察上界；返回数组里的每条事件都必须满足 `event.id <= latest_event_id`。
 - `key_takeaways` 属于 snapshot 观察投影的一部分，必须来自持久化 takeaway projection，并带有不超过本次 cutoff 的真实 `source_event_id`。snapshot 不得现场读取 artifact 文件生成关键结论；没有可用 projection 时可退化为 run status 最小结论，`source_event_id` 设为本次 cutoff。
-- 最小 takeaway projection 仍必须保持完整观察 shape：`run_status`、`task_verdict`、`task_verdict_path`、`evidence_buckets`、`evidence_coverage`、`evidence_manifest`、`iterations` 和目录字段都存在；缺少证据时使用空 task verdict artifact path、空覆盖 / 空 manifest 投影，而不是让调用方猜测字段是否存在。
+- 最小 takeaway projection 仍必须保持完整观察 shape：`run_status`、`task_verdict`、`task_verdict_path`、`judgment_contract`、`evidence_buckets`、`evidence_coverage`、`evidence_manifest`、`iterations` 和目录字段都存在；缺少证据或运行契约时使用空 task verdict artifact path、空 judgment contract、空覆盖 / 空 manifest 投影，而不是让调用方猜测字段是否存在。run detail 前端消费旧版 projection 时，空的 `task_verdict.buckets` 不得遮蔽已有 `evidence_buckets`，避免旧投影里的阻断项或残余风险在首屏消失。
 - snapshot 读取到旧版持久化 takeaway projection 时，可以只做 shape 归一化和默认字段补齐；不得为补字段现场重读 artifacts 或改变原 projection 的 `source_event_id` 语义。
 - 每轮 takeaway 卡片应展示 evidence progress 信号；当 required coverage 停滞或仍有缺口时，用户不需要打开 raw JSON 就能看到 covered / missing check count 和无覆盖增量。
 - `GET /api/runs/{run_id}/key-takeaways` 仍表示“当前最新”结论，可以读取最新 artifacts 现算；它和 snapshot projection 的职责不同，不受 snapshot cutoff 约束。
@@ -240,7 +249,7 @@ run 详情页依赖两类稳定接口：
 - run detail 页面通过稳定锚点 `data-testid="run-observation-status"` 暴露观察链路状态；`data-observation-state` 只表达观察质量，取值为 `loading / ready / degraded / stream-stale / stream-error / finished`，不得被 service 层当作 run status。
 - run detail 首屏通过稳定锚点 `run-status-card`、`run-task-verdict-card`、`run-latest-event-card` 分开展示生命周期状态、Loop 裁决和最近里程碑；测试应依赖这些语义锚点，不依赖具体文案或布局。
 - run detail 必须从结果页直接暴露当前 Loop 的导出入口，让用户在查看 Loop 裁决后可以把本次判断结构带走、复用或丢弃，而不需要先跳转到专家 bundle 列表。
-- run detail 的接受动作只记录用户接受当前证据结论的事件，不改变 run status、task verdict、bundle lineage 或 Loop 定义；它是用户决策出口，不是新的自动演化状态。接受事件必须带上当时可用的 task verdict、coverage、manifest artifact path、证据桶计数和 evidence source event id，让后续审计能知道用户接受的是哪份证据结论；若证据摘要因 artifact 损坏不可读取，仍必须保留同一 payload shape，并显式标记 evidence unavailable，不能退化成只有事件 id 的不可审计记录。
+- run detail 的接受动作只记录用户接受当前证据结论的事件，不改变 run status、task verdict、bundle lineage 或 Loop 定义；按钮与事件投影必须表达为接受证据结论，不能暗示接受任务完成或绕过证据不足。它是用户决策出口，不是新的自动演化状态。接受事件必须带上当时可用的 task verdict、coverage、manifest artifact path、证据桶计数、evidence source event id、source bundle provenance，以及完整 normalized `judgment_contract`（含 source bundle provenance、check mode、completion mode、workflow preset 与 coverage targets），让后续审计能知道用户接受的是哪份证据结论和哪套冻结判断契约；若证据摘要因 artifact 损坏不可读取，仍必须保留同一 payload shape，并显式标记 evidence unavailable，不能退化成只有事件 id 的不可审计记录。
 - 默认 run detail 文案应把中间执行阶段表达为 Loop steps / middle steps；`workflow`、ledger、raw output 等专家词只作为追查或专家路径语言，不能取代首屏证据与裁决心智。
 - run detail 的 timeline、console、progress 与最近事件摘要对事件 payload 中影响成功、降级和通过语义的布尔值必须按 literal JSON boolean 处理；只有 `true` 可以显示为完成 / success / degraded / passed，字符串或其它 truthy 值必须 fail closed。用于展示重试次数、耗时或事件顺序的字段必须是真正的非负 JSON integer，字符串、布尔值或小数不能提升成用户可见的计数或时长。
 - run detail 前端渲染 timeline、console、progress 与 key takeaways 时，来自 run event、snapshot 或 projection 的动态文本必须在进入 `innerHTML` 拼接前转义；允许服务端已消毒的 markdown HTML 作为专用 HTML 投影，但不得把未转义的事件 payload 当作可信 HTML。

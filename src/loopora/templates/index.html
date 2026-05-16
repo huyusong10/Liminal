@@ -12,6 +12,18 @@
         <span data-lang="zh">这里承接日常回访：查看活动中的 Loop、打开已保存的 Loop 和最近运行。需要创建新的 Loop 时，从顶栏“编排”进入专业工作台。</span>
         <span data-lang="en">This is the daily workspace: watch active Loops and reopen saved Loops or their latest runs. Use Compose in the top navigation when you need to create a new Loop.</span>
       </p>
+      {% if not loops and not active_loops and not recent_loops %}
+      <div class="card-actions workbench-first-run-actions" data-testid="home-first-run-actions">
+        <a class="primary-button" href="/tools" data-testid="home-agent-entry-link">
+          <span data-lang="zh">安装 Agent 入口</span>
+          <span data-lang="en">Install Agent entry</span>
+        </a>
+        <a class="secondary-button" href="/loops/new/bundle" data-testid="home-compose-loop-link">
+          <span data-lang="zh">Web 编排 Loop</span>
+          <span data-lang="en">Compose in Web</span>
+        </a>
+      </div>
+      {% endif %}
     </div>
   </section>
 
@@ -167,7 +179,7 @@
         <span data-lang="zh">点击卡片主体可直接打开最近运行；如果这条 Loop 还没有运行记录，就会进入 Loop 详情。</span>
         <span data-lang="en">Click the body of a card to jump to the latest run. If the loop has no run yet, it opens the loop details instead.</span>
       </p>
-      <div class="empty-state" id="loops-empty-state" hidden>
+      <div class="empty-state" id="loops-empty-state" data-testid="loops-empty-state" hidden>
         <img class="empty-state-logo" src="/logo/logo.svg" alt="" aria-hidden="true" />
         <h3>
           <span data-lang="zh">还没有 Loop</span>
@@ -184,7 +196,7 @@
         <span data-lang="zh">点击卡片主体可直接打开最近运行；如果这条 Loop 还没有运行记录，就会进入 Loop 详情。</span>
         <span data-lang="en">Click the body of a card to jump to the latest run. If the loop has no run yet, it opens the loop details instead.</span>
       </p>
-      <div class="empty-state" id="loops-empty-state">
+      <div class="empty-state" id="loops-empty-state" data-testid="loops-empty-state">
         <img class="empty-state-logo" src="/logo/logo.svg" alt="" aria-hidden="true" />
         <h3>
           <span data-lang="zh">还没有 Loop</span>

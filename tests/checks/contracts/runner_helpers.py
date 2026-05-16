@@ -112,7 +112,10 @@ def _assert_runtime_contract_frozen_prefixes() -> None:
     for archetype in ["builder", "inspector", "gatekeeper", "custom", "guide"]:
         prefix = system_prompt_prefix(archetype)
         assert "Treat the run contract as frozen" in prefix
-        assert "do not reinterpret or lower Task, Done When, Guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk" in prefix
+        assert (
+            "do not reinterpret or lower Task, Done When, Guardrails, bundle collaboration summary, Loopora fit, workflow collaboration intent, role posture, "
+            "Success Surface, Fake Done, Evidence Preferences, Execution Strategy, Judgment Tradeoffs, Local Governance, or Residual Risk"
+        ) in prefix
         assert "evidence gaps or blockers" in prefix
         assert "project-local instructions, design docs, and tests" in prefix
 
@@ -120,12 +123,15 @@ def _assert_runtime_contract_frozen_prefixes() -> None:
 def _assert_prompt_assets_contract_frozen(prompts: list[str], zh_prompts: list[str]) -> None:
     for prompt in prompts:
         assert "Treat the run contract as frozen" in prompt
-        assert "do not reinterpret or lower Task, Done When, checks, guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk" in prompt
+        assert (
+            "do not reinterpret or lower Task, Done When, checks, guardrails, bundle collaboration summary, Loopora fit, workflow intent, role posture, "
+            "Success Surface, Fake Done, Evidence Preferences, Execution Strategy, Judgment Tradeoffs, Local Governance, or Residual Risk"
+        ) in prompt
         assert "evidence gaps or blockers" in prompt
         assert "project-local instructions, design docs" in prompt
     for prompt in zh_prompts:
         assert "把 run contract 当作已冻结" in prompt
-        assert "不要重新解释或降低 Task、Done When、checks、guardrails、Success Surface、Fake Done、Evidence Preferences 或 Residual Risk" in prompt
+        assert "不要重新解释或降低 Task、Done When、checks、guardrails、bundle 协作摘要、Loopora fit、流程意图、角色姿态、Success Surface、Fake Done、Evidence Preferences、Execution Strategy / 执行策略、Judgment Tradeoffs / 判断取舍、Local Governance / 本地治理 或 Residual Risk" in prompt
         assert "证据缺口或 blocker" in prompt
         assert "项目本地指令、design 文档或 tests" in prompt
 

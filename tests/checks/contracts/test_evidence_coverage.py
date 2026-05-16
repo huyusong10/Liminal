@@ -6,6 +6,7 @@ from pathlib import Path
 from loopora.evidence_coverage import (
     _overall_coverage_status,
     _top_coverage_gaps,
+    build_coverage_targets,
     build_evidence_coverage_projection,
     summarize_evidence_coverage_projection,
 )
@@ -41,7 +42,33 @@ def _coverage_layout(tmp_path: Path) -> RunArtifactLayout:
     return layout
 
 
-def test_coverage_required_status_requires_literal_boolean() -> None:
+def test_coverage_targets_include_success_surface_as_advisory() -> None:
+    targets = build_coverage_targets(
+        {
+            "checks": [{"id": "check_001", "title": "Required proof"}],
+            "success_surface": ["The result remains easy for the next role to verify."],
+            "fake_done_states": ["Happy-path-only proof is fake done."],
+            "evidence_preferences": ["Prefer reproducible checks."],
+        },
+        completion_mode="gatekeeper",
+    )
+    targets_by_id = {target["id"]: target for target in targets}
+
+    assert targets_by_id["success_surface.surface_001"] == {
+        "id": "success_surface.surface_001",
+        "kind": "success_surface",
+        "source_section": "Success Surface",
+        "source_id": "surface_001",
+        "label": "Success surface 1",
+        "text": "The result remains easy for the next role to verify.",
+        "required": False,
+    }
+    assert targets_by_id["done_when.check_001"]["required"] is True
+    assert targets_by_id["fake_done.risk_001"]["required"] is False
+    assert targets_by_id["evidence_preference.pref_001"]["required"] is False
+
+
+def test_coverage_blocks_explicit_advisory_blockers_without_promoting_required_flag() -> None:
     rows = {
         "advisory_string_required": {
             "id": "advisory_string_required",
@@ -57,7 +84,7 @@ def test_coverage_required_status_requires_literal_boolean() -> None:
         }
     }
 
-    assert _overall_coverage_status(rows) == "weak"
+    assert _overall_coverage_status(rows) == "blocked"
 
     gaps = _top_coverage_gaps(
         [
@@ -250,6 +277,41 @@ def test_coverage_blocks_gatekeeper_finish_when_pass_cites_plain_builder_handoff
     assert projection["latest_gatekeeper"]["non_supporting_evidence_refs"] == ["ev_builder"]
 
 
+def test_coverage_blocks_gatekeeper_finish_when_pass_cites_plain_inspector_observation(tmp_path: Path) -> None:
+    layout = _coverage_layout(tmp_path)
+    _write_ledger(
+        layout.evidence_ledger_path,
+        [
+            {
+                "id": "ev_inspector",
+                "archetype": "inspector",
+                "evidence_kind": "inspection",
+                "result": "passed",
+                "claim": "Inspector says the required proof is complete, but left no structured check or artifact.",
+                "verifies": [],
+                "artifact_refs": [],
+            },
+            {
+                "id": "ev_gatekeeper",
+                "archetype": "gatekeeper",
+                "evidence_kind": "verdict",
+                "result": "passed",
+                "claim": "GateKeeper tried to pass from a plain inspector observation.",
+                "verifies": ["evidence:ev_inspector"],
+            },
+        ],
+    )
+
+    projection = build_evidence_coverage_projection(layout)
+
+    targets = {target["id"]: target for target in projection["targets"]}
+    assert projection["status"] == "blocked"
+    assert targets["gatekeeper.finish"]["status"] == "blocked"
+    assert targets["gatekeeper.finish"]["evidence_refs"] == ["ev_inspector", "ev_gatekeeper"]
+    assert projection["latest_gatekeeper"]["supporting_evidence_refs"] == []
+    assert projection["latest_gatekeeper"]["non_supporting_evidence_refs"] == ["ev_inspector"]
+
+
 def test_coverage_accepts_gatekeeper_finish_when_pass_has_supporting_ref(tmp_path: Path) -> None:
     layout = _coverage_layout(tmp_path)
     _write_ledger(
@@ -319,6 +381,9 @@ def test_coverage_downgrades_positive_target_report_without_supporting_evidence(
 
 def test_coverage_accepts_gatekeeper_target_report_with_supporting_related_evidence(tmp_path: Path) -> None:
     layout = _coverage_layout(tmp_path)
+    proof_path = tmp_path / "project" / "tests" / "evidence" / "proof.json"
+    proof_path.parent.mkdir(parents=True)
+    proof_path.write_text('{"ok": true}\n', encoding="utf-8")
     _write_ledger(
         layout.evidence_ledger_path,
         [
@@ -334,7 +399,7 @@ def test_coverage_accepts_gatekeeper_target_report_with_supporting_related_evide
                         "label": "proof-file:tests/evidence/proof.json",
                         "relative_path": "tests/evidence/proof.json",
                         "workspace_path": "tests/evidence/proof.json",
-                        "absolute_path": str(tmp_path / "project" / "tests" / "evidence" / "proof.json"),
+                        "absolute_path": str(proof_path),
                     }
                 ],
             },
@@ -564,6 +629,48 @@ def test_coverage_blocks_gatekeeper_finish_when_builder_proof_artifact_is_missin
     assert projection["latest_gatekeeper"]["non_supporting_evidence_refs"] == ["ev_builder"]
 
 
+def test_coverage_blocks_gatekeeper_finish_when_builder_proof_artifact_lacks_absolute_path(tmp_path: Path) -> None:
+    layout = _coverage_layout(tmp_path)
+    _write_ledger(
+        layout.evidence_ledger_path,
+        [
+            {
+                "id": "ev_builder",
+                "archetype": "builder",
+                "evidence_kind": "handoff",
+                "result": "completed",
+                "claim": "Builder cited a proof artifact without a checkable absolute path.",
+                "verifies": ["target:done_when.check_001:covered"],
+                "artifact_refs": [
+                    {
+                        "kind": "workspace",
+                        "label": "proof-file:tests/evidence/proof.json",
+                        "relative_path": "tests/evidence/proof.json",
+                        "workspace_path": "tests/evidence/proof.json",
+                    }
+                ],
+            },
+            {
+                "id": "ev_gatekeeper",
+                "archetype": "gatekeeper",
+                "evidence_kind": "verdict",
+                "result": "passed",
+                "claim": "GateKeeper tried to pass from an unchecked proof artifact ref.",
+                "verifies": ["evidence:ev_builder"],
+            },
+        ],
+    )
+
+    projection = build_evidence_coverage_projection(layout)
+
+    targets = {target["id"]: target for target in projection["targets"]}
+    assert projection["status"] == "blocked"
+    assert targets["gatekeeper.finish"]["status"] == "blocked"
+    assert targets["gatekeeper.finish"]["evidence_refs"] == ["ev_builder", "ev_gatekeeper"]
+    assert projection["latest_gatekeeper"]["supporting_evidence_refs"] == []
+    assert projection["latest_gatekeeper"]["non_supporting_evidence_refs"] == ["ev_builder"]
+
+
 def test_coverage_ignores_explicit_no_residual_risk_markers(tmp_path: Path) -> None:
     layout = _coverage_layout(tmp_path)
     _write_ledger(
@@ -595,6 +702,76 @@ def test_coverage_ignores_explicit_no_residual_risk_markers(tmp_path: Path) -> N
     assert projection["residual_risk_count"] == 0
     assert projection["risk_signals"] == []
     assert projection["latest_gatekeeper"]["residual_risk"] == "None"
+
+
+def test_coverage_ignores_chinese_no_meaningful_residual_risk_marker(tmp_path: Path) -> None:
+    layout = _coverage_layout(tmp_path)
+    _write_ledger(
+        layout.evidence_ledger_path,
+        [
+            {
+                "id": "ev_supporting",
+                "archetype": "inspector",
+                "evidence_kind": "inspection",
+                "result": "passed",
+                "claim": "The required proof is covered.",
+                "verifies": ["target:done_when.check_001:covered"],
+            },
+            {
+                "id": "ev_gatekeeper",
+                "archetype": "gatekeeper",
+                "evidence_kind": "verdict",
+                "result": "passed",
+                "claim": "GateKeeper passed without meaningful residual risk.",
+                "verifies": ["evidence:ev_supporting"],
+                "residual_risk": "无重大残余风险",
+            },
+        ],
+    )
+
+    projection = build_evidence_coverage_projection(layout)
+
+    assert projection["status"] == "covered"
+    assert projection["residual_risk_count"] == 0
+    assert projection["risk_signals"] == []
+    assert projection["latest_gatekeeper"]["residual_risk"] == "无重大残余风险"
+
+
+def test_coverage_keeps_residual_risk_exception_after_no_risk_phrase(tmp_path: Path) -> None:
+    layout = _coverage_layout(tmp_path)
+    _write_ledger(
+        layout.evidence_ledger_path,
+        [
+            {
+                "id": "ev_supporting",
+                "archetype": "inspector",
+                "evidence_kind": "inspection",
+                "result": "passed",
+                "claim": "The required proof is covered.",
+                "verifies": ["target:done_when.check_001:covered"],
+            },
+            {
+                "id": "ev_gatekeeper",
+                "archetype": "gatekeeper",
+                "evidence_kind": "verdict",
+                "result": "passed",
+                "claim": "GateKeeper named a managed exception.",
+                "verifies": ["evidence:ev_supporting"],
+                "residual_risk": "No residual risk except mobile checkout remains a Support-owned follow-up.",
+            },
+        ],
+    )
+
+    projection = build_evidence_coverage_projection(layout)
+
+    assert projection["status"] == "covered"
+    assert projection["residual_risk_count"] == 1
+    assert projection["risk_signals"] == [
+        "No residual risk except mobile checkout remains a Support-owned follow-up."
+    ]
+    assert projection["latest_gatekeeper"]["residual_risk"] == (
+        "No residual risk except mobile checkout remains a Support-owned follow-up."
+    )
 
 
 def test_coverage_accepts_gatekeeper_finish_when_pass_has_measured_self_evidence(tmp_path: Path) -> None:

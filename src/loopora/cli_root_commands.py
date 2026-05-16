@@ -81,7 +81,7 @@ def _register_run_command(app: typer.Typer) -> None:
         workflow_file: WorkflowFileOption = None,
         background: BackgroundOption = False,
     ) -> None:
-        """Create a loop definition and execute it immediately."""
+        """Expert: create and run a Loop from an existing spec file."""
         try:
             loop, result = create_and_maybe_start_loop(
                 LoopCreateRequest(
@@ -129,7 +129,7 @@ def _register_serve_command(app: typer.Typer) -> None:
         ),
         allow_unsafe_open: bool = typer.Option(False, "--allow-unsafe-open", help="Allow non-loopback hosts without an auth token. Dangerous on shared networks."),
     ) -> None:
-        """Run the local web console."""
+        """Run the local Web UI."""
         log_event(
             logger,
             logging.INFO,

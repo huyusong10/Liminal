@@ -634,11 +634,11 @@ class ServiceWorkflowExecutionMixin(
         workflow_steps = list(workflow.get("steps", []))
         workflow_controls = list(workflow.get("controls", []))
         completion_mode = normalize_completion_mode(run.get("completion_mode", "gatekeeper"))
-        run_contract = read_json(layout.run_contract_path)
 
         self.append_run_event(run_id, "run_started", {"status": "running"})
         self._write_summary(run_id, "running", "Resolving checks for this run.")
         compiled_spec = self._resolve_run_checks(run, executor, compiled_spec, run_dir, retry_config)
+        run_contract = read_json(layout.run_contract_path)
         self._write_summary(run_id, "running", "Waiting for the first workflow iteration to complete.")
         log_event(
             logger,

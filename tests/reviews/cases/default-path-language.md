@@ -6,6 +6,8 @@ targets:
     type: text_globs
     title: Default path templates, static text, and conversation guidance
     globs:
+      - README.md
+      - README.zh-CN.md
       - src/loopora/templates/_display_preferences_bootstrap.html
       - src/loopora/templates/auth.html
       - src/loopora/templates/base.html
@@ -33,6 +35,8 @@ targets:
     type: term_hints
     title: Expert-language hints on default visible surfaces
     globs:
+      - README.md
+      - README.zh-CN.md
       - src/loopora/templates/_display_preferences_bootstrap.html
       - src/loopora/templates/auth.html
       - src/loopora/templates/base.html
@@ -54,6 +58,7 @@ targets:
     terms:
       - bundle
       - YAML
+      - workflow
       - workflow controls
       - orchestration
       - adapter binding
@@ -66,7 +71,7 @@ Review default user-facing paths as a non-expert user would encounter them. The 
 
 Look for:
 
-- Expert terms such as bundle, YAML, workflow controls, orchestration internals, adapter binding, or provider-specific jargon appearing before the user asks for expert mode.
+- Expert terms such as bundle, YAML, workflow, workflow controls, orchestration internals, GateKeeper role names, adapter binding, or provider-specific jargon appearing before the user asks for expert mode.
 - A page or prompt explaining implementation mechanics instead of the next user action.
 - Copy that makes Loopora feel like a prompt pack, role zoo, or generic chat surface instead of a human-shaped Loop platform.
 - Chinese and English variants that preserve the same user intent even when the exact words differ.

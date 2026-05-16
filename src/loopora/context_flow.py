@@ -6,7 +6,16 @@ from pathlib import Path
 
 from loopora.coverage_target_semantics import coverage_target_is_required
 from loopora.evidence_gate import concrete_evidence_claim_count, has_measured_gate_evidence
+from loopora.evidence_support import evidence_item_is_supporting_gatekeeper_ref
+from loopora.residual_risk_support import residual_risk_is_meaningful
 from loopora.run_artifacts import RunArtifactLayout, artifact_ref
+from loopora.service_bundle_control_summary import (
+    build_execution_strategy_trace,
+    build_judgment_tradeoff_trace,
+    build_loop_fit_trace,
+    build_runtime_local_governance_trace,
+    role_posture_preview,
+)
 from loopora.specs import resolve_role_note
 from loopora.structured_booleans import structured_bool_is_true
 from loopora.structured_numbers import structured_non_negative_int, structured_optional_finite_number
@@ -21,6 +30,8 @@ class RunContractSnapshotRequest:
     prompt_files: dict[str, str]
     workspace_baseline: dict
     layout: RunArtifactLayout
+    collaboration_summary: str = ""
+    source_bundle: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +54,7 @@ class StepContextPacketRequest:
     covered_check_count: int = 0
     missing_check_count: int = 0
     consecutive_no_required_coverage_delta: int = 0
+    evidence_coverage_summary: dict | None = None
     evidence_items: list[dict] | None = None
     evidence_known_ids: list[str] | None = None
     evidence_manifest_summary: dict | None = None
@@ -97,6 +109,22 @@ EVIDENCE_COVERAGE_RESULT_SCHEMA = {
         "status": {"type": "string"},
         "evidence_refs": {"type": "array", "items": {"type": "string"}},
         "note": {"type": "string"},
+    },
+    "additionalProperties": False,
+}
+
+EVIDENCE_COVERAGE_GAP_SCHEMA = {
+    "type": "object",
+    "required": ["target_id", "kind", "source_section", "status", "required", "reason", "text", "evidence_refs"],
+    "properties": {
+        "target_id": {"type": "string"},
+        "kind": {"type": "string"},
+        "source_section": {"type": "string"},
+        "status": {"type": "string"},
+        "required": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "text": {"type": "string"},
+        "evidence_refs": {"type": "array", "items": {"type": "string"}},
     },
     "additionalProperties": False,
 }
@@ -255,6 +283,18 @@ EVIDENCE_MANIFEST_CLAIM_SCHEMA = {
     "additionalProperties": False,
 }
 
+ROLE_POSTURE_CONTRACT_SCHEMA = {
+    "type": "object",
+    "required": ["role_id", "role_name", "archetype", "posture_notes"],
+    "properties": {
+        "role_id": {"type": "string"},
+        "role_name": {"type": "string"},
+        "archetype": {"type": "string"},
+        "posture_notes": {"type": "string"},
+    },
+    "additionalProperties": False,
+}
+
 STEP_CONTEXT_PACKET_SCHEMA = {
     "type": "object",
     "required": ["contract", "iteration", "current_step", "upstream", "evidence", "artifacts"],
@@ -268,8 +308,14 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "check_mode",
                 "check_count",
                 "completion_mode",
+                "collaboration_summary",
+                "loop_fit_reasons",
                 "workflow_preset",
                 "workflow_collaboration_intent",
+                "judgment_tradeoffs",
+                "execution_strategy",
+                "local_governance",
+                "role_postures",
                 "coverage_targets",
                 "success_surface",
                 "fake_done_states",
@@ -283,8 +329,14 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "check_mode": {"type": "string"},
                 "check_count": {"type": "integer"},
                 "completion_mode": {"type": "string"},
+                "collaboration_summary": {"type": "string"},
+                "loop_fit_reasons": {"type": "array", "items": {"type": "string"}},
                 "workflow_preset": {"type": "string"},
                 "workflow_collaboration_intent": {"type": "string"},
+                "judgment_tradeoffs": {"type": "array", "items": {"type": "string"}},
+                "execution_strategy": {"type": "array", "items": {"type": "string"}},
+                "local_governance": {"type": "array", "items": {"type": "string"}},
+                "role_postures": {"type": "array", "items": ROLE_POSTURE_CONTRACT_SCHEMA},
                 "coverage_targets": {"type": "array", "items": {"type": "object"}},
                 "success_surface": {"type": "array", "items": {"type": "string"}},
                 "fake_done_states": {"type": "array", "items": {"type": "string"}},
@@ -302,8 +354,12 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "previous_composite",
                 "stagnation_mode",
                 "evidence_progress_mode",
+                "coverage_status",
                 "covered_check_count",
                 "missing_check_count",
+                "covered_check_ids",
+                "missing_check_ids",
+                "coverage_top_gaps",
                 "consecutive_no_required_coverage_delta",
             ],
             "properties": {
@@ -313,8 +369,12 @@ STEP_CONTEXT_PACKET_SCHEMA = {
                 "previous_composite": {"type": ["number", "null"]},
                 "stagnation_mode": {"type": "string"},
                 "evidence_progress_mode": {"type": "string"},
+                "coverage_status": {"type": "string"},
                 "covered_check_count": {"type": "integer"},
                 "missing_check_count": {"type": "integer"},
+                "covered_check_ids": {"type": "array", "items": {"type": "string"}},
+                "missing_check_ids": {"type": "array", "items": {"type": "string"}},
+                "coverage_top_gaps": {"type": "array", "items": EVIDENCE_COVERAGE_GAP_SCHEMA},
                 "consecutive_no_required_coverage_delta": {"type": "integer"},
             },
             "additionalProperties": False,
@@ -407,7 +467,7 @@ STEP_CONTEXT_PACKET_SCHEMA = {
 
 ITERATION_SUMMARY_SCHEMA = {
     "type": "object",
-    "required": ["phase", "iter", "timestamp", "workflow", "step_handoffs", "score", "stagnation", "latest_refs"],
+    "required": ["phase", "iter", "timestamp", "workflow", "step_handoffs", "score", "gatekeeper_verdict", "stagnation", "latest_refs"],
     "properties": {
         "phase": {"type": "string"},
         "iter": {"type": "integer"},
@@ -450,6 +510,30 @@ ITERATION_SUMMARY_SCHEMA = {
             },
             "additionalProperties": False,
         },
+        "gatekeeper_verdict": {
+            "type": "object",
+            "required": [
+                "passed",
+                "decision_summary",
+                "blocking_issues",
+                "feedback_to_builder",
+                "evidence_refs",
+                "evidence_claims",
+                "residual_risks",
+                "coverage_results",
+            ],
+            "properties": {
+                "passed": {"type": ["boolean", "null"]},
+                "decision_summary": {"type": "string"},
+                "blocking_issues": {"type": "array", "items": {"type": "string"}},
+                "feedback_to_builder": {"type": "string"},
+                "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                "evidence_claims": {"type": "array", "items": {"type": "string"}},
+                "residual_risks": {"type": "array", "items": {"type": "string"}},
+                "coverage_results": {"type": "array", "items": EVIDENCE_COVERAGE_RESULT_SCHEMA},
+            },
+            "additionalProperties": False,
+        },
         "stagnation": {
             "type": "object",
             "required": [
@@ -458,8 +542,12 @@ ITERATION_SUMMARY_SCHEMA = {
                 "recent_composites",
                 "recent_deltas",
                 "consecutive_low_delta",
+                "coverage_status",
                 "covered_check_count",
                 "missing_check_count",
+                "covered_check_ids",
+                "missing_check_ids",
+                "coverage_top_gaps",
                 "consecutive_no_required_coverage_delta",
             ],
             "properties": {
@@ -468,8 +556,12 @@ ITERATION_SUMMARY_SCHEMA = {
                 "recent_composites": {"type": "array", "items": {"type": "number"}},
                 "recent_deltas": {"type": "array", "items": {"type": "number"}},
                 "consecutive_low_delta": {"type": "integer"},
+                "coverage_status": {"type": "string"},
                 "covered_check_count": {"type": "integer"},
                 "missing_check_count": {"type": "integer"},
+                "covered_check_ids": {"type": "array", "items": {"type": "string"}},
+                "missing_check_ids": {"type": "array", "items": {"type": "string"}},
+                "coverage_top_gaps": {"type": "array", "items": EVIDENCE_COVERAGE_GAP_SCHEMA},
                 "consecutive_no_required_coverage_delta": {"type": "integer"},
             },
             "additionalProperties": False,
@@ -515,9 +607,14 @@ LATEST_STATE_SCHEMA = {
 def build_run_contract_snapshot(request: RunContractSnapshotRequest) -> dict:
     run = request.run
     layout = request.layout
+    compiled_spec = request.compiled_spec if isinstance(request.compiled_spec, dict) else {}
+    tradeoff_roles = _workflow_roles_with_prompt_files(request.workflow, request.prompt_files)
+    role_posture_roles = _workflow_roles_with_runtime_prompt_markdown(request.workflow, request.prompt_files)
+    source_bundle = _contract_source_bundle(request.source_bundle)
     return {
         "run_id": run["id"],
         "loop_id": run.get("loop_id"),
+        "source_bundle": source_bundle,
         "workdir": str(run.get("workdir") or ""),
         "completion_mode": str(run.get("completion_mode") or "gatekeeper"),
         "max_iters": int(run.get("max_iters") or 0),
@@ -532,7 +629,31 @@ def build_run_contract_snapshot(request: RunContractSnapshotRequest) -> dict:
             "model": str(run.get("model") or ""),
             "reasoning_effort": str(run.get("reasoning_effort") or ""),
         },
-        "compiled_spec": request.compiled_spec,
+        "compiled_spec": compiled_spec,
+        "collaboration_summary": str(request.collaboration_summary or "").strip(),
+        "success_surface": _contract_string_list(compiled_spec.get("success_surface")),
+        "fake_done_states": _contract_string_list(compiled_spec.get("fake_done_states")),
+        "evidence_preferences": _contract_string_list(compiled_spec.get("evidence_preferences")),
+        "residual_risk": _contract_string(compiled_spec.get("residual_risk")),
+        "loop_fit_reasons": build_loop_fit_trace(request.collaboration_summary),
+        "judgment_tradeoffs": build_judgment_tradeoff_trace(
+            collaboration_summary=request.collaboration_summary,
+            raw_sections=compiled_spec.get("raw_sections"),
+            roles=tradeoff_roles,
+            workflow=request.workflow,
+        ),
+        "execution_strategy": build_execution_strategy_trace(
+            collaboration_summary=request.collaboration_summary,
+            raw_sections=compiled_spec.get("raw_sections"),
+            roles=tradeoff_roles,
+            workflow=request.workflow,
+        ),
+        "local_governance": build_runtime_local_governance_trace(
+            raw_sections=compiled_spec.get("raw_sections"),
+            roles=tradeoff_roles,
+            workflow=request.workflow,
+        ),
+        "role_postures": _contract_role_postures(role_posture_roles),
         "workflow": {
             "preset": str(request.workflow.get("preset") or "custom"),
             "collaboration_intent": str(request.workflow.get("collaboration_intent") or "").strip(),
@@ -594,6 +715,92 @@ def build_run_contract_snapshot(request: RunContractSnapshotRequest) -> dict:
     }
 
 
+def _workflow_roles_with_prompt_files(workflow: dict, prompt_files: dict[str, str]) -> list[dict]:
+    roles = [dict(role) for role in list(workflow.get("roles") or []) if isinstance(role, dict)] if isinstance(workflow, dict) else []
+    if not isinstance(prompt_files, dict):
+        return roles
+    for prompt_ref, prompt_markdown in prompt_files.items():
+        text = str(prompt_markdown or "").strip()
+        if not text:
+            continue
+        roles.append({"key": str(prompt_ref or ""), "prompt_markdown": text})
+    return roles
+
+
+def _workflow_roles_with_runtime_prompt_markdown(workflow: dict, prompt_files: dict[str, str]) -> list[dict]:
+    roles = [dict(role) for role in list(workflow.get("roles") or []) if isinstance(role, dict)] if isinstance(workflow, dict) else []
+    if not isinstance(prompt_files, dict):
+        return roles
+    for role in roles:
+        prompt_ref = str(role.get("prompt_ref") or "").strip()
+        prompt_markdown = str(prompt_files.get(prompt_ref) or "").strip() if prompt_ref else ""
+        if prompt_markdown:
+            role["prompt_markdown"] = prompt_markdown
+    return roles
+
+
+def _contract_string(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _contract_source_bundle(value: object) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    bundle_id = _contract_string(value.get("id"))
+    if not bundle_id:
+        return {}
+    source = {
+        "id": bundle_id,
+        "name": _contract_string(value.get("name")),
+        "revision": structured_non_negative_int(value.get("revision")),
+        "source_bundle_id": _contract_string(value.get("source_bundle_id")),
+        "imported_from_path": _contract_string(value.get("imported_from_path")),
+    }
+    bundle_sha256 = _contract_string(value.get("bundle_sha256"))
+    bundle_bytes = structured_non_negative_int(value.get("bundle_bytes"))
+    bundle_yaml_path = _contract_string(value.get("bundle_yaml_path"))
+    if bundle_sha256:
+        source["bundle_sha256"] = bundle_sha256
+    if bundle_bytes:
+        source["bundle_bytes"] = bundle_bytes
+    if bundle_yaml_path:
+        source["bundle_yaml_path"] = bundle_yaml_path
+    return source
+
+
+def _contract_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _contract_mapping_list(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def _contract_role_postures(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    postures: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        posture_notes = _contract_string(item.get("posture_notes")) or role_posture_preview(item)
+        if not posture_notes:
+            continue
+        postures.append(
+            {
+                "role_id": _contract_string(item.get("role_id") or item.get("id")),
+                "role_name": _contract_string(item.get("role_name") or item.get("name")),
+                "archetype": _contract_string(item.get("archetype")),
+                "posture_notes": posture_notes,
+            }
+        )
+    return postures
+
+
 def build_step_context_packet(request: StepContextPacketRequest) -> dict:
     run_contract = request.run_contract
     layout = request.layout
@@ -601,6 +808,30 @@ def build_step_context_packet(request: StepContextPacketRequest) -> dict:
     role = request.role
     compiled_spec = run_contract.get("compiled_spec") or {}
     workflow_snapshot = run_contract.get("workflow") or {}
+    raw_sections = compiled_spec.get("raw_sections") if isinstance(compiled_spec.get("raw_sections"), dict) else {}
+    workflow_roles = workflow_snapshot.get("roles") if isinstance(workflow_snapshot.get("roles"), list) else []
+    coverage_summary = _normalize_evidence_coverage_summary(
+        request.evidence_coverage_summary,
+        fallback_covered_check_count=request.covered_check_count,
+        fallback_missing_check_count=request.missing_check_count,
+    )
+    judgment_tradeoffs = _contract_string_list(run_contract.get("judgment_tradeoffs")) or build_judgment_tradeoff_trace(
+        collaboration_summary=run_contract.get("collaboration_summary"),
+        raw_sections=raw_sections,
+        roles=workflow_roles,
+        workflow=workflow_snapshot,
+    )
+    execution_strategy = _contract_string_list(run_contract.get("execution_strategy")) or build_execution_strategy_trace(
+        collaboration_summary=run_contract.get("collaboration_summary"),
+        raw_sections=raw_sections,
+        roles=workflow_roles,
+        workflow=workflow_snapshot,
+    )
+    local_governance = _contract_string_list(run_contract.get("local_governance")) or build_runtime_local_governance_trace(
+        raw_sections=raw_sections,
+        roles=workflow_roles,
+        workflow=workflow_snapshot,
+    )
     return {
         "contract": {
             "path": layout.relative(layout.run_contract_path),
@@ -609,13 +840,21 @@ def build_step_context_packet(request: StepContextPacketRequest) -> dict:
             "check_mode": str(compiled_spec.get("check_mode") or "specified"),
             "check_count": len(compiled_spec.get("checks") or []),
             "completion_mode": str(run_contract.get("completion_mode") or "gatekeeper"),
+            "collaboration_summary": str(run_contract.get("collaboration_summary") or "").strip(),
+            "loop_fit_reasons": _contract_string_list(run_contract.get("loop_fit_reasons")) or build_loop_fit_trace(
+                run_contract.get("collaboration_summary")
+            ),
             "workflow_preset": str(workflow_snapshot.get("preset") or "custom"),
             "workflow_collaboration_intent": str(workflow_snapshot.get("collaboration_intent") or "").strip(),
-            "coverage_targets": list(compiled_spec.get("coverage_targets") or []),
-            "success_surface": list(compiled_spec.get("success_surface") or []),
-            "fake_done_states": list(compiled_spec.get("fake_done_states") or []),
-            "evidence_preferences": list(compiled_spec.get("evidence_preferences") or []),
-            "residual_risk": str(compiled_spec.get("residual_risk") or "").strip(),
+            "judgment_tradeoffs": judgment_tradeoffs,
+            "execution_strategy": execution_strategy,
+            "local_governance": local_governance,
+            "role_postures": _contract_role_postures(run_contract.get("role_postures") or workflow_snapshot.get("roles")),
+            "coverage_targets": _contract_mapping_list(compiled_spec.get("coverage_targets")),
+            "success_surface": _contract_string_list(run_contract.get("success_surface") or compiled_spec.get("success_surface")),
+            "fake_done_states": _contract_string_list(run_contract.get("fake_done_states") or compiled_spec.get("fake_done_states")),
+            "evidence_preferences": _contract_string_list(run_contract.get("evidence_preferences") or compiled_spec.get("evidence_preferences")),
+            "residual_risk": _contract_string(run_contract.get("residual_risk") or compiled_spec.get("residual_risk")),
         },
         "iteration": {
             "iter_index": int(request.iter_id),
@@ -624,8 +863,12 @@ def build_step_context_packet(request: StepContextPacketRequest) -> dict:
             "previous_composite": request.previous_composite,
             "stagnation_mode": str(request.stagnation_mode or "none"),
             "evidence_progress_mode": str(request.evidence_progress_mode or "none"),
-            "covered_check_count": _int_value(request.covered_check_count),
-            "missing_check_count": _int_value(request.missing_check_count),
+            "coverage_status": coverage_summary["status"],
+            "covered_check_count": coverage_summary["covered_check_count"],
+            "missing_check_count": coverage_summary["missing_check_count"],
+            "covered_check_ids": coverage_summary["covered_check_ids"],
+            "missing_check_ids": coverage_summary["missing_check_ids"],
+            "coverage_top_gaps": coverage_summary["top_gaps"],
             "consecutive_no_required_coverage_delta": _int_value(request.consecutive_no_required_coverage_delta),
         },
         "current_step": {
@@ -1020,14 +1263,19 @@ def build_iteration_summary(context: IterationSummaryContext) -> dict:
             "delta": delta,
             "passed": gatekeeper_output.get("passed"),
         },
+        "gatekeeper_verdict": _iteration_gatekeeper_verdict(gatekeeper_output),
         "stagnation": {
             "mode": str(stagnation.get("stagnation_mode", "none")),
             "evidence_progress_mode": str(stagnation.get("evidence_progress_mode", "none") or "none"),
             "recent_composites": _number_values(stagnation.get("recent_composites")),
             "recent_deltas": _number_values(stagnation.get("recent_deltas")),
             "consecutive_low_delta": _int_value(stagnation.get("consecutive_low_delta")),
+            "coverage_status": str(stagnation.get("latest_coverage_status") or "pending"),
             "covered_check_count": _int_value(stagnation.get("latest_covered_check_count")),
             "missing_check_count": _int_value(stagnation.get("latest_missing_check_count")),
+            "covered_check_ids": _string_list(stagnation.get("latest_covered_check_ids")),
+            "missing_check_ids": _string_list(stagnation.get("latest_missing_check_ids")),
+            "coverage_top_gaps": _normalize_coverage_gap_rows(stagnation.get("latest_coverage_top_gaps")),
             "consecutive_no_required_coverage_delta": _int_value(stagnation.get("consecutive_no_required_coverage_delta")),
         },
         "latest_refs": {
@@ -1041,6 +1289,30 @@ def build_iteration_summary(context: IterationSummaryContext) -> dict:
             "latest_by_role": latest_by_role,
             "latest_by_archetype": latest_by_archetype,
         },
+    }
+
+
+def _iteration_gatekeeper_verdict(output: dict) -> dict:
+    if not isinstance(output, dict) or not output:
+        return {
+            "passed": None,
+            "decision_summary": "",
+            "blocking_issues": [],
+            "feedback_to_builder": "",
+            "evidence_refs": [],
+            "evidence_claims": [],
+            "residual_risks": [],
+            "coverage_results": [],
+        }
+    return {
+        "passed": structured_bool_is_true(output.get("passed")),
+        "decision_summary": _clean_text(output.get("decision_summary")),
+        "blocking_issues": _gatekeeper_blockers(output),
+        "feedback_to_builder": _clean_text(output.get("feedback_to_builder") or output.get("feedback_to_generator")),
+        "evidence_refs": _string_list(output.get("evidence_refs"))[:20],
+        "evidence_claims": _string_list(output.get("evidence_claims"))[:20],
+        "residual_risks": _string_list(output.get("residual_risks"))[:20],
+        "coverage_results": _evidence_coverage_results(output.get("coverage_results")),
     }
 
 
@@ -1124,7 +1396,7 @@ def system_prompt_prefix(archetype: str) -> str:
             "- Prefer focused, incremental changes over broad resets.\n"
             "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
             "- If downstream review steps run in a parallel_group, leave one coherent handoff for all reviewers instead of splitting evidence across private notes.\n"
-            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk; "
+            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, bundle collaboration summary, Loopora fit, workflow collaboration intent, role posture, Success Surface, Fake Done, Evidence Preferences, Execution Strategy, Judgment Tradeoffs, Local Governance, or Residual Risk; "
             "surface contract problems as evidence gaps or blockers instead.\n"
             "- In the handoff, name which claim moved toward Proven and what remains Weak, Unproven, Blocking, or Residual risk."
         )
@@ -1136,7 +1408,7 @@ def system_prompt_prefix(archetype: str) -> str:
             "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
             "- Classify important observations as Proven, Weak, Unproven, Blocking, or Residual risk when that helps downstream judgment.\n"
             "- If this step is in a parallel_group, cover only your assigned evidence responsibility and do not wait for peer reviewers.\n"
-            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk; "
+            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, bundle collaboration summary, Loopora fit, workflow collaboration intent, role posture, Success Surface, Fake Done, Evidence Preferences, Execution Strategy, Judgment Tradeoffs, Local Governance, or Residual Risk; "
             "surface contract problems as evidence gaps or blockers instead.\n"
             "- Do not rewrite source files as part of inspection."
         )
@@ -1148,7 +1420,7 @@ def system_prompt_prefix(archetype: str) -> str:
             "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
             "- Keep run status separate from task verdict, and organize the verdict as Proven, Weak, Unproven, Blocking, or Residual risk.\n"
             "- If upstream reviewers ran in a parallel_group, fan in every relevant review branch instead of treating the last handoff as the whole review.\n"
-            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk; "
+            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, bundle collaboration summary, Loopora fit, workflow collaboration intent, role posture, Success Surface, Fake Done, Evidence Preferences, Execution Strategy, Judgment Tradeoffs, Local Governance, or Residual Risk; "
             "surface contract problems as evidence gaps or blockers instead.\n"
             "- Keep the verdict short and operational."
         )
@@ -1161,7 +1433,7 @@ def system_prompt_prefix(archetype: str) -> str:
             "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
             "- Mark specialized observations as Proven, Weak, Unproven, Blocking, or Residual risk when useful.\n"
             "- If this step is in a parallel_group, cover only your custom specialization and leave evidence GateKeeper can fan in with peer branches.\n"
-            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk; "
+            "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, bundle collaboration summary, Loopora fit, workflow collaboration intent, role posture, Success Surface, Fake Done, Evidence Preferences, Execution Strategy, Judgment Tradeoffs, Local Governance, or Residual Risk; "
             "surface contract problems as evidence gaps or blockers instead.\n"
             "- Always return a stable takeaway with status, summary, blocking_items, and recommended_next_action."
         )
@@ -1171,7 +1443,7 @@ def system_prompt_prefix(archetype: str) -> str:
         "- Do not act like a second GateKeeper.\n"
         "- Turn Blocking or Unproven gaps into a smaller proof or repair direction while keeping Residual risk visible.\n"
         "- Treat project-local instructions, design docs, and tests as contract and evidence inputs when they exist.\n"
-        "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, Success Surface, Fake Done, Evidence Preferences, or Residual Risk; "
+        "- Treat the run contract as frozen: do not reinterpret or lower Task, Done When, Guardrails, bundle collaboration summary, Loopora fit, workflow collaboration intent, role posture, Success Surface, Fake Done, Evidence Preferences, Execution Strategy, Judgment Tradeoffs, Local Governance, or Residual Risk; "
         "surface contract problems as evidence gaps or blockers instead.\n"
         "- Keep the advice grounded in the current evidence."
     )
@@ -1206,6 +1478,8 @@ def output_contract_prompt(archetype: str) -> str:
             "For every coverage_results item, return target_id, status, evidence_refs, and note; use covered for a verified target and keep Proven/Weak/Unproven/Blocking/Residual risk as verdict buckets. "
             "A pass must cite supporting upstream evidence_refs from the Evidence ledger; a plain Builder handoff is not support unless it carries a proof artifact or measured evidence. If this is the first gate in the workflow, "
             "claims alone are not enough; provide concrete metric_scores tied to the evidence you inspected. "
+            "Accepted residual_risks must name the risk plus an owner, follow-up, or acceptance path; vague residual risk keeps the pass blocked. "
+            "If the run contract disallows accepted residual risk, keep residual_risks empty and report any remaining risk as blocking instead of passing. "
             "The decision_summary should separate run status from task verdict and name any Weak, Unproven, Blocking, or Residual risk evidence."
         )
     if archetype == "custom":
@@ -1227,11 +1501,25 @@ def render_run_contract_section(contract: dict, compiled_spec: dict) -> str:
     fake_done_states = json.dumps(contract.get("fake_done_states") or [], ensure_ascii=False, indent=2)
     evidence_preferences = json.dumps(contract.get("evidence_preferences") or [], ensure_ascii=False, indent=2)
     coverage_targets = json.dumps(contract.get("coverage_targets") or [], ensure_ascii=False, indent=2)
+    collaboration_summary = str(
+        contract.get("collaboration_summary") or "No explicit bundle collaboration summary was provided."
+    ).strip()
     workflow_collaboration_intent = str(contract.get("workflow_collaboration_intent") or "No explicit workflow collaboration intent was provided.").strip()
+    loop_fit_reasons = json.dumps(contract.get("loop_fit_reasons") or [], ensure_ascii=False, indent=2)
+    judgment_tradeoffs = json.dumps(contract.get("judgment_tradeoffs") or [], ensure_ascii=False, indent=2)
+    execution_strategy = json.dumps(contract.get("execution_strategy") or [], ensure_ascii=False, indent=2)
+    local_governance = json.dumps(contract.get("local_governance") or [], ensure_ascii=False, indent=2)
+    role_postures = json.dumps(contract.get("role_postures") or [], ensure_ascii=False, indent=2)
     residual_risk = str(contract.get("residual_risk") or "No explicit residual-risk stance was provided.").strip()
     return (
         "Run contract summary:\n"
         f"- Completion mode: {contract.get('completion_mode')}\n"
+        f"- Bundle collaboration summary: {collaboration_summary}\n"
+        f"- Loopora fit: {loop_fit_reasons}\n"
+        f"- Judgment tradeoffs: {judgment_tradeoffs}\n"
+        f"- Execution strategy: {execution_strategy}\n"
+        f"- Local governance: {local_governance}\n"
+        f"- Role postures: {role_postures}\n"
         f"- Workflow preset: {contract.get('workflow_preset')}\n"
         f"- Workflow collaboration intent: {workflow_collaboration_intent}\n"
         f"- Check mode: {contract.get('check_mode')}\n"
@@ -1299,6 +1587,14 @@ def render_iteration_section(packet: dict) -> str:
             f"- Control reason: {control.get('reason') or 'runtime control check'}\n"
             f"- Control evidence refs: {json.dumps(trigger_refs, ensure_ascii=False)}\n"
         )
+    top_gaps = list(iteration.get("coverage_top_gaps") or [])[:5]
+    missing_check_ids = _string_list(iteration.get("missing_check_ids"))[:8]
+    coverage_gap_lines = (
+        f"- Missing required check ids: {json.dumps(missing_check_ids, ensure_ascii=False)}\n"
+        f"- Top coverage gaps: {json.dumps(top_gaps, ensure_ascii=False)}\n"
+        if missing_check_ids or top_gaps
+        else ""
+    )
     return (
         "Current execution frame:\n"
         f"- Iteration: {iter_display}\n"
@@ -1313,7 +1609,9 @@ def render_iteration_section(packet: dict) -> str:
         f"{control_lines}"
         f"- Stagnation mode: {iteration['stagnation_mode']}\n"
         f"- Evidence progress mode: {iteration['evidence_progress_mode']}\n"
+        f"- Coverage status: {iteration.get('coverage_status', 'pending')}\n"
         f"- Required coverage: {iteration['covered_check_count']} covered, {iteration['missing_check_count']} missing\n"
+        f"{coverage_gap_lines}"
         f"- Consecutive iterations without required coverage delta: {iteration['consecutive_no_required_coverage_delta']}\n\n"
         f"{previous_line}"
     )
@@ -1343,7 +1641,9 @@ def render_handoff_list_section(title: str, handoffs: list[dict], *, empty_text:
         source = handoff["source"]
         lines.append(
             f"- {source['step_order'] + 1}. {source['role_name']} ({source['archetype']}) :: {handoff['status']} :: {handoff['summary']}"
+            f" :: blocking={json.dumps(handoff.get('blocking_items', []), ensure_ascii=False)}"
             f" :: evidence={json.dumps(handoff.get('evidence_refs', []), ensure_ascii=False)}"
+            f" :: next={handoff.get('recommended_next_action', '-')}"
         )
     return "\n".join(lines)
 
@@ -1351,6 +1651,7 @@ def render_handoff_list_section(title: str, handoffs: list[dict], *, empty_text:
 def render_previous_iteration_summary(summary: dict | None) -> str:
     if not summary:
         return "Previous iteration summary:\n- No previous iteration summary is available yet."
+    gatekeeper_verdict = summary.get("gatekeeper_verdict") if isinstance(summary.get("gatekeeper_verdict"), dict) else {}
     lines = [
         "Previous iteration summary:\n"
         f"- Iteration: {int(summary['iter']) + 1}\n"
@@ -1359,20 +1660,55 @@ def render_previous_iteration_summary(summary: dict | None) -> str:
         f"- Passed: {summary['score']['passed']}\n"
         f"- Stagnation mode: {summary['stagnation']['mode']}\n"
         f"- Evidence progress mode: {summary['stagnation']['evidence_progress_mode']}\n"
+        f"- Coverage status: {summary['stagnation'].get('coverage_status', 'pending')}\n"
         f"- Required coverage: {summary['stagnation']['covered_check_count']} covered, {summary['stagnation']['missing_check_count']} missing\n"
         f"- Consecutive iterations without required coverage delta: {summary['stagnation']['consecutive_no_required_coverage_delta']}\n"
         f"- Step count: {len(summary['workflow'])}"
     ]
+    lines.extend(_previous_iteration_coverage_gap_lines(summary["stagnation"]))
+    if gatekeeper_verdict:
+        lines.append(
+            "- GateKeeper verdict: "
+            f"passed={gatekeeper_verdict.get('passed')} :: "
+            f"{gatekeeper_verdict.get('decision_summary') or '-'}"
+        )
+        blockers = _string_list(gatekeeper_verdict.get("blocking_issues"))
+        if blockers:
+            lines.append(f"- GateKeeper blockers: {json.dumps(blockers, ensure_ascii=False)}")
+        feedback = _clean_text(gatekeeper_verdict.get("feedback_to_builder"))
+        if feedback:
+            lines.append(f"- GateKeeper next repair: {feedback}")
+        residual_risks = _string_list(gatekeeper_verdict.get("residual_risks"))
+        if residual_risks:
+            lines.append(f"- GateKeeper residual risks: {json.dumps(residual_risks, ensure_ascii=False)}")
+        evidence_refs = _string_list(gatekeeper_verdict.get("evidence_refs"))
+        if evidence_refs:
+            lines.append(f"- GateKeeper evidence refs: {json.dumps(evidence_refs, ensure_ascii=False)}")
+        coverage_results = _evidence_item_prompt_coverage_results(gatekeeper_verdict.get("coverage_results"))
+        if coverage_results:
+            lines.append(f"- GateKeeper coverage results: {json.dumps(coverage_results, ensure_ascii=False)}")
     for handoff in list(summary.get("step_handoffs", []))[:6]:
         source = handoff.get("source", {})
         lines.append(
             f"- Previous step {source.get('step_order', 0) + 1} :: {source.get('role_name', '-')}"
             f" :: {handoff.get('status', '-')}"
             f" :: {handoff.get('summary', '-')}"
+            f" :: blocking={json.dumps(handoff.get('blocking_items', []), ensure_ascii=False)}"
             f" :: evidence={json.dumps(handoff.get('evidence_refs', []), ensure_ascii=False)}"
             f" :: next={handoff.get('recommended_next_action', '-')}"
         )
     return "\n".join(lines)
+
+
+def _previous_iteration_coverage_gap_lines(stagnation: dict) -> list[str]:
+    lines: list[str] = []
+    missing_check_ids = _string_list(stagnation.get("missing_check_ids"))[:8]
+    if missing_check_ids:
+        lines.append(f"- Missing required check ids: {json.dumps(missing_check_ids, ensure_ascii=False)}")
+    coverage_top_gaps = _normalize_coverage_gap_rows(stagnation.get("coverage_top_gaps"))
+    if coverage_top_gaps:
+        lines.append(f"- Top coverage gaps: {json.dumps(coverage_top_gaps, ensure_ascii=False)}")
+    return lines
 
 
 def render_evidence_section(evidence: dict) -> str:
@@ -1407,10 +1743,14 @@ def _evidence_item_prompt_lines(item: object, manifest_claims: dict[str, dict]) 
     if not isinstance(item, dict):
         return []
     lines = [f"- {item.get('id', '-')}: {item.get('role_name', '-')} ({item.get('archetype', '-')}) ::{item.get('result', '-')} :: {item.get('claim', '-')}"]
+    lines.append(f"  gatekeeper_support={_gatekeeper_support_prompt_value(item)}")
     lines.extend(_manifest_claim_prompt_lines(manifest_claims.get(str(item.get("id") or "").strip())))
     related = item.get("related_evidence_ids") if isinstance(item.get("related_evidence_ids"), list) else []
     if related:
         lines.append(f"  related={json.dumps(related, ensure_ascii=False)}")
+    residual_risk = str(item.get("residual_risk") or "").strip()
+    if residual_risk_is_meaningful(residual_risk):
+        lines.append(f"  residual_risk={residual_risk}")
     coverage_results = _evidence_item_prompt_coverage_results(item.get("coverage_results"))
     if coverage_results:
         lines.append(f"  coverage_results={json.dumps(coverage_results, ensure_ascii=False)}")
@@ -1418,6 +1758,10 @@ def _evidence_item_prompt_lines(item: object, manifest_claims: dict[str, dict]) 
     if artifacts:
         lines.append(f"  artifacts={json.dumps(artifacts, ensure_ascii=False)}")
     return lines
+
+
+def _gatekeeper_support_prompt_value(item: dict) -> str:
+    return "supporting" if evidence_item_is_supporting_gatekeeper_ref(item) else "non_supporting"
 
 
 def _evidence_item_prompt_coverage_results(value: object) -> list[dict]:
@@ -1489,6 +1833,48 @@ def _manifest_claim_prompt_lines(claim: dict | None) -> list[str]:
     if problem_codes:
         lines.append(f"  proof_problems={json.dumps(problem_codes[:8], ensure_ascii=False)}")
     return lines
+
+
+def _normalize_evidence_coverage_summary(
+    value: object,
+    *,
+    fallback_covered_check_count: int,
+    fallback_missing_check_count: int,
+) -> dict:
+    source = value if isinstance(value, dict) else {}
+    return {
+        "status": str(source.get("status") or "pending").strip() or "pending",
+        "covered_check_count": _int_value(source.get("covered_check_count", fallback_covered_check_count)),
+        "missing_check_count": _int_value(source.get("missing_check_count", fallback_missing_check_count)),
+        "covered_check_ids": _string_list(source.get("covered_check_ids")),
+        "missing_check_ids": _string_list(source.get("missing_check_ids")),
+        "top_gaps": _normalize_coverage_gap_rows(source.get("top_gaps")),
+    }
+
+
+def _normalize_coverage_gap_rows(value: object) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        target_id = str(item.get("target_id") or "").strip()
+        if not target_id:
+            continue
+        rows.append(
+            {
+                "target_id": target_id,
+                "kind": str(item.get("kind") or "").strip(),
+                "source_section": str(item.get("source_section") or "").strip(),
+                "status": str(item.get("status") or "missing").strip() or "missing",
+                "required": structured_bool_is_true(item.get("required")),
+                "reason": str(item.get("reason") or "").strip(),
+                "text": str(item.get("text") or "").strip(),
+                "evidence_refs": _string_list(item.get("evidence_refs"))[:8],
+            }
+        )
+    return rows[:5]
 
 
 def _normalize_manifest_summary(value: object) -> dict:
@@ -1638,8 +2024,11 @@ def _inspector_blockers(output: dict) -> list[str]:
 
 
 def _gatekeeper_blockers(output: dict) -> list[str]:
-    blockers = [item for item in _string_list(output.get("failed_check_ids")) if item]
+    blockers = []
+    blockers.extend(_string_list(output.get("blocking_issues")))
+    blockers.extend(_string_list(output.get("hard_constraint_violations")))
+    blockers.extend(_string_list(output.get("failed_check_ids")))
     priority_failures = output.get("priority_failures")
     if isinstance(priority_failures, list):
         blockers.extend(str(item.get("summary") or item.get("error_code") or "").strip() for item in priority_failures if isinstance(item, dict))
-    return [item for item in blockers if item]
+    return list(dict.fromkeys(item for item in blockers if item))

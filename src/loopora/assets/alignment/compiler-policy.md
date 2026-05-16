@@ -20,7 +20,7 @@ Stable rules:
 - A bundle is accepted only after a visible working agreement has been explicitly confirmed by the user.
 - Backend validation is not a style checker. It rejects phase skips, missing evidence, ungrounded workdir facts, task judgment hidden as global memory, disconnected handoffs, weak GateKeeper fan-in, and bundle surfaces that do not carry the confirmed judgment.
 - Repairable issues may be fixed by the Agent, such as YAML shape, missing handoffs, missing evidence queries, or disconnected GateKeeper inputs.
-- Human-required issues must go back to conversation, such as unclear Loopora fit, unresolved fake-done risk, residual-risk policy, judgment tradeoff, or evidence preference.
+- Human-required issues must go back to conversation, such as unclear Loopora fit, unresolved fake-done risk, execution strategy, residual-risk policy, judgment tradeoff, local-governance responsibility, or evidence preference.
 - The final YAML is a candidate Loop exchange format. The product value is the judgment structure behind it.
 
 Compiler stance:

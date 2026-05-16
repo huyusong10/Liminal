@@ -48,8 +48,12 @@ def _add_contract_context_summary(summary: dict[str, object], extra_context: dic
             "step_order": current_step.get("step_order"),
             "previous_iteration_exists": iteration.get("previous_iteration_exists"),
             "evidence_progress_mode": iteration.get("evidence_progress_mode"),
+            "coverage_status": iteration.get("coverage_status"),
             "covered_check_count": iteration.get("covered_check_count"),
             "missing_check_count": iteration.get("missing_check_count"),
+            "covered_check_ids": list(iteration.get("covered_check_ids") or [])[:8],
+            "missing_check_ids": list(iteration.get("missing_check_ids") or [])[:8],
+            "coverage_top_gaps": list(iteration.get("coverage_top_gaps") or [])[:5],
             "completed_steps_this_iteration": len(upstream.get("completed_steps_this_iteration", [])),
         }
 
@@ -129,13 +133,19 @@ def _add_runtime_context_summary(summary: dict[str, object], extra_context: dict
     if isinstance(previous_iteration_summary, dict):
         score = _dict_context(previous_iteration_summary.get("score"))
         stagnation = _dict_context(previous_iteration_summary.get("stagnation"))
+        gatekeeper_verdict = _dict_context(previous_iteration_summary.get("gatekeeper_verdict"))
         summary["previous_iteration_summary"] = {
             "iter": previous_iteration_summary.get("iter"),
             "composite": score.get("composite"),
             "passed": score.get("passed"),
             "evidence_progress_mode": stagnation.get("evidence_progress_mode"),
+            "coverage_status": stagnation.get("coverage_status"),
             "covered_check_count": stagnation.get("covered_check_count"),
             "missing_check_count": stagnation.get("missing_check_count"),
+            "missing_check_ids": list(stagnation.get("missing_check_ids") or [])[:8],
+            "coverage_top_gaps": list(stagnation.get("coverage_top_gaps") or [])[:5],
+            "gatekeeper_blocking_count": len(gatekeeper_verdict.get("blocking_issues") or []),
+            "gatekeeper_residual_risk_count": len(gatekeeper_verdict.get("residual_risks") or []),
         }
     stagnation_mode = extra_context.get("stagnation_mode")
     if stagnation_mode is not None:

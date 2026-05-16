@@ -332,7 +332,7 @@ document.addEventListener("DOMContentLoaded", () => {
         tone: "success",
         channel: "state",
         filterKey: "result",
-        summary: localeText("已接受结论", "Conclusion accepted"),
+        summary: localeText("已接受证据结论", "Evidence conclusion accepted"),
         text: prettyJson(payload),
       })];
     }

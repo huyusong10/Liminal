@@ -30,6 +30,31 @@ def test_alignment_semantic_lint_requires_residual_risk(sample_workdir: Path) ->
     assert "spec must include Residual Risk guidance" in issues
 
 
+def test_alignment_semantic_lint_rejects_vague_residual_risk(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert "spec Residual Risk guidance must name accepted risk handling or fail closed" not in lint_alignment_bundle_semantics(valid_bundle)
+
+    yaml_with_vague_residual_risk = re.sub(
+        r"\n    # Residual Risk\n\n    .+?(?=\n\n    # Role Notes)",
+        "\n    # Residual Risk\n\n    Some risk is fine.",
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+        flags=re.DOTALL,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_vague_residual_risk))
+
+    assert "spec Residual Risk guidance must name accepted risk handling or fail closed" in issues
+
+    yaml_with_vague_chinese_residual_risk = re.sub(
+        r"\n    # Residual Risk\n\n    .+?(?=\n\n    # Role Notes)",
+        "\n    # Residual Risk\n\n    有些风险可以接受。",
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+        flags=re.DOTALL,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_vague_chinese_residual_risk))
+
+    assert "spec Residual Risk guidance must name accepted risk handling or fail closed" in issues
+
+
 def test_alignment_semantic_lint_requires_summary_governance_story(sample_workdir: Path) -> None:
     valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
     assert "collaboration_summary must explain the governance story" not in lint_alignment_bundle_semantics(valid_bundle)
@@ -42,6 +67,23 @@ def test_alignment_semantic_lint_requires_summary_governance_story(sample_workdi
     issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_without_governance_summary))
 
     assert "collaboration_summary must explain the governance story" in issues
+
+
+def test_alignment_semantic_lint_requires_loop_fit_in_summary(sample_workdir: Path) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert "collaboration_summary must explain why this task needs multi-round Loopora governance" not in lint_alignment_bundle_semantics(valid_bundle)
+
+    bundle_without_loop_fit = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle_without_loop_fit["collaboration_summary"] = (
+        "Project the working agreement into a spec task contract, role handoffs from Builder / Inspectors / GateKeeper, "
+        "and a workflow that routes evidence before final judgment. Prefer a smaller proven flow over polished but "
+        "unproven breadth, and let GateKeeper reject speed or surface completeness when evidence is weak. GateKeeper "
+        "closes only when the spec, role evidence, and workflow handoffs prove the task is truly done."
+    )
+
+    issues = lint_alignment_bundle_semantics(bundle_without_loop_fit)
+
+    assert "collaboration_summary must explain why this task needs multi-round Loopora governance" in issues
 
 
 @pytest.mark.parametrize(
@@ -79,6 +121,36 @@ def test_alignment_semantic_lint_requires_done_when_checks(sample_workdir: Path)
     issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_without_done_when))
 
     assert "spec must include at least one Done When bullet" in issues
+
+
+@pytest.mark.parametrize(
+    ("section", "expected_issue"),
+    [
+        ("Success Surface", "spec must include at least one Success Surface bullet"),
+        ("Fake Done", "spec must include at least one Fake Done bullet"),
+        ("Evidence Preferences", "spec must include at least one Evidence Preferences bullet"),
+    ],
+)
+def test_alignment_semantic_lint_requires_judgment_contract_sections(
+    sample_workdir: Path,
+    section: str,
+    expected_issue: str,
+) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    assert expected_issue not in lint_alignment_bundle_semantics(valid_bundle)
+
+    heading_pattern = rf"\n    # {re.escape(section)}\n\n    - .+?(?=\n\n    # )"
+    yaml_without_section = re.sub(
+        heading_pattern,
+        "",
+        alignment_bundle_yaml(str(sample_workdir.resolve())),
+        flags=re.DOTALL,
+    )
+    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_without_section))
+
+    assert expected_issue in issues
+
+
 def test_alignment_semantic_lint_requires_evidence_bucket_projection(sample_workdir: Path) -> None:
     valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
     assert not any("must project task verdict evidence" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
@@ -132,6 +204,24 @@ def test_alignment_semantic_lint_requires_gatekeeper_completion_mode(sample_work
     issues = lint_alignment_bundle_semantics(bundle)
 
     assert ("Web alignment bundles must use gatekeeper completion_mode so task verdict is evidence-based, not only run lifecycle completion") in issues
+
+
+def test_alignment_semantic_lint_requires_workflow_intent_to_explain_evidence_governance(
+    sample_workdir: Path,
+) -> None:
+    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    expected_issue = "workflow.collaboration_intent must explain evidence flow, GateKeeper closure, and weak-evidence or fake-done exposure"
+    assert expected_issue not in lint_alignment_bundle_semantics(valid_bundle)
+
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["workflow"]["collaboration_intent"] = (
+        "Builder implements the billing refund path, Inspector reviews the approval journey, "
+        "and GateKeeper gives the final decision for this task-specific sequence after each role completes its part."
+    )
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert expected_issue in issues
 
 
 def test_alignment_generated_metadata_omits_lineage_fields(sample_workdir: Path) -> None:
@@ -251,7 +341,23 @@ def test_alignment_semantic_lint_rejects_final_bundle_loop_fit_contradictions(
     issues = lint_alignment_bundle_semantics(bundle)
 
     assert (
-        "alignment bundle must not claim a single pass, direct chat, no-new-evidence round, or benchmark-only path is sufficient while compiling a Loop"
+        "alignment bundle must not claim a single pass, direct chat / direct answer, one-off task handling, no-new-evidence round, or benchmark/test-harness-only path is sufficient while compiling a Loop"
+    ) in issues
+
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["collaboration_summary"] += " 这个任务跑一遍就行，不需要多轮。"
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "alignment bundle must not claim a single pass, direct chat / direct answer, one-off task handling, no-new-evidence round, or benchmark/test-harness-only path is sufficient while compiling a Loop"
+    ) in issues
+
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["collaboration_summary"] += " 一次 Agent 执行加人工 review 已经足够，后续不会产生新证据。"
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "alignment bundle must not claim a single pass, direct chat / direct answer, one-off task handling, no-new-evidence round, or benchmark/test-harness-only path is sufficient while compiling a Loop"
     ) in issues
 
     bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
@@ -259,7 +365,7 @@ def test_alignment_semantic_lint_rejects_final_bundle_loop_fit_contradictions(
     issues = lint_alignment_bundle_semantics(bundle)
 
     assert (
-        "alignment bundle must not claim a single pass, direct chat, no-new-evidence round, or benchmark-only path is sufficient while compiling a Loop"
+        "alignment bundle must not claim a single pass, direct chat / direct answer, one-off task handling, no-new-evidence round, or benchmark/test-harness-only path is sufficient while compiling a Loop"
     ) in issues
 
     bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
@@ -267,8 +373,42 @@ def test_alignment_semantic_lint_rejects_final_bundle_loop_fit_contradictions(
     issues = lint_alignment_bundle_semantics(bundle)
 
     assert (
-        "alignment bundle must not claim a single pass, direct chat, no-new-evidence round, or benchmark-only path is sufficient while compiling a Loop"
+        "alignment bundle must not claim a single pass, direct chat / direct answer, one-off task handling, no-new-evidence round, or benchmark/test-harness-only path is sufficient while compiling a Loop"
     ) in issues
+
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["collaboration_summary"] += " 不用 Loopora，直接让 Agent 做完再人工看一眼就行。"
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "alignment bundle must not claim a single pass, direct chat / direct answer, one-off task handling, no-new-evidence round, or benchmark/test-harness-only path is sufficient while compiling a Loop"
+    ) in issues
+
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["collaboration_summary"] += " This is a one-off task; no Loopora loop is needed."
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "alignment bundle must not claim a single pass, direct chat / direct answer, one-off task handling, no-new-evidence round, or benchmark/test-harness-only path is sufficient while compiling a Loop"
+    ) in issues
+
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["collaboration_summary"] += " 这是一次性任务，不要长期循环，直接处理完即可。"
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "alignment bundle must not claim a single pass, direct chat / direct answer, one-off task handling, no-new-evidence round, or benchmark/test-harness-only path is sufficient while compiling a Loop"
+    ) in issues
+
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["collaboration_summary"] += " The stable proof harness already fully captures the judgment."
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "alignment bundle must not claim a single pass, direct chat / direct answer, one-off task handling, no-new-evidence round, or benchmark/test-harness-only path is sufficient while compiling a Loop"
+    ) in issues
+
+
 def test_alignment_semantic_lint_requires_parallel_review_to_read_upstream_handoffs(
     sample_workdir: Path,
 ) -> None:
@@ -354,6 +494,20 @@ def test_alignment_semantic_lint_requires_parallel_review_iteration_memory(
     issues = lint_alignment_bundle_semantics(bundle)
 
     assert ("parallel review step must declare inputs.iteration_memory so cross-iteration evidence flow is explicit: contract_inspection_step") in issues
+
+
+def test_alignment_semantic_lint_requires_parallel_review_summary_memory(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["contract_inspection_step"]["inputs"]["iteration_memory"] = "same_step"
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "parallel review step must use inputs.iteration_memory=summary_only so previous GateKeeper verdict stays visible: contract_inspection_step"
+    ) in issues
 
 
 def test_alignment_semantic_lint_requires_parallel_review_to_use_distinct_role_definitions(
@@ -542,6 +696,20 @@ def test_alignment_semantic_lint_requires_guide_after_review_iteration_memory(
     ) in issues
 
 
+def test_alignment_semantic_lint_requires_guide_after_review_summary_memory(
+    sample_workdir: Path,
+) -> None:
+    bundle = _add_repair_guide_flow(load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve()))))
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["repair_guide_step"]["inputs"]["iteration_memory"] = "same_role"
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert (
+        "Guide step after review must use inputs.iteration_memory=summary_only so previous GateKeeper blockers and residual risks stay visible: repair_guide_step"
+    ) in issues
+
+
 def test_alignment_semantic_lint_requires_builder_after_guide_to_read_guide_handoff(
     sample_workdir: Path,
 ) -> None:
@@ -589,6 +757,30 @@ def test_alignment_semantic_lint_requires_builder_after_guide_iteration_memory(
     assert ("Builder step after Guide must declare inputs.iteration_memory so repair pass does not rely on ambient context: builder_repair_step") in issues
 
 
+def test_alignment_semantic_lint_requires_builder_after_guide_summary_memory(
+    sample_workdir: Path,
+) -> None:
+    bundle = _add_repair_guide_flow(load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve()))))
+    gatekeeper_step = bundle["workflow"]["steps"].pop()
+    bundle["workflow"]["steps"].append(
+        {
+            "id": "builder_repair_step",
+            "role_id": "builder",
+            "inputs": {
+                "handoffs_from": ["repair_guide_step"],
+                "iteration_memory": "same_step",
+            },
+            "on_pass": "continue",
+        }
+    )
+    gatekeeper_step["inputs"]["handoffs_from"].append("builder_repair_step")
+    bundle["workflow"]["steps"].append(gatekeeper_step)
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert ("Builder step after Guide must use inputs.iteration_memory=summary_only so previous GateKeeper verdict stays visible: builder_repair_step") in issues
+
+
 def test_alignment_semantic_lint_requires_builder_after_review_to_read_review_handoff(
     sample_workdir: Path,
 ) -> None:
@@ -634,6 +826,29 @@ def test_alignment_semantic_lint_requires_builder_after_review_iteration_memory(
     issues = lint_alignment_bundle_semantics(bundle)
 
     assert ("Builder step after review must declare inputs.iteration_memory so evidence-first repair does not rely on ambient context: builder_step") in issues
+
+
+def test_alignment_semantic_lint_requires_builder_after_review_summary_memory(
+    sample_workdir: Path,
+) -> None:
+    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["workflow"]["steps"].insert(
+        0,
+        {
+            "id": "preflight_inspection_step",
+            "role_id": "contract_inspector",
+            "on_pass": "continue",
+        },
+    )
+    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["builder_step"]["inputs"] = {
+        "handoffs_from": ["preflight_inspection_step"],
+        "iteration_memory": "same_step",
+    }
+
+    issues = lint_alignment_bundle_semantics(bundle)
+
+    assert ("Builder step after review must use inputs.iteration_memory=summary_only so previous GateKeeper repair direction stays visible: builder_step") in issues
 
 
 def test_alignment_semantic_lint_requires_gatekeeper_to_read_parallel_handoffs(sample_workdir: Path) -> None:
@@ -764,7 +979,8 @@ archetype: {archetype}
     bundle["collaboration_summary"] = (
         "Compile the search refactor into a long-chain workflow because query rewriting, retrieval, "
         "ranking, regression review, and evidence hardening each create distinct artifacts, handoffs, "
-        "and proof targets. GateKeeper must judge from phase evidence rather than only the final "
+        "and proof targets. Future iterations stay anchored to these phase contracts as new evidence "
+        "and blockers appear. GateKeeper must judge from phase evidence rather than only the final "
         "Builder story, separating Proven, Weak, Unproven, Blocking, and Residual risk claims."
     )
     bundle["role_definitions"] = [
@@ -874,7 +1090,7 @@ archetype: {archetype}
             {
                 "id": "evidence_hardening_builder_step",
                 "role_id": "evidence_hardening_builder",
-                "inputs": {"handoffs_from": ["regression_inspection_step"], "iteration_memory": "same_step"},
+                "inputs": {"handoffs_from": ["regression_inspection_step"], "iteration_memory": "summary_only"},
                 "on_pass": "continue",
             },
             {

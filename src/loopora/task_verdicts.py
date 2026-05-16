@@ -6,6 +6,12 @@ from typing import Any
 
 from loopora.coverage_target_semantics import coverage_target_is_required
 from loopora.evidence_coverage import load_or_build_evidence_coverage_projection
+from loopora.residual_risk_support import (
+    residual_risk_is_managed,
+    residual_risk_is_meaningful,
+    residual_risk_is_unmanaged,
+    residual_risk_policy_disallows_acceptance,
+)
 from loopora.run_artifacts import RunArtifactLayout
 
 TASK_VERDICT_STATUSES = {
@@ -23,19 +29,10 @@ TARGET_STATUS_BUCKETS = {
     "weak": "weak",
     "blocked": "blocking",
 }
-NO_RESIDUAL_RISK_MARKERS = {
-    "none",
-    "n/a",
-    "na",
-    "no residual risk",
-    "no blocking residual risk",
-    "no blocking residual risk was reported by gatekeeper",
-    "no meaningful residual risk",
-    "无",
-    "无残余风险",
-    "没有残余风险",
-    "没有阻断残余风险",
-}
+UNMANAGED_RESIDUAL_RISK_SUMMARY = "GateKeeper reported residual risk without a named owner, follow-up, or acceptance path."
+DISALLOWED_RESIDUAL_RISK_SUMMARY = "GateKeeper reported residual risk even though the run contract disallows accepted residual risk."
+DISALLOWED_RESIDUAL_RISK_REASON = "Residual risk was reported even though the run contract disallows accepted residual risk."
+CONTRADICTORY_GATEKEEPER_PASS_SUMMARY = "GateKeeper reported blocking issues while also marking the task passed."
 
 
 def hydrate_run_status_and_task_verdict(run: dict) -> dict:
@@ -68,11 +65,12 @@ def build_task_verdict(
     if not isinstance(raw_verdict, Mapping):
         raw_verdict = {}
     coverage = _load_coverage(run, run_dir)
-    buckets = _build_buckets(coverage, raw_verdict)
+    compiled_spec = _run_compiled_spec(run)
+    buckets = _build_buckets(coverage, raw_verdict, compiled_spec)
     source = "legacy" if legacy else "run_status"
     status = "not_evaluated"
 
-    gatekeeper_status = _status_from_gatekeeper(raw_verdict, buckets, coverage, require_coverage=not legacy)
+    gatekeeper_status = _status_from_gatekeeper(raw_verdict, buckets, coverage, compiled_spec, require_coverage=not legacy)
     if gatekeeper_status:
         status = gatekeeper_status
         source = "legacy" if legacy else "gatekeeper"
@@ -83,7 +81,13 @@ def build_task_verdict(
         status = "not_evaluated"
         source = "legacy" if legacy else "run_status"
 
-    summary = _summary_for(status, source, run_status, raw_verdict, coverage)
+    summary = _summary_for(
+        status,
+        raw_verdict,
+        coverage,
+        compiled_spec,
+        fallback_summary=_fallback_summary_for(status, source, run_status),
+    )
     return {
         "status": status,
         "source": source,
@@ -130,12 +134,23 @@ def _load_coverage(run: Mapping[str, Any], run_dir: Path | None) -> dict:
         return {}
 
 
-def _build_buckets(coverage: Mapping[str, Any], verdict: Mapping[str, Any]) -> dict[str, list[dict]]:
+def _run_compiled_spec(run: Mapping[str, Any]) -> Mapping[str, Any]:
+    compiled_spec = run.get("compiled_spec")
+    if isinstance(compiled_spec, Mapping):
+        return compiled_spec
+    compiled_spec_json = run.get("compiled_spec_json")
+    if isinstance(compiled_spec_json, Mapping):
+        return compiled_spec_json
+    return {}
+
+
+def _build_buckets(coverage: Mapping[str, Any], verdict: Mapping[str, Any], compiled_spec: Mapping[str, Any]) -> dict[str, list[dict]]:
     buckets = _empty_buckets()
+    residual_risk_acceptance_allowed = not residual_risk_policy_disallows_acceptance(compiled_spec.get("residual_risk"))
     _append_coverage_target_buckets(buckets, coverage.get("targets"))
     _append_verdict_blockers(buckets, verdict)
-    _append_residual_risk_buckets(buckets, coverage.get("risk_signals"))
-    _append_verdict_residual_risk_buckets(buckets, verdict)
+    _append_residual_risk_buckets(buckets, coverage.get("risk_signals"), acceptance_allowed=residual_risk_acceptance_allowed)
+    _append_verdict_residual_risk_buckets(buckets, verdict, acceptance_allowed=residual_risk_acceptance_allowed)
     if not any(buckets.values()):
         _append_legacy_evidence_buckets(buckets, verdict)
     return {key: _dedupe_bucket_items(items)[:12] for key, items in buckets.items()}
@@ -174,17 +189,35 @@ def _append_verdict_blockers(buckets: dict[str, list[dict]], verdict: Mapping[st
         buckets["blocking"].append({"label": blocker, "reason": "Reported by the latest raw verdict."})
 
 
-def _append_residual_risk_buckets(buckets: dict[str, list[dict]], risk_signals: object) -> None:
+def _append_residual_risk_buckets(buckets: dict[str, list[dict]], risk_signals: object, *, acceptance_allowed: bool) -> None:
     for risk in _strict_string_list(risk_signals):
         text = _clean_text(risk, max_length=240)
-        if text:
+        if not acceptance_allowed and residual_risk_is_meaningful(text):
+            buckets["weak"].append({"label": text, "reason": DISALLOWED_RESIDUAL_RISK_REASON})
+        elif residual_risk_is_managed(text):
             buckets["residual_risk"].append({"label": text})
+        elif residual_risk_is_meaningful(text):
+            buckets["weak"].append(
+                {
+                    "label": text,
+                    "reason": "Residual risk was observed without enough management detail to accept it.",
+                }
+            )
 
 
-def _append_verdict_residual_risk_buckets(buckets: dict[str, list[dict]], verdict: Mapping[str, Any]) -> None:
-    for risk in [*_string_list(verdict.get("residual_risks")), *_string_list(verdict.get("residual_risk"))]:
-        if _is_meaningful_gatekeeper_residual_risk(risk):
+def _append_verdict_residual_risk_buckets(buckets: dict[str, list[dict]], verdict: Mapping[str, Any], *, acceptance_allowed: bool) -> None:
+    for risk in _verdict_residual_risk_texts(verdict):
+        if not acceptance_allowed and residual_risk_is_meaningful(risk):
+            buckets["weak"].append({"label": _clean_text(risk, max_length=240), "reason": DISALLOWED_RESIDUAL_RISK_REASON})
+        elif residual_risk_is_managed(risk):
             buckets["residual_risk"].append({"label": _clean_text(risk, max_length=240)})
+        elif residual_risk_is_meaningful(risk):
+            buckets["weak"].append(
+                {
+                    "label": _clean_text(risk, max_length=240),
+                    "reason": "Residual risk was reported without enough management detail to accept it.",
+                }
+            )
 
 
 def _append_legacy_evidence_buckets(buckets: dict[str, list[dict]], verdict: Mapping[str, Any]) -> None:
@@ -198,40 +231,84 @@ def _status_from_gatekeeper(
     verdict: Mapping[str, Any],
     buckets: Mapping[str, list[dict]],
     coverage: Mapping[str, Any],
+    compiled_spec: Mapping[str, Any],
     *,
     require_coverage: bool,
 ) -> str:
     if not verdict:
         return ""
     if verdict.get("passed") is True:
-        return _passed_gatekeeper_status(verdict, coverage, require_coverage=require_coverage)
+        return _passed_gatekeeper_status(verdict, coverage, compiled_spec, require_coverage=require_coverage)
     if verdict.get("passed") is False:
         return "failed" if buckets.get("blocking") or _verdict_blockers(verdict) else "insufficient_evidence"
     return ""
 
 
-def _passed_gatekeeper_status(verdict: Mapping[str, Any], coverage: Mapping[str, Any], *, require_coverage: bool) -> str:
+def _passed_gatekeeper_status(
+    verdict: Mapping[str, Any],
+    coverage: Mapping[str, Any],
+    compiled_spec: Mapping[str, Any],
+    *,
+    require_coverage: bool,
+) -> str:
     required_coverage_status = _required_coverage_status(coverage)
-    if required_coverage_status == "blocked":
-        return "failed"
-    if required_coverage_status == "incomplete" or (require_coverage and required_coverage_status == "unknown"):
-        return "insufficient_evidence"
-    if _gatekeeper_reports_meaningful_residual_risk(verdict, coverage):
-        return "passed_with_residual_risk"
-    return "passed"
+    insufficient_evidence = (
+        required_coverage_status == "incomplete"
+        or (require_coverage and required_coverage_status == "unknown")
+        or _gatekeeper_reports_residual_risk_disallowed_by_policy(verdict, coverage, compiled_spec)
+        or _gatekeeper_reports_unmanaged_residual_risk(verdict, coverage)
+    )
+    status = "passed"
+    if _verdict_blockers(verdict) or _coverage_has_blocked_target(coverage):
+        status = "failed"
+    elif insufficient_evidence:
+        status = "insufficient_evidence"
+    elif _gatekeeper_reports_managed_residual_risk(verdict, coverage):
+        status = "passed_with_residual_risk"
+    return status
 
 
-def _gatekeeper_reports_meaningful_residual_risk(
+def _coverage_has_blocked_target(coverage: Mapping[str, Any]) -> bool:
+    targets = coverage.get("targets")
+    if not isinstance(targets, list):
+        return False
+    return any(isinstance(target, Mapping) and str(target.get("status") or "").strip().lower() == "blocked" for target in targets)
+
+
+def _gatekeeper_reports_managed_residual_risk(
     verdict: Mapping[str, Any],
     coverage: Mapping[str, Any],
 ) -> bool:
-    risks: list[str] = []
-    risks.extend(_string_list(verdict.get("residual_risks")))
-    risks.extend(_string_list(verdict.get("residual_risk")))
+    return any(residual_risk_is_managed(risk) for risk in _gatekeeper_residual_risk_texts(verdict, coverage))
+
+
+def _gatekeeper_reports_unmanaged_residual_risk(
+    verdict: Mapping[str, Any],
+    coverage: Mapping[str, Any],
+) -> bool:
+    return any(residual_risk_is_unmanaged(risk) for risk in _gatekeeper_residual_risk_texts(verdict, coverage))
+
+
+def _gatekeeper_reports_residual_risk_disallowed_by_policy(
+    verdict: Mapping[str, Any],
+    coverage: Mapping[str, Any],
+    compiled_spec: Mapping[str, Any],
+) -> bool:
+    return residual_risk_policy_disallows_acceptance(compiled_spec.get("residual_risk")) and any(
+        residual_risk_is_meaningful(risk) for risk in _gatekeeper_residual_risk_texts(verdict, coverage)
+    )
+
+
+def _gatekeeper_residual_risk_texts(verdict: Mapping[str, Any], coverage: Mapping[str, Any]) -> list[str]:
+    risks = _verdict_residual_risk_texts(verdict)
     latest_gatekeeper = coverage.get("latest_gatekeeper")
     if isinstance(latest_gatekeeper, Mapping):
         risks.extend(_string_list(latest_gatekeeper.get("residual_risk")))
-    return any(_is_meaningful_gatekeeper_residual_risk(risk) for risk in risks)
+    return risks
+
+
+def _verdict_residual_risk_texts(verdict: Mapping[str, Any]) -> list[str]:
+    return [*_string_list(verdict.get("residual_risks")), *_string_list(verdict.get("residual_risk"))]
 
 
 def _required_coverage_status(coverage: Mapping[str, Any]) -> str:
@@ -249,29 +326,34 @@ def _required_coverage_status(coverage: Mapping[str, Any]) -> str:
     return "covered"
 
 
-def _is_meaningful_gatekeeper_residual_risk(value: object) -> bool:
-    text = _clean_text(value, max_length=240)
-    normalized = text.lower().strip(" .。")
-    if not normalized:
-        return False
-    if normalized in NO_RESIDUAL_RISK_MARKERS:
-        return False
-    return not (normalized.startswith("no ") and "residual risk" in normalized)
-
-
 def _summary_for(
     status: str,
-    source: str,
-    run_status: str,
     verdict: Mapping[str, Any],
     coverage: Mapping[str, Any],
+    compiled_spec: Mapping[str, Any],
+    *,
+    fallback_summary: str,
 ) -> str:
     coverage_summary = coverage.get("summary") if isinstance(coverage.get("summary"), Mapping) else {}
     coverage_reason = _clean_text(coverage_summary.get("reason"), max_length=600)
+    if (
+        verdict.get("passed") is True
+        and status == "failed"
+        and _verdict_blockers(verdict)
+    ):
+        return CONTRADICTORY_GATEKEEPER_PASS_SUMMARY
+    if (
+        verdict.get("passed") is True
+        and status == "insufficient_evidence"
+        and _gatekeeper_reports_residual_risk_disallowed_by_policy(verdict, coverage, compiled_spec)
+    ):
+        return DISALLOWED_RESIDUAL_RISK_SUMMARY
+    if verdict.get("passed") is True and status == "insufficient_evidence" and _gatekeeper_reports_unmanaged_residual_risk(verdict, coverage):
+        return UNMANAGED_RESIDUAL_RISK_SUMMARY
     if verdict.get("passed") is True and status in {"failed", "insufficient_evidence"} and coverage_reason:
         return coverage_reason
     decision_summary = _clean_text(verdict.get("decision_summary"), max_length=600) if _has_literal_gatekeeper_verdict(verdict) else ""
-    return decision_summary or (coverage_reason or _fallback_summary_for(status, source, run_status))
+    return decision_summary or (coverage_reason or fallback_summary)
 
 
 def _has_literal_gatekeeper_verdict(verdict: Mapping[str, Any]) -> bool:

@@ -1157,7 +1157,7 @@ html[data-locale="zh"] .bundle-revision-delta span {
 
 .bundle-governance-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   padding: 12px 0;
   border-top: 1px solid rgba(var(--outline-rgb), 0.08);
@@ -1495,6 +1495,10 @@ html[data-locale="zh"] .output-card h3 {
   margin: 8px 0 0;
   max-width: 880px;
   color: var(--muted);
+}
+
+.tutorial-hero-actions {
+  margin-top: 14px;
 }
 
 .tutorial-guide-grid {
@@ -2967,6 +2971,38 @@ html[data-locale="zh"] .callout {
   font-weight: 700;
 }
 
+.agent-adapter-target-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.agent-adapter-next-steps {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(0, 113, 227, 0.14);
+  background: rgba(0, 113, 227, 0.055);
+  color: var(--ink);
+}
+
+.agent-adapter-next-steps > strong {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+}
+
+.agent-adapter-next-steps > span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .agent-adapter-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3028,6 +3064,13 @@ html[data-locale="zh"] .callout {
 @media (max-width: 960px) {
   .agent-adapter-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .agent-adapter-next-steps {
+    flex-direction: column;
+    gap: 4px;
   }
 }
 
@@ -6036,6 +6079,10 @@ textarea:focus {
   align-items: center;
 }
 
+.workbench-first-run-actions {
+  margin-top: 10px;
+}
+
 .workbench-activity-panel .panel-header {
   align-items: start;
 }
@@ -6214,6 +6261,7 @@ textarea:focus {
 
 @media (max-width: 640px) {
   .top-nav {
+    --top-nav-item-width: clamp(58px, calc((100vw - 46px) / 5), 82px);
     --top-nav-item-height: 34px;
     padding: 10px 16px 8px;
   }
@@ -6228,8 +6276,8 @@ textarea:focus {
 
   .top-nav-link {
     min-height: var(--top-nav-item-height);
-    padding: 0 8px;
-    font-size: 0.82rem;
+    padding: 0 5px;
+    font-size: 0.78rem;
   }
 
   .site-main {

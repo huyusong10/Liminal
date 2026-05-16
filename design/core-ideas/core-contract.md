@@ -27,22 +27,32 @@ runtime input surfaces plus observable evidence output.
 
 | Surface | Stable responsibility | Canonical source |
 | --- | --- | --- |
-| `spec` | Freeze task scope, success surface, fake-done risks, guardrails, evidence preferences, and residual risk. | Markdown spec snapshot and compiled spec |
-| `roles` | Define task-scoped posture for building, inspecting, judging, and guiding. | Role definitions in the bundle and imported assets |
-| `workflow` | Define judgment order, bounded fan-out/fan-in, handoffs, information flow, controls, and stop semantics. | Workflow manifest |
+| `spec` | Freeze task scope, success surface, fake-done risks, guardrails, evidence preferences, residual-risk policy, execution priorities, and judgment tradeoffs. | Markdown spec snapshot and compiled spec |
+| `roles` | Define task-scoped posture for building, inspecting, judging, guiding, and respecting project-local governance responsibilities. | Role definitions in the bundle and imported assets |
+| `workflow` | Define judgment order, bounded fan-out/fan-in, handoffs, information flow, controls, evidence fan-in, local-governance checkpoints, and stop semantics. | Workflow manifest |
 | `evidence` | Record what each run proves, fails to prove, and cites as support. | `evidence/ledger.jsonl` plus linked artifacts |
 
-First-use docs may describe a reviewable plan file through five reader-facing
-judgment faces. Those faces are a comprehension projection, not five independent
-runtime fact sources:
+First-use docs may describe a reviewable plan file through reader-facing judgment
+faces. Those faces are a comprehension projection, not independent runtime fact
+sources:
 
 | Reader-facing face | Canonical runtime anchor |
 | --- | --- |
 | Task contract | `spec` |
 | Agent responsibilities | `roles` |
+| Loopora fit | `collaboration_summary` as a projection from `spec / roles / workflow` governance |
+| Execution strategy | `spec`, `roles`, and `workflow` priority language |
 | Run flow | `workflow` |
 | Evidence rules | `evidence` plus workflow evidence queries and handoffs |
-| Verdict rules | GateKeeper / workflow finish semantics and the evidence-backed task verdict projection |
+| Judgment tradeoffs | `spec`, role posture, workflow priority language, and GateKeeper strictness |
+| Local governance responsibility | `roles`, workflow inputs, and evidence / GateKeeper expectations derived from project-local markers |
+| Residual-risk policy and Verdict rules | `spec` residual-risk policy plus GateKeeper / workflow finish semantics and the evidence-backed task verdict projection |
+
+Control summaries, READY previews, run contracts, CLI summaries, and Web cards may
+show Loopora fit, execution strategy, judgment tradeoffs, residual-risk policy, and
+local governance as separate items. Those are projections from `spec / roles /
+workflow / evidence`; they must not become standalone fact sources that can drift
+from the runnable Loop.
 
 Rules:
 

@@ -126,7 +126,7 @@
         ),
         guide: localeText(
           "把上游证据压缩成下一步修复或收窄方向；显式出现在流程里时会正常运行。",
-          "Turns upstream evidence into the next repair or narrowing direction; it runs when explicitly placed in the workflow."
+          "Turns upstream evidence into the next repair or narrowing direction; it runs when explicitly placed in the run flow."
         ),
         custom: localeText(
           "执行当前编排里定义的自定义步骤，并把结果交接给后续阶段。",

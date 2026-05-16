@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, replace
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -344,6 +345,7 @@ class ServiceRunRegistrationMixin:
             loop["compiled_spec_json"],
             completion_mode=str(loop.get("completion_mode", "gatekeeper")),
         )
+        source_bundle = self._loop_source_bundle_snapshot(loop_id)
         write_json_with_mirrors(layout.contract_compiled_spec_path, compiled_spec)
         write_text_with_mirrors(layout.contract_spec_path, loop["spec_markdown"])
         write_json_with_mirrors(layout.contract_workflow_path, workflow)
@@ -375,6 +377,8 @@ class ServiceRunRegistrationMixin:
                 prompt_files=prompt_files,
                 workspace_baseline=workspace_baseline,
                 layout=layout,
+                collaboration_summary=str(source_bundle.get("collaboration_summary") or "").strip(),
+                source_bundle=source_bundle,
             )
         )
         write_json_with_mirrors(layout.run_contract_path, run_contract)
@@ -432,3 +436,43 @@ class ServiceRunRegistrationMixin:
             **self._run_log_context(run, status=run["status"]),
         )
         return self._hydrate_run_files(run)
+
+    def _loop_bundle_collaboration_summary(self, loop_id: str) -> str:
+        return str(self._loop_source_bundle_snapshot(loop_id).get("collaboration_summary") or "").strip()
+
+    def _loop_source_bundle_snapshot(self, loop_id: str) -> dict:
+        try:
+            bundle = self.repository.get_bundle_by_loop_id(loop_id)
+        except AttributeError:
+            return {}
+        if not bundle:
+            return {}
+        bundle_id = str(bundle.get("id") or "").strip()
+        return {
+            **self._loop_source_bundle_fingerprint(bundle_id),
+            "id": str(bundle.get("id") or "").strip(),
+            "name": str(bundle.get("name") or "").strip(),
+            "revision": bundle.get("revision", 0),
+            "source_bundle_id": str(bundle.get("source_bundle_id") or "").strip(),
+            "imported_from_path": str(bundle.get("imported_from_path") or "").strip(),
+            "collaboration_summary": str(bundle.get("collaboration_summary") or "").strip(),
+        }
+
+    def _loop_source_bundle_fingerprint(self, bundle_id: str) -> dict[str, Any]:
+        fingerprint: dict[str, Any] = {"bundle_sha256": "", "bundle_bytes": 0, "bundle_yaml_path": ""}
+        if not bundle_id:
+            return fingerprint
+        bundle_yaml_path = getattr(self, "_bundle_yaml_path", None)
+        if callable(bundle_yaml_path):
+            fingerprint["bundle_yaml_path"] = str(bundle_yaml_path(bundle_id))
+        export_bundle_yaml = getattr(self, "export_bundle_yaml", None)
+        if not callable(export_bundle_yaml):
+            return fingerprint
+        try:
+            bundle_yaml = str(export_bundle_yaml(bundle_id) or "")
+        except (LooporaError, OSError, UnicodeError, ValueError):
+            return fingerprint
+        data = bundle_yaml.encode("utf-8")
+        fingerprint["bundle_sha256"] = sha256(data).hexdigest()
+        fingerprint["bundle_bytes"] = len(data)
+        return fingerprint

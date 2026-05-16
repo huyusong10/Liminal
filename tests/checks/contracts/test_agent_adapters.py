@@ -10,10 +10,13 @@ from typer.testing import CliRunner
 import yaml
 
 from loopora import cli
+from loopora import cli_agent_adapter_commands
+import loopora.agent_adapters as agent_adapters
 import loopora.agent_web as agent_web
+from loopora.bundles import bundle_to_yaml, load_bundle_text
 from loopora.executor_fake_payloads import alignment_bundle_yaml
 from loopora.service_agent_adapters import AgentBundleCandidateRequest
-from loopora.service_agent_native import AgentNativeStepSubmitRequest
+from loopora.service_agent_native import AgentNativeStepClaimRequest, AgentNativeStepSubmitRequest, ServiceAgentNativeMixin
 from loopora.service_types import LooporaConflictError, LooporaError
 from loopora.run_artifacts import RunArtifactLayout, read_jsonl
 from loopora.web import build_app
@@ -31,6 +34,10 @@ def _candidate_digest(bundle_text: str) -> tuple[str, int]:
     normalized = bundle_text.rstrip() + "\n" if bundle_text.strip() else ""
     data = normalized.encode("utf-8")
     return (hashlib.sha256(data).hexdigest(), len(data)) if data else ("", 0)
+
+
+def _ready_candidate_digest(bundle_text: str) -> tuple[str, int]:
+    return _candidate_digest(bundle_to_yaml(load_bundle_text(bundle_text)))
 
 
 def _codex_skill_paths(workdir: Path) -> dict[str, Path]:
@@ -139,6 +146,19 @@ def _agent_native_step_output(step: dict) -> dict:
     step_id = str(step["step_id"])
     role = step.get("role") if isinstance(step.get("role"), dict) else {}
     archetype = str(role.get("archetype") or "")
+    if archetype == "guide":
+        return {
+            "created_at_iter": int(step.get("iter") or 0),
+            "mode": "repair_guidance",
+            "consumed": False,
+            "analysis": {
+                "stagnation_pattern": "gatekeeper_rejected",
+                "recommended_shift": "Add direct evidence for the rejected Done When target.",
+                "risk_note": "GateKeeper rejected the current evidence set.",
+            },
+            "seed_question": "Which missing proof can Builder produce next?",
+            "meta_note": "Agent-native workflow control fired.",
+        }
     if archetype == "inspector" or "inspection" in step_id:
         return {
             "execution_summary": {"total_checks": 1, "passed": 1, "failed": 0, "errored": 0, "total_duration_ms": 1},
@@ -164,8 +184,14 @@ def _agent_native_step_output(step: dict) -> dict:
             "passed": True,
             "decision_summary": "Agent-native adapter path passed with inspector evidence.",
             "feedback_to_builder": "",
+            "feedback_to_generator": "",
             "blocking_issues": [],
             "metrics": [{"name": "quality_score", "value": 1.0, "threshold": 0.9, "passed": True}],
+            "metric_scores": {
+                "check_pass_rate": {"value": 1.0, "threshold": 1.0, "passed": True},
+                "quality_score": {"value": 1.0, "threshold": 0.9, "passed": True},
+            },
+            "hard_constraint_violations": [],
             "failed_check_ids": [],
             "priority_failures": [],
             "composite_score": 1.0,
@@ -173,18 +199,6 @@ def _agent_native_step_output(step: dict) -> dict:
             "evidence_claims": ["The inspector evidence confirms the host Agent submitted a structured result."],
             "residual_risks": [],
             "coverage_results": [],
-        }
-    if archetype == "guide":
-        return {
-            "created_at_iter": int(step.get("iter") or 0),
-            "mode": "repair_guidance",
-            "consumed": False,
-            "analysis": {
-                "recommended_shift": "Add direct evidence for the rejected Done When target.",
-                "risk_note": "GateKeeper rejected the current evidence set.",
-            },
-            "seed_question": "Which missing proof can Builder produce next?",
-            "meta_note": "Agent-native workflow control fired.",
         }
     return {
         "attempted": "Prepared the workspace under the Loopora Agent-native capsule.",
@@ -205,6 +219,7 @@ def _agent_native_rejected_gatekeeper_output(step: dict) -> dict:
             "passed": False,
             "decision_summary": "The task still lacks required evidence.",
             "feedback_to_builder": "Produce direct proof for the primary user flow.",
+            "feedback_to_generator": "Produce direct proof for the primary user flow.",
             "blocking_issues": ["missing_primary_flow_evidence"],
             "composite_score": 0.42,
             "metrics": [{"name": "quality_score", "value": 0.42, "threshold": 0.9, "passed": False}],
@@ -286,6 +301,7 @@ def _drive_agent_native_run_to_success(service, *, adapter: str, started: dict, 
     assert seen_steps[0] == "builder_step"
     assert any("gatekeeper" in item for item in seen_steps)
     assert result["run"]["status"] == "succeeded"
+    assert result["judgment_contract"]["contract_path"] == "contract/run_contract.json"
     return result
 
 
@@ -312,9 +328,32 @@ def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) 
     assert 'loopora agent claude gen --workdir "$PWD"' in gen_skill
     assert '--context-id "${CLAUDE_SESSION_ID}"' in gen_skill
     assert "--entry-source claude_project_skill" in gen_skill
-    assert "high-signal objects, risks, and evidence terms" in gen_skill
-    assert "Loop preview" in gen_skill
-    assert "Web review" in gen_skill
+    for snippet in (
+        '--message "<non-empty short task summary>"',
+        'with `--message "<non-empty short task summary>"` but without `--bundle-file`',
+        "Loopora fit must say why one Agent pass, one review, direct chat / direct answer, one-off task handling, or benchmark/test-harness-only validation is not enough",
+        "new evidence, handoffs, or a GateKeeper verdict",
+        "compile them into Builder reading, Inspector / Custom verification, and GateKeeper Weak / Unproven / Blocking responsibility rather than a marker list",
+        "Loopora fit reason, high-signal objects, success outcome categories, fake-done risk categories, concrete evidence modes, execution priorities, judgment tradeoffs, local governance responsibilities, and risk terms",
+        "Check Loopora fit and judgment sufficiency before authoring a Loop plan file",
+        "If Loopora fit is false",
+        "ask one focused question",
+        "return a Web review prefill",
+        "execution strategy",
+        "what to build, prove, repair, narrow, expand, or defer first",
+        "judgment tradeoffs",
+        "local governance responsibilities",
+        "owner, follow-up, or acceptance path",
+        "do not let a bundle pass merely because it repeats one or two object words from the task",
+        "Do not invent human judgment just to pass validation",
+        "repair the plan file",
+        "Loop preview",
+        "Web review",
+    ):
+        assert snippet in gen_skill
+    assert "authoring YAML" not in gen_skill
+    assert "fix the YAML" not in gen_skill
+    assert "YAML" not in gen_skill
     assert "Web alignment URL" not in gen_skill
     assert "reviewed Loop preview" in loop_skill
     assert "confirmed Loop preview" not in loop_skill
@@ -324,8 +363,20 @@ def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) 
     assert 'loopora agent claude loop --workdir "$PWD"' in loop_skill
     assert "loopora agent claude submit" in loop_skill
     assert "Task" in loop_skill
-    assert "loopora_host_dispatch" in loop_skill
-    assert "role_dispatch.target_agent" in loop_skill
+    for snippet in (
+        "loopora_host_dispatch",
+        "role_dispatch.target_agent",
+        "judgment_contract",
+        "next_step.judgment_contract",
+        "next_step.required_coverage",
+        "next_step.output_schema",
+        "next_step.action_policy",
+        "next_step.known_evidence_ids",
+        "run.task_verdict",
+        "next_step.prompt",
+        "next_step.context_absolute_path",
+    ):
+        assert snippet in loop_skill
     assert '--context-id "${CLAUDE_SESSION_ID}"' in loop_skill
     assert "--entry-source claude_project_skill" in loop_skill
     builder_agent_text = builder_agent.read_text(encoding="utf-8")
@@ -334,6 +385,15 @@ def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) 
     assert "tools: Read, Glob, Grep, Bash, Write, Edit, MultiEdit" in builder_agent_text
     assert "Loopora Orchestrator" in orchestrator_agent_text
     assert "tools: Task, Read, Write, Bash" in orchestrator_agent_text
+    for snippet in (
+        "next_step.judgment_contract",
+        "next_step.prompt",
+        "next_step.output_schema",
+        "next_step.action_policy",
+        "next_step.known_evidence_ids",
+        "context_absolute_path",
+    ):
+        assert snippet in orchestrator_agent_text
     manifest_path = workdir / ".loopora" / "adapters" / "claude" / "manifest.json"
     assert manifest_path.exists()
     first_manifest = manifest_path.read_text(encoding="utf-8")
@@ -367,8 +427,32 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert 'loopora agent opencode gen --workdir "$PWD"' in gen_command
     assert '--context-id "${OPENCODE_SESSION_ID:-}"' in gen_command
     assert "--entry-source opencode_project_command" in gen_command
-    assert "high-signal objects, risks, and evidence terms" in gen_command
-    assert "Loop preview" in gen_command
+    for snippet in (
+        '--message "<non-empty short task summary>"',
+        'with `--message "<non-empty short task summary>"` but without `--bundle-file`',
+        "Loopora fit must say why one Agent pass, one review, direct chat / direct answer, one-off task handling, or benchmark/test-harness-only validation is not enough",
+        "new evidence, handoffs, or a GateKeeper verdict",
+        "compile them into Builder reading, Inspector / Custom verification, and GateKeeper Weak / Unproven / Blocking responsibility rather than a marker list",
+        "Loopora fit reason, high-signal objects, success outcome categories, fake-done risk categories, concrete evidence modes, execution priorities, judgment tradeoffs, local governance responsibilities, and risk terms",
+        "Check Loopora fit and judgment sufficiency before authoring a Loop plan file",
+        "If Loopora fit is false",
+        "ask one focused question",
+        "return a Web review prefill",
+        "execution strategy",
+        "what to build, prove, repair, narrow, expand, or defer first",
+        "judgment tradeoffs",
+        "local governance responsibilities",
+        "owner, follow-up, or acceptance path",
+        "do not let a bundle pass merely because it repeats one or two object words from the task",
+        "Do not invent human judgment just to pass validation",
+        "repair the plan file",
+        "Loop preview",
+        "Web review",
+    ):
+        assert snippet in gen_command
+    assert "authoring YAML" not in gen_command
+    assert "fix the YAML" not in gen_command
+    assert "YAML" not in gen_command
     assert "reviewed Loop preview" in loop_command
     assert "confirmed Loop preview" not in loop_command
     assert "READY bundle" not in gen_command
@@ -378,8 +462,20 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert "subtask: true" in loop_command
     assert 'loopora agent opencode loop --workdir "$PWD"' in loop_command
     assert "loopora agent opencode submit" in loop_command
-    assert "loopora_host_dispatch" in loop_command
-    assert "role_dispatch.target_agent" in loop_command
+    for snippet in (
+        "loopora_host_dispatch",
+        "role_dispatch.target_agent",
+        "judgment_contract",
+        "next_step.judgment_contract",
+        "next_step.required_coverage",
+        "next_step.output_schema",
+        "next_step.action_policy",
+        "next_step.known_evidence_ids",
+        "run.task_verdict",
+        "next_step.prompt",
+        "next_step.context_absolute_path",
+    ):
+        assert snippet in loop_command
     assert '--context-id "${OPENCODE_SESSION_ID:-}"' in loop_command
     assert "--entry-source opencode_project_command" in loop_command
     builder_agent_text = builder_agent.read_text(encoding="utf-8")
@@ -390,6 +486,15 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert "Loopora Orchestrator" in orchestrator_agent_text
     assert "mode: subagent" in orchestrator_agent_text
     assert "loopora-builder: allow" in orchestrator_agent_text
+    for snippet in (
+        "next_step.judgment_contract",
+        "next_step.prompt",
+        "next_step.output_schema",
+        "next_step.action_policy",
+        "next_step.known_evidence_ids",
+        "context_absolute_path",
+    ):
+        assert snippet in orchestrator_agent_text
     manifest_path = workdir / ".loopora" / "adapters" / "opencode" / "manifest.json"
     assert manifest_path.exists()
     first_manifest = manifest_path.read_text(encoding="utf-8")
@@ -418,8 +523,32 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert 'loopora agent codex gen --workdir "$PWD"' in gen_skill
     assert "--bundle-file" in gen_skill
     assert "--entry-source codex_project_skill" in gen_skill
-    assert "high-signal objects, risks, and evidence terms" in gen_skill
-    assert "Loop preview" in gen_skill
+    for snippet in (
+        '--message "<non-empty short task summary>"',
+        'with `--message "<non-empty short task summary>"` but without `--bundle-file`',
+        "Loopora fit must say why one Agent pass, one review, direct chat / direct answer, one-off task handling, or benchmark/test-harness-only validation is not enough",
+        "new evidence, handoffs, or a GateKeeper verdict",
+        "compile them into Builder reading, Inspector / Custom verification, and GateKeeper Weak / Unproven / Blocking responsibility rather than a marker list",
+        "Loopora fit reason, high-signal objects, success outcome categories, fake-done risk categories, concrete evidence modes, execution priorities, judgment tradeoffs, local governance responsibilities, and risk terms",
+        "Check Loopora fit and judgment sufficiency before authoring a Loop plan file",
+        "If Loopora fit is false",
+        "ask one focused question",
+        "return a Web review prefill",
+        "execution strategy",
+        "what to build, prove, repair, narrow, expand, or defer first",
+        "judgment tradeoffs",
+        "local governance responsibilities",
+        "owner, follow-up, or acceptance path",
+        "do not let a bundle pass merely because it repeats one or two object words from the task",
+        "Do not invent human judgment just to pass validation",
+        "repair the plan file",
+        "Loop preview",
+        "Web review",
+    ):
+        assert snippet in gen_skill
+    assert "authoring YAML" not in gen_skill
+    assert "fix the YAML" not in gen_skill
+    assert "YAML" not in gen_skill
     assert "reviewed Loop preview" in loop_skill
     assert "confirmed Loop preview" not in loop_skill
     assert "READY bundle" not in gen_skill
@@ -429,8 +558,20 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert 'loopora agent codex loop --workdir "$PWD"' in loop_skill
     assert "loopora agent codex submit" in loop_skill
     assert "loopora-builder" in loop_skill
-    assert "loopora_host_dispatch" in loop_skill
-    assert "role_dispatch.target_agent" in loop_skill
+    for snippet in (
+        "loopora_host_dispatch",
+        "role_dispatch.target_agent",
+        "judgment_contract",
+        "next_step.judgment_contract",
+        "next_step.required_coverage",
+        "next_step.output_schema",
+        "next_step.action_policy",
+        "next_step.known_evidence_ids",
+        "run.task_verdict",
+        "next_step.prompt",
+        "next_step.context_absolute_path",
+    ):
+        assert snippet in loop_skill
     assert "Codex native dispatch guidance" in loop_skill
     assert "omit `fork_context`" in loop_skill
     assert "bounded timeout" in loop_skill
@@ -439,11 +580,22 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert "loopora-builder" in codex_builder_agent_text
     assert 'developer_instructions = """' in codex_builder_agent_text
     assert '\ninstructions = """' not in codex_builder_agent_text
-    assert "Loopora Orchestrator" in codex_orchestrator_agent.read_text(encoding="utf-8")
+    codex_orchestrator_agent_text = codex_orchestrator_agent.read_text(encoding="utf-8")
+    assert "Loopora Orchestrator" in codex_orchestrator_agent_text
+    for snippet in (
+        "next_step.judgment_contract",
+        "next_step.prompt",
+        "next_step.output_schema",
+        "next_step.action_policy",
+        "next_step.known_evidence_ids",
+        "context_absolute_path",
+    ):
+        assert snippet in codex_orchestrator_agent_text
     manifest_path = workdir / ".loopora" / "adapters" / "codex" / "manifest.json"
     assert manifest_path.exists()
     first_manifest = manifest_path.read_text(encoding="utf-8")
     manifest_payload = json.loads(first_manifest)
+    assert manifest_payload["version"] == agent_adapters.ADAPTER_VERSION
     assert {item["path"] for item in manifest_payload["managed_files"]} == {
         ".agents/skills/loopora-gen/SKILL.md",
         ".agents/skills/loopora-loop/SKILL.md",
@@ -489,6 +641,34 @@ def test_cli_codex_adapter_install_uninstall_are_idempotent(tmp_path: Path) -> N
     assert (workdir / ".codex").exists()
     assert (workdir / ".loopora").exists()
     assert not (workdir / ".loopora" / "adapters" / "codex" / "manifest.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("adapter", "label"),
+    [
+        ("codex", "Codex"),
+        ("claude", "Claude Code"),
+        ("opencode", "OpenCode"),
+    ],
+)
+def test_cli_adapter_install_human_output_points_to_agent_next_steps(tmp_path: Path, adapter: str, label: str) -> None:
+    workdir = tmp_path / adapter
+    workdir.mkdir()
+    runner = CliRunner()
+
+    result = runner.invoke(cli.app, ["init", adapter, "--workdir", str(workdir)])
+
+    assert result.exit_code == 0, result.stdout
+    assert f"{label} Loopora entry is installed" in result.stdout
+    assert f"target project: {workdir.resolve()}" in result.stdout
+    assert "next:" in result.stdout
+    assert f"Return to {label} in this project" in result.stdout
+    assert "/loopora-gen" in result.stdout
+    assert "/loopora-loop" in result.stdout
+    assert "managed files:" in result.stdout
+    assert result.stdout.index("next:") < result.stdout.index("managed files:")
+    assert "adapter installed" not in result.stdout
+    assert "YAML bundle" not in result.stdout
 
 
 def test_cli_codex_loop_requires_ready_bundle(tmp_path: Path) -> None:
@@ -653,22 +833,188 @@ def test_agent_bundle_candidate_without_yaml_opens_prefill_without_starting_alig
     assert generated["ready"] is False
     assert generated["status"] == "idle"
     assert generated["requires_web_alignment"] is True
+    assert generated["requires_candidate_repair"] is False
     assert generated["candidate_sha256"] == ""
     assert generated["candidate_bytes"] == 0
-    assert generated["session"]["transcript"][-1]["content"] == "Prepare a governed implementation loop from the host Agent context."
+    assert generated["ready_candidate_sha256"] == ""
+    assert generated["ready_candidate_bytes"] == 0
+    transcript = generated["session"]["transcript"]
+    assert transcript[0]["content"] == "Prepare a governed implementation loop from the host Agent context."
+    assert transcript[-1]["role"] == "assistant"
+    assert "Web review" in transcript[-1]["content"]
+    assert "not a runnable Loop yet" in transcript[-1]["content"]
+    assert "candidate plan file" in transcript[-1]["content"]
+    assert "candidate YAML" not in transcript[-1]["content"]
+    assert "Loopora fit" in transcript[-1]["content"]
+    assert "execution strategy" in transcript[-1]["content"]
+    assert "judgment tradeoffs" in transcript[-1]["content"]
+    assert "local governance responsibilities" in transcript[-1]["content"]
     assert generated["binding"]["requires_web_alignment"] is True
+    assert generated["binding"]["requires_candidate_repair"] is False
     assert generated["binding"]["candidate_sha256"] == ""
     assert generated["binding"]["candidate_bytes"] == 0
+    assert generated["binding"]["ready_candidate_sha256"] == ""
+    assert generated["binding"]["ready_candidate_bytes"] == 0
     assert generated["preview_path"].startswith("/loops/new/bundle?alignment_session_id=")
+    transcript_log = Path(generated["session"]["artifact_dir"]) / "conversation" / "transcript.jsonl"
+    assert "Web review" in transcript_log.read_text(encoding="utf-8")
     events = service.list_alignment_events(generated["session"]["id"])
     candidate_event = next(event for event in events if event["event_type"] == "agent_candidate_received")
     assert candidate_event["payload"]["has_candidate_yaml"] is False
     assert candidate_event["payload"]["requires_web_alignment"] is True
+    assert candidate_event["payload"]["requires_candidate_repair"] is False
     assert candidate_event["payload"]["candidate_sha256"] == ""
     assert candidate_event["payload"]["candidate_bytes"] == 0
+    assert candidate_event["payload"]["ready_candidate_sha256"] == ""
+    assert candidate_event["payload"]["ready_candidate_bytes"] == 0
     assert not any(event["event_type"] == "alignment_started" for event in events)
-    with pytest.raises(LooporaConflictError, match="/loopora-gen"):
+    with pytest.raises(LooporaConflictError) as excinfo:
         service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    assert "needs Web review before /loopora-loop" in str(excinfo.value)
+    assert "/loopora-gen" in str(excinfo.value)
+
+
+def test_agent_bundle_candidate_without_yaml_uses_chinese_prefill_message(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="为退款自助流程准备一个需要多轮证据治理的 Loop。",
+            entry_source="codex_project_skill",
+        )
+    )
+
+    message = generated["session"]["transcript"][-1]["content"]
+    assert "候选方案文件" in message
+    assert "不会伪装成可运行 Loop" in message
+    assert "执行策略" in message
+    assert "判断取舍" in message
+    assert "本地治理责任" in message
+    assert "candidate plan file" not in message
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("This is a one-off task; no Loopora loop is needed.", "one-off fix"),
+        ("这是一次性任务，不要长期循环，直接处理完即可。", "不需要后续新证据"),
+        ("The stable proof harness already fully captures the judgment.", "benchmark/test-harness-only path"),
+    ],
+)
+def test_agent_bundle_candidate_without_yaml_explains_not_fit_prefill(
+    service_factory,
+    sample_workdir: Path,
+    message: str,
+    expected: str,
+) -> None:
+    service = service_factory(scenario="success")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=message,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    transcript_message = generated["session"]["transcript"][-1]["content"]
+    assert generated["ready"] is False
+    assert generated["requires_web_alignment"] is True
+    assert generated["requires_candidate_repair"] is False
+    assert generated["loopora_fit_contradiction"] is True
+    assert generated["binding"]["loopora_fit_contradiction"] is True
+    assert "Web review" in transcript_message
+    assert "not a runnable Loop yet" in transcript_message or "不会伪装成可运行 Loop" in transcript_message
+    assert expected in transcript_message
+    assert "success criteria" not in transcript_message
+    events = service.list_alignment_events(generated["session"]["id"])
+    candidate_event = next(event for event in events if event["event_type"] == "agent_candidate_received")
+    assert candidate_event["payload"]["has_candidate_yaml"] is False
+    assert candidate_event["payload"]["loopora_fit_contradiction"] is True
+    with pytest.raises(LooporaConflictError) as excinfo:
+        service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    assert "needs Web review before /loopora-loop" in str(excinfo.value)
+    assert "one-off, direct-answer, no-new-evidence, or benchmark/test-harness-only" in str(excinfo.value)
+    assert "GateKeeper value" in str(excinfo.value)
+
+
+def test_agent_bundle_candidate_without_yaml_requires_task_summary(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+
+    with pytest.raises(LooporaError, match="--message task summary"):
+        service.create_agent_bundle_candidate(
+            AgentBundleCandidateRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                entry_source="codex_project_skill",
+            )
+        )
+
+
+def test_agent_loop_clears_web_review_requirement_after_fallback_becomes_ready(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Prepare a governed implementation loop from the host Agent context.",
+            entry_source="codex_project_skill",
+        )
+    )
+    assert generated["binding"]["requires_web_alignment"] is True
+    Path(generated["session"]["bundle_path"]).write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    synced = service.sync_alignment_bundle_from_file(generated["session"]["id"])
+    assert synced["session"]["status"] == "ready"
+
+    started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+
+    assert started["execution_plane"] == "agent_native"
+    assert started["started_new_run"] is True
+    assert started["binding"]["requires_web_alignment"] is False
+    assert started["binding"]["alignment_status"] == "running_loop"
+    assert started["binding"]["linked_run_id"] == started["run"]["id"]
+
+
+def test_agent_loop_clears_not_fit_fallback_after_web_review_becomes_ready(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="There is no need for a Loopora loop here; just answer directly.",
+            entry_source="codex_project_skill",
+        )
+    )
+    assert generated["binding"]["requires_web_alignment"] is True
+    assert generated["binding"]["loopora_fit_contradiction"] is True
+    Path(generated["session"]["bundle_path"]).write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    synced = service.sync_alignment_bundle_from_file(generated["session"]["id"])
+    assert synced["session"]["status"] == "ready"
+
+    started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+
+    assert started["execution_plane"] == "agent_native"
+    assert started["started_new_run"] is True
+    assert started["binding"]["requires_web_alignment"] is False
+    assert started["binding"]["loopora_fit_contradiction"] is False
+    events = service.list_alignment_events(generated["session"]["id"])
+    candidate_event = next(event for event in events if event["event_type"] == "agent_candidate_received")
+    assert candidate_event["payload"]["loopora_fit_contradiction"] is True
 
 
 def test_cli_agent_gen_without_bundle_reports_web_alignment_needed(sample_workdir: Path) -> None:
@@ -692,9 +1038,117 @@ def test_cli_agent_gen_without_bundle_reports_web_alignment_needed(sample_workdi
 
     assert result.exit_code == 0, result.stdout
     assert "Loopora Loop preview needs Web review" in result.stdout
+    assert "not_fit:" not in result.stdout
     assert "Web alignment" not in result.stdout
     assert "preview_url: /loops/new/bundle?alignment_session_id=" in result.stdout
     assert "candidate_url:" not in result.stdout
+
+
+def test_cli_agent_gen_reports_auto_started_web_review_url(sample_workdir: Path, monkeypatch) -> None:
+    runner = CliRunner()
+    monkeypatch.setattr(
+        cli_agent_adapter_commands,
+        "ensure_local_web_service",
+        lambda: {"base_url": "http://127.0.0.1:9876", "reused": False, "started": True, "port": 9876},
+    )
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "Prepare a governed implementation loop.",
+            "--entry-source",
+            "codex_project_skill",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Loopora Loop preview needs Web review" in result.stdout
+    assert "preview_url: http://127.0.0.1:9876/loops/new/bundle?alignment_session_id=" in result.stdout
+    assert "web: started http://127.0.0.1:9876" in result.stdout
+
+
+def test_cli_agent_gen_without_bundle_reports_not_fit_fallback(sample_workdir: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "There is no need for a Loopora loop here; just answer directly.",
+            "--entry-source",
+            "codex_project_skill",
+            "--no-web",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Loopora Loop preview needs Web review" in result.stdout
+    assert "not_fit:" in result.stdout
+    assert "one-off, direct-answer, no-new-evidence, or benchmark/test-harness-only work" in result.stdout
+    assert "GateKeeper value" in result.stdout
+    assert "preview_url: /loops/new/bundle?alignment_session_id=" in result.stdout
+
+
+def test_cli_agent_gen_without_bundle_json_reports_not_fit_fallback(sample_workdir: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "There is no need for a Loopora loop here; just answer directly.",
+            "--entry-source",
+            "codex_project_skill",
+            "--no-web",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["ready"] is False
+    assert payload["requires_web_alignment"] is True
+    assert payload["requires_candidate_repair"] is False
+    assert payload["loopora_fit_contradiction"] is True
+    assert payload["binding"]["loopora_fit_contradiction"] is True
+    assert payload["preview_url"].startswith("/loops/new/bundle?alignment_session_id=")
+
+
+def test_cli_agent_gen_without_bundle_rejects_missing_task_summary(sample_workdir: Path) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--entry-source",
+            "codex_project_skill",
+            "--no-web",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--message task summary" in _error_text(result)
 
 
 def test_agent_adapter_preview_fallback_uses_web_review_language() -> None:
@@ -716,6 +1170,7 @@ def test_cli_codex_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path,
     bundle_file = tmp_path / "bundle.yml"
     bundle_text = alignment_bundle_yaml(str(sample_workdir.resolve()))
     expected_sha, expected_bytes = _candidate_digest(bundle_text)
+    expected_ready_sha, expected_ready_bytes = _ready_candidate_digest(bundle_text)
     bundle_file.write_text(bundle_text, encoding="utf-8")
     runner = CliRunner()
 
@@ -740,10 +1195,16 @@ def test_cli_codex_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path,
     payload = json.loads(result.stdout)
     assert payload["ready"] is True
     assert payload["status"] == "ready"
+    assert payload["requires_web_alignment"] is False
+    assert payload["requires_candidate_repair"] is False
     assert payload["candidate_sha256"] == expected_sha
     assert payload["candidate_bytes"] == expected_bytes
+    assert payload["ready_candidate_sha256"] == expected_ready_sha
+    assert payload["ready_candidate_bytes"] == expected_ready_bytes
     assert payload["binding"]["candidate_sha256"] == expected_sha
     assert payload["binding"]["candidate_bytes"] == expected_bytes
+    assert payload["binding"]["ready_candidate_sha256"] == expected_ready_sha
+    assert payload["binding"]["ready_candidate_bytes"] == expected_ready_bytes
     assert payload["preview_url"].startswith("/loops/new/bundle?alignment_session_id=")
     assert "run" not in payload
 
@@ -771,6 +1232,155 @@ def test_cli_agent_gen_rejects_candidate_bundle_without_task_summary(tmp_path: P
     assert "--message task summary" in _error_text(result)
 
 
+def test_cli_agent_gen_with_invalid_candidate_reports_repair_before_loop(tmp_path: Path, sample_workdir: Path) -> None:
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "Build a governed refund self-service flow with authorization, audit, and payment failure evidence.",
+            "--bundle-file",
+            str(bundle_file),
+            "--no-web",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Loopora Loop preview needs plan file repair before /loopora-loop" in result.stdout
+    assert "needs candidate repair" not in result.stdout
+    assert "validation_error:" in result.stdout
+    assert "host Agent task summary" in result.stdout
+    assert "preview_url: /loops/new/bundle?alignment_session_id=" in result.stdout
+
+
+def test_cli_agent_loop_reports_candidate_repair_state_after_failed_gen(
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    runner = CliRunner()
+
+    gen_result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "Build a governed refund self-service flow with authorization, audit, and payment failure evidence.",
+            "--bundle-file",
+            str(bundle_file),
+            "--no-web",
+        ],
+    )
+    loop_result = runner.invoke(cli.app, ["agent", "codex", "loop", "--workdir", str(sample_workdir), "--no-web"])
+
+    assert gen_result.exit_code == 0, gen_result.stdout
+    assert loop_result.exit_code == 1
+    error_text = _error_text(loop_result)
+    assert "needs plan file repair before /loopora-loop" in error_text
+    assert "current status: failed" in error_text
+    assert "rerun /loopora-gen with a repaired candidate" in error_text
+    assert "host Agent task summary" in error_text
+
+
+def test_cli_agent_gen_with_candidate_not_fit_reports_reframe_before_loop(
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    runner = CliRunner()
+
+    gen_result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "There is no need for a Loopora loop here; just answer directly.",
+            "--bundle-file",
+            str(bundle_file),
+            "--no-web",
+        ],
+    )
+    loop_result = runner.invoke(cli.app, ["agent", "codex", "loop", "--workdir", str(sample_workdir), "--no-web"])
+
+    assert gen_result.exit_code == 0, gen_result.stdout
+    assert "Loopora Loop preview needs plan file repair before /loopora-loop" in gen_result.stdout
+    assert "not_fit:" in gen_result.stdout
+    assert "reframe the task with later evidence, handoff, or GateKeeper value" in gen_result.stdout
+    assert "Loopora is not fit" in gen_result.stdout
+    assert loop_result.exit_code == 1
+    error_text = _error_text(loop_result)
+    assert "blocked before /loopora-loop" in error_text
+    assert "one-off, direct-answer, no-new-evidence, or benchmark/test-harness-only" in error_text
+    assert "GateKeeper value" in error_text
+    assert "reframed or repaired candidate" in error_text
+
+
+def test_cli_agent_gen_uses_repair_flag_when_candidate_status_is_not_failed(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+
+    class FakeService:
+        def create_agent_bundle_candidate(self, request: AgentBundleCandidateRequest) -> dict:
+            assert request.adapter == "codex"
+            assert request.workdir == workdir
+            assert request.message == "Repair this candidate without pretending it is runnable."
+            return {
+                "ready": False,
+                "status": "blocked",
+                "requires_web_alignment": False,
+                "requires_candidate_repair": True,
+                "session": {
+                    "id": "session_repair",
+                    "error_message": "candidate is missing required audit evidence",
+                },
+                "preview_path": "/loops/new/bundle?alignment_session_id=session_repair",
+            }
+
+    monkeypatch.setattr(cli, "create_service", FakeService)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(workdir),
+            "--message",
+            "Repair this candidate without pretending it is runnable.",
+            "--no-web",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Loopora Loop preview needs plan file repair before /loopora-loop" in result.stdout
+    assert "needs candidate repair" not in result.stdout
+    assert "validation_error: candidate is missing required audit evidence" in result.stdout
+    assert "Loopora Loop preview status: blocked" not in result.stdout
+
+
 def test_agent_bundle_candidate_rejects_task_context_mismatch(
     service_factory,
     tmp_path: Path,
@@ -792,14 +1402,1235 @@ def test_agent_bundle_candidate_rejects_task_context_mismatch(
 
     assert generated["ready"] is False
     assert generated["status"] == "failed"
+    assert generated["requires_web_alignment"] is False
+    assert generated["requires_candidate_repair"] is True
+    assert generated["ready_candidate_sha256"] == ""
+    assert generated["ready_candidate_bytes"] == 0
+    assert generated["binding"]["requires_web_alignment"] is False
+    assert generated["binding"]["requires_candidate_repair"] is True
+    assert generated["binding"]["ready_candidate_sha256"] == ""
+    assert generated["binding"]["ready_candidate_bytes"] == 0
     assert "host Agent task summary" in generated["session"]["error_message"]
     assert "refund" in generated["session"]["error_message"]
     assert "audit" in generated["session"]["error_message"]
+    candidate_event = next(
+        event for event in service.list_alignment_events(generated["session"]["id"]) if event["event_type"] == "agent_candidate_received"
+    )
+    assert candidate_event["payload"]["requires_candidate_repair"] is False
+    assert candidate_event["payload"]["ready_candidate_sha256"] == ""
+    assert candidate_event["payload"]["ready_candidate_bytes"] == 0
     assert any(
         event["event_type"] == "alignment_bundle_sync_failed"
         and "host Agent task summary" in event["payload"].get("error", "")
         for event in service.list_alignment_events(generated["session"]["id"])
     )
+
+
+def test_agent_bundle_candidate_repair_session_keeps_web_plan_previewable(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Build a governed refund self-service flow with authorization, audit, and payment failure evidence.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["requires_candidate_repair"] is True
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/api/alignments/sessions/{generated['session']['id']}/bundle")
+
+    assert response.status_code == 200
+    preview = response.json()
+    assert preview["ok"] is True
+    assert preview["session"]["status"] == "failed"
+    assert preview["source_path"] == generated["session"]["bundle_path"]
+    assert preview["validation"]["ok"] is False
+    assert "host Agent task summary" in preview["validation"]["error"]
+    assert preview["control_summary"]["coverage"]["target_count"] >= preview["control_summary"]["coverage"]["check_count"]
+    assert preview["traceability"] == preview["control_summary"]["traceability"]
+
+
+def test_agent_bundle_candidate_rejects_host_summary_that_says_loopora_not_fit(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    (sample_workdir / "AGENTS.md").write_text("Project rules.\n", encoding="utf-8")
+    (sample_workdir / "design").mkdir(exist_ok=True)
+    (sample_workdir / "design" / "README.md").write_text("# Design\n", encoding="utf-8")
+    (sample_workdir / "tests").mkdir(exist_ok=True)
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Fix a README typo. One Agent pass plus one human review is enough, "
+                "and later rounds will create no new evidence."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "Loopora is not fit" in generated["session"]["error_message"]
+    assert any(
+        event["event_type"] == "alignment_bundle_sync_failed"
+        and "Loopora is not fit" in event["payload"].get("error", "")
+        for event in service.list_alignment_events(generated["session"]["id"])
+    )
+
+
+def test_agent_bundle_candidate_rejects_chinese_host_summary_that_says_loopora_not_fit(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="修一个 README 错字。一次 Agent 执行加人工 review 已经足够，后续不会产生新证据。",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert generated["requires_candidate_repair"] is True
+    assert "Loopora is not fit" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_rejects_chinese_benchmark_only_host_summary(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="现有基准已经完全覆盖这次判断，直接跑基准就够了，不需要 Loopora。",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert generated["requires_candidate_repair"] is True
+    assert "Loopora is not fit" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_rejects_chinese_no_loop_host_summary(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="不用 Loopora，直接让 Agent 做完再人工看一眼就行。",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert generated["requires_candidate_repair"] is True
+    assert "Loopora is not fit" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_rejects_chinese_single_round_host_summary(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="这个任务跑一遍就行，不需要多轮，之后我人工确认即可。",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert generated["requires_candidate_repair"] is True
+    assert "Loopora is not fit" in generated["session"]["error_message"]
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "这是一次性任务，不要长期循环。直接处理完即可。",
+        "This is a one-off task; no Loopora loop is needed.",
+        "There is no need for a Loopora loop here; just answer directly.",
+        "A direct answer is enough; no future iteration will add proof.",
+        "Just fix it once and I will review it manually.",
+        "The stable proof harness already fully captures the judgment.",
+        "现有契约测试已经完全覆盖这次判断，直接跑测试就够了。",
+    ],
+)
+def test_agent_bundle_candidate_rejects_one_off_host_summary_variants(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+    message: str,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=message,
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert generated["requires_candidate_repair"] is True
+    assert generated["loopora_fit_contradiction"] is True
+    assert generated["binding"]["loopora_fit_contradiction"] is True
+    assert "Loopora is not fit" in generated["session"]["error_message"]
+    candidate_event = next(
+        event for event in service.list_alignment_events(generated["session"]["id"]) if event["event_type"] == "agent_candidate_received"
+    )
+    assert candidate_event["payload"]["loopora_fit_contradiction"] is True
+
+
+def test_agent_bundle_candidate_rejects_governance_markers_without_runtime_responsibilities(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["collaboration_summary"] += " AGENTS.md, design/README.md, design/, and tests/ are project-local governance markers."
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build the focused starter experience while following AGENTS.md, design/README.md, design/, "
+                "and tests/ as runtime governance inputs."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "project-local governance markers" in generated["session"]["error_message"]
+    assert "Builder reading" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_uses_workdir_snapshot_for_governance_markers(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    (sample_workdir / "AGENTS.md").write_text("Project rules.\n", encoding="utf-8")
+    (sample_workdir / "design").mkdir(exist_ok=True)
+    (sample_workdir / "design" / "README.md").write_text("# Design\n", encoding="utf-8")
+    (sample_workdir / "tests").mkdir(exist_ok=True)
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build the focused starter experience in the target workdir with small, maintainable changes "
+                "that preserve the primary user flow."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "project-local governance markers" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_uses_parent_agents_file_as_governance_marker(
+    service_factory,
+    tmp_path: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    project = tmp_path / "project"
+    workdir = project / "packages" / "app"
+    workdir.mkdir(parents=True)
+    (project / ".git").mkdir()
+    (project / "AGENTS.md").write_text("Project rules.\n", encoding="utf-8")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=workdir,
+            message=(
+                "Build the focused starter experience in the target workdir with small, maintainable changes "
+                "that preserve the primary user flow."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "project-local governance markers" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_accepts_governance_markers_as_role_responsibilities(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    role_by_key["builder"]["prompt_markdown"] += (
+        "\n\nRead AGENTS.md, design/README.md, design/, and tests/ before changing code, "
+        "and follow those project-local governance contracts in the Builder handoff."
+    )
+    role_by_key["contract-inspector"]["prompt_markdown"] += (
+        "\n\nInspector must verify AGENTS.md, design/README.md, design/, and tests/ were followed, "
+        "and must mark skipped local governance as weak or missing evidence."
+    )
+    role_by_key["gatekeeper"]["prompt_markdown"] += (
+        "\n\nGateKeeper treats skipped AGENTS.md, design/README.md, design/, or tests/ responsibilities "
+        "as Weak, Unproven, or Blocking before accepting the run."
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build the focused starter experience while following AGENTS.md, design/README.md, design/, "
+                "and tests/ as runtime governance inputs."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is True
+    assert generated["status"] == "ready"
+
+
+def test_agent_bundle_candidate_rejects_residual_risk_policy_missing_owner_path(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Accept minor polish gaps only when they are explicitly named and tracked as an owned follow-up; fail closed on unproven primary-flow behavior or weak verification evidence.",
+        "Accept manual billing export as residual risk only when explicitly named; fail closed on unproven primary-flow behavior or weak verification evidence.",
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Accept manual billing export as a residual risk only when Support owns the follow-up; "
+                "unverified primary flow must fail closed."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "residual-risk policy" in generated["session"]["error_message"]
+    assert "owner/follow-up" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_rejects_chinese_residual_risk_missing_owner_path(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Accept minor polish gaps only when they are explicitly named and tracked as an owned follow-up; fail closed on unproven primary-flow behavior or weak verification evidence.",
+        "Accept manual billing export as residual risk only when explicitly named; fail closed on unproven primary-flow behavior or weak verification evidence.",
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="残余风险：手动账单导出只有客服负责人跟进工单时才可接受；未验证主流程必须失败关闭。",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "residual-risk policy" in generated["session"]["error_message"]
+    assert "owner/follow-up" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_accepts_residual_risk_policy_in_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Accept minor polish gaps only when they are explicitly named and tracked as an owned follow-up; fail closed on unproven primary-flow behavior or weak verification evidence.",
+        (
+            "Accept manual billing export as residual risk only when Support owns the follow-up; "
+            "fail closed on unproven primary-flow behavior or weak verification evidence."
+        ),
+    )
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    role_by_key["gatekeeper"]["posture_notes"] += (
+        " Confirm Support owns the manual billing export follow-up before accepting it as residual risk."
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Accept manual billing export as a residual risk only when Support owns the follow-up; "
+                "unverified primary flow must fail closed."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is True
+    assert generated["status"] == "ready"
+
+
+def test_agent_bundle_candidate_rejects_no_accepted_residual_risk_policy_relaxed_in_bundle(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Accept minor polish gaps only when they are explicitly named and tracked as an owned follow-up; fail closed on unproven primary-flow behavior or weak verification evidence.",
+        "Accept unproven billing export as residual risk when explicitly named; fail closed on weak verification evidence.",
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="No residual risk is acceptable; unproven billing export must fail closed.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "residual-risk policy" in generated["session"]["error_message"]
+    assert "no-accepted-residual-risk" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_rejects_explicit_success_criteria_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        "Ship the refund approval path so Support admin can approve a refund and audit log records the actor.",
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Success means Support admin can approve a refund, audit log records the actor, "
+                "and customer receives an email notification."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "success criteria" in generated["session"]["error_message"]
+    assert "notification/message" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_rejects_chinese_success_criteria_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="成功标准：客服可以批准退款，审计日志记录操作者，并且客户收到通知邮件。",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "success criteria" in generated["session"]["error_message"]
+    assert "notification/message" in generated["session"]["error_message"]
+    assert "退款" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_accepts_explicit_success_criteria_in_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        (
+            "Ship the refund approval path so Support admin can approve a refund, audit log records the actor, "
+            "and the customer receives an email notification."
+        ),
+    )
+    bundle["workflow"]["collaboration_intent"] += (
+        " GateKeeper must verify the refund approval, audit log record, and customer email notification before finishing."
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Success means Support admin can approve a refund, audit log records the actor, "
+                "and customer receives an email notification."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is True
+    assert generated["status"] == "ready"
+
+
+def test_agent_bundle_candidate_rejects_accessibility_and_locale_success_criteria_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Success means keyboard users can complete checkout, screen reader labels are available, "
+                "and Chinese and English variants preserve the same action."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "success criteria" in generated["session"]["error_message"]
+    assert "accessibility/a11y" in generated["session"]["error_message"]
+    assert "locale/i18n" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_accepts_accessibility_and_locale_success_criteria_in_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        (
+            "Ship the checkout path so keyboard users can complete checkout, screen reader labels are available, "
+            "and Chinese and English variants preserve the same action."
+        ),
+    )
+    bundle["workflow"]["collaboration_intent"] += (
+        " Inspector verifies keyboard access, screen reader labels, and Chinese and English action parity before GateKeeper closes."
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Success means keyboard users can complete checkout, screen reader labels are available, "
+                "and Chinese and English variants preserve the same action."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is True
+    assert generated["status"] == "ready"
+
+
+def test_agent_bundle_candidate_rejects_explicit_fake_done_risk_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        "Ship the billing export in the target workdir with small, maintainable changes that preserve the primary user flow.",
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build the billing export. Fake done is a CSV download that omits permission audit; "
+                "do not pass until permission audit proof exists."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "fake-done risks" in generated["session"]["error_message"]
+    assert "permission/audit" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_accepts_explicit_fake_done_risk_in_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        "Ship the billing export in the target workdir with small, maintainable changes that preserve the primary user flow.",
+    )
+    bundle["spec"]["markdown"] += (
+        "\n\nFake Done: A CSV download that omits permission audit is not done; "
+        "GateKeeper must block until permission audit proof exists."
+    )
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    role_by_key["gatekeeper"]["posture_notes"] += (
+        " Treat any billing CSV download without permission audit proof as fake done."
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build the billing export. Fake done is a CSV download that omits permission audit; "
+                "do not pass until permission audit proof exists."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is True
+    assert generated["status"] == "ready"
+
+
+def test_agent_bundle_candidate_rejects_payment_fake_done_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        "Ship the refund payment path in the target workdir with small, maintainable changes.",
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build the refund payment path. Fake done is marking refund success without "
+                "payment-provider failure replay or billing ledger proof."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "fake-done risks" in generated["session"]["error_message"]
+    assert "payment/refund/billing" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_accepts_payment_fake_done_in_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        "Ship the refund payment path in the target workdir with small, maintainable changes.",
+    )
+    bundle["spec"]["markdown"] += (
+        "\n\nFake Done: Marking refund success without payment-provider failure replay "
+        "or billing ledger proof is fake done."
+    )
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    role_by_key["gatekeeper"]["posture_notes"] += (
+        " Treat any refund success without payment failure replay and billing ledger proof as fake done."
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build the refund payment path. Fake done is marking refund success without "
+                "payment-provider failure replay or billing ledger proof."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is True
+    assert generated["status"] == "ready"
+
+
+def test_agent_bundle_candidate_rejects_accessibility_and_locale_fake_done_risk_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build checkout. Fake done is an English-only flow that looks complete but has no keyboard "
+                "or screen reader proof."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "fake-done risks" in generated["session"]["error_message"]
+    assert "accessibility/i18n" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_rejects_explicit_evidence_preferences_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        "Ship the checkout instrumentation in the target workdir with small, maintainable changes.",
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build checkout instrumentation. Evidence must include a browser journey and audit log command output "
+                "before GateKeeper can pass."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "evidence preferences" in generated["session"]["error_message"]
+    assert "audit/log" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_accepts_explicit_evidence_preferences_in_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        "Ship the checkout instrumentation in the target workdir with small, maintainable changes.",
+    )
+    bundle["spec"]["markdown"] += (
+        "\n\nEvidence Preference: Require a browser journey plus audit log command output before GateKeeper can pass."
+    )
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    role_by_key["evidence-inspector"]["prompt_markdown"] += (
+        "\n\nCollect browser journey evidence and audit log command output for checkout instrumentation."
+    )
+    role_by_key["gatekeeper"]["posture_notes"] += (
+        " Pass only with browser journey proof and audit log command evidence."
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build checkout instrumentation. Evidence must include a browser journey and audit log command output "
+                "before GateKeeper can pass."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is True
+    assert generated["status"] == "ready"
+
+
+def test_agent_bundle_candidate_rejects_payment_evidence_preferences_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build the refund payment flow. Evidence must include payment-provider failure replay "
+                "and billing ledger command output before GateKeeper can pass."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "evidence preferences" in generated["session"]["error_message"]
+    assert "payment/refund/billing" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_accepts_payment_evidence_preferences_in_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        "Ship the refund payment flow in the target workdir with small, maintainable changes.",
+    )
+    bundle["spec"]["markdown"] += (
+        "\n\nEvidence Preference: Require payment-provider failure replay and billing ledger command output before GateKeeper can pass."
+    )
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    role_by_key["evidence-inspector"]["prompt_markdown"] += (
+        "\n\nCollect payment-provider failure replay evidence and billing ledger command output."
+    )
+    role_by_key["gatekeeper"]["posture_notes"] += (
+        " Pass only with payment failure replay proof and billing ledger evidence."
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build the refund payment flow. Evidence must include payment-provider failure replay "
+                "and billing ledger command output before GateKeeper can pass."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is True
+    assert generated["status"] == "ready"
+
+
+def test_agent_bundle_candidate_rejects_accessibility_and_locale_evidence_preferences_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Build checkout. Evidence must include keyboard navigation proof, a screen reader label check, "
+                "and Chinese and English locale verification before GateKeeper can pass."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "evidence preferences" in generated["session"]["error_message"]
+    assert "accessibility/a11y" in generated["session"]["error_message"]
+    assert "locale/i18n" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_rejects_explicit_tradeoff_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["collaboration_summary"] = bundle["collaboration_summary"].replace(
+        "Prefer a smaller proven flow over polished but unproven breadth, and let GateKeeper reject speed or surface completeness when evidence is weak. ",
+        "",
+    )
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace("Accept minor polish gaps", "Accept minor follow-up gaps")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Prioritize proof over speed: block polished-looking fake completion until evidence proves "
+                "the primary flow."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "judgment tradeoffs" in generated["session"]["error_message"]
+    assert "speed/polish" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_accepts_explicit_tradeoff_in_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] += (
+        "\n\nTradeoff: prioritize proof over speed; UI polish must wait until primary-flow evidence is Proven."
+    )
+    bundle["workflow"]["collaboration_intent"] += (
+        " GateKeeper should block polished-looking fake completion when proof is weak."
+    )
+    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
+    role_by_key["gatekeeper"]["posture_notes"] += (
+        " Reject speed-first or polish-first closure unless direct evidence proves the primary flow."
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Prioritize proof over speed: block polished-looking fake completion until evidence proves "
+                "the primary flow."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is True
+    assert generated["status"] == "ready"
+
+
+def test_agent_bundle_candidate_rejects_pragmatic_progress_tradeoff_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Prefer strict blocking over pragmatic progress when evidence is weak.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "judgment tradeoffs" in generated["session"]["error_message"]
+    assert "pragmatic/progress" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_accepts_pragmatic_progress_tradeoff_in_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] += "\n\nTradeoff: strict blocking beats pragmatic progress when evidence is weak."
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Prefer strict blocking over pragmatic progress when evidence is weak.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is True
+    assert generated["status"] == "ready"
+
+
+def test_agent_bundle_candidate_rejects_explicit_execution_strategy_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        "Ship the billing refund path in the target workdir with small, maintainable changes.",
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Ship the billing refund path. Execution strategy: first repair the root cause before "
+                "expanding dashboards or polishing UI."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "execution strategy" in generated["session"]["error_message"]
+    assert "repair/root-cause" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_rejects_labeled_single_execution_strategy_missing_from_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        "Ship the billing refund path in the target workdir with small, maintainable changes.",
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Ship the billing refund path. Execution strategy: first repair the root cause.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is False
+    assert generated["status"] == "failed"
+    assert "execution strategy" in generated["session"]["error_message"]
+    assert "repair/root-cause" in generated["session"]["error_message"]
+
+
+def test_agent_bundle_candidate_accepts_explicit_execution_strategy_in_runtime_surfaces(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle = yaml.safe_load(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    bundle["spec"]["markdown"] = bundle["spec"]["markdown"].replace(
+        "Ship the focused starter experience in the target workdir with small, maintainable changes that preserve the primary user flow.",
+        "Ship the billing refund path in the target workdir with small, maintainable changes.",
+    )
+    bundle["spec"]["markdown"] += (
+        "\n\nExecution Strategy: first repair the root cause, then consider dashboard expansion or UI polish."
+    )
+    bundle["workflow"]["collaboration_intent"] += (
+        " Builder should repair the root cause before any dashboard expansion or UI polish."
+    )
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(yaml.safe_dump(bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message=(
+                "Ship the billing refund path. Execution strategy: first repair the root cause before "
+                "expanding dashboards or polishing UI."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert generated["ready"] is True
+    assert generated["status"] == "ready"
 
 
 def test_cli_claude_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path, sample_workdir: Path) -> None:
@@ -854,6 +2685,7 @@ def test_agent_loop_after_web_imported_candidate_still_uses_agent_native(
     bundle_file = tmp_path / "bundle.yml"
     bundle_text = alignment_bundle_yaml(str(sample_workdir.resolve()))
     expected_sha, expected_bytes = _candidate_digest(bundle_text)
+    expected_ready_sha, expected_ready_bytes = _ready_candidate_digest(bundle_text)
     bundle_file.write_text(bundle_text, encoding="utf-8")
 
     generated = service.create_agent_bundle_candidate(
@@ -867,11 +2699,28 @@ def test_agent_loop_after_web_imported_candidate_still_uses_agent_native(
     )
     assert generated["candidate_sha256"] == expected_sha
     assert generated["candidate_bytes"] == expected_bytes
+    assert generated["ready_candidate_sha256"] == expected_ready_sha
+    assert generated["ready_candidate_bytes"] == expected_ready_bytes
+    assert generated["binding"]["ready_candidate_sha256"] == expected_ready_sha
+    assert generated["binding"]["ready_candidate_bytes"] == expected_ready_bytes
     candidate_event = next(
         event for event in service.list_alignment_events(generated["session"]["id"]) if event["event_type"] == "agent_candidate_received"
     )
     assert candidate_event["payload"]["candidate_sha256"] == expected_sha
     assert candidate_event["payload"]["candidate_bytes"] == expected_bytes
+    ready_event = next(
+        event for event in service.list_alignment_events(generated["session"]["id"]) if event["event_type"] == "agent_candidate_ready_content"
+    )
+    assert ready_event["payload"]["candidate_sha256"] == expected_sha
+    assert ready_event["payload"]["candidate_bytes"] == expected_bytes
+    assert ready_event["payload"]["ready_candidate_sha256"] == expected_ready_sha
+    assert ready_event["payload"]["ready_candidate_bytes"] == expected_ready_bytes
+    ready_path = Path(generated["session"]["bundle_path"])
+    ready_bundle = yaml.safe_load(ready_path.read_text(encoding="utf-8"))
+    ready_bundle["metadata"]["description"] = "Imported from the current reviewed file after a valid local edit."
+    ready_path.write_text(yaml.safe_dump(ready_bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    expected_import_sha, expected_import_bytes = _ready_candidate_digest(ready_path.read_text(encoding="utf-8"))
+    assert expected_import_sha != expected_ready_sha
     imported = service.import_alignment_bundle(generated["session"]["id"], start_immediately=False)
     assert imported["session"]["status"] == "imported"
     assert imported["session"]["linked_loop_id"]
@@ -894,6 +2743,8 @@ def test_agent_loop_after_web_imported_candidate_still_uses_agent_native(
     assert started["run"]["status"] == "awaiting_agent"
     assert started["binding"]["execution_plane"] == "agent_native"
     assert started["binding"]["linked_run_id"] == started["run"]["id"]
+    assert started["binding"]["ready_candidate_sha256"] == expected_import_sha
+    assert started["binding"]["ready_candidate_bytes"] == expected_import_bytes
     assert started["next_step"]["execution_plane"] == "agent_native"
 
 
@@ -1108,6 +2959,10 @@ def test_codex_agent_gen_validates_ready_bundle_and_loop_starts_run(
     sample_workdir: Path,
 ) -> None:
     service = service_factory(scenario="success")
+    (sample_workdir / "AGENTS.md").write_text("Project rules.\n", encoding="utf-8")
+    (sample_workdir / "design").mkdir(exist_ok=True)
+    (sample_workdir / "design" / "README.md").write_text("# Design\n", encoding="utf-8")
+    (sample_workdir / "tests").mkdir(exist_ok=True)
     bundle_file = tmp_path / "bundle.yml"
     bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
 
@@ -1135,11 +2990,269 @@ def test_codex_agent_gen_validates_ready_bundle_and_loop_starts_run(
     assert started["execution_plane"] == "agent_native"
     assert started["run"]["status"] == "awaiting_agent"
     assert started["next_step"]["step_id"] == "builder_step"
+    assert started["judgment_contract"]["contract_path"] == "contract/run_contract.json"
+    assert "Prefer a smaller proven flow" in started["judgment_contract"]["collaboration_summary"]
+    assert started["judgment_contract"]["judgment_tradeoffs"]
+    assert started["judgment_contract"]["execution_strategy"]
+    assert started["judgment_contract"]["local_governance"]
+    assert started["judgment_contract"]["role_postures"]
+    assert started["judgment_contract"]["completion_mode"] == "gatekeeper"
+    assert any(target["id"] == "done_when.check_001" for target in started["judgment_contract"]["coverage_targets"])
+    source_bundle = started["judgment_contract"]["source_bundle"]
+    exported_bundle_yaml = service.export_bundle_yaml(started["binding"]["linked_bundle_id"])
+    exported_bundle_data = exported_bundle_yaml.encode("utf-8")
+    assert source_bundle["id"] == started["binding"]["linked_bundle_id"]
+    assert source_bundle["bundle_sha256"] == hashlib.sha256(exported_bundle_data).hexdigest()
+    assert source_bundle["bundle_bytes"] == len(exported_bundle_data)
+    assert Path(source_bundle["bundle_yaml_path"]).exists()
+    next_step_prompt = started["next_step"]["prompt"]
+    assert "Bundle collaboration summary:" in next_step_prompt
+    assert "Prefer a smaller proven flow over polished but unproven breadth" in next_step_prompt
+    assert "Execution strategy:" in next_step_prompt
+    assert "Local governance:" in next_step_prompt
+    assert "Role postures:" in next_step_prompt
+    assert "GateKeeper treats skipped local governance" in next_step_prompt
+    assert "run-local: contract/run_contract.json" in next_step_prompt
+    assert Path(started["next_step"]["context_absolute_path"]).exists()
     assert started["session"]["status"] == "running_loop"
     assert [item["action"] for item in started["binding"]["entry_invocations"][-2:]] == ["gen", "loop"]
     assert {item["entry_source"] for item in started["binding"]["entry_invocations"][-2:]} == {"codex_project_skill"}
     final = _drive_agent_native_run_to_success(service, adapter="codex", started=started, workdir=sample_workdir)
     assert final["complete"] is True
+
+
+def test_agent_native_step_capsule_projects_full_judgment_contract(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    (sample_workdir / "AGENTS.md").write_text("Project rules.\n", encoding="utf-8")
+    (sample_workdir / "design").mkdir(exist_ok=True)
+    (sample_workdir / "design" / "README.md").write_text("# Design\n", encoding="utf-8")
+    (sample_workdir / "tests").mkdir(exist_ok=True)
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Ship the focused starter experience.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    step_judgment_contract = started["next_step"]["judgment_contract"]
+    context_contract = json.loads(Path(started["next_step"]["context_absolute_path"]).read_text(encoding="utf-8"))["contract"]
+    snapshot_contract = service.run_observation_snapshot(started["run"]["id"])["key_takeaways"]["judgment_contract"]
+
+    assert step_judgment_contract["contract_path"] == started["judgment_contract"]["contract_path"]
+    assert snapshot_contract["contract_path"] == started["judgment_contract"]["contract_path"]
+    assert snapshot_contract["loop_fit_reasons"] == started["judgment_contract"]["loop_fit_reasons"]
+    assert snapshot_contract["execution_strategy"] == started["judgment_contract"]["execution_strategy"]
+    assert snapshot_contract["local_governance"] == started["judgment_contract"]["local_governance"]
+    assert snapshot_contract["role_postures"] == started["judgment_contract"]["role_postures"]
+    assert step_judgment_contract["collaboration_summary"].startswith(
+        started["judgment_contract"]["collaboration_summary"].removesuffix("…")
+    )
+    assert step_judgment_contract["contract_path"] == context_contract["path"]
+    assert step_judgment_contract["collaboration_summary"] == context_contract["collaboration_summary"]
+    assert step_judgment_contract["loop_fit_reasons"] == context_contract["loop_fit_reasons"]
+    assert step_judgment_contract["judgment_tradeoffs"] == context_contract["judgment_tradeoffs"]
+    assert step_judgment_contract["execution_strategy"] == context_contract["execution_strategy"]
+    assert step_judgment_contract["local_governance"] == context_contract["local_governance"]
+    assert step_judgment_contract["role_postures"]
+    assert context_contract["role_postures"]
+    assert any("Keep implementation narrow" in item for item in step_judgment_contract["role_postures"])
+    assert any(item["posture_notes"].startswith("Keep implementation narrow") for item in context_contract["role_postures"])
+    assert step_judgment_contract["coverage_targets"] == context_contract["coverage_targets"]
+    assert step_judgment_contract["success_surface"] == context_contract["success_surface"]
+    assert step_judgment_contract["fake_done_states"] == context_contract["fake_done_states"]
+    assert step_judgment_contract["evidence_preferences"] == context_contract["evidence_preferences"]
+    assert step_judgment_contract["residual_risk"] == context_contract["residual_risk"]
+    assert step_judgment_contract["completion_mode"] == context_contract["completion_mode"]
+
+    state_path = RunArtifactLayout(Path(started["run"]["runs_dir"])).run_dir / "agent_native" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["active_step"]["capsule"].pop("judgment_contract", None)
+    for field, replacement in {
+        "judgment_tradeoffs": [],
+        "execution_strategy": [],
+        "local_governance": [],
+        "success_surface": [],
+        "fake_done_states": [],
+        "evidence_preferences": [],
+        "residual_risk": "",
+    }.items():
+        state["active_step"]["context_packet"]["contract"][field] = replacement
+    state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    claimed = service.claim_agent_native_step(
+        AgentNativeStepClaimRequest(adapter="codex", workdir=sample_workdir, run_id=started["run"]["id"])
+    )
+    assert claimed["next_step"]["judgment_contract"]["contract_path"] == claimed["judgment_contract"]["contract_path"]
+    for field in (
+        "judgment_tradeoffs",
+        "execution_strategy",
+        "local_governance",
+        "success_surface",
+        "fake_done_states",
+        "evidence_preferences",
+        "residual_risk",
+    ):
+        assert claimed["next_step"]["judgment_contract"][field] == started["judgment_contract"][field]
+    assert claimed["next_step"]["judgment_contract"]["coverage_targets"] == context_contract["coverage_targets"]
+    persisted_state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert persisted_state["active_step"]["capsule"]["judgment_contract"] == claimed["next_step"]["judgment_contract"]
+
+
+def test_agent_native_capsule_judgment_contract_falls_back_when_context_is_trimmed(tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "runs" / "run_capsule_fallback")
+    layout.initialize()
+    layout.run_contract_path.write_text(
+        json.dumps(
+            {
+                "collaboration_summary": "Keep frozen judgment stronger than stale context.",
+                "loop_fit_reasons": ["Later role handoffs need the same proof bar."],
+                "judgment_tradeoffs": ["Evidence beats fast closure."],
+                "execution_strategy": ["Prove inherited governance before polishing."],
+                "local_governance": ["GateKeeper treats skipped AGENTS.md checks as Blocking."],
+                "success_surface": ["Admin can complete the audited action."],
+                "fake_done_states": ["Summary-only evidence is fake done."],
+                "evidence_preferences": ["Require command output and audit artifacts."],
+                "residual_risk": "No unmanaged residual risk is acceptable.",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    contract = ServiceAgentNativeMixin._agent_native_capsule_judgment_contract(
+        {"runs_dir": str(layout.run_dir)},
+        {
+            "contract": {
+                "path": "contract/run_contract.json",
+                "judgment_tradeoffs": [],
+                "execution_strategy": [],
+                "local_governance": [],
+                "success_surface": [],
+                "fake_done_states": [],
+                "evidence_preferences": [],
+                "residual_risk": "",
+            }
+        },
+    )
+
+    assert contract["judgment_tradeoffs"] == ["Evidence beats fast closure."]
+    assert contract["execution_strategy"] == ["Prove inherited governance before polishing."]
+    assert contract["local_governance"] == ["GateKeeper treats skipped AGENTS.md checks as Blocking."]
+    assert contract["success_surface"] == ["Admin can complete the audited action."]
+    assert contract["fake_done_states"] == ["Summary-only evidence is fake done."]
+    assert contract["evidence_preferences"] == ["Require command output and audit artifacts."]
+    assert contract["residual_risk"] == "No unmanaged residual risk is acceptable."
+
+
+def test_agent_loop_revalidates_ready_bundle_file_before_start(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Ship a ready bundle, but fail closed if the artifact changes after validation.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    ready_path = Path(generated["session"]["bundle_path"])
+    ready_bundle = yaml.safe_load(ready_path.read_text(encoding="utf-8"))
+    ready_bundle["spec"]["markdown"] = ready_bundle["spec"]["markdown"].replace(
+        "Accept minor polish gaps only when they are explicitly named and tracked as an owned follow-up; fail closed on unproven primary-flow behavior or weak verification evidence.",
+        "Some risk is fine.",
+    )
+    assert "Some risk is fine." in ready_bundle["spec"]["markdown"]
+    ready_path.write_text(yaml.safe_dump(ready_bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+    with pytest.raises(LooporaError, match="Residual Risk guidance"):
+        service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+
+    session = service.get_alignment_session(generated["session"]["id"])
+    assert session["status"] == "ready"
+    assert session["validation"]["ok"] is False
+    assert any(
+        event["event_type"] == "alignment_import_failed"
+        and "Residual Risk guidance" in event["payload"].get("error", "")
+        for event in service.list_alignment_events(session["id"])
+    )
+
+
+def test_agent_loop_refreshes_ready_hash_after_valid_bundle_file_change(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Ship the focused starter experience.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    original_ready_sha = generated["binding"]["ready_candidate_sha256"]
+    ready_path = Path(generated["session"]["bundle_path"])
+    ready_bundle = yaml.safe_load(ready_path.read_text(encoding="utf-8"))
+    ready_bundle["metadata"]["description"] = "Run from a valid canonical edit made after the first preview."
+    ready_path.write_text(yaml.safe_dump(ready_bundle, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    expected_ready_sha, expected_ready_bytes = _ready_candidate_digest(ready_path.read_text(encoding="utf-8"))
+    assert expected_ready_sha != original_ready_sha
+
+    started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+
+    assert started["binding"]["ready_candidate_sha256"] == expected_ready_sha
+    assert started["binding"]["ready_candidate_bytes"] == expected_ready_bytes
+    assert started["session"]["validation"]["bundle_sha256"] == expected_ready_sha
+    assert started["session"]["validation"]["bundle_bytes"] == expected_ready_bytes
+
+
+def test_agent_native_claim_rejects_corrupted_active_capsule(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Do not turn corrupted active capsules into partial execution contracts.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    state_path = RunArtifactLayout(Path(started["run"]["runs_dir"])).run_dir / "agent_native" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["active_step"]["capsule"] = "not-a-capsule-object"
+    state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(LooporaError, match="active step capsule is invalid"):
+        service.claim_agent_native_step(
+            AgentNativeStepClaimRequest(adapter="codex", workdir=sample_workdir, run_id=started["run"]["id"])
+        )
 
 
 def test_agent_native_parallel_group_peer_context_uses_group_start_snapshot(
@@ -1161,6 +3274,13 @@ def test_agent_native_parallel_group_peer_context_uses_group_start_snapshot(
     )
     result = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
     builder_step = result["next_step"]
+    assert builder_step["action_policy"] == {
+        "workspace": "workspace_write",
+        "can_block": False,
+        "can_finish_run": False,
+    }
+    assert builder_step["role"]["prompt_ref"].endswith("builder.md")
+    assert "Keep implementation narrow" in builder_step["role"]["posture_notes"]
     result = service.submit_agent_native_step(
         AgentNativeStepSubmitRequest(
             adapter="codex",
@@ -1175,6 +3295,13 @@ def test_agent_native_parallel_group_peer_context_uses_group_start_snapshot(
 
     first_peer_step = result["next_step"]
     assert first_peer_step["step_id"] == "contract_inspection_step"
+    assert first_peer_step["action_policy"] == {
+        "workspace": "read_only",
+        "can_block": True,
+        "can_finish_run": False,
+    }
+    assert first_peer_step["role"]["prompt_ref"].endswith("inspector.md")
+    assert "contract-level proof" in first_peer_step["role"]["posture_notes"]
     result = service.submit_agent_native_step(
         AgentNativeStepSubmitRequest(
             adapter="codex",
@@ -1210,6 +3337,13 @@ def test_agent_native_parallel_group_peer_context_uses_group_start_snapshot(
 
     gatekeeper_step = result["next_step"]
     assert gatekeeper_step["step_id"] == "gatekeeper_step"
+    assert gatekeeper_step["action_policy"] == {
+        "workspace": "read_only",
+        "can_block": True,
+        "can_finish_run": True,
+    }
+    assert gatekeeper_step["role"]["prompt_ref"].endswith("gatekeeper.md")
+    assert "Close only when" in gatekeeper_step["role"]["posture_notes"]
     gatekeeper_context = json.loads(Path(gatekeeper_step["context_absolute_path"]).read_text(encoding="utf-8"))
     gatekeeper_handoff_steps = [item["source"]["step_id"] for item in gatekeeper_context["upstream"]["completed_steps_this_iteration"]]
 
@@ -1231,6 +3365,165 @@ def test_agent_native_parallel_group_peer_context_uses_group_start_snapshot(
         and event["payload"]["step_ids"] == ["contract_inspection_step", "evidence_inspection_step"]
         for event in events
     )
+
+
+def test_agent_native_submit_rejects_read_only_workspace_claims_and_schema_mismatches(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Ship the focused starter experience.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    inspector_result = _drive_agent_native_until_archetype(
+        service,
+        started,
+        adapter="codex",
+        workdir=sample_workdir,
+        archetype="inspector",
+    )
+    step = inspector_result["next_step"]
+    raw_output_path = RunArtifactLayout(Path(inspector_result["run"]["runs_dir"])).step_output_raw_path(
+        int(step["iter"]),
+        int(step["step_order"]),
+        str(step["step_id"]),
+    )
+
+    workspace_claim_output = _agent_native_step_output(step)
+    workspace_claim_output["changed_files"] = ["README.md"]
+    with pytest.raises(LooporaConflictError, match="read-only step cannot claim workspace artifact fields"):
+        service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                run_id=str(step["run_id"]),
+                step_id=str(step["step_id"]),
+                output=workspace_claim_output,
+                host_dispatch=_agent_native_host_dispatch("codex", step),
+                entry_source="codex_project_skill",
+            )
+        )
+    assert not raw_output_path.exists()
+
+    extra_field_output = _agent_native_step_output(step)
+    extra_field_output["unexpected_workspace_story"] = "I also edited files."
+    with pytest.raises(LooporaConflictError, match=r"unexpected_workspace_story is not allowed"):
+        service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                run_id=str(step["run_id"]),
+                step_id=str(step["step_id"]),
+                output=extra_field_output,
+                host_dispatch=_agent_native_host_dispatch("codex", step),
+                entry_source="codex_project_skill",
+            )
+        )
+    assert not raw_output_path.exists()
+
+    missing_required_output = _agent_native_step_output(step)
+    missing_required_output.pop("coverage_results")
+    with pytest.raises(LooporaConflictError, match=r"coverage_results is required"):
+        service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                run_id=str(step["run_id"]),
+                step_id=str(step["step_id"]),
+                output=missing_required_output,
+                host_dispatch=_agent_native_host_dispatch("codex", step),
+                entry_source="codex_project_skill",
+            )
+        )
+    assert not raw_output_path.exists()
+
+    wrong_type_output = _agent_native_step_output(step)
+    wrong_type_output["execution_summary"]["total_checks"] = "one"
+    with pytest.raises(LooporaConflictError, match=r"execution_summary\.total_checks expected integer"):
+        service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                run_id=str(step["run_id"]),
+                step_id=str(step["step_id"]),
+                output=wrong_type_output,
+                host_dispatch=_agent_native_host_dispatch("codex", step),
+                entry_source="codex_project_skill",
+            )
+        )
+    assert not raw_output_path.exists()
+
+    invalid_enum_output = _agent_native_step_output(step)
+    invalid_enum_output["check_results"][0]["status"] = "ok"
+    with pytest.raises(LooporaConflictError, match=r"check_results\[0\]\.status must be one of"):
+        service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                run_id=str(step["run_id"]),
+                step_id=str(step["step_id"]),
+                output=invalid_enum_output,
+                host_dispatch=_agent_native_host_dispatch("codex", step),
+                entry_source="codex_project_skill",
+            )
+        )
+    assert not raw_output_path.exists()
+
+    invalid_coverage_status_output = _agent_native_step_output(step)
+    invalid_coverage_status_output["coverage_results"] = [
+        {
+            "target_id": "done_when.check_001",
+            "status": "proven",
+            "evidence_refs": [],
+            "note": "Proven belongs in verdict buckets or notes, not coverage_results.status.",
+        }
+    ]
+    with pytest.raises(LooporaConflictError, match=r"coverage_results\[0\]\.status must be one of"):
+        service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                run_id=str(step["run_id"]),
+                step_id=str(step["step_id"]),
+                output=invalid_coverage_status_output,
+                host_dispatch=_agent_native_host_dispatch("codex", step),
+                entry_source="codex_project_skill",
+            )
+        )
+    assert not raw_output_path.exists()
+
+    unknown_coverage_target_output = _agent_native_step_output(step)
+    unknown_coverage_target_output["coverage_results"] = [
+        {
+            "target_id": "invented.target_999",
+            "status": "covered",
+            "evidence_refs": [],
+            "note": "The host must not invent a target outside the frozen judgment contract.",
+        }
+    ]
+    with pytest.raises(LooporaConflictError, match=r"coverage_results_unknown_target_id: invented\.target_999"):
+        service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                run_id=str(step["run_id"]),
+                step_id=str(step["step_id"]),
+                output=unknown_coverage_target_output,
+                host_dispatch=_agent_native_host_dispatch("codex", step),
+                entry_source="codex_project_skill",
+            )
+        )
+    assert not raw_output_path.exists()
 
 
 def test_agent_native_submit_requires_matching_host_dispatch_proof(
@@ -1324,6 +3617,34 @@ def test_agent_native_host_dispatch_requires_literal_role_dispatch_booleans(serv
         },
     }
 
+    context["active"]["capsule"]["role_dispatch"] = {}
+    with pytest.raises(LooporaConflictError, match="role_dispatch is required"):
+        service._validate_agent_native_host_dispatch(context, None)
+
+    context["active"]["capsule"]["role_dispatch"] = {
+        "required": True,
+        "target_agent": "loopora-builder",
+        "inline_allowed": False,
+        "accepted_dispatch_modes": ["host_subagent"],
+    }
+    with pytest.raises(LooporaConflictError, match="requires loopora_host_dispatch"):
+        service._validate_agent_native_host_dispatch(context, None)
+
+    context["active"]["capsule"]["role_dispatch"] = {
+        "required": True,
+        "target_agent": "loopora-builder",
+        "inline_allowed": False,
+        "accepted_dispatch_modes": ["host_subagent"],
+    }
+    with pytest.raises(LooporaConflictError, match="requires loopora_host_dispatch"):
+        service._validate_agent_native_host_dispatch(context, {})
+
+    context["active"]["capsule"]["role_dispatch"] = {
+        "required": "true",
+        "target_agent": "loopora-builder",
+        "inline_allowed": False,
+        "accepted_dispatch_modes": ["host_subagent"],
+    }
     with pytest.raises(LooporaConflictError, match="required must be literal true"):
         service._validate_agent_native_host_dispatch(context, None)
 
@@ -1334,6 +3655,47 @@ def test_agent_native_host_dispatch_requires_literal_role_dispatch_booleans(serv
         "accepted_dispatch_modes": ["host_subagent"],
     }
     with pytest.raises(LooporaConflictError, match="inline_allowed must be a literal boolean"):
+        service._validate_agent_native_host_dispatch(
+            context,
+            {
+                "schema_version": 1,
+                "adapter": "codex",
+                "run_id": "run_agent",
+                "step_id": "builder_step",
+                "target_agent": "loopora-builder",
+                "actual_agent": "loopora-builder",
+                "dispatch_mode": "host_subagent",
+                "inline": False,
+            },
+        )
+
+    context["active"]["capsule"]["role_dispatch"] = {
+        "required": True,
+        "inline_allowed": False,
+        "accepted_dispatch_modes": ["host_subagent"],
+    }
+    with pytest.raises(LooporaConflictError, match="target_agent is required"):
+        service._validate_agent_native_host_dispatch(
+            context,
+            {
+                "schema_version": 1,
+                "adapter": "codex",
+                "run_id": "run_agent",
+                "step_id": "builder_step",
+                "target_agent": "loopora-builder",
+                "actual_agent": "loopora-builder",
+                "dispatch_mode": "host_subagent",
+                "inline": False,
+            },
+        )
+
+    context["active"]["capsule"]["role_dispatch"] = {
+        "required": True,
+        "target_agent": "loopora-builder",
+        "inline_allowed": False,
+        "accepted_dispatch_modes": [],
+    }
+    with pytest.raises(LooporaConflictError, match="accepted_dispatch_modes"):
         service._validate_agent_native_host_dispatch(
             context,
             {
@@ -1400,7 +3762,7 @@ def test_agent_native_host_dispatch_requires_literal_role_dispatch_booleans(serv
             },
         )
 
-    for schema_version in (True, 1.5):
+    for schema_version in (True, 1.5, "1"):
         dispatch = {
             "schema_version": schema_version,
             "adapter": "codex",
@@ -1413,6 +3775,98 @@ def test_agent_native_host_dispatch_requires_literal_role_dispatch_booleans(serv
         }
         with pytest.raises(LooporaConflictError, match="schema_version must be an integer"):
             service._validate_agent_native_host_dispatch(context, dispatch)
+
+
+def test_agent_native_output_contract_requires_capsule_output_schema(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    with pytest.raises(LooporaConflictError, match="output_schema is required"):
+        service._validate_agent_native_step_output_contract(
+            {"summary": "This malformed capsule should fail closed."},
+            active={"capsule": {"action_policy": {"workspace": "read_only"}}},
+        )
+
+
+@pytest.mark.parametrize(
+    ("missing_field", "message"),
+    [
+        ("judgment_contract", "judgment_contract is required"),
+        ("required_coverage", "required_coverage is required"),
+        ("action_policy", "action_policy is required"),
+    ],
+)
+def test_agent_native_output_contract_requires_frozen_capsule_objects(
+    service_factory,
+    missing_field: str,
+    message: str,
+) -> None:
+    service = service_factory(scenario="success")
+    capsule = {
+        "output_schema": {"type": "object", "required": ["summary"], "properties": {"summary": {"type": "string"}}},
+        "judgment_contract": {"goal": "Keep the role tied to the reviewed Loop."},
+        "required_coverage": {"status": "pending"},
+        "action_policy": {"workspace": "read_only", "can_block": True, "can_finish_run": False},
+        "known_evidence_ids": [],
+    }
+    capsule.pop(missing_field)
+
+    with pytest.raises(LooporaConflictError, match=message):
+        service._validate_agent_native_step_output_contract(
+            {"summary": "This malformed capsule should fail closed."},
+            active={"capsule": capsule},
+        )
+
+
+def test_agent_native_output_contract_requires_known_evidence_id_closed_set(service_factory) -> None:
+    service = service_factory(scenario="success")
+    capsule = {
+        "output_schema": {"type": "object", "required": ["summary"], "properties": {"summary": {"type": "string"}}},
+        "judgment_contract": {"goal": "Keep evidence refs inside the capsule."},
+        "required_coverage": {"status": "pending"},
+        "action_policy": {"workspace": "read_only", "can_block": True, "can_finish_run": False},
+    }
+
+    with pytest.raises(LooporaConflictError, match="known_evidence_ids must be a list"):
+        service._validate_agent_native_step_output_contract(
+            {"summary": "This malformed capsule should fail closed."},
+            active={"capsule": capsule},
+        )
+
+    capsule["known_evidence_ids"] = [123]
+    with pytest.raises(LooporaConflictError, match="known_evidence_ids must contain strings"):
+        service._validate_agent_native_step_output_contract(
+            {"summary": "This malformed capsule should fail closed."},
+            active={"capsule": capsule},
+        )
+
+
+@pytest.mark.parametrize(
+    ("action_policy", "message"),
+    [
+        ({"workspace": "workspace-write", "can_block": True, "can_finish_run": False}, "action_policy.workspace"),
+        ({"workspace": "read_only", "can_block": "true", "can_finish_run": False}, "action_policy.can_block"),
+        ({"workspace": "read_only", "can_block": True, "can_finish_run": "false"}, "action_policy.can_finish_run"),
+    ],
+)
+def test_agent_native_output_contract_rejects_malformed_action_policy(
+    service_factory,
+    action_policy: dict,
+    message: str,
+) -> None:
+    service = service_factory(scenario="success")
+    capsule = {
+        "output_schema": {"type": "object", "required": ["summary"], "properties": {"summary": {"type": "string"}}},
+        "judgment_contract": {"goal": "Keep permissions literal and inspectable."},
+        "required_coverage": {"status": "pending"},
+        "action_policy": action_policy,
+        "known_evidence_ids": [],
+    }
+
+    with pytest.raises(LooporaConflictError, match=message):
+        service._validate_agent_native_step_output_contract(
+            {"summary": "This malformed capsule should fail closed."},
+            active={"capsule": capsule},
+        )
 
 
 def test_agent_native_gatekeeper_blocks_unknown_coverage_result_refs(
@@ -1467,6 +3921,52 @@ def test_agent_native_gatekeeper_blocks_unknown_coverage_result_refs(
     assert normalized_gatekeeper_output["blocking_issues"] == ["gatekeeper_coverage_evidence_refs_unknown: invented_ev"]
 
 
+def test_agent_native_gatekeeper_blocks_unknown_top_level_evidence_refs(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Require coverage target evidence refs to stay inside the known evidence set.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    result = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    result = _drive_agent_native_until_archetype(service, result, adapter="codex", workdir=sample_workdir, archetype="gatekeeper")
+    step = result["next_step"]
+
+    gatekeeper_output = _agent_native_step_output(step)
+    gatekeeper_output["evidence_refs"] = ["invented_ev"]
+    gatekeeper_output["coverage_results"] = []
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            run_id=str(step["run_id"]),
+            step_id=str(step["step_id"]),
+            output=gatekeeper_output,
+            host_dispatch=_agent_native_host_dispatch("codex", step),
+            entry_source="codex_project_skill",
+        )
+    )
+
+    assert result["complete"] is False
+    assert result["next_step"]["step_id"] == "builder_step"
+    layout = RunArtifactLayout(Path(result["run"]["runs_dir"]))
+    normalized_gatekeeper_output = json.loads(
+        layout.step_output_normalized_path(int(step["iter"]), int(step["step_order"]), str(step["step_id"])).read_text(encoding="utf-8")
+    )
+    assert normalized_gatekeeper_output["passed"] is False
+    assert normalized_gatekeeper_output["blocking_issues"] == ["gatekeeper_evidence_refs_unknown: invented_ev"]
+
+
 def test_agent_native_rejects_non_gatekeeper_unknown_coverage_result_refs(
     service_factory,
     tmp_path: Path,
@@ -1511,6 +4011,61 @@ def test_agent_native_rejects_non_gatekeeper_unknown_coverage_result_refs(
         )
 
     layout = RunArtifactLayout(Path(result["run"]["runs_dir"]))
+    assert not layout.step_output_raw_path(int(step["iter"]), int(step["step_order"]), str(step["step_id"])).exists()
+    ledger = read_jsonl(layout.evidence_ledger_path)
+    assert not any(item.get("step_id") == step["step_id"] for item in ledger)
+
+
+def test_agent_native_known_evidence_ids_empty_capsule_stays_closed(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Ship the focused starter experience.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    result = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    result = _drive_agent_native_until_archetype(service, result, adapter="codex", workdir=sample_workdir, archetype="inspector")
+    step = result["next_step"]
+    layout = RunArtifactLayout(Path(result["run"]["runs_dir"]))
+    state_path = layout.run_dir / "agent_native" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert "ev_000_00_builder_step" in state["active_step"]["context_packet"]["evidence"]["known_ids"]
+    state["active_step"]["capsule"]["known_evidence_ids"] = []
+    state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+    inspector_output = _agent_native_step_output(step)
+    inspector_output["coverage_results"] = [
+        {
+            "target_id": "fake_done.risk_001",
+            "status": "covered",
+            "evidence_refs": ["ev_000_00_builder_step"],
+            "note": "The ref exists in context but not in the capsule closed set.",
+        }
+    ]
+
+    with pytest.raises(LooporaError, match="agent-native evidence_refs_unknown: ev_000_00_builder_step"):
+        service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                run_id=str(step["run_id"]),
+                step_id=str(step["step_id"]),
+                output=inspector_output,
+                host_dispatch=_agent_native_host_dispatch("codex", step),
+                entry_source="codex_project_skill",
+            )
+        )
+
     assert not layout.step_output_raw_path(int(step["iter"]), int(step["step_order"]), str(step["step_id"])).exists()
     ledger = read_jsonl(layout.evidence_ledger_path)
     assert not any(item.get("step_id") == step["step_id"] for item in ledger)
@@ -1979,10 +4534,18 @@ def test_agent_native_no_evidence_progress_control_claims_stalled_context(
     assert control_step["role"]["archetype"] == "guide"
     control_context = json.loads(Path(control_step["context_absolute_path"]).read_text(encoding="utf-8"))
     assert control_context["iteration"]["evidence_progress_mode"] == "stalled"
+    assert control_context["iteration"]["coverage_status"] == "blocked"
     assert control_context["iteration"]["covered_check_count"] == 0
     assert control_context["iteration"]["missing_check_count"] == 2
+    assert control_context["iteration"]["missing_check_ids"] == ["check_001", "check_002"]
+    assert any(item["target_id"] == "done_when.check_001" for item in control_context["iteration"]["coverage_top_gaps"])
     assert control_context["iteration"]["consecutive_no_required_coverage_delta"] == 1
     assert control_context["current_step"]["control"]["signal"] == "no_evidence_progress"
+    assert control_step["required_coverage"]["status"] == "blocked"
+    assert control_step["required_coverage"]["evidence_progress_mode"] == "stalled"
+    assert control_step["required_coverage"]["missing_check_ids"] == ["check_001", "check_002"]
+    assert any(item["target_id"] == "done_when.check_001" for item in control_step["required_coverage"]["top_gaps"])
+    assert 'Missing required check ids: ["check_001", "check_002"]' in control_step["prompt"]
 
     result = service.submit_agent_native_step(
         AgentNativeStepSubmitRequest(
@@ -2137,11 +4700,104 @@ def test_codex_agent_binding_is_scoped_by_host_context(service_factory, tmp_path
     assert started["run"]["status"] == "awaiting_agent"
 
 
+def test_agent_context_binding_path_hashes_untrusted_context_id(sample_workdir: Path) -> None:
+    binding_path = agent_adapters.agent_context_binding_path(
+        "codex",
+        sample_workdir,
+        context_id="../thread-a\nwith/slashes",
+    )
+
+    assert binding_path.parent.name == "bindings"
+    assert binding_path.name.endswith(".json")
+    assert "/" not in binding_path.stem
+    assert ".." not in binding_path.stem
+    assert "thread-a" not in binding_path.name
+
+
+def test_agent_loop_rejects_binding_to_different_workdir_session(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    other_workdir = tmp_path / "other-project"
+    other_workdir.mkdir()
+    bundle_file = tmp_path / "other-bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(other_workdir.resolve())), encoding="utf-8")
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=other_workdir,
+            message="Bind this READY bundle to the other project only.",
+            bundle_file=bundle_file,
+        )
+    )
+    agent_adapters.write_agent_binding(
+        "codex",
+        sample_workdir,
+        {
+            "alignment_session_id": generated["session"]["id"],
+            "alignment_status": "ready",
+            "bundle_path": generated["session"]["bundle_path"],
+            "preview_path": f"/loops/new/bundle?alignment_session_id={generated['session']['id']}",
+        },
+    )
+
+    with pytest.raises(LooporaConflictError, match="different workdir"):
+        service.start_agent_loop("codex", workdir=sample_workdir, execute_async=False)
+
+
 @pytest.mark.parametrize("adapter", ["codex", "claude", "opencode"])
 def test_cli_agent_loop_does_not_spawn_nested_worker_for_agent_native(adapter: str, monkeypatch, tmp_path: Path) -> None:
     workdir = tmp_path / "project"
     workdir.mkdir()
     run_dir = tmp_path / "run"
+    layout = RunArtifactLayout(run_dir)
+    layout.initialize()
+    layout.run_contract_path.write_text(
+        json.dumps(
+            {
+                "source_bundle": {
+                    "id": "bundle_agent",
+                    "name": "Agent Native Refund Bundle",
+                    "revision": 2,
+                    "source_bundle_id": "",
+                    "imported_from_path": "/tmp/loopora/bundle.yml",
+                },
+                "collaboration_summary": "Prefer frozen judgment over lifecycle optimism.",
+                "loop_fit_reasons": ["Future Agent rounds keep the same proof bar active."],
+                "judgment_tradeoffs": ["Evidence beats fast closure."],
+                "execution_strategy": ["Prove the refund path first, then expand after audit evidence is strong."],
+                "local_governance": ["GateKeeper treats skipped AGENTS.md checks as Blocking."],
+                "role_postures": [
+                    {
+                        "role_name": "GateKeeper",
+                        "archetype": "gatekeeper",
+                        "posture_notes": "Fail closed when evidence is weak.",
+                    }
+                ],
+                "completion_mode": "gatekeeper",
+                "workflow": {
+                    "preset": "build_then_parallel_review",
+                    "collaboration_intent": "Parallel review must feed GateKeeper before closure.",
+                },
+                "compiled_spec": {
+                    "check_mode": "specified",
+                    "checks": [{"id": "check_001"}, {"id": "check_002"}],
+                    "coverage_targets": [
+                        {"id": "done_when.check_001", "required": True},
+                        {"id": "gatekeeper.finish", "required": True},
+                    ],
+                    "success_surface": ["Support admin can approve a refund."],
+                    "fake_done_states": ["CSV export without permission audit is fake done."],
+                    "evidence_preferences": ["Require browser journey and audit log command evidence."],
+                    "residual_risk": "No residual risk is acceptable.",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     calls: dict[str, object] = {}
 
     class FakeService:
@@ -2183,13 +4839,165 @@ def test_cli_agent_loop_does_not_spawn_nested_worker_for_agent_native(adapter: s
     assert calls["context_id"] == "thread-1"
     assert calls["entry_source"] == ""
     assert calls["execute_async"] is False
+    assert f"run_contract_path: {layout.run_contract_path}" in result.stdout
+    assert (
+        'source_plan: {"id": "bundle_agent", "name": "Agent Native Refund Bundle", "revision": 2, '
+        '"source_bundle_id": "", "imported_from_path": "/tmp/loopora/bundle.yml"}'
+    ) in result.stdout
+    assert "judgment_contract_summary: Prefer frozen judgment over lifecycle optimism." in result.stdout
+    assert "check_mode: specified" in result.stdout
+    assert "completion_mode: gatekeeper" in result.stdout
+    assert "workflow_preset: build_then_parallel_review" in result.stdout
+    assert "workflow_collaboration_intent: Parallel review must feed GateKeeper before closure." in result.stdout
+    assert "check_count: 2" in result.stdout
+    assert 'coverage_targets: ["done_when.check_001 (required)", "gatekeeper.finish (required)"]' in result.stdout
+    assert 'loop_fit_reasons: ["Future Agent rounds keep the same proof bar active."]' in result.stdout
+    assert 'judgment_tradeoffs: ["Evidence beats fast closure."]' in result.stdout
+    assert 'execution_strategy: ["Prove the refund path first, then expand after audit evidence is strong."]' in result.stdout
+    assert 'local_governance: ["GateKeeper treats skipped AGENTS.md checks as Blocking."]' in result.stdout
+    assert 'role_postures: ["GateKeeper: Fail closed when evidence is weak."]' in result.stdout
+    assert 'success_surface: ["Support admin can approve a refund."]' in result.stdout
+    assert 'fake_done_states: ["CSV export without permission audit is fake done."]' in result.stdout
+    assert 'evidence_preferences: ["Require browser journey and audit log command evidence."]' in result.stdout
+    assert "residual_risk: No residual risk is acceptable." in result.stdout
     assert "run_url: /runs/run_agent" in result.stdout
     assert "next_step_id: builder_step" in result.stdout
+
+
+def test_cli_agent_next_prints_run_contract_for_intermediate_capsule(monkeypatch, tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    layout = RunArtifactLayout(tmp_path / "runs" / "run_next")
+    layout.initialize()
+    layout.run_contract_path.write_text(
+        json.dumps(
+            {
+                "collaboration_summary": "Keep intermediate capsules tied to frozen judgment.",
+                "loop_fit_reasons": ["The next role needs the same proof bar as the first role."],
+                "judgment_tradeoffs": ["Do not trade evidence coverage for fast handoff."],
+                "execution_strategy": ["Claim the next proof gap before expanding scope."],
+                "local_governance": ["Next role checks design and tests before submitting."],
+                "role_postures": [
+                    {
+                        "role_name": "Inspector",
+                        "archetype": "inspector",
+                        "posture_notes": "Reject handoffs without evidence refs.",
+                    }
+                ],
+                "completion_mode": "gatekeeper",
+                "workflow": {
+                    "preset": "repair_loop",
+                    "collaboration_intent": "Inspector proof gaps must shape the repair loop.",
+                },
+                "compiled_spec": {
+                    "check_mode": "specified",
+                    "checks": [{"id": "check_001"}],
+                    "coverage_targets": [
+                        {"id": "done_when.check_001", "required": True},
+                        {"id": "gatekeeper.finish", "required": True},
+                    ],
+                },
+                "success_surface": ["Support can trace the refund authorization path."],
+                "fake_done_states": ["A handoff without evidence refs is fake done."],
+                "evidence_preferences": ["Use command output and audit artifacts."],
+                "residual_risk": "Only documented support handoff risk may remain.",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeService:
+        def claim_agent_native_step(self, request: AgentNativeStepClaimRequest):
+            assert request.adapter == "codex"
+            assert request.workdir == workdir
+            assert request.run_id == "run_next"
+            return {
+                "run": {
+                    "id": "run_next",
+                    "status": "awaiting_agent",
+                    "run_status": "awaiting_agent",
+                    "runs_dir": str(layout.run_dir),
+                },
+                "run_path": "/runs/run_next",
+                "next_step": {
+                    "step_id": "inspector_step",
+                    "role": {"name": "Inspector"},
+                    "submit_hint": {"command": "loopora agent codex submit --run-id run_next"},
+                },
+                "complete": False,
+            }
+
+    monkeypatch.setattr(cli, "create_service", FakeService)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "next",
+            "--workdir",
+            str(workdir),
+            "--run-id",
+            "run_next",
+            "--no-web",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "run_status: awaiting_agent" in result.stdout
+    assert f"run_contract_path: {layout.run_contract_path}" in result.stdout
+    assert "judgment_contract_summary: Keep intermediate capsules tied to frozen judgment." in result.stdout
+    assert "check_mode: specified" in result.stdout
+    assert "completion_mode: gatekeeper" in result.stdout
+    assert "workflow_preset: repair_loop" in result.stdout
+    assert "workflow_collaboration_intent: Inspector proof gaps must shape the repair loop." in result.stdout
+    assert "check_count: 1" in result.stdout
+    assert 'coverage_targets: ["done_when.check_001 (required)", "gatekeeper.finish (required)"]' in result.stdout
+    assert 'loop_fit_reasons: ["The next role needs the same proof bar as the first role."]' in result.stdout
+    assert 'judgment_tradeoffs: ["Do not trade evidence coverage for fast handoff."]' in result.stdout
+    assert 'execution_strategy: ["Claim the next proof gap before expanding scope."]' in result.stdout
+    assert 'local_governance: ["Next role checks design and tests before submitting."]' in result.stdout
+    assert 'role_postures: ["Inspector: Reject handoffs without evidence refs."]' in result.stdout
+    assert 'success_surface: ["Support can trace the refund authorization path."]' in result.stdout
+    assert 'fake_done_states: ["A handoff without evidence refs is fake done."]' in result.stdout
+    assert 'evidence_preferences: ["Use command output and audit artifacts."]' in result.stdout
+    assert "residual_risk: Only documented support handoff risk may remain." in result.stdout
+    assert "next_step_id: inspector_step" in result.stdout
+    assert "next_role: Inspector" in result.stdout
+    assert "submit_hint: loopora agent codex submit --run-id run_next" in result.stdout
 
 
 def test_cli_agent_submit_prints_terminal_task_verdict(monkeypatch, tmp_path: Path) -> None:
     workdir = tmp_path / "project"
     workdir.mkdir()
+    layout = RunArtifactLayout(tmp_path / "runs" / "run_terminal")
+    layout.initialize()
+    layout.run_contract_path.write_text(
+        json.dumps(
+            {
+                "collaboration_summary": "Keep the evidence standard frozen through terminal submit.",
+                "loop_fit_reasons": ["Later role outputs can drift without the frozen contract."],
+                "judgment_tradeoffs": ["Direct proof beats narrative confidence."],
+                "execution_strategy": ["Collect audit evidence before terminal closure."],
+                "local_governance": ["Inspector verifies tests/ evidence before terminal closure."],
+                "role_postures": [
+                    {
+                        "role_name": "GateKeeper",
+                        "archetype": "gatekeeper",
+                        "posture_notes": "Separate run success from task proof.",
+                    }
+                ],
+                "success_surface": ["Checkout instrumentation records the buyer action."],
+                "fake_done_states": ["A story without audit evidence is fake done."],
+                "evidence_preferences": ["Audit log command output is required."],
+                "residual_risk": "Manual billing export remains a Support-owned follow-up.",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     result_file = tmp_path / "result.json"
     result_file.write_text(
         json.dumps(
@@ -2216,6 +5024,7 @@ def test_cli_agent_submit_prints_terminal_task_verdict(monkeypatch, tmp_path: Pa
                     "id": "run_terminal",
                     "status": "succeeded",
                     "run_status": "succeeded",
+                    "runs_dir": str(layout.run_dir),
                     "task_verdict": {
                         "status": "insufficient_evidence",
                         "source": "gatekeeper",
@@ -2250,6 +5059,17 @@ def test_cli_agent_submit_prints_terminal_task_verdict(monkeypatch, tmp_path: Pa
 
     assert result.exit_code == 0, result.stdout
     assert "run_status: succeeded" in result.stdout
+    assert f"run_contract_path: {layout.run_contract_path}" in result.stdout
+    assert "judgment_contract_summary: Keep the evidence standard frozen through terminal submit." in result.stdout
+    assert 'loop_fit_reasons: ["Later role outputs can drift without the frozen contract."]' in result.stdout
+    assert 'judgment_tradeoffs: ["Direct proof beats narrative confidence."]' in result.stdout
+    assert 'execution_strategy: ["Collect audit evidence before terminal closure."]' in result.stdout
+    assert 'local_governance: ["Inspector verifies tests/ evidence before terminal closure."]' in result.stdout
+    assert 'role_postures: ["GateKeeper: Separate run success from task proof."]' in result.stdout
+    assert 'success_surface: ["Checkout instrumentation records the buyer action."]' in result.stdout
+    assert 'fake_done_states: ["A story without audit evidence is fake done."]' in result.stdout
+    assert 'evidence_preferences: ["Audit log command output is required."]' in result.stdout
+    assert "residual_risk: Manual billing export remains a Support-owned follow-up." in result.stdout
     assert "task_verdict: insufficient_evidence" in result.stdout
     assert "task_verdict_source: gatekeeper" in result.stdout
     assert "task_verdict_summary: Required coverage still lacks direct evidence." in result.stdout

@@ -133,6 +133,27 @@ def test_index_page_renders_with_saved_loops(
     _assert_has_testids(zh_response.text, "top-nav", "theme-switch", "locale-switch")
 
 
+def test_index_empty_state_exposes_first_run_exits(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    client = TestClient(build_app(service=service))
+    response = client.get("/", headers={"accept-language": "zh-CN,zh;q=0.9"})
+
+    assert response.status_code == 200
+    _assert_has_testids(
+        response.text,
+        "home-first-run-actions",
+        "home-agent-entry-link",
+        "home-compose-loop-link",
+        "home-activity-empty",
+        "loops-empty-state",
+    )
+    assert 'href="/tools"' in response.text
+    assert 'href="/loops/new/bundle"' in response.text
+    assert "安装 Agent 入口" in response.text
+    assert "Web 编排 Loop" in response.text
+
+
 def test_index_page_shell_prefers_primary_request_locale_on_first_paint(service_factory) -> None:
     service = service_factory(scenario="success")
 
@@ -236,11 +257,21 @@ def test_run_detail_places_takeaways_and_console_before_timeline(
     assert "keyTakeaways" not in response.text
     assert "latestEventId" not in response.text
     _assert_has_testid(response.text, "run-evidence-outcome")
+    _assert_has_testid(response.text, "takeaway-evidence-strip")
+    _assert_has_testid(response.text, "takeaway-trace-shortcuts")
+    _assert_testids_in_order(
+        response.text,
+        "run-evidence-outcome",
+        "takeaway-evidence-strip",
+        "takeaway-trace-shortcuts",
+    )
     _assert_has_testid(response.text, "run-observation-status")
     assert 'data-observation-state="loading"' in response.text
     _assert_has_testid(response.text, "run-export-loop-button")
     assert f"/bundles/derive/export?loop_id={loop['id']}" in response.text
     _assert_has_testid(response.text, "run-accept-result-button")
+    assert "Accept evidence conclusion" in response.text
+    assert "Accept conclusion" not in response.text
     _assert_has_testid(response.text, "run-improve-chat-button")
     _assert_has_testid(response.text, "run-evidence-improve-button")
     assert f"/runs/{run['id']}/revise" in response.text
@@ -463,6 +494,11 @@ def test_loop_detail_uses_summary_cards_for_latest_run(
     _assert_has_testid(response.text, "loop-detail-history-panel")
     _assert_has_testid(response.text, "loop-detail-summary-panel")
     assert "Original spec" in response.text
+    assert "Success Surface" in response.text
+    assert "Execution Strategy" in response.text
+    assert "Judgment Tradeoffs" in response.text
+    assert "Local Governance" in response.text
+    assert "full task judgment contract" in response.text
     assert "Run flow" in response.text
     assert "Agent execution" in response.text
     assert "Closure" in response.text
@@ -527,23 +563,21 @@ def test_run_detail_surfaces_workspace_guard_failures(
     assert "deleted_original_count" in json.dumps(snapshot_payload, ensure_ascii=False)
 
 
-def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
-    service = service_factory(scenario="success")
-
-    client = TestClient(build_app(service=service))
-    response = client.get("/tools")
-
+def _assert_tools_english_page(response) -> None:
     assert response.status_code == 200
     assert "<title>Tools</title>" in response.text
     assert "/static/pages/tools.js?v=" in response.text
-    assert "handy side tools" in response.text
+    assert "Connect the Agent entry first" in response.text
     assert "wake-lock-toggle" in response.text
+    assert 'data-testid="wake-lock-panel-section"' in response.text
     assert 'data-testid="local-assets-diagnostics-panel"' in response.text
     assert 'data-local-assets-count="orphan_alignment_dirs"' in response.text
     assert 'data-local-assets-count="orphan_run_dirs"' in response.text
     assert 'data-testid="local-assets-details"' in response.text
     assert 'data-testid="agent-adapters-panel"' in response.text
     assert 'data-testid="agent-adapter-workdir"' in response.text
+    assert 'data-testid="agent-adapter-target-note"' in response.text
+    assert 'data-testid="agent-adapter-next-steps"' in response.text
     assert 'data-testid="agent-adapter-refresh"' in response.text
     assert 'data-testid="agent-adapter-codex"' in response.text
     assert 'data-testid="agent-adapter-install-codex"' in response.text
@@ -554,8 +588,19 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     assert 'data-testid="agent-adapter-opencode"' in response.text
     assert 'data-testid="agent-adapter-install-opencode"' in response.text
     assert 'data-testid="agent-adapter-uninstall-opencode"' in response.text
+    assert "Agent working project directory" in response.text
+    assert "Path to the project where the Agent will work" in response.text
+    assert "leave blank only when the server was started from that target project" in response.text
+    assert response.text.index('data-testid="agent-adapters-panel"') < response.text.index(
+        'data-testid="wake-lock-panel-section"'
+    )
+    assert response.text.index('data-testid="agent-adapters-panel"') < response.text.index(
+        'data-testid="local-assets-diagnostics-panel"'
+    )
     assert "Claude Code" in response.text
     assert "OpenCode" in response.text
+    assert "/loopora-gen" in response.text
+    assert "/loopora-loop" in response.text
     assert "help-dot--tips" in response.text
     assert 'aria-label="Show tip:' in response.text
     assert ">i</button>" in response.text
@@ -564,13 +609,25 @@ def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
     assert 'data-install-skill="codex"' not in response.text
     assert "/api/skills/loopora-task-alignment/download" not in response.text
 
-    zh_response = client.get("/tools", headers={"accept-language": "zh-CN,zh;q=0.9"})
+
+def _assert_tools_chinese_page(zh_response) -> None:
     assert zh_response.status_code == 200
     assert "<title>工具</title>" in zh_response.text
-    assert "运行辅助和本机维护" in zh_response.text
+    assert "默认从当前 Coding Agent 开始" in zh_response.text
+    assert "Agent 工作项目目录" in zh_response.text
+    assert "只有服务已从目标项目启动时才适合留空" in zh_response.text
     assert 'data-testid="agent-adapters-panel"' in zh_response.text
+    assert "审查预览后再运行" in zh_response.text
     assert "下载技能包" not in zh_response.text
     assert 'aria-label="查看提示：' in zh_response.text
+
+
+def test_tools_page_renders_wake_lock_panel(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    client = TestClient(build_app(service=service))
+    _assert_tools_english_page(client.get("/tools"))
+    _assert_tools_chinese_page(client.get("/tools", headers={"accept-language": "zh-CN,zh;q=0.9"}))
 
 
 def _assert_new_loop_choice_page(html: str) -> None:
@@ -626,6 +683,8 @@ def _assert_bundle_compose_page(html: str) -> None:
         "alignment-scroll-region",
         "alignment-empty-state",
         "alignment-start-form",
+        "alignment-starter-grid",
+        "alignment-starter-card",
         "alignment-tools-menu",
         "alignment-tools-close",
         "alignment-workdir-panel",
@@ -646,6 +705,7 @@ def _assert_bundle_compose_page(html: str) -> None:
         "alignment-ready-preview",
         "alignment-artifact-stage",
         "alignment-artifact-summary",
+        "alignment-control-summary",
         "alignment-judgment-map",
         "alignment-diagnostics-strip",
         "alignment-preview-tabs",
@@ -676,6 +736,14 @@ def _assert_bundle_compose_page(html: str) -> None:
     ):
         assert removed_surface not in html
     assert 'data-compose-mode="bundle"' in html
+    assert "what would be fake-done" in html
+    assert "which risks must block closure" in html
+    assert "Task + fake-done risk + required evidence" in html
+    assert "What should Loopora do?" not in html
+    assert "你想让 Loopora 做什么？" not in html
+    assert "Refund launch evidence" in html
+    assert "Billing permission refactor" in html
+    assert "Missing payment callback triage" in html
     assert 'placeholder="Leave blank for Codex CLI default"' in html
     assert "{resume_session_id}" in html
     assert "<title>Loop Composer</title>" in html
@@ -707,6 +775,7 @@ def _assert_manual_compose_page(html: str) -> None:
         "loop-bundle-import-form",
         "bundle-preview-button",
         "bundle-preview-import-button",
+        "alignment-control-summary",
         "alignment-judgment-map",
         "alignment-diagnostics-strip",
         "alignment-source-open-button",
@@ -865,7 +934,7 @@ def test_new_loop_page_surfaces_recent_workdirs_and_browser_draft_controls(
     assert 'list="recent-workdir-options"' in response.text
     assert f'data-fill-workdir="{sample_workdir}"' in response.text
     assert f'data-fill-workdir="{second_workdir}"' in response.text
-    assert "Recent workdirs" in response.text
+    assert "Recent run directories" in response.text
 
 
 def test_new_loop_page_keeps_draft_restore_enabled_for_default_equivalent_query_values(service_factory) -> None:
@@ -1325,6 +1394,12 @@ def _assert_bundles_list_page(html: str) -> None:
         "Imported Plans",
         "Plan Packages",
         "Web Bundle",
+        'data-testid="bundle-governance-success"',
+        "成功面",
+        'data-testid="bundle-governance-coverage"',
+        "覆盖目标",
+        'data-testid="bundle-governance-tradeoffs"',
+        "判断取舍",
         'data-delete-bundle="',
         "/api/bundles/",
         'id="bundle-grid"',
@@ -1360,6 +1435,9 @@ def _assert_bundle_detail_page(html: str, bundle_id: str) -> None:
         "bundle-surface-grid",
         "bundle-surface-card--wide",
         "spec.markdown#Fake Done",
+        "执行策略",
+        "判断取舍",
+        "残余风险",
         "workflow.collaboration_intent",
     ):
         assert expected in html
@@ -1531,6 +1609,9 @@ def _assert_tutorial_page(html: str) -> None:
         "tutorial-core-bundle",
         "tutorial-core-survivability",
         "tutorial-core-loop",
+        "tutorial-hero-actions",
+        "tutorial-hero-agent-entry-link",
+        "tutorial-hero-web-compose-link",
         "tutorial-decision-tree-panel",
         "tutorial-workflow-scenarios-panel",
         "tutorial-actions-panel",
@@ -1574,6 +1655,10 @@ def _assert_tutorial_page(html: str) -> None:
         "Manual Expert Mode",
     ):
         assert expected in html
+    assert html.index('data-testid="tutorial-hero-actions"') < html.index('data-testid="tutorial-guide-panel"')
+    assert html.index('data-testid="tutorial-hero-agent-entry-link"') < html.index(
+        'data-testid="tutorial-hero-web-compose-link"'
+    )
     assert html.index('data-testid="tutorial-agent-entry-link"') < html.index('data-testid="tutorial-web-compose-link"')
     for removed in (
         "Generate Loop Plan",

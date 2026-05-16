@@ -10,6 +10,12 @@ from typing import Any, NotRequired, TypedDict
 from loopora.branding import strip_run_summary_title
 from loopora.evidence_coverage import load_or_build_evidence_coverage_projection, summarize_evidence_coverage_projection
 from loopora.run_artifacts import RunArtifactLayout, read_jsonl
+from loopora.service_bundle_control_summary import (
+    build_execution_strategy_trace,
+    build_judgment_tradeoff_trace,
+    build_loop_fit_trace,
+    build_runtime_local_governance_trace,
+)
 from loopora.structured_numbers import structured_non_negative_int
 from loopora.task_verdicts import BUCKET_KEYS, normalize_task_verdict
 from loopora.workflows import ARCHETYPES, display_name_for_archetype, normalize_role_display_name
@@ -50,6 +56,7 @@ class RunTakeawayProjection(TypedDict):
     run_status: str
     task_verdict: dict[str, Any]
     task_verdict_path: str
+    judgment_contract: dict[str, Any]
     evidence_buckets: dict[str, Any]
     build_dir: str
     log_dir: str
@@ -240,6 +247,31 @@ def _string_list(value: object) -> list[str]:
     return [item.strip() for item in value if isinstance(item, str) and item.strip()]
 
 
+def _coverage_gap_list(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        target_id = str(item.get("target_id") or "").strip()
+        if not target_id:
+            continue
+        rows.append(
+            {
+                "target_id": target_id,
+                "kind": str(item.get("kind") or "").strip(),
+                "source_section": str(item.get("source_section") or "").strip(),
+                "status": str(item.get("status") or "missing").strip() or "missing",
+                "required": item.get("required") is True,
+                "reason": str(item.get("reason") or "").strip(),
+                "text": str(item.get("text") or "").strip(),
+                "evidence_refs": _string_list(item.get("evidence_refs")),
+            }
+        )
+    return rows[:5]
+
+
 def _handoff_step_order(handoff: Mapping[str, object]) -> int:
     source = handoff.get("source") if isinstance(handoff.get("source"), Mapping) else {}
     return structured_non_negative_int(source.get("step_order"))
@@ -275,8 +307,12 @@ def _build_structured_iteration_takeaway(
         "composite_score": composite_score,
         "stagnation_mode": str(stagnation_payload.get("mode") or "none"),
         "evidence_progress_mode": str(stagnation_payload.get("evidence_progress_mode") or "none"),
+        "coverage_status": str(stagnation_payload.get("coverage_status") or "pending"),
         "covered_check_count": _int_value(stagnation_payload.get("covered_check_count"), default=0),
         "missing_check_count": _int_value(stagnation_payload.get("missing_check_count"), default=0),
+        "covered_check_ids": _string_list(stagnation_payload.get("covered_check_ids")),
+        "missing_check_ids": _string_list(stagnation_payload.get("missing_check_ids")),
+        "coverage_top_gaps": _coverage_gap_list(stagnation_payload.get("coverage_top_gaps")),
         "consecutive_no_required_coverage_delta": _int_value(
             stagnation_payload.get("consecutive_no_required_coverage_delta"),
             default=0,
@@ -335,8 +371,12 @@ def build_legacy_iteration_takeaway(run: dict) -> dict | None:
         "composite_score": verdict.get("composite_score"),
         "stagnation_mode": "none",
         "evidence_progress_mode": "none",
+        "coverage_status": "pending",
         "covered_check_count": 0,
         "missing_check_count": 0,
+        "covered_check_ids": [],
+        "missing_check_ids": [],
+        "coverage_top_gaps": [],
         "consecutive_no_required_coverage_delta": 0,
         "role_count": len(roles),
         "roles": roles,
@@ -483,6 +523,31 @@ def empty_evidence_manifest() -> dict[str, Any]:
     }
 
 
+def empty_judgment_contract() -> dict[str, Any]:
+    return {
+        "contract_path": "",
+        "source_bundle": {},
+        "collaboration_summary": "",
+        "loop_fit_reasons": [],
+        "goal": "",
+        "constraints": "",
+        "check_mode": "",
+        "check_count": 0,
+        "completion_mode": "",
+        "workflow_preset": "",
+        "workflow_collaboration_intent": "",
+        "judgment_tradeoffs": [],
+        "execution_strategy": [],
+        "local_governance": [],
+        "role_postures": [],
+        "coverage_targets": [],
+        "success_surface": [],
+        "fake_done_states": [],
+        "evidence_preferences": [],
+        "residual_risk": "",
+    }
+
+
 def build_minimal_run_takeaway_projection(
     run: Mapping[str, Any],
     *,
@@ -494,6 +559,7 @@ def build_minimal_run_takeaway_projection(
         "run_status": str(run.get("run_status") or run.get("status") or "").strip(),
         "task_verdict": dict(task_verdict),
         "task_verdict_path": "",
+        "judgment_contract": build_judgment_contract(run),
         "evidence_buckets": _normalize_takeaway_evidence_buckets(raw_task_verdict.get("buckets")),
         "build_dir": str(Path(str(run.get("workdir") or "")).expanduser().resolve()) if run.get("workdir") else "",
         "log_dir": str(Path(str(run.get("runs_dir") or "")).expanduser().resolve()) if run.get("runs_dir") else "",
@@ -524,6 +590,7 @@ def normalize_run_takeaway_projection_shape(
     )
     _apply_takeaway_scalar_projection_fields(normalized, projection)
     _apply_takeaway_task_verdict_projection_fields(normalized, projection)
+    _apply_takeaway_judgment_contract_projection_fields(normalized, projection)
     _apply_takeaway_evidence_projection_fields(normalized, projection)
     _apply_takeaway_iteration_projection_fields(normalized, projection)
     return normalized
@@ -576,6 +643,11 @@ def _takeaway_bucket_list(value: object) -> list[dict]:
         elif isinstance(item, str) and item.strip():
             result.append({"label": item.strip()})
     return result
+
+
+def _apply_takeaway_judgment_contract_projection_fields(normalized: RunTakeawayProjection, projection: Mapping[str, Any]) -> None:
+    if isinstance(projection.get("judgment_contract"), Mapping):
+        normalized["judgment_contract"] = _normalize_judgment_contract_payload(projection.get("judgment_contract"))
 
 
 def _apply_takeaway_evidence_projection_fields(normalized: RunTakeawayProjection, projection: Mapping[str, Any]) -> None:
@@ -673,6 +745,139 @@ def build_evidence_manifest(run: dict) -> dict[str, Any]:
     )
 
 
+def build_judgment_contract(run: Mapping[str, Any]) -> dict[str, Any]:
+    runs_dir_value = str(run.get("runs_dir") or "").strip()
+    if not runs_dir_value:
+        return empty_judgment_contract()
+
+    layout = RunArtifactLayout(Path(runs_dir_value))
+    run_contract = safe_read_json_file(layout.run_contract_path)
+    if not run_contract:
+        return empty_judgment_contract()
+    return _normalize_judgment_contract_payload(
+        run_contract,
+        default_contract_path=layout.relative(layout.run_contract_path),
+    )
+
+
+def _normalize_judgment_contract_payload(value: object, *, default_contract_path: str = "") -> dict[str, Any]:
+    raw = value if isinstance(value, Mapping) else {}
+    compiled_spec = raw.get("compiled_spec") if isinstance(raw.get("compiled_spec"), Mapping) else raw
+    workflow = raw.get("workflow") if isinstance(raw.get("workflow"), Mapping) else raw
+    normalized = empty_judgment_contract()
+    normalized["contract_path"] = _string_value(raw.get("contract_path")) or default_contract_path
+    normalized["source_bundle"] = _normalize_judgment_source_bundle(raw.get("source_bundle"))
+    normalized["collaboration_summary"] = clean_takeaway_text(raw.get("collaboration_summary"), max_length=600)
+    normalized["loop_fit_reasons"] = _takeaway_text_list(
+        raw.get("loop_fit_reasons") or build_loop_fit_trace(raw.get("collaboration_summary"))
+    )
+    normalized["goal"] = clean_takeaway_text(raw.get("goal") or compiled_spec.get("goal"), max_length=600)
+    normalized["constraints"] = clean_takeaway_text(raw.get("constraints") or compiled_spec.get("constraints"), max_length=600)
+    normalized["check_mode"] = clean_takeaway_text(raw.get("check_mode") or compiled_spec.get("check_mode"), max_length=80)
+    normalized["check_count"] = structured_non_negative_int(raw.get("check_count"), default=len(list(compiled_spec.get("checks") or [])))
+    normalized["completion_mode"] = clean_takeaway_text(raw.get("completion_mode"), max_length=80)
+    normalized["workflow_preset"] = clean_takeaway_text(raw.get("workflow_preset") or workflow.get("preset"), max_length=120)
+    normalized["workflow_collaboration_intent"] = clean_takeaway_text(
+        raw.get("workflow_collaboration_intent") or workflow.get("collaboration_intent"),
+        max_length=600,
+    )
+    normalized["judgment_tradeoffs"] = _takeaway_text_list(
+        raw.get("judgment_tradeoffs")
+        or build_judgment_tradeoff_trace(
+            collaboration_summary=raw.get("collaboration_summary"),
+            raw_sections=compiled_spec.get("raw_sections") if isinstance(compiled_spec, Mapping) else {},
+            roles=workflow.get("roles") if isinstance(workflow, Mapping) else [],
+            workflow=workflow,
+        )
+    )
+    normalized["execution_strategy"] = _takeaway_text_list(
+        raw.get("execution_strategy")
+        or build_execution_strategy_trace(
+            collaboration_summary=raw.get("collaboration_summary"),
+            raw_sections=compiled_spec.get("raw_sections") if isinstance(compiled_spec, Mapping) else {},
+            roles=workflow.get("roles") if isinstance(workflow, Mapping) else [],
+            workflow=workflow,
+        )
+    )
+    if "local_governance" in raw:
+        normalized["local_governance"] = _takeaway_text_list(raw.get("local_governance"))
+    else:
+        normalized["local_governance"] = _takeaway_text_list(
+            build_runtime_local_governance_trace(
+                raw_sections=compiled_spec.get("raw_sections") if isinstance(compiled_spec, Mapping) else {},
+                roles=workflow.get("roles") if isinstance(workflow, Mapping) else [],
+                workflow=workflow,
+            )
+        )
+    normalized["role_postures"] = _role_posture_takeaway_list(raw.get("role_postures") or workflow.get("roles"))
+    normalized["coverage_targets"] = _takeaway_mapping_list(raw.get("coverage_targets") or compiled_spec.get("coverage_targets"))
+    normalized["success_surface"] = _takeaway_text_list(raw.get("success_surface") or compiled_spec.get("success_surface"))
+    normalized["fake_done_states"] = _takeaway_text_list(raw.get("fake_done_states") or compiled_spec.get("fake_done_states"))
+    normalized["evidence_preferences"] = _takeaway_text_list(raw.get("evidence_preferences") or compiled_spec.get("evidence_preferences"))
+    normalized["residual_risk"] = clean_takeaway_text(raw.get("residual_risk") or compiled_spec.get("residual_risk"), max_length=600)
+    return normalized
+
+
+def _normalize_judgment_source_bundle(value: object) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    bundle_id = _string_value(value.get("id"))
+    if not bundle_id:
+        return {}
+    source = {
+        "id": bundle_id,
+        "name": clean_takeaway_text(value.get("name"), max_length=240),
+        "revision": structured_non_negative_int(value.get("revision")),
+        "source_bundle_id": _string_value(value.get("source_bundle_id")),
+        "imported_from_path": _string_value(value.get("imported_from_path")),
+    }
+    bundle_sha256 = _string_value(value.get("bundle_sha256"))
+    bundle_bytes = structured_non_negative_int(value.get("bundle_bytes"))
+    bundle_yaml_path = _string_value(value.get("bundle_yaml_path"))
+    if bundle_sha256:
+        source["bundle_sha256"] = bundle_sha256
+    if bundle_bytes:
+        source["bundle_bytes"] = bundle_bytes
+    if bundle_yaml_path:
+        source["bundle_yaml_path"] = bundle_yaml_path
+    return source
+
+
+def _takeaway_text_list(value: object, *, max_items: int = 4, max_length: int = 240) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    texts = [clean_takeaway_text(item, max_length=max_length) for item in value]
+    return [text for text in texts if text][:max_items]
+
+
+def _takeaway_mapping_list(value: object, *, max_items: int = 40) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, Mapping)][:max_items]
+
+
+def _role_posture_takeaway_list(value: object, *, max_items: int = 6, max_length: int = 300) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    summaries: list[str] = []
+    for item in value:
+        if isinstance(item, Mapping):
+            posture = clean_takeaway_text(item.get("posture_notes"), max_length=max_length)
+            if not posture:
+                continue
+            role_name = clean_takeaway_text(item.get("role_name") or item.get("name"), max_length=80)
+            archetype = clean_takeaway_text(item.get("archetype"), max_length=40)
+            label = role_name or archetype
+            if label and archetype and archetype not in label.lower():
+                label = f"{label} ({archetype})"
+            summaries.append(f"{label}: {posture}" if label else posture)
+            continue
+        text = clean_takeaway_text(item, max_length=max_length)
+        if text:
+            summaries.append(text)
+    return summaries[:max_items]
+
+
 def build_run_key_takeaways(run: dict) -> RunTakeawayProjection:
     iterations = build_structured_iteration_takeaways(run)
     if not iterations:
@@ -691,6 +896,7 @@ def build_run_key_takeaways(run: dict) -> RunTakeawayProjection:
     projection.update(
         {
             "task_verdict_path": build_task_verdict_artifact_path(run),
+            "judgment_contract": build_judgment_contract(run),
             "evidence_count": evidence_count,
             "evidence_coverage": evidence_coverage,
             "evidence_manifest": evidence_manifest,

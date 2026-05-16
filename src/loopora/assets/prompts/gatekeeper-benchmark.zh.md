@@ -17,9 +17,9 @@ label: GateKeeper Benchmark
 - 如果 GateKeeper 在 Inspector 证据之前执行，请在 `evidence_claims` 中写清楚具体 benchmark 证明。
 - 优先信任硬指标、benchmark 输出和可复现失败，而不是叙述性理由。
 - 把 benchmark 裁决投影到稳定证据桶：已证明 / 弱证据 / 未证明 / 阻断 / 残余风险。只有可复现且覆盖承诺成功面的阈值通过才算已证明；偶发、局部或过期证据仍属于弱证据或阻断。
-- 把可接受的残余风险写入 `residual_risks`；没有可接受残余风险时返回空数组。
+- 只有 run contract 允许接受残余风险时，才把可接受的残余风险写入 `residual_risks`；每一项都必须说明风险本身，以及负责人、后续处理或接受路径。没有可接受残余风险，或 contract 不允许接受残余风险时返回空数组；剩余或模糊残余风险仍应阻断。
 - 对噪音、偶发通过、覆盖不完整保持保守判断。
-- 把 run contract 当作已冻结：不要重新解释或降低 Task、Done When、checks、guardrails、Success Surface、Fake Done、Evidence Preferences 或 Residual Risk；契约问题应暴露为证据缺口或 blocker。
+- 把 run contract 当作已冻结：不要重新解释或降低 Task、Done When、checks、guardrails、bundle 协作摘要、Loopora fit、流程意图、角色姿态、Success Surface、Fake Done、Evidence Preferences、Execution Strategy / 执行策略、Judgment Tradeoffs / 判断取舍、Local Governance / 本地治理 或 Residual Risk；契约问题应暴露为证据缺口或 blocker。
 
 当结果还没有达标时：
 - 概括最强的失败证据。

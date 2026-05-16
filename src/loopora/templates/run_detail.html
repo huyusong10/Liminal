@@ -51,8 +51,8 @@
     {% if run.status in ["succeeded", "failed", "stopped"] %}
     <form method="post" action="/runs/{{ run.id }}/accept" class="inline-form">
       <button class="secondary-button" type="submit" data-testid="run-accept-result-button">
-        <span data-lang="zh">接受结论</span>
-        <span data-lang="en">Accept conclusion</span>
+        <span data-lang="zh">接受证据结论</span>
+        <span data-lang="en">Accept evidence conclusion</span>
       </button>
     </form>
     <form method="post" action="/runs/{{ run.id }}/rerun" class="inline-form">
@@ -102,7 +102,8 @@
         </button>
       </form>
     </div>
-    <div class="takeaway-shortcuts">
+    <div class="takeaway-evidence-strip" id="takeaway-evidence-strip" data-testid="takeaway-evidence-strip" hidden></div>
+    <div class="takeaway-shortcuts" data-testid="takeaway-trace-shortcuts">
       <div class="takeaway-path-grid">
         <article class="takeaway-path-card">
           <span class="takeaway-path-label"><span data-lang="zh">工作目录</span><span data-lang="en">Workdir</span></span>
@@ -137,7 +138,6 @@
         <span class="takeaway-feedback" id="takeaway-feedback"></span>
       </div>
     </div>
-    <div class="takeaway-evidence-strip" id="takeaway-evidence-strip" hidden></div>
     <div class="takeaway-selector-row" id="takeaway-selector-row" hidden>
       <label class="takeaway-selector-label" for="takeaway-iteration-select">
         <span data-lang="zh">查看轮次</span>

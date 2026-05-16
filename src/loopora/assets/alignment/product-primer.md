@@ -93,7 +93,7 @@ Do not ask the user to define an abstract personality. Use concrete comparisons 
 
 Do not make the user invent every answer from a blank page. Good alignment proposes a task-shaped judgment first, marks the recommended answer, and lets the user accept, choose another option, or correct the judgment. The user should feel they are choosing and editing a candidate judgment, not doing Loopora's compiler work manually.
 
-If judgment can be reduced to a stable benchmark, use the benchmark. If it cannot be reliably scored but can be structured into success surfaces, fake-done risks, evidence preferences, role responsibilities, and GateKeeper rules, compile that structure into the Loop.
+If judgment can be reduced to a stable benchmark, use the benchmark. If it cannot be reliably scored but can be structured into success surfaces, fake-done risks, evidence preferences, execution priorities, judgment tradeoffs, residual-risk policy, project-local governance responsibilities, role responsibilities, and GateKeeper rules, compile that structure into the Loop.
 
 ## What Loopora must refuse
 
@@ -114,9 +114,9 @@ It must jointly express:
 
 | Surface | What it controls |
 | --- | --- |
-| `spec` | task scope, success surface, fake-done risks, guardrails, evidence preferences, residual risk |
-| `role_definitions` | how each role should build, inspect, gate, or redirect for this task |
-| `workflow` | when judgment happens, what evidence flows where, how automatic iteration, parallel inspection, or repair works, and what can end the run |
+| `spec` | task scope, success surface, fake-done risks, guardrails, evidence preferences, execution priorities, judgment tradeoffs, and residual-risk policy |
+| `role_definitions` | how each role should build, inspect, gate, redirect, or carry project-local governance for this task |
+| `workflow` | when judgment happens, what evidence flows where, where project-local governance checkpoints occur, how automatic iteration, parallel inspection, or repair works, and what can end the run |
 
 Do not put all posture in one surface. If a user says "I care more about real evidence than a pretty demo", that should affect the `spec`, the Inspector posture, the GateKeeper posture, and usually the workflow shape.
 
@@ -124,9 +124,9 @@ Use this projection when compiling the working agreement:
 
 | Future human judgment | Bundle projection |
 | --- | --- |
-| What would the human ask the Agent to prove? | `spec.markdown` task scope, success surface, fake-done risks, evidence preferences, residual risk |
-| Who would catch weak, shallow, or risky work? | task-specific Builder / Inspector / Guide / GateKeeper / Custom `role_definitions` and posture when those archetypes are used |
-| When should correction, repair, or stop happen? | `workflow` order, `parallel_group`, GateKeeper finish gate, and controls only when needed |
+| What would the human ask the Agent to prove or preserve? | `spec.markdown` task scope, success surface, fake-done risks, evidence preferences, execution priorities, judgment tradeoffs, and residual-risk policy |
+| Who would catch weak, shallow, risky, or locally noncompliant work? | task-specific Builder / Inspector / Guide / GateKeeper / Custom `role_definitions`, local-governance responsibilities, and posture when those archetypes are used |
+| When should correction, repair, local-governance checks, or stop happen? | `workflow` order, `parallel_group`, local-governance checkpoints, GateKeeper finish gate, and controls only when needed |
 | What proof should survive the round? | `inputs.handoffs_from`, `inputs.evidence_query`, evidence ledger expectations, and GateKeeper verdict |
 
 If you cannot explain this projection in the `collaboration_summary`, the bundle is probably still a YAML-shaped sketch rather than a human-shaped Loop.
@@ -236,7 +236,7 @@ If a model asks that kind of mechanical configuration question in Web alignment,
 
 ## Workdir governance markers
 
-The Workdir Snapshot can show project-local governance entrypoints such as `AGENTS.md`, `design/README.md`, `design/`, or `tests/`.
+The Workdir Snapshot can show project-local governance entrypoints such as `AGENTS.md`, applicable parent `AGENTS.md`, `design/README.md`, `design/`, or `tests/`.
 
 Do not invent their contents. Existence is enough to shape responsibilities:
 
@@ -270,9 +270,9 @@ Use this agreement-to-bundle traceability checklist:
 | Confirmed judgment | Bundle destination |
 |--------------------|--------------------|
 | Loopora fit and readable governance story | `collaboration_summary` |
-| task scope, success surface, fake-done risks, evidence preferences, residual-risk policy, judgment tradeoffs | `spec.markdown` |
-| Builder / Inspector / Guide / GateKeeper / Custom responsibilities and role-level tradeoffs | `role_definitions[].prompt_markdown` and `posture_notes` |
-| judgment order, repair timing, stop decisions, handoffs, evidence queries, memory policy, controlled error triggers | `workflow.collaboration_intent`, step `inputs`, and workflow controls |
+| task scope, success surface, fake-done risks, evidence preferences, execution priorities, residual-risk policy, judgment tradeoffs | `spec.markdown` |
+| Builder / Inspector / Guide / GateKeeper / Custom responsibilities, role-level tradeoffs, and project-local governance responsibilities | `spec.markdown` `# Role Notes`, `role_definitions[].prompt_markdown`, and `posture_notes` |
+| judgment order, build/prove/repair/narrow/expand/defer priorities, local-governance checkpoints, repair timing, stop decisions, handoffs, evidence queries, memory policy, controlled error triggers | `workflow.collaboration_intent`, step `inputs`, and workflow controls |
 | final acceptance and evidence-bucket policy | GateKeeper posture, handoffs, evidence queries, and verdict rules |
 
 If a judgment item only appears in the working agreement, readiness evidence, transcript, metadata / loop names, or hidden reasoning, the Loop is not compiled yet. Ask one focused question or revise `collaboration_summary`, `spec`, role posture, workflow inputs, workflow controls, evidence queries, or GateKeeper rules before continuing.
@@ -299,7 +299,10 @@ Do not generate a bundle until you have concrete evidence for:
 - success surface
 - fake-done risks
 - evidence preferences
+- execution strategy
 - residual-risk policy
+- judgment tradeoffs
+- local-governance responsibility when project markers matter
 - role posture
 - workflow shape
 - workdir facts or explicit assumptions

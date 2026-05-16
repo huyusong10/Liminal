@@ -9,7 +9,7 @@ import typer
 
 from loopora.agent_web import ensure_local_web_service, web_url_for_path
 from loopora.cli_shared import JsonOutputOption, call_spawn_background_worker, echo_json, get_service, handle_error
-from loopora.cli_run_support import print_task_verdict
+from loopora.cli_run_support import print_run_contract_summary, print_task_verdict
 from loopora.service import LooporaError
 from loopora.service_agent_native import AgentNativeStepClaimRequest, AgentNativeStepSubmitRequest
 from loopora.service_agent_adapters import AgentBundleCandidateRequest
@@ -17,7 +17,13 @@ from loopora.workflows import WorkflowError
 
 AdapterWorkdirOption = Annotated[
     Path,
-    typer.Option("--workdir", exists=True, file_okay=False, dir_okay=True, help="Project workdir for the Coding Agent adapter."),
+    typer.Option(
+        "--workdir",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        help="Project directory where the Coding Agent will work.",
+    ),
 ]
 ContextIdOption = Annotated[
     str,
@@ -29,7 +35,14 @@ EntrySourceOption = Annotated[
 ]
 BundleFileOption = Annotated[
     Path | None,
-    typer.Option("--bundle-file", exists=True, file_okay=True, dir_okay=False, help="Candidate Loopora bundle YAML produced by the Coding Agent."),
+    typer.Option(
+        "--bundle-file",
+        "--plan-file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        help="Candidate Loop plan file produced by the Coding Agent.",
+    ),
 ]
 ResultFileOption = Annotated[
     Path,
@@ -39,7 +52,7 @@ RunIdOption = Annotated[str, typer.Option("--run-id", help="Optional Loopora run
 StepIdOption = Annotated[str, typer.Option("--step-id", help="Loopora step id being submitted.")]
 AdapterMessageOption = Annotated[
     str,
-    typer.Option("--message", help="Short task summary for the Loop preview; required when submitting candidate YAML."),
+    typer.Option("--message", help="Short task summary for the Loop preview; required for Agent-first traceability."),
 ]
 NoWebOption = Annotated[bool, typer.Option("--no-web", hidden=True, help="Skip local Web service startup.")]
 
@@ -57,17 +70,17 @@ def register_agent_adapter_commands(
 def _register_init_commands(init_app: typer.Typer) -> None:
     @init_app.command("codex")
     def init_codex(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
-        """Install or update the project-level Codex adapter."""
+        """Install or update the Codex project entry."""
         _install_adapter("codex", workdir=workdir, json_output=json_output)
 
     @init_app.command("claude")
     def init_claude(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
-        """Install or update the project-level Claude Code adapter."""
+        """Install or update the Claude Code project entry."""
         _install_adapter("claude", workdir=workdir, json_output=json_output)
 
     @init_app.command("opencode")
     def init_opencode(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
-        """Install or update the project-level OpenCode adapter."""
+        """Install or update the OpenCode project entry."""
         _install_adapter("opencode", workdir=workdir, json_output=json_output)
 
 
@@ -82,17 +95,17 @@ def _install_adapter(adapter: str, *, workdir: Path, json_output: bool) -> None:
 def _register_uninstall_commands(uninstall_app: typer.Typer) -> None:
     @uninstall_app.command("codex")
     def uninstall_codex(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
-        """Remove Loopora-managed Codex adapter files."""
+        """Remove the Loopora-managed Codex project entry."""
         _uninstall_adapter("codex", workdir=workdir, json_output=json_output)
 
     @uninstall_app.command("claude")
     def uninstall_claude(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
-        """Remove Loopora-managed Claude Code adapter files."""
+        """Remove the Loopora-managed Claude Code project entry."""
         _uninstall_adapter("claude", workdir=workdir, json_output=json_output)
 
     @uninstall_app.command("opencode")
     def uninstall_opencode(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
-        """Remove Loopora-managed OpenCode adapter files."""
+        """Remove the Loopora-managed OpenCode project entry."""
         _uninstall_adapter("opencode", workdir=workdir, json_output=json_output)
 
 
@@ -105,9 +118,9 @@ def _uninstall_adapter(adapter: str, *, workdir: Path, json_output: bool) -> Non
 
 
 def _register_agent_runtime_commands(agent_app: typer.Typer) -> None:
-    _register_agent_runtime_for(agent_app, adapter="codex", help_text="Codex adapter runtime entries used by Loopora project skills")
-    _register_agent_runtime_for(agent_app, adapter="claude", help_text="Claude Code adapter runtime entries used by Loopora project skills")
-    _register_agent_runtime_for(agent_app, adapter="opencode", help_text="OpenCode adapter runtime entries used by Loopora project commands")
+    _register_agent_runtime_for(agent_app, adapter="codex", help_text="Internal Codex runtime used by Loopora project entries")
+    _register_agent_runtime_for(agent_app, adapter="claude", help_text="Internal Claude Code runtime used by Loopora project entries")
+    _register_agent_runtime_for(agent_app, adapter="opencode", help_text="Internal OpenCode runtime used by Loopora project entries")
 
 
 def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_text: str) -> None:
@@ -124,7 +137,7 @@ def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_te
         json_output: JsonOutputOption = False,
         no_web: NoWebOption = False,
     ) -> None:
-        """Validate a generated Loop candidate and return the Loop preview URL."""
+        """Validate a generated Loop plan and return the Loop preview URL."""
         try:
             request = AgentBundleCandidateRequest(
                 adapter=adapter,
@@ -254,10 +267,20 @@ def _print_adapter_mutation_result(result: dict, *, action: str, json_output: bo
         echo_json(result)
         return
     label = str(result.get("label") or _adapter_label(str(result.get("adapter") or "")))
-    typer.echo(f"{label} adapter {action}: {result['status']}")
-    typer.echo(f"workdir: {result['workdir']}")
+    if action == "installed":
+        typer.echo(f"{label} Loopora entry is installed")
+        typer.echo(f"target project: {result['workdir']}")
+        _print_adapter_next_steps(label)
+    else:
+        typer.echo(f"{label} Loopora entry {action}: {result['status']}")
+        typer.echo(f"target project: {result['workdir']}")
+    _print_adapter_file_details(result)
+
+
+def _print_adapter_file_details(result: dict) -> None:
     managed_files = result.get("managed_files")
     if isinstance(managed_files, list):
+        typer.echo("managed files:")
         for item in managed_files:
             if isinstance(item, dict):
                 typer.echo(f"- {item.get('path')}: {item.get('state', 'managed')}")
@@ -274,18 +297,48 @@ def _print_adapter_mutation_result(result: dict, *, action: str, json_output: bo
                 typer.echo(f"- {item.get('path')}: {item.get('reason')}")
 
 
+def _print_adapter_next_steps(label: str) -> None:
+    typer.echo("next:")
+    typer.echo(f"- Return to {label} in this project and run /loopora-gen for the current task.")
+    typer.echo("- Review the Loop preview, then run /loopora-loop to start or continue execution.")
+
+
 def _print_agent_gen_result(result: dict, *, json_output: bool) -> None:
     if json_output:
         echo_json(result)
         return
     if result.get("ready"):
         typer.echo("Loopora Loop preview is ready")
+    elif result.get("requires_candidate_repair"):
+        typer.echo("Loopora Loop preview needs plan file repair before /loopora-loop")
+        if result.get("loopora_fit_contradiction"):
+            typer.echo(
+                "not_fit: task summary says this looks like one-off, direct-answer, no-new-evidence, "
+                "or benchmark/test-harness-only work; "
+                "reframe the task with later evidence, handoff, or GateKeeper value before trying a runnable Loop"
+            )
+        error = _agent_gen_error_summary(result)
+        if error:
+            typer.echo(f"validation_error: {error}")
     elif result.get("requires_web_alignment"):
         typer.echo("Loopora Loop preview needs Web review before /loopora-loop")
+        if result.get("loopora_fit_contradiction"):
+            typer.echo(
+                "not_fit: task summary says this looks like one-off, direct-answer, no-new-evidence, "
+                "or benchmark/test-harness-only work; "
+                "define later evidence, handoff, or GateKeeper value before generating a runnable Loop"
+            )
     else:
         typer.echo(f"Loopora Loop preview status: {result.get('status')}")
     typer.echo(f"session_id: {result['session']['id']}")
     typer.echo(f"preview_url: {result.get('preview_url') or result.get('preview_path')}")
+    _print_web_status(result)
+
+
+def _agent_gen_error_summary(result: dict) -> str:
+    session = result.get("session") if isinstance(result.get("session"), dict) else {}
+    validation = session.get("validation") if isinstance(session.get("validation"), dict) else {}
+    return str(session.get("error_message") or validation.get("error") or "").strip()
 
 
 def _print_agent_loop_result(result: dict, *, json_output: bool) -> None:
@@ -295,9 +348,11 @@ def _print_agent_loop_result(result: dict, *, json_output: bool) -> None:
     run = result.get("run") if isinstance(result.get("run"), dict) else {}
     typer.echo(f"Loopora run: {run.get('id')}")
     typer.echo(f"run_status: {run.get('run_status') or run.get('status')}")
+    print_run_contract_summary(run)
     if result.get("complete"):
         print_task_verdict(run.get("task_verdict") or run.get("task_verdict_json"))
     typer.echo(f"run_url: {result.get('run_url') or result.get('run_path')}")
+    _print_web_status(result)
     next_step = result.get("next_step") if isinstance(result.get("next_step"), dict) else {}
     if next_step:
         role = next_step.get("role") if isinstance(next_step.get("role"), dict) else {}
@@ -312,9 +367,11 @@ def _print_agent_step_result(result: dict, *, json_output: bool) -> None:
     run = result.get("run") if isinstance(result.get("run"), dict) else {}
     typer.echo(f"Loopora run: {run.get('id')}")
     typer.echo(f"run_status: {run.get('run_status') or run.get('status')}")
+    print_run_contract_summary(run)
     if result.get("complete"):
         print_task_verdict(run.get("task_verdict") or run.get("task_verdict_json"))
     typer.echo(f"run_url: {result.get('run_url') or result.get('run_path')}")
+    _print_web_status(result)
     next_step = result.get("next_step") if isinstance(result.get("next_step"), dict) else {}
     if result.get("complete"):
         typer.echo("agent_native: complete")
@@ -323,6 +380,24 @@ def _print_agent_step_result(result: dict, *, json_output: bool) -> None:
         typer.echo(f"next_step_id: {next_step.get('step_id')}")
         typer.echo(f"next_role: {role.get('name') or role.get('id')}")
         typer.echo(f"submit_hint: {(next_step.get('submit_hint') or {}).get('command')}")
+
+
+def _print_web_status(result: dict) -> None:
+    web = result.get("web")
+    if not isinstance(web, dict):
+        return
+    base_url = str(web.get("base_url") or "").strip()
+    if not base_url:
+        return
+    if web.get("started"):
+        typer.echo(f"web: started {base_url}")
+    elif web.get("reused"):
+        typer.echo(f"web: reused {base_url}")
+    else:
+        typer.echo(f"web: {base_url}")
+    warning = str(web.get("warning") or "").strip()
+    if warning:
+        typer.echo(f"web_warning: {warning}")
 
 
 def _read_result_json(path: Path) -> tuple[dict, dict]:

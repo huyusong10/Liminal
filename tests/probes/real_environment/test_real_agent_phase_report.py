@@ -130,3 +130,12 @@ def test_real_agent_default_model_policy_requires_explicit_override(monkeypatch)
 
     monkeypatch.setenv(module.REAL_PROBE_MODEL_OVERRIDE_ENV, "1")
     module._assert_real_agent_command_model_policy("opencode", "opencode run --model other-model")
+
+
+def test_real_agent_prompt_requires_host_authored_candidate_instead_of_embedded_yaml() -> None:
+    source = REAL_AGENT_TEST.read_text(encoding="utf-8")
+
+    assert "does not pre-create or prewrite this candidate file" in source
+    assert "Use these requirements to author, not copy, the candidate" in source
+    assert "canonical candidate bundle draft" not in source
+    assert "{candidate_yaml}```" not in source

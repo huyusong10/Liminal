@@ -23,7 +23,7 @@ Every alignment should serve this main workflow:
 If a question does not improve that Loop, skip it. If a missing answer would change the Loop, ask it.
 If several answers are missing, ask the next answer that would most change the Loop. Do not turn alignment into a long questionnaire.
 
-Start with the Loopora fit gate when fit is not already clear. Loopora is justified only when future human judgment would repeat, later rounds can create new evidence, fake completion is worth blocking, the judgment should survive one chat as run-owned or auditable governance, and the judgment is not already captured by one stable benchmark or one Agent pass plus review.
+Start with the Loopora fit gate when fit is not already clear. Loopora is justified only when future human judgment would repeat, later rounds can create new evidence, fake completion is worth blocking, the judgment should survive one chat as run-owned or auditable governance, and the judgment is not already captured by one stable benchmark, one Agent pass plus review, direct answer, or one-off handling.
 
 Clarifying turns must be shaped as guided choices:
 
@@ -100,7 +100,7 @@ When the user struggles to name rules, use contrast questions instead of abstrac
 
 > 我建议选择 A：功能少但路径真实。B 看起来完整但核心闭环没跑通，应该先被挡住。你可以直接采用这个判断，或改成先追求展示完整度。
 
-Complex judgment often appears as a preference order, not a score. Capture that order as fake-done risks, evidence responsibility, residual-risk policy, and GateKeeper strictness.
+Complex judgment often appears as a preference order, not a score. Capture that order as fake-done risks, evidence responsibility, execution priorities, residual-risk policy, local-governance responsibility when project markers matter, and GateKeeper strictness.
 
 ### 3. Choose evidence
 
@@ -167,13 +167,16 @@ For long-chain workflows:
 
 Do not generate a bundle when any of these are missing:
 
-- why this task deserves Loopora instead of one Agent pass, direct chat, or benchmark-only validation
+- why this task deserves Loopora instead of one Agent pass, direct chat / direct answer, one-off handling, or benchmark/test-harness-only validation
 - why this task's judgment should survive one chat as run-owned evidence, export, reuse, or audit
 - what task is being attempted
 - what success means
 - what fake done must be rejected
 - what evidence should persuade the loop
+- what should be built, proved, narrowed, repaired, expanded, or deliberately deferred first
 - what residual risk can be accepted only after it is visible, or must fail closed
+- which imperfect result should be rejected, when proof beats speed, or when blocking beats pragmatic progress
+- whether project-local governance markers create Builder reading, Inspector / Custom verification, or GateKeeper blocking responsibility
 - how strict the roles should be
 - why the workflow order fits
 - whether bounded parallel inspection is needed or deliberately avoided
@@ -195,7 +198,7 @@ If you can inspect the target workdir, use visible facts:
 
 - project type and stack
 - README or docs
-- project-local governance markers such as `AGENTS.md`, `design/README.md`, `design/`, and `tests/`
+- project-local governance markers such as `AGENTS.md`, applicable parent `AGENTS.md`, `design/README.md`, `design/`, and `tests/`
 - existing tests
 - existing design docs
 - existing app entrypoints
