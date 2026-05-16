@@ -1,72 +1,80 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560" role="img" aria-labelledby="title desc">
   <title id="title">Loopora overview</title>
-  <desc id="desc">A diagram showing how Loopora turns human task judgment into a reviewable plan file, lets the Agent run across rounds, and shows evidence and verdicts in Web.</desc>
+  <desc id="desc">A diagram showing how Loopora turns a long-running objective and human task judgment into a reviewable Loop, so Agent rounds keep returning to evidence, gaps, blockers, and the task verdict.</desc>
   <defs>
-    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+    <marker id="arrow-blue" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
       <path d="M2 2 L10 6 L2 10 Z" fill="#2563eb"/>
     </marker>
     <marker id="arrow-green" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
       <path d="M2 2 L10 6 L2 10 Z" fill="#059669"/>
     </marker>
-    <filter id="shadow" x="-8%" y="-8%" width="116%" height="124%">
-      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#0f172a" flood-opacity="0.10"/>
-    </filter>
+    <style>
+      .canvas { fill: #f8fafc; }
+      .title { font-family: Inter, Arial, sans-serif; font-size: 30px; font-weight: 700; fill: #172033; }
+      .sub { font-family: Inter, Arial, sans-serif; font-size: 17px; font-weight: 400; fill: #5b6475; }
+      .card { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .focus { fill: #eff6ff; stroke: #2563eb; stroke-width: 2.5; }
+      .web { fill: #f1f5f9; stroke: #cbd5e1; stroke-width: 1.5; }
+      .h { font-family: Inter, Arial, sans-serif; font-size: 20px; font-weight: 700; fill: #172033; }
+      .body { font-family: Inter, Arial, sans-serif; font-size: 15px; font-weight: 400; fill: #475569; }
+      .label { font-family: Inter, Arial, sans-serif; font-size: 15px; font-weight: 600; fill: #1e3a8a; }
+      .green { fill: #065f46; }
+      .shadow { filter: drop-shadow(0 10px 18px rgb(15 23 42 / 0.10)); }
+    </style>
   </defs>
-  <rect width="1000" height="620" rx="28" fill="#f6f8fb"/>
-  <text x="500" y="58" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="700" fill="#172033">A Runtime Layer For Long Agent Tasks</text>
-  <text x="500" y="92" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" fill="#5b6475">From human judgment, to a plan file, to evidence-driven Agent rounds</text>
 
-  <rect x="54" y="150" width="206" height="184" rx="18" fill="#ffffff" stroke="#cbd5e1" filter="url(#shadow)"/>
-  <circle cx="92" cy="190" r="20" fill="#dbeafe"/>
-  <text x="92" y="197" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#2563eb">1</text>
-  <text x="122" y="190" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#172033">Task Judgment</text>
-  <text x="86" y="234" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">what is not done</text>
-  <text x="86" y="266" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">what evidence counts</text>
-  <text x="86" y="298" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">which risks block</text>
-  <circle cx="72" cy="229" r="4.5" fill="#2563eb"/>
-  <circle cx="72" cy="261" r="4.5" fill="#059669"/>
-  <circle cx="72" cy="293" r="4.5" fill="#dc2626"/>
+  <rect width="1000" height="560" rx="28" class="canvas"/>
+  <text x="500" y="58" text-anchor="middle" class="title">Add judgment structure to long-running goals</text>
+  <text x="500" y="91" text-anchor="middle" class="sub">The work keeps moving, while evidence, gaps, blockers, and verdict stay visible</text>
 
-  <rect x="310" y="126" width="206" height="232" rx="18" fill="#eff6ff" stroke="#2563eb" stroke-width="2.5" filter="url(#shadow)"/>
-  <circle cx="348" cy="166" r="20" fill="#2563eb"/>
-  <text x="348" y="173" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#ffffff">2</text>
-  <text x="380" y="166" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#172033">Loop Plan</text>
-  <rect x="344" y="210" width="138" height="32" rx="16" fill="#ffffff" stroke="#bfdbfe"/>
-  <text x="413" y="231" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14.5" font-weight="600" fill="#1e3a8a">task contract</text>
-  <rect x="344" y="256" width="138" height="32" rx="16" fill="#ffffff" stroke="#bfdbfe"/>
-  <text x="413" y="277" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14.5" font-weight="600" fill="#1e3a8a">run flow</text>
-  <rect x="344" y="302" width="138" height="32" rx="16" fill="#ffffff" stroke="#bfdbfe"/>
-  <text x="413" y="323" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14.5" font-weight="600" fill="#1e3a8a">evidence verdict</text>
+  <g class="shadow">
+    <rect x="70" y="154" width="220" height="196" rx="18" class="card"/>
+    <text x="100" y="198" class="h">Long goal</text>
+    <text x="100" y="231" class="body">Continue like `/goal`</text>
+    <line x1="100" y1="256" x2="260" y2="256" stroke="#e2e8f0" stroke-width="1.5"/>
+    <circle cx="108" cy="287" r="5" fill="#2563eb"/>
+    <text x="124" y="292" class="body">what counts as done</text>
+    <circle cx="108" cy="318" r="5" fill="#dc2626"/>
+    <text x="124" y="323" class="body">what must block</text>
+  </g>
 
-  <rect x="568" y="150" width="176" height="184" rx="18" fill="#ffffff" stroke="#cbd5e1" filter="url(#shadow)"/>
-  <circle cx="606" cy="190" r="20" fill="#dbeafe"/>
-  <text x="606" y="197" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#2563eb">3</text>
-  <text x="634" y="190" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#172033">Agent Loop</text>
-  <rect x="600" y="226" width="112" height="32" rx="16" fill="#ecfdf5" stroke="#a7f3d0"/>
-  <text x="656" y="247" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14.5" font-weight="600" fill="#065f46">execute</text>
-  <rect x="600" y="272" width="112" height="32" rx="16" fill="#ecfdf5" stroke="#a7f3d0"/>
-  <text x="656" y="293" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="14.5" font-weight="600" fill="#065f46">check</text>
+  <path d="M310 252 H366" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <polygon points="380,252 364,243 364,261" fill="#2563eb"/>
 
-  <rect x="796" y="126" width="150" height="232" rx="18" fill="#ffffff" stroke="#cbd5e1" filter="url(#shadow)"/>
-  <circle cx="834" cy="166" r="20" fill="#dbeafe"/>
-  <text x="834" y="173" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#2563eb">4</text>
-  <text x="858" y="166" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" fill="#172033">Verdict</text>
-  <text x="826" y="222" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">proven</text>
-  <text x="826" y="256" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">weak</text>
-  <text x="826" y="290" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">blocked</text>
-  <circle cx="812" cy="217" r="4.5" fill="#059669"/>
-  <circle cx="812" cy="251" r="4.5" fill="#d97706"/>
-  <circle cx="812" cy="285" r="4.5" fill="#dc2626"/>
+  <g class="shadow">
+    <rect x="390" y="120" width="250" height="264" rx="22" class="focus"/>
+    <text x="515" y="166" text-anchor="middle" class="h">Loopora Loop</text>
+    <text x="515" y="194" text-anchor="middle" class="body">Reviewable run plan</text>
+    <rect x="430" y="226" width="170" height="34" rx="17" fill="#ffffff" stroke="#bfdbfe"/>
+    <text x="515" y="248" text-anchor="middle" class="label">done criteria</text>
+    <rect x="430" y="274" width="170" height="34" rx="17" fill="#ffffff" stroke="#bfdbfe"/>
+    <text x="515" y="296" text-anchor="middle" class="label">evidence rules</text>
+    <rect x="430" y="322" width="170" height="34" rx="17" fill="#ffffff" stroke="#bfdbfe"/>
+    <text x="515" y="344" text-anchor="middle" class="label">verdict rules</text>
+  </g>
 
-  <path d="M266 242 C282 242 292 242 304 242" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
-  <path d="M522 242 C538 242 548 242 562 242" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
-  <path d="M750 242 C766 242 778 242 790 242" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <path d="M660 252 H716" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <polygon points="730,252 714,243 714,261" fill="#2563eb"/>
 
-  <rect x="160" y="438" width="680" height="88" rx="22" fill="#172033" filter="url(#shadow)"/>
-  <text x="500" y="474" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="700" fill="#ffffff">Web observes and manages the same local record</text>
-  <text x="500" y="506" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" fill="#dbeafe">review plans, watch runs, reconcile evidence, find gaps, manage Agent entries</text>
-  <path d="M872 366 C842 418 746 440 680 438" stroke="#059669" stroke-width="3" fill="none" marker-end="url(#arrow-green)"/>
-  <path d="M656 348 C650 392 604 420 552 436" stroke="#059669" stroke-width="3" fill="none" marker-end="url(#arrow-green)"/>
+  <g class="shadow">
+    <rect x="740" y="154" width="190" height="196" rx="18" class="card"/>
+    <text x="835" y="198" text-anchor="middle" class="h">Agent rounds</text>
+    <rect x="775" y="222" width="120" height="32" rx="16" fill="#ecfdf5" stroke="#a7f3d0"/>
+    <text x="835" y="243" text-anchor="middle" class="label green">work</text>
+    <rect x="775" y="268" width="120" height="32" rx="16" fill="#ecfdf5" stroke="#a7f3d0"/>
+    <text x="835" y="289" text-anchor="middle" class="label green">collect proof</text>
+    <rect x="775" y="314" width="120" height="32" rx="16" fill="#ecfdf5" stroke="#a7f3d0"/>
+    <text x="835" y="335" text-anchor="middle" class="label green">return to gaps</text>
+  </g>
 
-  <text x="500" y="574" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="600" fill="#172033">The point is not more rounds; it is keeping every round tied to the same judgment and evidence</text>
+  <g class="shadow">
+    <rect x="170" y="432" width="660" height="78" rx="18" class="web"/>
+    <text x="500" y="465" text-anchor="middle" class="h">Web reads the same local record</text>
+    <text x="500" y="493" text-anchor="middle" class="body">Review Loops, inspect evidence, find gaps, see blockers and task verdicts</text>
+  </g>
+
+  <path d="M835 372 C835 420 740 438 654 438" fill="none" stroke="#059669" stroke-width="3"/>
+  <polygon points="640,438 656,429 656,447" fill="#059669"/>
+  <path d="M515 398 V421" fill="none" stroke="#059669" stroke-width="3"/>
+  <polygon points="515,435 506,419 524,419" fill="#059669"/>
 </svg>

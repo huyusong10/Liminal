@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="640" viewBox="0 0 1000 640" role="img" aria-labelledby="title desc">
   <title id="title">人的判断被整理成四个运行面</title>
-  <desc id="desc">图示模糊的人类要求如何被整理成任务契约、执行姿态、证据路径和裁决规则四个用户可理解的运行面。</desc>
+  <desc id="desc">图示模糊的人类要求如何被整理成任务契约、执行策略、证据路径和裁决规则四个用户可理解的运行面。</desc>
   <defs>
     <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
       <path d="M2 2 L10 6 L2 10 Z" fill="#2563eb"/>
@@ -33,7 +33,7 @@
   <text x="488" y="256" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">什么是假完成</text>
 
   <rect x="718" y="138" width="218" height="166" rx="18" fill="#ecfdf5" stroke="#a7f3d0" filter="url(#shadow)"/>
-  <text x="827" y="181" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#065f46">执行姿态</text>
+  <text x="827" y="181" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#065f46">执行策略</text>
   <text x="752" y="225" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">下一轮优先什么</text>
   <text x="752" y="256" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#334155">构建、取证或修复</text>
 

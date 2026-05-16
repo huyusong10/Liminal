@@ -12,7 +12,7 @@ Current canonical diagrams:
 | `loopora-position.*.svg` | Places Loopora outside the Agent as the running structure that keeps human judgment active across rounds. |
 | `error-propagation.*.svg` | Shows how an unguided loop can turn an early proxy goal into a convincing but unsafe completion story. |
 | `refund-evidence-loop.*.svg` | Uses the refund case to show the stable run pattern: output, evidence accounting, decision, and narrowed next action. |
-| `judgment-surfaces.*.svg` | Shows how human wording becomes user-understandable running surfaces: task contract, execution posture, evidence path, and decision rule. |
+| `judgment-surfaces.*.svg` | Shows how human wording becomes user-understandable running surfaces: task contract, execution strategy, evidence path, and decision rule. |
 
 Concrete examples are allowed only when they carry a durable idea for the public article. Do not use diagrams for volatile UI paths, onboarding steps, per-task role sequences, or implementation internals.
 

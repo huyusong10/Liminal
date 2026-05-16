@@ -1,54 +1,70 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="560" viewBox="0 0 1000 560" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="520" viewBox="0 0 1000 520" role="img" aria-labelledby="title desc">
   <title id="title">Loopora first-use path</title>
-  <desc id="desc">A diagram showing that users start by generating and running a Loop inside their Coding Agent while the Web UI observes and manages evidence.</desc>
+  <desc id="desc">A diagram showing first use of Loopora from the current Coding Agent: generate a candidate Loop, preview or adjust it in Web, return to the Agent to run, and write evidence into the same local record.</desc>
   <defs>
-    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
+    <marker id="arrow-blue" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
       <path d="M2 2 L10 6 L2 10 Z" fill="#2563eb"/>
     </marker>
     <marker id="arrow-green" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto">
       <path d="M2 2 L10 6 L2 10 Z" fill="#059669"/>
     </marker>
-    <filter id="shadow" x="-8%" y="-8%" width="116%" height="124%">
-      <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#0f172a" flood-opacity="0.10"/>
-    </filter>
+    <style>
+      .canvas { fill: #f8fafc; }
+      .title { font-family: Inter, Arial, sans-serif; font-size: 30px; font-weight: 700; fill: #172033; }
+      .sub { font-family: Inter, Arial, sans-serif; font-size: 17px; font-weight: 400; fill: #5b6475; }
+      .lane { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .agent { fill: #eff6ff; stroke: #bfdbfe; stroke-width: 1.5; }
+      .cmd { fill: #2563eb; }
+      .web { fill: #ecfdf5; stroke: #86efac; stroke-width: 1.5; }
+      .record { fill: #f1f5f9; stroke: #cbd5e1; stroke-width: 1.5; }
+      .h { font-family: Inter, Arial, sans-serif; font-size: 20px; font-weight: 700; fill: #172033; }
+      .body { font-family: Inter, Arial, sans-serif; font-size: 15px; font-weight: 400; fill: #475569; }
+      .small { font-family: Inter, Arial, sans-serif; font-size: 14px; font-weight: 600; fill: #1e3a8a; }
+      .cmdText { font-family: Inter, Arial, sans-serif; font-size: 19px; font-weight: 700; fill: #ffffff; }
+      .green { fill: #065f46; }
+      .shadow { filter: drop-shadow(0 10px 18px rgb(15 23 42 / 0.10)); }
+    </style>
   </defs>
-  <rect width="1000" height="560" rx="28" fill="#f6f8fb"/>
-  <text x="500" y="58" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="700" fill="#172033">First use: start in the Agent, inspect in Web</text>
-  <text x="500" y="92" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="17" fill="#5b6475">You keep the same working surface; long tasks gain a visible Loop</text>
 
-  <rect x="56" y="158" width="176" height="144" rx="18" fill="#ffffff" stroke="#cbd5e1" filter="url(#shadow)"/>
-  <circle cx="144" cy="191" r="18" fill="#dbeafe"/>
-  <text x="144" y="198" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#2563eb">1</text>
-  <text x="144" y="235" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#172033">Current Agent</text>
-  <text x="144" y="266" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">Describe the task</text>
+  <rect width="1000" height="520" rx="28" class="canvas"/>
+  <text x="500" y="58" text-anchor="middle" class="title">Start in the Agent, inspect evidence in Web</text>
+  <text x="500" y="91" text-anchor="middle" class="sub">Keep the same working surface; add a reviewable run surface to long tasks</text>
 
-  <rect x="292" y="136" width="176" height="188" rx="18" fill="#eff6ff" stroke="#2563eb" stroke-width="2.5" filter="url(#shadow)"/>
-  <circle cx="380" cy="172" r="18" fill="#2563eb"/>
-  <text x="380" y="179" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#ffffff">2</text>
-  <text x="380" y="216" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#172033">/loopora-gen</text>
-  <text x="380" y="252" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#1e3a8a">Create Loop candidate</text>
-  <text x="380" y="281" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#1e3a8a">No run starts yet</text>
+  <g class="shadow">
+    <rect x="78" y="140" width="844" height="130" rx="20" class="lane"/>
+    <text x="116" y="178" class="h">Current Agent</text>
+    <text x="116" y="209" class="body">Describe the task and judgment</text>
 
-  <rect x="532" y="158" width="176" height="144" rx="18" fill="#ffffff" stroke="#cbd5e1" filter="url(#shadow)"/>
-  <circle cx="620" cy="191" r="18" fill="#dbeafe"/>
-  <text x="620" y="198" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#2563eb">3</text>
-  <text x="620" y="235" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="19" font-weight="700" fill="#172033">Web Preview</text>
-  <text x="620" y="266" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">Confirm or adjust</text>
+    <rect x="336" y="166" width="170" height="52" rx="16" class="cmd"/>
+    <text x="421" y="199" text-anchor="middle" class="cmdText">/loopora-gen</text>
+    <text x="421" y="239" text-anchor="middle" class="small">Create Loop candidate</text>
 
-  <rect x="768" y="136" width="176" height="188" rx="18" fill="#eff6ff" stroke="#2563eb" stroke-width="2.5" filter="url(#shadow)"/>
-  <circle cx="856" cy="172" r="18" fill="#2563eb"/>
-  <text x="856" y="179" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#ffffff">4</text>
-  <text x="856" y="216" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="700" fill="#172033">/loopora-loop</text>
-  <text x="856" y="252" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#1e3a8a">Agent advances in Loop</text>
-  <text x="856" y="281" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" fill="#1e3a8a">Evidence flows back</text>
+    <rect x="680" y="166" width="174" height="52" rx="16" class="cmd"/>
+    <text x="767" y="199" text-anchor="middle" class="cmdText">/loopora-loop</text>
+    <text x="767" y="239" text-anchor="middle" class="small">Run Agent rounds</text>
+  </g>
 
-  <path d="M238 230 C256 230 268 230 286 230" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
-  <path d="M474 230 C492 230 508 230 526 230" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
-  <path d="M714 230 C732 230 744 230 762 230" stroke="#2563eb" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <path d="M270 192 H314" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <polygon points="328,192 312,183 312,201" fill="#2563eb"/>
+  <path d="M520 192 H658" fill="none" stroke="#2563eb" stroke-width="3"/>
+  <polygon points="672,192 656,183 656,201" fill="#2563eb"/>
 
-  <rect x="160" y="394" width="680" height="82" rx="20" fill="#172033" filter="url(#shadow)"/>
-  <text x="500" y="427" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="21" font-weight="700" fill="#ffffff">One local source of record</text>
-  <text x="500" y="458" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" fill="#dbeafe">Loops started in the Agent can be inspected in Web: evidence, gaps, blockers, and verdicts</text>
-  <path d="M856 332 C856 372 748 392 694 386" stroke="#059669" stroke-width="3" fill="none" marker-end="url(#arrow-green)"/>
-  <path d="M620 308 C620 350 590 372 564 386" stroke="#059669" stroke-width="3" fill="none" marker-end="url(#arrow-green)"/>
+  <g class="shadow">
+    <rect x="346" y="316" width="248" height="82" rx="18" class="web"/>
+    <text x="470" y="350" text-anchor="middle" class="h green">Web preview</text>
+    <text x="470" y="378" text-anchor="middle" class="body">Confirm, adjust, or add judgment</text>
+
+    <rect x="632" y="316" width="248" height="82" rx="18" class="record"/>
+    <text x="756" y="350" text-anchor="middle" class="h">Same local record</text>
+    <text x="756" y="378" text-anchor="middle" class="body">Evidence, gaps, blockers, verdict</text>
+  </g>
+
+  <path d="M421 258 V302" fill="none" stroke="#059669" stroke-width="3"/>
+  <polygon points="421,316 412,300 430,300" fill="#059669"/>
+  <path d="M594 357 H610" fill="none" stroke="#059669" stroke-width="3"/>
+  <polygon points="624,357 608,348 608,366" fill="#059669"/>
+  <path d="M767 258 V302" fill="none" stroke="#059669" stroke-width="3"/>
+  <polygon points="767,316 758,300 776,300" fill="#059669"/>
+
+  <text x="500" y="460" text-anchor="middle" class="body">A Loop started in the Agent can be inspected in Web; Web evidence comes from the same run.</text>
 </svg>

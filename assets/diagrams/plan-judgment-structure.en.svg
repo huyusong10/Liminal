@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="720" viewBox="0 0 1000 720" role="img" aria-labelledby="title desc">
   <title id="title">How a plan file carries judgment</title>
-  <desc id="desc">A diagram showing how a Loopora plan file covers the judgment surfaces that drift in long-running tasks: task contract, Agent responsibilities, run flow, evidence rules, and verdict rules.</desc>
+  <desc id="desc">A diagram showing how a Loopora plan file covers reader-facing judgment projections that drift in long-running tasks: task contract, Agent responsibilities, execution strategy, run flow, evidence rules, and verdict rules.</desc>
   <defs>
     <filter id="shadow" x="-8%" y="-8%" width="116%" height="124%">
       <feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#0f172a" flood-opacity="0.10"/>
@@ -22,40 +22,47 @@
   <rect x="608" y="244" width="294" height="42" rx="14" fill="#dbeafe" stroke="#bfdbfe"/>
   <text x="755" y="270" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#1e3a8a">Question repeated each round</text>
 
-  <rect x="98" y="306" width="804" height="54" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
-  <circle cx="122" cy="333" r="12" fill="#2563eb"/>
-  <text x="122" y="338" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">1</text>
-  <text x="154" y="339" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#172033">Task contract</text>
-  <text x="368" y="339" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">The goal shrinks</text>
-  <text x="626" y="339" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">What does not count as done?</text>
+  <rect x="98" y="300" width="804" height="44" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <circle cx="122" cy="322" r="12" fill="#2563eb"/>
+  <text x="122" y="327" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">1</text>
+  <text x="154" y="328" font-family="Inter, Arial, sans-serif" font-size="15.5" font-weight="700" fill="#172033">Task contract</text>
+  <text x="368" y="328" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">The goal shrinks</text>
+  <text x="626" y="328" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">What does not count as done?</text>
 
-  <rect x="98" y="372" width="804" height="54" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
-  <circle cx="122" cy="399" r="12" fill="#2563eb"/>
-  <text x="122" y="404" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">2</text>
-  <text x="154" y="405" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#172033">Agent responsibilities</text>
-  <text x="368" y="405" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">Only easy work is done</text>
-  <text x="626" y="405" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">What should this round focus on?</text>
+  <rect x="98" y="352" width="804" height="44" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <circle cx="122" cy="374" r="12" fill="#2563eb"/>
+  <text x="122" y="379" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">2</text>
+  <text x="154" y="380" font-family="Inter, Arial, sans-serif" font-size="15.5" font-weight="700" fill="#172033">Agent responsibilities</text>
+  <text x="368" y="380" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">Only easy work is done</text>
+  <text x="626" y="380" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">Who owns which judgment?</text>
 
-  <rect x="98" y="438" width="804" height="54" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
-  <circle cx="122" cy="465" r="12" fill="#2563eb"/>
-  <text x="122" y="470" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">3</text>
-  <text x="154" y="471" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#172033">Run flow</text>
-  <text x="368" y="471" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">Polish replaces repair</text>
-  <text x="626" y="471" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">Which gap should come next?</text>
+  <rect x="98" y="404" width="804" height="44" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <circle cx="122" cy="426" r="12" fill="#7c3aed"/>
+  <text x="122" y="431" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">3</text>
+  <text x="154" y="432" font-family="Inter, Arial, sans-serif" font-size="15.5" font-weight="700" fill="#172033">Execution strategy</text>
+  <text x="368" y="432" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">Work follows habit</text>
+  <text x="626" y="432" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">Build, prove, repair, narrow, or defer?</text>
 
-  <rect x="98" y="504" width="804" height="54" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
-  <circle cx="122" cy="531" r="12" fill="#059669"/>
-  <text x="122" y="536" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">4</text>
-  <text x="154" y="537" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#172033">Evidence rules</text>
-  <text x="368" y="537" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">Claims replace proof</text>
-  <text x="626" y="537" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">What evidence is strong enough?</text>
+  <rect x="98" y="456" width="804" height="44" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <circle cx="122" cy="478" r="12" fill="#2563eb"/>
+  <text x="122" y="483" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">4</text>
+  <text x="154" y="484" font-family="Inter, Arial, sans-serif" font-size="15.5" font-weight="700" fill="#172033">Run flow</text>
+  <text x="368" y="484" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">Steps lose order</text>
+  <text x="626" y="484" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">Which gap should come next?</text>
 
-  <rect x="98" y="570" width="804" height="54" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
-  <circle cx="122" cy="597" r="12" fill="#dc2626"/>
-  <text x="122" y="602" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">5</text>
-  <text x="154" y="603" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" fill="#172033">Verdict rules</text>
-  <text x="368" y="603" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">Plausible becomes done</text>
-  <text x="626" y="603" font-family="Inter, Arial, sans-serif" font-size="15.5" fill="#475569">Pass, block, continue, or carry risk?</text>
+  <rect x="98" y="508" width="804" height="44" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+  <circle cx="122" cy="530" r="12" fill="#059669"/>
+  <text x="122" y="535" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">5</text>
+  <text x="154" y="536" font-family="Inter, Arial, sans-serif" font-size="15.5" font-weight="700" fill="#172033">Evidence rules</text>
+  <text x="368" y="536" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">Claims replace proof</text>
+  <text x="626" y="536" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">What evidence is strong enough?</text>
+
+  <rect x="98" y="560" width="804" height="44" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <circle cx="122" cy="582" r="12" fill="#dc2626"/>
+  <text x="122" y="587" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">6</text>
+  <text x="154" y="588" font-family="Inter, Arial, sans-serif" font-size="15.5" font-weight="700" fill="#172033">Verdict rules</text>
+  <text x="368" y="588" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">Plausible becomes done</text>
+  <text x="626" y="588" font-family="Inter, Arial, sans-serif" font-size="15" fill="#475569">Pass, block, continue, or carry risk?</text>
 
   <rect x="150" y="654" width="700" height="52" rx="20" fill="#172033"/>
   <text x="500" y="676" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="15" font-weight="600" fill="#ffffff">Sufficiency comes from repeated application:</text>
