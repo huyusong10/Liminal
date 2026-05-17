@@ -67,6 +67,7 @@
         radiusY: 92,
         nodeRadius: 20,
         curveDepth: 34,
+        labelPadX: 96,
       };
     }
     return {
@@ -76,6 +77,7 @@
       radiusY: 70,
       nodeRadius: 17,
       curveDepth: 26,
+      labelPadX: 64,
     };
   }
 
@@ -251,7 +253,7 @@
 
     return `
       <div class="workflow-loop-map workflow-loop-map--${variant}">
-        <svg class="workflow-loop-svg" viewBox="0 0 ${settings.width} ${settings.height}" role="img" aria-label="${escapeHtml(localeText("循环流程图", "Loop workflow diagram"))}">
+        <svg class="workflow-loop-svg" viewBox="${-(settings.labelPadX || 0)} 0 ${settings.width + ((settings.labelPadX || 0) * 2)} ${settings.height}" role="img" aria-label="${escapeHtml(localeText("循环流程图", "Loop workflow diagram"))}">
           <defs>
             <marker id="${markerId}" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
               <path d="M 0 0 L 12 6 L 0 12 z" fill="var(--workflow-loop-marker, rgba(53, 43, 34, 0.74))"></path>

@@ -19,6 +19,7 @@ from loopora.branding import state_dir_for_workdir
 from loopora.db import LooporaRepository
 from loopora.executor import FakeCodexExecutor, RoleRequest
 from loopora.service import LooporaService
+from loopora.service_agent_adapters import AgentBundleCandidateRequest
 from loopora.service_types import LooporaError
 from loopora.settings import AppSettings, app_home
 from loopora.web import build_app
@@ -275,6 +276,17 @@ def _wait_for_alignment_status(service: LooporaService, session_id: str, *status
     raise AssertionError(f"alignment session stayed in {session['status']}, expected {sorted(expected)}")
 
 
+def _wait_for_alignment_event(service: LooporaService, session_id: str, event_type: str, *, after_id: int = 0, timeout: float = 10.0) -> dict:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        events = service.list_alignment_events(session_id, after_id=after_id)
+        for event in events:
+            if event["event_type"] == event_type:
+                return event
+        time.sleep(0.05)
+    raise AssertionError(f"alignment event {event_type!r} was not emitted")
+
+
 def _wait_for_run_status(service: LooporaService, run_id: str, *statuses: str, timeout: float = 15.0) -> dict:
     deadline = time.time() + timeout
     expected = set(statuses)
@@ -386,6 +398,22 @@ def _assert_preview_has_expert_tabs_and_stable_hover(page) -> None:
     diagram = page.get_by_test_id("alignment-workflow-diagram")
     diagram.locator("svg").wait_for(state="visible", timeout=5_000)
     assert diagram.get_by_test_id("workflow-loop-node").count() >= 3
+    diagram_rendering = diagram.evaluate(
+        """(element) => {
+          const svg = element.querySelector("svg");
+          const labels = [...element.querySelectorAll(".workflow-loop-node-label")].map((label) => {
+            const box = label.getBoundingClientRect();
+            return {width: Math.round(box.width), height: Math.round(box.height)};
+          });
+          return {
+            pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            visibleLabels: labels.filter((box) => box.width > 0 && box.height > 0).length,
+            labelCount: labels.length,
+          };
+        }"""
+    )
+    assert diagram_rendering["pageOverflow"] <= 1
+    assert diagram_rendering["visibleLabels"] == diagram_rendering["labelCount"]
     page.get_by_test_id("alignment-preview-tab-spec").click()
     assert page.get_by_test_id("alignment-spec-preview").inner_html().strip()
     page.get_by_test_id("alignment-preview-tab-roles").click()
@@ -493,6 +521,22 @@ def _assert_preview_has_expert_tabs_and_stable_hover(page) -> None:
         assert abs(layout_before["composer"]["height"] - layout_after["composer"]["height"]) <= 1
 
 
+def _assert_judgment_map_uses_user_surface_labels(page) -> None:
+    page.get_by_test_id("alignment-judgment-map").wait_for(state="visible", timeout=5_000)
+    judgment_text = page.get_by_test_id("alignment-judgment-map").text_content() or ""
+    assert "Mapped into:" in judgment_text or "已投影到：" in judgment_text
+    for internal_surface in (
+        "collaboration_summary",
+        "spec.markdown",
+        "role_definitions[]",
+        "workflow.steps[]",
+        "workflow.controls[]",
+    ):
+        assert internal_surface not in judgment_text
+    assert "Governance summary" in judgment_text or "治理摘要" in judgment_text
+    assert "Task contract" in judgment_text or "任务契约" in judgment_text
+
+
 def _assert_plan_preview_has_default_summary_and_expert_tabs(page) -> None:
     page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
     page.get_by_test_id("alignment-workflow-diagram").locator("svg").wait_for(state="visible", timeout=5_000)
@@ -506,7 +550,16 @@ def _assert_plan_preview_has_default_summary_and_expert_tabs(page) -> None:
     assert "Verdict" in summary_text or "裁决" in summary_text
     workdir_text = ready_preview.locator("#alignment-artifact-workdir").text_content() or ""
     assert "Run directory" in workdir_text or "运行目录" in workdir_text
-    page.get_by_test_id("alignment-judgment-map").wait_for(state="visible", timeout=5_000)
+    assert page.get_by_test_id("alignment-revise-preview-button").is_visible()
+    page.get_by_test_id("alignment-review-gate").wait_for(state="visible", timeout=5_000)
+    review_gate_text = page.get_by_test_id("alignment-review-gate").text_content() or ""
+    assert "Pre-run review" in review_gate_text or "运行前复核" in review_gate_text
+    assert "Evidence path" in review_gate_text or "证据路径" in review_gate_text
+    assert "Judgment projection" in review_gate_text or "判断投影" in review_gate_text
+    assert page.get_by_test_id("alignment-review-confirm-checkbox").is_visible()
+    assert not page.get_by_test_id("alignment-review-confirm-checkbox").is_checked()
+    assert page.get_by_test_id("alignment-import-run-button").is_disabled()
+    _assert_judgment_map_uses_user_surface_labels(page)
     assert page.get_by_test_id("alignment-preview-tab-spec").get_attribute("aria-selected") == "true"
     assert page.get_by_test_id("alignment-spec-preview").is_visible()
     _assert_preview_has_expert_tabs_and_stable_hover(page)
@@ -583,7 +636,7 @@ def test_browser_journey_calculator_loop_runs_and_works(tmp_path: Path) -> None:
         assert page.locator('[data-testid="display"]').input_value() == "0"
 
 
-def _browser_alignment_service(tmp_path: Path, workdir_name: str, *, role_delay: float) -> tuple[LooporaService, Path]:
+def _browser_alignment_service(tmp_path: Path, workdir_name: str, *, role_delay: float, scenario: str = "success") -> tuple[LooporaService, Path]:
     workdir = tmp_path / workdir_name
     workdir.mkdir()
     (workdir / "README.md").write_text("# Bundle chat target\n\nStart here.\n", encoding="utf-8")
@@ -592,13 +645,25 @@ def _browser_alignment_service(tmp_path: Path, workdir_name: str, *, role_delay:
     service = LooporaService(
         repository=repository,
         settings=settings,
-        executor_factory=lambda: FakeCodexExecutor(scenario="success", role_delay=role_delay),
+        executor_factory=lambda: FakeCodexExecutor(scenario=scenario, role_delay=role_delay),
     )
     return service, workdir
 
 
 def _latest_alignment_session_id(service: LooporaService) -> str:
     return service.list_alignment_sessions(limit=1)[0]["id"]
+
+
+def _fill_alignment_judgment_brief(page) -> None:
+    page.get_by_test_id("alignment-task-goal-input").fill(
+        "把这个仓库的 starter experience 编排成可审查、可运行、可继续取证的 Loop。"
+    )
+    page.get_by_test_id("alignment-fake-done-risk-input").fill(
+        "只生成通用方案、只让页面看起来可用、或只靠 Agent 自述都不算完成。"
+    )
+    page.get_by_test_id("alignment-required-evidence-input").fill(
+        "必须保留项目内证据、运行记录、GateKeeper 裁决和下一轮缺口。"
+    )
 
 
 def _prepare_alignment_request_from_browser(page, base_url: str, workdir: Path) -> None:
@@ -619,6 +684,13 @@ def _prepare_alignment_request_from_browser(page, base_url: str, workdir: Path) 
     page.get_by_test_id("alignment-workdir-chip").click()
     page.get_by_test_id("alignment-tools-menu").wait_for(state="visible", timeout=5_000)
     page.get_by_test_id("alignment-workdir").fill(str(workdir))
+    page.get_by_test_id("alignment-message-input").fill("只写一个任务标题。")
+    page.get_by_test_id("alignment-send-button").click()
+    page.locator("#alignment-error").wait_for(state="visible", timeout=5_000)
+    error_text = page.locator("#alignment-error").text_content() or ""
+    assert "任务目标" in error_text or "task goal" in error_text.lower()
+    page.get_by_test_id("alignment-chat").wait_for(state="hidden", timeout=5_000)
+    _fill_alignment_judgment_brief(page)
     page.get_by_test_id("alignment-message-input").fill("帮我为这个仓库生成一个先小步实现、再取证验收、最后保守放行的循环方案。")
     page.get_by_test_id("alignment-send-button").click()
 
@@ -675,6 +747,13 @@ def _assert_alignment_artifacts_and_transcript(page, session: dict) -> None:
 
     transcript_text = page.get_by_test_id("alignment-transcript").text_content() or ""
     assert "循环方案" in transcript_text
+    transcript_file_text = (artifact_dir / "conversation" / "transcript.jsonl").read_text(encoding="utf-8")
+    prompt_text = (artifact_dir / "invocations" / "0001" / "prompt.md").read_text(encoding="utf-8")
+    for expected in ("任务目标", "伪完成风险", "必需证据"):
+        assert expected in transcript_file_text
+        assert expected in prompt_text
+    assert "只生成通用方案、只让页面看起来可用" in transcript_file_text
+    assert "GateKeeper 裁决和下一轮缺口" in prompt_text
     assert page.locator('[data-testid="alignment-console-output"] .console-line').count() >= 2
     assert page.get_by_test_id("alignment-history-item").count() == 1
     page.get_by_test_id("alignment-source-open-button").wait_for(state="visible", timeout=5_000)
@@ -703,6 +782,11 @@ def _assert_alignment_preview_surfaces_remain_stable(page) -> None:
 
 
 def _import_alignment_preview_and_assert_run(page, service: LooporaService, session: dict) -> None:
+    assert page.get_by_test_id("alignment-import-run-button").is_disabled()
+    page.get_by_test_id("alignment-review-confirm-checkbox").check()
+    playwright.expect(page.get_by_test_id("alignment-import-run-button")).to_be_enabled()
+    status_text = page.get_by_test_id("alignment-review-gate-status").text_content() or ""
+    assert "Review confirmed" in status_text or "复核完成" in status_text
     page.get_by_test_id("alignment-import-run-button").click()
     run_id = _wait_for_run_detail_page(page)
     run = _wait_for_run_status(service, run_id, "succeeded", "failed", timeout=20.0)
@@ -725,6 +809,394 @@ def test_bundle_chat_generation_preview_imports_and_runs_from_browser(tmp_path: 
             _assert_alignment_artifacts_and_transcript(page, session)
             _assert_alignment_preview_surfaces_remain_stable(page)
             _import_alignment_preview_and_assert_run(page, service, session)
+        finally:
+            page.close()
+
+
+def test_bundle_chat_ready_preview_can_be_revised_before_import(tmp_path: Path) -> None:
+    service, workdir = _browser_alignment_service(tmp_path, "bundle-chat-revise-ready-workdir", role_delay=0.2)
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        page = browser.new_page(viewport={"width": 1280, "height": 920})
+        try:
+            _prepare_alignment_request_from_browser(page, base_url, workdir)
+            _assert_alignment_running_shell(page)
+            session = _confirm_alignment_ready_from_browser(page, service)
+            page.get_by_test_id("alignment-revise-preview-button").click()
+            draft = page.get_by_test_id("alignment-message-input").input_value()
+            assert "调整" in draft or "revise" in draft.lower()
+            feedback = (
+                "审查后请调整这份 Loop 预览：primary user flow、project-owned evidence、"
+                "happy-path claim 和 GateKeeper weak proof 必须继续作为阻断判断。"
+            )
+            last_event_id = service.list_alignment_events(session["id"])[-1]["id"]
+            page.get_by_test_id("alignment-message-input").fill(feedback)
+            page.evaluate("document.getElementById('alignment-start-form').requestSubmit()")
+            _wait_for_alignment_event(service, session["id"], "alignment_ready_review_started", after_id=last_event_id)
+            reviewed = _wait_for_alignment_status(service, session["id"], "ready")
+            page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
+
+            assert reviewed["working_agreement"]["ready_review"]["feedback"] == feedback
+            assert service.list_bundles() == []
+            events = service.list_alignment_events(session["id"])
+            assert any(event["event_type"] == "alignment_ready_review_started" for event in events)
+            transcript_text = (Path(reviewed["artifact_dir"]) / "conversation" / "transcript.jsonl").read_text(encoding="utf-8")
+            assert feedback in transcript_text
+            prompt_paths = sorted((Path(reviewed["artifact_dir"]) / "invocations").glob("*/prompt.md"))
+            assert "Current compiler gate: ready preview review" in prompt_paths[-1].read_text(encoding="utf-8")
+            page.get_by_test_id("alignment-import-run-button").wait_for(state="visible", timeout=5_000)
+        finally:
+            page.close()
+
+
+def test_web_only_repair_guide_stays_on_page_create_run_path(tmp_path: Path) -> None:
+    service, workdir = _browser_alignment_service(
+        tmp_path,
+        "web-only-repair-workdir",
+        role_delay=0.0,
+        scenario="alignment_english_visible_bundle_names_for_chinese_user",
+    )
+    created = service.create_alignment_session(
+        workdir=workdir,
+        message="请帮我编排一个中文任务的 Loop。",
+    )
+    _wait_for_alignment_status(service, created["id"], "waiting_user")
+    service.append_alignment_message(created["id"], "确认")
+    failed = _wait_for_alignment_status(service, created["id"], "failed")
+    assert failed.get("agent_entry_launch", {}) == {}
+    assert failed["validation"]["ok"] is False
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page.add_init_script("window.localStorage.setItem('loopora:locale', 'en');")
+        try:
+            page.goto(f"{base_url}/loops/new/bundle?alignment_session_id={created['id']}", wait_until="networkidle")
+            page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=5_000)
+            page.get_by_test_id("alignment-repair-guide").wait_for(state="visible", timeout=5_000)
+
+            preview_text = page.get_by_test_id("alignment-ready-preview").text_content() or ""
+            repair_text = page.get_by_test_id("alignment-repair-guide").text_content() or ""
+            assert "Plan file needs repair before running" in preview_text
+            assert "After editing, click Reload" in repair_text
+            assert "page's create/run action" in repair_text
+            assert "/loopora-loop" not in repair_text
+            assert "same Agent" not in repair_text
+            assert "Create and run" not in preview_text
+            assert page.get_by_test_id("alignment-import-run-button").is_hidden()
+
+            session = service.get_alignment_session(created["id"])
+            assert session["status"] == "failed"
+            assert session.get("agent_entry_launch", {}) == {}
+            assert Path(session["bundle_path"]).exists()
+            events = service.list_alignment_events(created["id"])
+            assert any(
+                event["event_type"] == "alignment_validation_failed"
+                and "must follow Chinese user language" in event["payload"].get("error", "")
+                for event in events
+            )
+        finally:
+            page.close()
+
+
+def test_agent_first_ready_preview_returns_to_loopora_loop_instead_of_web_run(tmp_path: Path) -> None:
+    service, workdir = _browser_alignment_service(tmp_path, "agent-first-ready-workdir", role_delay=0.0)
+    bundle_file = tmp_path / "agent-first-bundle.yml"
+    generated = _create_agent_first_ready_preview(service, workdir, bundle_file)
+    assert generated["ready"] is True
+    session_id = generated["session"]["id"]
+    assert generated["session"]["agent_entry_launch"]["ready_candidate_sha256"] == generated["ready_candidate_sha256"]
+    assert generated["session"]["agent_entry_launch"]["ready_candidate_bytes"] == generated["ready_candidate_bytes"]
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page.add_init_script(
+            """
+            Object.defineProperty(navigator, "clipboard", {
+              configurable: true,
+              value: {
+                writeText: async (value) => { window.__looporaCopiedText = value; }
+              }
+            });
+            """
+        )
+        try:
+            page.goto(f"{base_url}/loops/new/bundle?alignment_session_id={session_id}", wait_until="networkidle")
+            _assert_agent_first_ready_launch(page)
+            feedback, reviewed = _submit_agent_first_ready_review(page, service, session_id)
+            _assert_agent_first_reviewed_launch(page, service, reviewed, feedback)
+
+            page.get_by_test_id("alignment-import-run-button").click()
+
+            assert page.url.startswith(f"{base_url}/loops/new/bundle")
+            assert page.evaluate("window.__looporaCopiedText") == "/loopora-loop"
+            session = service.get_alignment_session(session_id)
+            assert session["status"] == "ready"
+            assert not session.get("linked_run_id")
+            assert service.list_bundles() == []
+        finally:
+            page.close()
+
+
+def _create_agent_first_ready_preview(service, workdir: Path, bundle_file: Path) -> dict:
+    bundle_file.write_text(_bundle_yaml_for_workdir(workdir), encoding="utf-8")
+    return service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=workdir,
+            message=(
+                "Focused starter slice needs a Loopora loop because future rounds add Builder handoffs, "
+                "Inspector evidence, and GateKeeper verdict; prove the primary user flow end to end with "
+                "project-owned checks and concrete artifacts, avoid happy-path-only claims, keep changes scoped, "
+                "accept only named owned polish residual risk."
+            ),
+            bundle_file=bundle_file,
+            context_id="preview-thread",
+            entry_source="codex_project_skill",
+        )
+    )
+
+
+def _assert_agent_first_ready_launch(page) -> None:
+    page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=5_000)
+    playwright.expect(page.get_by_test_id("alignment-import-run-button")).to_contain_text("/loopora-loop")
+    page.get_by_test_id("alignment-agent-launch-guide").wait_for(state="visible", timeout=5_000)
+    launch_text = page.get_by_test_id("alignment-agent-launch-guide").text_content() or ""
+    assert "Agent-first" in launch_text
+    assert "/loopora-loop" in launch_text
+    assert "Create and run" not in (page.get_by_test_id("alignment-ready-preview").text_content() or "")
+    cli_command = page.get_by_test_id("alignment-agent-launch-cli").text_content() or ""
+    assert "LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill" in cli_command
+    assert "loopora agent codex loop" in cli_command
+    assert "--context-id preview-thread" in cli_command
+    assert "--entry-source codex_project_skill" in cli_command
+    page.get_by_test_id("alignment-agent-launch-copy-cli").click()
+    assert page.evaluate("window.__looporaCopiedText") == cli_command
+
+
+def _submit_agent_first_ready_review(page, service, session_id: str) -> tuple[str, dict]:
+    page.get_by_test_id("alignment-revise-preview-button").click()
+    draft = page.get_by_test_id("alignment-message-input").input_value()
+    assert "Agent-first" in draft
+    assert "same Agent" in draft
+    assert "/loopora-loop" in draft
+    feedback = (
+        "Revise this Agent-first preview but keep the same-Agent /loopora-loop handoff: "
+        "the Builder handoff, Inspector evidence, and GateKeeper verdict must remain blocking "
+        "judgment boundaries before any run starts."
+    )
+    last_event_id = service.list_alignment_events(session_id)[-1]["id"]
+    page.get_by_test_id("alignment-message-input").fill(feedback)
+    page.evaluate("document.getElementById('alignment-start-form').requestSubmit()")
+    _wait_for_alignment_event(service, session_id, "alignment_ready_review_started", after_id=last_event_id)
+    reviewed = _wait_for_alignment_status(service, session_id, "ready")
+    page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
+    page.get_by_test_id("alignment-agent-launch-guide").wait_for(state="visible", timeout=5_000)
+    return feedback, reviewed
+
+
+def _assert_agent_first_reviewed_launch(page, service, reviewed: dict, feedback: str) -> None:
+    assert reviewed["working_agreement"]["ready_review"]["feedback"] == feedback
+    launch = reviewed["agent_entry_launch"]
+    assert launch["source"] == "agent_entry"
+    assert launch["entry_source"] == "codex_project_skill"
+    assert launch["host_context_id"] == "preview-thread"
+    assert launch["slash_command"] == "/loopora-loop"
+    assert launch["loop_command"] == page.get_by_test_id("alignment-agent-launch-cli").text_content()
+    assert launch["ready_candidate_sha256"] == reviewed["validation"]["bundle_sha256"]
+    assert launch["ready_candidate_bytes"] == reviewed["validation"]["bundle_bytes"]
+    assert service.list_bundles() == []
+    transcript_text = (Path(reviewed["artifact_dir"]) / "conversation" / "transcript.jsonl").read_text(encoding="utf-8")
+    assert feedback in transcript_text
+    prompt_paths = sorted((Path(reviewed["artifact_dir"]) / "invocations").glob("*/prompt.md"))
+    assert "Current compiler gate: ready preview review" in prompt_paths[-1].read_text(encoding="utf-8")
+    assert "Create and run" not in (page.get_by_test_id("alignment-ready-preview").text_content() or "")
+
+
+def test_agent_first_candidate_repair_keeps_recovery_on_gen_loop_path(tmp_path: Path) -> None:
+    service, workdir = _browser_alignment_service(tmp_path, "agent-first-repair-workdir", role_delay=0.0)
+    bundle_file = tmp_path / "agent-first-repair-bundle.yml"
+    bundle_file.write_text(_bundle_yaml_for_workdir(workdir), encoding="utf-8")
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=workdir,
+            message=(
+                "Build a governed refund self-service flow with authorization, audit, payment failure, "
+                "handoff, and permission evidence before any task verdict can pass."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    assert generated["ready"] is False
+    assert generated["requires_candidate_repair"] is True
+    session_id = generated["session"]["id"]
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page.add_init_script("window.localStorage.setItem('loopora:locale', 'en');")
+        try:
+            page.goto(f"{base_url}/loops/new/bundle?alignment_session_id={session_id}", wait_until="networkidle")
+            page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=5_000)
+            page.get_by_test_id("alignment-repair-guide").wait_for(state="visible", timeout=5_000)
+
+            preview_text = page.get_by_test_id("alignment-ready-preview").text_content() or ""
+            repair_text = page.get_by_test_id("alignment-repair-guide").text_content() or ""
+            assert "Candidate plan needs repair before returning to the Agent" in preview_text
+            assert "Repair the candidate plan, then return to the same Agent." in repair_text
+            assert "/loopora-gen" in repair_text
+            assert "/loopora-loop" in repair_text
+            assert "same Agent session" in repair_text
+            assert "ready to create and run" not in repair_text
+            assert "Create and run" not in preview_text
+            assert page.get_by_test_id("alignment-import-run-button").is_hidden()
+
+            session = service.get_alignment_session(session_id)
+            assert session["status"] == "failed"
+            assert session["agent_entry_launch"]["source"] == "agent_entry"
+            assert session["agent_entry_launch"]["entry_source"] == "codex_project_skill"
+            assert session["agent_entry_launch"]["slash_command"] == "/loopora-loop"
+            assert session.get("agent_entry_review", {}) == {}
+            assert Path(session["bundle_path"]).exists()
+            assert generated["binding"]["requires_candidate_repair"] is True
+            assert generated["binding"]["requires_web_alignment"] is False
+            assert generated["binding"]["ready_candidate_sha256"] == ""
+            assert generated["binding"]["ready_candidate_bytes"] == 0
+
+            events = service.list_alignment_events(session_id)
+            assert any(
+                event["event_type"] == "alignment_bundle_sync_failed"
+                and "host Agent task summary" in event["payload"].get("error", "")
+                for event in events
+            )
+            preview = service.get_alignment_bundle(session_id)
+            assert preview["ok"] is True
+            assert preview["session"]["status"] == "failed"
+            assert preview["validation"]["ok"] is False
+            assert "host Agent task summary" in preview["validation"]["error"]
+        finally:
+            page.close()
+
+
+def test_agent_first_missing_candidate_review_bridge_hands_off_to_agreement(tmp_path: Path) -> None:
+    service, workdir = _browser_alignment_service(tmp_path, "agent-missing-candidate-review-workdir", role_delay=0.2)
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=workdir,
+            message=(
+                "Prepare a governed implementation loop from the host Agent context with project-owned evidence, "
+                "fake-done protection, and a strict GateKeeper decision."
+            ),
+            entry_source="codex_project_skill",
+        )
+    )
+    assert generated["ready"] is False
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        page = browser.new_page(viewport={"width": 1280, "height": 920})
+        try:
+            page.goto(f"{base_url}/loops/new/bundle?alignment_session_id={generated['session']['id']}", wait_until="networkidle")
+            page.get_by_test_id("alignment-agent-review-bridge").wait_for(state="visible", timeout=5_000)
+            bridge_text = page.get_by_test_id("alignment-agent-review-bridge").text_content() or ""
+            assert "Task anchor" in bridge_text
+            assert "Prepare a governed implementation loop" in bridge_text
+            assert "Candidate plan file" in bridge_text
+            assert "missing" in bridge_text
+            assert page.get_by_test_id("alignment-agent-review-checklist").locator("li").count() == 8
+            review_options = page.get_by_test_id("alignment-agent-review-options").get_by_test_id("alignment-decision-option")
+            assert review_options.count() >= 2
+            assert "Recommended" in (review_options.first.text_content() or "")
+
+            review_options.first.click()
+            page.get_by_test_id("alignment-working-card").wait_for(state="visible", timeout=5_000)
+            agreement = _wait_for_alignment_status(service, generated["session"]["id"], "waiting_user")
+            assert agreement["alignment_stage"] == "agreement_ready"
+            assert agreement.get("agent_entry_review", {}) == {}
+            transcript_text = (Path(agreement["artifact_dir"]) / "conversation" / "transcript.jsonl").read_text(encoding="utf-8")
+            assert "Continue Web review from this /loopora-gen task anchor" in transcript_text
+            assert "Prepare a governed implementation loop" in transcript_text
+            page.get_by_test_id("alignment-agent-review-bridge").wait_for(state="hidden", timeout=5_000)
+            page.get_by_test_id("alignment-decision-option").filter(has_text=re.compile("采用这个方向|Use this direction")).first.click()
+            ready = _wait_for_alignment_status(service, generated["session"]["id"], "ready")
+            assert ready.get("agent_entry_review", {}) == {}
+            page.get_by_test_id("alignment-ready-preview").wait_for(state="visible", timeout=10_000)
+            page.get_by_test_id("alignment-agent-review-bridge").wait_for(state="hidden", timeout=5_000)
+        finally:
+            page.close()
+
+
+def test_run_evidence_improvement_chat_shows_source_gaps_before_agent_reply(tmp_path: Path) -> None:
+    service, workdir = _browser_alignment_service(tmp_path, "run-evidence-improvement-workdir", role_delay=0.2)
+    source = service.import_bundle_text(_bundle_yaml_for_workdir(workdir))
+    run = service.rerun(source["loop_id"])
+    coverage_path = Path(run["runs_dir"]) / "evidence" / "coverage.json"
+    coverage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "ledger_path": "evidence/ledger.jsonl",
+                "coverage_path": "evidence/coverage.json",
+                "status": "partial",
+                "summary": {"reason": "Audit and payment failure proof are missing."},
+                "evidence_count": 3,
+                "check_count": 3,
+                "covered_check_count": 1,
+                "missing_check_count": 2,
+                "covered_check_ids": ["check_permission"],
+                "missing_check_ids": ["check_payment_failure", "check_audit_trail"],
+                "target_count": 5,
+                "covered_target_count": 1,
+                "weak_target_count": 1,
+                "missing_target_count": 2,
+                "blocked_target_count": 1,
+                "top_gaps": [{"target_id": "done_when.check_payment_failure", "text": "Payment failure proof is absent."}],
+                "evidence_kind_counts": {"artifact": 2, "summary": 1},
+                "artifact_ref_count": 2,
+                "residual_risk_count": 1,
+                "risk_signals": ["Payment retry ownership is unresolved."],
+                "latest_gatekeeper": {"id": "ev_gatekeeper", "result": "blocked"},
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        page = browser.new_page(viewport={"width": 1280, "height": 920})
+        try:
+            page.goto(f"{base_url}/runs/{run['id']}", wait_until="domcontentloaded")
+            page.get_by_test_id("run-improve-chat-button").click()
+            page.wait_for_url("**/loops/new/bundle?alignment_session_id=**", wait_until="networkidle", timeout=10_000)
+            page.get_by_test_id("alignment-source-context-bridge").wait_for(state="visible", timeout=5_000)
+
+            bridge_text = page.get_by_test_id("alignment-source-context-bridge").text_content() or ""
+            assert "Previous run evidence" in bridge_text
+            assert "This revision starts from concrete gaps" in bridge_text
+            assert "Audit and payment failure proof are missing" in bridge_text
+            assert "Missing checks: 2" in bridge_text
+            assert "check_payment_failure" in bridge_text
+            assert "check_audit_trail" in bridge_text
+            assert "Payment failure proof is absent" in bridge_text
+            assert "Payment retry ownership is unresolved" in bridge_text
+            assert "evidence/coverage.json" in bridge_text
+            assert "evidence/ledger.jsonl" in bridge_text
+
+            session_id = page.url.split("alignment_session_id=", 1)[1].split("&", 1)[0]
+            session = service.get_alignment_session(session_id)
+            source_context = session["working_agreement"]["source"]
+            assert source_context["source_run_id"] == run["id"]
+            assert source_context["coverage_summary"]["missing_check_ids"] == ["check_payment_failure", "check_audit_trail"]
+            agreement_text = (Path(session["artifact_dir"]) / "agreement" / "current.json").read_text(encoding="utf-8")
+            assert "check_payment_failure" in agreement_text
+            assert "Payment retry ownership is unresolved" in agreement_text
+            prompt_paths = sorted((Path(session["artifact_dir"]) / "invocations").glob("*/prompt.md"))
+            assert prompt_paths
+            prompt_text = prompt_paths[-1].read_text(encoding="utf-8")
+            assert "check_payment_failure" in prompt_text
+            assert "Payment failure proof is absent" in prompt_text
         finally:
             page.close()
 
@@ -754,6 +1226,7 @@ def test_bundle_chat_requires_workdir_context_choice_when_loopora_state_exists(t
 
             page.get_by_test_id("alignment-tools-menu").wait_for(state="visible", timeout=5_000)
             page.locator('input[name="alignment_source_option"][value="regenerate"]').check()
+            _fill_alignment_judgment_brief(page)
             page.evaluate("document.getElementById('alignment-start-form').requestSubmit()")
             page.get_by_test_id("alignment-chat").wait_for(state="visible", timeout=5_000)
             session = _wait_for_alignment_status(service, _latest_alignment_session_id(service), "waiting_user")
@@ -787,6 +1260,10 @@ def _assert_bundle_shell_layout_for_viewport(browser, base_url: str, viewport: d
     assert page.get_by_test_id("alignment-ready-preview").is_hidden()
     assert page.get_by_test_id("alignment-starter-card").count() == 3
     assert page.get_by_test_id("alignment-workdir-chip").inner_text() == "Choose run directory"
+    page.get_by_test_id("alignment-judgment-brief").wait_for(state="visible", timeout=5_000)
+    assert page.get_by_test_id("alignment-task-goal-input").is_visible()
+    assert page.get_by_test_id("alignment-fake-done-risk-input").is_visible()
+    assert page.get_by_test_id("alignment-required-evidence-input").is_visible()
     input_metrics = page.get_by_test_id("alignment-message-input").evaluate(
         """(textarea) => ({
           clientHeight: textarea.clientHeight,
@@ -798,7 +1275,15 @@ def _assert_bundle_shell_layout_for_viewport(browser, base_url: str, viewport: d
     assert input_metrics["scrollHeight"] <= input_metrics["clientHeight"] + 1
     assert input_metrics["scrollWidth"] <= input_metrics["clientWidth"] + 1
     page.get_by_test_id("alignment-starter-card").first.click()
-    assert "refund flow" in page.get_by_test_id("alignment-message-input").input_value().lower()
+    assert "refund flow" in page.get_by_test_id("alignment-task-goal-input").input_value().lower()
+    assert "clickable page" in page.get_by_test_id("alignment-fake-done-risk-input").input_value().lower()
+    assert "auditability" in page.get_by_test_id("alignment-required-evidence-input").input_value().lower()
+    supplemental_context = page.get_by_test_id("alignment-message-input").input_value().lower()
+    assert "unauthorized refunds" in supplemental_context
+    assert "residual risk" in supplemental_context
+    assert "refund flow" not in supplemental_context
+    assert "clickable page" not in supplemental_context
+    assert "auditability" not in supplemental_context
     assert page.locator("#bundle-import-yaml").count() == 0
     assert page.get_by_test_id("alignment-import-open-button").count() == 0
     assert page.get_by_test_id("alignment-tools-menu").is_hidden()
@@ -1048,8 +1533,13 @@ Keep diagnostics reachable.
                 ),
             )
             page.goto(f"{base_url}/tools", wait_until="networkidle")
+            page.get_by_test_id("local-assets-toggle").wait_for(state="visible", timeout=5_000)
+            playwright.expect(page.get_by_test_id("local-assets-toggle")).to_contain_text("Review")
+            assert page.get_by_test_id("local-assets-details").is_hidden()
+            page.get_by_test_id("local-assets-toggle").click()
             page.get_by_test_id("local-assets-issue").first.wait_for(state="visible", timeout=5_000)
             assert page.get_by_test_id("local-assets-details").is_visible()
+            playwright.expect(page.get_by_test_id("local-assets-toggle")).to_contain_text("Hide")
             assert page.get_by_test_id("local-assets-reveal-button").count() >= 2
             assert "do not delete files" in (page.get_by_test_id("local-assets-details").text_content() or "")
             page.locator('[data-local-assets-kind="orphan_alignment_dirs"] [data-testid="local-assets-reveal-button"]').first.click()
@@ -1069,15 +1559,52 @@ def _wait_for_path_state(path: Path, *, exists: bool, timeout: float = 5.0) -> N
     raise AssertionError(f"Timed out waiting for {path} to {state}")
 
 
-def _exercise_browser_adapter_install_uninstall(page, adapter: str, gen_skill: Path, loop_skill: Path) -> None:
+def _adapter_browser_label(adapter: str) -> str:
+    return {
+        "codex": "Codex",
+        "claude": "Claude Code",
+        "opencode": "OpenCode",
+    }[adapter]
+
+
+def _assert_agent_adapter_handoff_has_no_horizontal_overflow(page) -> None:
+    overflowing = page.evaluate(
+        """
+        () => {
+          const handoff = document.querySelector('[data-testid="agent-adapter-handoff"]');
+          if (!handoff) {
+            return [{text: "missing handoff"}];
+          }
+          const handoffBox = handoff.getBoundingClientRect();
+          return Array.from(handoff.querySelectorAll("*"))
+            .filter((node) => {
+              const box = node.getBoundingClientRect();
+              return box.width > 0 && (box.left < handoffBox.left - 1 || box.right > handoffBox.right + 1);
+            })
+            .map((node) => node.textContent.slice(0, 80));
+        }
+        """
+    )
+    assert overflowing == []
+
+
+def _exercise_browser_adapter_install_uninstall(page, adapter: str, workdir: Path, gen_skill: Path, loop_skill: Path) -> None:
     playwright.expect(page.locator(f'[data-agent-adapter-status="{adapter}"]')).to_have_attribute(
         "data-agent-adapter-state",
         "not_installed",
         timeout=5_000,
     )
     page.get_by_test_id(f"agent-adapter-install-{adapter}").click()
+    manifest_path = workdir / ".loopora" / "adapters" / adapter / "manifest.json"
     _wait_for_path_state(gen_skill, exists=True)
     _wait_for_path_state(loop_skill, exists=True)
+    _wait_for_path_state(manifest_path, exists=True)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["adapter"] == adapter
+    assert {item["path"] for item in manifest["managed_files"]} >= {
+        str(gen_skill.relative_to(workdir)),
+        str(loop_skill.relative_to(workdir)),
+    }
     playwright.expect(page.locator(f'[data-agent-adapter-status="{adapter}"]')).to_have_attribute(
         "data-agent-adapter-state",
         "installed",
@@ -1085,14 +1612,36 @@ def _exercise_browser_adapter_install_uninstall(page, adapter: str, gen_skill: P
     )
     playwright.expect(page.get_by_test_id("agent-adapter-status")).to_contain_text("/loopora-gen", timeout=5_000)
     playwright.expect(page.get_by_test_id("agent-adapter-status")).to_contain_text("/loopora-loop", timeout=5_000)
+    playwright.expect(page.get_by_test_id("agent-adapter-handoff")).to_be_visible(timeout=5_000)
+    playwright.expect(page.get_by_test_id("agent-adapter-handoff-title")).to_contain_text(_adapter_browser_label(adapter))
+    playwright.expect(page.get_by_test_id("agent-adapter-handoff-target")).to_contain_text(str(workdir))
+    playwright.expect(page.get_by_test_id("agent-adapter-judgment-brief")).to_contain_text("task judgment")
+    playwright.expect(page.get_by_test_id("agent-adapter-judgment-brief")).to_contain_text("Fake done")
+    playwright.expect(page.get_by_test_id("agent-adapter-judgment-brief")).to_contain_text("Evidence")
+    playwright.expect(page.get_by_test_id("agent-adapter-handoff-flow")).to_contain_text("/loopora-gen")
+    playwright.expect(page.get_by_test_id("agent-adapter-handoff-flow")).to_contain_text("READY")
+    playwright.expect(page.get_by_test_id("agent-adapter-handoff-flow")).to_contain_text("/loopora-loop")
+    playwright.expect(page.get_by_test_id("agent-adapter-handoff-note")).to_contain_text("same Agent")
+    playwright.expect(page.get_by_test_id("agent-adapter-copy-gen")).to_have_attribute("data-copy-value", "/loopora-gen")
+    playwright.expect(page.get_by_test_id("agent-adapter-copy-loop")).to_have_attribute("data-copy-value", "/loopora-loop")
+    playwright.expect(page.get_by_test_id("agent-adapter-install-proof")).to_contain_text("Entry files:")
+    playwright.expect(page.get_by_test_id("agent-adapter-install-proof")).to_contain_text(str(gen_skill.relative_to(workdir)))
+    playwright.expect(page.get_by_test_id("agent-adapter-install-proof")).to_contain_text(str(loop_skill.relative_to(workdir)))
+    playwright.expect(page.get_by_test_id("agent-adapter-manifest-path")).to_contain_text(str(manifest_path))
+    _assert_agent_adapter_handoff_has_no_horizontal_overflow(page)
+    page.set_viewport_size({"width": 390, "height": 900})
+    _assert_agent_adapter_handoff_has_no_horizontal_overflow(page)
+    page.set_viewport_size({"width": 1280, "height": 900})
     page.get_by_test_id(f"agent-adapter-uninstall-{adapter}").click()
     _wait_for_path_state(gen_skill, exists=False)
     _wait_for_path_state(loop_skill, exists=False)
+    _wait_for_path_state(manifest_path, exists=False)
     playwright.expect(page.locator(f'[data-agent-adapter-status="{adapter}"]')).to_have_attribute(
         "data-agent-adapter-state",
         "not_installed",
         timeout=5_000,
     )
+    playwright.expect(page.get_by_test_id("agent-adapter-handoff")).to_be_hidden(timeout=5_000)
 
 
 def _exercise_browser_adapter_conflict(page, adapter: str, gen_skill: Path, content: str) -> None:
@@ -1107,6 +1656,10 @@ def _exercise_browser_adapter_conflict(page, adapter: str, gen_skill: Path, cont
     page.get_by_test_id(f"agent-adapter-install-{adapter}").click()
     page.get_by_test_id("agent-adapter-status").wait_for(state="visible", timeout=5_000)
     assert gen_skill.read_text(encoding="utf-8") == content
+    playwright.expect(page.get_by_test_id("agent-adapter-status")).to_contain_text("entry was not installed")
+    playwright.expect(page.get_by_test_id("agent-adapter-status")).to_contain_text("left them unchanged")
+    playwright.expect(page.get_by_test_id("agent-adapter-status")).to_contain_text(str(gen_skill.relative_to(gen_skill.parents[3])))
+    playwright.expect(page.get_by_test_id("agent-adapter-status")).to_contain_text("move, or rename")
 
 
 def _assert_agent_adapter_setup_guidance(page, workdir: Path) -> None:
@@ -1150,7 +1703,7 @@ def test_tools_agent_adapter_installs_uninstalls_target_project_from_browser(tmp
             page.get_by_test_id("agent-adapter-workdir").fill(str(workdir))
             page.get_by_test_id("agent-adapter-refresh").click()
             _assert_agent_adapter_setup_guidance(page, workdir)
-            _exercise_browser_adapter_install_uninstall(page, "codex", gen_skill, loop_skill)
+            _exercise_browser_adapter_install_uninstall(page, "codex", workdir, gen_skill, loop_skill)
             assert user_agents.read_text(encoding="utf-8") == "# User rules stay untouched\n"
             assert user_codex_config.read_text(encoding="utf-8") == 'model = "user-model"\n'
             assert user_claude_md.read_text(encoding="utf-8") == "# User Claude rules stay untouched\n"
@@ -1158,11 +1711,11 @@ def test_tools_agent_adapter_installs_uninstalls_target_project_from_browser(tmp
             assert user_opencode_json.read_text(encoding="utf-8") == '{"model": "user/model"}\n'
             assert user_opencode_project_json.read_text(encoding="utf-8") == '{"permission": {"bash": "ask"}}\n'
 
-            _exercise_browser_adapter_install_uninstall(page, "claude", claude_gen_skill, claude_loop_skill)
+            _exercise_browser_adapter_install_uninstall(page, "claude", workdir, claude_gen_skill, claude_loop_skill)
             assert user_claude_md.read_text(encoding="utf-8") == "# User Claude rules stay untouched\n"
             assert json.loads(user_claude_settings.read_text(encoding="utf-8")) == {"permissions": {"allow": []}}
 
-            _exercise_browser_adapter_install_uninstall(page, "opencode", opencode_gen_command, opencode_loop_command)
+            _exercise_browser_adapter_install_uninstall(page, "opencode", workdir, opencode_gen_command, opencode_loop_command)
             assert user_opencode_json.read_text(encoding="utf-8") == '{"model": "user/model"}\n'
             assert user_opencode_project_json.read_text(encoding="utf-8") == '{"permission": {"bash": "ask"}}\n'
 
@@ -1195,6 +1748,7 @@ def test_bundle_yaml_preview_imports_and_runs_from_browser(tmp_path: Path) -> No
             page.get_by_test_id("bundle-preview-import-button").wait_for(state="visible", timeout=10_000)
             assert page.get_by_test_id("alignment-import-run-button").count() == 0
             assert page.get_by_test_id("alignment-source-open-button").is_hidden()
+            _assert_judgment_map_uses_user_surface_labels(page)
             _assert_preview_has_expert_tabs_and_stable_hover(page)
 
             page.get_by_test_id("bundle-preview-import-button").click()
@@ -1437,6 +1991,7 @@ def _assert_tutorial_primary_actions_in_first_viewport(page, base_url: str) -> N
               };
               return {
                 viewportHeight: window.innerHeight,
+                heroBrief: rect("tutorial-hero-judgment-brief"),
                 heroActions: rect("tutorial-hero-actions"),
                 heroAgent: rect("tutorial-hero-agent-entry-link"),
                 heroWeb: rect("tutorial-hero-web-compose-link"),
@@ -1445,8 +2000,10 @@ def _assert_tutorial_primary_actions_in_first_viewport(page, base_url: str) -> N
             }"""
         )
         assert state["heroActions"]["visible"] is True
+        assert state["heroBrief"]["visible"] is True
         assert state["heroAgent"]["visible"] is True
         assert state["heroWeb"]["visible"] is True
+        assert state["heroBrief"]["top"] < state["heroActions"]["top"]
         assert state["heroActions"]["top"] < state["viewportHeight"]
         assert state["heroActions"]["bottom"] <= state["guidePanel"]["top"]
 
@@ -1826,6 +2383,181 @@ def test_new_loop_page_can_edit_spec_in_a_markdown_workbench_modal(tmp_path: Pat
         assert modal.get_attribute("aria-hidden") == "true"
 
 
+def test_run_detail_rerun_label_follows_task_verdict_in_browser(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Browser Verdict Action Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    unproven_run = service.rerun(loop["id"])
+    service.repository.update_run(
+        unproven_run["id"],
+        status="succeeded",
+        task_verdict={
+            "status": "insufficient_evidence",
+            "source": "gatekeeper",
+            "summary": "Required browser proof is missing.",
+            "buckets": {"unproven": [{"label": "browser proof missing"}]},
+        },
+    )
+    passed_run = service.rerun(loop["id"])
+    service.repository.update_run(
+        passed_run["id"],
+        status="succeeded",
+        task_verdict={
+            "status": "passed",
+            "source": "gatekeeper",
+            "summary": "Required proof is complete.",
+            "buckets": {"proven": [{"label": "all required checks"}]},
+        },
+    )
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        try:
+            page.goto(f"{base_url}/runs/{unproven_run['id']}", wait_until="domcontentloaded")
+            page.get_by_test_id("run-rerun-button").wait_for(state="visible", timeout=5_000)
+            unproven_metrics = page.evaluate(
+                """() => {
+                  const improve = document.querySelector('[data-testid="run-improve-chat-button"]');
+                  const rerun = document.querySelector('[data-testid="run-rerun-button"]');
+                  const record = document.querySelector('[data-testid="run-accept-result-button"]');
+                  const englishLabel = rerun?.querySelector('[data-lang="en"]')?.textContent.trim() || "";
+                  const chineseLabel = rerun?.querySelector('[data-lang="zh"]')?.textContent.trim() || "";
+                  return {
+                    englishLabel,
+                    chineseLabel,
+                    recordStatus: record?.dataset.taskVerdictStatus || "",
+                    improveBeforeRerun: Boolean(improve && rerun && (improve.compareDocumentPosition(rerun) & Node.DOCUMENT_POSITION_FOLLOWING)),
+                    rerunBeforeRecord: Boolean(rerun && record && (rerun.compareDocumentPosition(record) & Node.DOCUMENT_POSITION_FOLLOWING)),
+                  };
+                }"""
+            )
+            assert unproven_metrics["englishLabel"] == "Run next evidence pass"
+            assert unproven_metrics["chineseLabel"] == "继续补证据"
+            assert unproven_metrics["recordStatus"] == "insufficient_evidence"
+            assert unproven_metrics["improveBeforeRerun"] is True
+            assert unproven_metrics["rerunBeforeRecord"] is True
+
+            page.set_viewport_size({"width": 390, "height": 844})
+            mobile_metrics = page.evaluate(
+                """() => {
+                  const actions = document.querySelector('.hero-actions');
+                  const rerun = document.querySelector('[data-testid="run-rerun-button"]');
+                  const actionsBox = actions.getBoundingClientRect();
+                  const rerunBox = rerun.getBoundingClientRect();
+                  return {
+                    pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+                    rerunInsideActions: rerunBox.left >= actionsBox.left - 1 && rerunBox.right <= actionsBox.right + 1,
+                    rerunTallEnough: rerunBox.height >= 36,
+                  };
+                }"""
+            )
+            assert mobile_metrics["pageOverflow"] is False
+            assert mobile_metrics["rerunInsideActions"] is True
+            assert mobile_metrics["rerunTallEnough"] is True
+
+            page.set_viewport_size({"width": 1280, "height": 900})
+            page.goto(f"{base_url}/runs/{passed_run['id']}", wait_until="domcontentloaded")
+            page.get_by_test_id("run-rerun-button").wait_for(state="visible", timeout=5_000)
+            passed_metrics = page.evaluate(
+                """() => {
+                  const rerun = document.querySelector('[data-testid="run-rerun-button"]');
+                  const record = document.querySelector('[data-testid="run-accept-result-button"]');
+                  return {
+                    englishLabel: rerun?.querySelector('[data-lang="en"]')?.textContent.trim() || "",
+                    recordStatus: record?.dataset.taskVerdictStatus || "",
+                    recordText: record?.textContent || "",
+                  };
+                }"""
+            )
+            assert passed_metrics["englishLabel"] == "Rerun"
+            assert passed_metrics["recordStatus"] == "passed"
+            assert "Record passing verdict" in passed_metrics["recordText"]
+        finally:
+            page.close()
+
+
+def test_home_and_loop_detail_use_verdict_safe_summary_in_browser(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Verdict Safe Summary Browser Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    service.repository.update_run(
+        run["id"],
+        status="succeeded",
+        task_verdict={
+            "status": "insufficient_evidence",
+            "source": "gatekeeper",
+            "summary": "Missing audit proof.",
+            "buckets": {"unproven": [{"label": "audit proof missing"}]},
+        },
+        summary_md="# Loopora Run Summary\n\nAll done according to the Agent summary.",
+    )
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        try:
+            page.goto(f"{base_url}/", wait_until="networkidle")
+            page.get_by_test_id("loop-card").first.wait_for(state="visible", timeout=5_000)
+            home_metrics = page.evaluate(
+                """() => {
+                  const card = document.querySelector("[data-testid='loop-card']");
+                  const glance = card?.querySelector(".loop-card-glance")?.textContent || "";
+                  const recent = document.querySelector("[data-testid='home-recent-loop-verdict']")?.textContent || "";
+                  return {glance, recent};
+                }"""
+            )
+            assert "Task verdict still insufficient: Missing audit proof." in home_metrics["glance"]
+            assert "Loop 裁决证据不足：Missing audit proof." in home_metrics["glance"]
+            assert "All done according to the Agent summary." not in home_metrics["glance"]
+            assert "insufficient evidence" in home_metrics["recent"]
+
+            page.goto(f"{base_url}/loops/{loop['id']}", wait_until="networkidle")
+            page.get_by_test_id("loop-detail-summary-panel").wait_for(state="visible", timeout=5_000)
+            loop_metrics = page.evaluate(
+                """() => {
+                  const summary = document.querySelector("[data-testid='loop-detail-summary-panel']")?.textContent || "";
+                  const history = document.querySelector("[data-testid='loop-run-history-verdict']")?.textContent || "";
+                  return {summary, history};
+                }"""
+            )
+            assert "Task verdict still insufficient: Missing audit proof." in loop_metrics["summary"]
+            assert "Loop 裁决证据不足：Missing audit proof." in loop_metrics["summary"]
+            assert "All done according to the Agent summary." not in loop_metrics["summary"]
+            assert "Task verdict: insufficient evidence" in loop_metrics["history"]
+        finally:
+            page.close()
+
+
 def test_run_detail_renders_sanitized_command_event_summary(tmp_path: Path) -> None:
     workdir = tmp_path / "command-event-workdir"
     workdir.mkdir()
@@ -1918,6 +2650,438 @@ def test_run_detail_renders_sanitized_command_event_summary(tmp_path: Path) -> N
             assert toolbar_metrics["controlsWithinPanel"] is True
         finally:
             page.close()
+
+
+def test_run_console_missing_terminal_verdict_warns_not_evaluated_in_browser(tmp_path: Path) -> None:
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    spec_path = tmp_path / "spec.md"
+    spec_path.write_text(
+        "# Task\n\nRender a legacy terminal event safely.\n\n# Done When\n\n- Missing task verdicts stay visible as not evaluated.\n",
+        encoding="utf-8",
+    )
+    service = LooporaService(
+        repository=LooporaRepository(tmp_path / "app.db"),
+        settings=AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2),
+        executor_factory=lambda: FakeCodexExecutor(scenario="success"),
+    )
+    loop = service.create_loop(
+        name="Missing Verdict Console Loop",
+        spec_path=spec_path,
+        workdir=workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    service.repository.append_event(
+        run["id"],
+        "run_finished",
+        {"status": "succeeded", "reason": "legacy_terminal_event_without_verdict"},
+    )
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        try:
+            page.goto(f"{base_url}/runs/{run['id']}/console", wait_until="domcontentloaded")
+            line = page.locator(".console-line-warning")
+            line.wait_for(state="visible", timeout=5_000)
+            console_text = line.text_content() or ""
+            assert "Loop 裁决 not_evaluated" in console_text or "Task verdict not_evaluated" in console_text
+            assert "legacy_terminal_event_without_verdict" in console_text
+            assert page.locator(".console-line-success").count() == 0
+        finally:
+            page.close()
+
+
+def test_run_detail_agent_native_handoff_shows_copyable_full_values(tmp_path: Path) -> None:
+    service, _workdir, started = _start_browser_agent_native_run(
+        tmp_path,
+        workdir_name="handoff-workdir",
+        context_id="browser-handoff",
+        message="Ship a governed starter slice with evidence and visible handoff.",
+    )
+    run_id = started["run"]["id"]
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        context.grant_permissions(["clipboard-read", "clipboard-write"], origin=base_url)
+        page = context.new_page()
+        try:
+            page.goto(f"{base_url}/runs/{run_id}", wait_until="domcontentloaded")
+            page.wait_for_function(
+                "() => document.querySelector('[data-testid=\"run-observation-status\"]')?.dataset.observationState === 'ready'"
+            )
+            page.get_by_test_id("run-agent-handoff-card").wait_for(state="visible", timeout=5_000)
+            metrics = page.evaluate(
+                """() => {
+                  const stat = (kind) => {
+                    const code = document.getElementById(`agent-handoff-${kind}`);
+                    const button = document.querySelector(`[data-agent-handoff-copy="${kind}"]`);
+                    const style = window.getComputedStyle(code);
+                    const buttonBox = button.getBoundingClientRect();
+                    return {
+                      text: code.textContent,
+                      copyValue: button.dataset.copyValue || "",
+                      whiteSpace: style.whiteSpace,
+                      clipped: style.overflow === "hidden" && code.scrollWidth > code.clientWidth + 1,
+                      buttonVisible: buttonBox.width >= 24 && buttonBox.height >= 24,
+                    };
+                  };
+                  return {
+                    target: stat("target"),
+                    context: stat("context"),
+                    capsule: stat("capsule"),
+                    template: stat("template"),
+                    outbox: stat("outbox"),
+                    submit: stat("submit"),
+                    contractVisible: !document.querySelector('[data-testid="agent-handoff-contract"]').hidden,
+                    resultContract: document.getElementById("agent-handoff-result-contract").textContent,
+                    knownEvidence: document.getElementById("agent-handoff-known-evidence").textContent,
+                    fillRule: document.getElementById("agent-handoff-fill-rule").textContent,
+                    copyButtonCount: document.querySelectorAll("[data-agent-handoff-copy]").length,
+                  };
+                }"""
+            )
+            assert metrics["copyButtonCount"] == 6
+            assert metrics["contractVisible"] is True
+            assert metrics["target"]["copyValue"] == "loopora-builder"
+            assert metrics["context"]["text"].endswith("input.context.json")
+            assert metrics["context"]["copyValue"].endswith("input.context.json")
+            assert metrics["capsule"]["text"].endswith("capsule.json")
+            assert metrics["capsule"]["copyValue"].endswith("capsule.json")
+            assert metrics["template"]["text"].endswith(".result.template.json")
+            assert metrics["template"]["copyValue"].endswith(".result.template.json")
+            assert metrics["outbox"]["text"].endswith(".loopora/agent_outbox/codex")
+            assert metrics["outbox"]["copyValue"].endswith(".loopora/agent_outbox/codex")
+            assert f"--run-id {run_id}" in metrics["submit"]["text"]
+            assert "--step-id builder_step" in metrics["submit"]["copyValue"]
+            assert metrics["submit"]["text"].startswith("LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill ")
+            assert "--entry-source codex_project_skill" in metrics["submit"]["copyValue"]
+            assert "schema-shaped result" in metrics["resultContract"]
+            assert "known evidence" in metrics["knownEvidence"]
+            assert "replace null placeholders" in metrics["fillRule"]
+            assert "loopora_host_dispatch" in metrics["fillRule"]
+            assert all(metrics[kind]["whiteSpace"] == "pre-wrap" for kind in ("target", "context", "capsule", "template", "outbox", "submit"))
+            assert not any(metrics[kind]["clipped"] for kind in ("target", "context", "capsule", "template", "outbox", "submit"))
+            assert all(metrics[kind]["buttonVisible"] for kind in ("target", "context", "capsule", "template", "outbox", "submit"))
+
+            page.get_by_test_id("agent-handoff-copy-submit").click()
+            page.wait_for_function(
+                "() => (document.getElementById('takeaway-feedback')?.textContent || '').toLowerCase().includes('copied')"
+            )
+            page.wait_for_function(
+                "() => navigator.clipboard.readText().then((text) => text.includes('loopora agent codex submit') && text.includes('--step-id builder_step') && text.includes('LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill') && text.includes('--entry-source codex_project_skill'))"
+            )
+            assert "copied" in (page.locator("#takeaway-feedback").text_content() or "").lower()
+
+            page.set_viewport_size({"width": 390, "height": 844})
+            mobile_metrics = page.evaluate(
+                """() => ({
+                  pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+                  buttonsInsideCard: Array.from(document.querySelectorAll("[data-agent-handoff-copy]")).every((button) => {
+                    const box = button.getBoundingClientRect();
+                    const card = document.querySelector('[data-testid="run-agent-handoff-card"]').getBoundingClientRect();
+                    return box.left >= card.left - 1 && box.right <= card.right + 1;
+                  }),
+                  contractTextFits: Array.from(document.querySelectorAll(".agent-handoff-contract-item strong")).every((node) => {
+                    const box = node.getBoundingClientRect();
+                    const card = document.querySelector('[data-testid="run-agent-handoff-card"]').getBoundingClientRect();
+                    return box.left >= card.left - 1 && box.right <= card.right + 1;
+                  }),
+                })"""
+            )
+            assert mobile_metrics["pageOverflow"] is False
+            assert mobile_metrics["buttonsInsideCard"] is True
+            assert mobile_metrics["contractTextFits"] is True
+        finally:
+            context.close()
+
+
+def _start_browser_agent_native_run(
+    tmp_path: Path,
+    *,
+    workdir_name: str,
+    context_id: str,
+    message: str,
+) -> tuple[LooporaService, Path, dict]:
+    workdir = tmp_path / workdir_name
+    workdir.mkdir()
+    bundle_file = tmp_path / f"{workdir_name}.yml"
+    bundle_file.write_text(_bundle_yaml_for_workdir(workdir), encoding="utf-8")
+    service = LooporaService(
+        repository=LooporaRepository(tmp_path / "app.db"),
+        settings=AppSettings(max_concurrent_runs=1, polling_interval_seconds=0.05, stop_grace_period_seconds=0.2),
+        executor_factory=lambda: FakeCodexExecutor(scenario="success"),
+    )
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=workdir,
+            message=message,
+            bundle_file=bundle_file,
+            context_id=context_id,
+            entry_source="codex_project_skill",
+        )
+    )
+    started = service.start_agent_loop(
+        "codex",
+        workdir=workdir,
+        context_id=context_id,
+        entry_source="codex_project_skill",
+        execute_async=False,
+    )
+    return service, workdir, started
+
+
+def _mark_agent_first_run_terminal_unproven(service: LooporaService, run_id: str) -> None:
+    service.repository.update_run(
+        run_id,
+        status="succeeded",
+        task_verdict={
+            "status": "insufficient_evidence",
+            "source": "gatekeeper",
+            "summary": "Required coverage still lacks direct evidence.",
+            "buckets": {
+                "proven": [],
+                "weak": [],
+                "unproven": [{"id": "coverage.required", "summary": "Required coverage is still missing."}],
+                "blocking": [],
+                "residual_risk": [],
+            },
+        },
+        summary_md="# Loopora Run Summary\n\nLifecycle closed; task evidence still belongs to the Agent-first lane.\n",
+    )
+    run = service.get_run(run_id)
+    state = json.loads((Path(run["runs_dir"]) / "agent_native" / "state.json").read_text(encoding="utf-8"))
+    assert state["entry_source"] == "codex_project_skill"
+    evidence_dir = Path(run["runs_dir"]) / "evidence"
+    evidence_dir.mkdir(exist_ok=True)
+    (evidence_dir / "task_verdict.json").write_text(json.dumps(run["task_verdict"], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _write_terminal_unproven_coverage(evidence_dir / "coverage.json")
+
+
+def _write_terminal_unproven_coverage(coverage_path: Path) -> None:
+    coverage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "coverage_path": "evidence/coverage.json",
+                "status": "partial",
+                "summary": {"reason": "Starter evidence still has required coverage gaps."},
+                "covered_check_count": 1,
+                "missing_check_count": 2,
+                "missing_check_ids": ["check_browser_journey", "check_audit_handoff"],
+                "top_gaps": [{"target_id": "done_when.check_browser_journey", "text": "Starter proof gap remains."}],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_run_detail_agent_first_terminal_unproven_copies_next_loop_command(tmp_path: Path) -> None:
+    service, _workdir, started = _start_browser_agent_native_run(
+        tmp_path,
+        workdir_name="terminal-unproven-workdir",
+        context_id="browser-terminal-unproven",
+        message=(
+            "Ship the focused starter experience. The primary user flow must work end to end, "
+            "use project-owned evidence, avoid happy-path claim only, keep a clear handoff, "
+            "and let GateKeeper reject weak proof."
+        ),
+    )
+    run_id = started["run"]["id"]
+    _mark_agent_first_run_terminal_unproven(service, run_id)
+
+    with serve_app(build_app(service=service)) as base_url, launch_chromium(headless=True) as browser:
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        context.add_init_script(
+            """
+            Object.defineProperty(navigator, "clipboard", {
+              value: {writeText: () => Promise.reject(new Error("permission denied"))},
+              configurable: true,
+            });
+            document.execCommand = (command) => {
+              const active = document.activeElement;
+              window.__looporaFallbackCopiedText = active && "value" in active ? active.value : "";
+              return command === "copy";
+            };
+            """
+        )
+        page = context.new_page()
+        try:
+            page.goto(f"{base_url}/runs/{run_id}", wait_until="domcontentloaded")
+            page.get_by_test_id("run-agent-entry-start-guide").wait_for(state="visible", timeout=5_000)
+            page.wait_for_function(
+                "() => (document.querySelector('.stage-chip[data-stage=\"finished\"]')?.dataset.stageSnapshotState || '').length > 0"
+            )
+            metrics = page.evaluate(
+                """() => {
+                  const guide = document.querySelector('[data-testid="run-agent-entry-start-guide"]');
+                  const code = guide.querySelector('[data-agent-entry-command-value]');
+                  const copyButtons = Array.from(document.querySelectorAll('[data-agent-entry-command-copy]'));
+                  const guideButton = document.querySelector('[data-testid="run-agent-entry-copy-command"]');
+                  const heroButton = document.querySelector('[data-testid="run-agent-entry-copy-command-hero"]');
+                  const improveButton = document.querySelector('[data-testid="run-improve-chat-button"]');
+                  const recordButton = document.querySelector('[data-testid="run-accept-result-button"]');
+                  const continuation = document.querySelector('[data-testid="agent-entry-continuation-summary"]');
+                  const finishedChip = document.querySelector('.stage-chip[data-stage="finished"]');
+                  const liveCard = document.querySelector('[data-testid="run-progress-live-card"]');
+                  const codeStyle = window.getComputedStyle(code);
+                  const guideBox = guide.getBoundingClientRect();
+                  const guideButtonBox = guideButton.getBoundingClientRect();
+                  const heroButtonBox = heroButton.getBoundingClientRect();
+                  return {
+                    commandText: code.textContent,
+                    guideCopyValue: guideButton.dataset.copyValue || "",
+                    heroCopyValue: heroButton.dataset.copyValue || "",
+                    copyButtonCount: copyButtons.length,
+                    whiteSpace: codeStyle.whiteSpace,
+                    commandClipped: code.scrollWidth > code.clientWidth + 1 && codeStyle.overflow === "hidden",
+                    guideButtonVisible: guideButtonBox.width >= 30 && guideButtonBox.height >= 30,
+                    heroButtonVisible: heroButtonBox.width >= 80 && heroButtonBox.height >= 36,
+                    guideButtonInsideGuide: guideButtonBox.left >= guideBox.left - 1 && guideButtonBox.right <= guideBox.right + 1,
+                    continuationText: continuation?.textContent || "",
+                    continuationFileCount: continuation ? continuation.querySelectorAll("code").length : 0,
+                    finishedStageSnapshotState: finishedChip?.dataset.stageSnapshotState || "",
+                    finishedStageStateText: finishedChip?.querySelector('[data-stage-state]')?.textContent || "",
+                    finishedStageMeta: finishedChip?.querySelector('[data-stage-meta]')?.textContent || "",
+                    progressLiveClass: liveCard?.className || "",
+                    progressLiveTitle: document.querySelector('#progress-live-title')?.textContent || "",
+                    progressLiveDetail: document.querySelector('#progress-live-detail')?.textContent || "",
+                    progressLiveMeta: document.querySelector('#progress-meta')?.textContent || "",
+                    improveText: improveButton?.textContent || "",
+                    recordText: recordButton?.textContent || "",
+                    recordStatus: recordButton?.dataset.taskVerdictStatus || "",
+                    recordIsSecondary: recordButton?.classList.contains("secondary-button") || false,
+                    improveBeforeRecord: Boolean(improveButton && recordButton && (improveButton.compareDocumentPosition(recordButton) & Node.DOCUMENT_POSITION_FOLLOWING)),
+                    acceptCompletionTextPresent: document.body.textContent.includes("Accept evidence conclusion"),
+                  };
+                }"""
+            )
+            _assert_terminal_unproven_run_metrics(metrics)
+
+            page.get_by_test_id("run-agent-entry-copy-command").click()
+            page.wait_for_function(
+                "() => (document.querySelector('[data-agent-entry-copy-status]')?.textContent || '').toLowerCase().includes('copied')"
+            )
+            page.wait_for_function(
+                "() => (window.__looporaFallbackCopiedText || '').includes('loopora agent codex loop') && window.__looporaFallbackCopiedText.includes('--context-id browser-terminal-unproven') && window.__looporaFallbackCopiedText.includes('--entry-source codex_project_skill')"
+            )
+
+            page.goto(f"{base_url}/loops/{started['run']['loop_id']}", wait_until="domcontentloaded")
+            page.get_by_test_id("loop-agent-entry-start-guide").wait_for(state="visible", timeout=5_000)
+            loop_metrics = page.evaluate(
+                """() => {
+                  const guide = document.querySelector('[data-testid="loop-agent-entry-start-guide"]');
+                  const primary = document.querySelector('[data-testid="loop-agent-entry-copy-command-primary"]');
+                  const improve = document.querySelector('[data-testid="loop-improve-chat-button"]');
+                  const openRun = document.querySelector('[data-testid="loop-open-evidence-run"]');
+                  const continuation = document.querySelector('[data-testid="agent-entry-continuation-summary"]');
+                  return {
+                    guideText: guide?.textContent || "",
+                    actionText: document.querySelector('[data-testid="loop-agent-entry-actions"]')?.textContent || "",
+                    primaryCopyValue: primary?.dataset.copyValue || "",
+                    improveAction: improve?.closest("form")?.getAttribute("action") || "",
+                    openRunHref: openRun?.getAttribute("href") || "",
+                    startNewRunPresent: document.body.textContent.includes("Start new run"),
+                    continuationText: continuation?.textContent || "",
+                  };
+                }"""
+            )
+            _assert_terminal_unproven_loop_metrics(loop_metrics, run_id)
+            page.get_by_test_id("loop-agent-entry-copy-command-primary").click()
+            page.wait_for_function(
+                "() => (window.__looporaFallbackCopiedText || '').includes('loopora agent codex loop') && window.__looporaFallbackCopiedText.includes('--context-id browser-terminal-unproven') && window.__looporaFallbackCopiedText.includes('--entry-source codex_project_skill')"
+            )
+
+            page.goto(f"{base_url}/runs/{run_id}", wait_until="domcontentloaded")
+            page.get_by_test_id("run-accept-result-button").click()
+            page.get_by_test_id("run-accepted-result-state").wait_for(state="visible")
+            accepted_events = service.recent_run_events(run_id, event_types={"run_result_accepted"})
+            _assert_unproven_verdict_recorded(accepted_events[-1])
+            assert "Unproven verdict recorded" in page.get_by_test_id("run-accepted-result-state").inner_text()
+
+            page.set_viewport_size({"width": 390, "height": 844})
+            mobile_metrics = page.evaluate(
+                """() => {
+                  const guide = document.querySelector('[data-testid="run-agent-entry-start-guide"]');
+                  const guideBox = guide.getBoundingClientRect();
+                  const guideButtonBox = document.querySelector('[data-testid="run-agent-entry-copy-command"]').getBoundingClientRect();
+                  return {
+                    pageOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+                    guideButtonInsideGuide: guideButtonBox.left >= guideBox.left - 1 && guideButtonBox.right <= guideBox.right + 1,
+                  };
+                }"""
+            )
+            assert mobile_metrics["pageOverflow"] is False
+            assert mobile_metrics["guideButtonInsideGuide"] is True
+        finally:
+            context.close()
+
+
+def _assert_terminal_unproven_run_metrics(metrics: dict) -> None:
+    assert metrics["copyButtonCount"] == 2
+    assert metrics["commandText"].startswith("LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill ")
+    assert "--context-id browser-terminal-unproven" in metrics["commandText"]
+    assert "loopora agent codex loop" in metrics["guideCopyValue"]
+    assert "--context-id browser-terminal-unproven" in metrics["guideCopyValue"]
+    assert "--entry-source codex_project_skill" in metrics["heroCopyValue"]
+    assert metrics["guideCopyValue"] == metrics["heroCopyValue"]
+    assert metrics["whiteSpace"] == "pre-wrap"
+    assert metrics["commandClipped"] is False
+    assert metrics["guideButtonVisible"] is True
+    assert metrics["heroButtonVisible"] is True
+    assert metrics["guideButtonInsideGuide"] is True
+    assert "Next evidence pass" in metrics["continuationText"]
+    assert "insufficient_evidence" in metrics["continuationText"]
+    assert "Missing checks: 2" in metrics["continuationText"]
+    assert "Required coverage still lacks direct evidence" in metrics["continuationText"]
+    assert "Starter proof gap remains" in metrics["continuationText"]
+    assert "coverage.json" in metrics["continuationText"]
+    assert metrics["continuationFileCount"] >= 1
+    assert metrics["finishedStageSnapshotState"] == "warning"
+    assert "Unproven" in metrics["finishedStageStateText"]
+    assert "Lifecycle: finished normally" in metrics["finishedStageMeta"]
+    assert "Task verdict: insufficient_evidence" in metrics["finishedStageMeta"]
+    assert "progress-live-card--warning" in metrics["progressLiveClass"]
+    assert "task still unproven" in metrics["progressLiveTitle"].lower()
+    assert "Required coverage still lacks direct evidence" in metrics["progressLiveDetail"]
+    assert "Task verdict: insufficient_evidence" in metrics["progressLiveMeta"]
+    assert "Improve plan with evidence" in metrics["improveText"]
+    assert "Record unproven verdict" in metrics["recordText"]
+    assert metrics["recordStatus"] == "insufficient_evidence"
+    assert metrics["recordIsSecondary"] is True
+    assert metrics["improveBeforeRecord"] is True
+    assert metrics["acceptCompletionTextPresent"] is False
+
+
+def _assert_terminal_unproven_loop_metrics(loop_metrics: dict, run_id: str) -> None:
+    assert "Next evidence pass" in loop_metrics["continuationText"]
+    assert "insufficient_evidence" in loop_metrics["continuationText"]
+    assert "Missing checks: 2" in loop_metrics["continuationText"]
+    assert "Copy next-run command" in loop_metrics["actionText"]
+    assert "Improve plan with evidence" in loop_metrics["actionText"]
+    assert "Open evidence run" in loop_metrics["actionText"]
+    assert "loopora agent codex loop" in loop_metrics["primaryCopyValue"]
+    assert "--context-id browser-terminal-unproven" in loop_metrics["primaryCopyValue"]
+    assert "--entry-source codex_project_skill" in loop_metrics["primaryCopyValue"]
+    assert loop_metrics["improveAction"] == f"/runs/{run_id}/revise"
+    assert loop_metrics["openRunHref"] == f"/runs/{run_id}"
+    assert loop_metrics["startNewRunPresent"] is False
+
+
+def _assert_unproven_verdict_recorded(event: dict) -> None:
+    assert event["payload"]["task_verdict_status"] == "insufficient_evidence"
+    assert event["payload"]["recorded_verdict_kind"] == "unproven_verdict_recorded"
 
 
 def test_run_detail_marks_snapshot_failure_as_degraded(tmp_path: Path) -> None:

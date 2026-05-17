@@ -125,16 +125,16 @@ class ServiceIterationReportingMixin:
             )
         if self._verifier_passed(verifier_result):
             return (
-                "Task verdict passes because GateKeeper evidence supports the specified and dynamic checks; "
-                "run lifecycle alone is not proof."
+                "GateKeeper accepted this iteration's supplied checks and evidence; "
+                "Loopora Core still derives the task verdict from coverage targets and run artifacts."
             )
         if not reasons:
             return (
-                "Task verdict is not ready because Weak or Unproven evidence remains below threshold; "
+                "GateKeeper did not accept this iteration because Weak or Unproven evidence remains below threshold; "
                 "do not lower the frozen run contract."
             )
         return (
-            "Task verdict is not ready because "
+            "GateKeeper did not accept this iteration because "
             + "; ".join(reasons)
             + ". Treat these as Blocking or Unproven evidence until repaired."
         )

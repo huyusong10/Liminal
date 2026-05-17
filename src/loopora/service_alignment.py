@@ -16,6 +16,7 @@ from loopora.alignment_semantics import (
     semantic_antipattern_match_is_negated,
     text_mentions_loop_fit_contradiction,
 )
+from loopora.agent_adapters import agent_loop_command
 from loopora.alignment_guidance import load_alignment_guidance_assets
 from loopora.branding import APP_STATE_DIRNAME, state_dir_for_workdir
 from loopora.bundles import (
@@ -48,7 +49,7 @@ from loopora.utils import make_id, utc_now
 logger = get_logger(__name__)
 
 ALIGNMENT_ACTIVE_STATUSES = {"running", "validating", "repairing"}
-ALIGNMENT_CONFIRMED_STAGES = {"confirmed", "compiling"}
+ALIGNMENT_CONFIRMED_STAGES = {"confirmed", "compiling", "ready_review"}
 ALIGNMENT_READINESS_KEYS = [
     "loop_fit",
     "task_scope",
@@ -90,6 +91,16 @@ ALIGNMENT_AGREEMENT_TRACEABILITY_KEYS = [
     "role_posture",
     "workflow_shape",
     "workdir_facts",
+]
+ALIGNMENT_AGENT_ENTRY_REVIEW_ITEM_IDS = [
+    "success_surface",
+    "fake_done_risks",
+    "evidence_preferences",
+    "loop_fit",
+    "execution_strategy",
+    "judgment_tradeoffs",
+    "residual_risk_policy",
+    "local_governance",
 ]
 ALIGNMENT_TRACEABILITY_GENERIC_TERMS = {
     "agent",
@@ -731,7 +742,10 @@ class ServiceAlignmentMixin:
         if not session:
             raise LooporaNotFoundError(f"unknown alignment session: {session_id}")
         session = self._ensure_alignment_session_layout(session)
-        return self._decorate_alignment_session(session)
+        decorated = self._decorate_alignment_session(session)
+        decorated["agent_entry_review"] = self._agent_entry_review_projection(decorated)
+        decorated["agent_entry_launch"] = self._agent_entry_launch_projection(decorated)
+        return decorated
 
     def list_alignment_sessions(self, *, limit: int = 30) -> list[dict]:
         return [self._alignment_session_summary(item) for item in self.repository.list_alignment_sessions(limit=limit)]
@@ -812,6 +826,16 @@ class ServiceAlignmentMixin:
                 session_id,
                 "alignment_agreement_confirmed",
                 {"alignment_stage": "confirmed"},
+            )
+        elif stage_updates.get("alignment_stage") == "ready_review":
+            self.repository.append_alignment_event(
+                session_id,
+                "alignment_ready_review_started",
+                {
+                    "alignment_stage": "ready_review",
+                    "feedback": normalized,
+                    "bundle_path": session.get("bundle_path", ""),
+                },
             )
         elif stage_updates.get("alignment_stage") == "clarifying" and session.get("alignment_stage") == "agreement_ready":
             self.repository.append_alignment_event(
@@ -1091,6 +1115,8 @@ class ServiceAlignmentMixin:
         session = self.get_alignment_session(session_id)
         if session["status"] != "ready":
             raise LooporaConflictError(f"alignment session is not READY: {session['status']}")
+        if _coerce_alignment_start_immediately(start_immediately) and execute_async and self._alignment_session_has_agent_entry_candidate(session_id):
+            raise LooporaConflictError("agent-first Loop previews must be started from /loopora-loop so the host Agent executes the run natively")
         bundle_path = Path(session["bundle_path"])
         if not bundle_path.exists():
             raise LooporaNotFoundError(f"alignment bundle does not exist: {bundle_path}")
@@ -1386,10 +1412,26 @@ class ServiceAlignmentMixin:
             coverage_path_available=layout.evidence_coverage_path.exists(),
         )
         return {
+            "ledger_path": summary.get("ledger_path", ""),
             "status": summary.get("status", ""),
             "reason": (summary.get("summary") or {}).get("reason", ""),
             "coverage_path": summary.get("coverage_path", ""),
+            "evidence_count": summary.get("evidence_count", 0),
+            "check_count": summary.get("check_count", 0),
+            "covered_check_count": summary.get("covered_check_count", 0),
+            "missing_check_count": summary.get("missing_check_count", 0),
+            "covered_check_ids": list(summary.get("covered_check_ids") or [])[:20],
+            "missing_check_ids": list(summary.get("missing_check_ids") or [])[:20],
+            "target_count": summary.get("target_count", 0),
+            "covered_target_count": summary.get("covered_target_count", 0),
+            "weak_target_count": summary.get("weak_target_count", 0),
+            "missing_target_count": summary.get("missing_target_count", 0),
+            "blocked_target_count": summary.get("blocked_target_count", 0),
             "top_gaps": list(summary.get("top_gaps") or [])[:5],
+            "evidence_kind_counts": summary.get("evidence_kind_counts") or {},
+            "artifact_ref_count": summary.get("artifact_ref_count", 0),
+            "residual_risk_count": summary.get("residual_risk_count", 0),
+            "risk_signals": list(summary.get("risk_signals") or [])[:5],
             "latest_gatekeeper": summary.get("latest_gatekeeper") or {},
         }
 
@@ -1492,7 +1534,7 @@ class ServiceAlignmentMixin:
 
     @classmethod
     def _alignment_assistant_message_language_issue(cls, session: dict, assistant_message: str) -> bool:
-        return cls._alignment_prefers_chinese(session) and not cls._text_has_cjk(assistant_message)
+        return cls._alignment_generation_prefers_chinese(session) and not cls._text_has_cjk(assistant_message)
 
     @staticmethod
     def _fallback_alignment_assistant_message(output: dict, *, has_bundle: bool) -> str:
@@ -1582,7 +1624,7 @@ class ServiceAlignmentMixin:
         root = self._alignment_session_root(session)
         self._ensure_alignment_artifact_dirs(root)
         attempt = self._alignment_repair_attempts(session)
-        invocation_dir = self._alignment_invocation_dir(root, attempt, repair=mode == "repair")
+        invocation_dir = self._alignment_next_invocation_dir(root, attempt, repair=mode == "repair")
         invocation_dir.mkdir(parents=True, exist_ok=True)
         output_path = invocation_dir / "output.json"
         prompt = self._build_alignment_prompt(
@@ -1629,7 +1671,7 @@ class ServiceAlignmentMixin:
                 "validation_error": validation_error,
                 "session_ref": executor_session_ref or {},
                 "invocation_id": invocation_dir.name,
-                "prefers_chinese": self._alignment_prefers_chinese(session),
+                "prefers_chinese": self._alignment_generation_prefers_chinese(session),
             },
         )
         executor = self.executor_factory()
@@ -1776,7 +1818,7 @@ class ServiceAlignmentMixin:
             output["bundle_yaml"] = ""
             output["decision_options"] = self._agreement_confirmation_decision_options(session)
             return self._decorate_alignment_session(updated)
-        if phase == "clarifying" and session.get("alignment_stage") not in ALIGNMENT_CONFIRMED_STAGES:
+        if phase == "clarifying":
             updated = self.repository.update_alignment_session(session_id, alignment_stage="clarifying")
             question_issues = self._alignment_clarifying_question_issues(output)
             if question_issues:
@@ -2255,7 +2297,7 @@ class ServiceAlignmentMixin:
 
     @classmethod
     def _agreement_language_issues(cls, session: dict, output: dict) -> list[str]:
-        if not cls._alignment_prefers_chinese(session):
+        if not cls._alignment_generation_prefers_chinese(session):
             return []
         issues = []
         if not cls._text_has_cjk(output.get("agreement_summary")):
@@ -2302,7 +2344,7 @@ class ServiceAlignmentMixin:
 
     @classmethod
     def _alignment_bundle_language_issues(cls, session: dict, bundle: dict) -> list[str]:
-        if not cls._alignment_prefers_chinese(session):
+        if not cls._alignment_generation_prefers_chinese(session):
             return []
         issues = []
         metadata = bundle.get("metadata") if isinstance(bundle.get("metadata"), dict) else {}
@@ -3177,6 +3219,219 @@ class ServiceAlignmentMixin:
             for event in self.repository.list_alignment_events(session_id, limit=50)
         )
 
+    def _alignment_session_agent_entry_candidate_event(self, session_id: str) -> dict:
+        candidate_events = [
+            event
+            for event in self.repository.list_alignment_events(session_id, limit=50)
+            if event.get("event_type") == "agent_candidate_received"
+            and isinstance(event.get("payload"), dict)
+            and event["payload"].get("candidate_origin") == "agent_entry"
+        ]
+        return candidate_events[-1] if candidate_events else {}
+
+    def _alignment_session_agent_entry_ready_event(self, session_id: str) -> dict:
+        ready_events = [
+            event
+            for event in self.repository.list_alignment_events(session_id, limit=50)
+            if event.get("event_type") == "agent_candidate_ready_content"
+            and isinstance(event.get("payload"), dict)
+            and event["payload"].get("candidate_origin") == "agent_entry"
+        ]
+        return ready_events[-1] if ready_events else {}
+
+    @classmethod
+    def _agent_entry_review_suggested_reply(cls, session: dict, *, review_mode: str, task_message: str) -> str:
+        task_anchor = cls._agreement_text_snippet(task_message, limit=520)
+        if cls._alignment_prefers_chinese(session):
+            if review_mode == "not_fit":
+                return (
+                    "请先按这次 /loopora-gen 的任务锚点重新判断是否适合 Loopora："
+                    f"{task_anchor}\n"
+                    "如果仍要继续，请明确后续轮次会新增哪些证据、handoff 或 GateKeeper 裁决价值；"
+                    "如果不适合，请不要生成可运行 Loop。"
+                )
+            return (
+                "请基于这次 /loopora-gen 的任务锚点继续 Web review："
+                f"{task_anchor}\n"
+                "推荐采用证据优先路径：先确认 Loopora fit，再把完成标准、伪完成风险、证据预期、"
+                "执行策略、判断取舍、残余风险和本地治理责任整理成可确认的工作协议；"
+                "确认后再生成可审查的 Loop 预览。"
+            )
+        if review_mode == "not_fit":
+            return (
+                "First re-check whether this /loopora-gen task anchor fits Loopora: "
+                f"{task_anchor}\n"
+                "If we should continue, explain what later evidence, handoffs, or GateKeeper judgment would add; "
+                "if it does not fit, do not generate a runnable Loop."
+            )
+        return (
+            "Continue Web review from this /loopora-gen task anchor: "
+            f"{task_anchor}\n"
+            "Use the evidence-first path: first confirm Loopora fit, then turn the success criteria, fake-done risks, "
+            "evidence expectations, execution strategy, judgment tradeoffs, residual-risk policy, and local governance "
+            "into a confirmable working agreement before generating a reviewable Loop preview."
+        )
+
+    @classmethod
+    def _agent_entry_review_decision_options(cls, session: dict, *, review_mode: str, task_message: str) -> list[dict]:
+        suggested_reply = cls._agent_entry_review_suggested_reply(session, review_mode=review_mode, task_message=task_message)
+        task_anchor = cls._agreement_text_snippet(task_message, limit=420)
+        if cls._alignment_prefers_chinese(session):
+            if review_mode == "not_fit":
+                return [
+                    {
+                        "id": "skip_loop",
+                        "label": "先不生成 Loop（推荐）",
+                        "description": "任务锚点更像一次性任务或已有硬检查足够，先避免把它包装成长期 Loop。",
+                        "recommended": True,
+                        "user_reply": f"同意，先不生成 Loop 方案。本次任务锚点：{task_anchor}",
+                    },
+                    {
+                        "id": "reframe_as_loop",
+                        "label": "重定义成长期 Loop",
+                        "description": "我会说明后续证据、handoff 或 GateKeeper 裁决为什么值得保留。",
+                        "recommended": False,
+                        "user_reply": suggested_reply,
+                    },
+                ]
+            return [
+                {
+                    "id": "continue_web_review_evidence_first",
+                    "label": "按证据优先继续 Web review（推荐）",
+                    "description": "把宿主 Agent 的任务锚点转成可确认工作协议，再生成 Loop 预览。",
+                    "recommended": True,
+                    "user_reply": suggested_reply,
+                },
+                {
+                    "id": "recheck_loop_fit",
+                    "label": "先重新判断是否需要 Loop",
+                    "description": "如果这其实是一轮任务或已有检查足够，先阻止编排。",
+                    "recommended": False,
+                    "user_reply": (
+                        "请先重新判断这个任务是否适合 Loopora，而不是直接生成 Loop。"
+                        f"任务锚点：{task_anchor}"
+                    ),
+                },
+            ]
+        if review_mode == "not_fit":
+            return [
+                {
+                    "id": "skip_loop",
+                    "label": "Skip Loop (Recommended)",
+                    "description": "The task anchor looks one-off or already covered by hard checks, so do not package it as a long-running Loop.",
+                    "recommended": True,
+                    "user_reply": f"Agreed; do not generate a Loop plan yet. Task anchor: {task_anchor}",
+                },
+                {
+                    "id": "reframe_as_loop",
+                    "label": "Reframe as a Loop",
+                    "description": "I will explain why later evidence, handoffs, or GateKeeper judgment should survive.",
+                    "recommended": False,
+                    "user_reply": suggested_reply,
+                },
+            ]
+        return [
+            {
+                "id": "continue_web_review_evidence_first",
+                "label": "Continue evidence-first review (Recommended)",
+                "description": "Turn the host Agent task anchor into a confirmable working agreement, then generate the Loop preview.",
+                "recommended": True,
+                "user_reply": suggested_reply,
+            },
+            {
+                "id": "recheck_loop_fit",
+                "label": "Re-check Loop fit",
+                "description": "If this is only one pass or hard checks already decide it, block composition first.",
+                "recommended": False,
+                "user_reply": (
+                    "Please re-check whether this task actually fits Loopora before generating a Loop. "
+                    f"Task anchor: {task_anchor}"
+                ),
+            },
+        ]
+
+    def _alignment_session_has_agent_entry_candidate(self, session_id: str) -> bool:
+        return bool(self._alignment_session_agent_entry_candidate_event(session_id))
+
+    def _agent_entry_review_projection(self, session: dict) -> dict:
+        session_id = str(session.get("id") or "").strip()
+        if not session_id:
+            return {}
+        candidate_event = self._alignment_session_agent_entry_candidate_event(session_id)
+        if not candidate_event:
+            return {}
+        payload = dict(candidate_event["payload"])
+        requires_web_alignment = payload.get("requires_web_alignment") is True
+        requires_candidate_repair = payload.get("requires_candidate_repair") is True
+        loopora_fit_contradiction = payload.get("loopora_fit_contradiction") is True
+        review_mode = "not_fit" if loopora_fit_contradiction else "missing_candidate_plan"
+        status = str(session.get("status") or "")
+        stage = str(session.get("alignment_stage") or "")
+        agreement = session.get("working_agreement") if isinstance(session.get("working_agreement"), dict) else {}
+        agreement_started = bool(str(agreement.get("summary") or "").strip()) or stage in {"agreement_ready", "confirmed", "compiling", "ready_review"}
+        if not requires_web_alignment or status in {"ready", "imported", "running_loop"} or agreement_started:
+            return {}
+        task_message = self._alignment_session_user_task_text(session)[:1000]
+        suggested_reply = self._agent_entry_review_suggested_reply(session, review_mode=review_mode, task_message=task_message)
+        return {
+            "schema_version": 1,
+            "source": "agent_entry",
+            "review_mode": review_mode,
+            "not_runnable": status != "ready",
+            "requires_web_alignment": requires_web_alignment,
+            "requires_candidate_repair": requires_candidate_repair,
+            "has_candidate_yaml": payload.get("has_candidate_yaml") is True,
+            "loopora_fit_contradiction": loopora_fit_contradiction,
+            "adapter": str(payload.get("adapter") or session.get("executor_kind") or ""),
+            "entry_source": str(payload.get("entry_source") or ""),
+            "source_path": str(payload.get("source_path") or ""),
+            "candidate_sha256": str(payload.get("candidate_sha256") or ""),
+            "candidate_bytes": structured_non_negative_int(payload.get("candidate_bytes"), default=0),
+            "ready_candidate_sha256": str(payload.get("ready_candidate_sha256") or ""),
+            "ready_candidate_bytes": structured_non_negative_int(payload.get("ready_candidate_bytes"), default=0),
+            "task_message": task_message,
+            "missing_judgment_item_ids": list(ALIGNMENT_AGENT_ENTRY_REVIEW_ITEM_IDS),
+            "suggested_reply": suggested_reply,
+            "decision_options": self._agent_entry_review_decision_options(session, review_mode=review_mode, task_message=task_message),
+        }
+
+    def _agent_entry_launch_projection(self, session: dict) -> dict:
+        session_id = str(session.get("id") or "").strip()
+        if not session_id:
+            return {}
+        candidate_event = self._alignment_session_agent_entry_candidate_event(session_id)
+        if not candidate_event:
+            return {}
+        payload = dict(candidate_event["payload"])
+        adapter = str(payload.get("adapter") or session.get("executor_kind") or "").strip()
+        if not adapter:
+            return {}
+        entry_source = str(payload.get("entry_source") or "").strip()
+        host_context_id = str(payload.get("host_context_id") or "").strip()
+        workdir = str(session.get("workdir") or "").strip()
+        loop_command = agent_loop_command(adapter, workdir, entry_source=entry_source, context_id=host_context_id)
+        ready_event = self._alignment_session_agent_entry_ready_event(session_id)
+        ready_payload = ready_event.get("payload") if isinstance(ready_event.get("payload"), dict) else {}
+        ready_sha = str(ready_payload.get("ready_candidate_sha256") or payload.get("ready_candidate_sha256") or "").strip()
+        ready_bytes = structured_non_negative_int(
+            ready_payload.get("ready_candidate_bytes", payload.get("ready_candidate_bytes")),
+            default=0,
+        )
+        return {
+            "schema_version": 1,
+            "source": "agent_entry",
+            "adapter": adapter,
+            "entry_source": entry_source,
+            "host_context_id": host_context_id,
+            "slash_command": "/loopora-loop",
+            "loop_command": loop_command,
+            "workdir": workdir,
+            "candidate_sha256": str(payload.get("candidate_sha256") or ""),
+            "candidate_bytes": structured_non_negative_int(payload.get("candidate_bytes"), default=0),
+            "ready_candidate_sha256": ready_sha,
+            "ready_candidate_bytes": ready_bytes,
+        }
+
     @staticmethod
     def _alignment_session_user_task_text(session: dict) -> str:
         transcript = session.get("transcript") if isinstance(session.get("transcript"), list) else []
@@ -3917,13 +4172,18 @@ class ServiceAlignmentMixin:
             agreement["confirmed_at"] = ""
             agreement["confirmation_message"] = ""
             return {"alignment_stage": "clarifying", "working_agreement": agreement}
-        if status in {"ready", "imported", "running_loop"}:
+        if status == "ready":
+            agreement = dict(session.get("working_agreement") or {})
+            ready_review = dict(agreement.get("ready_review") or {})
+            ready_review["feedback"] = message
+            ready_review["requested_at"] = utc_now()
+            ready_review["source_status"] = status
+            agreement["ready_review"] = ready_review
+            return {"alignment_stage": "ready_review", "working_agreement": agreement}
+        if status in {"imported", "running_loop"}:
             return {
                 "alignment_stage": "clarifying",
-                "working_agreement": ServiceAlignmentMixin._merge_alignment_improvement_context(
-                    session.get("working_agreement"),
-                    {},
-                ),
+                "working_agreement": session.get("working_agreement") or {},
             }
         if status == "failed" and stage not in ALIGNMENT_CONFIRMED_STAGES:
             return {"alignment_stage": "clarifying"}
@@ -4148,7 +4408,32 @@ class ServiceAlignmentMixin:
         return ServiceAlignmentMixin._text_has_cjk(text)
 
     @classmethod
+    def _alignment_generation_prefers_chinese(cls, session: dict) -> bool:
+        agreement = session.get("working_agreement") if isinstance(session.get("working_agreement"), dict) else {}
+        if str(session.get("alignment_stage") or "") == "ready_review" or isinstance(agreement.get("ready_review"), dict):
+            agreement_text = cls._alignment_working_agreement_language_text(session)
+            if agreement_text.strip():
+                return cls._text_has_cjk(agreement_text)
+        return cls._alignment_prefers_chinese(session)
+
+    @staticmethod
+    def _alignment_working_agreement_language_text(session: dict) -> str:
+        agreement = session.get("working_agreement") if isinstance(session.get("working_agreement"), dict) else {}
+        if not agreement:
+            return ""
+        language_projection = {
+            "summary": agreement.get("summary", ""),
+            "readiness_evidence": agreement.get("readiness_evidence") or {},
+        }
+        return json.dumps(language_projection, ensure_ascii=False)
+
+    @classmethod
     def _alignment_user_language_hint(cls, session: dict) -> str:
+        agreement = session.get("working_agreement") if isinstance(session.get("working_agreement"), dict) else {}
+        if (str(session.get("alignment_stage") or "") == "ready_review" or isinstance(agreement.get("ready_review"), dict)) and cls._alignment_working_agreement_language_text(session).strip():
+            if cls._alignment_generation_prefers_chinese(session):
+                return "Chinese. Preserve the existing READY preview and working-agreement language unless the review feedback explicitly asks to translate; preserve Loopora terms unchanged."
+            return "Preserve the existing READY preview and working-agreement language unless the review feedback explicitly asks to translate; preserve Loopora terms unchanged."
         if cls._alignment_prefers_chinese(session):
             return "Chinese. Keep user-facing prose in Chinese and preserve Loopora terms unchanged."
         return "Follow the user's language from the transcript and preserve Loopora terms unchanged."
@@ -4871,7 +5156,7 @@ class ServiceAlignmentMixin:
         payload = json.dumps(validation, ensure_ascii=False, indent=2) + "\n"
         paths["validation"].write_text(payload, encoding="utf-8")
         attempt = ServiceAlignmentMixin._alignment_repair_attempts(session)
-        invocation_dir = ServiceAlignmentMixin._alignment_invocation_dir(
+        invocation_dir = ServiceAlignmentMixin._alignment_latest_invocation_dir(paths["root"]) or ServiceAlignmentMixin._alignment_invocation_dir(
             paths["root"],
             attempt,
             repair=attempt > 0,
@@ -4911,6 +5196,8 @@ class ServiceAlignmentMixin:
             section_name = "Repair"
         elif stage == "agreement_ready":
             section_name = "Waiting For Confirmation"
+        elif stage == "ready_review":
+            section_name = "Ready Review"
         elif stage in ALIGNMENT_CONFIRMED_STAGES:
             section_name = "Confirmed Agreement"
         else:
@@ -5202,6 +5489,27 @@ class ServiceAlignmentMixin:
         suffix = "-repair" if repair else ""
         attempt_index = structured_non_negative_int(attempt)
         return root / "invocations" / f"{attempt_index + 1:04d}{suffix}"
+
+    @staticmethod
+    def _alignment_next_invocation_dir(root: Path, attempt: int, *, repair: bool) -> Path:
+        suffix = "-repair" if repair else ""
+        invocations_dir = root / "invocations"
+        index = structured_non_negative_int(attempt) + 1
+        while True:
+            candidate = invocations_dir / f"{index:04d}{suffix}"
+            if not candidate.exists():
+                return candidate
+            index += 1
+
+    @staticmethod
+    def _alignment_latest_invocation_dir(root: Path) -> Path | None:
+        invocations_dir = root / "invocations"
+        if not invocations_dir.is_dir():
+            return None
+        candidates = [path for path in invocations_dir.iterdir() if path.is_dir()]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda path: path.stat().st_mtime_ns)
 
     @staticmethod
     def _alignment_repair_attempts(session: dict | None, *, invalid_default: int = 0) -> int:

@@ -132,6 +132,7 @@
     const getTimelineRecords = deps.getTimelineRecords || (() => []);
     const getConsoleEventRecords = deps.getConsoleEventRecords || (() => []);
     const getTakeawaySnapshot = deps.getTakeawaySnapshot || (() => ({}));
+    const getCurrentAgentStep = deps.getCurrentAgentStep || (() => ({}));
     const progressProjector = deps.progressProjector || {};
     const timelineProjector = deps.timelineProjector || {};
     const takeawayProjector = deps.takeawayProjector || {};
@@ -181,6 +182,21 @@
       if (node.getAttribute(name) !== next) {
         node.setAttribute(name, next);
       }
+    }
+
+    function setAgentHandoffCopyValue(kind, value) {
+      const button = document.querySelector(`[data-agent-handoff-copy="${kind}"]`);
+      if (!button) {
+        return;
+      }
+      const copyValue = String(value || "").trim();
+      if (copyValue) {
+        button.dataset.copyValue = copyValue;
+        button.disabled = false;
+        return;
+      }
+      delete button.dataset.copyValue;
+      button.disabled = true;
     }
 
     function eventAlreadyRecorded(records, event) {
@@ -317,6 +333,195 @@
       setTextContentIfChanged("takeaway-outcome-detail", outcome.detail);
     }
 
+    function coverageHandoffSummary(coverage = {}) {
+      const status = String(coverage.status || "pending");
+      const covered = nonNegativeInteger(coverage.covered_check_count) ?? 0;
+      const missing = nonNegativeInteger(coverage.missing_check_count) ?? 0;
+      return localeText(
+        `覆盖状态 ${status}；必需检查 ${covered} 已证明 / ${missing} 缺口。`,
+        `Coverage ${status}; required checks ${covered} covered / ${missing} missing.`
+      );
+    }
+
+    function actionPolicyText(actionPolicy = {}) {
+      const workspace = String(actionPolicy.workspace || "");
+      const bits = [];
+      if (workspace) {
+        bits.push(workspace);
+      }
+      if (actionPolicy.can_block === true) {
+        bits.push(localeText("可阻断", "can block"));
+      }
+      if (actionPolicy.can_finish_run === true) {
+        bits.push(localeText("可收束", "can finish"));
+      }
+      return bits.join(" · ");
+    }
+
+    function renderAgentContinuation(continuation) {
+      const panel = document.getElementById("agent-handoff-continuation");
+      if (!panel) {
+        return;
+      }
+      const value = continuation && typeof continuation === "object" ? continuation : {};
+      if (value.active !== true) {
+        panel.hidden = true;
+        return;
+      }
+      const verdict = value.previous_task_verdict && typeof value.previous_task_verdict === "object"
+        ? value.previous_task_verdict
+        : {};
+      const coverage = value.coverage && typeof value.coverage === "object" ? value.coverage : {};
+      const previousRunId = String(value.previous_run_id || "-");
+      const status = String(verdict.status || "-");
+      const covered = nonNegativeInteger(coverage.covered_check_count) ?? 0;
+      const missing = nonNegativeInteger(coverage.missing_check_count) ?? 0;
+      panel.hidden = false;
+      setTextContentIfChanged(
+        "agent-handoff-continuation-title",
+        localeText(
+          `继续上一轮 ${previousRunId} · 任务裁决 ${status}`,
+          `Continuing ${previousRunId} · task verdict ${status}`
+        )
+      );
+      const summary = String(verdict.summary || "").trim();
+      setTextContentIfChanged(
+        "agent-handoff-continuation-detail",
+        summary || localeText(
+          `上一轮已关闭，但证据覆盖仍为 ${covered} 已证明 / ${missing} 缺口。`,
+          `Previous run closed, with evidence coverage at ${covered} covered / ${missing} missing.`
+        )
+      );
+      const focusList = document.getElementById("agent-handoff-continuation-focus");
+      if (!focusList) {
+        return;
+      }
+      const topGaps = Array.isArray(coverage.top_gaps) ? coverage.top_gaps : [];
+      const focusItems = Array.isArray(value.next_focus) && value.next_focus.length
+        ? value.next_focus
+        : topGaps.map((gap) => {
+          if (!gap || typeof gap !== "object") {
+            return "";
+          }
+          const target = String(gap.target_id || gap.id || "").trim();
+          const text = String(gap.text || gap.reason || "").trim();
+          return [target, text].filter(Boolean).join(": ");
+        });
+      focusList.replaceChildren();
+      for (const itemText of focusItems.slice(0, 4)) {
+        const text = String(itemText || "").trim();
+        if (!text) {
+          continue;
+        }
+        const item = document.createElement("li");
+        item.textContent = text;
+        focusList.appendChild(item);
+      }
+      focusList.hidden = focusList.children.length === 0;
+    }
+
+    function renderAgentHandoff(currentStep = getCurrentAgentStep(), run = getRun()) {
+      const card = document.getElementById("agent-handoff-card");
+      if (!card) {
+        return;
+      }
+      const step = currentStep && typeof currentStep === "object" ? currentStep : {};
+      if (!step.step_id || !["queued", "running", "awaiting_agent"].includes(String(run?.status || ""))) {
+        card.hidden = true;
+        renderAgentContinuation({});
+        return;
+      }
+      const role = step.role && typeof step.role === "object" ? step.role : {};
+      const coverage = step.required_coverage && typeof step.required_coverage === "object" ? step.required_coverage : {};
+      const submitHint = step.submit_hint && typeof step.submit_hint === "object" ? step.submit_hint : {};
+      const targetAgent = String(step.target_agent || step.role_dispatch?.target_agent || "-");
+      const roleLabel = String(role.name || step.step_id || "-");
+      const policy = actionPolicyText(step.action_policy || {});
+      const title = policy ? `${roleLabel} -> ${targetAgent} · ${policy}` : `${roleLabel} -> ${targetAgent}`;
+      const contextPath = String(step.context_path || step.context_absolute_path || "-");
+      const capsulePath = String(step.capsule_path || step.capsule_absolute_path || "-");
+      const templatePath = String(submitHint.result_template_path || submitHint.result_template_absolute_path || "-");
+      const outboxPath = String(submitHint.result_outbox_dir || submitHint.result_outbox_absolute_dir || "-");
+      const submitCommand = String(submitHint.command || "-");
+      const resultContract = String(submitHint.result_file_contract || "").trim() || localeText(
+        "结果必须匹配模板中的 output schema。",
+        "Result must match the output schema in the template."
+      );
+      const knownEvidenceCount = nonNegativeInteger(step.known_evidence_count);
+      const knownEvidenceText = knownEvidenceCount === null
+        ? localeText("按模板里的 known evidence ids 闭集引用。", "Use only the known evidence ids listed in the template.")
+        : localeText(
+          `${knownEvidenceCount} 个已知证据 ID；引用必须逐字复制模板闭集。`,
+          `${knownEvidenceCount} known evidence id${knownEvidenceCount === 1 ? "" : "s"}; refs must be copied exactly from the template set.`
+        );
+      const fillRuleText = localeText(
+        "只填写 result，替换 null 占位，保留 loopora_host_dispatch。",
+        "Fill only result, replace null placeholders, and keep loopora_host_dispatch."
+      );
+      const contextCopyValue = String(step.context_absolute_path || contextPath || "").trim();
+      const normalizedContextCopyValue = contextCopyValue && contextCopyValue !== "-"
+        ? contextCopyValue
+        : (contextPath && contextPath !== "-" ? contextPath : "");
+      const capsuleCopyValue = String(step.capsule_absolute_path || capsulePath || "").trim();
+      const normalizedCapsuleCopyValue = capsuleCopyValue && capsuleCopyValue !== "-"
+        ? capsuleCopyValue
+        : (capsulePath && capsulePath !== "-" ? capsulePath : "");
+      const templateCopyValue = String(submitHint.result_template_absolute_path || templatePath || "").trim();
+      const normalizedTemplateCopyValue = templateCopyValue && templateCopyValue !== "-"
+        ? templateCopyValue
+        : (templatePath && templatePath !== "-" ? templatePath : "");
+      const outboxCopyValue = String(submitHint.result_outbox_absolute_dir || outboxPath || "").trim();
+      const normalizedOutboxCopyValue = outboxCopyValue && outboxCopyValue !== "-"
+        ? outboxCopyValue
+        : (outboxPath && outboxPath !== "-" ? outboxPath : "");
+      card.hidden = false;
+      setTextContentIfChanged("agent-handoff-title", title);
+      setTextContentIfChanged("agent-handoff-detail", coverageHandoffSummary(coverage));
+      renderAgentContinuation(step.continuation);
+      setTextContentIfChanged("agent-handoff-target", targetAgent);
+      setTextContentIfChanged("agent-handoff-context", contextPath);
+      setTextContentIfChanged("agent-handoff-capsule", capsulePath);
+      setTextContentIfChanged("agent-handoff-template", templatePath);
+      setTextContentIfChanged("agent-handoff-outbox", outboxPath);
+      setTextContentIfChanged("agent-handoff-submit", submitCommand);
+      setTextContentIfChanged("agent-handoff-result-contract", resultContract);
+      setTextContentIfChanged("agent-handoff-known-evidence", knownEvidenceText);
+      setTextContentIfChanged("agent-handoff-fill-rule", fillRuleText);
+      setAttributeIfChanged(document.getElementById("agent-handoff-context"), "title", String(step.context_absolute_path || contextPath));
+      setAttributeIfChanged(document.getElementById("agent-handoff-capsule"), "title", String(step.capsule_absolute_path || capsulePath));
+      setAttributeIfChanged(document.getElementById("agent-handoff-template"), "title", String(submitHint.result_template_absolute_path || templatePath));
+      setAttributeIfChanged(document.getElementById("agent-handoff-outbox"), "title", String(submitHint.result_outbox_absolute_dir || outboxPath));
+      setAttributeIfChanged(document.getElementById("agent-handoff-submit"), "title", submitCommand);
+      setAttributeIfChanged(document.getElementById("agent-handoff-result-contract"), "title", resultContract);
+      setAttributeIfChanged(document.getElementById("agent-handoff-known-evidence"), "title", knownEvidenceText);
+      setAttributeIfChanged(document.getElementById("agent-handoff-fill-rule"), "title", fillRuleText);
+      setAgentHandoffCopyValue("target", targetAgent === "-" ? "" : targetAgent);
+      setAgentHandoffCopyValue("context", normalizedContextCopyValue);
+      setAgentHandoffCopyValue("capsule", normalizedCapsuleCopyValue);
+      setAgentHandoffCopyValue("template", normalizedTemplateCopyValue);
+      setAgentHandoffCopyValue("outbox", normalizedOutboxCopyValue);
+      setAgentHandoffCopyValue("submit", submitCommand === "-" ? "" : submitCommand);
+      const gapsList = document.getElementById("agent-handoff-gaps");
+      if (!gapsList) {
+        return;
+      }
+      const gaps = Array.isArray(coverage.top_gaps) ? coverage.top_gaps.slice(0, 3) : [];
+      gapsList.replaceChildren();
+      for (const gap of gaps) {
+        if (!gap || typeof gap !== "object") {
+          continue;
+        }
+        const item = document.createElement("li");
+        const label = document.createElement("strong");
+        label.textContent = String(gap.target_id || gap.id || "-");
+        const text = document.createElement("span");
+        text.textContent = ` ${String(gap.text || gap.reason || "")}`;
+        item.append(label, text);
+        gapsList.appendChild(item);
+      }
+      gapsList.hidden = gapsList.children.length === 0;
+    }
+
     function ensureSelectedTakeawayIter(iterations) {
       const resolved = takeawayProjector.resolveSelectedIteration(iterations, selectedTakeawayIter);
       selectedTakeawayIter = resolved.selectedKey;
@@ -334,6 +539,7 @@
       setTextContentIfChanged("takeaway-log-path", snapshot?.log_dir || "-");
       renderEvidenceCoverage(snapshot);
       renderEvidenceOutcome(snapshot, run);
+      renderAgentHandoff(getCurrentAgentStep(), run);
       meta.textContent = takeawayProjector.takeawayMeta(snapshot);
       if (!iterations.length) {
         selectorRow.hidden = true;
@@ -661,12 +867,13 @@
       const status = run?.status || "draft";
       const liveWork = progressProjector.describeLiveWork(run);
       const progressLiveCard = document.getElementById("progress-live-card");
+      const terminalOutcome = progressProjector.terminalTaskOutcome ? progressProjector.terminalTaskOutcome(run) : null;
       const progressTone = status === "running" || status === "awaiting_agent"
         ? "active"
         : (status === "queued"
           ? "queued"
           : (status === "succeeded"
-            ? "success"
+            ? (terminalOutcome?.state === "complete" ? "success" : (terminalOutcome?.state === "failed" ? "danger" : "warning"))
             : (status === "failed" || status === "stopped" ? "danger" : "neutral")));
 
       if (liveOnly) {
@@ -699,6 +906,8 @@
           ? "stage-chip stage-chip--workflow"
           : "stage-chip stage-chip--terminal";
         setClassNameIfChanged(chip, `${baseClass} ${snapshot.state}`);
+        setAttributeIfChanged(chip, "data-stage-snapshot-state", snapshot.state || "pending");
+        setAttributeIfChanged(chip, "data-stage-snapshot-label", snapshot.stateLabel || "");
         if (chip.dataset.tooltip !== tooltip) {
           chip.dataset.tooltip = tooltip;
         }

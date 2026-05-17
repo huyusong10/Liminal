@@ -33,6 +33,26 @@
       return text.length > limit ? `${text.slice(0, limit - 1).trim()}…` : text;
     }
 
+    function recordedVerdictTitle(payload) {
+      const verdictStatus = String(payload.task_verdict_status || "").trim();
+      if (verdictStatus === "passed") {
+        return localeText("通过结论已记录", "Passing evidence verdict recorded");
+      }
+      if (verdictStatus === "passed_with_residual_risk") {
+        return localeText("带残余风险的通过结论已记录", "Pass-with-risk verdict recorded");
+      }
+      if (verdictStatus === "insufficient_evidence") {
+        return localeText("未证明结论已记录", "Unproven evidence verdict recorded");
+      }
+      if (verdictStatus === "failed") {
+        return localeText("失败结论已记录", "Failed evidence verdict recorded");
+      }
+      if (verdictStatus === "not_evaluated") {
+        return localeText("未评估结论已记录", "Unevaluated evidence verdict recorded");
+      }
+      return localeText("证据结论已记录", "Evidence verdict recorded");
+    }
+
     function formatTimelineEvent(event) {
       const payload = event.payload || {};
       const role = payload.role || event.role || "role";
@@ -176,7 +196,7 @@
           detailParts.push(`${localeText("残余风险", "Residual risk")} ${compactDetailText(payload.residual_risk)}`);
         }
         return {
-          title: localeText("已接受证据结论", "Evidence conclusion accepted"),
+          title: recordedVerdictTitle(payload),
           detail: detailParts.join(" · "),
         };
       }
@@ -200,13 +220,17 @@
       if (event.event_type === "run_finished") {
         const detailParts = [];
         const iter = nonNegativeInteger(payload.iter);
+        const verdictStatus = String(payload.task_verdict_status || "not_evaluated").trim();
         if (payload.reason) {
           detailParts.push(String(payload.reason));
         } else if (iter !== null) {
           detailParts.push(`${localeText("迭代", "Iter")} ${displayIter(iter)}`);
         }
-        if (payload.task_verdict_status) {
-          detailParts.push(`${localeText("Loop 裁决", "Task verdict")} ${payload.task_verdict_status}`);
+        if (verdictStatus) {
+          detailParts.push(`${localeText("Loop 裁决", "Task verdict")} ${verdictStatus}`);
+        }
+        if (payload.task_verdict_summary) {
+          detailParts.push(`${localeText("裁决摘要", "Verdict summary")} ${String(payload.task_verdict_summary)}`);
         }
         return {
           title: `${localeText("运行结束", "Run finished")} · ${translateStatus(payload.status || "succeeded")}`,
@@ -218,11 +242,21 @@
 
     function timelineTone(event) {
       const payload = event.payload || {};
-      if (event.event_type === "run_finished") {
+      if (event.event_type === "run_result_accepted") {
         if (payload.task_verdict_status === "failed") {
           return "danger";
         }
-        if (["insufficient_evidence", "passed_with_residual_risk"].includes(payload.task_verdict_status)) {
+        if (["insufficient_evidence", "not_evaluated", "passed_with_residual_risk"].includes(payload.task_verdict_status)) {
+          return "warning";
+        }
+        return payload.task_verdict_status === "passed" || payload.status === "succeeded" ? "success" : "neutral";
+      }
+      if (event.event_type === "run_finished") {
+        const verdictStatus = String(payload.task_verdict_status || "not_evaluated").trim();
+        if (verdictStatus === "failed") {
+          return "danger";
+        }
+        if (["insufficient_evidence", "not_evaluated", "passed_with_residual_risk"].includes(verdictStatus)) {
           return "warning";
         }
         return payload.status === "succeeded" ? "success" : (payload.status === "failed" ? "danger" : "warning");

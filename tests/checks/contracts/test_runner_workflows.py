@@ -304,18 +304,28 @@ def test_gatekeeper_pass_with_uncovered_required_targets_does_not_pass_task_verd
     run_dir = Path(run["runs_dir"])
     coverage = json.loads((run_dir / "evidence" / "coverage.json").read_text(encoding="utf-8"))
     gatekeeper_output = _step_outputs_by_archetype(run_dir)["gatekeeper"][-1]["output"]
+    latest_iteration_summary = json.loads((run_dir / "context" / "latest_iteration_summary.json").read_text(encoding="utf-8"))
+    takeaways = build_run_key_takeaways(service.get_run(run["id"]))
+    latest_takeaway = takeaways["iterations"][0]
 
     assert run["status"] == "succeeded"
     assert gatekeeper_output["evidence_gate_status"] == "passed"
+    assert "Task verdict passes" not in gatekeeper_output["decision_summary"]
+    assert "Loopora Core still derives the task verdict" in gatekeeper_output["decision_summary"]
+    assert "Task verdict passes" not in latest_iteration_summary["gatekeeper_verdict"]["decision_summary"]
     assert coverage["status"] == "partial"
     assert run["task_verdict"]["status"] == "insufficient_evidence"
     assert run["task_verdict"]["source"] == "gatekeeper"
+    assert latest_takeaway["status"] == "blocked"
+    assert "Task verdict insufficient evidence" in latest_takeaway["summary"]
+    assert "Required coverage targets still lack direct evidence" in latest_takeaway["summary"]
     events = service.stream_events(run["id"], limit=200)
     assert any(
         event["event_type"] == "run_finished"
         and event["payload"]["status"] == "succeeded"
         and event["payload"]["task_verdict_status"] == "insufficient_evidence"
         and event["payload"]["task_verdict_source"] == "gatekeeper"
+        and event["payload"]["task_verdict_summary"] == run["task_verdict"]["summary"]
         for event in events
     )
 
@@ -1832,5 +1842,6 @@ def test_round_completion_mode_can_finish_without_gatekeeper(
         and event["payload"].get("reason") == "rounds_completed"
         and event["payload"]["task_verdict_status"] == "insufficient_evidence"
         and event["payload"]["task_verdict_source"] == "rounds_completion"
+        and event["payload"]["task_verdict_summary"] == run["task_verdict"]["summary"]
         for event in events
     )

@@ -182,9 +182,62 @@ document.addEventListener("DOMContentLoaded", () => {
     return labels[item?.key] || item?.label || item?.key || "-";
   }
 
-  function surfaceSummary(surfaces) {
-    const values = (surfaces || []).map((value) => String(value || "").trim()).filter(Boolean);
-    return values.slice(0, 2).join(" / ") || "-";
+  function traceSurfaceLabel(value) {
+    const surface = String(value || "").trim();
+    const labels = {
+      collaboration_summary: [ "治理摘要", "Governance summary" ],
+      "spec.markdown": [ "Loop 契约", "Loop contract" ],
+      "spec.markdown#Task": [ "任务契约", "Task contract" ],
+      "spec.markdown#Done When": [ "完成标准", "Completion criteria" ],
+      "spec.markdown#Success Surface": [ "成功面", "Success surface" ],
+      "spec.markdown#Fake Done": [ "假完成护栏", "Fake-done guardrails" ],
+      "spec.markdown#Evidence Preferences": [ "证据偏好", "Evidence expectations" ],
+      "spec.markdown#Residual Risk": [ "残余风险策略", "Residual-risk policy" ],
+      "spec.markdown#Role Notes": [ "本地治理说明", "Local governance notes" ],
+      "role_definitions[].prompt_markdown": [ "角色工作姿态", "Role operating posture" ],
+      "role_definitions[].posture_notes": [ "角色姿态说明", "Role posture notes" ],
+      "workflow.collaboration_intent": [ "运行意图", "Run-flow intent" ],
+      "workflow.steps[].inputs": [ "步骤交接输入", "Step handoff inputs" ],
+      "workflow.steps[].on_pass": [ "收口动作", "Closure action" ],
+      "workflow.steps[].inputs.evidence_query": [ "GateKeeper 证据查询", "GateKeeper evidence query" ],
+      "workflow.controls[]": [ "运行控制钩子", "Runtime control hooks" ],
+    };
+    if (labels[surface]) {
+      return localeText(labels[surface][0], labels[surface][1]);
+    }
+    if (surface.startsWith("spec.markdown#")) {
+      return localeText("Loop 契约章节", "Loop contract section");
+    }
+    if (surface.startsWith("role_definitions[]")) {
+      return localeText("角色运行契约", "Role runtime contract");
+    }
+    if (surface.startsWith("workflow.")) {
+      return localeText("运行流程契约", "Run-flow contract");
+    }
+    return localeText("可运行合同面", "Runnable contract surface");
+  }
+
+  function humanSurfaceSummary(surfaces) {
+    const seen = new Set();
+    const values = (surfaces || [])
+      .map((value) => traceSurfaceLabel(value))
+      .filter(Boolean)
+      .filter((value) => {
+        if (seen.has(value)) {
+          return false;
+        }
+        seen.add(value);
+        return true;
+      });
+    return values.slice(0, 2).join(" / ") || localeText("可运行合同面", "Runnable contract surface");
+  }
+
+  function traceEvidencePreview(item) {
+    const evidence = (item?.evidence || []).map((value) => String(value || "").trim()).filter(Boolean)[0] || "";
+    if (evidence.length <= 180) {
+      return evidence;
+    }
+    return `${evidence.slice(0, 177).trimEnd()}...`;
   }
 
   function localizedDiagnosticText(item, field) {
@@ -205,13 +258,17 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
       judgmentMap.hidden = false;
       judgmentMap.innerHTML = visibleItems.map((item) => {
-        const evidence = (item.evidence || []).map((value) => String(value || "").trim()).filter(Boolean)[0] || "";
         const mapped = item.mapped === true;
+        const evidence = traceEvidencePreview(item);
+        const surface = humanSurfaceSummary(item.surfaces);
+        const mapping = mapped
+          ? localeText(`已投影到：${surface}`, `Mapped into: ${surface}`)
+          : localeText("缺少可运行映射", "Missing runnable mapping");
         return `
           <div class="alignment-judgment-row" data-mapped="${mapped}">
             <strong>${escapeHtml(traceItemLabel(item))}</strong>
-            <span>${escapeHtml(mapped ? surfaceSummary(item.surfaces) : localeText("缺少可运行映射", "Missing runnable mapping"))}</span>
-            ${evidence ? `<span>${escapeHtml(evidence)}</span>` : ""}
+            <span>${escapeHtml(mapping)}</span>
+            ${evidence ? `<span class="alignment-judgment-evidence">${escapeHtml(evidence)}</span>` : ""}
           </div>
         `;
       }).join("");

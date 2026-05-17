@@ -369,12 +369,111 @@
       return ["queued", "running", "awaiting_agent"].includes(run?.status || "");
     }
 
+    function runIsTerminal(run) {
+      return ["succeeded", "failed", "stopped"].includes(run?.status || "");
+    }
+
+    function taskVerdictStatus(run) {
+      const taskVerdict = run?.task_verdict && typeof run.task_verdict === "object" ? run.task_verdict : {};
+      return String(taskVerdict.status || "not_evaluated").trim().toLowerCase() || "not_evaluated";
+    }
+
+    function taskVerdictSummary(run) {
+      const taskVerdict = run?.task_verdict && typeof run.task_verdict === "object" ? run.task_verdict : {};
+      return String(taskVerdict.summary || "").trim();
+    }
+
+    function terminalTaskOutcome(run = getCurrentRun()) {
+      if (!runIsTerminal(run)) {
+        return null;
+      }
+      const status = taskVerdictStatus(run);
+      const runStatus = String(run?.status || "draft");
+      const runStatusLabel = translateStatus(runStatus);
+      const verdictMeta = `${localeText("生命周期", "Lifecycle")}: ${runStatusLabel} · ${localeText("Loop 裁决", "Task verdict")}: ${status}`;
+      const summary = taskVerdictSummary(run);
+
+      if (runStatus === "failed" || runStatus === "stopped") {
+        return {
+          state: "failed",
+          stateLabel: runStatus === "stopped" ? localeText("已停止", "Stopped") : localeText("运行失败", "Run failed"),
+          title: runStatus === "stopped"
+            ? localeText("运行已停止，Loop 裁决单独查看", "Run stopped; inspect the task verdict separately")
+            : localeText("运行失败，Loop 裁决单独查看", "Run failed; inspect the task verdict separately"),
+          detail: summary || localeText(
+            "系统生命周期没有正常收束；这不能被读成任务已经证明完成。",
+            "The system lifecycle did not settle cleanly; this is not evidence that the task was proven complete."
+          ),
+          meta: verdictMeta,
+        };
+      }
+
+      if (status === "passed") {
+        return {
+          state: "complete",
+          stateLabel: localeText("已通过", "Passed"),
+          title: localeText("Loop 裁决已通过", "Task verdict passed"),
+          detail: summary || localeText(
+            "证据支持本次 Loop 结论。",
+            "Evidence supports the task conclusion."
+          ),
+          meta: verdictMeta,
+        };
+      }
+
+      if (status === "passed_with_residual_risk") {
+        return {
+          state: "warning",
+          stateLabel: localeText("带风险", "Risk kept"),
+          title: localeText("Loop 已通过，但保留残余风险", "Task passed with residual risk"),
+          detail: summary || localeText(
+            "证据支持本次结论，但仍有已接受的残余风险需要保持可见。",
+            "Evidence supports the conclusion, with accepted residual risk still visible."
+          ),
+          meta: verdictMeta,
+        };
+      }
+
+      if (status === "insufficient_evidence") {
+        return {
+          state: "warning",
+          stateLabel: localeText("未证成", "Unproven"),
+          title: localeText("运行已收束，但任务仍未证成", "Run closed; task still unproven"),
+          detail: summary || localeText(
+            "生命周期已经结束，但证据还不足以证明 Loop 通过。",
+            "The lifecycle ended, but evidence is not strong enough for a task pass."
+          ),
+          meta: verdictMeta,
+        };
+      }
+
+      if (status === "failed") {
+        return {
+          state: "failed",
+          stateLabel: localeText("未通过", "Failed"),
+          title: localeText("运行已收束，Loop 裁决未通过", "Run closed; task verdict failed"),
+          detail: summary || localeText(
+            "阻断项仍然存在，优先查看证据桶和下一步动作。",
+            "Blockers remain; start with the evidence buckets and next action."
+          ),
+          meta: verdictMeta,
+        };
+      }
+
+      return {
+        state: "warning",
+        stateLabel: localeText("未裁决", "No verdict"),
+        title: localeText("运行已收束，但没有 Loop 裁决", "Run closed without a task verdict"),
+        detail: summary || localeText(
+          "只能确认系统生命周期结束，不能确认任务已经被证据证明。",
+          "Only the system lifecycle is closed; the task has not been proven by evidence."
+        ),
+        meta: verdictMeta,
+      };
+    }
+
     function getCurrentStage(run = getCurrentRun()) {
       if (!run) {
-        return "checks";
-      }
-      const checksResolved = latestProgressEventOfType("checks_resolved");
-      if (run.status === "queued" || run.status === "awaiting_agent" || (!checksResolved && runIsActive(run))) {
         return "checks";
       }
       if (run.status === "succeeded") {
@@ -382,6 +481,13 @@
       }
       const currentStepEvent = currentWorkflowStepEvent(run);
       const stepId = String(currentStepEvent?.payload?.step_id || "").trim();
+      if (stepId && (run.status === "running" || run.status === "awaiting_agent")) {
+        return stageKeyForStep(stepId);
+      }
+      const checksResolved = latestProgressEventOfType("checks_resolved");
+      if (run.status === "queued" || (!checksResolved && runIsActive(run))) {
+        return "checks";
+      }
       if (stepId) {
         return stageKeyForStep(stepId);
       }
@@ -393,7 +499,7 @@
 
     function getStageSnapshots(run = getCurrentRun()) {
       const stages = getProgressStages(run);
-      const runFinished = ["succeeded", "failed", "stopped"].includes(run?.status || "");
+      const runFinished = runIsTerminal(run);
       const currentStage = getCurrentStage(run);
       const snapshots = {};
       const runStartTs = parseTimestamp(run?.started_at || run?.queued_at || run?.created_at);
@@ -422,6 +528,13 @@
             : (run?.status === "awaiting_agent"
               ? localeText("宿主 Agent 正在执行或准备提交下一步结果。", "The host Agent is working on or preparing to submit the next step result.")
               : localeText("正在整理检查集", "Resolving checks")),
+        };
+      } else if (currentStage !== "checks" && runIsActive(run)) {
+        snapshots.checks = {
+          state: "complete",
+          stateLabel: localeText("已冻结", "Ready"),
+          durationLabel: localeText("已就绪", "Ready"),
+          meta: localeText("来自已审查的 Loop 契约", "From reviewed Loop contract"),
         };
       } else if (runFinished && checksResolvedTs === null) {
         snapshots.checks = {
@@ -507,16 +620,17 @@
         };
       });
 
+      const terminalOutcome = terminalTaskOutcome(run);
       snapshots.finished = {
-        state: runFinished ? (run?.status === "succeeded" ? "complete" : "failed") : "pending",
+        state: runFinished ? (terminalOutcome?.state || "failed") : "pending",
         stateLabel: runFinished
-          ? translateStatus(run?.status || "draft")
+          ? (terminalOutcome?.stateLabel || translateStatus(run?.status || "draft"))
           : localeText("进行中", "Open"),
         durationLabel: runFinished
           ? formatDuration(run?.started_at, run?.finished_at)
           : localeText("进行中", "In progress"),
         meta: runFinished
-          ? `${localeText("最终状态", "Final status")}: ${translateStatus(run?.status || "draft")}`
+          ? (terminalOutcome?.meta || `${localeText("生命周期", "Lifecycle")}: ${translateStatus(run?.status || "draft")}`)
           : localeText("运行尚未结束", "The run is still in progress"),
       };
 
@@ -618,6 +732,19 @@
           metaRight: formatRelativeAge(run?.updated_at),
         };
       }
+      if (runIsTerminal(run)) {
+        const terminalOutcome = terminalTaskOutcome(run);
+        return {
+          title: terminalOutcome?.title || localeText("运行已收束", "Run closed"),
+          detail: terminalOutcome?.detail || localeText(
+            "生命周期已经结束；Loop 裁决需要单独查看。",
+            "The lifecycle has ended; inspect the task verdict separately."
+          ),
+          duration: formatDuration(run?.started_at, run?.finished_at),
+          metaLeft: localeText(`第 ${displayIter(currentIterValue(run))} 轮 · ${stageDisplayName(stage, run)}`, `Round ${displayIter(currentIterValue(run))} · ${stageDisplayName(stage, run)}`),
+          metaRight: terminalOutcome?.meta || `${localeText("生命周期", "Lifecycle")}: ${translateStatus(status)}`,
+        };
+      }
       const latestEvent = deps.summarizeLatestEvent ? deps.summarizeLatestEvent() : {
         title: localeText("还没有关键事件", "No key event yet"),
         detail: localeText("运行推进后会在这里显示最新里程碑。", "Recent milestones will appear here once the run advances."),
@@ -653,6 +780,8 @@
       describeLiveWork,
       stageDisplayName,
       runIsActive,
+      runIsTerminal,
+      terminalTaskOutcome,
     };
   }
 

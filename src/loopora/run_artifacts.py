@@ -329,6 +329,9 @@ class RunArtifactLayout:
     def step_context_path(self, iter_id: int, step_order: int, step_id: str) -> Path:
         return self.step_dir(iter_id, step_order, step_id) / "input.context.json"
 
+    def step_capsule_path(self, iter_id: int, step_order: int, step_id: str) -> Path:
+        return self.step_dir(iter_id, step_order, step_id) / "capsule.json"
+
     def step_prompt_path(self, iter_id: int, step_order: int, step_id: str) -> Path:
         return self.step_dir(iter_id, step_order, step_id) / "prompt.md"
 

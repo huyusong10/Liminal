@@ -26,6 +26,13 @@ def _result_error_text(result) -> str:
         return result.output
 
 
+def _assert_cli_list(output: str, key: str, *items: str) -> None:
+    assert f"{key}:\n" in output
+    assert f"{key}: [" not in output
+    for item in items:
+        assert f"- {item}" in output
+
+
 def _assert_readme_entry_points(readmes: list[str], documented_adapters: list[set[str]]) -> None:
     assert documented_adapters == [{"codex", "claude", "opencode"}, {"codex", "claude", "opencode"}]
     assert all("loopora serve " in readme for readme in readmes)
@@ -86,6 +93,14 @@ def _assert_documented_cli_entries_available(documented_adapters: list[set[str]]
     for adapter in sorted(documented_adapters[0]):
         result = runner.invoke(cli.app, ["init", adapter, "--help"])
         assert result.exit_code == 0, _result_error_text(result)
+        assert "task goal" in result.stdout
+        assert "fake-done risk" in result.stdout
+        assert "required" in result.stdout
+        assert "evidence" in result.stdout
+        assert "/loopora-gen" in result.stdout
+        assert "READY Loop preview" in result.stdout
+        assert "/loopora-loop" in result.stdout
+        assert "same Agent session" in result.stdout
 
     serve_result = runner.invoke(cli.app, ["serve", "--help"])
     assert serve_result.exit_code == 0, _result_error_text(serve_result)
@@ -94,9 +109,16 @@ def _assert_documented_cli_entries_available(documented_adapters: list[set[str]]
     assert help_result.exit_code == 0, _result_error_text(help_result)
     assert "Start here:" in help_result.stdout
     assert re.search(r"loopora\s+init\s+codex", help_result.stdout)
+    assert "task goal" in help_result.stdout
+    assert "fake-done risk" in help_result.stdout
+    assert "required evidence" in help_result.stdout
     assert "/loopora-gen" in help_result.stdout
     assert "/loopora-loop" in help_result.stdout
+    assert "same" in help_result.stdout
+    assert "Agent session" in help_result.stdout
     assert help_result.stdout.index("Start here:") < help_result.stdout.index("Expert: create and run")
+    assert help_result.stdout.index("│ init") < help_result.stdout.index("│ run")
+    assert help_result.stdout.index("│ serve") < help_result.stdout.index("│ run")
     assert help_result.stdout.index("Install /loopora-gen") < help_result.stdout.index(
         "Expert: create and inspect reusable run flows"
     )
@@ -151,15 +173,28 @@ def test_cli_help_keeps_first_use_language_on_plan_files() -> None:
     assert root_help.exit_code == 0, _result_error_text(root_help)
     assert "Import, export, and manage Loop plan files" in root_help.stdout
     assert "Install /loopora-gen and /loopora-loop project entries" in root_help.stdout
+    assert "task goal, fake-done risk, and required evidence" in root_help.stdout
     assert "Remove Loopora-managed Coding Agent project entries" in root_help.stdout
     assert "Internal runtime used by /loopora-gen and /loopora-loop" in root_help.stdout
     assert "project entries" in root_help.stdout
     assert "Import and manage YAML bundles" not in root_help.stdout
     assert "Coding Agent adapters" not in root_help.stdout
 
+    init_group_help = runner.invoke(cli.app, ["init", "--help"])
+    assert init_group_help.exit_code == 0, _result_error_text(init_group_help)
+    assert "task goal, fake-done risk, and required evidence" in init_group_help.stdout
+
     init_help = runner.invoke(cli.app, ["init", "codex", "--help"])
     assert init_help.exit_code == 0, _result_error_text(init_help)
-    assert "Install or update the Codex project entry." in init_help.stdout
+    assert "Install or update the Codex project entry for task-judgment first" in init_help.stdout
+    assert "task goal" in init_help.stdout
+    assert "fake-done risk" in init_help.stdout
+    assert "required" in init_help.stdout
+    assert "evidence" in init_help.stdout
+    assert "/loopora-gen" in init_help.stdout
+    assert "READY Loop preview" in init_help.stdout
+    assert "/loopora-loop" in init_help.stdout
+    assert "same Agent session" in init_help.stdout
     assert "Project directory where the Coding Agent will" in init_help.stdout
     assert "work." in init_help.stdout
     assert "adapter" not in init_help.stdout.lower()
@@ -347,6 +382,14 @@ def test_cli_run_result_prints_frozen_judgment_contract_summary(capsys, tmp_path
                         "posture_notes": "Fail closed when evidence is weak.",
                     }
                 ],
+                "source_bundle": {
+                    "id": "bundle_cli",
+                    "name": "CLI Frozen Contract Bundle",
+                    "revision": 3,
+                    "imported_from_path": "/tmp/loopora/cli-bundle.yml",
+                    "bundle_sha256": "abcdef1234567890",
+                    "bundle_bytes": 2048,
+                },
                 "completion_mode": "gatekeeper",
                 "workflow": {
                     "preset": "build_then_parallel_review",
@@ -379,18 +422,55 @@ def test_cli_run_result_prints_frozen_judgment_contract_summary(capsys, tmp_path
 
     output = capsys.readouterr().out
     assert f"run_contract_path: {layout.run_contract_path}" in output
+    assert "source_plan: CLI Frozen Contract Bundle (bundle_cli, rev 3)" in output
+    assert "source_plan_path: /tmp/loopora/cli-bundle.yml" in output
+    assert "source_plan_digest: sha256:abcdef123456, 2048 bytes" in output
+    assert 'source_plan: {"id":' not in output
     assert "judgment_contract_summary: Prefer proof before speed." in output
     assert "check_mode: specified" in output
     assert "completion_mode: gatekeeper" in output
     assert "workflow_preset: build_then_parallel_review" in output
     assert "workflow_collaboration_intent: Builder evidence feeds Inspector review before GateKeeper closure." in output
     assert "check_count: 2" in output
-    assert 'coverage_targets: ["done_when.check_001 (required)", "gatekeeper.finish (required)"]' in output
-    assert 'loop_fit_reasons: ["Future rounds keep proof alive."]' in output
-    assert 'judgment_tradeoffs: ["Proof beats speed when closure is uncertain."]' in output
-    assert 'execution_strategy: ["Prove the focused path first, then expand after evidence is strong."]' in output
-    assert 'local_governance: ["GateKeeper treats skipped tests/ evidence as Blocking."]' in output
-    assert 'role_postures: ["GateKeeper: Fail closed when evidence is weak."]' in output
+    _assert_cli_list(output, "coverage_targets", "done_when.check_001 (required)", "gatekeeper.finish (required)")
+    _assert_cli_list(output, "loop_fit_reasons", "Future rounds keep proof alive.")
+    _assert_cli_list(output, "judgment_tradeoffs", "Proof beats speed when closure is uncertain.")
+    _assert_cli_list(
+        output,
+        "execution_strategy",
+        "Prove the focused path first, then expand after evidence is strong.",
+    )
+    _assert_cli_list(output, "local_governance", "GateKeeper treats skipped tests/ evidence as Blocking.")
+    _assert_cli_list(output, "role_postures", "GateKeeper: Fail closed when evidence is weak.")
+
+
+def test_cli_run_result_marks_truncated_judgment_summary(capsys, tmp_path: Path) -> None:
+    layout = RunArtifactLayout(tmp_path / "runs" / "run_long_contract")
+    layout.initialize()
+    layout.run_contract_path.write_text(
+        json.dumps(
+            {
+                "collaboration_summary": " ".join(["Evidence must stay visible before closure"] * 20),
+                "completion_mode": "gatekeeper",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    print_run_result(
+        {
+            "id": "run_long_contract",
+            "status": "awaiting_agent",
+            "run_status": "awaiting_agent",
+            "runs_dir": str(layout.run_dir),
+        }
+    )
+
+    output = capsys.readouterr().out
+    summary_line = next(line for line in output.splitlines() if line.startswith("judgment_contract_summary: "))
+    assert summary_line.endswith("...")
+    assert len(summary_line) < 280
 
 
 def test_cli_run_allows_zero_max_iters(monkeypatch, tmp_path: Path) -> None:

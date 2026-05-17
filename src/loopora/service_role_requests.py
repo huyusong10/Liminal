@@ -183,6 +183,7 @@ class ServiceRoleRequestMixin:
             "sandbox": request.sandbox,
             "workdir": str(request.workdir),
             "output_path": layout.relative(request.output_path),
+            "context_path": str(request.extra_context.get("context_path") or "").strip(),
             "prompt_path": layout.relative(prompt_path),
             "step_prompt_path": layout.relative(step_prompt_path),
             "extra_context_keys": sorted(request.extra_context.keys()),

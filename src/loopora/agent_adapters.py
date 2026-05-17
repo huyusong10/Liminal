@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,7 @@ from loopora.utils import utc_now
 
 AGENT_ADAPTER_KINDS = ("codex", "claude", "opencode")
 IMPLEMENTED_AGENT_ADAPTERS = {"codex", "claude", "opencode"}
-ADAPTER_VERSION = 16
+ADAPTER_VERSION = 18
 CODEX_ADAPTER_VERSION = ADAPTER_VERSION
 CLAUDE_ADAPTER_VERSION = ADAPTER_VERSION
 OPENCODE_ADAPTER_VERSION = ADAPTER_VERSION
@@ -197,13 +198,18 @@ def agent_context_binding_path(
 def agent_context_key(adapter: str, workdir: Path | str, *, context_id: str = "") -> str:
     kind = normalize_agent_adapter_kind(adapter)
     root = resolve_adapter_project_root(workdir)
-    explicit = (
+    context_identity = resolved_agent_context_id(kind, context_id=context_id)
+    source = context_identity or f"workdir:{root}"
+    return hashlib.sha256(f"{kind}:{source}".encode()).hexdigest()[:20]
+
+
+def resolved_agent_context_id(adapter: str, *, context_id: str = "") -> str:
+    kind = normalize_agent_adapter_kind(adapter)
+    return (
         str(context_id or "").strip()
         or os.environ.get("LOOPORA_AGENT_SESSION_ID", "").strip()
         or _adapter_session_env(kind)
     )
-    source = explicit or f"workdir:{root}"
-    return hashlib.sha256(f"{kind}:{source}".encode()).hexdigest()[:20]
 
 
 def agent_context_source(adapter: str, *, context_id: str = "") -> str:
@@ -235,6 +241,7 @@ def write_agent_binding(
         "workdir": str(resolve_adapter_project_root(workdir)),
         "context_key": path.stem,
         "context_source": agent_context_source(adapter, context_id=context_id),
+        "host_context_id": resolved_agent_context_id(adapter, context_id=context_id),
         "updated_at": utc_now(),
         **payload,
     }
@@ -254,6 +261,28 @@ def read_agent_binding(adapter: str, workdir: Path | str, *, context_id: str = "
         raise LooporaError(f"agent binding is invalid: {path}")
     payload["path"] = str(path)
     return payload
+
+
+def agent_loop_command(adapter: str, workdir: Path | str, *, entry_source: str = "", context_id: str = "") -> str:
+    normalized_adapter = normalize_agent_adapter_kind(adapter)
+    command_bits = [
+        "loopora",
+        "agent",
+        normalized_adapter,
+        "loop",
+        "--workdir",
+        shlex.quote(str(workdir)),
+    ]
+    normalized_context_id = str(context_id or "").strip()
+    if normalized_context_id:
+        command_bits.extend(["--context-id", shlex.quote(normalized_context_id)])
+    normalized_entry_source = str(entry_source or "").strip()
+    if normalized_entry_source:
+        command_bits.extend(["--entry-source", shlex.quote(normalized_entry_source)])
+    command = " ".join(command_bits)
+    if normalized_entry_source:
+        command = f"LOOPORA_AGENT_ENTRY_SOURCE={shlex.quote(normalized_entry_source)} {command}"
+    return command
 
 
 def _not_implemented_status(kind: str, root: Path) -> dict[str, Any]:
@@ -782,7 +811,11 @@ You do not perform Builder, Inspector, GateKeeper, or Guide work yourself. For e
 
 Pass the full `next_step.prompt`, `next_step.judgment_contract`, `next_step.required_coverage`, `next_step.output_schema`, `next_step.action_policy`, `next_step.known_evidence_ids`, and the capsule context refs (`context_path` and `context_absolute_path`) to the target role agent. Do not summarize, trim, or rewrite that prompt or judgment projection; they contain the frozen run contract, current step context, evidence rules, and output instructions the role must execute.
 
-When the role agent returns, preserve its structured result and dispatch metadata. Submit a wrapper JSON with `loopora_host_dispatch` and `result`; the `result` object must match next_step.output_schema exactly, while `loopora_host_dispatch.actual_agent` and `.target_agent` must both equal next_step.role_dispatch.target_agent.
+Before submission, open the result template from `next_step.submit_hint.result_template_absolute_path` or `next_step.submit_hint.result_template_path`. Use its `loopora_result_contract` block as the local checklist for step id, action policy, required coverage, known evidence ids, evidence ref rules, and output schema. Keep the template's `loopora_host_dispatch`, fill only the schema-shaped `result` scaffold with the role agent's structured output, replace every `null` placeholder before submit, and save a filled copy in the outbox. Empty arrays are acceptable when the schema permits and there is no item to report; remove optional placeholder fields you do not submit. The `loopora_result_contract` helper is ignored by Loopora submit, so it may stay in the filled wrapper; do not move helper fields into `result`.
+
+When the role agent returns, preserve its structured result and dispatch metadata. Submit the filled template wrapper; the `result` object must match next_step.output_schema exactly, while `loopora_host_dispatch.actual_agent` and `.target_agent` must both equal next_step.role_dispatch.target_agent.
+
+After submit, treat `complete` as the run lifecycle only. If the response includes `task_next_action.kind=continue_evidence`, the task is still unproven: report the verdict, evidence focus, and `/loopora-loop` continuation command instead of claiming the task is complete.
 """
     label = role.capitalize() if role != "gatekeeper" else "GateKeeper"
     return f"""You are the Loopora {label} role agent.
@@ -790,6 +823,8 @@ When the role agent returns, preserve its structured result and dispatch metadat
 Use only the step capsule provided by Loopora as the stable contract for this invocation. Respect the capsule's action_policy, judgment_contract, run contract, output schema, evidence refs, and context paths.
 
 Return exactly one wrapper JSON object with `loopora_host_dispatch` and `result`. The `result` object must match the capsule's output_schema exactly. Do not change the frozen Loopora run contract. If the task contract is wrong or evidence is missing, report that as blocker, weak evidence, or residual risk in the structured output instead of silently relaxing the bar.
+
+If the host provides a result template, treat its `loopora_result_contract` block as the fill guide: use only its known evidence ids, coverage target ids, action policy, and output schema, fill only the schema-shaped `result` scaffold, replace every `null` placeholder before submit, and keep helper fields out of `result`.
 
 The `loopora_host_dispatch` object is your native-dispatch proof. Set `schema_version` to 1, `adapter` to the capsule adapter, `run_id` and `step_id` to the capsule values, `target_agent` and `actual_agent` to the exact agent name that invoked you, `dispatch_mode` to `host_subagent`, `host_task`, or `host_agent`, `inline` to false, and `attestation` to a short statement that the host invoked this named role agent rather than doing the role work inline.
 
@@ -936,16 +971,33 @@ def _agent_native_loop_body(*, adapter: str, marker_source: str, context_arg: st
 LOOPORA_AGENT_ENTRY_SOURCE={marker_source} loopora agent {adapter} loop --workdir "$PWD"{context_bits} --entry-source {marker_source} --json
 ```
 
-2. Read the returned JSON. It contains `run_url`, run-level `judgment_contract`, and, unless the run is already complete, `next_step` with its own `next_step.judgment_contract` projection.
-3. Act as the Loopora Orchestrator. Do not perform role work inline. Read `next_step.role_dispatch.target_agent` and invoke that exact host-native role agent / task agent:
+2. Read the returned JSON, even if the command exits nonzero. If the payload has `ready: false` or `loop_recovery`, stop before dispatching any role agent:
+   - `loop_recovery=finish_web_review` means the current `/loopora-gen` result needs Web review before `/loopora-loop`; report `preview_url`, `requires_web_alignment`, `loopora_fit_contradiction`, and the review focus instead of starting work.
+   - `loop_recovery=repair_candidate_plan_file` means the candidate plan file failed validation; report `preview_url`, `requires_candidate_repair`, `loopora_fit_contradiction`, the source plan / preview copy paths from `binding` or `session`, and the validation / repair focus. Tell the user to repair the plan file, rerun `/loopora-gen`, and only then rerun `/loopora-loop`.
+   - `loop_recovery=preview_not_ready` means the associated preview is not ready; return to `/loopora-gen` or Web review.
+   Do not collapse these recovery states into a generic “run /loopora-gen first” message, and do not create a new plan implicitly from `/loopora-loop`.
+3. For a runnable payload, read `run_url`, run-level `judgment_contract`, and, unless the run is already complete, `next_step` with its own `next_step.judgment_contract` projection. If `complete` is true and `task_next_action.kind` is `continue_evidence`, the run lifecycle is complete but the task is not proven; do not summarize the task as done.
+4. Act as the Loopora Orchestrator. Do not perform role work inline. Read `next_step.role_dispatch.target_agent` and invoke that exact host-native role agent / task agent:
    - builder step -> `loopora-builder`
    - inspector/custom step -> `loopora-inspector`
    - gatekeeper step -> `loopora-gatekeeper`
    - guide step -> `loopora-guide`
 {dispatch_guidance.rstrip()}
-4. Pass the full `next_step.prompt`, `next_step.judgment_contract`, `next_step.required_coverage`, `next_step.output_schema`, `next_step.action_policy`, `next_step.known_evidence_ids`, and the capsule context refs (`next_step.context_path` and `next_step.context_absolute_path`) to the target role agent. Do not summarize, trim, or rewrite the prompt or judgment projection; they contain the frozen run contract, current step context, evidence rules, and output instructions.
-5. Treat `next_step.judgment_contract`, `next_step.output_schema`, `next_step.action_policy`, `next_step.evidence_rules`, `next_step.evidence_ref_contract`, `next_step.known_evidence_ids`, and `next_step.role_dispatch` as the immutable step contract. If the host cannot invoke the required role agent, stop and report that native dispatch is unavailable rather than submitting inline work.
-6. Save one wrapper JSON object under `.loopora/agent_outbox/{adapter}/`, then submit it. The wrapper must have exactly this shape:
+5. Pass the full `next_step.prompt`, `next_step.judgment_contract`, `next_step.required_coverage`, `next_step.output_schema`, `next_step.action_policy`, `next_step.known_evidence_ids`, and the capsule context refs (`next_step.context_path` and `next_step.context_absolute_path`) to the target role agent. Do not summarize, trim, or rewrite the prompt or judgment projection; they contain the frozen run contract, current step context, evidence rules, and output instructions.
+6. Treat `next_step.judgment_contract`, `next_step.output_schema`, `next_step.action_policy`, `next_step.evidence_rules`, `next_step.evidence_ref_contract`, `next_step.known_evidence_ids`, and `next_step.role_dispatch` as the immutable step contract. If the host cannot invoke the required role agent, stop and report that native dispatch is unavailable rather than submitting inline work.
+7. Open the result template from `next_step.submit_hint.result_template_absolute_path` or `next_step.submit_hint.result_template_path`. Do not hand-write the wrapper from memory. The template is the white-box handoff file for this step:
+
+```json
+{{
+  "loopora_host_dispatch": {{ "...": "pre-filled native dispatch proof" }},
+  "loopora_result_contract": {{ "...": "ignored on submit; use as the local fill guide" }},
+  "result": {{ "...": null }}
+}}
+```
+
+Read `loopora_result_contract.step_id`, `.role`, `.action_policy`, `.required_coverage`, `.known_evidence_ids`, `.evidence_ref_contract`, `.evidence_rules`, and `.output_schema` before filling the file. The template's `result` is a schema-shaped scaffold with invalid `null` placeholders. Replace every placeholder before submit, use empty arrays when the schema permits and there is no item to report, and remove optional placeholder fields you do not submit. The helper block is ignored by Loopora submit, so it may remain in the filled wrapper; never copy helper fields into `result`.
+
+8. Save a filled copy under `next_step.submit_hint.result_outbox_absolute_dir` or `next_step.submit_hint.result_outbox_dir`, keeping the template available for audit. Preserve the template's `loopora_host_dispatch` exactly except for setting `actual_agent` only if the host-native role agent returned the same required target agent. Fill only the `result` object with the role agent output. The resulting wrapper should still have this shape:
 
 ```json
 {{
@@ -960,23 +1012,30 @@ LOOPORA_AGENT_ENTRY_SOURCE={marker_source} loopora agent {adapter} loop --workdi
     "inline": false,
     "attestation": "The host invoked the named Loopora role agent for this step."
   }},
+  "loopora_result_contract": {{ "...": "optional helper copied from the template; ignored on submit" }},
   "result": {{ "...": "must match next_step.output_schema exactly" }}
 }}
 ```
 
-For GateKeeper, `result` means `passed`, `decision_summary`, `evidence_refs`, and the other schema fields, not a `verdict` / `task_verdict` envelope. Any `evidence_refs` list must contain only exact IDs copied from `next_step.known_evidence_ids`; never create derived IDs such as `<known-id>_binding` or `<known-id>_output`:
+For GateKeeper, `result` means `passed`, `decision_summary`, `evidence_refs`, and the other schema fields, not a `verdict` / `task_verdict` envelope. Any `evidence_refs` list must contain only exact IDs copied from the template's `loopora_result_contract.known_evidence_ids`; never create derived IDs such as `<known-id>_binding` or `<known-id>_output`.
+
+9. Submit with `next_step.submit_hint.command` after replacing `<result-json>` with the filled result file path. If the command is unavailable, use the equivalent command below with the same `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source` markers:
 
 ```bash
 LOOPORA_AGENT_ENTRY_SOURCE={marker_source} loopora agent {adapter} submit --workdir "$PWD"{context_bits} --run-id <run-id> --step-id <step-id> --result-file <result-json> --entry-source {marker_source} --json
 ```
 
-7. If the submit response returns another `next_step`, repeat native role dispatch and submit. Stop only when `complete` is true or Loopora returns a domain error. When `complete` is true, report `run.run_status`, `run.task_verdict`, and `judgment_contract` separately so lifecycle status is not treated as task proof.
+10. If the submit response returns another `next_step`, repeat native role dispatch, template fill, and submit. When `complete` is true, inspect `run.task_verdict.status` and any `task_next_action` before deciding what to report:
+   - If the verdict is `passed` or `passed_with_residual_risk`, stop and report `run.run_status`, `run.task_verdict`, and `judgment_contract` separately.
+   - If `task_next_action.kind` is `continue_evidence`, stop this run's role dispatch loop, but do not report the task as complete. Report `run.run_status`, `run.task_verdict`, `task_next_action.next_loop_command`, `task_next_action.guidance`, and any `task_next_action.task_verdict_summary`; tell the user that running `/loopora-loop` again in the same Agent session starts the next evidence pass with the previous verdict and coverage gaps.
+   - If the verdict is anything else non-passing, fail closed: report the lifecycle/verdict split and ask the user to continue with `/loopora-loop` or adjust the Loop from the run URL instead of claiming success.
 
 Copy the Loopora commands with `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source`; those markers prove this run came from the Loopora-managed Agent entry.
 
 ## Boundaries
 
 - If the command says no Loop preview is associated with this session/workdir, tell the user to run `/loopora-gen` first.
+- If the command returns `loop_recovery`, report that recovery path and stop; do not proceed to role dispatch.
 - Do not create a bundle implicitly from `/loopora-loop`.
 - Do not bypass Loopora's bundle import, run lifecycle, evidence ledger, or GateKeeper verdict.
 - Do not launch `codex`, `claude`, or `opencode` from inside this entry. The current host Agent must dispatch to the named host-native Loopora role agent and submit wrapper JSON to Loopora.
@@ -986,14 +1045,14 @@ Copy the Loopora commands with `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source`
 def _codex_loopora_gen_skill() -> str:
     return f"""---
 name: loopora-gen
-description: "Use when the user invokes /loopora-gen, asks to generate a Loopora Loop preview from the current coding task, or wants the Codex session to prepare a Loop without starting a run."
+description: "Use when the user invokes /loopora-gen to compile the current task goal, fake-done risks, and required evidence into a Loopora Loop preview without starting a run."
 ---
 
 <!-- {MANAGED_MARKER} version={CODEX_ADAPTER_VERSION} file=loopora-gen -->
 
 # Loopora Gen
 
-Compile the current coding task into a Loopora Loop preview. Do not start a run.
+Compile the current coding task judgment into a Loopora Loop preview: task goal, fake-done risks, required evidence, blockers, and residual-risk policy. Do not start a run.
 
 ## Required path
 
@@ -1007,7 +1066,7 @@ Compile the current coding task into a Loopora Loop preview. Do not start a run.
 LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex gen --workdir "$PWD" --message "<non-empty short task summary>" --bundle-file <candidate-plan-file> --entry-source codex_project_skill
 ```
 
-6. Report the returned Loop preview URL. If validation fails, report the Loopora error and repair the plan file before trying again.
+6. Report the returned Loop preview URL and the `ready_review_projection` summary when present: Loopora fit, fake-done risks, evidence expectations, coverage targets, judgment projection, and closure gate. If the preview is ready, tell the user to confirm that review summary and preview URL, then run `/loopora-loop` in this same Agent session; do not start the run from Web. If validation fails, report the Loopora error and repair the plan file before trying again.
 
 Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-source`; those markers bind this invocation to Loopora's Core evidence trail.
 
@@ -1024,7 +1083,7 @@ Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE` and `--entry-so
 def _codex_loopora_loop_skill() -> str:
     return f"""---
 name: loopora-loop
-description: "Use when the user invokes /loopora-loop or asks Codex to start or resume the Loopora-managed Loop for the current coding task after /loopora-gen has produced a Loop preview."
+description: "Use when the user invokes /loopora-loop to start or resume the reviewed Loop preview that preserves the current task judgment and evidence requirements."
 ---
 
 <!-- {MANAGED_MARKER} version={CODEX_ADAPTER_VERSION} file=loopora-loop -->
@@ -1038,7 +1097,7 @@ description: "Use when the user invokes /loopora-loop or asks Codex to start or 
 def _claude_loopora_gen_skill() -> str:
     return f"""---
 name: loopora-gen
-description: "Generate a Loopora Loop preview from the current Claude Code task without starting a run. Invoke manually as /loopora-gen."
+description: "Compile the current Claude Code task goal, fake-done risks, and required evidence into a Loopora Loop preview without starting a run. Invoke manually as /loopora-gen."
 disable-model-invocation: true
 allowed-tools: "Bash(loopora agent claude gen *) Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen *)"
 ---
@@ -1047,7 +1106,7 @@ allowed-tools: "Bash(loopora agent claude gen *) Bash(LOOPORA_AGENT_ENTRY_SOURCE
 
 # Loopora Gen
 
-Compile the current Claude Code task into a Loopora Loop preview. Do not start a run.
+Compile the current Claude Code task judgment into a Loopora Loop preview: task goal, fake-done risks, required evidence, blockers, and residual-risk policy. Do not start a run.
 
 ## Required path
 
@@ -1061,7 +1120,7 @@ Compile the current Claude Code task into a Loopora Loop preview. Do not start a
 LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen --workdir "$PWD" --context-id "${{CLAUDE_SESSION_ID}}" --message "<non-empty short task summary>" --bundle-file <candidate-plan-file> --entry-source claude_project_skill
 ```
 
-6. Report the returned Loop preview URL. If validation fails, report the Loopora error and repair the plan file before trying again.
+6. Report the returned Loop preview URL and the `ready_review_projection` summary when present: Loopora fit, fake-done risks, evidence expectations, coverage targets, judgment projection, and closure gate. If the preview is ready, tell the user to confirm that review summary and preview URL, then run `/loopora-loop` in this same Agent session; do not start the run from Web. If validation fails, report the Loopora error and repair the plan file before trying again.
 
 Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`, and `--entry-source`; those markers bind the current Claude Code session to Loopora's Core evidence trail.
 
@@ -1078,7 +1137,7 @@ Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`
 def _claude_loopora_loop_skill() -> str:
     return f"""---
 name: loopora-loop
-description: "Start or reuse the Loopora-managed run for the reviewed Loop preview associated with this Claude Code task. Invoke manually after /loopora-gen."
+description: "Start or reuse the reviewed Loop preview that preserves this Claude Code task judgment and evidence requirements. Invoke manually after /loopora-gen."
 disable-model-invocation: true
 allowed-tools: "Bash(loopora agent claude loop *) Bash(loopora agent claude next *) Bash(loopora agent claude submit *) Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude *) Task"
 ---
@@ -1093,7 +1152,7 @@ allowed-tools: "Bash(loopora agent claude loop *) Bash(loopora agent claude next
 
 def _claude_loopora_gen_command() -> str:
     return f"""---
-description: Generate a Loopora Loop preview from the current Claude Code task without starting a run.
+description: Compile the current Claude Code task goal, fake-done risks, and required evidence into a Loopora Loop preview without starting a run.
 allowed-tools: Bash(loopora agent claude gen *), Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen *)
 ---
 
@@ -1107,7 +1166,7 @@ Follow `.claude/skills/loopora-gen/SKILL.md` in this project. Preserve its `LOOP
 
 def _claude_loopora_loop_command() -> str:
     return f"""---
-description: Start or reuse the Loopora-managed run for the reviewed Loop preview associated with this Claude Code task.
+description: Start or reuse the reviewed Loop preview that preserves this Claude Code task judgment and evidence requirements.
 allowed-tools: Bash(loopora agent claude loop *), Bash(loopora agent claude next *), Bash(loopora agent claude submit *), Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude *), Task
 ---
 
@@ -1121,7 +1180,7 @@ allowed-tools: Bash(loopora agent claude loop *), Bash(loopora agent claude next
 
 def _opencode_loopora_gen_command() -> str:
     return f"""---
-description: Generate a Loopora Loop preview from the current OpenCode task without starting a run.
+description: Compile the current OpenCode task goal, fake-done risks, and required evidence into a Loopora Loop preview without starting a run.
 agent: build
 ---
 
@@ -1129,7 +1188,7 @@ agent: build
 
 # Loopora Gen
 
-Compile the current OpenCode task into a Loopora Loop preview. Do not start a run.
+Compile the current OpenCode task judgment into a Loopora Loop preview: task goal, fake-done risks, required evidence, blockers, and residual-risk policy. Do not start a run.
 
 ## Arguments
 
@@ -1147,7 +1206,7 @@ Compile the current OpenCode task into a Loopora Loop preview. Do not start a ru
 LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command loopora agent opencode gen --workdir "$PWD" --context-id "${{OPENCODE_SESSION_ID:-}}" --message "<non-empty short task summary>" --bundle-file <candidate-plan-file> --entry-source opencode_project_command
 ```
 
-6. Report the returned Loop preview URL. If validation fails, report the Loopora error and repair the plan file before trying again.
+6. Report the returned Loop preview URL and the `ready_review_projection` summary when present: Loopora fit, fake-done risks, evidence expectations, coverage targets, judgment projection, and closure gate. If the preview is ready, tell the user to confirm that review summary and preview URL, then run `/loopora-loop` in this same Agent session; do not start the run from Web. If validation fails, report the Loopora error and repair the plan file before trying again.
 
 Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`, and `--entry-source`; those markers bind this invocation to Loopora's Core evidence trail. If OpenCode does not expose `OPENCODE_SESSION_ID`, keep the flag as shown and Loopora will fall back to workdir binding.
 
@@ -1163,7 +1222,7 @@ Copy the command exactly, including `LOOPORA_AGENT_ENTRY_SOURCE`, `--context-id`
 
 def _opencode_loopora_loop_command() -> str:
     return f"""---
-description: Start or reuse the Loopora-managed run for the reviewed Loop preview associated with this OpenCode task.
+description: Start or reuse the reviewed Loop preview that preserves this OpenCode task judgment and evidence requirements.
 agent: loopora-orchestrator
 subtask: true
 ---

@@ -140,6 +140,7 @@ Web 编排场景：
 
 - 顶层“编排”入口的对话编排工作台不要求用户先理解 bundle；导入方案文件和手动编排作为同一编排工作台的二级入口保留。
 - Agent-first `/loopora-gen` 生成或发现候选后必须回到同一 READY 预览；用户从 Web 查看或修改候选，但继续执行时仍可回到 `/loopora-loop`。
+- Agent-first READY 预览的主操作是回到宿主 Agent 执行 `/loopora-loop`，而不是 Web 一键启动 headless run；Web 可以展示和复制 `/loopora-loop` 交接命令，但不得把 Agent-first 候选通过 Web import/run 直接变成后台 executor 运行。`/loopora-loop` 负责在同一 Core 校验后导入并启动 Agent-native run。
 - Agent-first `/loopora-gen` 若没有随请求提交候选 YAML，只能创建带当前任务摘要的 Web 对齐预填入口，并明确标记为未 READY；Core 不得替宿主 Agent 自动启动后端 Web compiler 来伪造 Agent-first 候选。
 - Agent-first 候选 YAML 是后续 READY 校验的输入事实；Core 必须同时记录宿主原始提交哈希，以及 READY 后实际用于预览、导入和后续 run 的规范化文件哈希与字节数，写入 alignment event 与 adapter binding，让审计能区分“宿主提交了什么”和“Core 最终运行了哪份规范化方案文件”。
 - Agent-first 受管入口在生成候选 YAML 前必须先判断 Loopora fit：如果一次 Agent 执行、一次 review、直接聊天 / 直接回答、一次性任务无需 Loop 或 benchmark/test-harness-only 验证已经足够，或后续轮次不会产生新的证据 / handoff / GateKeeper 裁决，就应解释 not-fit、追问或退到 Web review 预填入口，不能为了通过 READY 而发明长期治理理由。

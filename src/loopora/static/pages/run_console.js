@@ -157,11 +157,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function runFinishedTone(payload) {
-    const verdictStatus = String(payload.task_verdict_status || "").trim();
+    const verdictStatus = String(payload.task_verdict_status || "not_evaluated").trim();
     if (verdictStatus === "failed") {
       return "error";
     }
-    if (["insufficient_evidence", "passed_with_residual_risk"].includes(verdictStatus)) {
+    if (["insufficient_evidence", "not_evaluated", "passed_with_residual_risk"].includes(verdictStatus)) {
       return "warning";
     }
     return payload.status === "succeeded" ? "success" : "warning";
@@ -169,10 +169,34 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function runFinishedSummary(payload) {
     const parts = [`${localeText("运行结束", "Run finished")} · ${window.LooporaUI.translateStatus(payload.status || "succeeded")}`];
-    if (payload.task_verdict_status) {
-      parts.push(`${localeText("Loop 裁决", "Task verdict")} ${payload.task_verdict_status}`);
+    const verdictStatus = String(payload.task_verdict_status || "not_evaluated").trim();
+    if (verdictStatus) {
+      parts.push(`${localeText("Loop 裁决", "Task verdict")} ${verdictStatus}`);
+    }
+    if (payload.task_verdict_summary) {
+      parts.push(`${localeText("裁决摘要", "Verdict summary")} ${String(payload.task_verdict_summary)}`);
     }
     return parts.join(" · ");
+  }
+
+  function recordedVerdictSummary(payload) {
+    const verdictStatus = String(payload.task_verdict_status || "").trim();
+    if (verdictStatus === "passed") {
+      return localeText("通过结论已记录", "Passing evidence verdict recorded");
+    }
+    if (verdictStatus === "passed_with_residual_risk") {
+      return localeText("带残余风险的通过结论已记录", "Pass-with-risk verdict recorded");
+    }
+    if (verdictStatus === "insufficient_evidence") {
+      return localeText("未证明结论已记录", "Unproven evidence verdict recorded");
+    }
+    if (verdictStatus === "failed") {
+      return localeText("失败结论已记录", "Failed evidence verdict recorded");
+    }
+    if (verdictStatus === "not_evaluated") {
+      return localeText("未评估结论已记录", "Unevaluated evidence verdict recorded");
+    }
+    return localeText("证据结论已记录", "Evidence verdict recorded");
   }
 
   function buildConsoleLines(event) {
@@ -329,10 +353,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (event.event_type === "run_result_accepted") {
       return [buildConsoleEntry(event, {
-        tone: "success",
+        tone: runFinishedTone(payload),
         channel: "state",
         filterKey: "result",
-        summary: localeText("已接受证据结论", "Evidence conclusion accepted"),
+        summary: recordedVerdictSummary(payload),
         text: prettyJson(payload),
       })];
     }

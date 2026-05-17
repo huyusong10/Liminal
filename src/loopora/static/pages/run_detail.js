@@ -6,6 +6,7 @@
   let consoleEventRecords = [];
   let progressEventRecords = [];
   let takeawaySnapshot = {};
+  let currentAgentStep = {};
   let lastEventId = 0;
   let eventSource = null;
   let observationState = "loading";
@@ -61,6 +62,7 @@
     consoleEventRecords,
     progressEventRecords,
     takeawaySnapshot,
+    currentAgentStep,
     lastEventId,
     observationState,
   }, {observation});
@@ -215,6 +217,7 @@
       consoleEventRecords,
       progressEventRecords,
       takeawaySnapshot,
+      currentAgentStep,
       lastEventId,
       observationState,
     });
@@ -226,6 +229,7 @@
     consoleEventRecords = state.consoleEventRecords;
     progressEventRecords = state.progressEventRecords;
     takeawaySnapshot = state.takeawaySnapshot;
+    currentAgentStep = state.currentAgentStep;
     lastEventId = state.lastEventId;
     observationState = state.observationState;
   }
@@ -336,6 +340,7 @@
     getTimelineRecords: () => timelineRecords,
     getConsoleEventRecords: () => consoleEventRecords,
     getTakeawaySnapshot: () => takeawaySnapshot,
+    getCurrentAgentStep: () => currentAgentStep,
     progressProjector,
     timelineProjector,
     takeawayProjector,
@@ -395,6 +400,25 @@
     document.getElementById("takeaway-iteration-select")?.addEventListener("change", (event) => {
       domRenderer.setSelectedTakeawayIter(event?.target?.value || "");
       renderTakeaways();
+    });
+    document.getElementById("agent-handoff-card")?.addEventListener("click", async (event) => {
+      const button = event.target?.closest?.("[data-agent-handoff-copy]");
+      if (!(button instanceof HTMLButtonElement)) {
+        return;
+      }
+      const value = String(button.dataset.copyValue || "").trim();
+      if (!value) {
+        setTakeawayFeedback(localeText("没有可复制的交接内容。", "No handoff value is available to copy."));
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(value);
+        button.classList.add("is-copied");
+        setTakeawayFeedback(localeText("交接内容已复制。", "Handoff value copied."));
+        window.setTimeout(() => button.classList.remove("is-copied"), 1400);
+      } catch (error) {
+        setTakeawayFeedback(localeText("无法复制交接内容。", "Unable to copy the handoff value."));
+      }
     });
   }
 
@@ -602,6 +626,12 @@
     });
     eventSource.addEventListener("role_started", (message) => {
       handleStreamEvent(message, {console: true, timeline: false, refresh: true});
+    });
+    eventSource.addEventListener("agent_native_step_claimed", (message) => {
+      const payload = handleStreamEvent(message, {console: true, timeline: false, refresh: false});
+      if (payload) {
+        loadObservationSnapshot().catch(() => {});
+      }
     });
     eventSource.addEventListener("run_finished", (message) => {
       const payload = handleStreamEvent(message, {

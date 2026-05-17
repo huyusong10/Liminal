@@ -69,15 +69,36 @@ def print_run_contract_summary(result: dict) -> None:
 
 
 def _print_run_contract_list(key: str, values: list[str]) -> None:
-    if values:
-        typer.echo(f"{key}: " + json.dumps(values, ensure_ascii=False))
+    if not values:
+        return
+    typer.echo(f"{key}:")
+    for value in values:
+        typer.echo(f"- {value}")
 
 
 def _print_run_contract_source_bundle(judgment_contract: dict) -> None:
     source_bundle = judgment_contract.get("source_bundle")
     if not isinstance(source_bundle, dict) or not source_bundle.get("id"):
         return
-    typer.echo("source_plan: " + json.dumps(source_bundle, ensure_ascii=False))
+    source_id = str(source_bundle.get("id") or "").strip()
+    source_name = str(source_bundle.get("name") or "").strip()
+    revision = source_bundle.get("revision")
+    revision_text = f", rev {revision}" if isinstance(revision, int) and not isinstance(revision, bool) else ""
+    label = source_name or source_id
+    id_text = f" ({source_id}{revision_text})" if source_name and source_id else revision_text
+    typer.echo(f"source_plan: {label}{id_text}")
+    imported_from = str(source_bundle.get("imported_from_path") or "").strip()
+    if imported_from:
+        typer.echo(f"source_plan_path: {imported_from}")
+    bundle_path = str(source_bundle.get("bundle_yaml_path") or "").strip()
+    if bundle_path and bundle_path != imported_from:
+        typer.echo(f"source_plan_archive: {bundle_path}")
+    sha = str(source_bundle.get("bundle_sha256") or "").strip()
+    bundle_bytes = source_bundle.get("bundle_bytes")
+    if sha:
+        digest = sha[:12]
+        size = f", {bundle_bytes} bytes" if isinstance(bundle_bytes, int) and not isinstance(bundle_bytes, bool) else ""
+        typer.echo(f"source_plan_digest: sha256:{digest}{size}")
 
 
 def _print_run_contract_execution_fields(judgment_contract: dict) -> None:
@@ -93,9 +114,7 @@ def _print_run_contract_execution_fields(judgment_contract: dict) -> None:
 
 def _print_run_contract_judgment_fields(run_contract: dict) -> None:
     for key in ("success_surface", "fake_done_states", "evidence_preferences"):
-        values = _cli_judgment_contract_list(run_contract, key)
-        if values:
-            typer.echo(f"{key}: " + json.dumps(values, ensure_ascii=False))
+        _print_run_contract_list(key, _cli_judgment_contract_list(run_contract, key))
     residual_risk = _cli_judgment_contract_text(run_contract, "residual_risk")
     if residual_risk:
         typer.echo(f"residual_risk: {residual_risk}")
@@ -114,7 +133,7 @@ def _cli_judgment_summary(run_contract: dict) -> str:
         compiled_spec.get("residual_risk"),
     ):
         if isinstance(value, str) and value.strip():
-            return value.strip()[:240]
+            return _clip_cli_text(value.strip(), 240)
     for values in (
         compiled_spec.get("success_surface"),
         compiled_spec.get("fake_done_states"),
@@ -124,7 +143,7 @@ def _cli_judgment_summary(run_contract: dict) -> str:
             continue
         for value in values:
             if isinstance(value, str) and value.strip():
-                return value.strip()[:240]
+                return _clip_cli_text(value.strip(), 240)
     return ""
 
 
@@ -197,7 +216,7 @@ def _cli_judgment_contract_text(run_contract: dict, key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         compiled_spec = run_contract.get("compiled_spec") if isinstance(run_contract.get("compiled_spec"), dict) else {}
         value = compiled_spec.get(key)
-    return str(value or "").strip()[:600] if isinstance(value, str) else ""
+    return _clip_cli_text(str(value or "").strip(), 600) if isinstance(value, str) else ""
 
 
 def _cli_coverage_targets(judgment_contract: dict) -> list[str]:
@@ -214,6 +233,12 @@ def _cli_coverage_targets(judgment_contract: dict) -> list[str]:
         suffix = " (required)" if item.get("required") is True else ""
         targets.append(f"{target_id}{suffix}")
     return targets[:8]
+
+
+def _clip_cli_text(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 3, 0)].rstrip() + "..."
 
 
 def print_task_verdict(task_verdict: object) -> None:

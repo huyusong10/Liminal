@@ -30,6 +30,16 @@ Allowed candidate phase: bundle, or clarifying if a human-required judgment gap 
 Compile the confirmed agreement into runnable surfaces and keep the bundle grounded in the session workdir.
 Repairable structural gaps should be fixed by the Agent; unresolved judgment gaps must go back to the user.
 
+## Ready Review
+
+Current compiler gate: ready preview review.
+Allowed candidate phase: bundle, or clarifying if the user's requested change exposes a new human-required judgment gap.
+The session already has a READY candidate bundle and a confirmed working agreement. Treat the latest user message as review feedback on that candidate before import or run.
+Preserve the confirmed working agreement, workdir, stable source intent, useful role posture, and executor defaults unless the feedback directly changes them.
+Preserve the current candidate and working-agreement language unless the feedback explicitly asks to translate.
+Update the whole bundle coherently from the current bundle and review feedback; do not make a narrow text patch that leaves roles, evidence expectations, workflow handoffs, or GateKeeper closure inconsistent.
+If the feedback is too vague to compile safely, ask one focused question and do not include bundle YAML.
+
 ## Clarifying
 
 Current compiler gate: clarifying.

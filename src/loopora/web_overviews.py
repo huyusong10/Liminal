@@ -10,6 +10,7 @@ from loopora.run_takeaways import (
     LEGACY_RUNTIME_ROLE_TO_ARCHETYPE,
     build_evidence_coverage as _build_evidence_coverage,
     build_run_key_takeaways as _build_run_key_takeaways,
+    clean_takeaway_text,
     display_iter as _display_iter,
     summary_excerpt as _summary_excerpt,
 )
@@ -20,7 +21,7 @@ from loopora.workflows import display_name_for_archetype, normalize_role_display
 SIMPLE_TIMELINE_TITLES = {
     "run_started": "Run started",
     "stop_requested": "Stop requested",
-    "run_result_accepted": "Conclusion accepted",
+    "run_result_accepted": "Evidence verdict recorded",
 }
 
 CONTROL_TIMELINE_TITLES = {
@@ -199,9 +200,11 @@ def _format_run_finished(payload: Mapping[str, object], _role: object, _event_ty
         display_iter = _display_iter(iter_id)
         if display_iter is not None:
             detail_parts.append(f"iter={display_iter}")
-    task_status = str(payload.get("task_verdict_status") or "").strip()
-    if task_status:
-        detail_parts.append(f"task_verdict_status={task_status}")
+    task_status = str(payload.get("task_verdict_status") or "not_evaluated").strip() or "not_evaluated"
+    detail_parts.append(f"task_verdict_status={task_status}")
+    task_summary = str(payload.get("task_verdict_summary") or "").strip()
+    if task_summary:
+        detail_parts.append(f"task_verdict_summary={task_summary[:120]}")
     return title, ", ".join(detail_parts)
 
 
@@ -238,7 +241,17 @@ def _format_run_result_accepted(payload: Mapping[str, object], _role: object, _e
         )
         if part
     )
-    return "Conclusion accepted", detail
+    return _recorded_verdict_title(task_status), detail
+
+
+def _recorded_verdict_title(task_status: str) -> str:
+    return {
+        "passed": "Passing evidence verdict recorded",
+        "passed_with_residual_risk": "Pass-with-risk verdict recorded",
+        "insufficient_evidence": "Unproven evidence verdict recorded",
+        "failed": "Failed evidence verdict recorded",
+        "not_evaluated": "Unevaluated evidence verdict recorded",
+    }.get(str(task_status or "").strip().lower(), "Evidence verdict recorded")
 
 
 TIMELINE_EVENT_FORMATTERS = {
@@ -287,13 +300,33 @@ def _workflow_role_executor_summary(workflow: Mapping[str, object] | None, *, fa
     return " · ".join(f"{label} x{count}" if count > 1 else label for label, count in counts.items())
 
 
+def _task_verdict_status(verdict: object) -> str:
+    if not isinstance(verdict, Mapping):
+        return "not_evaluated"
+    return str(verdict.get("status") or "not_evaluated").strip() or "not_evaluated"
+
+
+def _task_verdict_label(status: object) -> tuple[str, str]:
+    labels = {
+        "not_evaluated": ("Loop 裁决：未评估", "Task verdict: not evaluated"),
+        "passed": ("Loop 裁决：已通过", "Task verdict: passed"),
+        "failed": ("Loop 裁决：未通过", "Task verdict: failed"),
+        "insufficient_evidence": ("Loop 裁决：证据不足", "Task verdict: insufficient evidence"),
+        "passed_with_residual_risk": ("Loop 裁决：有残余风险地通过", "Task verdict: passed with residual risk"),
+    }
+    normalized = str(status or "not_evaluated").strip() or "not_evaluated"
+    return labels.get(normalized, (f"Loop 裁决：{normalized}", f"Task verdict: {normalized.replace('_', ' ')}"))
+
+
 def _decorate_loop_overview(loop: dict) -> dict:
     latest_run_id = loop.get("latest_run_id")
     latest_status = loop.get("latest_status") or "draft"
     summary_excerpt = _summary_excerpt(loop.get("latest_summary_md"))
     workflow = loop.get("workflow_json") or {}
     task_verdict = loop.get("latest_task_verdict_json") if isinstance(loop.get("latest_task_verdict_json"), Mapping) else {}
-    task_status = str(task_verdict.get("status") or "").strip()
+    task_status = _task_verdict_status(task_verdict)
+    task_label_zh, task_label_en = _task_verdict_label(task_status)
+    card_excerpt_zh, card_excerpt_en = _verdict_safe_excerpt_pair(task_verdict, run_status=latest_status, raw_excerpt=summary_excerpt)
     hints = {
         "draft": ("还没有运行，先检查 Loop 契约和工作目录。", "No run yet. Start by checking the spec and workdir."),
         "queued": ("已经进入队列，点进去看最新状态。", "Queued up. Open it to see the current state."),
@@ -322,7 +355,12 @@ def _decorate_loop_overview(loop: dict) -> dict:
         "card_href": f"/runs/{latest_run_id}" if latest_run_id else f"/loops/{loop['id']}",
         "card_hint_zh": hint_zh,
         "card_hint_en": hint_en,
-        "card_excerpt": summary_excerpt,
+        "card_excerpt": card_excerpt_en or summary_excerpt,
+        "card_excerpt_zh": card_excerpt_zh,
+        "card_excerpt_en": card_excerpt_en,
+        "latest_task_verdict_status": task_status,
+        "latest_task_verdict_label_zh": task_label_zh,
+        "latest_task_verdict_label_en": task_label_en,
         "managed_by_bundle": managed_by_bundle,
         "bundle_id": str((bundle or {}).get("id", "") or "").strip(),
         "bundle_name": str((bundle or {}).get("name", "") or "").strip(),
@@ -331,11 +369,18 @@ def _decorate_loop_overview(loop: dict) -> dict:
 
 def _decorate_run_overview(run: dict) -> dict:
     workflow = run.get("workflow_json") or {}
+    summary = _build_run_summary_snapshot(run)
+    task_status = _task_verdict_status(run.get("task_verdict") or run.get("task_verdict_json"))
     return {
         **run,
         "role_executor_summary": _workflow_role_executor_summary(workflow, fallback_executor_kind=run.get("executor_kind", "codex")),
         "display_iter": _display_iter(run.get("current_iter")),
         "summary_excerpt": _summary_excerpt(run.get("summary_md")),
+        "task_verdict_status": task_status,
+        "task_verdict_title_zh": summary["verdict_title_zh"],
+        "task_verdict_title_en": summary["verdict_title_en"],
+        "task_verdict_note_zh": summary["verdict_note_zh"],
+        "task_verdict_note_en": summary["verdict_note_en"],
     }
 
 
@@ -440,10 +485,20 @@ def _build_run_summary_snapshot(run: dict) -> dict:
     }
     status = run.get("status") or "draft"
     status_note = status_notes.get(status, status_notes["draft"])
+    raw_summary_excerpt = _summary_excerpt(run.get("summary_md"))
+    summary_excerpt_zh, summary_excerpt_en = _verdict_safe_summary_pair(
+        task_status=task_status,
+        run_status=str(status),
+        verdict_note_zh=str(verdict_note[0] or ""),
+        verdict_note_en=str(verdict_note[1] or ""),
+        raw_excerpt=raw_summary_excerpt,
+    )
 
     return {
         "display_iter": _display_iter(run.get("current_iter")),
-        "summary_excerpt": _summary_excerpt(run.get("summary_md")),
+        "summary_excerpt": summary_excerpt_en or raw_summary_excerpt,
+        "summary_excerpt_zh": summary_excerpt_zh,
+        "summary_excerpt_en": summary_excerpt_en,
         "summary_empty_zh": "还没有稳定输出。",
         "summary_empty_en": "No substantial output yet.",
         "status_note_zh": status_note[0],
@@ -455,6 +510,74 @@ def _build_run_summary_snapshot(run: dict) -> dict:
         "failed_count": failed_count,
         "composite_score": composite_score,
     }
+
+
+def _verdict_safe_excerpt_pair(task_verdict: Mapping[str, object], *, run_status: object, raw_excerpt: str) -> tuple[str, str]:
+    verdict = task_verdict if isinstance(task_verdict, Mapping) else {}
+    status = _task_verdict_status(verdict)
+    buckets = verdict.get("buckets") if isinstance(verdict.get("buckets"), Mapping) else {}
+    note = clean_takeaway_text(verdict.get("summary"), max_length=170) or _first_task_bucket_text(
+        buckets,
+        *_status_bucket_preference(status),
+    )
+    return _verdict_safe_summary_pair(
+        task_status=status,
+        run_status=str(run_status or ""),
+        verdict_note_zh=note,
+        verdict_note_en=note,
+        raw_excerpt=raw_excerpt,
+    )
+
+
+def _verdict_safe_summary_pair(
+    *,
+    task_status: str,
+    run_status: str,
+    verdict_note_zh: str,
+    verdict_note_en: str,
+    raw_excerpt: str,
+) -> tuple[str, str]:
+    normalized_status = str(task_status or "not_evaluated").strip() or "not_evaluated"
+    normalized_run_status = str(run_status or "").strip().lower()
+    if normalized_run_status not in {"succeeded", "failed", "stopped"}:
+        return raw_excerpt, raw_excerpt
+    if normalized_status == "passed":
+        return (
+            f"Loop 裁决已通过：{verdict_note_zh or raw_excerpt or '证据支持本次 Loop 结论。'}",
+            f"Task verdict passed: {verdict_note_en or raw_excerpt or 'Evidence supports the task conclusion.'}",
+        )
+    if normalized_status == "passed_with_residual_risk":
+        return (
+            f"Loop 裁决带残余风险通过：{verdict_note_zh or '仍有已接受的可见残余风险。'}",
+            f"Task verdict passed with residual risk: {verdict_note_en or 'Accepted residual risk remains visible.'}",
+        )
+    if normalized_status == "failed":
+        return (
+            f"Loop 裁决未通过：{verdict_note_zh or '阻断项仍然存在。'}",
+            f"Task verdict failed: {verdict_note_en or 'Blockers remain.'}",
+        )
+    if normalized_status == "insufficient_evidence":
+        return (
+            f"Loop 裁决证据不足：{verdict_note_zh or '必需证据仍未证明。'}",
+            f"Task verdict still insufficient: {verdict_note_en or 'Required evidence is still unproven.'}",
+        )
+    return (
+        f"Loop 裁决未评估：{verdict_note_zh or '没有可用的证据裁决。'}",
+        f"Task verdict not evaluated: {verdict_note_en or 'No evidence-based verdict is available.'}",
+    )
+
+
+def _status_bucket_preference(status: str) -> tuple[str, ...]:
+    normalized = str(status or "").strip()
+    if normalized == "passed":
+        return ("proven",)
+    if normalized == "passed_with_residual_risk":
+        return ("residual_risk", "proven")
+    if normalized == "failed":
+        return ("blocking", "unproven", "weak")
+    if normalized == "insufficient_evidence":
+        return ("unproven", "weak", "blocking")
+    return ("unproven", "weak", "blocking", "residual_risk")
 
 
 def _first_task_bucket_text(buckets: Mapping[str, object], *bucket_names: str) -> str:

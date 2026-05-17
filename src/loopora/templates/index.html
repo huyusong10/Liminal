@@ -13,6 +13,21 @@
         <span data-lang="en">This is the daily workspace: watch active Loops and reopen saved Loops or their latest runs. Use Compose in the top navigation when you need to create a new Loop.</span>
       </p>
       {% if not loops and not active_loops and not recent_loops %}
+      <div class="first-run-judgment-brief" data-testid="home-first-run-judgment-brief">
+        <strong>
+          <span data-lang="zh">先带上任务判断，不只是任务标题。</span>
+          <span data-lang="en">Bring task judgment, not just a task title.</span>
+        </strong>
+        <p>
+          <span data-lang="zh">无论从 Agent 入口还是 Web 编排开始，都先写清任务目标、伪完成风险和必需证据。</span>
+          <span data-lang="en">Whether you start from the Agent entry or Web composition, name the task goal, fake-done risk, and required evidence first.</span>
+        </p>
+        <ul aria-label="{{ '首次任务判断清单' if page_locale == 'zh' else 'First-run judgment checklist' }}">
+          <li><span data-lang="zh">目标</span><span data-lang="en">Goal</span></li>
+          <li><span data-lang="zh">伪完成</span><span data-lang="en">Fake done</span></li>
+          <li><span data-lang="zh">证据</span><span data-lang="en">Evidence</span></li>
+        </ul>
+      </div>
       <div class="card-actions workbench-first-run-actions" data-testid="home-first-run-actions">
         <a class="primary-button" href="/tools" data-testid="home-agent-entry-link">
           <span data-lang="zh">安装 Agent 入口</span>
@@ -48,6 +63,10 @@
           <span class="activity-row-main">
             <strong>{{ loop_item.name }}</strong>
             <span>{{ loop_item.workdir }}</span>
+            <span class="activity-row-verdict" data-testid="home-active-loop-verdict">
+              <span data-lang="zh">{{ loop_item.card_hint_zh }}</span>
+              <span data-lang="en">{{ loop_item.card_hint_en }}</span>
+            </span>
           </span>
           <span class="status-pill status-{{ loop_item.latest_status or 'draft' }}" data-status-label="{{ loop_item.latest_status or 'draft' }}"></span>
         </a>
@@ -60,6 +79,10 @@
               <span data-lang="zh">最近运行</span>
               <span data-lang="en">Latest run</span>
               {{ loop_item.latest_run_id }}
+            </span>
+            <span class="activity-row-verdict" data-testid="home-recent-loop-verdict">
+              <span data-lang="zh">{{ loop_item.card_hint_zh }}</span>
+              <span data-lang="en">{{ loop_item.card_hint_en }}</span>
             </span>
           </span>
           <span class="status-pill status-{{ loop_item.latest_status or 'draft' }}" data-status-label="{{ loop_item.latest_status or 'draft' }}"></span>
@@ -131,7 +154,10 @@
               <span data-lang="zh">{{ loop_item.card_hint_zh }}</span>
               <span data-lang="en">{{ loop_item.card_hint_en }}</span>
             </strong>
-            <p>{{ loop_item.card_excerpt or "-" }}</p>
+            <p>
+              <span data-lang="zh">{{ loop_item.card_excerpt_zh or loop_item.card_excerpt or "-" }}</span>
+              <span data-lang="en">{{ loop_item.card_excerpt_en or loop_item.card_excerpt or "-" }}</span>
+            </p>
             {% if loop_item.managed_by_bundle %}
             <p class="field-note">
               <span data-lang="zh">这条 Loop 来自方案文件 “{{ loop_item.bundle_name or loop_item.bundle_id }}”，删除时会一起清理关联资源。</span>

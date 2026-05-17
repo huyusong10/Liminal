@@ -102,6 +102,7 @@ def test_destructive_generator_is_blocked_by_workspace_guard(
         and event["payload"]["status"] == "failed"
         and event["payload"]["reason"] == "workspace_safety_guard"
         and event["payload"]["task_verdict_status"] == "failed"
+        and event["payload"].get("task_verdict_summary")
         for event in events
     )
 
@@ -527,6 +528,7 @@ def test_unexpected_run_error_marks_run_failed(service_factory, sample_spec_file
         and event["payload"]["status"] == "failed"
         and event["payload"]["reason"] == "crashed"
         and event["payload"]["task_verdict_status"] == "not_evaluated"
+        and event["payload"].get("task_verdict_summary")
         for event in events
     )
 
@@ -816,6 +818,7 @@ def test_service_startup_marks_stale_active_runs_stopped(
         and event["payload"].get("reason") == "Recovered stale run after service startup."
         and event["payload"]["task_verdict_status"] == "not_evaluated"
         and event["payload"]["task_verdict_source"] == "run_status"
+        and event["payload"]["task_verdict_summary"] == recovered["task_verdict"]["summary"]
         for event in events
     )
 

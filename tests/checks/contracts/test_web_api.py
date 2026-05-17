@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from loopora.bundles import bundle_to_yaml
 from loopora.branding import state_dir_for_workdir
+from loopora.executor_fake_payloads import alignment_bundle_yaml
 from loopora.file_previews import preview_existing_path
 from loopora.run_observation_events import PROGRESS_EVENT_TYPES, TIMELINE_EVENT_TYPES
 from loopora.run_artifacts import RunArtifactLayout
@@ -26,6 +27,7 @@ from loopora.run_takeaways import (
 )
 from loopora.providers import CLAUDE_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL
 from loopora.settings import app_home, configure_logging
+from loopora.service_agent_adapters import AgentBundleCandidateRequest
 from loopora.web_streaming import MAX_EVENT_CURSOR_ID, parse_sse_last_event_id, stream_error_payload
 from loopora.web_url_utils import safe_attachment_filename, safe_local_return_path, with_query_params
 import loopora.service_run_lifecycle as service_run_lifecycle
@@ -36,6 +38,32 @@ from loopora.web_overviews import _build_run_summary_snapshot, _decorate_loop_ov
 
 def _read_service_log_records() -> list[dict]:
     return [json.loads(line) for line in (app_home() / "logs" / "service.log").read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _start_agent_first_loop(service, *, tmp_path: Path, workdir: Path) -> dict:
+    bundle_file = tmp_path / "agent-first-bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=workdir,
+            message=(
+                "Ship the focused starter experience. The primary user flow must work end to end, "
+                "use project-owned evidence, avoid happy-path claim only, keep a clear handoff, "
+                "and let GateKeeper reject weak proof."
+            ),
+            bundle_file=bundle_file,
+            context_id="web-api-agent-first",
+            entry_source="codex_project_skill",
+        )
+    )
+    return service.start_agent_loop(
+        "codex",
+        workdir=workdir,
+        context_id="web-api-agent-first",
+        entry_source="codex_project_skill",
+        execute_async=False,
+    )
 
 
 def test_streaming_cursor_helpers_require_strict_integer_boundaries() -> None:
@@ -98,7 +126,12 @@ def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
             "id": 3,
             "event_type": "run_finished",
             "created_at": "2026-05-05T00:00:02Z",
-            "payload": {"status": "succeeded", "reason": "rounds_completed", "task_verdict_status": "insufficient_evidence"},
+            "payload": {
+                "status": "succeeded",
+                "reason": "rounds_completed",
+                "task_verdict_status": "insufficient_evidence",
+                "task_verdict_summary": "Required coverage still lacks direct evidence.",
+            },
         }
     )
     accepted = _format_timeline_event(
@@ -198,6 +231,14 @@ def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
             "payload": {"status": "succeeded", "iter": float("inf")},
         }
     )
+    legacy_missing_verdict_finished = _format_timeline_event(
+        {
+            "id": 11,
+            "event_type": "run_finished",
+            "created_at": "2026-05-05T00:00:08Z",
+            "payload": {"status": "succeeded", "reason": "legacy_terminal_event"},
+        }
+    )
 
     assert role_summary["title"] == "Builder completed"
     assert role_summary["detail"] == "attempts=2, degraded, 12ms"
@@ -214,14 +255,19 @@ def test_timeline_event_formatter_keeps_stable_observation_titles() -> None:
     assert list_payload_summary["title"] == "Builder failed"
     assert list_payload_summary["detail"] == ""
     assert overflow_iter_finished["title"] == "Run finished"
-    assert overflow_iter_finished["detail"] == ""
+    assert overflow_iter_finished["detail"] == "task_verdict_status=not_evaluated"
+    assert legacy_missing_verdict_finished["title"] == "Run finished"
+    assert legacy_missing_verdict_finished["detail"] == "legacy_terminal_event, task_verdict_status=not_evaluated"
     assert control_event["title"] == "Control triggered"
     assert control_event["detail"] == "no_evidence_progress -> inspector"
     assert parallel_event["title"] == "Parallel review started"
     assert parallel_event["detail"] == "inspection_pack, steps=2"
     assert run_finished["title"] == "Run finished"
-    assert run_finished["detail"] == "planned rounds completed, task_verdict_status=insufficient_evidence"
-    assert accepted["title"] == "Conclusion accepted"
+    assert (
+        run_finished["detail"]
+        == "planned rounds completed, task_verdict_status=insufficient_evidence, task_verdict_summary=Required coverage still lacks direct evidence."
+    )
+    assert accepted["title"] == "Passing evidence verdict recorded"
     assert accepted["detail"] == "status=succeeded, task_verdict_status=passed"
     assert accepted_with_judgment["detail"] == (
         "status=succeeded, task_verdict_status=passed, judgment=Prefer proof before closure., "
@@ -286,6 +332,7 @@ def test_loop_overview_surfaces_unproven_terminal_task_verdicts() -> None:
                 "source": "gatekeeper",
                 "summary": "Missing proof.",
             },
+            "latest_summary_md": "# Loopora Run Summary\n\nAll done according to the Agent summary.",
             "workflow_json": {},
         }
     )
@@ -305,8 +352,28 @@ def test_loop_overview_surfaces_unproven_terminal_task_verdicts() -> None:
 
     assert insufficient["card_hint_en"] == "The latest task verdict has insufficient evidence."
     assert insufficient["card_hint_zh"] == "最近一次 Loop 裁决证据不足。"
+    assert insufficient["card_excerpt_en"] == "Task verdict still insufficient: Missing proof."
+    assert insufficient["card_excerpt_zh"] == "Loop 裁决证据不足：Missing proof."
+    assert "All done" not in insufficient["card_excerpt_en"]
     assert failed["card_hint_en"] == "The latest task verdict failed."
     assert failed["card_hint_zh"] == "最近一次 Loop 裁决未通过。"
+
+    summary = _build_run_summary_snapshot(
+        {
+            "status": "succeeded",
+            "current_iter": 0,
+            "summary_md": "# Loopora Run Summary\n\nAll done according to the Agent summary.",
+            "last_verdict_json": {},
+            "task_verdict": {
+                "status": "insufficient_evidence",
+                "source": "gatekeeper",
+                "summary": "Missing proof.",
+            },
+        }
+    )
+    assert summary["summary_excerpt_en"] == "Task verdict still insufficient: Missing proof."
+    assert summary["summary_excerpt_zh"] == "Loop 裁决证据不足：Missing proof."
+    assert "All done" not in summary["summary_excerpt_en"]
 
 
 def test_web_url_helpers_keep_redirects_and_filenames_local() -> None:
@@ -484,6 +551,7 @@ def _assert_acceptance_evidence_payload(payload: dict) -> None:
 def _accept_run_result_and_assert_observation_event(client: TestClient, service, run: dict, loop: dict) -> list[dict]:
     run_before_accept = service.get_run(run["id"])
     loop_before_accept = service.get_loop(loop["id"])
+    task_verdict_status = str((run_before_accept.get("task_verdict") or {}).get("status") or "")
 
     accept_response = client.post(f"/runs/{run['id']}/accept", follow_redirects=False)
 
@@ -498,9 +566,40 @@ def _accept_run_result_and_assert_observation_event(client: TestClient, service,
     assert accepted_events
     assert accepted_events[-1]["payload"]["status"] == run["status"]
     assert accepted_events[-1]["payload"]["task_verdict_status"]
+    assert accepted_events[-1]["payload"]["recorded_verdict_kind"] == _expected_recorded_verdict_kind(task_verdict_status)
     assert accepted_events[-1]["payload"]["evidence_source_event_id"] < accepted_events[-1]["id"]
     _assert_acceptance_evidence_payload(accepted_events[-1]["payload"])
     return accepted_events
+
+
+def _expected_recorded_verdict_kind(task_verdict_status: str) -> str:
+    return {
+        "passed": "passed_verdict_recorded",
+        "passed_with_residual_risk": "passed_with_residual_risk_recorded",
+        "insufficient_evidence": "unproven_verdict_recorded",
+        "failed": "failed_verdict_recorded",
+        "not_evaluated": "not_evaluated_verdict_recorded",
+    }.get(task_verdict_status, "evidence_verdict_recorded")
+
+
+def _expected_recorded_verdict_title(task_verdict_status: str) -> str:
+    return {
+        "passed": "Passing evidence verdict recorded",
+        "passed_with_residual_risk": "Pass-with-risk verdict recorded",
+        "insufficient_evidence": "Unproven evidence verdict recorded",
+        "failed": "Failed evidence verdict recorded",
+        "not_evaluated": "Unevaluated evidence verdict recorded",
+    }.get(task_verdict_status, "Evidence verdict recorded")
+
+
+def _expected_recorded_verdict_page_text(task_verdict_status: str) -> str:
+    return {
+        "passed": "Passing verdict recorded",
+        "passed_with_residual_risk": "Pass-with-risk verdict recorded",
+        "insufficient_evidence": "Unproven verdict recorded",
+        "failed": "Failed verdict recorded",
+        "not_evaluated": "Unevaluated verdict recorded",
+    }.get(task_verdict_status, "Evidence verdict recorded")
 
 
 def _assert_run_artifact_previews(client: TestClient, run_id: str, sample_spec_text: str) -> None:
@@ -1340,11 +1439,18 @@ def test_api_run_observation_snapshot_projects_stable_timeline_events(
         "control_triggered",
         {"signal": "gatekeeper_rejected", "role_id": "guide", "reason": "needs repair"},
     )
+    service.repository.append_event(
+        run["id"],
+        "run_finished",
+        {"status": "succeeded", "reason": "legacy_terminal_event_without_verdict"},
+    )
 
     assert "role_request_prepared" in TIMELINE_EVENT_TYPES
     assert "control_triggered" in TIMELINE_EVENT_TYPES
     assert "parallel_group_started" in TIMELINE_EVENT_TYPES
+    assert "run_finished" in TIMELINE_EVENT_TYPES
     assert "parallel_group_started" in PROGRESS_EVENT_TYPES
+    assert "run_finished" in PROGRESS_EVENT_TYPES
     client = TestClient(build_app(service=service))
     response = client.get(f"/api/runs/{run['id']}/observation-snapshot")
 
@@ -1358,8 +1464,12 @@ def test_api_run_observation_snapshot_projects_stable_timeline_events(
     assert [event["event_type"] for event in timeline_events] == ["parallel_group_started", "parallel_group_finished"]
     assert timeline_events[0]["title"] == "Parallel review started"
     assert timeline_events[0]["detail"] == "inspection_pack, steps=2"
+    assert timeline_event_by_type["run_finished"]["detail"] == (
+        "legacy_terminal_event_without_verdict, task_verdict_status=not_evaluated"
+    )
     assert "parallel_group_started" in progress_types
     assert "parallel_group_finished" in progress_types
+    assert "run_finished" in progress_types
 
 
 def test_api_run_observation_snapshot_uses_persisted_takeaway_projection(
@@ -1544,6 +1654,50 @@ def test_run_takeaway_projection_backfills_existing_terminal_runs(
 
     assert 0 < snapshot["key_takeaways"]["source_event_id"] <= snapshot["latest_event_id"]
     assert snapshot["key_takeaways"]["iteration_count"] >= 1
+
+
+def test_run_takeaway_projection_backfills_terminal_runs_with_only_generic_events(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Minimal Snapshot Backfill Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    latest_event_id = service.repository.latest_event_id(run["id"])
+    service.repository.update_run(
+        run["id"],
+        status="succeeded",
+        summary_md="# Loopora Run Summary\n\nLifecycle closed before any role takeaway event was written.\n",
+    )
+    with service.repository.transaction() as connection:
+        connection.execute("DELETE FROM workdir_locks WHERE run_id = ?", (run["id"],))
+        connection.execute("DELETE FROM run_takeaway_projections WHERE run_id = ?", (run["id"],))
+
+    restarted = service.__class__(
+        repository=service.repository,
+        settings=service.settings,
+        executor_factory=service.executor_factory,
+    )
+    snapshot = restarted.run_observation_snapshot(run["id"])
+
+    assert snapshot["latest_event_id"] == latest_event_id
+    assert snapshot["key_takeaways"]["source_event_id"] == latest_event_id
+    assert snapshot["key_takeaways"]["run_status"] == "succeeded"
+    assert snapshot["key_takeaways"]["iteration_count"] == 0
+    assert "Lifecycle closed before any role takeaway event" in snapshot["key_takeaways"]["latest_summary"]
 
 
 def test_api_run_observation_snapshot_uses_consistent_event_cutoff(
@@ -1838,6 +1992,29 @@ def test_api_run_lifecycle_reports_not_found_and_conflict_status_codes(
     conflict_response = client.post(f"/api/loops/{loop['id']}/runs")
     assert conflict_response.status_code == 409
     assert "active run" in conflict_response.json()["error"]
+
+
+def test_api_run_lifecycle_rejects_web_headless_start_for_agent_first_loop(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    started = _start_agent_first_loop(service, tmp_path=tmp_path, workdir=sample_workdir)
+    client = TestClient(build_app(service=service))
+
+    response = client.post(f"/api/loops/{started['run']['loop_id']}/runs")
+
+    assert response.status_code == 409
+    payload = response.json()
+    assert "agent-first Loop runs" in payload["error"]
+    assert payload["agent_entry_start"]["slash_command"] == "/loopora-loop"
+    assert payload["agent_entry_start"]["execution_plane"] == "agent_native"
+    assert payload["agent_entry_start"]["linked_run_id"] == started["run"]["id"]
+    assert payload["agent_entry_start"]["host_context_id"] == "web-api-agent-first"
+    assert "loopora agent codex loop" in payload["agent_entry_start"]["loop_command"]
+    assert "--context-id web-api-agent-first" in payload["agent_entry_start"]["loop_command"]
+    assert len(service.get_loop(started["run"]["loop_id"])["runs"]) == 1
 
 
 def test_api_runtime_activity_reports_running_runs(
@@ -2151,31 +2328,30 @@ def test_run_detail_separates_status_verdict_and_reruns_terminal_run(
     run = service.rerun(loop["id"])
     client = TestClient(build_app(service=service))
 
-    page_response = client.get(f"/runs/{run['id']}")
-    assert page_response.status_code == 200
-    assert "Run status" in page_response.text
-    assert "Task verdict" in page_response.text
-    assert 'data-testid="run-status-card"' in page_response.text
-    assert 'data-testid="run-task-verdict-card"' in page_response.text
-    assert 'data-testid="run-latest-event-card"' in page_response.text
-    assert 'data-testid="run-export-loop-button"' in page_response.text
-    assert f"/bundles/derive/export?loop_id={loop['id']}" in page_response.text
-    assert 'data-testid="run-accept-result-button"' in page_response.text
-    assert 'data-testid="run-rerun-button"' in page_response.text
-    assert 'id="stop-run"' not in page_response.text
-
-    export_response = client.get(f"/bundles/derive/export?loop_id={loop['id']}")
-    assert export_response.status_code == 200
-    assert export_response.headers["content-type"].startswith("application/yaml")
-    assert "Rerun From Detail Loop" in export_response.text
+    _assert_run_detail_terminal_actions_page(client, run, loop)
 
     _accept_run_result_and_assert_observation_event(client, service, run, loop)
+    accepted_events_after_first_post = service.recent_run_events(run["id"], event_types={"run_result_accepted"})
+    first_accept_event_id = accepted_events_after_first_post[-1]["id"]
+    accepted_task_verdict_status = accepted_events_after_first_post[-1]["payload"]["task_verdict_status"]
+    page_after_accept = client.get(f"/runs/{run['id']}")
+    assert page_after_accept.status_code == 200
+    assert 'data-testid="run-accepted-result-state"' in page_after_accept.text
+    assert _expected_recorded_verdict_page_text(accepted_task_verdict_status) in page_after_accept.text
+    assert 'data-testid="run-accept-result-button"' not in page_after_accept.text
+    duplicate_accept_response = client.post(f"/runs/{run['id']}/accept", follow_redirects=False)
+    assert duplicate_accept_response.status_code == 303
+    accepted_events_after_duplicate_post = service.recent_run_events(run["id"], event_types={"run_result_accepted"})
+    assert [event["id"] for event in accepted_events_after_duplicate_post] == [first_accept_event_id]
+    acceptance_state = service.run_result_acceptance_state(run["id"])
+    assert acceptance_state["accepted"] is True
+    assert acceptance_state["event_id"] == first_accept_event_id
     snapshot_response = client.get(f"/api/runs/{run['id']}/observation-snapshot")
     assert snapshot_response.status_code == 200
     snapshot_payload = snapshot_response.json()
     accepted_timeline_events = [event for event in snapshot_payload["timeline_events"] if event["event_type"] == "run_result_accepted"]
     assert accepted_timeline_events
-    assert accepted_timeline_events[-1]["title"] == "Conclusion accepted"
+    assert accepted_timeline_events[-1]["title"] == _expected_recorded_verdict_title(accepted_task_verdict_status)
     assert snapshot_payload["key_takeaways"]["source_event_id"] <= snapshot_payload["latest_event_id"]
 
     rerun_response = client.post(f"/runs/{run['id']}/rerun", follow_redirects=False)
@@ -2185,13 +2361,131 @@ def test_run_detail_separates_status_verdict_and_reruns_terminal_run(
     assert new_run_id
     assert new_run_id != run["id"]
     assert service.get_run(new_run_id)["loop_id"] == loop["id"]
+    _wait_for_run_terminal_status(service, new_run_id)
+
+
+def _assert_run_detail_terminal_actions_page(client: TestClient, run: dict, loop: dict) -> None:
+    page_response = client.get(f"/runs/{run['id']}")
+    assert page_response.status_code == 200
+    assert "Run status" in page_response.text
+    assert "Task verdict" in page_response.text
+    assert 'data-testid="run-status-card"' in page_response.text
+    assert 'data-testid="run-task-verdict-card"' in page_response.text
+    assert 'data-testid="run-latest-event-card"' in page_response.text
+    assert 'data-testid="run-agent-handoff-card"' in page_response.text
+    assert 'data-testid="run-export-loop-button"' in page_response.text
+    assert f"/bundles/derive/export?loop_id={loop['id']}" in page_response.text
+    assert 'data-testid="run-accept-result-button"' in page_response.text
+    assert 'data-testid="run-rerun-button"' in page_response.text
+    assert "Run next evidence pass" in page_response.text
+    assert '<span data-lang="en">Rerun</span>' not in page_response.text
+    assert 'id="stop-run"' not in page_response.text
+
+    export_response = client.get(f"/bundles/derive/export?loop_id={loop['id']}")
+    assert export_response.status_code == 200
+    assert export_response.headers["content-type"].startswith("application/yaml")
+    assert "Rerun From Detail Loop" in export_response.text
+
+
+def _wait_for_run_terminal_status(service, run_id: str) -> None:
     deadline = time.time() + 5
     while time.time() < deadline:
-        new_run = service.get_run(new_run_id)
+        new_run = service.get_run(run_id)
         if new_run["status"] in {"succeeded", "failed", "stopped"}:
             break
         time.sleep(0.05)
-    assert service.get_run(new_run_id)["status"] in {"succeeded", "failed", "stopped"}
+    assert service.get_run(run_id)["status"] in {"succeeded", "failed", "stopped"}
+
+
+def test_run_detail_keeps_generic_rerun_for_passing_terminal_run(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Passing Detail Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=2,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    service.repository.update_run(
+        run["id"],
+        task_verdict={
+            "status": "passed",
+            "source": "gatekeeper",
+            "summary": "Required proof is complete.",
+            "buckets": {"proven": [{"label": "all required checks"}]},
+        },
+    )
+    client = TestClient(build_app(service=service))
+
+    page_response = client.get(f"/runs/{run['id']}")
+
+    assert page_response.status_code == 200
+    assert 'data-testid="run-rerun-button"' in page_response.text
+    assert '<span data-lang="en">Rerun</span>' in page_response.text
+    assert "Run next evidence pass" not in page_response.text
+    assert "Record passing verdict" in page_response.text
+
+
+def test_run_detail_rerun_routes_agent_first_terminal_run_back_to_slash_command(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    started = _start_agent_first_loop(service, tmp_path=tmp_path, workdir=sample_workdir)
+    service.repository.update_run(
+        started["run"]["id"],
+        status="succeeded",
+        task_verdict={
+            "status": "insufficient_evidence",
+            "source": "gatekeeper",
+            "summary": "Required coverage still lacks direct evidence.",
+            "buckets": {
+                "proven": [],
+                "weak": [],
+                "unproven": [{"id": "coverage.required", "summary": "Required coverage is still missing."}],
+                "blocking": [],
+                "residual_risk": [],
+            },
+        },
+        summary_md="# Loopora Run Summary\n\nLifecycle closed; task evidence still belongs to the Agent-first lane.\n",
+    )
+    client = TestClient(build_app(service=service))
+
+    page_response = client.get(f"/runs/{started['run']['id']}")
+
+    assert page_response.status_code == 200
+    assert 'data-testid="run-agent-entry-start-guide"' in page_response.text
+    assert 'data-testid="run-agent-entry-copy-command-hero"' in page_response.text
+    assert 'data-testid="run-agent-entry-copy-command"' in page_response.text
+    assert "/loopora-loop" in page_response.text
+    assert "loopora agent codex loop" in page_response.text
+    assert "--context-id web-api-agent-first" in page_response.text
+    assert "开启下一轮" in page_response.text
+    assert "复制续跑命令" in page_response.text
+    assert 'data-agent-entry-command-copy' in page_response.text
+    assert 'data-copy-value="LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex loop' in page_response.text
+    assert 'data-testid="run-rerun-button"' not in page_response.text
+
+    rerun_response = client.post(f"/runs/{started['run']['id']}/rerun")
+
+    assert rerun_response.status_code == 409
+    rerun_payload = rerun_response.json()
+    assert "agent-first Loop runs" in rerun_payload["error"]
+    assert rerun_payload["agent_entry_start"]["next_loop_action"] == "start_next_run_for_unproven_verdict"
+    assert rerun_payload["agent_entry_start"]["linked_task_verdict_status"] == "insufficient_evidence"
+    assert len(service.get_loop(started["run"]["loop_id"])["runs"]) == 1
 
 
 def test_run_accept_result_rejects_active_run(

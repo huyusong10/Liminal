@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -27,6 +28,140 @@ from loopora.structured_numbers import structured_non_negative_int
 logger = get_logger(__name__)
 
 ACCEPTANCE_EVIDENCE_BUCKETS = ("proven", "weak", "unproven", "blocking", "residual_risk")
+
+
+def recorded_verdict_kind_for_task_status(task_verdict_status: object) -> str:
+    status = str(task_verdict_status or "").strip().lower()
+    return {
+        "passed": "passed_verdict_recorded",
+        "passed_with_residual_risk": "passed_with_residual_risk_recorded",
+        "insufficient_evidence": "unproven_verdict_recorded",
+        "failed": "failed_verdict_recorded",
+        "not_evaluated": "not_evaluated_verdict_recorded",
+    }.get(status, "evidence_verdict_recorded")
+
+
+def _text(value: object, *, limit: int = 400) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()[:limit]
+
+
+def _dict(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _list_of_dicts(value: object, *, limit: int = 5) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)][:limit]
+
+
+def _list_of_strings(value: object, *, limit: int = 8) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()][:limit]
+
+
+def _current_agent_step_continuation_projection(capsule: dict) -> dict:
+    continuation = _dict(capsule.get("continuation"))
+    if continuation.get("active") is not True:
+        return {}
+    verdict = _dict(continuation.get("previous_task_verdict"))
+    coverage = _dict(continuation.get("coverage"))
+    return {
+        "active": True,
+        "reason": _text(continuation.get("reason")),
+        "previous_run_id": _text(continuation.get("previous_run_id")),
+        "previous_run_path": _text(continuation.get("previous_run_path"), limit=1000),
+        "previous_run_status": _text(continuation.get("previous_run_status")),
+        "previous_task_verdict": {
+            "status": _text(verdict.get("status")),
+            "source": _text(verdict.get("source")),
+            "summary": _text(verdict.get("summary"), limit=600),
+        },
+        "previous_task_verdict_path": _text(continuation.get("previous_task_verdict_path"), limit=2000),
+        "previous_evidence_coverage_path": _text(continuation.get("previous_evidence_coverage_path"), limit=2000),
+        "coverage": {
+            "status": _text(coverage.get("status")),
+            "covered_check_count": structured_non_negative_int(coverage.get("covered_check_count")),
+            "missing_check_count": structured_non_negative_int(coverage.get("missing_check_count")),
+            "covered_check_ids": _list_of_strings(coverage.get("covered_check_ids"), limit=20),
+            "missing_check_ids": _list_of_strings(coverage.get("missing_check_ids"), limit=20),
+            "top_gaps": _list_of_dicts(coverage.get("top_gaps"), limit=5),
+        },
+        "next_focus": _list_of_strings(continuation.get("next_focus"), limit=8),
+    }
+
+
+def _current_agent_step_projection(run: dict) -> dict:
+    if str(run.get("status") or run.get("run_status") or "") not in ACTIVE_RUN_STATUSES:
+        return {}
+    runs_dir = _text(run.get("runs_dir"), limit=2000)
+    if not runs_dir:
+        return {}
+    state_path = Path(runs_dir) / "agent_native" / "state.json"
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    active = _dict(state.get("active_step"))
+    capsule = _dict(active.get("capsule"))
+    if not capsule:
+        return {}
+    role = _dict(capsule.get("role"))
+    dispatch = _dict(capsule.get("role_dispatch"))
+    coverage = _dict(capsule.get("required_coverage"))
+    submit_hint = _dict(capsule.get("submit_hint"))
+    known_evidence_ids = capsule.get("known_evidence_ids")
+    top_gaps = _list_of_dicts(coverage.get("top_gaps"))
+    return {
+        "step_id": _text(capsule.get("step_id")),
+        "iter": structured_non_negative_int(capsule.get("iter")),
+        "step_order": structured_non_negative_int(capsule.get("step_order")),
+        "claimed_at": _text(active.get("claimed_at")),
+        "role": {
+            "id": _text(role.get("id")),
+            "name": _text(role.get("name")),
+            "archetype": _text(role.get("archetype")),
+            "runtime_role": _text(role.get("runtime_role")),
+            "posture_notes": _text(role.get("posture_notes")),
+        },
+        "target_agent": _text(dispatch.get("target_agent")),
+        "role_dispatch": {
+            "target_agent": _text(dispatch.get("target_agent")),
+            "inline_allowed": dispatch.get("inline_allowed") is True,
+            "dispatch_contract": _text(dispatch.get("dispatch_contract")),
+        },
+        "action_policy": _dict(capsule.get("action_policy")),
+        "required_coverage": {
+            "status": _text(coverage.get("status")),
+            "evidence_progress_mode": _text(coverage.get("evidence_progress_mode")),
+            "covered_check_count": structured_non_negative_int(coverage.get("covered_check_count")),
+            "missing_check_count": structured_non_negative_int(coverage.get("missing_check_count")),
+            "covered_check_ids": [str(item) for item in coverage.get("covered_check_ids", []) if isinstance(item, str)][:20]
+            if isinstance(coverage.get("covered_check_ids"), list)
+            else [],
+            "missing_check_ids": [str(item) for item in coverage.get("missing_check_ids", []) if isinstance(item, str)][:20]
+            if isinstance(coverage.get("missing_check_ids"), list)
+            else [],
+            "top_gaps": top_gaps,
+        },
+        "continuation": _current_agent_step_continuation_projection(capsule),
+        "context_path": _text(capsule.get("context_path"), limit=1000),
+        "context_absolute_path": _text(capsule.get("context_absolute_path"), limit=2000),
+        "capsule_path": _text(capsule.get("capsule_path"), limit=1000),
+        "capsule_absolute_path": _text(capsule.get("capsule_absolute_path"), limit=2000),
+        "submit_hint": {
+            "command": _text(submit_hint.get("command"), limit=1000),
+            "result_file_contract": _text(submit_hint.get("result_file_contract"), limit=1000),
+            "result_outbox_dir": _text(submit_hint.get("result_outbox_dir"), limit=1000),
+            "result_outbox_absolute_dir": _text(submit_hint.get("result_outbox_absolute_dir"), limit=2000),
+            "result_template_path": _text(submit_hint.get("result_template_path"), limit=1000),
+            "result_template_absolute_path": _text(submit_hint.get("result_template_absolute_path"), limit=2000),
+        },
+        "known_evidence_count": len(known_evidence_ids) if isinstance(known_evidence_ids, list) else 0,
+    }
 
 
 def _acceptance_text(value: object, *, limit: int | None = None) -> str:
@@ -118,7 +253,7 @@ class ServiceRunLifecycleMixin:
                     continue
                 hydrated = self._hydrate_run_files(run)
                 payload = (
-                    build_run_key_takeaways(hydrated) if trigger_event_id else self._minimal_run_takeaway_projection(hydrated, source_event_id=source_event_id)
+                    build_run_key_takeaways(hydrated) if trigger_event_id else build_minimal_run_takeaway_projection(hydrated, source_event_id=source_event_id)
                 )
                 self.repository.record_run_takeaway_projection(run_id, source_event_id, payload)
             except Exception as exc:  # noqa: BLE001 - projection backfill is best-effort startup repair.
@@ -217,16 +352,33 @@ class ServiceRunLifecycleMixin:
         if run["status"] not in TERMINAL_RUN_STATUSES:
             raise LooporaConflictError(f"cannot accept run result in status {run['status']}")
         task_verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), dict) else {}
-        evidence_source_event_id = self.repository.latest_event_id_for_types(run_id, TAKEAWAY_PROJECTION_EVENT_TYPES) or self.repository.latest_event_id(run_id)
+        evidence_source_event_id = self._run_acceptance_evidence_source_event_id(run_id)
+        task_verdict_status = str(task_verdict.get("status") or "")
+        existing_acceptance = self._latest_run_result_acceptance_for_source(
+            run_id,
+            evidence_source_event_id=evidence_source_event_id,
+            task_verdict_status=task_verdict_status,
+        )
+        if existing_acceptance:
+            return {
+                "id": run_id,
+                "status": run["status"],
+                "task_verdict": task_verdict,
+                "event_id": existing_acceptance.get("id"),
+                "accepted": True,
+                "reused_event": True,
+                "recorded_verdict_kind": recorded_verdict_kind_for_task_status(task_verdict_status),
+            }
         acceptance_evidence = self._run_acceptance_evidence_payload(run, evidence_source_event_id=evidence_source_event_id)
         event = self.append_run_event(
             run_id,
             "run_result_accepted",
             {
                 "status": run["status"],
-                "task_verdict_status": str(task_verdict.get("status") or ""),
+                "task_verdict_status": task_verdict_status,
                 "task_verdict_source": str(task_verdict.get("source") or ""),
                 "task_verdict_summary": str(task_verdict.get("summary") or ""),
+                "recorded_verdict_kind": recorded_verdict_kind_for_task_status(task_verdict_status),
                 **acceptance_evidence,
             },
         )
@@ -235,7 +387,59 @@ class ServiceRunLifecycleMixin:
             "status": run["status"],
             "task_verdict": task_verdict,
             "event_id": event.get("id"),
+            "accepted": True,
+            "reused_event": False,
+            "recorded_verdict_kind": recorded_verdict_kind_for_task_status(task_verdict_status),
         }
+
+    def run_result_acceptance_state(self, run_id: str) -> dict:
+        run = self.get_run(run_id)
+        if run["status"] not in TERMINAL_RUN_STATUSES:
+            return {"accepted": False, "event_id": 0, "evidence_source_event_id": 0, "task_verdict_status": ""}
+        task_verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), dict) else {}
+        task_verdict_status = str(task_verdict.get("status") or "")
+        evidence_source_event_id = self._run_acceptance_evidence_source_event_id(run_id)
+        accepted_event = self._latest_run_result_acceptance_for_source(
+            run_id,
+            evidence_source_event_id=evidence_source_event_id,
+            task_verdict_status=task_verdict_status,
+        )
+        return {
+            "accepted": bool(accepted_event),
+            "event_id": int((accepted_event or {}).get("id") or 0),
+            "evidence_source_event_id": evidence_source_event_id,
+            "task_verdict_status": task_verdict_status,
+            "recorded_verdict_kind": recorded_verdict_kind_for_task_status(task_verdict_status),
+        }
+
+    def _run_acceptance_evidence_source_event_id(self, run_id: str) -> int:
+        return (
+            self.repository.latest_event_id_for_types(run_id, TAKEAWAY_PROJECTION_EVENT_TYPES)
+            or self.repository.latest_event_id_for_types(run_id, TIMELINE_EVENT_TYPES - {"run_result_accepted"})
+            or self._latest_non_acceptance_event_id(run_id)
+        )
+
+    def _latest_non_acceptance_event_id(self, run_id: str) -> int:
+        for event in reversed(self.repository.list_recent_events(run_id, limit=100)):
+            if event.get("event_type") != "run_result_accepted":
+                return structured_non_negative_int(event.get("id"))
+        return 0
+
+    def _latest_run_result_acceptance_for_source(
+        self,
+        run_id: str,
+        *,
+        evidence_source_event_id: int,
+        task_verdict_status: str,
+    ) -> dict:
+        for event in reversed(self.repository.list_recent_events(run_id, event_types={"run_result_accepted"}, limit=20)):
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            if structured_non_negative_int(payload.get("evidence_source_event_id")) != evidence_source_event_id:
+                continue
+            if str(payload.get("task_verdict_status") or "") != task_verdict_status:
+                continue
+            return event
+        return {}
 
     def _run_acceptance_evidence_payload(self, run: dict, *, evidence_source_event_id: int) -> dict:
         try:
@@ -368,8 +572,9 @@ class ServiceRunLifecycleMixin:
             structured_non_negative_int(key_takeaways.get("source_event_id")),
             structured_non_negative_int(snapshot["latest_event_id"]),
         )
+        current_agent_step = _current_agent_step_projection(run)
         snapshot.pop("key_takeaway_projection", None)
-        return {**snapshot, "run": run, "key_takeaways": key_takeaways}
+        return {**snapshot, "run": run, "key_takeaways": key_takeaways, "current_agent_step": current_agent_step}
 
     def get_runtime_activity(self) -> dict:
         self._reconcile_local_orphaned_runs()

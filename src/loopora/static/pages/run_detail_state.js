@@ -16,6 +16,9 @@
       takeawaySnapshot: state.takeawaySnapshot && typeof state.takeawaySnapshot === "object"
         ? {...state.takeawaySnapshot}
         : {},
+      currentAgentStep: state.currentAgentStep && typeof state.currentAgentStep === "object"
+        ? {...state.currentAgentStep}
+        : {},
     };
   }
 
@@ -28,6 +31,7 @@
       takeawaySnapshot: state.takeawaySnapshot && typeof state.takeawaySnapshot === "object"
         ? state.takeawaySnapshot
         : {},
+      currentAgentStep: state.currentAgentStep && typeof state.currentAgentStep === "object" ? state.currentAgentStep : {},
       lastEventId: numericId(state.lastEventId),
       observationState: state.observationState || "loading",
     };

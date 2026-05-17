@@ -175,7 +175,10 @@ def build_role_takeaway_from_handoff(handoff: Mapping[str, object], *, composite
     }
 
 
-def build_structured_iteration_takeaways(run: dict) -> list[dict]:
+ACTIVE_TAKEAWAY_RUN_STATUSES = {"queued", "running", "awaiting_agent", "stopping"}
+
+
+def build_structured_iteration_takeaways(run: dict, *, current_coverage: Mapping[str, Any] | None = None) -> list[dict]:
     runs_dir_value = str(run.get("runs_dir") or "").strip()
     if not runs_dir_value:
         return []
@@ -197,7 +200,7 @@ def build_structured_iteration_takeaways(run: dict) -> list[dict]:
                 handoffs_by_iter.get(iter_id, []),
                 key=_handoff_step_order,
             ),
-            current_iter_id=current_iter_id,
+            current_coverage=current_coverage if iter_id == current_iter_id else None,
         )
         for iter_id in iter_ids
     ]
@@ -231,6 +234,54 @@ def _iteration_handoffs_by_iter(runs_dir: Path) -> dict[int, list[dict]]:
 def _current_iter_id(run: Mapping[str, Any]) -> int | None:
     current_iter = run.get("current_iter")
     return _int_value(current_iter, default=None) if current_iter is not None else None
+
+
+def _terminal_task_verdict(run: Mapping[str, Any]) -> Mapping[str, Any]:
+    verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), Mapping) else run.get("task_verdict_json")
+    return verdict if isinstance(verdict, Mapping) else {}
+
+
+def _terminal_task_verdict_status_for_iteration(
+    run: Mapping[str, Any],
+    *,
+    iter_id: int,
+    current_iter_id: int | None,
+) -> str:
+    if current_iter_id != iter_id:
+        return ""
+    run_status = str(run.get("status") or "").strip().lower()
+    if run_status in {"", "queued", "running", "awaiting_agent", "stopping"}:
+        return ""
+    verdict_status = str(_terminal_task_verdict(run).get("status") or "").strip().lower()
+    return {
+        "failed": "failed",
+        "insufficient_evidence": "blocked",
+        "passed_with_residual_risk": "completed",
+        "passed": "passed",
+    }.get(verdict_status, "")
+
+
+def _terminal_task_verdict_summary_for_iteration(
+    run: Mapping[str, Any],
+    *,
+    iter_id: int,
+    current_iter_id: int | None,
+) -> str:
+    if current_iter_id != iter_id:
+        return ""
+    run_status = str(run.get("status") or "").strip().lower()
+    if run_status in {"", "queued", "running", "awaiting_agent", "stopping"}:
+        return ""
+    verdict = _terminal_task_verdict(run)
+    verdict_status = str(verdict.get("status") or "").strip().lower()
+    summary = clean_takeaway_text(verdict.get("summary"), max_length=220)
+    if verdict_status == "insufficient_evidence":
+        return f"Task verdict insufficient evidence: {summary}" if summary else "Task verdict is still insufficient."
+    if verdict_status == "failed":
+        return f"Task verdict failed: {summary}" if summary else "Task verdict failed."
+    if verdict_status == "passed_with_residual_risk":
+        return f"Task verdict passed with residual risk: {summary}" if summary else "Task verdict passed with residual risk."
+    return ""
 
 
 def _int_value(value: object, *, default: int | None) -> int | None:
@@ -283,14 +334,20 @@ def _build_structured_iteration_takeaway(
     iter_id: int,
     summary_payload: Mapping[str, Any],
     handoffs: list[dict],
-    current_iter_id: int | None,
+    current_coverage: Mapping[str, Any] | None = None,
 ) -> dict:
+    current_iter_id = _current_iter_id(run)
     score_payload = summary_payload.get("score") if isinstance(summary_payload.get("score"), Mapping) else {}
     stagnation_payload = summary_payload.get("stagnation") if isinstance(summary_payload.get("stagnation"), Mapping) else {}
+    coverage_fallback = current_coverage if isinstance(current_coverage, Mapping) and not stagnation_payload else {}
     composite_score = score_payload.get("composite")
     roles = [build_role_takeaway_from_handoff(handoff, composite_score=composite_score) for handoff in handoffs]
     primary_role = _primary_role_takeaway(roles)
-    summary_text = (primary_role.get("summary") if isinstance(primary_role, Mapping) else "") or clean_takeaway_text(run.get("summary_md"), max_length=220)
+    summary_text = (
+        _terminal_task_verdict_summary_for_iteration(run, iter_id=iter_id, current_iter_id=current_iter_id)
+        or (primary_role.get("summary") if isinstance(primary_role, Mapping) else "")
+        or clean_takeaway_text(run.get("summary_md"), max_length=220)
+    )
     return {
         "iter": iter_id,
         "display_iter": display_iter(iter_id),
@@ -306,13 +363,23 @@ def _build_structured_iteration_takeaway(
         "timestamp": str(summary_payload.get("timestamp") or "").strip(),
         "composite_score": composite_score,
         "stagnation_mode": str(stagnation_payload.get("mode") or "none"),
-        "evidence_progress_mode": str(stagnation_payload.get("evidence_progress_mode") or "none"),
-        "coverage_status": str(stagnation_payload.get("coverage_status") or "pending"),
-        "covered_check_count": _int_value(stagnation_payload.get("covered_check_count"), default=0),
-        "missing_check_count": _int_value(stagnation_payload.get("missing_check_count"), default=0),
-        "covered_check_ids": _string_list(stagnation_payload.get("covered_check_ids")),
-        "missing_check_ids": _string_list(stagnation_payload.get("missing_check_ids")),
-        "coverage_top_gaps": _coverage_gap_list(stagnation_payload.get("coverage_top_gaps")),
+        "evidence_progress_mode": str(
+            stagnation_payload.get("evidence_progress_mode")
+            or coverage_fallback.get("evidence_progress_mode")
+            or "none"
+        ),
+        "coverage_status": str(stagnation_payload.get("coverage_status") or coverage_fallback.get("status") or "pending"),
+        "covered_check_count": _int_value(
+            stagnation_payload.get("covered_check_count", coverage_fallback.get("covered_check_count")),
+            default=0,
+        ),
+        "missing_check_count": _int_value(
+            stagnation_payload.get("missing_check_count", coverage_fallback.get("missing_check_count")),
+            default=0,
+        ),
+        "covered_check_ids": _string_list(stagnation_payload.get("covered_check_ids") or coverage_fallback.get("covered_check_ids")),
+        "missing_check_ids": _string_list(stagnation_payload.get("missing_check_ids") or coverage_fallback.get("missing_check_ids")),
+        "coverage_top_gaps": _coverage_gap_list(stagnation_payload.get("coverage_top_gaps") or coverage_fallback.get("top_gaps")),
         "consecutive_no_required_coverage_delta": _int_value(
             stagnation_payload.get("consecutive_no_required_coverage_delta"),
             default=0,
@@ -334,13 +401,16 @@ def _structured_iteration_status(
     iter_id: int,
     current_iter_id: int | None,
 ) -> str:
+    terminal_status = _terminal_task_verdict_status_for_iteration(run, iter_id=iter_id, current_iter_id=current_iter_id)
+    if terminal_status:
+        return terminal_status
     passed = score_payload.get("passed")
     status = "pending"
     if passed is True:
         status = "passed"
     elif passed is False:
         status = "blocked"
-    elif current_iter_id == iter_id and str(run.get("status") or "").strip() == "running":
+    elif current_iter_id == iter_id and str(run.get("status") or "").strip().lower() in ACTIVE_TAKEAWAY_RUN_STATUSES:
         status = "running"
     elif roles:
         status = normalize_takeaway_status(roles[-1].get("status"))
@@ -879,7 +949,8 @@ def _role_posture_takeaway_list(value: object, *, max_items: int = 6, max_length
 
 
 def build_run_key_takeaways(run: dict) -> RunTakeawayProjection:
-    iterations = build_structured_iteration_takeaways(run)
+    evidence_coverage = build_evidence_coverage(run)
+    iterations = build_structured_iteration_takeaways(run, current_coverage=evidence_coverage)
     if not iterations:
         legacy_iteration = build_legacy_iteration_takeaway(run)
         if legacy_iteration:
@@ -890,7 +961,6 @@ def build_run_key_takeaways(run: dict) -> RunTakeawayProjection:
     runs_dir_value = str(run.get("runs_dir") or "").strip()
     if runs_dir_value:
         evidence_count = len(read_jsonl(RunArtifactLayout(Path(runs_dir_value)).evidence_ledger_path))
-    evidence_coverage = build_evidence_coverage(run)
     evidence_manifest = build_evidence_manifest(run)
     projection = build_minimal_run_takeaway_projection(run)
     projection.update(

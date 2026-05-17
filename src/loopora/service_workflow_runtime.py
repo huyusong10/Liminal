@@ -271,6 +271,9 @@ class ServiceWorkflowRuntimeMixin:
                 evidence_known_ids=evidence_known_ids,
                 evidence_manifest_summary=evidence_manifest_summary,
                 evidence_manifest_claims=evidence_manifest_claims,
+                continuation_context=runtime_request.run_contract.get("continuation_context")
+                if isinstance(runtime_request.run_contract, dict)
+                else None,
             )
         )
         context_path = layout.step_context_path(iter_id, step_order, step["id"])
@@ -333,6 +336,7 @@ class ServiceWorkflowRuntimeMixin:
                 "role_name": role["name"],
                 "action_policy": dict(step.get("action_policy") or {}),
                 "step_model": execution_settings["step_model"],
+                "context_path": layout.relative(context_path),
                 "inherit_session": bool(execution_settings["inherit_session"]),
                 "extra_cli_args_text": str(execution_settings["extra_cli_args_text"]),
                 "resume_session_id": str((resume_session_ref or {}).get("session_id", "")),

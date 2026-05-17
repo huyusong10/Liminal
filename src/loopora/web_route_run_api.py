@@ -60,6 +60,15 @@ def _register_loop_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
 
     @app.post("/api/loops/{loop_id}/runs")
     async def api_start_run(loop_id: str) -> JSONResponse:
+        agent_entry_start = ctx.svc().agent_entry_loop_start_projection(loop_id)
+        if agent_entry_start:
+            return JSONResponse(
+                {
+                    "error": "agent-first Loop runs must be started or continued with /loopora-loop in the host Agent",
+                    "agent_entry_start": agent_entry_start,
+                },
+                status_code=409,
+            )
         run = ctx.svc().start_run(loop_id)
         ctx.svc().start_run_async(run["id"])
         return JSONResponse(run, status_code=201)

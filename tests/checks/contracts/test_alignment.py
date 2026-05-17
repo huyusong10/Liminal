@@ -44,6 +44,23 @@ def _confirm_alignment_agreement(service, session_id: str, *final_statuses: str)
     return confirmed
 
 
+def _bundle_invocation_dir(artifact_root: Path) -> Path:
+    bundle_invocations: list[Path] = []
+    for invocation_dir in sorted((artifact_root / "invocations").iterdir()):
+        output_path = invocation_dir / "output.json"
+        if not output_path.is_file():
+            continue
+        try:
+            output = json.loads(output_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if output.get("bundle_written") is True:
+            bundle_invocations.append(invocation_dir)
+    if not bundle_invocations:
+        raise AssertionError("no bundle-writing alignment invocation was recorded")
+    return bundle_invocations[-1]
+
+
 def _assert_run_succeeds_and_joins(service, run_id: str, *, timeout: float = 5.0) -> None:
     deadline = time.time() + timeout
     run = service.get_run(run_id)
@@ -132,7 +149,12 @@ def test_alignment_service_writes_validates_previews_imports_and_runs(
     assert (invocation_dir / "output.json").exists()
     assert (invocation_dir / "stdout.log").exists()
     assert (invocation_dir / "stderr.log").exists()
+    bundle_invocation_dir = _bundle_invocation_dir(artifact_root)
+    assert bundle_invocation_dir != invocation_dir
     invocation_output = json.loads((invocation_dir / "output.json").read_text(encoding="utf-8"))
+    assert "bundle_yaml" not in invocation_output
+    assert invocation_output["bundle_written"] is False
+    invocation_output = json.loads((bundle_invocation_dir / "output.json").read_text(encoding="utf-8"))
     assert "bundle_yaml" not in invocation_output
     assert invocation_output["bundle_written"] is True
     assert invocation_output["bundle_path"] == str(bundle_path)
@@ -1078,7 +1100,7 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
     )
     session = _confirm_alignment_agreement(service, created["id"])
     artifact_root = Path(session["artifact_dir"])
-    prompt_text = (artifact_root / "invocations" / "0001" / "prompt.md").read_text(encoding="utf-8")
+    prompt_text = (_bundle_invocation_dir(artifact_root) / "prompt.md").read_text(encoding="utf-8")
 
     assert prompt_text.index("## Loopora Product Primer") < prompt_text.index("## Agent-Led Compiler Policy")
     assert "## Embedded Skill" not in prompt_text
@@ -1319,9 +1341,12 @@ def test_alignment_message_after_corrupt_ready_bundle_keeps_session_usable(
 
     service.append_alignment_message(session["id"], "请根据对话重新整理方案。")
 
-    continued = _wait_for_status(service, session["id"], "waiting_user")
+    continued = _wait_for_status(service, session["id"], "ready")
     assert continued["error_message"] == ""
+    assert continued["validation"]["ok"] is True
     assert continued["transcript"][-1]["role"] == "assistant"
+    prompt_text = (_bundle_invocation_dir(Path(continued["artifact_dir"])) / "prompt.md").read_text(encoding="utf-8")
+    assert "Current bundle file could not be read" in prompt_text
 
 
 def test_alignment_service_blocks_premature_bundle_output(service_factory, sample_workdir: Path) -> None:
@@ -2471,6 +2496,49 @@ def test_alignment_api_covers_session_events_bundle_and_import(
     assert client.get("/api/alignments/sessions").json()["sessions"] == []
 
 
+def test_alignment_ready_preview_feedback_recompiles_from_current_bundle(
+    service_factory,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    created = service.create_alignment_session(
+        workdir=sample_workdir,
+        message=(
+            "Create a focused starter Loop with project-owned evidence, fake-done protection, "
+            "and conservative GateKeeper closure."
+        ),
+    )
+    ready = _confirm_alignment_agreement(service, created["id"])
+    bundle_before = Path(ready["bundle_path"]).read_text(encoding="utf-8")
+    agreement_before = dict(ready["working_agreement"])
+    feedback = (
+        "审查后请调整这份 Loop 预览：primary user flow、project-owned evidence、"
+        "happy-path claim 和 GateKeeper weak proof 必须继续作为阻断判断。"
+    )
+
+    service.append_alignment_message(ready["id"], feedback)
+    reviewed = _wait_for_status(service, ready["id"], "ready")
+
+    assert reviewed["alignment_stage"] == "ready"
+    assert reviewed["working_agreement"]["summary"] == agreement_before["summary"]
+    assert reviewed["working_agreement"]["readiness_checklist"]["explicit_confirmation"] is True
+    assert reviewed["working_agreement"]["ready_review"]["feedback"] == feedback
+    assert Path(reviewed["bundle_path"]).read_text(encoding="utf-8").strip()
+    transcript_log = Path(reviewed["artifact_dir"]) / "conversation" / "transcript.jsonl"
+    assert feedback in transcript_log.read_text(encoding="utf-8")
+    events = service.list_alignment_events(ready["id"])
+    assert any(event["event_type"] == "alignment_ready_review_started" for event in events)
+    assert any(event["event_type"] == "alignment_bundle_written" for event in events)
+    prompt_paths = sorted((Path(reviewed["artifact_dir"]) / "invocations").glob("*/prompt.md"))
+    assert len(prompt_paths) >= 2
+    prompt_text = prompt_paths[-1].read_text(encoding="utf-8")
+    assert "Current compiler gate: ready preview review" in prompt_text
+    assert "The session already has a READY candidate bundle" in prompt_text
+    assert "## Current Bundle" in prompt_text
+    assert bundle_before.splitlines()[0] in prompt_text
+    assert feedback in prompt_text
+
+
 def test_alignment_api_start_immediately_false_keeps_new_session_idle(
     service_factory,
     sample_workdir: Path,
@@ -2940,6 +3008,7 @@ def test_alignment_improvement_session_can_start_from_run_evidence(
     run_contract_payload["execution_strategy"] = ["Repair evidence gaps before broad polishing."]
     run_contract_payload["local_governance"] = ["GateKeeper treats skipped AGENTS.md evidence as Blocking."]
     run_contract_path.write_text(json.dumps(run_contract_payload, ensure_ascii=False), encoding="utf-8")
+    _write_run_revision_coverage(Path(run["runs_dir"]) / "evidence" / "coverage.json")
 
     session = service.create_run_revision_session(run["id"], start_immediately=False)
 
@@ -2960,12 +3029,77 @@ def test_alignment_improvement_session_can_start_from_run_evidence(
     assert agreement["source"]["judgment_contract"]["collaboration_summary"] == "Use GateKeeper evidence to improve the plan."
     assert agreement["source"]["judgment_contract"]["execution_strategy"] == ["Repair evidence gaps before broad polishing."]
     assert agreement["source"]["judgment_contract"]["local_governance"] == ["GateKeeper treats skipped AGENTS.md evidence as Blocking."]
-    assert "coverage_summary" in agreement["source"]
+    _assert_run_revision_coverage_agreement(agreement)
+    context_text = alignment_module.ServiceAlignmentMixin._alignment_improvement_context_text(session)
+    _assert_run_revision_context_text(context_text, run, agreement)
+    preview = service.get_alignment_bundle(session["id"])
+    assert preview["ok"] is True
+    assert preview["bundle"]["metadata"]["source_bundle_id"] == ""
+    assert "source_bundle_id" not in preview["yaml"]
+
+
+def _write_run_revision_coverage(coverage_path: Path) -> None:
+    coverage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "ledger_path": "evidence/ledger.jsonl",
+                "coverage_path": "evidence/coverage.json",
+                "status": "partial",
+                "summary": {"reason": "Required refund audit and payment failure checks still lack direct proof."},
+                "evidence_count": 4,
+                "check_count": 3,
+                "covered_check_count": 1,
+                "missing_check_count": 2,
+                "covered_check_ids": ["check_permission"],
+                "missing_check_ids": ["check_payment_failure", "check_audit_trail"],
+                "target_count": 6,
+                "covered_target_count": 2,
+                "weak_target_count": 1,
+                "missing_target_count": 2,
+                "blocked_target_count": 1,
+                "top_gaps": [
+                    {
+                        "target_id": "done_when.check_payment_failure",
+                        "text": "Payment failure handoff has no direct proof.",
+                    },
+                    {
+                        "target_id": "done_when.check_audit_trail",
+                        "text": "Audit trail cannot yet reconstruct a refund.",
+                    },
+                ],
+                "evidence_kind_counts": {"artifact": 2, "summary": 2},
+                "artifact_ref_count": 2,
+                "residual_risk_count": 1,
+                "risk_signals": ["Payment provider retry path remains visible."],
+                "latest_gatekeeper": {"id": "ev_gatekeeper", "result": "blocked"},
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _assert_run_revision_coverage_agreement(agreement: dict) -> None:
+    coverage_summary = agreement["source"]["coverage_summary"]
+    assert coverage_summary["ledger_path"] == "evidence/ledger.jsonl"
+    assert coverage_summary["coverage_path"] == "evidence/coverage.json"
+    assert coverage_summary["covered_check_count"] == 1
+    assert coverage_summary["missing_check_count"] == 2
+    assert coverage_summary["covered_check_ids"] == ["check_permission"]
+    assert coverage_summary["missing_check_ids"] == ["check_payment_failure", "check_audit_trail"]
+    assert coverage_summary["weak_target_count"] == 1
+    assert coverage_summary["blocked_target_count"] == 1
+    assert coverage_summary["risk_signals"] == ["Payment provider retry path remains visible."]
     assert any(item["artifact_refs"] for item in agreement["source"]["evidence_summary"])
     assert agreement["source"]["task_verdict"]["status"]
     assert "gatekeeper_verdict" in agreement["source"]
     assert agreement["source"]["gatekeeper_verdict"]["decision_summary"]
-    context_text = alignment_module.ServiceAlignmentMixin._alignment_improvement_context_text(session)
+
+
+def _assert_run_revision_context_text(context_text: str, run: dict, agreement: dict) -> None:
     assert f"Source run status: {run['status']}" in context_text
     assert "Artifact paths:" in context_text
     assert "evidence/task_verdict.json" in context_text
@@ -2975,14 +3109,14 @@ def test_alignment_improvement_session_can_start_from_run_evidence(
     assert "GateKeeper treats skipped AGENTS.md evidence as Blocking." in context_text
     assert "`execution_strategy` should say what the next version should build" in context_text
     assert "`local_governance` should preserve or revise project-local governance responsibilities" in context_text
+    assert '"missing_check_count": 2' in context_text
+    assert "check_payment_failure" in context_text
+    assert "Payment failure handoff has no direct proof." in context_text
+    assert "Payment provider retry path remains visible." in context_text
     assert "Task verdict:" in context_text
     assert agreement["source"]["task_verdict"]["status"] in context_text
     assert "GateKeeper verdict:" in context_text
     assert "decision_summary" in context_text
-    preview = service.get_alignment_bundle(session["id"])
-    assert preview["ok"] is True
-    assert preview["bundle"]["metadata"]["source_bundle_id"] == ""
-    assert "source_bundle_id" not in preview["yaml"]
 
 
 def test_alignment_run_revision_tolerates_corrupt_evidence_ledger(

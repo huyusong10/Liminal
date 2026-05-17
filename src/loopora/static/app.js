@@ -632,6 +632,86 @@
     }
   }
 
+  function writeTextWithSelectionFallback(text) {
+    return new Promise((resolve, reject) => {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.top = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        if (document.execCommand("copy")) {
+          resolve();
+        } else {
+          reject(new Error("copy failed"));
+        }
+      } catch (error) {
+        reject(error);
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    });
+  }
+
+  function writeTextToClipboard(value) {
+    const text = String(value || "");
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      return navigator.clipboard.writeText(text).catch(() => writeTextWithSelectionFallback(text));
+    }
+    return writeTextWithSelectionFallback(text);
+  }
+
+  function setAgentEntryCopyStatus(button, message) {
+    const guide = button.closest(".agent-entry-start-guide") || document.querySelector(".agent-entry-start-guide");
+    const status = guide?.querySelector("[data-agent-entry-copy-status]");
+    if (status) {
+      status.textContent = message;
+    }
+    button.classList.add("is-copied");
+    window.setTimeout(() => button.classList.remove("is-copied"), 1400);
+    if (status && message) {
+      window.setTimeout(() => {
+        if (status.textContent === message) {
+          status.textContent = "";
+        }
+      }, 4200);
+    }
+  }
+
+  function bindAgentEntryCommandCopy() {
+    document.querySelectorAll("[data-agent-entry-command-copy]").forEach((button) => {
+      if (button.dataset.boundAgentEntryCopy === "1") {
+        return;
+      }
+      button.dataset.boundAgentEntryCopy = "1";
+      button.addEventListener("click", async () => {
+        const command = String(button.dataset.copyValue || "").trim();
+        if (!command) {
+          setAgentEntryCopyStatus(button, pickText({
+            zh: "没有可复制的 Agent 命令。",
+            en: "No Agent command is available to copy.",
+          }));
+          return;
+        }
+        try {
+          await writeTextToClipboard(command);
+          setAgentEntryCopyStatus(button, pickText({
+            zh: "命令已复制。回到同一 Agent 会话粘贴运行。",
+            en: "Command copied. Paste it in the same Agent session.",
+          }));
+        } catch (_) {
+          setAgentEntryCopyStatus(button, pickText({
+            zh: "无法复制命令，请手动复制页面中的命令。",
+            en: "Unable to copy the command. Copy it from the page manually.",
+          }));
+        }
+      });
+    });
+  }
+
   function bindPathPickers() {
     document.querySelectorAll("[data-pick-file][data-target-input]").forEach((button) => {
       if (button.dataset.boundPickFile === "1") {
@@ -760,6 +840,7 @@
     bindNavPreferences();
     bindPathPickers();
     bindRevealPathButtons();
+    bindAgentEntryCommandCopy();
     bindHelpTooltips();
   });
 
@@ -779,6 +860,7 @@
     bindPrimaryNavigation,
     revealActiveTopNavItem,
     bindPathPickers,
+    bindAgentEntryCommandCopy,
     bindHelpTooltips,
   };
   if (typeof window.matchMedia === "function") {

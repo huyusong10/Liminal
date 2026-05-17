@@ -15,6 +15,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const executorInput = document.getElementById("alignment-executor-kind");
   const workdirInput = document.getElementById("alignment-workdir");
   const messageInput = document.getElementById("alignment-message");
+  const taskGoalInput = document.getElementById("alignment-task-goal");
+  const fakeDoneRiskInput = document.getElementById("alignment-fake-done-risk");
+  const requiredEvidenceInput = document.getElementById("alignment-required-evidence");
   const modelInput = document.getElementById("alignment-model");
   const effortInput = document.getElementById("alignment-reasoning-effort");
   const executorModeInput = document.getElementById("alignment-executor-mode");
@@ -41,6 +44,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const sessionMeta = document.getElementById("alignment-session-meta");
   const thinkingStatus = document.getElementById("alignment-thinking-status");
   const historyList = document.getElementById("alignment-history-list");
+  const agentReviewBridge = document.getElementById("alignment-agent-review-bridge");
+  const sourceContextBridge = document.getElementById("alignment-source-context-bridge");
+  const agentLaunchGuide = document.getElementById("alignment-agent-launch-guide");
   const transcriptEl = document.getElementById("alignment-transcript");
   const consoleOutput = document.getElementById("alignment-console-output");
   const liveDetails = document.getElementById("alignment-live-details");
@@ -50,6 +56,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const liveBody = document.getElementById("alignment-live-body");
   const cancelButton = document.getElementById("alignment-cancel-button");
   const readyPreview = document.getElementById("alignment-ready-preview");
+  const repairGuide = document.getElementById("alignment-repair-guide");
+  const reviewGate = document.getElementById("alignment-review-gate");
+  const reviewGateCheckbox = document.getElementById("alignment-review-confirm");
+  const reviewGateEvidence = document.getElementById("alignment-review-gate-evidence");
+  const reviewGateJudgment = document.getElementById("alignment-review-gate-judgment");
+  const reviewGateClosure = document.getElementById("alignment-review-gate-closure");
+  const reviewGateStatus = document.getElementById("alignment-review-gate-status");
   const previewTitle = document.getElementById("bundle-preview-title");
   const artifactName = document.getElementById("alignment-artifact-name");
   const readyNote = document.getElementById("alignment-ready-note");
@@ -67,6 +80,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const roleList = document.getElementById("alignment-role-list");
   const workflowDiagram = document.getElementById("alignment-workflow-diagram");
   const importRunButton = document.getElementById("alignment-import-run-button");
+  const revisePreviewButton = document.getElementById("alignment-revise-preview-button");
   const sourceOpenButton = document.getElementById("alignment-source-open-button");
   const sourceSyncButton = document.getElementById("alignment-source-sync-button");
   const workdirContext = document.getElementById("alignment-workdir-context");
@@ -84,6 +98,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "alignment_agreement_ready",
     "alignment_agreement_confirmed",
     "alignment_agreement_reopened",
+    "alignment_ready_review_started",
     "alignment_stage_blocked",
     "alignment_waiting_user",
     "alignment_bundle_written",
@@ -109,6 +124,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let submitPending = false;
   let cancelPending = false;
   let errorTimer = null;
+  let agentLaunchCopyTimer = null;
   const commandDrafts = new Map();
   let lastExecutorKind = executorInput?.value || "codex";
   let workdirContextState = {
@@ -165,6 +181,106 @@ document.addEventListener("DOMContentLoaded", () => {
     enNode.dataset.lang = "en";
     enNode.textContent = String(en || "");
     element.replaceChildren(zhNode, enNode);
+  }
+
+  function writeClipboardTextWithSelectionFallback(value) {
+    const text = String(value || "");
+    return new Promise((resolve, reject) => {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.top = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        if (document.execCommand("copy")) {
+          resolve();
+        } else {
+          reject(new Error("copy failed"));
+        }
+      } catch (error) {
+        reject(error);
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    });
+  }
+
+  function writeClipboardText(value) {
+    const text = String(value || "");
+    if (!text) {
+      return Promise.reject(new Error("empty copy value"));
+    }
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      return navigator.clipboard.writeText(text).catch(() => writeClipboardTextWithSelectionFallback(text));
+    }
+    return writeClipboardTextWithSelectionFallback(text);
+  }
+
+  function textLooksChinese(value) {
+    return /[\u3400-\u9fff]/.test(String(value || ""));
+  }
+
+  function collectJudgmentBrief() {
+    return {
+      taskGoal: taskGoalInput?.value.trim() || "",
+      fakeDoneRisk: fakeDoneRiskInput?.value.trim() || "",
+      requiredEvidence: requiredEvidenceInput?.value.trim() || "",
+    };
+  }
+
+  function firstMissingJudgmentField(brief = collectJudgmentBrief()) {
+    if (!brief.taskGoal) {
+      return taskGoalInput;
+    }
+    if (!brief.fakeDoneRisk) {
+      return fakeDoneRiskInput;
+    }
+    if (!brief.requiredEvidence) {
+      return requiredEvidenceInput;
+    }
+    return null;
+  }
+
+  function judgmentBriefHasAnyValue(brief = collectJudgmentBrief()) {
+    return Boolean(brief.taskGoal || brief.fakeDoneRisk || brief.requiredEvidence);
+  }
+
+  function composeJudgmentMessage(additionalMessage = messageInput.value.trim()) {
+    const brief = collectJudgmentBrief();
+    const joined = [brief.taskGoal, brief.fakeDoneRisk, brief.requiredEvidence, additionalMessage].join("\n");
+    const labels = textLooksChinese(joined) || window.LooporaUI.currentLocale() === "zh"
+      ? {
+          taskGoal: "任务目标",
+          fakeDoneRisk: "伪完成风险",
+          requiredEvidence: "必需证据",
+          additionalContext: "补充上下文",
+        }
+      : {
+          taskGoal: "Task goal",
+          fakeDoneRisk: "Fake-done risk",
+          requiredEvidence: "Required evidence",
+          additionalContext: "Additional context",
+        };
+    const parts = [
+      `${labels.taskGoal}:\n${brief.taskGoal}`,
+      `${labels.fakeDoneRisk}:\n${brief.fakeDoneRisk}`,
+      `${labels.requiredEvidence}:\n${brief.requiredEvidence}`,
+    ];
+    if (additionalMessage) {
+      parts.push(`${labels.additionalContext}:\n${additionalMessage}`);
+    }
+    return parts.join("\n\n");
+  }
+
+  function clearJudgmentBriefInputs() {
+    [taskGoalInput, fakeDoneRiskInput, requiredEvidenceInput].forEach((input) => {
+      if (input) {
+        input.value = "";
+      }
+    });
   }
 
   function showError(message, options = {}) {
@@ -362,8 +478,17 @@ document.addEventListener("DOMContentLoaded", () => {
     renderWorkdirContext();
     setLiveDetailsOpen(false);
     consoleOutput.innerHTML = "";
+    if (agentReviewBridge) {
+      agentReviewBridge.hidden = true;
+      agentReviewBridge.innerHTML = "";
+    }
+    if (sourceContextBridge) {
+      sourceContextBridge.hidden = true;
+      sourceContextBridge.innerHTML = "";
+    }
     transcriptEl.innerHTML = "";
     readyPreview.hidden = true;
+    resetReadyReviewGate();
     chat.hidden = true;
     scrollRegion?.scrollTo({top: 0});
     if (liveDetails) {
@@ -681,7 +806,7 @@ document.addEventListener("DOMContentLoaded", () => {
       executor_kind: executorInput.value,
       executor_mode: commandMode ? "command" : "preset",
       workdir: workdirInput.value.trim(),
-      message: messageInput.value.trim(),
+      message: composeJudgmentMessage(),
       model: commandMode ? "" : modelInput.value.trim(),
       reasoning_effort: commandMode ? "" : effortInput.value.trim(),
       command_cli: commandMode ? commandCliInput.value.trim() : "",
@@ -733,11 +858,20 @@ document.addEventListener("DOMContentLoaded", () => {
       setLiveDetailsOpen(false);
     }
     updateChips();
+    const shouldRevealAgentReview = renderAgentReviewBridge(session);
+    const shouldRevealSourceContext = renderSourceContextBridge(session);
     renderTranscript(session.transcript || [], session);
     syncActiveExecutionCopy(status);
+    if (shouldRevealAgentReview || shouldRevealSourceContext) {
+      scrollRegion?.scrollTo({top: 0});
+    }
     if (status === "ready") {
       loadReadyBundle({reveal: options.revealReady !== false}).catch((error) => {
         renderBundleLoadError(error.message || localeText("无法加载 Loop 方案。", "Unable to load the loop plan."));
+      });
+    } else if (status === "running_loop" && String(session.linked_run_id || "").trim() && String(session.bundle_path || "").trim()) {
+      loadReadyBundle({reveal: options.revealReady !== false}).catch((error) => {
+        renderBundleLoadError(error.message || localeText("无法加载已启动的 Loop 方案。", "Unable to load the launched loop plan."));
       });
     } else if (status === "failed" && String(session.bundle_path || "").trim()) {
       loadReadyBundle({
@@ -752,6 +886,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     } else {
       readyPreview.hidden = true;
+      resetReadyReviewGate();
       shell?.classList.remove("has-artifact");
     }
     loadHistory().catch(() => {});
@@ -779,11 +914,17 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!messageInput || !button) {
       return;
     }
-    const prompt = window.LooporaUI.currentLocale() === "zh" ? button.dataset.starterZh : button.dataset.starterEn;
-    if (!prompt) {
-      return;
+    const locale = window.LooporaUI.currentLocale();
+    if (taskGoalInput) {
+      taskGoalInput.value = locale === "zh" ? (button.dataset.goalZh || "") : (button.dataset.goalEn || "");
     }
-    messageInput.value = prompt;
+    if (fakeDoneRiskInput) {
+      fakeDoneRiskInput.value = locale === "zh" ? (button.dataset.fakeDoneZh || "") : (button.dataset.fakeDoneEn || "");
+    }
+    if (requiredEvidenceInput) {
+      requiredEvidenceInput.value = locale === "zh" ? (button.dataset.evidenceZh || "") : (button.dataset.evidenceEn || "");
+    }
+    messageInput.value = locale === "zh" ? (button.dataset.contextZh || "") : (button.dataset.contextEn || "");
     showError("");
     messageInput.focus();
     messageInput.dispatchEvent(new Event("input", {bubbles: true}));
@@ -873,6 +1014,305 @@ document.addEventListener("DOMContentLoaded", () => {
       group.append(button);
     });
     container.append(group);
+  }
+
+  function agentReviewItemLabel(itemId) {
+    const labels = {
+      success_surface: localeText("完成标准", "Success criteria"),
+      fake_done_risks: localeText("伪完成风险", "Fake-done risks"),
+      evidence_preferences: localeText("必需证据", "Evidence expectations"),
+      loop_fit: localeText("Loopora fit", "Loopora fit"),
+      execution_strategy: localeText("执行策略", "Execution strategy"),
+      judgment_tradeoffs: localeText("判断取舍", "Judgment tradeoffs"),
+      residual_risk_policy: localeText("残余风险", "Residual risk policy"),
+      local_governance: localeText("本地治理责任", "Local governance"),
+    };
+    return labels[String(itemId || "")] || String(itemId || "").replaceAll("_", " ");
+  }
+
+  function agentReviewSuggestedReply(review) {
+    const projectedReply = String(review?.suggested_reply || "").trim();
+    if (projectedReply) {
+      return projectedReply;
+    }
+    if (review?.loopora_fit_contradiction === true || review?.review_mode === "not_fit") {
+      return localeText(
+        "请先重新判断这个任务是否适合 Loopora：如果仍要继续，请说明后续轮次会新增哪些证据、handoff 或 GateKeeper 裁决价值；如果不适合，请明确建议不要生成可运行 Loop。",
+        "First re-check whether this task fits Loopora. If we should continue, explain what later evidence, handoffs, or GateKeeper judgment would add. If it does not fit, clearly recommend not generating a runnable Loop."
+      );
+    }
+    return localeText(
+      "请基于上面的任务与判断，先确认 Loopora fit，并把完成标准、伪完成风险、证据预期、执行策略、判断取舍、残余风险和本地治理责任整理成可审查的 Loop 预览。",
+      "Based on the task and judgment above, first confirm Loopora fit, then organize the success criteria, fake-done risks, evidence expectations, execution strategy, judgment tradeoffs, residual-risk policy, and local governance into a reviewable Loop preview."
+    );
+  }
+
+  function fillAgentReviewReply(review) {
+    const suggestedReply = agentReviewSuggestedReply(review);
+    messageInput.value = suggestedReply;
+    showError("");
+    messageInput.focus();
+    messageInput.dispatchEvent(new Event("input", {bubbles: true}));
+    if (typeof messageInput.setSelectionRange === "function") {
+      messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
+    }
+  }
+
+  function renderAgentReviewBridge(session = currentSession) {
+    if (!agentReviewBridge) {
+      return false;
+    }
+    const review = session?.agent_entry_review || {};
+    const status = String(session?.status || "");
+    const shouldShow = review?.source === "agent_entry"
+      && review.requires_web_alignment === true
+      && status !== "ready";
+    if (!shouldShow) {
+      agentReviewBridge.hidden = true;
+      agentReviewBridge.innerHTML = "";
+      return false;
+    }
+    const reviewMode = review.loopora_fit_contradiction === true || review.review_mode === "not_fit" ? "not_fit" : "missing_candidate_plan";
+    const itemIds = Array.isArray(review.missing_judgment_item_ids) && review.missing_judgment_item_ids.length
+      ? review.missing_judgment_item_ids
+      : ["success_surface", "fake_done_risks", "evidence_preferences", "loop_fit", "execution_strategy", "judgment_tradeoffs", "residual_risk_policy", "local_governance"];
+    const itemMarkup = itemIds.map((itemId) => `
+      <li>
+        <span aria-hidden="true"></span>
+        <strong>${escapeHtml(agentReviewItemLabel(itemId))}</strong>
+      </li>
+    `).join("");
+    const active = isActiveStatus(status);
+    const title = reviewMode === "not_fit"
+      ? localeText("先重新定义为什么需要 Loop", "First redefine why a Loop is needed")
+      : localeText("这还不是可运行 Loop", "This is not a runnable Loop yet");
+    const body = reviewMode === "not_fit"
+      ? localeText(
+        "这次 /loopora-gen 没有提交候选方案文件，而且任务摘要像一次性处理或无需后续新证据的工作。继续前，先证明后续证据、handoff 或 GateKeeper 裁决会带来真实价值。",
+        "This /loopora-gen did not submit a candidate plan file, and the task summary looks like one-off work or work with no later evidence. Before continuing, prove that later evidence, handoffs, or GateKeeper judgment add real value."
+      )
+      : localeText(
+        "这次 /loopora-gen 来自宿主 Agent，但没有候选方案文件。Loopora 已保留任务和来源，只能先做 Web review，补齐关键判断后才会生成可审查预览。",
+        "This /loopora-gen came from the host Agent but did not include a candidate plan file. Loopora preserved the task and provenance, and must stay in Web review until the missing judgment is filled in."
+      );
+    const taskMessage = String(review.task_message || "").trim();
+    const taskAnchorMarkup = taskMessage
+      ? `
+        <section class="alignment-agent-review-source" data-testid="alignment-agent-review-source">
+          <span>${escapeHtml(localeText("任务锚点", "Task anchor"))}</span>
+          <p>${escapeHtml(taskMessage)}</p>
+        </section>
+      `
+      : "";
+    agentReviewBridge.hidden = false;
+    agentReviewBridge.dataset.reviewMode = reviewMode;
+    agentReviewBridge.innerHTML = `
+      <div class="alignment-agent-review-copy">
+        <span class="alignment-agent-review-kicker">/loopora-gen Web review</span>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(body)}</p>
+        ${taskAnchorMarkup}
+        <div class="alignment-agent-review-meta">
+          <span>${escapeHtml(localeText("来源", "Source"))}: ${escapeHtml(review.adapter || executorLabel(session))}</span>
+          <span>${escapeHtml(localeText("当前状态", "Current state"))}: ${escapeHtml(statusLabel(status))}</span>
+          <span>${escapeHtml(localeText("候选方案文件", "Candidate plan file"))}: ${escapeHtml(review.has_candidate_yaml ? localeText("已提供", "provided") : localeText("缺失", "missing"))}</span>
+        </div>
+      </div>
+      <ul class="alignment-agent-review-checklist" data-testid="alignment-agent-review-checklist">
+        ${itemMarkup}
+      </ul>
+      <div class="alignment-agent-review-options" data-testid="alignment-agent-review-options"></div>
+      <div class="alignment-agent-review-actions">
+        <button class="primary-button" type="button" data-agent-review-send data-testid="alignment-agent-review-send" ${active ? "disabled" : ""}>
+          ${escapeHtml(localeText("提交审查并继续", "Send review and continue"))}
+        </button>
+        <button class="secondary-button" type="button" data-agent-review-fill data-testid="alignment-agent-review-fill">
+          ${escapeHtml(localeText("填入审查回复", "Fill review reply"))}
+        </button>
+      </div>
+    `;
+    const reviewOptions = agentReviewBridge.querySelector("[data-testid='alignment-agent-review-options']");
+    renderDecisionOptions(reviewOptions, {decision_options: review.decision_options || []}, {canChoose: !active});
+    if (reviewOptions && !reviewOptions.childElementCount) {
+      reviewOptions.hidden = true;
+    }
+    agentReviewBridge.querySelector("[data-agent-review-fill]")?.addEventListener("click", () => fillAgentReviewReply(review));
+    agentReviewBridge.querySelector("[data-agent-review-send]")?.addEventListener("click", async () => {
+      if (!currentSession?.id || isActiveStatus(currentSession.status || "")) {
+        return;
+      }
+      showError("");
+      setBusy(true);
+      try {
+        await appendMessage(agentReviewSuggestedReply(review));
+      } catch (error) {
+        showError(error.message || localeText("提交审查失败。", "Failed to send review."));
+        setBusy(false);
+      }
+    });
+    return true;
+  }
+
+  function normalizedStringList(value, limit = 6) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    const items = [];
+    value.forEach((item) => {
+      const text = String(item || "").trim();
+      if (text && !items.includes(text)) {
+        items.push(text);
+      }
+    });
+    return items.slice(0, limit);
+  }
+
+  function normalizedCount(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : 0;
+  }
+
+  function sourceTopGapTexts(coverage) {
+    if (!Array.isArray(coverage?.top_gaps)) {
+      return [];
+    }
+    const items = [];
+    coverage.top_gaps.forEach((gap) => {
+      if (!gap || typeof gap !== "object") {
+        return;
+      }
+      const text = String(gap.text || gap.summary || gap.target_id || gap.id || "").trim();
+      if (text && !items.includes(text)) {
+        items.push(text);
+      }
+    });
+    return items.slice(0, 5);
+  }
+
+  function sourceEvidenceClaims(source) {
+    if (!Array.isArray(source?.evidence_summary)) {
+      return [];
+    }
+    const items = [];
+    source.evidence_summary.forEach((item) => {
+      if (!item || typeof item !== "object") {
+        return;
+      }
+      const claim = String(item.claim || item.result || item.id || "").trim();
+      if (claim && !items.includes(claim)) {
+        items.push(claim);
+      }
+    });
+    return items.slice(0, 3);
+  }
+
+  function sourceArtifactLabel(key) {
+    const labels = {
+      run_contract: localeText("运行判断契约", "Run contract"),
+      task_verdict: localeText("任务裁决", "Task verdict"),
+      evidence_ledger: localeText("证据账本", "Evidence ledger"),
+      evidence_coverage: localeText("覆盖投影", "Coverage projection"),
+      evidence_manifest: localeText("证据清单", "Evidence manifest"),
+    };
+    return labels[String(key || "")] || String(key || "").replaceAll("_", " ");
+  }
+
+  function sourceArtifactItems(source) {
+    const paths = source?.artifact_paths && typeof source.artifact_paths === "object" ? source.artifact_paths : {};
+    return Object.entries(paths)
+      .map(([key, value]) => ({
+        label: sourceArtifactLabel(key),
+        path: String(value || "").trim(),
+      }))
+      .filter((item) => item.path)
+      .slice(0, 5);
+  }
+
+  function sourceListMarkup(items, fallback) {
+    const visibleItems = normalizedStringList(items, 6);
+    if (!visibleItems.length) {
+      return `<p class="alignment-source-context-empty">${escapeHtml(fallback)}</p>`;
+    }
+    return `<ul>${visibleItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+  }
+
+  function renderSourceContextBridge(session = currentSession) {
+    if (!sourceContextBridge) {
+      return false;
+    }
+    const agreement = session?.working_agreement && typeof session.working_agreement === "object" ? session.working_agreement : {};
+    const source = agreement.source && typeof agreement.source === "object" ? agreement.source : {};
+    if (String(source.source_type || "") !== "run") {
+      sourceContextBridge.hidden = true;
+      sourceContextBridge.innerHTML = "";
+      return false;
+    }
+    const coverage = source.coverage_summary && typeof source.coverage_summary === "object" ? source.coverage_summary : {};
+    const verdict = source.task_verdict && typeof source.task_verdict === "object" ? source.task_verdict : {};
+    const rawMissingCheckIds = normalizedStringList(coverage.missing_check_ids, 20);
+    const missingIds = rawMissingCheckIds.slice(0, 6).map((id) => localeText(`缺失检查：${id}`, `Missing check: ${id}`));
+    const topGaps = sourceTopGapTexts(coverage);
+    const gapItems = [...topGaps, ...missingIds].slice(0, 6);
+    const riskItems = normalizedStringList(coverage.risk_signals, 5);
+    const evidenceClaims = sourceEvidenceClaims(source);
+    const artifactItems = sourceArtifactItems(source);
+    const runId = String(source.source_run_id || "").trim();
+    const runStatus = String(source.run_status || "").trim();
+    const verdictStatus = String(verdict.status || "").trim();
+    const missingCount = normalizedCount(coverage.missing_check_count) || rawMissingCheckIds.length;
+    const blockedCount = normalizedCount(coverage.blocked_target_count);
+    const weakCount = normalizedCount(coverage.weak_target_count);
+    const reason = String(coverage.reason || "").trim();
+
+    sourceContextBridge.hidden = false;
+    sourceContextBridge.innerHTML = `
+      <div class="alignment-source-context-copy">
+        <span class="alignment-source-context-kicker">${escapeHtml(localeText("上一轮证据", "Previous run evidence"))}</span>
+        <h3>${escapeHtml(localeText("这次改进从具体缺口开始。", "This revision starts from concrete gaps."))}</h3>
+        <p>${escapeHtml(reason || localeText(
+          "Loopora 已把上一轮的裁决、覆盖缺口和证据文件带入这次对话；下一版 Loop 应先回应这些缺口。",
+          "Loopora carried the previous verdict, coverage gaps, and evidence files into this chat; the next Loop should answer these gaps first."
+        ))}</p>
+      </div>
+      <div class="alignment-source-context-metrics">
+        ${runId ? `<span data-testid="alignment-source-run-id">${escapeHtml(localeText("运行", "Run"))}: ${escapeHtml(runId)}</span>` : ""}
+        ${runStatus ? `<span>${escapeHtml(localeText("生命周期", "Lifecycle"))}: ${escapeHtml(statusLabel(runStatus))}</span>` : ""}
+        ${verdictStatus ? `<span data-testid="alignment-source-task-verdict">${escapeHtml(localeText("任务裁决", "Task verdict"))}: ${escapeHtml(verdictStatus)}</span>` : ""}
+        <span data-testid="alignment-source-missing-count">${escapeHtml(localeText("缺失检查", "Missing checks"))}: ${escapeHtml(String(missingCount))}</span>
+        <span>${escapeHtml(localeText("弱证据", "Weak targets"))}: ${escapeHtml(String(weakCount))}</span>
+        <span>${escapeHtml(localeText("阻断项", "Blocking targets"))}: ${escapeHtml(String(blockedCount))}</span>
+      </div>
+      <div class="alignment-source-context-grid">
+        <article>
+          <strong>${escapeHtml(localeText("先修这些缺口", "Gaps to fix first"))}</strong>
+          <div data-testid="alignment-source-gap-list">
+            ${sourceListMarkup(gapItems, localeText("没有可展示的覆盖缺口；继续检查 GateKeeper 裁决和证据账本。", "No visible coverage gaps; inspect the GateKeeper verdict and evidence ledger."))}
+          </div>
+        </article>
+        <article>
+          <strong>${escapeHtml(localeText("风险信号", "Risk signals"))}</strong>
+          <div data-testid="alignment-source-risk-list">
+            ${sourceListMarkup(riskItems, localeText("没有额外风险信号。", "No additional risk signals."))}
+          </div>
+        </article>
+        <article>
+          <strong>${escapeHtml(localeText("最近证据", "Recent evidence"))}</strong>
+          <div data-testid="alignment-source-evidence-list">
+            ${sourceListMarkup(evidenceClaims, localeText("没有可展示的最近证据摘要。", "No recent evidence summary is available."))}
+          </div>
+        </article>
+        <article>
+          <strong>${escapeHtml(localeText("白盒文件", "White-box files"))}</strong>
+          <ul data-testid="alignment-source-artifact-list">
+            ${artifactItems.length
+              ? artifactItems.map((item) => `<li><span>${escapeHtml(item.label)}</span><code>${escapeHtml(item.path)}</code></li>`).join("")
+              : `<li>${escapeHtml(localeText("没有可展示的证据文件路径。", "No evidence file paths are available."))}</li>`
+            }
+          </ul>
+        </article>
+      </div>
+    `;
+    return true;
   }
 
   function renderTranscript(transcript, session = currentSession) {
@@ -1144,13 +1584,30 @@ document.addEventListener("DOMContentLoaded", () => {
     shell?.classList.add("has-artifact");
     readyPreview.hidden = false;
     readyPreview.dataset.previewState = "error";
+    resetReadyReviewGate();
+    const agentEntryLaunch = agentEntryProjectionFor({session: currentSession});
+    readyPreview.dataset.launchMode = agentEntryLaunch ? "agent-entry" : "web-run";
     if (importRunButton) {
       importRunButton.hidden = true;
+      delete importRunButton.dataset.runId;
+      delete importRunButton.dataset.copyValue;
+      delete importRunButton.dataset.launchAction;
+      setBilingualText(importRunButton, agentEntryLaunch ? "修复后回到 Agent" : "修复后运行", agentEntryLaunch ? "Repair before Agent run" : "Repair before running");
       importRunButton.closest(".card-actions")?.setAttribute("hidden", "");
     }
     artifactName.textContent = localeText("无法加载 Loop 方案", "Unable to load loop plan");
-    previewTitle.textContent = localeText("方案需要重新加载", "Plan needs reload");
-    readyNote.textContent = message || "";
+    previewTitle.textContent = agentEntryLaunch
+      ? localeText("候选方案需要重新加载后再回到 Agent", "Candidate plan needs reload before returning to the Agent")
+      : localeText("方案需要重新加载", "Plan needs reload");
+    readyNote.textContent = agentEntryLaunch
+      ? localeText(
+        "这份候选来自 /loopora-gen；Web 只负责展示修复面。修好源文件并重新运行 /loopora-gen，READY 后再回到同一个 Agent 执行 /loopora-loop。",
+        "This candidate came from /loopora-gen; Web only shows the repair surface. Repair the source file, rerun /loopora-gen, then return to the same Agent for /loopora-loop after READY."
+      )
+      : localeText(
+        "源文件当前不可作为可运行 Loop 预览。先按修复焦点处理，再重新同步。",
+        "The source file cannot be used as a runnable Loop preview yet. Repair the focus items, then reload."
+      );
     if (artifactRisk) {
       artifactRisk.textContent = localeText("风险：-", "Risk: -");
     }
@@ -1182,6 +1639,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (artifactSource) {
       artifactSource.hidden = false;
     }
+    renderRepairGuide({
+      visible: true,
+      error: message || "",
+      sourcePath: currentSession?.bundle_path || "",
+      sessionId: currentSession?.id || "",
+      agentEntry: agentEntryLaunch,
+    });
     if (sourcePathLabel) {
       const path = currentSession?.bundle_path || "";
       sourcePathLabel.textContent = path ? `${localeText("源文件", "Source")}: ${path}` : "";
@@ -1327,6 +1791,83 @@ document.addEventListener("DOMContentLoaded", () => {
       .join(" / ");
   }
 
+  function readyReviewGateRequired() {
+    return Boolean(reviewGate && reviewGate.dataset.required === "true" && !reviewGate.hidden);
+  }
+
+  function resetReadyReviewGate() {
+    if (reviewGate) {
+      reviewGate.hidden = true;
+      reviewGate.dataset.required = "false";
+    }
+    if (reviewGateCheckbox) {
+      reviewGateCheckbox.checked = false;
+      reviewGateCheckbox.disabled = true;
+    }
+    if (reviewGateStatus) {
+      reviewGateStatus.textContent = "";
+    }
+    if (importRunButton) {
+      importRunButton.removeAttribute("aria-describedby");
+    }
+  }
+
+  function updateImportRunReviewGate() {
+    if (!importRunButton) {
+      return;
+    }
+    const required = readyReviewGateRequired() && importRunButton.dataset.launchAction === "web-run";
+    if (!required) {
+      importRunButton.removeAttribute("aria-describedby");
+      if (reviewGateStatus) {
+        reviewGateStatus.textContent = "";
+      }
+      return;
+    }
+    importRunButton.setAttribute("aria-describedby", "alignment-review-gate-status");
+    if (importRunButton.dataset.busy !== "true") {
+      importRunButton.disabled = reviewGateCheckbox?.checked !== true;
+    }
+    if (reviewGateStatus) {
+      reviewGateStatus.textContent = reviewGateCheckbox?.checked === true
+        ? localeText("复核完成，可以创建并运行。", "Review confirmed. Ready to create and run.")
+        : localeText("确认复核后才能创建并运行。", "Confirm review before creating and running.");
+    }
+  }
+
+  function renderReadyReviewGate({required, summary, diagnostics = []}) {
+    if (!reviewGate) {
+      return;
+    }
+    if (!required) {
+      resetReadyReviewGate();
+      return;
+    }
+    reviewGate.hidden = false;
+    reviewGate.dataset.required = "true";
+    if (reviewGateCheckbox) {
+      reviewGateCheckbox.checked = false;
+      reviewGateCheckbox.disabled = false;
+    }
+    if (reviewGateEvidence) {
+      reviewGateEvidence.textContent = labeledSummary("证据路径", "Evidence path", evidenceStatus(summary));
+      reviewGateEvidence.title = evidencePathSummary(summary);
+    }
+    if (reviewGateJudgment) {
+      reviewGateJudgment.textContent = labeledSummary("判断投影", "Judgment projection", judgmentStatus({...summary, diagnostics}));
+      reviewGateJudgment.title = evidencePathSummary(summary);
+    }
+    if (reviewGateClosure) {
+      reviewGateClosure.textContent = labeledSummary(
+        "收口",
+        "Closure",
+        summary?.gatekeeper?.enabled === true ? "GateKeeper" : verdictSummary(summary)
+      );
+      reviewGateClosure.title = verdictSummary(summary);
+    }
+    updateImportRunReviewGate();
+  }
+
   function renderControlSummary(summary) {
     if (!controlSummary) {
       return;
@@ -1447,9 +1988,62 @@ document.addEventListener("DOMContentLoaded", () => {
     return labels[item?.key] || item?.label || item?.key || "-";
   }
 
-  function surfaceSummary(surfaces) {
-    const values = (surfaces || []).map((value) => String(value || "").trim()).filter(Boolean);
-    return values.slice(0, 2).join(" / ") || "-";
+  function traceSurfaceLabel(value) {
+    const surface = String(value || "").trim();
+    const labels = {
+      collaboration_summary: [ "治理摘要", "Governance summary" ],
+      "spec.markdown": [ "Loop 契约", "Loop contract" ],
+      "spec.markdown#Task": [ "任务契约", "Task contract" ],
+      "spec.markdown#Done When": [ "完成标准", "Completion criteria" ],
+      "spec.markdown#Success Surface": [ "成功面", "Success surface" ],
+      "spec.markdown#Fake Done": [ "假完成护栏", "Fake-done guardrails" ],
+      "spec.markdown#Evidence Preferences": [ "证据偏好", "Evidence expectations" ],
+      "spec.markdown#Residual Risk": [ "残余风险策略", "Residual-risk policy" ],
+      "spec.markdown#Role Notes": [ "本地治理说明", "Local governance notes" ],
+      "role_definitions[].prompt_markdown": [ "角色工作姿态", "Role operating posture" ],
+      "role_definitions[].posture_notes": [ "角色姿态说明", "Role posture notes" ],
+      "workflow.collaboration_intent": [ "运行意图", "Run-flow intent" ],
+      "workflow.steps[].inputs": [ "步骤交接输入", "Step handoff inputs" ],
+      "workflow.steps[].on_pass": [ "收口动作", "Closure action" ],
+      "workflow.steps[].inputs.evidence_query": [ "GateKeeper 证据查询", "GateKeeper evidence query" ],
+      "workflow.controls[]": [ "运行控制钩子", "Runtime control hooks" ],
+    };
+    if (labels[surface]) {
+      return localeText(labels[surface][0], labels[surface][1]);
+    }
+    if (surface.startsWith("spec.markdown#")) {
+      return localeText("Loop 契约章节", "Loop contract section");
+    }
+    if (surface.startsWith("role_definitions[]")) {
+      return localeText("角色运行契约", "Role runtime contract");
+    }
+    if (surface.startsWith("workflow.")) {
+      return localeText("运行流程契约", "Run-flow contract");
+    }
+    return localeText("可运行合同面", "Runnable contract surface");
+  }
+
+  function humanSurfaceSummary(surfaces) {
+    const seen = new Set();
+    const values = (surfaces || [])
+      .map((value) => traceSurfaceLabel(value))
+      .filter(Boolean)
+      .filter((value) => {
+        if (seen.has(value)) {
+          return false;
+        }
+        seen.add(value);
+        return true;
+      });
+    return values.slice(0, 2).join(" / ") || localeText("可运行合同面", "Runnable contract surface");
+  }
+
+  function traceEvidencePreview(item) {
+    const evidence = (item?.evidence || []).map((value) => String(value || "").trim()).filter(Boolean)[0] || "";
+    if (evidence.length <= 180) {
+      return evidence;
+    }
+    return `${evidence.slice(0, 177).trimEnd()}...`;
   }
 
   function localizedDiagnosticText(item, field) {
@@ -1470,14 +2064,17 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
       judgmentMap.hidden = false;
       judgmentMap.innerHTML = visibleItems.map((item) => {
-        const evidence = (item.evidence || []).map((value) => String(value || "").trim()).filter(Boolean)[0] || "";
-        const surface = surfaceSummary(item.surfaces);
+        const evidence = traceEvidencePreview(item);
+        const surface = humanSurfaceSummary(item.surfaces);
         const mapped = item.mapped === true;
+        const mapping = mapped
+          ? localeText(`已投影到：${surface}`, `Mapped into: ${surface}`)
+          : localeText("缺少可运行映射", "Missing runnable mapping");
         return `
           <div class="alignment-judgment-row" data-mapped="${mapped}">
             <strong>${escapeHtml(traceItemLabel(item))}</strong>
-            <span>${escapeHtml(mapped ? surface : localeText("缺少可运行映射", "Missing runnable mapping"))}</span>
-            ${evidence ? `<span>${escapeHtml(evidence)}</span>` : ""}
+            <span>${escapeHtml(mapping)}</span>
+            ${evidence ? `<span class="alignment-judgment-evidence">${escapeHtml(evidence)}</span>` : ""}
           </div>
         `;
       }).join("");
@@ -1566,29 +2163,93 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderBundlePreview(payload, options = {}) {
     shell?.classList.add("has-artifact");
     readyPreview.hidden = false;
-    const allowImport = options.allowImport !== false && String(payload.session?.status || currentSession?.status || "") === "ready";
-    readyPreview.dataset.previewState = allowImport ? "ready" : "repair";
+    const sessionStatus = String(payload.session?.status || currentSession?.status || "");
+    const linkedRunId = String(payload.session?.linked_run_id || currentSession?.linked_run_id || "").trim();
+    const allowReadyRun = options.allowImport !== false && sessionStatus === "ready";
+    const allowLinkedRun = options.allowImport !== false && sessionStatus === "running_loop" && Boolean(linkedRunId);
+    const allowAction = allowReadyRun || allowLinkedRun;
+    const agentEntryLaunch = agentEntryProjectionFor(payload);
+    const agentLaunch = agentEntryLaunchFor(payload, allowAction);
+    readyPreview.dataset.previewState = allowLinkedRun ? "linked-run" : (allowReadyRun ? "ready" : "repair");
+    readyPreview.dataset.launchMode = agentEntryLaunch ? "agent-entry" : "web-run";
     if (importRunButton) {
-      importRunButton.hidden = !allowImport;
-      importRunButton.disabled = !allowImport;
-      if (allowImport) {
+      importRunButton.hidden = !allowAction;
+      importRunButton.disabled = !allowAction;
+      importRunButton.dataset.launchAction = agentLaunch?.linked_run_id ? "open-linked-run" : (agentLaunch ? "copy-agent-loop" : "web-run");
+      if (agentLaunch?.linked_run_id) {
+        importRunButton.dataset.runId = agentLaunch.linked_run_id;
+        delete importRunButton.dataset.copyValue;
+        setBilingualText(importRunButton, "打开运行", "Open run");
+      } else if (agentLaunch) {
+        delete importRunButton.dataset.runId;
+        importRunButton.dataset.copyValue = agentLaunch.slash_command || "/loopora-loop";
+        setBilingualText(importRunButton, "复制 /loopora-loop", "Copy /loopora-loop");
+      } else if (allowAction) {
+        delete importRunButton.dataset.runId;
+        delete importRunButton.dataset.copyValue;
+        setBilingualText(importRunButton, "复核后创建并运行", "Review, create, run");
+      } else {
+        delete importRunButton.dataset.runId;
+        delete importRunButton.dataset.copyValue;
+        setBilingualText(importRunButton, agentEntryLaunch ? "修复后回到 Agent" : "修复后运行", agentEntryLaunch ? "Repair before Agent run" : "Repair before running");
+      }
+      if (allowAction) {
         importRunButton.closest(".card-actions")?.removeAttribute("hidden");
       } else {
         importRunButton.closest(".card-actions")?.setAttribute("hidden", "");
       }
     }
+    if (revisePreviewButton) {
+      const canRevisePreview = Boolean(currentSession?.id) && sessionStatus === "ready";
+      revisePreviewButton.hidden = !canRevisePreview;
+      revisePreviewButton.disabled = !canRevisePreview;
+    }
     const metadata = payload.metadata || payload.bundle?.metadata || {};
     artifactName.textContent = metadata.name || localeText("Loop 方案", "Loop plan");
-    previewTitle.textContent = allowImport
-      ? localeText("Loop 已准备好，可以创建并运行", "Plan is ready to create and run")
+    previewTitle.textContent = agentLaunch?.linked_run_id
+      ? localeText("Loop 已在 Agent 中运行", "Loop is running in the Agent")
+      : agentLaunch
+      ? localeText("Loop 已准备好，回到 Agent 运行", "Plan is ready for the Agent")
+      : allowReadyRun
+      ? localeText("Loop 已准备好，先复核再运行", "Plan is ready; review before running")
+      : agentEntryLaunch
+      ? localeText("候选方案需要修复后再回到 Agent", "Candidate plan needs repair before returning to the Agent")
       : localeText("方案文件需要修复后才能运行", "Plan file needs repair before running");
-    readyNote.textContent = allowImport
-      ? ""
-      : String(options.repairNote || payload.validation?.error || localeText(
-        "修复源文件后重新同步，校验通过才可以创建并运行。",
-        "Reload after repairing the source file; creation is enabled only after validation passes."
-      ));
+    const repairError = String(options.repairNote || payload.validation?.error || "").trim();
+    readyNote.textContent = allowAction
+      ? agentLaunch?.linked_run_id
+        ? localeText(
+          "这份预览已通过 /loopora-loop 启动；Web 负责观察证据和运行状态，继续执行仍回到同一个 Agent。",
+          "This preview has been launched through /loopora-loop; Web observes evidence and run state, while execution still returns to the same Agent."
+        )
+        : agentLaunch
+        ? localeText(
+          "这份预览来自 /loopora-gen；用同一个 Agent 执行 /loopora-loop，才能保留宿主 Agent-native 交接。",
+          "This preview came from /loopora-gen; run /loopora-loop in the same Agent to preserve host-native handoff."
+        )
+        : localeText(
+          "READY 只表示方案通过硬校验；确认判断地图、证据路径和运行目录后再启动。",
+          "READY only means the plan passed hard validation; confirm the judgment map, evidence path, and run directory before launch."
+        )
+      : agentEntryLaunch
+      ? localeText(
+        "候选方案尚未通过校验。先修源候选文件，再重新运行 /loopora-gen；只有预览 READY 后，才回到同一个 Agent 执行 /loopora-loop。",
+        "The candidate plan has not passed validation. Repair the source candidate file, then rerun /loopora-gen; return to the same Agent for /loopora-loop only after the preview is READY."
+      )
+      : localeText(
+        "候选方案尚未通过校验。按下面的修复焦点改源文件，重新同步后再运行。",
+        "The candidate plan has not passed validation. Repair the source file using the focus list below, then reload before running."
+      );
+    renderAgentLaunchGuide(agentLaunch);
+    renderRepairGuide({
+      visible: !allowAction,
+      error: repairError,
+      sourcePath: payload.source_path || currentSession?.bundle_path || "",
+      sessionId: currentSession?.id || payload.session?.id || "",
+      agentEntry: agentEntryLaunch,
+    });
     const summary = payload.control_summary || {};
+    const diagnostics = payload.diagnostics || summary.diagnostics || [];
     if (artifactRisk) {
       const risk = primaryRiskSummary(summary);
       artifactRisk.textContent = labeledSummary("最大风险", "Risk", risk);
@@ -1599,7 +2260,6 @@ document.addEventListener("DOMContentLoaded", () => {
       artifactEvidence.textContent = labeledSummary("证据", "Evidence", evidenceStatus(summary));
       artifactEvidence.title = evidenceText;
     }
-    const diagnostics = payload.diagnostics || summary.diagnostics || [];
     if (artifactJudgment) {
       artifactJudgment.textContent = labeledSummary("判断", "Judgment", judgmentStatus({...summary, diagnostics}));
       artifactJudgment.title = evidencePathSummary(summary);
@@ -1610,6 +2270,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     artifactWorkdir.textContent = labeledSummary("运行目录", "Run directory", basename(payload.bundle?.loop?.workdir || ""));
     artifactWorkdir.title = payload.bundle?.loop?.workdir || "";
+    renderReadyReviewGate({required: allowReadyRun && !agentLaunch, summary, diagnostics});
     renderControlSummary(summary);
     renderJudgmentMap(payload.traceability || summary.traceability || {}, diagnostics);
     specPreview.innerHTML = payload.spec_rendered_html || "";
@@ -1641,6 +2302,273 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function agentEntryProjectionFor(payload) {
+    const session = payload?.session || currentSession || {};
+    const launch = session.agent_entry_launch || {};
+    if (launch.source !== "agent_entry") {
+      return null;
+    }
+    return launch;
+  }
+
+  function agentEntryLaunchFor(payload, allowAction) {
+    if (!allowAction) {
+      return null;
+    }
+    const session = payload?.session || currentSession || {};
+    const launch = agentEntryProjectionFor(payload);
+    if (!launch) {
+      return null;
+    }
+    const linkedRunId = String(session.linked_run_id || "").trim();
+    return linkedRunId ? {...launch, linked_run_id: linkedRunId} : launch;
+  }
+
+  function renderAgentLaunchGuide(launch) {
+    if (!agentLaunchGuide) {
+      return;
+    }
+    if (!launch) {
+      agentLaunchGuide.hidden = true;
+      agentLaunchGuide.innerHTML = "";
+      return;
+    }
+    const adapter = adapterDisplayName(String(launch.adapter || "agent").trim());
+    const slashCommand = String(launch.slash_command || "/loopora-loop").trim();
+    const loopCommand = String(launch.loop_command || "").trim();
+    const workdir = String(launch.workdir || "").trim();
+    const linkedRunId = String(launch.linked_run_id || "").trim();
+    const slashCopyButton = renderAgentLaunchCopyButton(
+      slashCommand,
+      "alignment-agent-launch-copy-slash",
+      "复制同一 Agent slash 命令",
+      "Copy same-Agent slash command"
+    );
+    const cliCopyButton = renderAgentLaunchCopyButton(
+      loopCommand,
+      "alignment-agent-launch-copy-cli",
+      "复制 CLI fallback 命令",
+      "Copy CLI fallback command"
+    );
+    agentLaunchGuide.hidden = false;
+    agentLaunchGuide.innerHTML = `
+      <div class="alignment-agent-launch-copy">
+        <span class="alignment-agent-launch-kicker">${escapeHtml(localeText("Agent-first 运行", "Agent-first run"))}</span>
+        <strong>${escapeHtml(linkedRunId
+          ? localeText(`当前运行已绑定 ${adapter}`, `Current run is bound to ${adapter}`)
+          : localeText(`回到 ${adapter} 执行 /loopora-loop`, `Return to ${adapter} and run /loopora-loop`))}</strong>
+        <p>${escapeHtml(localeText(
+          linkedRunId
+            ? "Web 只负责查看运行证据和当前交接；下一步执行仍回到宿主 Agent，避免改走后台 worker。"
+            : "Web 已完成审查面；运行必须回到宿主 Agent，让 Builder、Inspector 和 GateKeeper 通过原生交接执行。",
+          linkedRunId
+            ? "Web only shows run evidence and the current handoff; the next execution step still returns to the host Agent instead of a background worker."
+            : "Web has finished the review surface; execution must return to the host Agent so Builder, Inspector, and GateKeeper run through native handoff."
+        ))}</p>
+      </div>
+      <div class="alignment-agent-launch-commands">
+        <div class="alignment-agent-launch-command-block">
+          <span>${escapeHtml(localeText("Slash command", "Slash command"))}</span>
+          <div class="alignment-agent-launch-command-row">
+            <code data-testid="alignment-agent-launch-slash" data-agent-entry-slash-command-value>${escapeHtml(slashCommand)}</code>
+            ${slashCopyButton}
+          </div>
+        </div>
+        ${loopCommand ? `
+          <div class="alignment-agent-launch-command-block">
+            <span>${escapeHtml(localeText("CLI fallback", "CLI fallback"))}</span>
+            <div class="alignment-agent-launch-command-row">
+              <code data-testid="alignment-agent-launch-cli" data-agent-entry-command-value>${escapeHtml(loopCommand)}</code>
+              ${cliCopyButton}
+            </div>
+          </div>
+        ` : ""}
+        ${workdir ? `
+          <div class="alignment-agent-launch-command-block">
+            <span>${escapeHtml(localeText("Workdir", "Workdir"))}</span>
+            <code title="${escapeHtml(workdir)}">${escapeHtml(workdir)}</code>
+          </div>
+        ` : ""}
+        ${linkedRunId ? `<a class="secondary-button alignment-agent-launch-run-link" href="/runs/${encodeURIComponent(linkedRunId)}" data-testid="alignment-agent-launch-run-link">${escapeHtml(localeText("打开当前运行", "Open current run"))}</a>` : ""}
+        <p class="alignment-agent-launch-copy-status" data-alignment-agent-copy-status aria-live="polite"></p>
+      </div>
+    `;
+    bindAgentLaunchGuideCopyButtons();
+  }
+
+  function renderAgentLaunchCopyButton(value, testId, zhLabel, enLabel) {
+    const command = String(value || "").trim();
+    if (!command) {
+      return "";
+    }
+    return `
+      <button
+        class="ghost-button alignment-agent-launch-copy-button"
+        type="button"
+        data-alignment-agent-command-copy
+        data-agent-entry-command-copy
+        data-copy-value="${escapeHtml(command)}"
+        data-testid="${escapeHtml(testId)}"
+        aria-label="${escapeHtml(localeText(zhLabel, enLabel))}"
+      >
+        <span aria-hidden="true">⧉</span>
+        <span class="sr-only">
+          <span data-lang="zh">${escapeHtml(zhLabel)}</span>
+          <span data-lang="en">${escapeHtml(enLabel)}</span>
+        </span>
+      </button>
+    `;
+  }
+
+  function setAgentLaunchCopyStatus(button, message) {
+    const status = agentLaunchGuide?.querySelector("[data-alignment-agent-copy-status]");
+    button?.classList.add("is-copied");
+    if (status) {
+      status.textContent = message || "";
+    }
+    if (agentLaunchCopyTimer) {
+      window.clearTimeout(agentLaunchCopyTimer);
+    }
+    agentLaunchCopyTimer = window.setTimeout(() => {
+      button?.classList.remove("is-copied");
+      if (status && status.textContent === message) {
+        status.textContent = "";
+      }
+    }, 1800);
+  }
+
+  function bindAgentLaunchGuideCopyButtons() {
+    agentLaunchGuide?.querySelectorAll("[data-alignment-agent-command-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const command = String(button.dataset.copyValue || "").trim();
+        if (!command) {
+          setAgentLaunchCopyStatus(button, localeText("没有可复制的 Agent 命令。", "No Agent command is available to copy."));
+          return;
+        }
+        try {
+          await writeClipboardText(command);
+          setAgentLaunchCopyStatus(button, localeText("命令已复制。回到同一 Agent 会话粘贴运行。", "Command copied. Paste it in the same Agent session."));
+        } catch (_) {
+          setAgentLaunchCopyStatus(button, localeText("无法复制命令，请手动复制页面中的命令。", "Unable to copy the command. Copy it from the page manually."));
+        }
+      });
+    });
+  }
+
+  function adapterDisplayName(adapter) {
+    const normalized = String(adapter || "").toLowerCase();
+    if (normalized === "codex") {
+      return "Codex";
+    }
+    if (normalized === "claude") {
+      return "Claude Code";
+    }
+    if (normalized === "opencode") {
+      return "OpenCode";
+    }
+    return adapter || "Agent";
+  }
+
+  function renderRepairGuide({visible, error, sourcePath, sessionId, agentEntry}) {
+    if (!repairGuide) {
+      return;
+    }
+    if (!visible) {
+      repairGuide.hidden = true;
+      repairGuide.innerHTML = "";
+      return;
+    }
+    const isAgentEntryRepair = (agentEntry?.source || currentSession?.agent_entry_launch?.source) === "agent_entry";
+    const hints = repairHints(error, {agentEntry: isAgentEntryRepair});
+    const source = String(sourcePath || "").trim();
+    const rawError = String(error || "").trim();
+    const repairMessage = isAgentEntryRepair
+      ? localeText(
+        "这不是运行失败，也不是 Web 创建运行入口。候选方案还没有把宿主 Agent 的任务判断编译成可运行 Loop；先修源候选文件，重新运行 /loopora-gen，READY 后回到同一个 Agent 执行 /loopora-loop。",
+        "This is not a run failure and not a Web create-run entry. The candidate plan has not compiled the host Agent task judgment into a runnable Loop yet; repair the source candidate file, rerun /loopora-gen, then return to the same Agent for /loopora-loop after READY."
+      )
+      : localeText(
+        "这不是运行失败，而是候选方案还没有把任务判断编译成可运行 Loop。先修方案文件，再重新同步；通过校验前不会允许创建运行。",
+        "This is not a run failure. The candidate plan has not yet compiled task judgment into a runnable Loop. Repair the plan file, then reload; creation stays disabled until validation passes."
+      );
+    repairGuide.hidden = false;
+    repairGuide.innerHTML = `
+      <div class="alignment-repair-guide-copy">
+        <span class="alignment-repair-guide-kicker">${escapeHtml(localeText("下一步修复", "Repair next"))}</span>
+        <strong>${escapeHtml(isAgentEntryRepair
+          ? localeText("修复候选方案，再回到同一个 Agent。", "Repair the candidate plan, then return to the same Agent.")
+          : localeText("把校验错误转成方案修复，而不是继续运行。", "Turn validation errors into plan repair before running."))}</strong>
+        <p>${escapeHtml(repairMessage)}</p>
+      </div>
+      <ol class="alignment-repair-steps">
+        ${hints.map((hint) => `<li>${escapeHtml(hint)}</li>`).join("")}
+      </ol>
+      <div class="alignment-repair-meta">
+        ${source ? `<code title="${escapeHtml(source)}">${escapeHtml(source)}</code>` : ""}
+        ${sessionId ? `<span>${escapeHtml(localeText(`对话 ${sessionId}`, `Session ${sessionId}`))}</span>` : ""}
+      </div>
+      ${rawError ? `
+        <details class="alignment-repair-raw">
+          <summary>${escapeHtml(localeText("查看原始校验错误", "Show raw validation error"))}</summary>
+          <p>${escapeHtml(rawError)}</p>
+        </details>
+      ` : ""}
+    `;
+  }
+
+  function repairHints(error, options = {}) {
+    const text = String(error || "");
+    const hints = [];
+    if (text.includes("spec Task must describe the concrete user-facing task")) {
+      hints.push(localeText(
+        "在 # Task 里写清真实用户结果和业务对象，例如谁在什么页面完成什么退款动作；不要只写治理或内部流程。",
+        "Make # Task state the real user outcome and domain object, not only governance or internal process."
+      ));
+    }
+    if (text.includes("must follow Chinese user language")) {
+      hints.push(localeText(
+        "中文任务的可见名称、任务契约、角色名称和角色姿态都要使用中文；Loopora 专有词可以保留。",
+        "Keep visible names, task contract, role names, and role posture in the user's language; Loopora terms may remain."
+      ));
+    }
+    if (text.includes("host Agent task summary") || text.includes("project the host Agent task summary")) {
+      hints.push(localeText(
+        "把 /loopora-gen 摘要里的高信号对象写进 spec、角色责任、workflow intent 和证据规则。",
+        "Project high-signal objects from the /loopora-gen summary into spec, role responsibilities, workflow intent, and evidence rules."
+      ));
+    }
+    if (text.includes("evidence preferences") || text.includes("explicit host Agent evidence")) {
+      hints.push(localeText(
+        "把必需证据模式落到可运行 surface：测试、命令、浏览器 journey、日志、审计或权限/支付证明，而不是只放在摘要里。",
+        "Compile required evidence modes into runnable surfaces: tests, commands, browser journeys, logs, audit, or permission/payment proof."
+      ));
+    }
+    if (text.includes("Loopora fit") || text.includes("one-off") || text.includes("no-new-evidence")) {
+      hints.push(localeText(
+        "说明后续轮次会新增什么证据、handoff、GateKeeper 裁决或残余风险跟踪；否则这件事可能不适合开 Loop。",
+        "Explain what later rounds add: new evidence, handoffs, GateKeeper verdict, or residual-risk tracking; otherwise this may not need a Loop."
+      ));
+    }
+    if (!hints.length) {
+      hints.push(localeText(
+        "先修复最上面的结构或语义错误，再重新同步；如果错误仍然抽象，打开源文件检查 task、证据、角色责任和裁决规则是否一致。",
+        "Fix the top structural or semantic error first, then reload; if the error is still abstract, inspect whether task, evidence, role duties, and verdict rules agree."
+      ));
+    }
+    if (options.agentEntry) {
+      hints.push(localeText(
+        "修完候选文件后重新执行 /loopora-gen；只有看到“Loop 已准备好，回到 Agent 运行”后，才在同一个 Agent 会话执行 /loopora-loop。",
+        "After editing the candidate file, rerun /loopora-gen; run /loopora-loop in the same Agent session only after the preview says the plan is ready for the Agent."
+      ));
+    } else {
+      hints.push(localeText(
+        "修完后点击“重新同步”；只有看到“Loop 已准备好，先复核再运行”并确认运行前复核后，才使用页面里的创建 / 运行入口。",
+        "After editing, click Reload; use the page's create/run action only after the preview says the Loop is ready for review and the pre-run review is confirmed."
+      ));
+    }
+    return hints.slice(0, 5);
+  }
+
   async function revealSourcePath(path) {
     if (!path) {
       return;
@@ -1652,7 +2580,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     } catch (error) {
       try {
-        await navigator.clipboard.writeText(path);
+        await writeClipboardText(path);
         showError(localeText("无法自动打开，路径已复制到剪贴板。", "Could not open automatically. The path was copied to your clipboard."));
       } catch (_) {
         showError(error.message || localeText("无法打开源文件。", "Unable to open the source file."));
@@ -1746,16 +2674,20 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
     }
-    const message = messageInput.value.trim();
-    if (!message) {
-      showError(localeText("先描述你想做什么。", "Describe what you want first."));
-      messageInput.focus();
+    const additionalMessage = messageInput.value.trim();
+    const judgmentBrief = collectJudgmentBrief();
+    const hasJudgmentBrief = judgmentBriefHasAnyValue(judgmentBrief);
+    if (!additionalMessage && !hasJudgmentBrief) {
+      showError(localeText("先写任务目标、伪完成风险和必需证据。", "Add the task goal, fake-done risk, and required evidence first."));
+      (taskGoalInput || messageInput).focus();
       return;
     }
+    const composedMessage = hasJudgmentBrief ? composeJudgmentMessage(additionalMessage) : additionalMessage;
     if (currentSession?.id && !ACTIVE_STATUSES.has(String(currentSession.status || ""))) {
       setBusy(true);
       try {
-        await appendMessage(message);
+        await appendMessage(composedMessage);
+        clearJudgmentBriefInputs();
         messageInput.value = "";
       } catch (error) {
         showError(error.message || localeText("发送回复失败。", "Failed to send reply."));
@@ -1781,7 +2713,8 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         await restoreSession(selectedOption.session_id);
         if (!isActiveStatus(currentSession?.status || "")) {
-          await appendMessage(message);
+          await appendMessage(composedMessage);
+          clearJudgmentBriefInputs();
           messageInput.value = "";
         }
         closeTools();
@@ -1791,9 +2724,16 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       return;
     }
+    const missingJudgmentField = firstMissingJudgmentField(judgmentBrief);
+    if (missingJudgmentField) {
+      showError(localeText("开始前请补齐任务目标、伪完成风险和必需证据；这三项会进入首条记录。", "Fill task goal, fake-done risk, and required evidence before starting; all three enter the first transcript entry."));
+      missingJudgmentField.focus();
+      return;
+    }
     setBusy(true);
     try {
       await createSession(payload);
+      clearJudgmentBriefInputs();
       messageInput.value = "";
       closeTools();
     } catch (error) {
@@ -1814,8 +2754,10 @@ document.addEventListener("DOMContentLoaded", () => {
     startForm.requestSubmit();
   });
 
-  messageInput.addEventListener("input", () => showError(""));
-  panel.querySelectorAll("[data-starter-zh][data-starter-en]").forEach((button) => {
+  [messageInput, taskGoalInput, fakeDoneRiskInput, requiredEvidenceInput].forEach((input) => {
+    input?.addEventListener("input", () => showError(""));
+  });
+  panel.querySelectorAll("[data-goal-zh][data-goal-en]").forEach((button) => {
     button.addEventListener("click", () => fillStarterPrompt(button));
   });
   workdirInput.addEventListener("input", () => {
@@ -1840,10 +2782,44 @@ document.addEventListener("DOMContentLoaded", () => {
     loadHistory().catch(() => {});
   });
 
+  reviewGateCheckbox?.addEventListener("change", () => {
+    updateImportRunReviewGate();
+  });
+
   importRunButton.addEventListener("click", async () => {
     if (!currentSession?.id) {
       return;
     }
+    if (importRunButton.dataset.launchAction === "open-linked-run") {
+      const runId = String(importRunButton.dataset.runId || "").trim();
+      if (runId) {
+        window.location.assign(`/runs/${encodeURIComponent(runId)}`);
+      }
+      return;
+    }
+    if (importRunButton.dataset.launchAction === "copy-agent-loop") {
+      const value = importRunButton.dataset.copyValue || "/loopora-loop";
+      try {
+        await writeClipboardText(value);
+        importRunButton.classList.add("is-copied");
+        setBilingualText(importRunButton, "已复制", "Copied");
+        window.setTimeout(() => {
+          importRunButton.classList.remove("is-copied");
+          setBilingualText(importRunButton, "复制 /loopora-loop", "Copy /loopora-loop");
+        }, 1400);
+      } catch (error) {
+        showError(error.message || localeText("无法复制 /loopora-loop。", "Unable to copy /loopora-loop."));
+      }
+      return;
+    }
+    if (readyReviewGateRequired() && reviewGateCheckbox?.checked !== true) {
+      showError(localeText("先确认运行前复核，再创建并运行。", "Confirm the pre-run review before creating and running."));
+      reviewGate?.scrollIntoView({block: "nearest", behavior: "smooth"});
+      reviewGateCheckbox?.focus();
+      updateImportRunReviewGate();
+      return;
+    }
+    importRunButton.dataset.busy = "true";
     importRunButton.disabled = true;
     try {
       const response = await fetchJson(`/api/alignments/sessions/${encodeURIComponent(currentSession.id)}/import`, {
@@ -1853,8 +2829,29 @@ document.addEventListener("DOMContentLoaded", () => {
       window.location.assign(response.redirect_url || "/");
     } catch (error) {
       showError(error.message || localeText("创建失败，方案源文件已保留。", "Creation failed; the plan source file is preserved."));
-      importRunButton.disabled = false;
+      delete importRunButton.dataset.busy;
+      updateImportRunReviewGate();
     }
+  });
+  revisePreviewButton?.addEventListener("click", () => {
+    const launch = currentSession?.agent_entry_launch || {};
+    const agentFirst = launch?.source === "agent_entry";
+    const draft = agentFirst
+      ? localeText(
+        "我想调整这份 Loop 预览，但保持 Agent-first 交接：审查后仍回到同一个 Agent 运行 /loopora-loop。请改进：",
+        "I want to revise this Loop preview while keeping the Agent-first handoff: after review, return to the same Agent and run /loopora-loop. Please adjust:"
+      )
+      : localeText(
+        "我想调整这份 Loop 预览：",
+        "I want to revise this Loop preview:"
+      );
+    if (!messageInput.value.trim()) {
+      messageInput.value = draft;
+      messageInput.dispatchEvent(new Event("input", {bubbles: true}));
+    }
+    messageInput.focus();
+    messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
+    scrollRegion?.scrollTo({top: scrollRegion.scrollHeight, behavior: "smooth"});
   });
 
   document.querySelectorAll("[data-open-panel]").forEach((button) => {

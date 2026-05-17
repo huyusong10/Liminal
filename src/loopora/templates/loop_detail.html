@@ -13,18 +13,132 @@
     {% if latest_run %}
     <div class="hero-inline-meta">
       <span class="status-pill status-{{ latest_run.status }}" data-status-label="{{ latest_run.status }}"></span>
+      <span
+        class="verdict-pill verdict-{{ latest_run.task_verdict_status }}"
+        data-testid="loop-latest-verdict-pill"
+      >
+        <span data-lang="zh">{{ latest_run.task_verdict_title_zh }}</span>
+        <span data-lang="en">{{ latest_run.task_verdict_title_en }}</span>
+      </span>
       <span class="highlight-meta">
         <span data-lang="zh">最近运行迭代</span><span data-lang="en">Latest iter</span> {{ latest_run.display_iter }}
       </span>
     </div>
     {% endif %}
   </div>
+  {% if agent_entry_start %}
+  <div class="agent-entry-start-guide" data-testid="loop-agent-entry-start-guide">
+    <div class="agent-entry-start-copy">
+      <span class="agent-entry-start-kicker">
+        <span data-lang="zh">回到宿主 Agent</span>
+        <span data-lang="en">Return to the host Agent</span>
+      </span>
+      <strong>
+        <span data-lang="zh">这个 Loop 需要用 /loopora-loop 继续。</span>
+        <span data-lang="en">Continue this Loop with /loopora-loop.</span>
+      </strong>
+      <p>
+        <span data-lang="zh">{{ agent_entry_start.message_zh }}</span>
+        <span data-lang="en">{{ agent_entry_start.message_en }}</span>
+      </p>
+      {% if agent_entry_start.continuation_summary %}
+      {% set continuation = agent_entry_start.continuation_summary %}
+      {% set verdict = continuation.previous_task_verdict %}
+      {% set coverage = continuation.coverage %}
+      <div class="agent-entry-continuation-summary" data-testid="agent-entry-continuation-summary">
+        <span class="agent-entry-continuation-kicker">
+          <span data-lang="zh">下一轮证据接力</span>
+          <span data-lang="en">Next evidence pass</span>
+        </span>
+        <strong>
+          <span data-lang="zh">任务还未证明，下一轮先补这些缺口。</span>
+          <span data-lang="en">The task is still unproven; the next run starts from these gaps.</span>
+        </strong>
+        <div class="agent-entry-continuation-metrics">
+          <span><span data-lang="zh">裁决</span><span data-lang="en">Verdict</span>: {{ verdict.status or "-" }}</span>
+          <span><span data-lang="zh">缺失检查</span><span data-lang="en">Missing checks</span>: {{ coverage.missing_check_count }}</span>
+          <span><span data-lang="zh">已覆盖</span><span data-lang="en">Covered</span>: {{ coverage.covered_check_count }}</span>
+        </div>
+        {% if continuation.next_focus %}
+        <ol class="agent-entry-continuation-focus">
+          {% for item in continuation.next_focus %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ol>
+        {% endif %}
+        <div class="agent-entry-continuation-files">
+          {% if continuation.previous_task_verdict_path %}
+          <code>{{ continuation.previous_task_verdict_path }}</code>
+          {% endif %}
+          {% if continuation.previous_evidence_coverage_path %}
+          <code>{{ continuation.previous_evidence_coverage_path }}</code>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    <div class="agent-entry-start-command">
+      <span><span data-lang="zh">同一 Agent 会话中运行</span><span data-lang="en">Run in the same Agent session</span></span>
+      <div class="agent-entry-start-command-row">
+        <code data-agent-entry-command-value>{{ agent_entry_start.loop_command }}</code>
+        <button
+          class="ghost-button agent-entry-start-copy-button"
+          type="button"
+          data-agent-entry-command-copy
+          data-copy-value="{{ agent_entry_start.loop_command }}"
+          data-testid="loop-agent-entry-copy-command"
+          aria-label="{{ '复制 /loopora-loop 命令' if page_locale == 'zh' else 'Copy /loopora-loop command' }}"
+        >
+          <span aria-hidden="true">⧉</span>
+          <span class="sr-only"><span data-lang="zh">复制 /loopora-loop 命令</span><span data-lang="en">Copy /loopora-loop command</span></span>
+        </button>
+      </div>
+      <p class="agent-entry-start-copy-status" data-agent-entry-copy-status aria-live="polite"></p>
+      <div class="agent-entry-start-actions" data-testid="loop-agent-entry-actions">
+        <button
+          class="primary-button agent-entry-start-primary-action"
+          type="button"
+          data-agent-entry-command-copy
+          data-copy-value="{{ agent_entry_start.loop_command }}"
+          data-testid="loop-agent-entry-copy-command-primary"
+        >
+          <span aria-hidden="true">⧉</span>
+          {% if agent_entry_start.next_loop_action == "start_next_run_for_unproven_verdict" %}
+          <span data-lang="zh">复制续跑命令</span>
+          <span data-lang="en">Copy next-run command</span>
+          {% else %}
+          <span data-lang="zh">复制 Agent 命令</span>
+          <span data-lang="en">Copy Agent command</span>
+          {% endif %}
+        </button>
+        {% if latest_run and agent_entry_start.next_loop_action == "start_next_run_for_unproven_verdict" %}
+        <form method="post" action="/runs/{{ latest_run.id }}/revise" class="inline-form">
+          <button class="secondary-button" type="submit" data-testid="loop-improve-chat-button">
+            <span data-lang="zh">用证据改进 Loop</span>
+            <span data-lang="en">Improve plan with evidence</span>
+          </button>
+        </form>
+        <a class="ghost-button" href="/runs/{{ latest_run.id }}" data-testid="loop-open-evidence-run">
+          <span data-lang="zh">打开证据运行</span>
+          <span data-lang="en">Open evidence run</span>
+        </a>
+        {% elif agent_entry_start.linked_run_id %}
+        <a class="ghost-button" href="/runs/{{ agent_entry_start.linked_run_id }}" data-testid="loop-open-current-run">
+          <span data-lang="zh">打开当前运行</span>
+          <span data-lang="en">Open current run</span>
+        </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% else %}
   <form method="post" action="/api/loops/{{ loop.id }}/runs" onsubmit="event.preventDefault(); fetch(this.action, {method: 'POST'}).then(async (response) => { const data = await response.json(); if (!response.ok) { alert(data.error || window.LooporaUI.pickText({zh: '无法启动运行。', en: 'Unable to start the run.'})); return; } window.location.href = '/runs/' + data.id; });">
     <button class="primary-button" type="submit">
       <span data-lang="zh">开始新运行</span>
       <span data-lang="en">Start new run</span>
     </button>
   </form>
+  {% endif %}
 </section>
 
 <section class="panel" data-testid="loop-detail-config-panel">
@@ -97,6 +211,10 @@
         <div>
           <strong>{{ run_item.id }}</strong>
           <p><span data-status-label="{{ run_item.status }}"></span> · <span data-lang="zh">迭代</span><span data-lang="en">iter</span> {{ run_item.display_iter }}</p>
+          <p class="run-history-verdict" data-testid="loop-run-history-verdict">
+            <span data-lang="zh">{{ run_item.task_verdict_title_zh }}{% if run_item.task_verdict_note_zh %} · {{ run_item.task_verdict_note_zh }}{% endif %}</span>
+            <span data-lang="en">{{ run_item.task_verdict_title_en }}{% if run_item.task_verdict_note_en %} · {{ run_item.task_verdict_note_en }}{% endif %}</span>
+          </p>
         </div>
         <span class="loop-detail-history-time">{{ run_item.updated_at }}</span>
       </a>
@@ -147,8 +265,9 @@
       <span class="highlight-label"><span data-lang="zh">一句话摘要</span><span data-lang="en">At a glance</span></span>
       <strong><span data-lang="zh">最近这次运行的核心信息</span><span data-lang="en">What matters most from the latest run</span></strong>
       <p>
-        {% if summary_snapshot.summary_excerpt %}
-        {{ summary_snapshot.summary_excerpt }}
+        {% if summary_snapshot.summary_excerpt_zh or summary_snapshot.summary_excerpt_en or summary_snapshot.summary_excerpt %}
+        <span data-lang="zh">{{ summary_snapshot.summary_excerpt_zh or summary_snapshot.summary_excerpt or "-" }}</span>
+        <span data-lang="en">{{ summary_snapshot.summary_excerpt_en or summary_snapshot.summary_excerpt or "-" }}</span>
         {% else %}
         <span data-lang="zh">{{ summary_snapshot.summary_empty_zh }}</span>
         <span data-lang="en">{{ summary_snapshot.summary_empty_en }}</span>

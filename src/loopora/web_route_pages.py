@@ -137,6 +137,7 @@ def _register_loop_run_pages(app: FastAPI, ctx: WebRouteContext) -> None:
         loop = ctx.svc().get_loop(loop_id)
         runs = [_decorate_run_overview(run) for run in loop["runs"]]
         latest_run = runs[0] if runs else None
+        agent_entry_start = ctx.svc().agent_entry_loop_start_projection(loop_id)
         return ctx.templates.TemplateResponse(
             request,
             "loop_detail.html",
@@ -153,6 +154,7 @@ def _register_loop_run_pages(app: FastAPI, ctx: WebRouteContext) -> None:
                 },
                 "latest_run": latest_run,
                 "summary_snapshot": _build_run_summary_snapshot(latest_run) if latest_run else None,
+                "agent_entry_start": agent_entry_start,
                 "access_state": ctx.access_state,
             },
         )
@@ -162,6 +164,7 @@ def _register_loop_run_pages(app: FastAPI, ctx: WebRouteContext) -> None:
         locale = _preferred_request_locale(request)
         run = ctx.svc().get_run(run_id)
         export_bundle_url = f"/bundles/derive/export?{urlencode({'loop_id': run['loop_id']})}"
+        agent_entry_start = ctx.svc().agent_entry_loop_start_projection(run["loop_id"])
         return ctx.templates.TemplateResponse(
             request,
             "run_detail.html",
@@ -171,6 +174,8 @@ def _register_loop_run_pages(app: FastAPI, ctx: WebRouteContext) -> None:
                 "export_bundle_url": export_bundle_url,
                 "page_locale": locale,
                 "progress_stages": _progress_stage_seed(run),
+                "agent_entry_start": agent_entry_start,
+                "acceptance_state": ctx.svc().run_result_acceptance_state(run_id),
                 "access_state": ctx.access_state,
             },
         )

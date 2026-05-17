@@ -202,11 +202,20 @@
       `;
     }
 
+    function compactText(value, maxLength = 150) {
+      const text = String(value || "").replace(/\s+/g, " ").trim();
+      return text.length > maxLength ? `${text.slice(0, maxLength - 1).trimEnd()}…` : text;
+    }
+
+    function firstListItem(value) {
+      return Array.isArray(value) && value.length ? compactText(value[0]) : "";
+    }
+
     function judgmentContractDetail(contract) {
       const bits = [];
       const sourceBundle = contract?.source_bundle;
       if (sourceBundle && typeof sourceBundle === "object" && sourceBundle.id) {
-        const sourceBits = [sourceBundle.name || sourceBundle.id];
+        const sourceBits = [compactText(sourceBundle.name || sourceBundle.id, 52)];
         const revision = nonNegativeInteger(sourceBundle.revision);
         if (revision && revision > 0) {
           sourceBits.push(localeText(`版本 ${revision}`, `rev ${revision}`));
@@ -214,48 +223,31 @@
         if (sourceBundle.bundle_sha256) {
           sourceBits.push(`sha ${String(sourceBundle.bundle_sha256).slice(0, 12)}`);
         }
-        if (sourceBundle.imported_from_path) {
-          sourceBits.push(sourceBundle.imported_from_path);
-        }
         bits.push(localeText(`来源方案：${sourceBits.join(" · ")}`, `Source plan: ${sourceBits.join(" · ")}`));
       }
-      if (contract?.collaboration_summary) {
-        bits.push(contract.collaboration_summary);
+      const loopFit = firstListItem(contract?.loop_fit_reasons);
+      if (loopFit) {
+        bits.push(localeText(`适配：${loopFit}`, `Fit: ${loopFit}`));
       }
-      if (contract?.workflow_collaboration_intent && contract.workflow_collaboration_intent !== contract?.collaboration_summary) {
-        bits.push(contract.workflow_collaboration_intent);
+      const success = firstListItem(contract?.success_surface);
+      if (success) {
+        bits.push(localeText(`成功面：${success}`, `Success: ${success}`));
       }
-      if (Array.isArray(contract?.loop_fit_reasons) && contract.loop_fit_reasons.length) {
-        bits.push(localeText(`Loopora 适配：${contract.loop_fit_reasons[0]}`, `Loopora fit: ${contract.loop_fit_reasons[0]}`));
+      const fakeDone = firstListItem(contract?.fake_done_states);
+      if (fakeDone) {
+        bits.push(localeText(`假完成：${fakeDone}`, `Fake done: ${fakeDone}`));
       }
-      if (Array.isArray(contract?.success_surface) && contract.success_surface.length) {
-        bits.push(localeText(`成功面：${contract.success_surface[0]}`, `Success: ${contract.success_surface[0]}`));
-      }
-      if (Array.isArray(contract?.execution_strategy) && contract.execution_strategy.length) {
-        bits.push(localeText(`执行策略：${contract.execution_strategy[0]}`, `Execution strategy: ${contract.execution_strategy[0]}`));
-      }
-      if (Array.isArray(contract?.local_governance) && contract.local_governance.length) {
-        bits.push(localeText(`本地治理：${contract.local_governance[0]}`, `Local governance: ${contract.local_governance[0]}`));
-      }
-      if (Array.isArray(contract?.role_postures) && contract.role_postures.length) {
-        bits.push(localeText(`角色姿态：${contract.role_postures[0]}`, `Role posture: ${contract.role_postures[0]}`));
-      }
-      if (Array.isArray(contract?.judgment_tradeoffs) && contract.judgment_tradeoffs.length) {
-        bits.push(localeText(`判断取舍：${contract.judgment_tradeoffs[0]}`, `Tradeoff: ${contract.judgment_tradeoffs[0]}`));
-      }
-      if (Array.isArray(contract?.evidence_preferences) && contract.evidence_preferences.length) {
-        bits.push(localeText(`证据偏好：${contract.evidence_preferences[0]}`, `Evidence: ${contract.evidence_preferences[0]}`));
-      }
-      if (Array.isArray(contract?.fake_done_states) && contract.fake_done_states.length) {
-        bits.push(localeText(`假完成：${contract.fake_done_states[0]}`, `Fake done: ${contract.fake_done_states[0]}`));
+      const evidence = firstListItem(contract?.evidence_preferences);
+      if (evidence) {
+        bits.push(localeText(`证据：${evidence}`, `Evidence: ${evidence}`));
       }
       if (contract?.residual_risk) {
-        bits.push(localeText(`残余风险：${contract.residual_risk}`, `Residual risk: ${contract.residual_risk}`));
+        bits.push(localeText(`残余风险：${compactText(contract.residual_risk)}`, `Residual risk: ${compactText(contract.residual_risk)}`));
       }
-      if (!bits.length && contract?.goal) {
-        bits.push(contract.goal);
+      if (!bits.length && (contract?.goal || contract?.collaboration_summary)) {
+        bits.push(compactText(contract.goal || contract.collaboration_summary));
       }
-      return bits.slice(0, 12).join(" · ");
+      return bits.slice(0, 6).join(" · ");
     }
 
     function evidenceCoverageHtml(snapshot, runId) {

@@ -153,8 +153,14 @@
           class="alignment-starter-card"
           type="button"
           data-testid="alignment-starter-card"
-          data-starter-zh="我要做一个退款自助流程。页面能提交不算完成，必须证明管理员权限、退款资格、支付失败接管和审计链路；越权退款或审计缺失必须阻断，少量罕见支付边界可以作为残余风险但要有人接手。"
-          data-starter-en="I want to build a self-service refund flow. A clickable page is not enough: prove admin authorization, refund eligibility, payment-failure handoff, and auditability. Unauthorized refunds or missing audit evidence must block closure; rare payment-provider edges can remain only as owned residual risk."
+          data-goal-zh="实现退款自助流程，直到可以审查上线。"
+          data-goal-en="Ship a reviewable self-service refund flow."
+          data-fake-done-zh="页面能提交不算完成；模拟退款资格规则不算证明。"
+          data-fake-done-en="A clickable page is not enough; mocked refund eligibility is not proof."
+          data-evidence-zh="必须证明管理员权限、退款资格、支付失败接管和审计链路。"
+          data-evidence-en="Prove admin authorization, refund eligibility, payment-failure handoff, and auditability."
+          data-context-zh="越权退款或审计缺失必须阻断；少量罕见支付边界可以作为残余风险，但必须可见、有人接手。"
+          data-context-en="Unauthorized refunds or missing audit evidence must block closure; rare payment-provider edges can remain only as visible, owned residual risk."
         >
           <strong><span data-lang="zh">退款流程上线前证据</span><span data-lang="en">Refund launch evidence</span></strong>
           <span data-lang="zh">权限、资格、失败接管、审计</span>
@@ -164,8 +170,14 @@
           class="alignment-starter-card"
           type="button"
           data-testid="alignment-starter-card"
-          data-starter-zh="我要重构账单权限。不能只让测试变绿，要证明客户、财务和客服视角下的数据可见性没有越权；先修根因和补证据，暂缓 UI 打磨。"
-          data-starter-en="I want to refactor billing permissions. Green tests alone are not enough: prove customer, finance, and support visibility cannot overreach. Fix the root cause and evidence first; defer UI polish."
+          data-goal-zh="重构账单权限，保持客户、财务和客服视角的数据可见性安全。"
+          data-goal-en="Refactor billing permissions while keeping customer, finance, and support visibility safe."
+          data-fake-done-zh="测试变绿但未证明无越权不算完成。"
+          data-fake-done-en="Green tests are not enough if overreach is not proven impossible."
+          data-evidence-zh="证明客户、财务和客服视角下的数据可见性没有越权。"
+          data-evidence-en="Prove customer, finance, and support visibility cannot overreach."
+          data-context-zh="先修根因和补证据，暂缓 UI 打磨。"
+          data-context-en="Fix the root cause and evidence first; defer UI polish."
         >
           <strong><span data-lang="zh">账单权限重构</span><span data-lang="en">Billing permission refactor</span></strong>
           <span data-lang="zh">防越权、强证据、先根因</span>
@@ -175,8 +187,14 @@
           class="alignment-starter-card"
           type="button"
           data-testid="alignment-starter-card"
-          data-starter-zh="我要排查偶发支付回调丢失。先固定可复现证据和日志边界，再小步修复；不能用“无法复现”包装完成，GateKeeper 必须看到失败路径和恢复路径。"
-          data-starter-en="I want to investigate intermittent missing payment callbacks. First pin reproducible evidence and logging boundaries, then repair narrowly. Do not package 'cannot reproduce' as done; GateKeeper must see the failure path and recovery path."
+          data-goal-zh="排查并修复偶发支付回调丢失。"
+          data-goal-en="Investigate and repair intermittent missing payment callbacks."
+          data-fake-done-zh="用“无法复现”包装完成不算完成。"
+          data-fake-done-en="Packaging 'cannot reproduce' as done is fake completion."
+          data-evidence-zh="固定可复现证据、日志边界、失败路径和恢复路径。"
+          data-evidence-en="Pin reproducible evidence, logging boundaries, the failure path, and the recovery path."
+          data-context-zh="小步修复，不扩大范围；若失败路径或恢复路径仍不可见，必须阻断收尾。"
+          data-context-en="Repair narrowly without broadening scope; if the failure or recovery path stays invisible, closure must block."
         >
           <strong><span data-lang="zh">支付回调丢失排查</span><span data-lang="en">Missing payment callback triage</span></strong>
           <span data-lang="zh">先固定证据，再修复</span>
@@ -196,6 +214,8 @@
           <span data-lang="en">Cancel</span>
         </button>
       </div>
+      <section class="alignment-agent-review-bridge" id="alignment-agent-review-bridge" data-testid="alignment-agent-review-bridge" hidden></section>
+      <section class="alignment-source-context-bridge" id="alignment-source-context-bridge" data-testid="alignment-source-context-bridge" hidden></section>
       <div class="alignment-transcript" id="alignment-transcript" data-testid="alignment-transcript"></div>
       <section class="alignment-live-console" id="alignment-live-details" data-testid="alignment-live-details" hidden>
         <button class="alignment-live-summary" type="button" id="alignment-live-toggle" data-testid="alignment-live-toggle" aria-expanded="false" aria-controls="alignment-live-body">
@@ -234,12 +254,43 @@
           <p class="panel-note" id="alignment-ready-note"></p>
         </div>
         <div class="card-actions card-actions-compact">
+          <button class="secondary-button" type="button" id="alignment-revise-preview-button" data-testid="alignment-revise-preview-button" hidden>
+            <span data-lang="zh">调整预览</span>
+            <span data-lang="en">Revise preview</span>
+          </button>
           <button class="primary-button" type="button" id="alignment-import-run-button" data-testid="alignment-import-run-button">
-            <span data-lang="zh">创建并运行</span>
-            <span data-lang="en">Create and run</span>
+            <span data-lang="zh">复核后创建并运行</span>
+            <span data-lang="en">Review, create, run</span>
           </button>
         </div>
       </header>
+      <section class="alignment-agent-launch-guide" id="alignment-agent-launch-guide" data-testid="alignment-agent-launch-guide" hidden></section>
+      <section class="alignment-repair-guide" id="alignment-repair-guide" data-testid="alignment-repair-guide" hidden></section>
+      <section class="alignment-review-gate" id="alignment-review-gate" data-testid="alignment-review-gate" hidden>
+        <div class="alignment-review-gate-copy">
+          <span class="alignment-review-gate-kicker">
+            <span data-lang="zh">运行前复核</span>
+            <span data-lang="en">Pre-run review</span>
+          </span>
+          <strong>
+            <span data-lang="zh">READY 只表示方案通过校验；运行前先确认判断真的落进可执行 Loop。</span>
+            <span data-lang="en">READY only means the plan passed validation; confirm the judgment is actually compiled into the runnable Loop.</span>
+          </strong>
+        </div>
+        <div class="alignment-review-gate-facts" data-testid="alignment-review-gate-facts">
+          <span id="alignment-review-gate-evidence">-</span>
+          <span id="alignment-review-gate-judgment">-</span>
+          <span id="alignment-review-gate-closure">-</span>
+        </div>
+        <label class="alignment-review-gate-confirm" for="alignment-review-confirm">
+          <input type="checkbox" id="alignment-review-confirm" data-testid="alignment-review-confirm-checkbox" />
+          <span>
+            <span data-lang="zh">我已复核判断地图、证据路径和运行目录。</span>
+            <span data-lang="en">I reviewed the judgment map, evidence path, and run directory.</span>
+          </span>
+        </label>
+        <p class="alignment-review-gate-status" id="alignment-review-gate-status" data-testid="alignment-review-gate-status" aria-live="polite"></p>
+      </section>
       <div class="alignment-artifact-stage" data-testid="alignment-artifact-stage">
         <div class="workflow-loop-card alignment-workflow-card alignment-workflow-card--hero" id="alignment-workflow-diagram" data-testid="alignment-workflow-diagram"></div>
       </div>
@@ -290,13 +341,57 @@
 
     <form class="alignment-start-form bundle-chat-composer" id="alignment-start-form" data-testid="alignment-start-form">
       <div class="field-status is-error" id="alignment-error" aria-live="polite" hidden></div>
+      <section class="alignment-judgment-brief" data-testid="alignment-judgment-brief" aria-labelledby="alignment-judgment-brief-title">
+        <div class="alignment-judgment-brief-head">
+          <strong id="alignment-judgment-brief-title">
+            <span data-lang="zh">先写任务判断</span>
+            <span data-lang="en">Judgment brief first</span>
+          </strong>
+          <span>
+            <span data-lang="zh">这三项会进入首条对话记录。</span>
+            <span data-lang="en">These three fields are sent into the first transcript entry.</span>
+          </span>
+        </div>
+        <div class="alignment-judgment-grid">
+          <label class="alignment-judgment-field">
+            <span><span data-lang="zh">任务目标</span><span data-lang="en">Task goal</span></span>
+            <textarea
+              id="alignment-task-goal"
+              name="alignment_task_goal"
+              rows="2"
+              data-testid="alignment-task-goal-input"
+              placeholder="{{ '例如：实现退款自助流程，直到可以审查上线。' if page_locale == 'zh' else 'For example: ship a reviewable self-service refund flow.' }}"
+            >{{ request.query_params.get('alignment_task_goal', '') }}</textarea>
+          </label>
+          <label class="alignment-judgment-field">
+            <span><span data-lang="zh">伪完成风险</span><span data-lang="en">Fake-done risk</span></span>
+            <textarea
+              id="alignment-fake-done-risk"
+              name="alignment_fake_done_risk"
+              rows="2"
+              data-testid="alignment-fake-done-risk-input"
+              placeholder="{{ '例如：页面能提交不算完成；模拟资格规则不算证明。' if page_locale == 'zh' else 'For example: a clickable page or mocked eligibility is not enough.' }}"
+            >{{ request.query_params.get('alignment_fake_done_risk', '') }}</textarea>
+          </label>
+          <label class="alignment-judgment-field">
+            <span><span data-lang="zh">必需证据</span><span data-lang="en">Required evidence</span></span>
+            <textarea
+              id="alignment-required-evidence"
+              name="alignment_required_evidence"
+              rows="2"
+              data-testid="alignment-required-evidence-input"
+              placeholder="{{ '例如：权限、资格、支付失败接管和审计链路都有可追溯证据。' if page_locale == 'zh' else 'For example: authorization, eligibility, failure handoff, and audit proof.' }}"
+            >{{ request.query_params.get('alignment_required_evidence', '') }}</textarea>
+          </label>
+        </div>
+      </section>
       <div class="alignment-composer-box">
         <textarea
           id="alignment-message"
           name="alignment_message"
           rows="1"
           data-testid="alignment-message-input"
-          placeholder="{{ '任务 + 假完成风险 + 必需证据…' if page_locale == 'zh' else 'Task + fake-done risk + required evidence...' }}"
+          placeholder="{{ '补充说明、阻断风险、残余风险或优先级…' if page_locale == 'zh' else 'Additional blockers, residual risk, priorities...' }}"
         >{{ request.query_params.get('alignment_message', '') }}</textarea>
         <button class="alignment-send-button" type="submit" id="alignment-send-button" data-testid="alignment-send-button" aria-label="{{ '发送' if page_locale == 'zh' else 'Send' }}">↑</button>
       </div>
@@ -539,6 +634,7 @@
         </button>
       </div>
     </header>
+    <section class="alignment-repair-guide" id="alignment-repair-guide" data-testid="alignment-repair-guide" hidden></section>
     <div class="alignment-artifact-stage" data-testid="alignment-artifact-stage">
       <div class="workflow-loop-card alignment-workflow-card alignment-workflow-card--hero" id="alignment-workflow-diagram" data-testid="alignment-workflow-diagram"></div>
     </div>

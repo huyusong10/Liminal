@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from fastapi.testclient import TestClient
 
 from loopora.bundles import bundle_to_yaml
+from loopora.executor_fake_payloads import alignment_bundle_yaml
+from loopora.service_agent_adapters import AgentBundleCandidateRequest
 from loopora.web import build_app
 
 
@@ -38,6 +41,25 @@ def _assert_display_bootstrap_precedes_css(html: str) -> None:
     assert "loopora:locale" in html
     assert html.index("loopora:theme") < html.index("/static/app.css?v=")
     assert html.index("loopora:locale") < html.index("/static/app.css?v=")
+
+
+def _start_agent_first_loop(service, *, tmp_path: Path, workdir: Path) -> dict:
+    bundle_file = tmp_path / "agent-first-bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=workdir,
+            message=(
+                "Ship the focused starter experience. The primary user flow must work end to end, "
+                "use project-owned evidence, avoid happy-path claim only, keep a clear handoff, "
+                "and let GateKeeper reject weak proof."
+            ),
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    return service.start_agent_loop("codex", workdir=workdir, entry_source="codex_project_skill", execute_async=False)
 
 
 def test_index_page_renders_with_saved_loops(
@@ -143,6 +165,7 @@ def test_index_empty_state_exposes_first_run_exits(service_factory) -> None:
     _assert_has_testids(
         response.text,
         "home-first-run-actions",
+        "home-first-run-judgment-brief",
         "home-agent-entry-link",
         "home-compose-loop-link",
         "home-activity-empty",
@@ -150,8 +173,214 @@ def test_index_empty_state_exposes_first_run_exits(service_factory) -> None:
     )
     assert 'href="/tools"' in response.text
     assert 'href="/loops/new/bundle"' in response.text
+    assert "先带上任务判断，不只是任务标题" in response.text
+    assert "任务目标、伪完成风险和必需证据" in response.text
     assert "安装 Agent 入口" in response.text
     assert "Web 编排 Loop" in response.text
+
+
+def test_home_and_loop_history_surface_task_verdict_before_status_can_mislead(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Verdict Overview Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    service.repository.update_run(
+        run["id"],
+        status="succeeded",
+        task_verdict={
+            "status": "insufficient_evidence",
+            "source": "gatekeeper",
+            "summary": "Missing audit proof.",
+            "buckets": {"unproven": [{"label": "audit proof missing"}]},
+        },
+        summary_md="# Loopora Run Summary\n\nAll done according to the Agent summary.",
+    )
+    client = TestClient(build_app(service=service))
+
+    home_response = client.get("/")
+    loop_response = client.get(f"/loops/{loop['id']}")
+    run_response = client.get(f"/runs/{run['id']}")
+
+    assert home_response.status_code == 200
+    assert loop_response.status_code == 200
+    assert run_response.status_code == 200
+    _assert_has_testid(home_response.text, "home-recent-loop-verdict")
+    assert "The latest task verdict has insufficient evidence." in home_response.text
+    assert "最近一次 Loop 裁决证据不足。" in home_response.text
+    _assert_has_testid(loop_response.text, "loop-latest-verdict-pill")
+    _assert_has_testid(loop_response.text, "loop-run-history-verdict")
+    assert "Task verdict: insufficient evidence" in loop_response.text
+    assert "Loop 裁决：证据不足" in loop_response.text
+    assert "Missing audit proof." in loop_response.text
+    assert "Task verdict still insufficient: Missing audit proof." in home_response.text
+    assert "Loop 裁决证据不足：Missing audit proof." in home_response.text
+    assert "Task verdict still insufficient: Missing audit proof." in loop_response.text
+    assert "Loop 裁决证据不足：Missing audit proof." in loop_response.text
+    assert "All done according to the Agent summary." not in home_response.text
+    assert "All done according to the Agent summary." not in loop_response.text
+    _assert_testids_in_order(
+        run_response.text,
+        "run-improve-chat-button",
+        "run-rerun-button",
+        "run-accept-result-button",
+    )
+    assert "Run next evidence pass" in run_response.text
+    assert "继续补证据" in run_response.text
+    assert '<span data-lang="en">Rerun</span>' not in run_response.text
+    assert "Record unproven verdict" in run_response.text
+    assert "记录未证明结论" in run_response.text
+    assert "Accept evidence conclusion" not in run_response.text
+
+    accept_response = client.post(f"/runs/{run['id']}/accept", follow_redirects=False)
+    assert accept_response.status_code == 303
+    accepted_event = service.recent_run_events(run["id"], event_types={"run_result_accepted"})[-1]
+    assert accepted_event["payload"]["task_verdict_status"] == "insufficient_evidence"
+    assert accepted_event["payload"]["recorded_verdict_kind"] == "unproven_verdict_recorded"
+    run_after_accept = client.get(f"/runs/{run['id']}")
+    assert 'data-testid="run-accepted-result-state"' in run_after_accept.text
+    assert "Unproven verdict recorded" in run_after_accept.text
+
+
+def test_run_detail_treats_not_evaluated_terminal_run_as_next_evidence_pass(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Not Evaluated Detail Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.start_run(loop["id"])
+    service.repository.update_run(run["id"], status="failed", error_message="setup failed before evidence")
+    client = TestClient(build_app(service=service))
+
+    response = client.get(f"/runs/{run['id']}")
+
+    assert response.status_code == 200
+    _assert_testids_in_order(
+        response.text,
+        "run-improve-chat-button",
+        "run-rerun-button",
+        "run-accept-result-button",
+    )
+    assert "Run next evidence pass" in response.text
+    assert "继续补证据" in response.text
+    assert '<span data-lang="en">Rerun</span>' not in response.text
+    assert 'data-task-verdict-status="not_evaluated"' in response.text
+    assert "Record unevaluated verdict" in response.text
+    assert "记录未评估结论" in response.text
+
+    accept_response = client.post(f"/runs/{run['id']}/accept", follow_redirects=False)
+    assert accept_response.status_code == 303
+    accepted_event = service.recent_run_events(run["id"], event_types={"run_result_accepted"})[-1]
+    assert accepted_event["payload"]["task_verdict_status"] == "not_evaluated"
+    assert accepted_event["payload"]["recorded_verdict_kind"] == "not_evaluated_verdict_recorded"
+    snapshot_response = client.get(f"/api/runs/{run['id']}/observation-snapshot")
+    assert snapshot_response.status_code == 200
+    assert any(
+        event["title"] == "Unevaluated evidence verdict recorded"
+        for event in snapshot_response.json()["timeline_events"]
+        if event["event_type"] == "run_result_accepted"
+    )
+    run_after_accept = client.get(f"/runs/{run['id']}")
+    assert "Unevaluated verdict recorded" in run_after_accept.text
+
+
+def test_run_detail_improve_with_evidence_carries_specific_coverage_gaps(
+    service_factory,
+    sample_spec_file: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    loop = service.create_loop(
+        name="Evidence Gap Improvement Loop",
+        spec_path=sample_spec_file,
+        workdir=sample_workdir,
+        model="gpt-5.4",
+        reasoning_effort="medium",
+        max_iters=1,
+        max_role_retries=1,
+        delta_threshold=0.005,
+        trigger_window=2,
+        regression_window=2,
+        role_models={},
+    )
+    run = service.rerun(loop["id"])
+    coverage_path = Path(run["runs_dir"]) / "evidence" / "coverage.json"
+    coverage_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "ledger_path": "evidence/ledger.jsonl",
+                "coverage_path": "evidence/coverage.json",
+                "status": "partial",
+                "summary": {"reason": "Audit and payment failure proof are missing."},
+                "evidence_count": 3,
+                "check_count": 3,
+                "covered_check_count": 1,
+                "missing_check_count": 2,
+                "covered_check_ids": ["check_permission"],
+                "missing_check_ids": ["check_payment_failure", "check_audit_trail"],
+                "target_count": 5,
+                "covered_target_count": 1,
+                "weak_target_count": 1,
+                "missing_target_count": 2,
+                "blocked_target_count": 1,
+                "top_gaps": [{"target_id": "done_when.check_payment_failure", "text": "Payment failure proof is absent."}],
+                "evidence_kind_counts": {"artifact": 2, "summary": 1},
+                "artifact_ref_count": 2,
+                "residual_risk_count": 1,
+                "risk_signals": ["Payment retry ownership is unresolved."],
+                "latest_gatekeeper": {"id": "ev_gatekeeper", "result": "blocked"},
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    client = TestClient(build_app(service=service))
+
+    response = client.post(f"/runs/{run['id']}/revise", follow_redirects=False)
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith("/loops/new/bundle?")
+    session_id = parse_qs(urlparse(location).query)["alignment_session_id"][0]
+    session = service.get_alignment_session(session_id)
+    source = session["working_agreement"]["source"]
+    assert source["source_run_id"] == run["id"]
+    assert source["coverage_summary"]["missing_check_count"] == 2
+    assert source["coverage_summary"]["missing_check_ids"] == ["check_payment_failure", "check_audit_trail"]
+    assert source["coverage_summary"]["risk_signals"] == ["Payment retry ownership is unresolved."]
+    prompt = service._build_alignment_prompt(session, mode="normal")
+    assert "check_payment_failure" in prompt
+    assert "Payment failure proof is absent." in prompt
+    assert "Payment retry ownership is unresolved." in prompt
 
 
 def test_index_page_shell_prefers_primary_request_locale_on_first_paint(service_factory) -> None:
@@ -270,7 +499,8 @@ def test_run_detail_places_takeaways_and_console_before_timeline(
     _assert_has_testid(response.text, "run-export-loop-button")
     assert f"/bundles/derive/export?loop_id={loop['id']}" in response.text
     _assert_has_testid(response.text, "run-accept-result-button")
-    assert "Accept evidence conclusion" in response.text
+    assert "Record passing verdict" in response.text
+    assert "Accept evidence conclusion" not in response.text
     assert "Accept conclusion" not in response.text
     _assert_has_testid(response.text, "run-improve-chat-button")
     _assert_has_testid(response.text, "run-evidence-improve-button")
@@ -528,6 +758,32 @@ def test_loop_detail_uses_summary_cards_for_latest_run(
     assert "Latest verdict" in response.text
 
 
+def test_agent_first_loop_detail_routes_start_back_to_slash_command(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    started = _start_agent_first_loop(service, tmp_path=tmp_path, workdir=sample_workdir)
+
+    client = TestClient(build_app(service=service))
+    response = client.get(f"/loops/{started['run']['loop_id']}")
+
+    assert response.status_code == 200
+    _assert_has_testid(response.text, "loop-agent-entry-start-guide")
+    _assert_has_testid(response.text, "loop-agent-entry-copy-command")
+    _assert_has_testid(response.text, "loop-agent-entry-actions")
+    _assert_has_testid(response.text, "loop-agent-entry-copy-command-primary")
+    assert "/loopora-loop" in response.text
+    assert "loopora agent codex loop" in response.text
+    assert "codex_project_skill" in response.text
+    assert 'data-agent-entry-command-copy' in response.text
+    assert 'data-copy-value="LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex loop' in response.text
+    assert "Copy Agent command" in response.text
+    assert 'action="/api/loops/' not in response.text
+    assert "Start new run" not in response.text
+
+
 def test_run_detail_surfaces_workspace_guard_failures(
     service_factory,
     sample_spec_file: Path,
@@ -573,11 +829,14 @@ def _assert_tools_english_page(response) -> None:
     assert 'data-testid="local-assets-diagnostics-panel"' in response.text
     assert 'data-local-assets-count="orphan_alignment_dirs"' in response.text
     assert 'data-local-assets-count="orphan_run_dirs"' in response.text
+    assert 'data-testid="local-assets-toggle"' in response.text
+    assert 'aria-controls="local-assets-details"' in response.text
     assert 'data-testid="local-assets-details"' in response.text
     assert 'data-testid="agent-adapters-panel"' in response.text
     assert 'data-testid="agent-adapter-workdir"' in response.text
     assert 'data-testid="agent-adapter-target-note"' in response.text
     assert 'data-testid="agent-adapter-next-steps"' in response.text
+    assert 'data-testid="agent-adapter-handoff"' in response.text
     assert 'data-testid="agent-adapter-refresh"' in response.text
     assert 'data-testid="agent-adapter-codex"' in response.text
     assert 'data-testid="agent-adapter-install-codex"' in response.text
@@ -591,6 +850,9 @@ def _assert_tools_english_page(response) -> None:
     assert "Agent working project directory" in response.text
     assert "Path to the project where the Agent will work" in response.text
     assert "leave blank only when the server was started from that target project" in response.text
+    assert "Task brief first" in response.text
+    assert "task goal, fake-done risk, and required evidence" in response.text
+    assert "same Agent session" in response.text
     assert response.text.index('data-testid="agent-adapters-panel"') < response.text.index(
         'data-testid="wake-lock-panel-section"'
     )
@@ -617,7 +879,8 @@ def _assert_tools_chinese_page(zh_response) -> None:
     assert "Agent 工作项目目录" in zh_response.text
     assert "只有服务已从目标项目启动时才适合留空" in zh_response.text
     assert 'data-testid="agent-adapters-panel"' in zh_response.text
-    assert "审查预览后再运行" in zh_response.text
+    assert "说明目标、伪完成风险和必需证据" in zh_response.text
+    assert "同一 Agent 会话" in zh_response.text
     assert "下载技能包" not in zh_response.text
     assert 'aria-label="查看提示：' in zh_response.text
 
@@ -697,12 +960,23 @@ def _assert_bundle_compose_page(html: str) -> None:
         "alignment-mode-preset-button",
         "alignment-mode-command-button",
         "alignment-executor-mode-input",
+        "alignment-judgment-brief",
+        "alignment-task-goal-input",
+        "alignment-fake-done-risk-input",
+        "alignment-required-evidence-input",
         "alignment-message-input",
         "alignment-chat",
         "alignment-thinking-status",
+        "alignment-agent-review-bridge",
         "alignment-live-details",
         "alignment-live-summary-meta",
         "alignment-ready-preview",
+        "alignment-agent-launch-guide",
+        "alignment-repair-guide",
+        "alignment-review-gate",
+        "alignment-review-gate-facts",
+        "alignment-review-confirm-checkbox",
+        "alignment-review-gate-status",
         "alignment-artifact-stage",
         "alignment-artifact-summary",
         "alignment-control-summary",
@@ -712,6 +986,7 @@ def _assert_bundle_compose_page(html: str) -> None:
         "alignment-preview-tab-spec",
         "alignment-preview-tab-roles",
         "alignment-workflow-diagram",
+        "alignment-revise-preview-button",
         "alignment-import-run-button",
         "alignment-source-open-button",
         "alignment-source-sync-button",
@@ -738,7 +1013,15 @@ def _assert_bundle_compose_page(html: str) -> None:
     assert 'data-compose-mode="bundle"' in html
     assert "what would be fake-done" in html
     assert "which risks must block closure" in html
-    assert "Task + fake-done risk + required evidence" in html
+    assert "Judgment brief first" in html
+    assert "These three fields are sent into the first transcript entry." in html
+    assert "Pre-run review" in html
+    assert "READY only means the plan passed validation" in html
+    assert "Review, create, run" in html
+    assert "Task goal" in html
+    assert "Fake-done risk" in html
+    assert "Required evidence" in html
+    assert "Additional blockers, residual risk, priorities" in html
     assert "What should Loopora do?" not in html
     assert "你想让 Loopora 做什么？" not in html
     assert "Refund launch evidence" in html
@@ -1610,6 +1893,7 @@ def _assert_tutorial_page(html: str) -> None:
         "tutorial-core-survivability",
         "tutorial-core-loop",
         "tutorial-hero-actions",
+        "tutorial-hero-judgment-brief",
         "tutorial-hero-agent-entry-link",
         "tutorial-hero-web-compose-link",
         "tutorial-decision-tree-panel",
@@ -1650,6 +1934,8 @@ def _assert_tutorial_page(html: str) -> None:
         "/loops/new/bundle",
         "/loops/new/manual",
         "Loop preview",
+        "Name three things before you start.",
+        "task goal, fake-done risk, and required evidence",
         "Install Agent entry",
         "Compose in Web",
         "Manual Expert Mode",

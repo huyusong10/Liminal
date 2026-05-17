@@ -15,6 +15,8 @@ _JSON_COLUMN_TYPES: dict[str, type[dict] | type[list]] = {
     "prompt_files_json": dict,
     "last_verdict_json": dict,
     "task_verdict_json": dict,
+    "latest_verdict_json": dict,
+    "latest_task_verdict_json": dict,
     "payload_json": dict,
     "role_definition_ids_json": list,
     "transcript_json": list,

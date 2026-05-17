@@ -59,6 +59,7 @@ class StepContextPacketRequest:
     evidence_known_ids: list[str] | None = None
     evidence_manifest_summary: dict | None = None
     evidence_manifest_claims: list[dict] | None = None
+    continuation_context: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -295,9 +296,77 @@ ROLE_POSTURE_CONTRACT_SCHEMA = {
     "additionalProperties": False,
 }
 
+TASK_VERDICT_BUCKETS_SCHEMA = {
+    "type": "object",
+    "required": ["proven", "weak", "unproven", "blocking", "residual_risk"],
+    "properties": {
+        "proven": {"type": "array", "items": {"type": "object"}},
+        "weak": {"type": "array", "items": {"type": "object"}},
+        "unproven": {"type": "array", "items": {"type": "object"}},
+        "blocking": {"type": "array", "items": {"type": "object"}},
+        "residual_risk": {"type": "array", "items": {"type": "object"}},
+    },
+    "additionalProperties": False,
+}
+
+TASK_VERDICT_CONTEXT_SCHEMA = {
+    "type": "object",
+    "required": ["status", "source", "summary", "buckets"],
+    "properties": {
+        "status": {"type": "string"},
+        "source": {"type": "string"},
+        "summary": {"type": "string"},
+        "buckets": TASK_VERDICT_BUCKETS_SCHEMA,
+    },
+    "additionalProperties": False,
+}
+
+CONTINUATION_COVERAGE_SCHEMA = {
+    "type": "object",
+    "required": ["status", "covered_check_count", "missing_check_count", "covered_check_ids", "missing_check_ids", "top_gaps"],
+    "properties": {
+        "status": {"type": "string"},
+        "covered_check_count": {"type": "integer"},
+        "missing_check_count": {"type": "integer"},
+        "covered_check_ids": {"type": "array", "items": {"type": "string"}},
+        "missing_check_ids": {"type": "array", "items": {"type": "string"}},
+        "top_gaps": {"type": "array", "items": EVIDENCE_COVERAGE_GAP_SCHEMA},
+    },
+    "additionalProperties": False,
+}
+
+CONTINUATION_CONTEXT_SCHEMA = {
+    "type": "object",
+    "required": [
+        "active",
+        "reason",
+        "previous_run_id",
+        "previous_run_path",
+        "previous_run_status",
+        "previous_task_verdict",
+        "previous_task_verdict_path",
+        "previous_evidence_coverage_path",
+        "coverage",
+        "next_focus",
+    ],
+    "properties": {
+        "active": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "previous_run_id": {"type": "string"},
+        "previous_run_path": {"type": "string"},
+        "previous_run_status": {"type": "string"},
+        "previous_task_verdict": TASK_VERDICT_CONTEXT_SCHEMA,
+        "previous_task_verdict_path": {"type": "string"},
+        "previous_evidence_coverage_path": {"type": "string"},
+        "coverage": CONTINUATION_COVERAGE_SCHEMA,
+        "next_focus": {"type": "array", "items": {"type": "string"}},
+    },
+    "additionalProperties": False,
+}
+
 STEP_CONTEXT_PACKET_SCHEMA = {
     "type": "object",
-    "required": ["contract", "iteration", "current_step", "upstream", "evidence", "artifacts"],
+    "required": ["contract", "continuation", "iteration", "current_step", "upstream", "evidence", "artifacts"],
     "properties": {
         "contract": {
             "type": "object",
@@ -345,6 +414,7 @@ STEP_CONTEXT_PACKET_SCHEMA = {
             },
             "additionalProperties": False,
         },
+        "continuation": CONTINUATION_CONTEXT_SCHEMA,
         "iteration": {
             "type": "object",
             "required": [
@@ -801,6 +871,86 @@ def _contract_role_postures(value: object) -> list[dict]:
     return postures
 
 
+def _empty_task_verdict_context() -> dict:
+    return {
+        "status": "",
+        "source": "",
+        "summary": "",
+        "buckets": {
+            "proven": [],
+            "weak": [],
+            "unproven": [],
+            "blocking": [],
+            "residual_risk": [],
+        },
+    }
+
+
+def _normalize_task_verdict_context(value: object) -> dict:
+    if not isinstance(value, dict):
+        return _empty_task_verdict_context()
+    buckets = value.get("buckets") if isinstance(value.get("buckets"), dict) else {}
+    return {
+        "status": _contract_string(value.get("status")),
+        "source": _contract_string(value.get("source")),
+        "summary": _contract_string(value.get("summary")),
+        "buckets": {
+            "proven": _contract_mapping_list(buckets.get("proven")),
+            "weak": _contract_mapping_list(buckets.get("weak")),
+            "unproven": _contract_mapping_list(buckets.get("unproven")),
+            "blocking": _contract_mapping_list(buckets.get("blocking")),
+            "residual_risk": _contract_mapping_list(buckets.get("residual_risk")),
+        },
+    }
+
+
+def _empty_continuation_context() -> dict:
+    return {
+        "active": False,
+        "reason": "",
+        "previous_run_id": "",
+        "previous_run_path": "",
+        "previous_run_status": "",
+        "previous_task_verdict": _empty_task_verdict_context(),
+        "previous_task_verdict_path": "",
+        "previous_evidence_coverage_path": "",
+        "coverage": {
+            "status": "pending",
+            "covered_check_count": 0,
+            "missing_check_count": 0,
+            "covered_check_ids": [],
+            "missing_check_ids": [],
+            "top_gaps": [],
+        },
+        "next_focus": [],
+    }
+
+
+def _normalize_continuation_context(value: object) -> dict:
+    if not isinstance(value, dict) or value.get("active") is not True:
+        return _empty_continuation_context()
+    coverage = value.get("coverage") if isinstance(value.get("coverage"), dict) else {}
+    return {
+        "active": True,
+        "reason": _contract_string(value.get("reason")),
+        "previous_run_id": _contract_string(value.get("previous_run_id")),
+        "previous_run_path": _contract_string(value.get("previous_run_path")),
+        "previous_run_status": _contract_string(value.get("previous_run_status")),
+        "previous_task_verdict": _normalize_task_verdict_context(value.get("previous_task_verdict")),
+        "previous_task_verdict_path": _contract_string(value.get("previous_task_verdict_path")),
+        "previous_evidence_coverage_path": _contract_string(value.get("previous_evidence_coverage_path")),
+        "coverage": {
+            "status": _contract_string(coverage.get("status")) or "pending",
+            "covered_check_count": _int_value(coverage.get("covered_check_count")),
+            "missing_check_count": _int_value(coverage.get("missing_check_count")),
+            "covered_check_ids": _string_list(coverage.get("covered_check_ids")),
+            "missing_check_ids": _string_list(coverage.get("missing_check_ids")),
+            "top_gaps": _normalize_coverage_gap_rows(coverage.get("top_gaps")),
+        },
+        "next_focus": _contract_string_list(value.get("next_focus"))[:8],
+    }
+
+
 def build_step_context_packet(request: StepContextPacketRequest) -> dict:
     run_contract = request.run_contract
     layout = request.layout
@@ -832,6 +982,7 @@ def build_step_context_packet(request: StepContextPacketRequest) -> dict:
         roles=workflow_roles,
         workflow=workflow_snapshot,
     )
+    continuation_context = _normalize_continuation_context(request.continuation_context or run_contract.get("continuation_context"))
     return {
         "contract": {
             "path": layout.relative(layout.run_contract_path),
@@ -856,6 +1007,7 @@ def build_step_context_packet(request: StepContextPacketRequest) -> dict:
             "evidence_preferences": _contract_string_list(run_contract.get("evidence_preferences") or compiled_spec.get("evidence_preferences")),
             "residual_risk": _contract_string(run_contract.get("residual_risk") or compiled_spec.get("residual_risk")),
         },
+        "continuation": continuation_context,
         "iteration": {
             "iter_index": int(request.iter_id),
             "is_first_iteration": request.iter_id == 0,
@@ -1357,6 +1509,7 @@ def render_step_prompt(
         output_contract_prompt(role["archetype"]),
         prompt_body.strip(),
         render_run_contract_section(packet["contract"], compiled_spec),
+        render_continuation_section(packet.get("continuation") or {}),
         render_role_note_section(role_guidance),
         render_iteration_section(packet),
         render_handoff_section(
@@ -1385,6 +1538,33 @@ def render_step_prompt(
         f"Prompt template: {prompt_label}",
     ]
     return "\n\n".join(section for section in sections if str(section).strip()).strip()
+
+
+def render_continuation_section(continuation: dict) -> str:
+    if not isinstance(continuation, dict) or continuation.get("active") is not True:
+        return ""
+    verdict = continuation.get("previous_task_verdict") if isinstance(continuation.get("previous_task_verdict"), dict) else {}
+    coverage = continuation.get("coverage") if isinstance(continuation.get("coverage"), dict) else {}
+    lines = [
+        "Continuation from previous terminal run:",
+        f"- Reason: {continuation.get('reason') or 'previous terminal verdict requires another evidence pass'}",
+        f"- Previous run id: {continuation.get('previous_run_id') or '-'}",
+        f"- Previous run status: {continuation.get('previous_run_status') or '-'}",
+        f"- Previous task verdict: {verdict.get('status') or '-'} :: {verdict.get('summary') or '-'}",
+        f"- Previous task verdict file: {continuation.get('previous_task_verdict_path') or '-'}",
+        f"- Previous coverage file: {continuation.get('previous_evidence_coverage_path') or '-'}",
+        f"- Previous required coverage: {coverage.get('covered_check_count', 0)} covered, {coverage.get('missing_check_count', 0)} missing",
+    ]
+    missing_check_ids = _string_list(coverage.get("missing_check_ids"))[:8]
+    if missing_check_ids:
+        lines.append(f"- Previous missing required check ids: {json.dumps(missing_check_ids, ensure_ascii=False)}")
+    top_gaps = _normalize_coverage_gap_rows(coverage.get("top_gaps"))[:5]
+    if top_gaps:
+        lines.append(f"- Previous top coverage gaps: {json.dumps(top_gaps, ensure_ascii=False)}")
+    next_focus = _contract_string_list(continuation.get("next_focus"))[:8]
+    if next_focus:
+        lines.append(f"- Next focus: {json.dumps(next_focus, ensure_ascii=False)}")
+    return "\n".join(lines)
 
 
 def system_prompt_prefix(archetype: str) -> str:

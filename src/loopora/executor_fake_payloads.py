@@ -122,6 +122,7 @@ def _alignment_preconfirmation_payload(
     if state.mode != "repair" and state.alignment_stage not in {
         "confirmed",
         "compiling",
+        "ready_review",
     }:
         return _alignment_preconfirmation_agreement_payload_for_scenario(
             scenario,

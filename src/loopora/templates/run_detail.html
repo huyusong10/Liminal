@@ -4,6 +4,9 @@
 <link rel="stylesheet" href="{{ static_asset_url('pages/run_detail.css') }}" />
 {% endblock %}
 {% block content %}
+{% set terminal_run = run.status in ["succeeded", "failed", "stopped"] %}
+{% set task_verdict_status = (run.task_verdict.status if run.task_verdict else "")|lower %}
+{% set unresolved_terminal_verdict = task_verdict_status in ["insufficient_evidence", "failed", "not_evaluated"] %}
 <div class="page-stack" data-testid="run-detail-page">
 <section class="hero hero-tight hero-run-detail">
   <div class="hero-copy-stack">
@@ -40,6 +43,24 @@
     </div>
   </div>
   <div class="card-actions hero-actions">
+    {% if agent_entry_start %}
+    <button
+      class="primary-button agent-entry-start-primary-action"
+      type="button"
+      data-agent-entry-command-copy
+      data-copy-value="{{ agent_entry_start.loop_command }}"
+      data-testid="run-agent-entry-copy-command-hero"
+    >
+      <span aria-hidden="true">⧉</span>
+      {% if agent_entry_start.next_loop_action == "start_next_run_for_unproven_verdict" %}
+      <span data-lang="zh">复制续跑命令</span>
+      <span data-lang="en">Copy next-run command</span>
+      {% else %}
+      <span data-lang="zh">复制 Agent 命令</span>
+      <span data-lang="en">Copy Agent command</span>
+      {% endif %}
+    </button>
+    {% endif %}
     <a class="secondary-button" href="/loops/{{ run.loop_id }}">
       <span data-lang="zh">返回 Loop</span>
       <span data-lang="en">Back to loop</span>
@@ -48,26 +69,92 @@
       <span data-lang="zh">导出 Loop</span>
       <span data-lang="en">Export Loop</span>
     </a>
-    {% if run.status in ["succeeded", "failed", "stopped"] %}
-    <form method="post" action="/runs/{{ run.id }}/accept" class="inline-form">
-      <button class="secondary-button" type="submit" data-testid="run-accept-result-button">
-        <span data-lang="zh">接受证据结论</span>
-        <span data-lang="en">Accept evidence conclusion</span>
+    {% if terminal_run and unresolved_terminal_verdict %}
+    <form method="post" action="/runs/{{ run.id }}/revise" class="inline-form">
+      <button class="primary-button" type="submit" data-testid="run-improve-chat-button">
+        <span data-lang="zh">用证据改进 Loop</span>
+        <span data-lang="en">Improve plan with evidence</span>
       </button>
     </form>
+    {% if not agent_entry_start %}
     <form method="post" action="/runs/{{ run.id }}/rerun" class="inline-form">
-      <button class="primary-button" type="submit" data-testid="run-rerun-button">
+      <button class="secondary-button" type="submit" data-testid="run-rerun-button">
+        <span data-lang="zh">继续补证据</span>
+        <span data-lang="en">Run next evidence pass</span>
+      </button>
+    </form>
+    {% endif %}
+    {% endif %}
+    {% if terminal_run %}
+    {% if acceptance_state.accepted %}
+    <button class="secondary-button" type="button" data-testid="run-accepted-result-state" disabled aria-disabled="true">
+      {% if task_verdict_status == "insufficient_evidence" %}
+      <span data-lang="zh">未证明结论已记录</span>
+      <span data-lang="en">Unproven verdict recorded</span>
+      {% elif task_verdict_status == "failed" %}
+      <span data-lang="zh">失败结论已记录</span>
+      <span data-lang="en">Failed verdict recorded</span>
+      {% elif task_verdict_status == "not_evaluated" %}
+      <span data-lang="zh">未评估结论已记录</span>
+      <span data-lang="en">Unevaluated verdict recorded</span>
+      {% elif task_verdict_status == "passed_with_residual_risk" %}
+      <span data-lang="zh">带残余风险的通过结论已记录</span>
+      <span data-lang="en">Pass-with-risk verdict recorded</span>
+      {% elif task_verdict_status == "passed" %}
+      <span data-lang="zh">通过结论已记录</span>
+      <span data-lang="en">Passing verdict recorded</span>
+      {% else %}
+      <span data-lang="zh">证据结论已记录</span>
+      <span data-lang="en">Evidence verdict recorded</span>
+      {% endif %}
+    </button>
+    {% else %}
+    <form method="post" action="/runs/{{ run.id }}/accept" class="inline-form">
+      <button
+        class="{{ 'secondary-button' if unresolved_terminal_verdict else 'primary-button' }}"
+        type="submit"
+        data-testid="run-accept-result-button"
+        data-task-verdict-status="{{ task_verdict_status }}"
+      >
+        {% if task_verdict_status == "insufficient_evidence" %}
+        <span data-lang="zh">记录未证明结论</span>
+        <span data-lang="en">Record unproven verdict</span>
+        {% elif task_verdict_status == "failed" %}
+        <span data-lang="zh">记录失败结论</span>
+        <span data-lang="en">Record failed verdict</span>
+        {% elif task_verdict_status == "not_evaluated" %}
+        <span data-lang="zh">记录未评估结论</span>
+        <span data-lang="en">Record unevaluated verdict</span>
+        {% elif task_verdict_status == "passed_with_residual_risk" %}
+        <span data-lang="zh">记录带风险通过</span>
+        <span data-lang="en">Record pass with risk</span>
+        {% elif task_verdict_status == "passed" %}
+        <span data-lang="zh">记录通过结论</span>
+        <span data-lang="en">Record passing verdict</span>
+        {% else %}
+        <span data-lang="zh">记录证据结论</span>
+        <span data-lang="en">Record evidence verdict</span>
+        {% endif %}
+      </button>
+    </form>
+    {% endif %}
+    {% if not unresolved_terminal_verdict and not agent_entry_start %}
+    <form method="post" action="/runs/{{ run.id }}/rerun" class="inline-form">
+      <button class="secondary-button" type="submit" data-testid="run-rerun-button">
         <span data-lang="zh">重新运行</span>
         <span data-lang="en">Rerun</span>
       </button>
     </form>
     {% endif %}
+    {% endif %}
+    {% if not (terminal_run and unresolved_terminal_verdict) %}
     <form method="post" action="/runs/{{ run.id }}/revise" class="inline-form">
       <button class="secondary-button" type="submit" data-testid="run-improve-chat-button">
         <span data-lang="zh">用证据改进 Loop</span>
         <span data-lang="en">Improve plan with evidence</span>
       </button>
     </form>
+    {% endif %}
     {% if run.status in ["queued", "running", "awaiting_agent"] %}
     <button class="ghost-button" id="stop-run">
       <span data-lang="zh">停止运行</span>
@@ -76,6 +163,84 @@
     {% endif %}
   </div>
 </section>
+
+{% if agent_entry_start %}
+<section class="agent-entry-start-guide" data-testid="run-agent-entry-start-guide">
+  <div class="agent-entry-start-copy">
+    <span class="agent-entry-start-kicker">
+      <span data-lang="zh">Agent-first 执行边界</span>
+      <span data-lang="en">Agent-first execution boundary</span>
+    </span>
+    <strong>
+      <span data-lang="zh">继续运行时回到 /loopora-loop。</span>
+      <span data-lang="en">Return to /loopora-loop for the next run.</span>
+    </strong>
+    <p>
+      <span data-lang="zh">{{ agent_entry_start.message_zh }}</span>
+      <span data-lang="en">{{ agent_entry_start.message_en }}</span>
+    </p>
+    {% if agent_entry_start.continuation_summary %}
+    {% set continuation = agent_entry_start.continuation_summary %}
+    {% set verdict = continuation.previous_task_verdict %}
+    {% set coverage = continuation.coverage %}
+    <div class="agent-entry-continuation-summary" data-testid="agent-entry-continuation-summary">
+      <span class="agent-entry-continuation-kicker">
+        <span data-lang="zh">下一轮证据接力</span>
+        <span data-lang="en">Next evidence pass</span>
+      </span>
+      <strong>
+        <span data-lang="zh">任务还未证明，下一轮先补这些缺口。</span>
+        <span data-lang="en">The task is still unproven; the next run starts from these gaps.</span>
+      </strong>
+      <div class="agent-entry-continuation-metrics">
+        <span><span data-lang="zh">裁决</span><span data-lang="en">Verdict</span>: {{ verdict.status or "-" }}</span>
+        <span><span data-lang="zh">缺失检查</span><span data-lang="en">Missing checks</span>: {{ coverage.missing_check_count }}</span>
+        <span><span data-lang="zh">已覆盖</span><span data-lang="en">Covered</span>: {{ coverage.covered_check_count }}</span>
+      </div>
+      {% if continuation.next_focus %}
+      <ol class="agent-entry-continuation-focus">
+        {% for item in continuation.next_focus %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ol>
+      {% endif %}
+      <div class="agent-entry-continuation-files">
+        {% if continuation.previous_task_verdict_path %}
+        <code>{{ continuation.previous_task_verdict_path }}</code>
+        {% endif %}
+        {% if continuation.previous_evidence_coverage_path %}
+        <code>{{ continuation.previous_evidence_coverage_path }}</code>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  <div class="agent-entry-start-command">
+    <span><span data-lang="zh">同一 Agent 会话中运行</span><span data-lang="en">Run in the same Agent session</span></span>
+    <div class="agent-entry-start-command-row">
+      <code data-agent-entry-command-value>{{ agent_entry_start.loop_command }}</code>
+      <button
+        class="ghost-button agent-entry-start-copy-button"
+        type="button"
+        data-agent-entry-command-copy
+        data-copy-value="{{ agent_entry_start.loop_command }}"
+        data-testid="run-agent-entry-copy-command"
+        aria-label="{{ '复制 /loopora-loop 命令' if page_locale == 'zh' else 'Copy /loopora-loop command' }}"
+      >
+        <span aria-hidden="true">⧉</span>
+        <span class="sr-only"><span data-lang="zh">复制 /loopora-loop 命令</span><span data-lang="en">Copy /loopora-loop command</span></span>
+      </button>
+    </div>
+    <p class="agent-entry-start-copy-status" data-agent-entry-copy-status aria-live="polite"></p>
+    {% if agent_entry_start.linked_run_id and agent_entry_start.linked_run_id != run.id %}
+    <a class="ghost-button" href="/runs/{{ agent_entry_start.linked_run_id }}">
+      <span data-lang="zh">打开绑定运行</span>
+      <span data-lang="en">Open bound run</span>
+    </a>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
 
 <section class="dashboard-grid">
   <article class="panel takeaway-panel" data-testid="run-takeaway-panel">
@@ -101,6 +266,140 @@
           <span data-lang="en">Improve in chat</span>
         </button>
       </form>
+    </div>
+    <div class="agent-handoff-card" id="agent-handoff-card" data-testid="run-agent-handoff-card" hidden>
+      <div class="agent-handoff-copy">
+        <span class="takeaway-path-label"><span data-lang="zh">下一步 Agent 交接</span><span data-lang="en">Next Agent handoff</span></span>
+        <strong id="agent-handoff-title">-</strong>
+        <p id="agent-handoff-detail">-</p>
+      </div>
+      <div class="agent-handoff-continuation" id="agent-handoff-continuation" data-testid="agent-handoff-continuation" hidden>
+        <div class="agent-handoff-continuation-copy">
+          <span class="takeaway-path-label"><span data-lang="zh">上一轮证据接力</span><span data-lang="en">Previous evidence pass</span></span>
+          <strong id="agent-handoff-continuation-title">-</strong>
+          <p id="agent-handoff-continuation-detail">-</p>
+        </div>
+        <ol class="agent-handoff-continuation-focus" id="agent-handoff-continuation-focus"></ol>
+      </div>
+      <div class="agent-handoff-grid">
+        <article class="agent-handoff-item">
+          <div class="agent-handoff-item-header">
+            <span class="takeaway-path-label"><span data-lang="zh">目标 Agent</span><span data-lang="en">Target Agent</span></span>
+            <button
+              class="ghost-button agent-handoff-copy-button"
+              type="button"
+              data-agent-handoff-copy="target"
+              data-testid="agent-handoff-copy-target"
+              aria-label="{{ '复制目标 Agent' if page_locale == 'zh' else 'Copy target Agent' }}"
+              title="{{ '复制目标 Agent' if page_locale == 'zh' else 'Copy target Agent' }}"
+            >
+              <span aria-hidden="true">⧉</span>
+              <span class="sr-only"><span data-lang="zh">复制目标 Agent</span><span data-lang="en">Copy target Agent</span></span>
+            </button>
+          </div>
+          <code id="agent-handoff-target">-</code>
+        </article>
+        <article class="agent-handoff-item">
+          <div class="agent-handoff-item-header">
+            <span class="takeaway-path-label"><span data-lang="zh">上下文</span><span data-lang="en">Context</span></span>
+            <button
+              class="ghost-button agent-handoff-copy-button"
+              type="button"
+              data-agent-handoff-copy="context"
+              data-testid="agent-handoff-copy-context"
+              aria-label="{{ '复制上下文路径' if page_locale == 'zh' else 'Copy context path' }}"
+              title="{{ '复制上下文路径' if page_locale == 'zh' else 'Copy context path' }}"
+            >
+              <span aria-hidden="true">⧉</span>
+              <span class="sr-only"><span data-lang="zh">复制上下文路径</span><span data-lang="en">Copy context path</span></span>
+            </button>
+          </div>
+          <code id="agent-handoff-context">-</code>
+        </article>
+        <article class="agent-handoff-item">
+          <div class="agent-handoff-item-header">
+            <span class="takeaway-path-label"><span data-lang="zh">完整胶囊</span><span data-lang="en">Step contract</span></span>
+            <button
+              class="ghost-button agent-handoff-copy-button"
+              type="button"
+              data-agent-handoff-copy="capsule"
+              data-testid="agent-handoff-copy-capsule"
+              aria-label="{{ '复制完整胶囊路径' if page_locale == 'zh' else 'Copy step contract path' }}"
+              title="{{ '复制完整胶囊路径' if page_locale == 'zh' else 'Copy step contract path' }}"
+            >
+              <span aria-hidden="true">⧉</span>
+              <span class="sr-only"><span data-lang="zh">复制完整胶囊路径</span><span data-lang="en">Copy step contract path</span></span>
+            </button>
+          </div>
+          <code id="agent-handoff-capsule">-</code>
+        </article>
+        <article class="agent-handoff-item">
+          <div class="agent-handoff-item-header">
+            <span class="takeaway-path-label"><span data-lang="zh">结果模板</span><span data-lang="en">Result template</span></span>
+            <button
+              class="ghost-button agent-handoff-copy-button"
+              type="button"
+              data-agent-handoff-copy="template"
+              data-testid="agent-handoff-copy-template"
+              aria-label="{{ '复制结果模板路径' if page_locale == 'zh' else 'Copy result template path' }}"
+              title="{{ '复制结果模板路径' if page_locale == 'zh' else 'Copy result template path' }}"
+            >
+              <span aria-hidden="true">⧉</span>
+              <span class="sr-only"><span data-lang="zh">复制结果模板路径</span><span data-lang="en">Copy result template path</span></span>
+            </button>
+          </div>
+          <code id="agent-handoff-template">-</code>
+        </article>
+        <article class="agent-handoff-item">
+          <div class="agent-handoff-item-header">
+            <span class="takeaway-path-label"><span data-lang="zh">结果输出目录</span><span data-lang="en">Result outbox</span></span>
+            <button
+              class="ghost-button agent-handoff-copy-button"
+              type="button"
+              data-agent-handoff-copy="outbox"
+              data-testid="agent-handoff-copy-outbox"
+              aria-label="{{ '复制结果输出目录' if page_locale == 'zh' else 'Copy result outbox path' }}"
+              title="{{ '复制结果输出目录' if page_locale == 'zh' else 'Copy result outbox path' }}"
+            >
+              <span aria-hidden="true">⧉</span>
+              <span class="sr-only"><span data-lang="zh">复制结果输出目录</span><span data-lang="en">Copy result outbox path</span></span>
+            </button>
+          </div>
+          <code id="agent-handoff-outbox">-</code>
+        </article>
+        <article class="agent-handoff-item">
+          <div class="agent-handoff-item-header">
+            <span class="takeaway-path-label"><span data-lang="zh">提交命令</span><span data-lang="en">Submit command</span></span>
+            <button
+              class="ghost-button agent-handoff-copy-button"
+              type="button"
+              data-agent-handoff-copy="submit"
+              data-testid="agent-handoff-copy-submit"
+              aria-label="{{ '复制提交命令' if page_locale == 'zh' else 'Copy submit command' }}"
+              title="{{ '复制提交命令' if page_locale == 'zh' else 'Copy submit command' }}"
+            >
+              <span aria-hidden="true">⧉</span>
+              <span class="sr-only"><span data-lang="zh">复制提交命令</span><span data-lang="en">Copy submit command</span></span>
+            </button>
+          </div>
+          <code id="agent-handoff-submit">-</code>
+        </article>
+      </div>
+      <div class="agent-handoff-contract" data-testid="agent-handoff-contract">
+        <div class="agent-handoff-contract-item">
+          <span class="takeaway-path-label"><span data-lang="zh">模板规则</span><span data-lang="en">Template rule</span></span>
+          <strong id="agent-handoff-result-contract">-</strong>
+        </div>
+        <div class="agent-handoff-contract-item">
+          <span class="takeaway-path-label"><span data-lang="zh">证据引用</span><span data-lang="en">Evidence refs</span></span>
+          <strong id="agent-handoff-known-evidence">-</strong>
+        </div>
+        <div class="agent-handoff-contract-item">
+          <span class="takeaway-path-label"><span data-lang="zh">填写规则</span><span data-lang="en">Fill rule</span></span>
+          <strong id="agent-handoff-fill-rule">-</strong>
+        </div>
+      </div>
+      <ol class="agent-handoff-gaps" id="agent-handoff-gaps"></ol>
     </div>
     <div class="takeaway-evidence-strip" id="takeaway-evidence-strip" data-testid="takeaway-evidence-strip" hidden></div>
     <div class="takeaway-shortcuts" data-testid="takeaway-trace-shortcuts">

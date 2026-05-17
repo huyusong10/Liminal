@@ -11,9 +11,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const localAssetsStatusBox = document.getElementById("local-assets-status");
   const localAssetsCountNodes = Array.from(document.querySelectorAll("[data-local-assets-count]"));
   const localAssetsDetails = document.getElementById("local-assets-details");
+  const localAssetsToggle = document.getElementById("local-assets-toggle");
   const agentAdapterStatusBox = document.getElementById("agent-adapter-status");
   const agentAdapterWorkdirInput = document.getElementById("agent-adapter-workdir");
   const agentAdapterTargetNote = document.getElementById("agent-adapter-target-note");
+  const agentAdapterHandoff = document.getElementById("agent-adapter-handoff");
   const agentAdapterRefreshButton = document.querySelector("[data-testid='agent-adapter-refresh']");
   const agentAdapterCards = Array.from(document.querySelectorAll("[data-agent-adapter]"));
   const agentAdapterStatusNodes = Array.from(document.querySelectorAll("[data-agent-adapter-status]"));
@@ -30,6 +32,9 @@ document.addEventListener("DOMContentLoaded", () => {
     runs: [],
   };
   let runtimeActivitySignature = JSON.stringify(runtimeActivity);
+  let preferredAgentAdapterHandoff = "";
+  let localAssetsDetailsExpanded = false;
+  let localAssetsIssueTotal = 0;
 
   function localeText(zh, en) {
     return window.LooporaUI.pickText({zh, en});
@@ -111,7 +116,28 @@ document.addEventListener("DOMContentLoaded", () => {
       node.textContent = `${label}: ${count}`;
       node.className = `wake-lock-pill ${count > 0 ? "wake-lock-pill-warning" : "wake-lock-pill-neutral"}`;
     }
+    localAssetsIssueTotal = total;
+    updateLocalAssetsToggle();
     renderLocalAssetDetails(payload, total);
+  }
+
+  function updateLocalAssetsToggle() {
+    if (!localAssetsToggle) {
+      return;
+    }
+    if (!localAssetsIssueTotal) {
+      localAssetsToggle.hidden = true;
+      localAssetsToggle.setAttribute("aria-expanded", "false");
+      return;
+    }
+    localAssetsToggle.hidden = false;
+    localAssetsToggle.setAttribute("aria-expanded", String(localAssetsDetailsExpanded));
+    localAssetsToggle.textContent = localAssetsDetailsExpanded
+      ? localeText("收起维护明细", "Hide maintenance details")
+      : localeText(
+        `查看 ${localAssetsIssueTotal} 项维护明细`,
+        `Review ${localAssetsIssueTotal} maintenance ${localAssetsIssueTotal === 1 ? "detail" : "details"}`,
+      );
   }
 
   function localAssetIssueConfig(key) {
@@ -180,6 +206,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     if (!total) {
+      localAssetsDetailsExpanded = false;
       localAssetsDetails.hidden = true;
       localAssetsDetails.innerHTML = "";
       return;
@@ -230,7 +257,7 @@ document.addEventListener("DOMContentLoaded", () => {
         </section>
       `;
     }).join("");
-    localAssetsDetails.hidden = false;
+    localAssetsDetails.hidden = !localAssetsDetailsExpanded;
     localAssetsDetails.innerHTML = `
       <div class="local-assets-guidance">
         <strong>${escapeHtml(localeText("发现本地资产不一致", "Local asset mismatch found"))}</strong>
@@ -345,6 +372,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const item = byKind.get(adapter);
       button.disabled = item?.implemented === false || item?.status === "not_installed";
     }
+    renderAgentAdapterHandoff(payload, adapters);
   }
 
   function agentAdapterLabel(adapter) {
@@ -378,9 +406,167 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function agentAdapterInstallSuccessMessage(label) {
     return localeText(
-      `${label} 接入已安装或更新。回到 ${label}，先运行 /loopora-gen；审查预览后再运行 /loopora-loop。`,
-      `${label} entry is installed or updated. Return to ${label} and run /loopora-gen first; after reviewing the preview, run /loopora-loop.`,
+      `${label} 接入已安装或更新。回到 ${label}，说明任务目标、伪完成风险和必需证据后运行 /loopora-gen；预览 READY 并审查后，在同一 Agent 会话运行 /loopora-loop。`,
+      `${label} entry is installed or updated. Return to ${label} with the task goal, fake-done risk, and required evidence before /loopora-gen; after the READY preview is reviewed, run /loopora-loop in the same Agent session.`,
     );
+  }
+
+  function adapterConflictPaths(message) {
+    const marker = "adapter files:";
+    if (!message || !message.includes(marker)) {
+      return [];
+    }
+    return message.split(marker, 2)[1].split(",").map((part) => part.trim()).filter(Boolean);
+  }
+
+  function agentAdapterFailureMessage(adapter, label, action, error) {
+    const message = String(error?.message || "");
+    const paths = adapterConflictPaths(message);
+    if (action === "install" && paths.length) {
+      return localeText(
+        `${label} 接入未安装。Loopora 发现这些入口文件不是自己管理的，因此没有覆盖：${paths.join("，")}。请先检查、移动或重命名这些文件，或换一个目标项目目录，然后重新安装。`,
+        `${label} entry was not installed. Loopora found entry files it does not own, so it left them unchanged: ${paths.join(", ")}. Inspect, move, or rename those files, or choose another target project, then install again.`,
+      );
+    }
+    return message || localeText("Agent 接入操作失败。", "Agent entry action failed.");
+  }
+
+  function handoffStatusLabel(status) {
+    return status === "needs_update"
+      ? localeText("需要更新", "Needs update")
+      : localeText("已安装", "Installed");
+  }
+
+  function handoffTitle(label, status) {
+    if (status === "needs_update") {
+      return localeText(
+        `${label} 入口需要更新`,
+        `${label} entry needs an update`,
+      );
+    }
+    return localeText(
+      `${label} 入口已接好`,
+      `${label} entry is ready`,
+    );
+  }
+
+  function managedFileStateLabel(state) {
+    const labels = {
+      current: localeText("当前", "current"),
+      needs_update: localeText("需更新", "needs update"),
+      missing: localeText("缺失", "missing"),
+      unmanaged_conflict: localeText("冲突", "conflict"),
+      error: localeText("错误", "error"),
+    };
+    return labels[state] || state || localeText("未知", "unknown");
+  }
+
+  function handoffCandidate(adapters) {
+    const ready = adapters.filter((item) => {
+      const status = String(item?.status || "");
+      return item?.implemented !== false && (status === "installed" || status === "needs_update");
+    });
+    if (!ready.length) {
+      return null;
+    }
+    if (preferredAgentAdapterHandoff) {
+      const preferred = ready.find((item) => String(item?.adapter || "") === preferredAgentAdapterHandoff);
+      if (preferred) {
+        return preferred;
+      }
+    }
+    return ready.find((item) => String(item?.status || "") === "installed") || ready[0];
+  }
+
+  function renderAgentAdapterHandoff(payload, adapters) {
+    if (!agentAdapterHandoff) {
+      return;
+    }
+    const item = handoffCandidate(adapters);
+    if (!item) {
+      agentAdapterHandoff.hidden = true;
+      agentAdapterHandoff.innerHTML = "";
+      return;
+    }
+    const adapter = String(item.adapter || "");
+    const label = String(item.label || agentAdapterLabel(adapter));
+    const status = String(item.status || "installed");
+    const workdir = String(item.workdir || payload?.workdir || agentAdapterWorkdir() || "").trim();
+    const manifestPath = String(item.manifest_path || "").trim();
+    const managedFiles = Array.isArray(item.managed_files) ? item.managed_files : [];
+    const currentCount = managedFiles.filter((file) => String(file?.state || "") === "current").length;
+    const fileRows = managedFiles.map((file) => {
+      const path = String(file?.path || "");
+      const state = String(file?.state || "");
+      return `
+        <span class="agent-adapter-managed-file" data-testid="agent-adapter-managed-file">
+          <code>${escapeHtml(path || "-")}</code>
+          <span>${escapeHtml(managedFileStateLabel(state))}</span>
+        </span>
+      `;
+    }).join("");
+    const proofSummary = managedFiles.length
+      ? localeText(
+        `入口文件：${currentCount}/${managedFiles.length} 个为当前版本`,
+        `Entry files: ${currentCount}/${managedFiles.length} current`,
+      )
+      : localeText("入口文件状态暂不可用", "Entry file status is not available yet");
+    agentAdapterHandoff.hidden = false;
+    agentAdapterHandoff.innerHTML = `
+      <div class="agent-adapter-handoff-head">
+        <div>
+          <strong data-testid="agent-adapter-handoff-title">${escapeHtml(handoffTitle(label, status))}</strong>
+          <span data-testid="agent-adapter-handoff-target">${escapeHtml(localeText("目标项目", "Target project"))}: ${escapeHtml(workdir || "-")}</span>
+        </div>
+        <span class="${escapeHtml(agentAdapterPillClass(status))}">${escapeHtml(handoffStatusLabel(status))}</span>
+      </div>
+      <div class="agent-adapter-judgment-brief" data-testid="agent-adapter-judgment-brief">
+        <strong>${escapeHtml(localeText("把任务判断交给 /loopora-gen，不只是任务标题。", "Give /loopora-gen the task judgment, not just a task title."))}</strong>
+        <ul>
+          <li><span>${escapeHtml(localeText("目标", "Goal"))}</span>${escapeHtml(localeText("要证明的用户结果", "User result to prove"))}</li>
+          <li><span>${escapeHtml(localeText("伪完成", "Fake done"))}</span>${escapeHtml(localeText("看似完成但必须阻断的状态", "Looks done but must block"))}</li>
+          <li><span>${escapeHtml(localeText("证据", "Evidence"))}</span>${escapeHtml(localeText("哪些记录、测试或产物才算够硬", "Records, tests, or artifacts that count"))}</li>
+        </ul>
+      </div>
+      <div class="agent-adapter-command-flow" data-testid="agent-adapter-handoff-flow">
+        <button
+          class="agent-adapter-command-button"
+          type="button"
+          data-agent-adapter-command-copy="/loopora-gen"
+          data-copy-value="/loopora-gen"
+          data-testid="agent-adapter-copy-gen"
+          aria-label="${escapeHtml(localeText("复制 /loopora-gen", "Copy /loopora-gen"))}"
+        >
+          <span>1</span>
+          <code>/loopora-gen</code>
+        </button>
+        <span class="agent-adapter-command-then">${escapeHtml(localeText("审查 READY Loop 预览", "Review READY Loop preview"))}</span>
+        <button
+          class="agent-adapter-command-button"
+          type="button"
+          data-agent-adapter-command-copy="/loopora-loop"
+          data-copy-value="/loopora-loop"
+          data-testid="agent-adapter-copy-loop"
+          aria-label="${escapeHtml(localeText("复制 /loopora-loop", "Copy /loopora-loop"))}"
+        >
+          <span>2</span>
+          <code>/loopora-loop</code>
+        </button>
+      </div>
+      <p class="agent-adapter-handoff-note" data-testid="agent-adapter-handoff-note">
+        ${escapeHtml(localeText(
+          "只有预览匹配这些判断后才运行 /loopora-loop；Web 用来观察证据、缺口和裁决，执行仍回到同一个 Agent。",
+          "Run /loopora-loop only after the preview matches those judgments; Web observes evidence, gaps, and verdicts while execution stays in the same Agent.",
+        ))}
+      </p>
+      <div class="agent-adapter-install-proof" data-testid="agent-adapter-install-proof">
+        <strong>${escapeHtml(proofSummary)}</strong>
+        <div class="agent-adapter-managed-files">
+          ${fileRows}
+          ${manifestPath ? `<span class="agent-adapter-managed-file" data-testid="agent-adapter-manifest-path"><code>${escapeHtml(manifestPath)}</code><span>manifest</span></span>` : ""}
+        </div>
+      </div>
+    `;
   }
 
   function readAgentAdapterWorkdirPreference() {
@@ -451,6 +637,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!response.ok) {
         throw new Error(payload.error || "failed");
       }
+      preferredAgentAdapterHandoff = action === "install" ? adapter : "";
       renderAgentAdapters(payload);
       applied = true;
       showStatus(
@@ -464,7 +651,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) {
       showStatus(
         agentAdapterStatusBox,
-        error?.message || localeText("Agent 接入操作失败。", "Agent entry action failed."),
+        agentAdapterFailureMessage(adapter, label, action, error),
         "error",
       );
     } finally {
@@ -737,6 +924,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  localAssetsToggle?.addEventListener("click", () => {
+    if (!localAssetsIssueTotal || !localAssetsDetails) {
+      return;
+    }
+    localAssetsDetailsExpanded = !localAssetsDetailsExpanded;
+    localAssetsDetails.hidden = !localAssetsDetailsExpanded;
+    updateLocalAssetsToggle();
+  });
+
   for (const button of agentAdapterInstallButtons) {
     button.addEventListener("click", () => {
       mutateAgentAdapter(String(button.dataset.agentAdapterInstall || ""), "install", button);
@@ -748,6 +944,33 @@ document.addEventListener("DOMContentLoaded", () => {
       mutateAgentAdapter(String(button.dataset.agentAdapterUninstall || ""), "uninstall", button);
     });
   }
+
+  agentAdapterHandoff?.addEventListener("click", async (event) => {
+    const button = event.target?.closest?.("[data-agent-adapter-command-copy]");
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    const value = String(button.dataset.agentAdapterCommandCopy || button.dataset.copyValue || "").trim();
+    if (!value) {
+      return;
+    }
+    try {
+      await copyText(value);
+      button.classList.add("is-copied");
+      showStatus(
+        agentAdapterStatusBox,
+        localeText(`已复制 ${value}。`, `${value} copied.`),
+        "success",
+      );
+      window.setTimeout(() => button.classList.remove("is-copied"), 1400);
+    } catch (error) {
+      showStatus(
+        agentAdapterStatusBox,
+        error?.message || localeText("无法复制 Agent 命令。", "Unable to copy the Agent command."),
+        "error",
+      );
+    }
+  });
 
   if (agentAdapterWorkdirInput) {
     agentAdapterWorkdirInput.value = readAgentAdapterWorkdirPreference();

@@ -75,6 +75,7 @@ class ServiceRunFinalizationMixin:
         if isinstance(task_verdict, dict) and task_verdict:
             payload["task_verdict_status"] = str(task_verdict.get("status") or "").strip()
             payload["task_verdict_source"] = str(task_verdict.get("source") or "").strip()
+            payload["task_verdict_summary"] = str(task_verdict.get("summary") or "").strip()
         return payload
 
     def _append_run_aborted_event(

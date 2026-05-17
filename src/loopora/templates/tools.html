@@ -51,14 +51,15 @@
   </div>
   <div class="agent-adapter-next-steps" data-testid="agent-adapter-next-steps">
     <strong>
-      <span data-lang="zh">安装后</span>
-      <span data-lang="en">After install</span>
+      <span data-lang="zh">先准备任务判断</span>
+      <span data-lang="en">Task brief first</span>
     </strong>
     <span>
-      <span data-lang="zh">回到对应 Agent，在当前任务里先运行 <code>/loopora-gen</code>；审查预览后再运行 <code>/loopora-loop</code>。</span>
-      <span data-lang="en">Return to that Agent, run <code>/loopora-gen</code> for the current task, then run <code>/loopora-loop</code> after reviewing the preview.</span>
+      <span data-lang="zh">回到对应 Agent，在当前任务里说明目标、伪完成风险和必需证据，再运行 <code>/loopora-gen</code>；预览 READY 并审查后，才在同一 Agent 会话运行 <code>/loopora-loop</code>。</span>
+      <span data-lang="en">Return to that Agent with the task goal, fake-done risk, and required evidence, then run <code>/loopora-gen</code>; after the READY preview is reviewed, run <code>/loopora-loop</code> in the same Agent session.</span>
     </span>
   </div>
+  <div class="agent-adapter-handoff" id="agent-adapter-handoff" data-testid="agent-adapter-handoff" aria-live="polite" hidden></div>
   <div class="agent-adapter-grid" id="agent-adapter-grid" data-testid="agent-adapter-grid">
     <article class="agent-adapter-card" data-agent-adapter="codex" data-testid="agent-adapter-codex">
       <div class="agent-adapter-copy">
@@ -202,6 +203,18 @@
       <span data-lang="zh">记录缺失目录：0</span>
       <span data-lang="en">Records missing dirs: 0</span>
     </span>
+    <button
+      class="ghost-button local-assets-toggle"
+      id="local-assets-toggle"
+      type="button"
+      data-testid="local-assets-toggle"
+      aria-controls="local-assets-details"
+      aria-expanded="false"
+      hidden
+    >
+      <span data-lang="zh">查看维护明细</span>
+      <span data-lang="en">Review maintenance details</span>
+    </button>
   </div>
   <div class="field-status" id="local-assets-status" data-testid="local-assets-status" hidden></div>
   <div class="local-assets-details" id="local-assets-details" data-testid="local-assets-details" hidden></div>

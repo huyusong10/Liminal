@@ -34,6 +34,7 @@
       consoleEvents: boundedEvents(payload.console_events, 160),
       progressEvents: boundedEvents(payload.progress_events, 2000),
       keyTakeaways: payload.key_takeaways && typeof payload.key_takeaways === "object" ? payload.key_takeaways : {},
+      currentAgentStep: payload.current_agent_step && typeof payload.current_agent_step === "object" ? payload.current_agent_step : {},
     };
   }
 
@@ -46,6 +47,7 @@
       consoleEventRecords: snapshot.consoleEvents,
       progressEventRecords: snapshot.progressEvents,
       takeawaySnapshot: snapshot.keyTakeaways,
+      currentAgentStep: snapshot.currentAgentStep,
       lastEventId: normalizedLatestEventId(state.lastEventId, snapshot.latestEventId),
       observationState: isTerminalRun(snapshot.run) ? "finished" : "ready",
     };
@@ -75,12 +77,26 @@
     }
     if (event.event_type === "run_finished") {
       const iter = nonNegativeInteger(payload.iter);
+      const currentTaskVerdict = currentRun.task_verdict && typeof currentRun.task_verdict === "object" ? currentRun.task_verdict : {};
+      const currentTaskVerdictStatus = String(currentTaskVerdict.status || "").trim();
+      const taskVerdictStatus = String(payload.task_verdict_status || currentTaskVerdictStatus || "not_evaluated").trim();
+      const taskVerdictSource = String(payload.task_verdict_source || "").trim();
+      const taskVerdictSummary = String(payload.task_verdict_summary || "").trim();
+      const taskVerdict = taskVerdictStatus
+        ? {
+          ...currentTaskVerdict,
+          status: taskVerdictStatus,
+          ...(taskVerdictSource ? {source: taskVerdictSource} : {}),
+          ...(taskVerdictSummary ? {summary: taskVerdictSummary} : {}),
+        }
+        : currentRun.task_verdict;
       return {
         ...currentRun,
         status: payload.status || currentRun.status,
         active_role: null,
         current_iter: iter ?? currentRun.current_iter,
         finished_at: event.created_at || currentRun.finished_at,
+        ...(taskVerdict ? {task_verdict: taskVerdict} : {}),
       };
     }
     if (event.event_type === "run_aborted") {

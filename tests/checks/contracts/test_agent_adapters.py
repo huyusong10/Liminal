@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,78 @@ def _candidate_digest(bundle_text: str) -> tuple[str, int]:
 
 def _ready_candidate_digest(bundle_text: str) -> tuple[str, int]:
     return _candidate_digest(bundle_to_yaml(load_bundle_text(bundle_text)))
+
+
+def _wait_for_alignment_status(service, session_id: str, *statuses: str, timeout: float = 5.0) -> dict:
+    deadline = time.time() + timeout
+    expected = set(statuses)
+    while time.time() < deadline:
+        session = service.get_alignment_session(session_id)
+        if session["status"] in expected:
+            return session
+        time.sleep(0.05)
+    session = service.get_alignment_session(session_id)
+    raise AssertionError(f"alignment session stayed in {session['status']}, expected {sorted(expected)}")
+
+
+def _assert_cli_handoff_contract_paths(
+    stdout: str,
+    *,
+    capsule_fragment: str,
+    template_fragment: str,
+    outbox_fragment: str,
+) -> None:
+    assert "next_capsule_path:" in stdout
+    assert capsule_fragment in stdout
+    assert "result_template_path:" in stdout
+    assert template_fragment in stdout
+    assert "result_outbox_dir:" in stdout
+    assert outbox_fragment in stdout
+
+
+def _assert_cli_list(output: str, key: str, *items: str) -> None:
+    assert f"{key}:\n" in output
+    assert f"{key}: [" not in output
+    for item in items:
+        assert f"- {item}" in output
+
+
+def _assert_missing_candidate_agent_review(review: dict, *, task_message: str) -> None:
+    assert review["source"] == "agent_entry"
+    assert review["review_mode"] == "missing_candidate_plan"
+    assert review["requires_web_alignment"] is True
+    assert review["requires_candidate_repair"] is False
+    assert review["has_candidate_yaml"] is False
+    assert review["not_runnable"] is True
+    assert review["adapter"] == "codex"
+    assert review["entry_source"] == "codex_project_skill"
+    assert review["task_message"] == task_message
+    assert task_message in review["suggested_reply"]
+    assert review["decision_options"][0]["id"] == "continue_web_review_evidence_first"
+    assert review["decision_options"][0]["recommended"] is True
+    assert task_message in review["decision_options"][0]["user_reply"]
+    assert review["decision_options"][1]["id"] == "recheck_loop_fit"
+    assert review["missing_judgment_item_ids"] == [
+        "success_surface",
+        "fake_done_risks",
+        "evidence_preferences",
+        "loop_fit",
+        "execution_strategy",
+        "judgment_tradeoffs",
+        "residual_risk_policy",
+        "local_governance",
+    ]
+
+
+def _assert_not_fit_agent_review(review: dict) -> None:
+    assert review["source"] == "agent_entry"
+    assert review["review_mode"] == "not_fit"
+    assert review["requires_web_alignment"] is True
+    assert review["loopora_fit_contradiction"] is True
+    assert review["not_runnable"] is True
+    assert review["decision_options"][0]["id"] == "skip_loop"
+    assert review["decision_options"][0]["recommended"] is True
+    assert review["decision_options"][1]["id"] == "reframe_as_loop"
 
 
 def _codex_skill_paths(workdir: Path) -> dict[str, Path]:
@@ -305,29 +378,55 @@ def _drive_agent_native_run_to_success(service, *, adapter: str, started: dict, 
     return result
 
 
-def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) -> tuple[Path, str]:
-    gen_skill = skill_paths["gen"].read_text(encoding="utf-8")
-    loop_skill = skill_paths["loop"].read_text(encoding="utf-8")
-    settings = json.loads((workdir / ".claude" / "settings.json").read_text(encoding="utf-8"))
-    gen_command = workdir / ".claude" / "commands" / "loopora-gen.md"
-    loop_command = workdir / ".claude" / "commands" / "loopora-loop.md"
-    session_hook = workdir / ".claude" / "hooks" / "loopora-session-context.py"
-    builder_agent = workdir / ".claude" / "agents" / "loopora-builder.md"
-    orchestrator_agent = workdir / ".claude" / "agents" / "loopora-orchestrator.md"
-    assert "LOOPORA-MANAGED: claude-code-adapter" in gen_skill
-    assert gen_command.exists()
-    assert loop_command.exists()
-    assert session_hook.exists()
-    assert builder_agent.exists()
-    assert orchestrator_agent.exists()
-    assert "CLAUDE_SESSION_ID" in session_hook.read_text(encoding="utf-8")
-    assert _claude_settings_has_loopora_session_hook(settings)
+def test_agent_native_result_template_uses_schema_shaped_null_scaffold() -> None:
+    template = ServiceAgentNativeMixin._agent_native_result_template(
+        {
+            "adapter": "codex",
+            "run_id": "run-scaffold",
+            "step_id": "builder_step",
+            "role_dispatch": {"target_agent": "loopora-builder"},
+            "output_schema": {
+                "type": "object",
+                "required": ["summary", "checks", "nested"],
+                "properties": {
+                    "summary": {"type": "string"},
+                    "checks": {"type": "array", "items": {"type": "string"}},
+                    "nested": {
+                        "type": "object",
+                        "required": ["status"],
+                        "properties": {
+                            "status": {"type": "string", "enum": ["covered", "weak"]},
+                            "notes": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "additionalProperties": False,
+                    },
+                    "optional_flag": {"type": "boolean"},
+                },
+                "additionalProperties": False,
+            },
+        }
+    )
+
+    assert template["loopora_result_contract"]["result_is_schema_shaped_scaffold"] is True
+    assert template["loopora_result_contract"]["replace_null_placeholders_before_submit"] is True
+    assert template["result"] == {
+        "summary": None,
+        "checks": [None],
+        "nested": {"status": None, "notes": [None]},
+        "optional_flag": None,
+    }
+
+
+def _assert_claude_gen_entry(gen_skill: str, gen_command_text: str) -> None:
     assert "disable-model-invocation: true" in gen_skill
     assert "allowed-tools:" in gen_skill
     assert "LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill" in gen_skill
     assert 'loopora agent claude gen --workdir "$PWD"' in gen_skill
     assert '--context-id "${CLAUDE_SESSION_ID}"' in gen_skill
     assert "--entry-source claude_project_skill" in gen_skill
+    assert "Compile the current Claude Code task goal, fake-done risks, and required evidence" in gen_skill
+    assert "Compile the current Claude Code task judgment into a Loopora Loop preview" in gen_skill
+    assert "Compile the current Claude Code task goal, fake-done risks, and required evidence" in gen_command_text
     for snippet in (
         '--message "<non-empty short task summary>"',
         'with `--message "<non-empty short task summary>"` but without `--bundle-file`',
@@ -346,6 +445,9 @@ def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) 
         "owner, follow-up, or acceptance path",
         "do not let a bundle pass merely because it repeats one or two object words from the task",
         "Do not invent human judgment just to pass validation",
+        "ready_review_projection",
+        "confirm that review summary and preview URL",
+        "do not start the run from Web",
         "repair the plan file",
         "Loop preview",
         "Web review",
@@ -355,9 +457,13 @@ def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) 
     assert "fix the YAML" not in gen_skill
     assert "YAML" not in gen_skill
     assert "Web alignment URL" not in gen_skill
+
+
+def _assert_claude_loop_entry(loop_skill: str, loop_command_text: str) -> None:
     assert "reviewed Loop preview" in loop_skill
+    assert "preserves this Claude Code task judgment and evidence requirements" in loop_skill
+    assert "preserves this Claude Code task judgment and evidence requirements" in loop_command_text
     assert "confirmed Loop preview" not in loop_skill
-    assert "READY bundle" not in gen_skill
     assert "READY bundle" not in loop_skill
     assert "LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill" in loop_skill
     assert 'loopora agent claude loop --workdir "$PWD"' in loop_skill
@@ -372,13 +478,30 @@ def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) 
         "next_step.output_schema",
         "next_step.action_policy",
         "next_step.known_evidence_ids",
+        "next_step.submit_hint.result_template_absolute_path",
+        "Read the returned JSON, even if the command exits nonzero",
+        "`loop_recovery=finish_web_review`",
+        "`loop_recovery=repair_candidate_plan_file`",
+        "Do not collapse these recovery states into a generic",
+        "If the command returns `loop_recovery`, report that recovery path and stop",
+        "loopora_result_contract",
+        "Do not hand-write the wrapper from memory",
+        "Fill only the `result` object",
+        "next_step.submit_hint.command",
         "run.task_verdict",
+        "task_next_action",
+        "task_next_action.kind",
+        "task_next_action.next_loop_command",
+        "continue_evidence",
         "next_step.prompt",
         "next_step.context_absolute_path",
     ):
         assert snippet in loop_skill
     assert '--context-id "${CLAUDE_SESSION_ID}"' in loop_skill
     assert "--entry-source claude_project_skill" in loop_skill
+
+
+def _assert_claude_agent_prompts(builder_agent: Path, orchestrator_agent: Path) -> None:
     builder_agent_text = builder_agent.read_text(encoding="utf-8")
     orchestrator_agent_text = orchestrator_agent.read_text(encoding="utf-8")
     assert "Loopora Builder" in builder_agent_text
@@ -391,10 +514,17 @@ def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) 
         "next_step.output_schema",
         "next_step.action_policy",
         "next_step.known_evidence_ids",
+        "next_step.submit_hint.result_template_absolute_path",
+        "loopora_result_contract",
+        "schema-shaped `result` scaffold",
+        "replace every `null` placeholder",
+        "task_next_action.kind=continue_evidence",
         "context_absolute_path",
     ):
         assert snippet in orchestrator_agent_text
-    manifest_path = workdir / ".loopora" / "adapters" / "claude" / "manifest.json"
+
+
+def _assert_claude_manifest(manifest_path: Path) -> str:
     assert manifest_path.exists()
     first_manifest = manifest_path.read_text(encoding="utf-8")
     assert {item["path"] for item in json.loads(first_manifest)["managed_files"]} == {
@@ -409,7 +539,29 @@ def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) 
         ".claude/agents/loopora-guide.md",
         ".claude/agents/loopora-orchestrator.md",
     }
-    return manifest_path, first_manifest
+    return first_manifest
+
+
+def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) -> tuple[Path, str]:
+    gen_skill = skill_paths["gen"].read_text(encoding="utf-8")
+    loop_skill = skill_paths["loop"].read_text(encoding="utf-8")
+    settings = json.loads((workdir / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    gen_command = workdir / ".claude" / "commands" / "loopora-gen.md"
+    loop_command = workdir / ".claude" / "commands" / "loopora-loop.md"
+    session_hook = workdir / ".claude" / "hooks" / "loopora-session-context.py"
+    builder_agent = workdir / ".claude" / "agents" / "loopora-builder.md"
+    orchestrator_agent = workdir / ".claude" / "agents" / "loopora-orchestrator.md"
+    assert "LOOPORA-MANAGED: claude-code-adapter" in gen_skill
+    for path in (gen_command, loop_command, session_hook, builder_agent, orchestrator_agent):
+        assert path.exists()
+    assert "CLAUDE_SESSION_ID" in session_hook.read_text(encoding="utf-8")
+    assert _claude_settings_has_loopora_session_hook(settings)
+    _assert_claude_gen_entry(gen_skill, gen_command.read_text(encoding="utf-8"))
+    assert "READY bundle" not in gen_skill
+    _assert_claude_loop_entry(loop_skill, loop_command.read_text(encoding="utf-8"))
+    _assert_claude_agent_prompts(builder_agent, orchestrator_agent)
+    manifest_path = workdir / ".loopora" / "adapters" / "claude" / "manifest.json"
+    return manifest_path, _assert_claude_manifest(manifest_path)
 
 
 def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Path]) -> tuple[Path, str]:
@@ -427,6 +579,8 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert 'loopora agent opencode gen --workdir "$PWD"' in gen_command
     assert '--context-id "${OPENCODE_SESSION_ID:-}"' in gen_command
     assert "--entry-source opencode_project_command" in gen_command
+    assert "Compile the current OpenCode task goal, fake-done risks, and required evidence" in gen_command
+    assert "Compile the current OpenCode task judgment into a Loopora Loop preview" in gen_command
     for snippet in (
         '--message "<non-empty short task summary>"',
         'with `--message "<non-empty short task summary>"` but without `--bundle-file`',
@@ -445,6 +599,9 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
         "owner, follow-up, or acceptance path",
         "do not let a bundle pass merely because it repeats one or two object words from the task",
         "Do not invent human judgment just to pass validation",
+        "ready_review_projection",
+        "confirm that review summary and preview URL",
+        "do not start the run from Web",
         "repair the plan file",
         "Loop preview",
         "Web review",
@@ -454,6 +611,7 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert "fix the YAML" not in gen_command
     assert "YAML" not in gen_command
     assert "reviewed Loop preview" in loop_command
+    assert "preserves this OpenCode task judgment and evidence requirements" in loop_command
     assert "confirmed Loop preview" not in loop_command
     assert "READY bundle" not in gen_command
     assert "READY bundle" not in loop_command
@@ -471,7 +629,21 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
         "next_step.output_schema",
         "next_step.action_policy",
         "next_step.known_evidence_ids",
+        "next_step.submit_hint.result_template_absolute_path",
+        "Read the returned JSON, even if the command exits nonzero",
+        "`loop_recovery=finish_web_review`",
+        "`loop_recovery=repair_candidate_plan_file`",
+        "Do not collapse these recovery states into a generic",
+        "If the command returns `loop_recovery`, report that recovery path and stop",
+        "loopora_result_contract",
+        "Do not hand-write the wrapper from memory",
+        "Fill only the `result` object",
+        "next_step.submit_hint.command",
         "run.task_verdict",
+        "task_next_action",
+        "task_next_action.kind",
+        "task_next_action.next_loop_command",
+        "continue_evidence",
         "next_step.prompt",
         "next_step.context_absolute_path",
     ):
@@ -492,6 +664,11 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
         "next_step.output_schema",
         "next_step.action_policy",
         "next_step.known_evidence_ids",
+        "next_step.submit_hint.result_template_absolute_path",
+        "loopora_result_contract",
+        "schema-shaped `result` scaffold",
+        "replace every `null` placeholder",
+        "task_next_action.kind=continue_evidence",
         "context_absolute_path",
     ):
         assert snippet in orchestrator_agent_text
@@ -523,6 +700,8 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert 'loopora agent codex gen --workdir "$PWD"' in gen_skill
     assert "--bundle-file" in gen_skill
     assert "--entry-source codex_project_skill" in gen_skill
+    assert "compile the current task goal, fake-done risks, and required evidence" in gen_skill
+    assert "Compile the current coding task judgment into a Loopora Loop preview" in gen_skill
     for snippet in (
         '--message "<non-empty short task summary>"',
         'with `--message "<non-empty short task summary>"` but without `--bundle-file`',
@@ -541,6 +720,9 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
         "owner, follow-up, or acceptance path",
         "do not let a bundle pass merely because it repeats one or two object words from the task",
         "Do not invent human judgment just to pass validation",
+        "ready_review_projection",
+        "confirm that review summary and preview URL",
+        "do not start the run from Web",
         "repair the plan file",
         "Loop preview",
         "Web review",
@@ -550,6 +732,7 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert "fix the YAML" not in gen_skill
     assert "YAML" not in gen_skill
     assert "reviewed Loop preview" in loop_skill
+    assert "preserves the current task judgment and evidence requirements" in loop_skill
     assert "confirmed Loop preview" not in loop_skill
     assert "READY bundle" not in gen_skill
     assert "READY bundle" not in loop_skill
@@ -567,7 +750,21 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
         "next_step.output_schema",
         "next_step.action_policy",
         "next_step.known_evidence_ids",
+        "next_step.submit_hint.result_template_absolute_path",
+        "Read the returned JSON, even if the command exits nonzero",
+        "`loop_recovery=finish_web_review`",
+        "`loop_recovery=repair_candidate_plan_file`",
+        "Do not collapse these recovery states into a generic",
+        "If the command returns `loop_recovery`, report that recovery path and stop",
+        "loopora_result_contract",
+        "Do not hand-write the wrapper from memory",
+        "Fill only the `result` object",
+        "next_step.submit_hint.command",
         "run.task_verdict",
+        "task_next_action",
+        "task_next_action.kind",
+        "task_next_action.next_loop_command",
+        "continue_evidence",
         "next_step.prompt",
         "next_step.context_absolute_path",
     ):
@@ -588,6 +785,11 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
         "next_step.output_schema",
         "next_step.action_policy",
         "next_step.known_evidence_ids",
+        "next_step.submit_hint.result_template_absolute_path",
+        "loopora_result_contract",
+        "schema-shaped `result` scaffold",
+        "replace every `null` placeholder",
+        "task_next_action.kind=continue_evidence",
         "context_absolute_path",
     ):
         assert snippet in codex_orchestrator_agent_text
@@ -663,12 +865,43 @@ def test_cli_adapter_install_human_output_points_to_agent_next_steps(tmp_path: P
     assert f"target project: {workdir.resolve()}" in result.stdout
     assert "next:" in result.stdout
     assert f"Return to {label} in this project" in result.stdout
+    assert "task goal, fake-done risk, and required evidence" in result.stdout
     assert "/loopora-gen" in result.stdout
+    assert "READY Loop preview" in result.stdout
     assert "/loopora-loop" in result.stdout
+    assert "same Agent session" in result.stdout
+    assert "observe evidence, gaps, and verdicts" in result.stdout
     assert "managed files:" in result.stdout
     assert result.stdout.index("next:") < result.stdout.index("managed files:")
     assert "adapter installed" not in result.stdout
     assert "YAML bundle" not in result.stdout
+
+
+def test_cli_codex_adapter_install_conflict_guides_recovery_without_overwriting(tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    conflict = workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md"
+    conflict.parent.mkdir(parents=True)
+    conflict.write_text("# User-owned Codex entry\n", encoding="utf-8")
+    runner = CliRunner()
+
+    result = runner.invoke(cli.app, ["init", "codex", "--workdir", str(workdir)])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert conflict.read_text(encoding="utf-8") == "# User-owned Codex entry\n"
+    assert not (workdir / ".loopora" / "adapters" / "codex" / "manifest.json").exists()
+    error_text = _error_text(result)
+    assert "Codex Loopora entry was not installed." in error_text
+    assert f"target project: {workdir.resolve()}" in error_text
+    assert "left the project unchanged" in error_text
+    assert "conflicting files:" in error_text
+    assert ".agents/skills/loopora-gen/SKILL.md" in error_text
+    assert "recovery:" in error_text
+    assert "Inspect the listed file or config" in error_text
+    assert "move or rename it" in error_text
+    assert "loopora init codex --workdir" in error_text
+    assert "refusing to overwrite" not in error_text
+    assert "cli.command.failed" not in error_text
 
 
 def test_cli_codex_loop_requires_ready_bundle(tmp_path: Path) -> None:
@@ -838,6 +1071,10 @@ def test_agent_bundle_candidate_without_yaml_opens_prefill_without_starting_alig
     assert generated["candidate_bytes"] == 0
     assert generated["ready_candidate_sha256"] == ""
     assert generated["ready_candidate_bytes"] == 0
+    _assert_missing_candidate_agent_review(
+        generated["session"]["agent_entry_review"],
+        task_message="Prepare a governed implementation loop from the host Agent context.",
+    )
     transcript = generated["session"]["transcript"]
     assert transcript[0]["content"] == "Prepare a governed implementation loop from the host Agent context."
     assert transcript[-1]["role"] == "assistant"
@@ -865,6 +1102,14 @@ def test_agent_bundle_candidate_without_yaml_opens_prefill_without_starting_alig
     assert candidate_event["payload"]["requires_candidate_repair"] is False
     assert candidate_event["payload"]["candidate_sha256"] == ""
     assert candidate_event["payload"]["candidate_bytes"] == 0
+
+    service.append_alignment_message(
+        generated["session"]["id"],
+        generated["session"]["agent_entry_review"]["suggested_reply"],
+    )
+    agreement = _wait_for_alignment_status(service, generated["session"]["id"], "waiting_user")
+    assert agreement["alignment_stage"] == "agreement_ready"
+    assert agreement.get("agent_entry_review", {}) == {}
     assert candidate_event["payload"]["ready_candidate_sha256"] == ""
     assert candidate_event["payload"]["ready_candidate_bytes"] == 0
     assert not any(event["event_type"] == "alignment_started" for event in events)
@@ -929,6 +1174,7 @@ def test_agent_bundle_candidate_without_yaml_explains_not_fit_prefill(
     assert generated["requires_candidate_repair"] is False
     assert generated["loopora_fit_contradiction"] is True
     assert generated["binding"]["loopora_fit_contradiction"] is True
+    _assert_not_fit_agent_review(generated["session"]["agent_entry_review"])
     assert "Web review" in transcript_message
     assert "not a runnable Loop yet" in transcript_message or "不会伪装成可运行 Loop" in transcript_message
     assert expected in transcript_message
@@ -977,11 +1223,13 @@ def test_agent_loop_clears_web_review_requirement_after_fallback_becomes_ready(
     Path(generated["session"]["bundle_path"]).write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
     synced = service.sync_alignment_bundle_from_file(generated["session"]["id"])
     assert synced["session"]["status"] == "ready"
+    assert synced["session"].get("agent_entry_review", {}) == {}
 
     started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
 
     assert started["execution_plane"] == "agent_native"
     assert started["started_new_run"] is True
+    assert started["session"].get("agent_entry_review", {}) == {}
     assert started["binding"]["requires_web_alignment"] is False
     assert started["binding"]["alignment_status"] == "running_loop"
     assert started["binding"]["linked_run_id"] == started["run"]["id"]
@@ -1005,11 +1253,13 @@ def test_agent_loop_clears_not_fit_fallback_after_web_review_becomes_ready(
     Path(generated["session"]["bundle_path"]).write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
     synced = service.sync_alignment_bundle_from_file(generated["session"]["id"])
     assert synced["session"]["status"] == "ready"
+    assert synced["session"].get("agent_entry_review", {}) == {}
 
     started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
 
     assert started["execution_plane"] == "agent_native"
     assert started["started_new_run"] is True
+    assert started["session"].get("agent_entry_review", {}) == {}
     assert started["binding"]["requires_web_alignment"] is False
     assert started["binding"]["loopora_fit_contradiction"] is False
     events = service.list_alignment_events(generated["session"]["id"])
@@ -1039,6 +1289,12 @@ def test_cli_agent_gen_without_bundle_reports_web_alignment_needed(sample_workdi
     assert result.exit_code == 0, result.stdout
     assert "Loopora Loop preview needs Web review" in result.stdout
     assert "not_fit:" not in result.stdout
+    assert "review_status: not runnable; no candidate plan file was submitted" in result.stdout
+    assert "review_focus:" in result.stdout
+    assert "Success surface:" in result.stdout
+    assert "Fake-done risks:" in result.stdout
+    assert "Evidence expectations:" in result.stdout
+    assert "next_review_step: open the preview URL" in result.stdout
     assert "Web alignment" not in result.stdout
     assert "preview_url: /loops/new/bundle?alignment_session_id=" in result.stdout
     assert "candidate_url:" not in result.stdout
@@ -1069,8 +1325,88 @@ def test_cli_agent_gen_reports_auto_started_web_review_url(sample_workdir: Path,
 
     assert result.exit_code == 0, result.stdout
     assert "Loopora Loop preview needs Web review" in result.stdout
+    assert "review_status: not runnable; no candidate plan file was submitted" in result.stdout
+    assert "review_focus:" in result.stdout
     assert "preview_url: http://127.0.0.1:9876/loops/new/bundle?alignment_session_id=" in result.stdout
     assert "web: started http://127.0.0.1:9876" in result.stdout
+
+
+def test_cli_agent_loop_after_web_review_fallback_reprints_review_url_and_focus(sample_workdir: Path, monkeypatch) -> None:
+    runner = CliRunner()
+    gen_result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "Prepare a governed implementation loop with later evidence and GateKeeper review.",
+            "--entry-source",
+            "codex_project_skill",
+            "--no-web",
+        ],
+    )
+    monkeypatch.setattr(
+        cli_agent_adapter_commands,
+        "ensure_local_web_service",
+        lambda: {"base_url": "http://127.0.0.1:9988", "reused": False, "started": True, "port": 9988},
+    )
+
+    loop_result = runner.invoke(cli.app, ["agent", "codex", "loop", "--workdir", str(sample_workdir)])
+
+    assert gen_result.exit_code == 0, gen_result.stdout
+    assert loop_result.exit_code == 1
+    output_text = loop_result.output
+    assert "loop_recovery: finish the current Web review before /loopora-loop can start" in output_text
+    assert "review_status: not runnable; no candidate plan file was submitted" in output_text
+    assert "review_focus:" in output_text
+    assert "Success surface:" in output_text
+    assert "Fake-done risks:" in output_text
+    assert "Evidence expectations:" in output_text
+    assert "next_review_step: open the preview URL" in output_text
+    assert "preview_url: http://127.0.0.1:9988/loops/new/bundle?alignment_session_id=" in output_text
+    assert "web: started http://127.0.0.1:9988" in output_text
+    assert "Traceback" not in output_text
+    assert _error_text(loop_result) == ""
+    assert "cli.command.failed" not in output_text
+    assert "current status: idle" not in output_text
+
+
+def test_cli_agent_loop_json_after_web_review_fallback_returns_structured_recovery(sample_workdir: Path) -> None:
+    runner = CliRunner()
+    gen_result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "Prepare a governed implementation loop with later evidence and GateKeeper review.",
+            "--entry-source",
+            "codex_project_skill",
+            "--no-web",
+        ],
+    )
+
+    loop_result = runner.invoke(
+        cli.app,
+        ["agent", "codex", "loop", "--workdir", str(sample_workdir), "--no-web", "--json"],
+    )
+
+    assert gen_result.exit_code == 0, gen_result.stdout
+    assert loop_result.exit_code == 1
+    assert _error_text(loop_result) == ""
+    payload = json.loads(loop_result.stdout)
+    assert payload["ready"] is False
+    assert payload["requires_web_alignment"] is True
+    assert payload["requires_candidate_repair"] is False
+    assert payload["loop_recovery"] == "finish_web_review"
+    assert payload["preview_url"].startswith("/loops/new/bundle?alignment_session_id=")
+    assert payload["binding"]["candidate_entry_source"] == "codex_project_skill"
 
 
 def test_cli_agent_gen_without_bundle_reports_not_fit_fallback(sample_workdir: Path) -> None:
@@ -1095,6 +1431,9 @@ def test_cli_agent_gen_without_bundle_reports_not_fit_fallback(sample_workdir: P
     assert result.exit_code == 0, result.stdout
     assert "Loopora Loop preview needs Web review" in result.stdout
     assert "not_fit:" in result.stdout
+    assert "review_status: not runnable; Loopora fit needs to be redefined" in result.stdout
+    assert "review_focus:" in result.stdout
+    assert "Loopora fit: define later evidence, handoffs, or GateKeeper value" in result.stdout
     assert "one-off, direct-answer, no-new-evidence, or benchmark/test-harness-only work" in result.stdout
     assert "GateKeeper value" in result.stdout
     assert "preview_url: /loops/new/bundle?alignment_session_id=" in result.stdout
@@ -1205,8 +1544,59 @@ def test_cli_codex_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path,
     assert payload["binding"]["candidate_bytes"] == expected_bytes
     assert payload["binding"]["ready_candidate_sha256"] == expected_ready_sha
     assert payload["binding"]["ready_candidate_bytes"] == expected_ready_bytes
+    assert payload["session"].get("agent_entry_review", {}) == {}
+    assert payload["session"]["agent_entry_launch"]["ready_candidate_sha256"] == expected_ready_sha
+    assert payload["session"]["agent_entry_launch"]["ready_candidate_bytes"] == expected_ready_bytes
+    review = payload["ready_review_projection"]
+    assert "Future iterations stay anchored" in review["loopora_fit_reasons"][0]
+    assert "happy-path claim" in review["fake_done_risks"][0]
+    assert "project-owned checks" in review["evidence_preferences"][0]
+    assert review["coverage"]["check_count"] == 2
+    assert review["coverage"]["target_count"] >= review["coverage"]["check_count"]
+    assert review["traceability"]["mapped_count"] == review["traceability"]["required_count"]
+    assert review["gatekeeper"]["enabled"] is True
+    assert review["gatekeeper"]["requires_evidence_refs"] is True
     assert payload["preview_url"].startswith("/loops/new/bundle?alignment_session_id=")
     assert "run" not in payload
+
+
+def test_cli_agent_gen_ready_output_points_back_to_same_agent_loop(tmp_path: Path, sample_workdir: Path) -> None:
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "gen",
+            "--workdir",
+            str(sample_workdir),
+            "--message",
+            "Ship contract inspection for implementation handoff.",
+            "--bundle-file",
+            str(bundle_file),
+            "--entry-source",
+            "codex_project_skill",
+            "--no-web",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Loopora Loop preview is ready" in result.stdout
+    assert "next_agent_step: review the preview URL, then run /loopora-loop in this same Agent session" in result.stdout
+    assert "ready_review:" in result.stdout
+    assert "loopora_fit:" in result.stdout
+    assert "fake_done_risks:" in result.stdout
+    assert "evidence_preferences:" in result.stdout
+    assert "coverage_targets: 2 checks /" in result.stdout
+    assert "judgment_projection: 13/13 mapped" in result.stdout
+    assert "closure_gate: GateKeeper (evidence_refs_required)" in result.stdout
+    assert "review_before_loop: confirm the preview carries these judgments before running /loopora-loop" in result.stdout
+    assert "preview_url: /loops/new/bundle?alignment_session_id=" in result.stdout
+    assert "run_url:" not in result.stdout
+    assert "Loopora run:" not in result.stdout
 
 
 def test_cli_agent_gen_rejects_candidate_bundle_without_task_summary(tmp_path: Path, sample_workdir: Path) -> None:
@@ -1257,6 +1647,10 @@ def test_cli_agent_gen_with_invalid_candidate_reports_repair_before_loop(tmp_pat
     assert "Loopora Loop preview needs plan file repair before /loopora-loop" in result.stdout
     assert "needs candidate repair" not in result.stdout
     assert "validation_error:" in result.stdout
+    assert "plan_file_to_repair:" in result.stdout
+    assert "preview_plan_copy:" in result.stdout
+    assert "repair_focus:" in result.stdout
+    assert "next_repair_step:" in result.stdout
     assert "host Agent task summary" in result.stdout
     assert "preview_url: /loops/new/bundle?alignment_session_id=" in result.stdout
 
@@ -1288,11 +1682,16 @@ def test_cli_agent_loop_reports_candidate_repair_state_after_failed_gen(
 
     assert gen_result.exit_code == 0, gen_result.stdout
     assert loop_result.exit_code == 1
+    output_text = loop_result.output
     error_text = _error_text(loop_result)
-    assert "needs plan file repair before /loopora-loop" in error_text
-    assert "current status: failed" in error_text
-    assert "rerun /loopora-gen with a repaired candidate" in error_text
-    assert "host Agent task summary" in error_text
+    assert "loop_recovery: repair the current plan file before /loopora-loop can start" in output_text
+    assert error_text == ""
+    assert "plan_file_to_repair:" in output_text
+    assert "preview_plan_copy:" in output_text
+    assert "repair_focus:" in output_text
+    assert "preview_url: /loops/new/bundle?alignment_session_id=" in output_text
+    assert "next_repair_step: repair the candidate plan file, rerun /loopora-gen" in output_text
+    assert "project the task objects from --message" in output_text
 
 
 def test_cli_agent_gen_with_candidate_not_fit_reports_reframe_before_loop(
@@ -1327,10 +1726,12 @@ def test_cli_agent_gen_with_candidate_not_fit_reports_reframe_before_loop(
     assert "Loopora is not fit" in gen_result.stdout
     assert loop_result.exit_code == 1
     error_text = _error_text(loop_result)
-    assert "blocked before /loopora-loop" in error_text
-    assert "one-off, direct-answer, no-new-evidence, or benchmark/test-harness-only" in error_text
-    assert "GateKeeper value" in error_text
-    assert "reframed or repaired candidate" in error_text
+    assert error_text == ""
+    assert "loop_recovery: repair the current plan file before /loopora-loop can start" in loop_result.output
+    assert "not_fit:" in loop_result.output
+    assert "one-off, direct-answer, no-new-evidence, or benchmark/test-harness-only" in loop_result.output
+    assert "GateKeeper value" in loop_result.output
+    assert "next_repair_step: repair the candidate plan file, rerun /loopora-gen" in loop_result.output
 
 
 def test_cli_agent_gen_uses_repair_flag_when_candidate_status_is_not_failed(
@@ -1410,6 +1811,7 @@ def test_agent_bundle_candidate_rejects_task_context_mismatch(
     assert generated["binding"]["requires_candidate_repair"] is True
     assert generated["binding"]["ready_candidate_sha256"] == ""
     assert generated["binding"]["ready_candidate_bytes"] == 0
+    assert generated["session"].get("agent_entry_review", {}) == {}
     assert "host Agent task summary" in generated["session"]["error_message"]
     assert "refund" in generated["session"]["error_message"]
     assert "audit" in generated["session"]["error_message"]
@@ -2666,7 +3068,9 @@ def test_cli_claude_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path
     assert payload["candidate_entry_source"] == "claude_project_skill"
     assert payload["ready"] is True
     assert payload["status"] == "ready"
+    assert payload["host_context_id"] == "claude-session-a"
     assert payload["binding"]["context_source"] == "explicit"
+    assert payload["binding"]["host_context_id"] == "claude-session-a"
     assert payload["binding"]["candidate_origin"] == "agent_entry"
     assert payload["binding"]["candidate_adapter"] == "claude"
     assert payload["binding"]["candidate_entry_source"] == "claude_project_skill"
@@ -2703,6 +3107,8 @@ def test_agent_loop_after_web_imported_candidate_still_uses_agent_native(
     assert generated["ready_candidate_bytes"] == expected_ready_bytes
     assert generated["binding"]["ready_candidate_sha256"] == expected_ready_sha
     assert generated["binding"]["ready_candidate_bytes"] == expected_ready_bytes
+    assert generated["session"]["agent_entry_launch"]["ready_candidate_sha256"] == expected_ready_sha
+    assert generated["session"]["agent_entry_launch"]["ready_candidate_bytes"] == expected_ready_bytes
     candidate_event = next(
         event for event in service.list_alignment_events(generated["session"]["id"]) if event["event_type"] == "agent_candidate_received"
     )
@@ -2746,6 +3152,46 @@ def test_agent_loop_after_web_imported_candidate_still_uses_agent_native(
     assert started["binding"]["ready_candidate_sha256"] == expected_import_sha
     assert started["binding"]["ready_candidate_bytes"] == expected_import_bytes
     assert started["next_step"]["execution_plane"] == "agent_native"
+
+
+def test_web_import_cannot_headless_start_agent_first_preview(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+
+    generated = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Prepare a governed implementation loop.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+
+    with pytest.raises(LooporaConflictError, match="agent-first Loop previews must be started from /loopora-loop"):
+        service.import_alignment_bundle(generated["session"]["id"], start_immediately=True, execute_async=True)
+
+    blocked_session = service.get_alignment_session(generated["session"]["id"])
+    assert blocked_session["status"] == "ready"
+    assert not blocked_session.get("linked_run_id")
+    assert service.list_bundles() == []
+
+    started = service.start_agent_loop(
+        "codex",
+        workdir=sample_workdir,
+        entry_source="codex_project_skill",
+        execute_async=True,
+    )
+
+    assert started["execution_plane"] == "agent_native"
+    assert started["run"]["status"] == "awaiting_agent"
+    assert started["next_step"]["execution_plane"] == "agent_native"
+    assert (Path(started["run"]["runs_dir"]) / "agent_native" / "state.json").exists()
 
 
 def test_cli_agent_runtime_accepts_managed_entry_source_from_env(monkeypatch, tmp_path: Path, sample_workdir: Path) -> None:
@@ -2810,7 +3256,9 @@ def test_cli_opencode_gen_accepts_ready_bundle_without_starting_run(monkeypatch,
     assert payload["candidate_entry_source"] == "opencode_project_command"
     assert payload["ready"] is True
     assert payload["status"] == "ready"
+    assert payload["host_context_id"] == ""
     assert payload["binding"]["context_source"] == "workdir"
+    assert payload["binding"]["host_context_id"] == ""
     assert payload["binding"]["candidate_origin"] == "agent_entry"
     assert payload["binding"]["candidate_adapter"] == "opencode"
     assert payload["binding"]["candidate_entry_source"] == "opencode_project_command"
@@ -4099,7 +4547,115 @@ def test_agent_native_gatekeeper_pass_with_missing_required_coverage_keeps_task_
     assert task_verdict["status"] == "insufficient_evidence"
     assert task_verdict["source"] == "gatekeeper"
     assert "Required coverage" in task_verdict["summary"]
+    assert final["task_next_action"]["kind"] == "continue_evidence"
+    assert final["task_next_action"]["task_verdict_status"] == "insufficient_evidence"
+    assert final["task_next_action"]["next_loop_command"] == "/loopora-loop"
+    assert "Run lifecycle is complete, but the task is not proven" in final["task_next_action"]["guidance"]
+    agent_entry_start = service.agent_entry_loop_start_projection(run["loop_id"])
+    assert agent_entry_start["next_loop_action"] == "start_next_run_for_unproven_verdict"
+    assert agent_entry_start["continuation_summary"]["previous_run_id"] == run["id"]
+    assert agent_entry_start["continuation_summary"]["previous_task_verdict"]["status"] == "insufficient_evidence"
+    assert agent_entry_start["continuation_summary"]["coverage"]["missing_check_count"] > 0
+    assert agent_entry_start["continuation_summary"]["next_focus"]
     assert json.loads((Path(run["runs_dir"]) / "evidence" / "task_verdict.json").read_text(encoding="utf-8")) == task_verdict
+
+
+def test_agent_loop_restarts_after_terminal_insufficient_evidence(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Keep agent-native lifecycle success separate from evidence-backed task proof.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    final = _drive_agent_native_run_to_success(service, adapter="codex", started=started, workdir=sample_workdir)
+    previous_run = final["run"]
+
+    continued = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+
+    assert previous_run["status"] == "succeeded"
+    assert previous_run["task_verdict"]["status"] == "insufficient_evidence"
+    assert continued["started_new_run"] is True
+    assert continued["complete"] is False
+    assert continued["run"]["id"] != previous_run["id"]
+    assert continued["run"]["status"] == "awaiting_agent"
+    assert continued["run"]["loop_id"] == previous_run["loop_id"]
+    assert continued["next_step"]["execution_plane"] == "agent_native"
+    context_packet = json.loads(Path(continued["next_step"]["context_absolute_path"]).read_text(encoding="utf-8"))
+    capsule = json.loads(Path(continued["next_step"]["capsule_absolute_path"]).read_text(encoding="utf-8"))
+    continuation = context_packet["continuation"]
+    assert continuation["previous_run_id"] == previous_run["id"]
+    assert continuation["previous_task_verdict"]["status"] == "insufficient_evidence"
+    assert continuation["previous_task_verdict_path"].endswith("evidence/task_verdict.json")
+    assert continuation["coverage"]["missing_check_count"] > 0
+    assert any(gap["target_id"] == "done_when.check_001" for gap in continuation["coverage"]["top_gaps"])
+    assert capsule["continuation"]["previous_run_id"] == previous_run["id"]
+    assert previous_run["id"] in continued["next_step"]["prompt"]
+    assert "insufficient_evidence" in continued["next_step"]["prompt"]
+    client = TestClient(build_app(service=service))
+    snapshot_response = client.get(f"/api/runs/{continued['run']['id']}/observation-snapshot")
+    assert snapshot_response.status_code == 200
+    current_step = snapshot_response.json()["current_agent_step"]
+    assert current_step["continuation"]["previous_run_id"] == previous_run["id"]
+    assert current_step["continuation"]["previous_task_verdict"]["status"] == "insufficient_evidence"
+    assert current_step["continuation"]["coverage"]["missing_check_count"] > 0
+    assert current_step["continuation"]["next_focus"]
+    session = service.get_alignment_session(started["session"]["id"])
+    assert session["linked_run_id"] == continued["run"]["id"]
+    assert continued["binding"]["linked_run_id"] == continued["run"]["id"]
+    assert service.get_run(previous_run["id"])["task_verdict"]["status"] == "insufficient_evidence"
+
+
+def test_agent_loop_replays_terminal_passed_task_verdict(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Keep agent-native lifecycle success separate from evidence-backed task proof.",
+            bundle_file=bundle_file,
+            entry_source="codex_project_skill",
+        )
+    )
+    started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+    final = _drive_agent_native_run_to_success(service, adapter="codex", started=started, workdir=sample_workdir)
+    previous_run = final["run"]
+    service.repository.update_run(
+        previous_run["id"],
+        task_verdict={
+            "status": "passed",
+            "source": "gatekeeper",
+            "summary": "Required coverage has direct evidence.",
+            "buckets": {"proven": [], "weak": [], "unproven": [], "blocking": [], "residual_risk": []},
+        },
+    )
+
+    continued = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
+
+    assert continued["started_new_run"] is False
+    assert continued["complete"] is True
+    assert continued["task_next_action"] == {}
+    assert continued["run"]["id"] == previous_run["id"]
+    assert continued["next_step"] is None
+    session = service.get_alignment_session(started["session"]["id"])
+    assert session["linked_run_id"] == previous_run["id"]
+    assert len(service.get_loop(previous_run["loop_id"])["runs"]) == 1
 
 
 def test_agent_native_gatekeeper_rejection_claims_workflow_control(
@@ -4598,8 +5154,10 @@ def test_claude_agent_gen_validates_ready_bundle_and_loop_starts_run(
     assert generated["adapter"] == "claude"
     assert generated["candidate_origin"] == "agent_entry"
     assert generated["candidate_entry_source"] == "claude_project_skill"
+    assert generated["host_context_id"] == "claude-session-a"
     assert generated["ready"] is True
     assert generated["binding"]["context_source"] == "explicit"
+    assert generated["binding"]["host_context_id"] == "claude-session-a"
     assert generated["binding"]["candidate_origin"] == "agent_entry"
     assert generated["binding"]["candidate_adapter"] == "claude"
     assert generated["binding"]["candidate_entry_source"] == "claude_project_skill"
@@ -4610,6 +5168,7 @@ def test_claude_agent_gen_validates_ready_bundle_and_loop_starts_run(
         and event["payload"]["candidate_origin"] == "agent_entry"
         and event["payload"]["adapter"] == "claude"
         and event["payload"]["entry_source"] == "claude_project_skill"
+        and event["payload"]["host_context_id"] == "claude-session-a"
         and event["payload"]["has_candidate_yaml"] is True
         for event in candidate_events
     )
@@ -4657,7 +5216,9 @@ def test_opencode_agent_gen_validates_ready_bundle_and_loop_starts_run(
 
     assert generated["adapter"] == "opencode"
     assert generated["ready"] is True
+    assert generated["host_context_id"] == ""
     assert generated["binding"]["context_source"] == "workdir"
+    assert generated["binding"]["host_context_id"] == ""
     assert generated["binding"]["entry_invocations"][-1]["entry_source"] == "opencode_project_command"
 
     started = service.start_agent_loop("opencode", workdir=sample_workdir, entry_source="opencode_project_command", execute_async=False)
@@ -4679,7 +5240,7 @@ def test_codex_agent_binding_is_scoped_by_host_context(service_factory, tmp_path
     bundle_file = tmp_path / "bundle.yml"
     bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
 
-    service.create_agent_bundle_candidate(
+    generated = service.create_agent_bundle_candidate(
         AgentBundleCandidateRequest(
             adapter="codex",
             workdir=sample_workdir,
@@ -4688,6 +5249,8 @@ def test_codex_agent_binding_is_scoped_by_host_context(service_factory, tmp_path
             context_id="thread-a",
         )
     )
+    assert generated["host_context_id"] == "thread-a"
+    assert generated["binding"]["host_context_id"] == "thread-a"
 
     with pytest.raises(LooporaConflictError, match="/loopora-gen"):
         service.start_agent_loop("codex", workdir=sample_workdir, context_id="thread-b", execute_async=False)
@@ -4696,8 +5259,185 @@ def test_codex_agent_binding_is_scoped_by_host_context(service_factory, tmp_path
 
     assert started["started_new_run"] is True
     assert started["binding"]["context_source"] == "explicit"
+    assert started["binding"]["host_context_id"] == "thread-a"
     assert started["execution_plane"] == "agent_native"
     assert started["run"]["status"] == "awaiting_agent"
+
+
+def test_agent_native_observation_snapshot_projects_current_handoff(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Ship the focused starter experience with evidence gaps visible.",
+            bundle_file=bundle_file,
+            context_id="thread-handoff",
+            entry_source="codex_project_skill",
+        )
+    )
+
+    started = service.start_agent_loop(
+        "codex",
+        workdir=sample_workdir,
+        context_id="thread-handoff",
+        entry_source="codex_project_skill",
+        execute_async=False,
+    )
+    snapshot = service.run_observation_snapshot(started["run"]["id"])
+
+    current_step = snapshot["current_agent_step"]
+    _assert_agent_native_observation_current_step(current_step)
+    _assert_agent_native_observation_artifacts(service, current_step, started, sample_workdir)
+
+
+def _assert_agent_native_observation_current_step(current_step: dict) -> None:
+    assert current_step["step_id"] == "builder_step"
+    assert current_step["role"]["name"] == "Focused Builder"
+    assert current_step["target_agent"] == "loopora-builder"
+    assert current_step["action_policy"]["workspace"] == "workspace_write"
+    assert current_step["required_coverage"]["missing_check_count"] == 2
+    assert current_step["required_coverage"]["top_gaps"][0]["target_id"] == "done_when.check_001"
+    assert current_step["context_path"].endswith("input.context.json")
+    assert current_step["capsule_path"].endswith("capsule.json")
+    assert current_step["submit_hint"]["result_template_path"].endswith(".result.template.json")
+    assert current_step["submit_hint"]["result_outbox_dir"].endswith(".loopora/agent_outbox/codex")
+    assert current_step["submit_hint"]["result_outbox_absolute_dir"].endswith(".loopora/agent_outbox/codex")
+    assert current_step["submit_hint"]["result_file_contract"] == (
+        "Write one wrapper JSON object with loopora_host_dispatch and a schema-shaped result; "
+        "replace null placeholders before submit."
+    )
+    assert isinstance(current_step["known_evidence_count"], int)
+    assert "loopora agent codex submit" in current_step["submit_hint"]["command"]
+    assert current_step["submit_hint"]["command"].startswith("LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill ")
+    assert "--entry-source codex_project_skill" in current_step["submit_hint"]["command"]
+    assert "prompt" not in current_step
+    assert "output_schema" not in current_step
+
+
+def _assert_agent_native_observation_artifacts(service, current_step: dict, started: dict, sample_workdir: Path) -> None:
+    capsule_path = Path(current_step["capsule_absolute_path"])
+    template_path = Path(current_step["submit_hint"]["result_template_absolute_path"])
+    assert capsule_path.exists()
+    assert template_path.exists()
+    capsule = json.loads(capsule_path.read_text(encoding="utf-8"))
+    assert capsule["step_id"] == "builder_step"
+    assert capsule["entry_source"] == "codex_project_skill"
+    assert capsule["role_dispatch"]["target_agent"] == "loopora-builder"
+    assert capsule["submit_hint"]["command"].startswith("LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill ")
+    assert "--entry-source codex_project_skill" in capsule["submit_hint"]["command"]
+    assert "prompt" in capsule
+    assert "output_schema" in capsule
+    template = json.loads(template_path.read_text(encoding="utf-8"))
+    assert template["loopora_host_dispatch"]["run_id"] == started["run"]["id"]
+    assert template["loopora_host_dispatch"]["step_id"] == "builder_step"
+    assert template["loopora_host_dispatch"]["actual_agent"] == "loopora-builder"
+    assert template["loopora_host_dispatch"]["inline"] is False
+    assert template["loopora_result_contract"]["ignored_on_submit"] is True
+    assert template["loopora_result_contract"]["result_must_match_output_schema"] is True
+    assert template["loopora_result_contract"]["result_is_schema_shaped_scaffold"] is True
+    assert template["loopora_result_contract"]["result_scaffold_uses_null_placeholders"] is True
+    assert template["loopora_result_contract"]["replace_null_placeholders_before_submit"] is True
+    assert template["loopora_result_contract"]["step_id"] == "builder_step"
+    assert template["loopora_result_contract"]["role"]["name"] == "Focused Builder"
+    assert template["loopora_result_contract"]["action_policy"]["workspace"] == "workspace_write"
+    assert template["loopora_result_contract"]["required_coverage"]["missing_check_count"] == 2
+    assert template["loopora_result_contract"]["required_coverage"]["top_gaps"][0]["target_id"] == "done_when.check_001"
+    assert "known_evidence_ids" in template["loopora_result_contract"]
+    assert template["loopora_result_contract"]["evidence_ref_contract"]["must_copy_exact_ids"] is True
+    assert template["loopora_result_contract"]["output_schema"]["required"] == capsule["output_schema"]["required"]
+    assert "prompt" not in template["loopora_result_contract"]
+    assert "judgment_contract" not in template["loopora_result_contract"]
+    assert template["result"] == {
+        "attempted": None,
+        "abandoned": None,
+        "assumption": None,
+        "summary": None,
+        "changed_files": [None],
+        "proof_files": [None],
+        "proof_artifacts": [None],
+        "artifact_paths": [None],
+    }
+    with pytest.raises(
+        LooporaConflictError,
+        match=r"agent-native result does not match output_schema: \$\.attempted expected string, got null",
+    ):
+        service.submit_agent_native_step(
+            AgentNativeStepSubmitRequest(
+                adapter="codex",
+                workdir=sample_workdir,
+                context_id="thread-handoff",
+                run_id=started["run"]["id"],
+                step_id="builder_step",
+                output=template["result"],
+                host_dispatch=template["loopora_host_dispatch"],
+                entry_source="codex_project_skill",
+            )
+        )
+    assert not Path(capsule["result_output_path"]).is_absolute()
+    assert not (Path(started["run"]["runs_dir"]) / capsule["result_output_path"]).exists()
+
+    layout = RunArtifactLayout(Path(started["run"]["runs_dir"]))
+    role_requests = read_jsonl(layout.role_requests_path)
+    assert role_requests[-1]["context_path"].endswith("input.context.json")
+    claimed = [event for event in read_jsonl(layout.legacy_events_path) if event["event_type"] == "agent_native_step_claimed"][-1]
+    assert claimed["payload"]["target_agent"] == "loopora-builder"
+    assert claimed["payload"]["capsule_path"].endswith("capsule.json")
+    assert claimed["payload"]["result_template_path"].endswith(".result.template.json")
+
+
+def test_agent_native_takeaways_keep_active_iteration_open_after_role_handoff(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Ship the focused starter experience with evidence gaps visible.",
+            bundle_file=bundle_file,
+            context_id="thread-active-takeaway",
+        )
+    )
+    started = service.start_agent_loop("codex", workdir=sample_workdir, context_id="thread-active-takeaway", execute_async=False)
+    builder_step = started["next_step"]
+
+    result = service.submit_agent_native_step(
+        AgentNativeStepSubmitRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            context_id="thread-active-takeaway",
+            run_id=str(builder_step["run_id"]),
+            step_id=str(builder_step["step_id"]),
+            output=_agent_native_step_output(builder_step),
+            host_dispatch=_agent_native_host_dispatch("codex", builder_step),
+            entry_source="codex_project_skill",
+        )
+    )
+    snapshot = service.run_observation_snapshot(result["run"]["id"])
+    iterations = snapshot["key_takeaways"]["iterations"]
+
+    assert result["run"]["status"] == "awaiting_agent"
+    assert result["next_step"]["step_id"] == "contract_inspection_step"
+    assert len(iterations) == 1
+    active_iteration = iterations[0]
+    assert active_iteration["status"] == "running"
+    assert active_iteration["summary"] == "Builder produced a structured handoff for downstream inspection."
+    assert active_iteration["role_count"] == 1
+    assert active_iteration["roles"][0]["status"] == "completed"
+    assert active_iteration["coverage_status"] == "partial"
+    assert active_iteration["missing_check_count"] == 2
+    assert active_iteration["coverage_top_gaps"][0]["target_id"] == "done_when.check_001"
 
 
 def test_agent_context_binding_path_hashes_untrusted_context_id(sample_workdir: Path) -> None:
@@ -4754,6 +5494,84 @@ def test_cli_agent_loop_does_not_spawn_nested_worker_for_agent_native(adapter: s
     run_dir = tmp_path / "run"
     layout = RunArtifactLayout(run_dir)
     layout.initialize()
+    _write_agent_native_cli_contract(layout)
+    calls: dict[str, object] = {}
+
+    class FakeService:
+        def start_agent_loop(self, adapter: str, *, workdir: Path, context_id: str = "", entry_source: str = "", execute_async: bool = True):
+            calls["adapter"] = adapter
+            calls["workdir"] = workdir
+            calls["context_id"] = context_id
+            calls["entry_source"] = entry_source
+            calls["execute_async"] = execute_async
+            return {
+                "execution_plane": "agent_native",
+                "run": {
+                    "id": "run_agent",
+                    "status": "awaiting_agent",
+                    "runs_dir": str(run_dir),
+                    "workdir": str(workdir),
+                },
+                "run_path": "/runs/run_agent",
+                "started_new_run": True,
+                "next_step": {
+                    "step_id": "builder_step",
+                    "role": {"name": "Builder"},
+                    "role_dispatch": {"target_agent": "loopora-builder"},
+                    "action_policy": {"workspace": "workspace_write", "can_block": False, "can_finish_run": False},
+                    "required_coverage": {
+                        "status": "pending",
+                        "covered_check_count": 0,
+                        "missing_check_count": 2,
+                        "top_gaps": [
+                            {"target_id": "done_when.check_001", "text": "Support admin can approve a refund."},
+                            {"target_id": "gatekeeper.finish", "text": "GateKeeper needs supporting evidence refs."},
+                        ],
+                    },
+                    "continuation": {
+                        "active": True,
+                        "previous_run_id": "run_previous",
+                        "previous_task_verdict": {"status": "insufficient_evidence"},
+                        "coverage": {"covered_check_count": 1, "missing_check_count": 2},
+                        "next_focus": ["done_when.check_001: Support admin path still lacks direct proof."],
+                    },
+                    "known_evidence_count": 3,
+                    "context_absolute_path": str(run_dir / "iterations" / "iter_000" / "steps" / "00__builder_step" / "input.context.json"),
+                    "capsule_absolute_path": str(run_dir / "iterations" / "iter_000" / "steps" / "00__builder_step" / "capsule.json"),
+                    "submit_hint": {
+                        "command": "loopora agent codex submit --run-id run_agent --step-id builder_step",
+                        "result_file_contract": "Write one wrapper JSON object with loopora_host_dispatch and a schema-shaped result; replace null placeholders before submit.",
+                        "result_template_absolute_path": str(
+                            workdir / ".loopora" / "agent_outbox" / "codex" / "run_agent__builder_step.result.template.json"
+                        ),
+                        "result_outbox_absolute_dir": str(workdir / ".loopora" / "agent_outbox" / "codex"),
+                    },
+                },
+            }
+
+    monkeypatch.setattr(cli, "create_service", FakeService)
+
+    def fake_spawn_background_worker(_service, run: dict) -> dict:
+        raise AssertionError(f"agent-native loop must not spawn a nested worker for {run['id']}")
+
+    monkeypatch.setattr(cli, "_spawn_background_worker", fake_spawn_background_worker)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        ["agent", adapter, "loop", "--workdir", str(workdir), "--context-id", "thread-1", "--no-web"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert calls["adapter"] == adapter
+    assert calls["workdir"] == workdir
+    assert calls["context_id"] == "thread-1"
+    assert calls["entry_source"] == ""
+    assert calls["execute_async"] is False
+    _assert_agent_native_cli_output(result.stdout, layout)
+
+
+def _write_agent_native_cli_contract(layout: RunArtifactLayout) -> None:
     layout.run_contract_path.write_text(
         json.dumps(
             {
@@ -4769,13 +5587,7 @@ def test_cli_agent_loop_does_not_spawn_nested_worker_for_agent_native(adapter: s
                 "judgment_tradeoffs": ["Evidence beats fast closure."],
                 "execution_strategy": ["Prove the refund path first, then expand after audit evidence is strong."],
                 "local_governance": ["GateKeeper treats skipped AGENTS.md checks as Blocking."],
-                "role_postures": [
-                    {
-                        "role_name": "GateKeeper",
-                        "archetype": "gatekeeper",
-                        "posture_notes": "Fail closed when evidence is weak.",
-                    }
-                ],
+                "role_postures": [{"role_name": "GateKeeper", "archetype": "gatekeeper", "posture_notes": "Fail closed when evidence is weak."}],
                 "completion_mode": "gatekeeper",
                 "workflow": {
                     "preset": "build_then_parallel_review",
@@ -4798,70 +5610,134 @@ def test_cli_agent_loop_does_not_spawn_nested_worker_for_agent_native(adapter: s
         ),
         encoding="utf-8",
     )
-    calls: dict[str, object] = {}
+
+
+def _assert_agent_native_cli_output(stdout: str, layout: RunArtifactLayout) -> None:
+    assert f"run_contract_path: {layout.run_contract_path}" in stdout
+    assert "source_plan: Agent Native Refund Bundle (bundle_agent, rev 2)" in stdout
+    assert "source_plan_path: /tmp/loopora/bundle.yml" in stdout
+    assert 'source_plan: {"id":' not in stdout
+    assert "judgment_contract_summary: Prefer frozen judgment over lifecycle optimism." in stdout
+    assert "check_mode: specified" in stdout
+    assert "completion_mode: gatekeeper" in stdout
+    assert "workflow_preset: build_then_parallel_review" in stdout
+    assert "workflow_collaboration_intent: Parallel review must feed GateKeeper before closure." in stdout
+    assert "check_count: 2" in stdout
+    _assert_cli_list(stdout, "coverage_targets", "done_when.check_001 (required)", "gatekeeper.finish (required)")
+    _assert_cli_list(stdout, "loop_fit_reasons", "Future Agent rounds keep the same proof bar active.")
+    _assert_cli_list(stdout, "judgment_tradeoffs", "Evidence beats fast closure.")
+    _assert_cli_list(
+        stdout,
+        "execution_strategy",
+        "Prove the refund path first, then expand after audit evidence is strong.",
+    )
+    _assert_cli_list(stdout, "local_governance", "GateKeeper treats skipped AGENTS.md checks as Blocking.")
+    _assert_cli_list(stdout, "role_postures", "GateKeeper: Fail closed when evidence is weak.")
+    _assert_cli_list(stdout, "success_surface", "Support admin can approve a refund.")
+    _assert_cli_list(stdout, "fake_done_states", "CSV export without permission audit is fake done.")
+    _assert_cli_list(stdout, "evidence_preferences", "Require browser journey and audit log command evidence.")
+    assert "residual_risk: No residual risk is acceptable." in stdout
+    assert "run_url: /runs/run_agent" in stdout
+    assert "next_step_id: builder_step" in stdout
+    assert "next_target_agent: loopora-builder" in stdout
+    assert "continuation_previous_run: run_previous" in stdout
+    assert "continuation_task_verdict: insufficient_evidence" in stdout
+    assert "continuation_required_coverage: 1 covered / 2 missing" in stdout
+    assert "continuation_next_focus:" in stdout
+    assert "- done_when.check_001: Support admin path still lacks direct proof." in stdout
+    assert "next_action_policy: workspace_write" in stdout
+    assert "required_coverage: pending; required checks 0 covered / 2 missing" in stdout
+    assert "top_coverage_gaps:" in stdout
+    assert "- done_when.check_001: Support admin can approve a refund." in stdout
+    assert "next_context_path:" in stdout
+    assert "input.context.json" in stdout
+    assert "known_evidence_count: 3" in stdout
+    assert "result_template_contract: Write one wrapper JSON object with loopora_host_dispatch and a schema-shaped result; replace null placeholders before submit." in stdout
+    assert "result_template_fill: open the template, replace null placeholders in result, keep loopora_host_dispatch, then submit the filled copy" in stdout
+    _assert_cli_handoff_contract_paths(
+        stdout,
+        capsule_fragment="capsule.json",
+        template_fragment="run_agent__builder_step.result.template.json",
+        outbox_fragment=".loopora/agent_outbox/codex",
+    )
+    assert "submit_hint: loopora agent codex submit --run-id run_agent --step-id builder_step" in stdout
+
+
+def test_cli_agent_loop_terminal_unproven_reports_lifecycle_without_complete(monkeypatch, tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    layout = RunArtifactLayout(tmp_path / "runs" / "run_terminal_loop")
+    layout.initialize()
+    layout.run_contract_path.write_text(
+        json.dumps(
+            {
+                "collaboration_summary": "Keep terminal replay honest about evidence.",
+                "loop_fit_reasons": ["A later Agent pass can add missing proof."],
+                "judgment_tradeoffs": ["Never equate run lifecycle with task proof."],
+                "execution_strategy": ["Continue from the missing audit evidence."],
+                "local_governance": ["Record the task verdict before another pass."],
+                "role_postures": [
+                    {
+                        "role_name": "GateKeeper",
+                        "archetype": "gatekeeper",
+                        "posture_notes": "Report unproven evidence as unproven.",
+                    }
+                ],
+                "success_surface": ["Audit evidence proves the user-visible flow."],
+                "fake_done_states": ["A succeeded run with missing evidence is not done."],
+                "evidence_preferences": ["Use project-owned checks and artifact paths."],
+                "residual_risk": "No residual risk may hide missing audit proof.",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
     class FakeService:
-        def start_agent_loop(self, adapter: str, *, workdir: Path, context_id: str = "", entry_source: str = "", execute_async: bool = True):
-            calls["adapter"] = adapter
-            calls["workdir"] = workdir
-            calls["context_id"] = context_id
-            calls["entry_source"] = entry_source
-            calls["execute_async"] = execute_async
+        def start_agent_loop(self, _adapter: str, *, workdir: Path, context_id: str = "", entry_source: str = "", execute_async: bool = True):
+            _ = (workdir, context_id, entry_source, execute_async)
             return {
                 "execution_plane": "agent_native",
                 "run": {
-                    "id": "run_agent",
-                    "status": "awaiting_agent",
-                    "runs_dir": str(run_dir),
-                    "workdir": str(workdir),
+                    "id": "run_terminal_loop",
+                    "status": "succeeded",
+                    "run_status": "succeeded",
+                    "runs_dir": str(layout.run_dir),
+                    "task_verdict": {
+                        "status": "insufficient_evidence",
+                        "source": "gatekeeper",
+                        "summary": "Audit proof is still missing.",
+                    },
                 },
-                "run_path": "/runs/run_agent",
-                "started_new_run": True,
-                "next_step": {"step_id": "builder_step", "role": {"name": "Builder"}},
+                "run_path": "/runs/run_terminal_loop",
+                "started_new_run": False,
+                "complete": True,
+                "task_next_action": {
+                    "kind": "continue_evidence",
+                    "next_loop_command": "/loopora-loop",
+                    "guidance": "Run lifecycle is complete, but the task is not proven.",
+                    "task_verdict_summary": "Audit proof is still missing.",
+                },
             }
 
     monkeypatch.setattr(cli, "create_service", FakeService)
-
-    def fake_spawn_background_worker(_service, run: dict) -> dict:
-        raise AssertionError(f"agent-native loop must not spawn a nested worker for {run['id']}")
-
-    monkeypatch.setattr(cli, "_spawn_background_worker", fake_spawn_background_worker)
     runner = CliRunner()
 
     result = runner.invoke(
         cli.app,
-        ["agent", adapter, "loop", "--workdir", str(workdir), "--context-id", "thread-1", "--no-web"],
+        ["agent", "codex", "loop", "--workdir", str(workdir), "--context-id", "thread-1", "--no-web"],
     )
 
     assert result.exit_code == 0, result.stdout
-    assert calls["adapter"] == adapter
-    assert calls["workdir"] == workdir
-    assert calls["context_id"] == "thread-1"
-    assert calls["entry_source"] == ""
-    assert calls["execute_async"] is False
+    assert "run_status: succeeded" in result.stdout
     assert f"run_contract_path: {layout.run_contract_path}" in result.stdout
-    assert (
-        'source_plan: {"id": "bundle_agent", "name": "Agent Native Refund Bundle", "revision": 2, '
-        '"source_bundle_id": "", "imported_from_path": "/tmp/loopora/bundle.yml"}'
-    ) in result.stdout
-    assert "judgment_contract_summary: Prefer frozen judgment over lifecycle optimism." in result.stdout
-    assert "check_mode: specified" in result.stdout
-    assert "completion_mode: gatekeeper" in result.stdout
-    assert "workflow_preset: build_then_parallel_review" in result.stdout
-    assert "workflow_collaboration_intent: Parallel review must feed GateKeeper before closure." in result.stdout
-    assert "check_count: 2" in result.stdout
-    assert 'coverage_targets: ["done_when.check_001 (required)", "gatekeeper.finish (required)"]' in result.stdout
-    assert 'loop_fit_reasons: ["Future Agent rounds keep the same proof bar active."]' in result.stdout
-    assert 'judgment_tradeoffs: ["Evidence beats fast closure."]' in result.stdout
-    assert 'execution_strategy: ["Prove the refund path first, then expand after audit evidence is strong."]' in result.stdout
-    assert 'local_governance: ["GateKeeper treats skipped AGENTS.md checks as Blocking."]' in result.stdout
-    assert 'role_postures: ["GateKeeper: Fail closed when evidence is weak."]' in result.stdout
-    assert 'success_surface: ["Support admin can approve a refund."]' in result.stdout
-    assert 'fake_done_states: ["CSV export without permission audit is fake done."]' in result.stdout
-    assert 'evidence_preferences: ["Require browser journey and audit log command evidence."]' in result.stdout
-    assert "residual_risk: No residual risk is acceptable." in result.stdout
-    assert "run_url: /runs/run_agent" in result.stdout
-    assert "next_step_id: builder_step" in result.stdout
+    assert "task_verdict: insufficient_evidence" in result.stdout
+    assert "task_next_action: Run lifecycle is complete, but the task is not proven." in result.stdout
+    assert "next_loop_command: /loopora-loop" in result.stdout
+    assert "next_evidence_focus: Audit proof is still missing." in result.stdout
+    assert "agent_native: lifecycle_closed_task_unproven" in result.stdout
+    assert "agent_native_task_verdict: insufficient_evidence" in result.stdout
+    assert "agent_native: complete" not in result.stdout
 
 
 def test_cli_agent_next_prints_run_contract_for_intermediate_capsule(monkeypatch, tmp_path: Path) -> None:
@@ -4923,7 +5799,25 @@ def test_cli_agent_next_prints_run_contract_for_intermediate_capsule(monkeypatch
                 "next_step": {
                     "step_id": "inspector_step",
                     "role": {"name": "Inspector"},
-                    "submit_hint": {"command": "loopora agent codex submit --run-id run_next"},
+                    "role_dispatch": {"target_agent": "loopora-inspector"},
+                    "action_policy": {"workspace": "read_only", "can_block": True, "can_finish_run": False},
+                    "required_coverage": {
+                        "status": "weak",
+                        "covered_check_count": 1,
+                        "missing_check_count": 1,
+                        "top_gaps": [
+                            {"target_id": "done_when.check_001", "text": "Authorization proof is still weak."},
+                        ],
+                    },
+                    "known_evidence_count": 4,
+                    "context_path": "iterations/iter_000/steps/01__inspector_step/input.context.json",
+                    "capsule_path": "iterations/iter_000/steps/01__inspector_step/capsule.json",
+                    "submit_hint": {
+                        "command": "loopora agent codex submit --run-id run_next",
+                        "result_file_contract": "Write one wrapper JSON object with loopora_host_dispatch and a schema-shaped result; replace null placeholders before submit.",
+                        "result_template_path": ".loopora/agent_outbox/codex/run_next__inspector_step.result.template.json",
+                        "result_outbox_dir": ".loopora/agent_outbox/codex",
+                    },
                 },
                 "complete": False,
             }
@@ -4954,18 +5848,32 @@ def test_cli_agent_next_prints_run_contract_for_intermediate_capsule(monkeypatch
     assert "workflow_preset: repair_loop" in result.stdout
     assert "workflow_collaboration_intent: Inspector proof gaps must shape the repair loop." in result.stdout
     assert "check_count: 1" in result.stdout
-    assert 'coverage_targets: ["done_when.check_001 (required)", "gatekeeper.finish (required)"]' in result.stdout
-    assert 'loop_fit_reasons: ["The next role needs the same proof bar as the first role."]' in result.stdout
-    assert 'judgment_tradeoffs: ["Do not trade evidence coverage for fast handoff."]' in result.stdout
-    assert 'execution_strategy: ["Claim the next proof gap before expanding scope."]' in result.stdout
-    assert 'local_governance: ["Next role checks design and tests before submitting."]' in result.stdout
-    assert 'role_postures: ["Inspector: Reject handoffs without evidence refs."]' in result.stdout
-    assert 'success_surface: ["Support can trace the refund authorization path."]' in result.stdout
-    assert 'fake_done_states: ["A handoff without evidence refs is fake done."]' in result.stdout
-    assert 'evidence_preferences: ["Use command output and audit artifacts."]' in result.stdout
+    _assert_cli_list(result.stdout, "coverage_targets", "done_when.check_001 (required)", "gatekeeper.finish (required)")
+    _assert_cli_list(result.stdout, "loop_fit_reasons", "The next role needs the same proof bar as the first role.")
+    _assert_cli_list(result.stdout, "judgment_tradeoffs", "Do not trade evidence coverage for fast handoff.")
+    _assert_cli_list(result.stdout, "execution_strategy", "Claim the next proof gap before expanding scope.")
+    _assert_cli_list(result.stdout, "local_governance", "Next role checks design and tests before submitting.")
+    _assert_cli_list(result.stdout, "role_postures", "Inspector: Reject handoffs without evidence refs.")
+    _assert_cli_list(result.stdout, "success_surface", "Support can trace the refund authorization path.")
+    _assert_cli_list(result.stdout, "fake_done_states", "A handoff without evidence refs is fake done.")
+    _assert_cli_list(result.stdout, "evidence_preferences", "Use command output and audit artifacts.")
     assert "residual_risk: Only documented support handoff risk may remain." in result.stdout
     assert "next_step_id: inspector_step" in result.stdout
     assert "next_role: Inspector" in result.stdout
+    assert "next_target_agent: loopora-inspector" in result.stdout
+    assert "next_action_policy: read_only, can_block" in result.stdout
+    assert "required_coverage: weak; required checks 1 covered / 1 missing" in result.stdout
+    assert "- done_when.check_001: Authorization proof is still weak." in result.stdout
+    assert "next_context_path: iterations/iter_000/steps/01__inspector_step/input.context.json" in result.stdout
+    assert "known_evidence_count: 4" in result.stdout
+    assert "result_template_contract: Write one wrapper JSON object with loopora_host_dispatch and a schema-shaped result; replace null placeholders before submit." in result.stdout
+    assert "result_template_fill: open the template, replace null placeholders in result, keep loopora_host_dispatch, then submit the filled copy" in result.stdout
+    _assert_cli_handoff_contract_paths(
+        result.stdout,
+        capsule_fragment="iterations/iter_000/steps/01__inspector_step/capsule.json",
+        template_fragment=".loopora/agent_outbox/codex/run_next__inspector_step.result.template.json",
+        outbox_fragment=".loopora/agent_outbox/codex",
+    )
     assert "submit_hint: loopora agent codex submit --run-id run_next" in result.stdout
 
 
@@ -5053,6 +5961,8 @@ def test_cli_agent_submit_prints_terminal_task_verdict(monkeypatch, tmp_path: Pa
             "gatekeeper_step",
             "--result-file",
             str(result_file),
+            "--entry-source",
+            "codex_project_skill",
             "--no-web",
         ],
     )
@@ -5061,19 +5971,278 @@ def test_cli_agent_submit_prints_terminal_task_verdict(monkeypatch, tmp_path: Pa
     assert "run_status: succeeded" in result.stdout
     assert f"run_contract_path: {layout.run_contract_path}" in result.stdout
     assert "judgment_contract_summary: Keep the evidence standard frozen through terminal submit." in result.stdout
-    assert 'loop_fit_reasons: ["Later role outputs can drift without the frozen contract."]' in result.stdout
-    assert 'judgment_tradeoffs: ["Direct proof beats narrative confidence."]' in result.stdout
-    assert 'execution_strategy: ["Collect audit evidence before terminal closure."]' in result.stdout
-    assert 'local_governance: ["Inspector verifies tests/ evidence before terminal closure."]' in result.stdout
-    assert 'role_postures: ["GateKeeper: Separate run success from task proof."]' in result.stdout
-    assert 'success_surface: ["Checkout instrumentation records the buyer action."]' in result.stdout
-    assert 'fake_done_states: ["A story without audit evidence is fake done."]' in result.stdout
-    assert 'evidence_preferences: ["Audit log command output is required."]' in result.stdout
+    _assert_cli_list(result.stdout, "loop_fit_reasons", "Later role outputs can drift without the frozen contract.")
+    _assert_cli_list(result.stdout, "judgment_tradeoffs", "Direct proof beats narrative confidence.")
+    _assert_cli_list(result.stdout, "execution_strategy", "Collect audit evidence before terminal closure.")
+    _assert_cli_list(result.stdout, "local_governance", "Inspector verifies tests/ evidence before terminal closure.")
+    _assert_cli_list(result.stdout, "role_postures", "GateKeeper: Separate run success from task proof.")
+    _assert_cli_list(result.stdout, "success_surface", "Checkout instrumentation records the buyer action.")
+    _assert_cli_list(result.stdout, "fake_done_states", "A story without audit evidence is fake done.")
+    _assert_cli_list(result.stdout, "evidence_preferences", "Audit log command output is required.")
     assert "residual_risk: Manual billing export remains a Support-owned follow-up." in result.stdout
     assert "task_verdict: insufficient_evidence" in result.stdout
     assert "task_verdict_source: gatekeeper" in result.stdout
     assert "task_verdict_summary: Required coverage still lacks direct evidence." in result.stdout
-    assert "agent_native: complete" in result.stdout
+    assert "task_next_action: run lifecycle is complete but the task is not proven" in result.stdout
+    assert "run /loopora-loop again in this Agent session to start the next evidence pass" in result.stdout
+    assert "next_loop_command: /loopora-loop" in result.stdout
+    assert "next_plan_action: open run_url and use Improve plan with evidence if the Loop itself needs adjustment" in result.stdout
+    assert "next_evidence_focus: Required coverage still lacks direct evidence." in result.stdout
+    assert "agent_native: lifecycle_closed_task_unproven" in result.stdout
+    assert "agent_native_task_verdict: insufficient_evidence" in result.stdout
+    assert "agent_native: complete" not in result.stdout
+
+
+def test_cli_agent_submit_json_preserves_terminal_task_next_action(monkeypatch, tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    result_file = tmp_path / "result.json"
+    result_file.write_text(
+        json.dumps(
+            {
+                "loopora_host_dispatch": {
+                    "adapter": "codex",
+                    "run_id": "run_terminal",
+                    "step_id": "gatekeeper_step",
+                    "target_agent": "loopora-gatekeeper",
+                    "actual_agent": "loopora-gatekeeper",
+                    "dispatch_mode": "host_subagent",
+                    "inline": False,
+                },
+                "result": {"passed": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeService:
+        def submit_agent_native_step(self, _request: AgentNativeStepSubmitRequest):
+            return {
+                "run": {
+                    "id": "run_terminal",
+                    "status": "succeeded",
+                    "run_status": "succeeded",
+                    "task_verdict": {
+                        "status": "insufficient_evidence",
+                        "source": "gatekeeper",
+                        "summary": "Required coverage still lacks direct evidence.",
+                    },
+                },
+                "run_path": "/runs/run_terminal",
+                "next_step": None,
+                "complete": True,
+                "task_next_action": {
+                    "kind": "continue_evidence",
+                    "reason": "run_lifecycle_complete_task_not_proven",
+                    "task_verdict_status": "insufficient_evidence",
+                    "next_loop_command": "/loopora-loop",
+                    "guidance": "Run lifecycle is complete, but the task is not proven.",
+                },
+            }
+
+    monkeypatch.setattr(cli, "create_service", FakeService)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "submit",
+            "--workdir",
+            str(workdir),
+            "--run-id",
+            "run_terminal",
+            "--step-id",
+            "gatekeeper_step",
+            "--result-file",
+            str(result_file),
+            "--entry-source",
+            "codex_project_skill",
+            "--no-web",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["complete"] is True
+    assert payload["run"]["task_verdict"]["status"] == "insufficient_evidence"
+    assert payload["task_next_action"]["kind"] == "continue_evidence"
+    assert payload["task_next_action"]["next_loop_command"] == "/loopora-loop"
+
+
+def test_cli_agent_submit_schema_error_prints_result_repair_guidance(monkeypatch, tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    layout = RunArtifactLayout(tmp_path / "runs" / "run_schema")
+    layout.initialize()
+    (layout.run_dir / "agent_native").mkdir(parents=True, exist_ok=True)
+    (layout.run_dir / "agent_native" / "state.json").write_text(
+        json.dumps(
+            {
+                "active_step": {
+                    "capsule": {
+                        "step_id": "gatekeeper_step",
+                        "role": {"name": "GateKeeper", "id": "gatekeeper", "archetype": "gatekeeper"},
+                        "role_dispatch": {"target_agent": "loopora-gatekeeper"},
+                        "context_absolute_path": str(layout.step_context_path(0, 3, "gatekeeper_step")),
+                        "known_evidence_ids": ["ev_000_00_builder_step", "ev_000_01_inspector_step"],
+                        "output_schema": {
+                            "type": "object",
+                            "properties": {
+                                "priority_failures": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["error_code", "summary"],
+                                        "properties": {
+                                            "error_code": {"type": "string"},
+                                            "summary": {"type": "string"},
+                                        },
+                                    },
+                                }
+                            },
+                        },
+                    }
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    result_file = tmp_path / "bad-result.json"
+    result_file.write_text(
+        json.dumps(
+            {
+                "loopora_host_dispatch": {
+                    "adapter": "codex",
+                    "run_id": "run_schema",
+                    "step_id": "gatekeeper_step",
+                    "target_agent": "loopora-gatekeeper",
+                    "actual_agent": "loopora-gatekeeper",
+                    "dispatch_mode": "host_subagent",
+                    "inline": False,
+                },
+                "result": {"priority_failures": ["required evidence gap"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeService:
+        def submit_agent_native_step(self, _request: AgentNativeStepSubmitRequest):
+            raise LooporaConflictError("agent-native result does not match output_schema: $.priority_failures[0] expected object, got string")
+
+        def get_run(self, run_id: str):
+            assert run_id == "run_schema"
+            return {"id": "run_schema", "runs_dir": str(layout.run_dir)}
+
+    monkeypatch.setattr(cli, "create_service", FakeService)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "submit",
+            "--workdir",
+            str(workdir),
+            "--run-id",
+            "run_schema",
+            "--step-id",
+            "gatekeeper_step",
+            "--result-file",
+            str(result_file),
+            "--entry-source",
+            "codex_project_skill",
+            "--no-web",
+        ],
+    )
+
+    error_text = _error_text(result)
+    assert result.exit_code == 1
+    assert "submit_repair: result JSON needs repair before this Loopora step can advance" in error_text
+    assert f"result_file_to_repair: {result_file}" in error_text
+    assert "active_step_id: gatekeeper_step" in error_text
+    assert "active_role: GateKeeper" in error_text
+    assert "active_target_agent: loopora-gatekeeper" in error_text
+    assert "$.priority_failures[0] must be an object with required fields: error_code, summary" in error_text
+    assert (
+        'schema_lookup: LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex next --workdir "$PWD" '
+        "--run-id run_schema --json --entry-source codex_project_skill"
+    ) in error_text
+    assert "Traceback" not in error_text
+
+
+def test_cli_agent_submit_invalid_json_prints_result_file_repair_guidance(monkeypatch, tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    layout = RunArtifactLayout(tmp_path / "runs" / "run_bad_json")
+    layout.initialize()
+    (layout.run_dir / "agent_native").mkdir(parents=True, exist_ok=True)
+    (layout.run_dir / "agent_native" / "state.json").write_text(
+        json.dumps(
+            {
+                "active_step": {
+                    "capsule": {
+                        "step_id": "builder_step",
+                        "role": {"name": "Builder", "id": "builder", "archetype": "builder"},
+                        "role_dispatch": {"target_agent": "loopora-builder"},
+                        "context_absolute_path": str(layout.step_context_path(0, 0, "builder_step")),
+                        "output_schema": {"type": "object", "required": ["summary"], "properties": {"summary": {"type": "string"}}},
+                    }
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    result_file = tmp_path / "bad-json.result.json"
+    result_file.write_text('{"loopora_host_dispatch": ', encoding="utf-8")
+
+    class FakeService:
+        def get_run(self, run_id: str):
+            assert run_id == "run_bad_json"
+            return {"id": "run_bad_json", "runs_dir": str(layout.run_dir)}
+
+    monkeypatch.setattr(cli, "create_service", FakeService)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "submit",
+            "--workdir",
+            str(workdir),
+            "--run-id",
+            "run_bad_json",
+            "--step-id",
+            "builder_step",
+            "--result-file",
+            str(result_file),
+            "--entry-source",
+            "codex_project_skill",
+            "--no-web",
+        ],
+    )
+
+    error_text = _error_text(result)
+    assert result.exit_code == 1
+    assert "submit_repair: result JSON needs repair before this Loopora step can advance" in error_text
+    assert f"result_file_to_repair: {result_file}" in error_text
+    assert "active_step_id: builder_step" in error_text
+    assert "active_role: Builder" in error_text
+    assert "active_target_agent: loopora-builder" in error_text
+    assert "fix JSON syntax" in error_text
+    assert (
+        'schema_lookup: LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex next --workdir "$PWD" '
+        "--run-id run_bad_json --json --entry-source codex_project_skill"
+    ) in error_text
+    assert "Traceback" not in error_text
 
 
 def test_cli_agent_submit_reports_workflow_errors_without_traceback(monkeypatch, tmp_path: Path) -> None:

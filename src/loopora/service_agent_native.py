@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+import shlex
 from typing import Any
 
 from loopora.agent_adapters import normalize_agent_adapter_kind, read_agent_binding
@@ -66,6 +67,7 @@ class _AgentNativeRuntimeClaimRequest:
     iteration: _WorkflowIterationState
     step: dict
     step_order: int
+    entry_source: str = ""
 
 
 @dataclass(frozen=True)
@@ -104,6 +106,30 @@ def _agent_native_string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _agent_native_submit_command(*, adapter: str, run_id: str, step_id: str, entry_source: str = "") -> str:
+    bits = [
+        "loopora",
+        "agent",
+        adapter,
+        "submit",
+        "--workdir",
+        '"$PWD"',
+        "--run-id",
+        shlex.quote(run_id),
+        "--step-id",
+        shlex.quote(step_id),
+        "--result-file",
+        "<result-json>",
+    ]
+    normalized_entry_source = str(entry_source or "").strip()
+    if normalized_entry_source:
+        bits.extend(["--entry-source", shlex.quote(normalized_entry_source)])
+    command = " ".join(bits)
+    if normalized_entry_source:
+        command = f"LOOPORA_AGENT_ENTRY_SOURCE={shlex.quote(normalized_entry_source)} {command}"
+    return command
 
 
 def _agent_native_role_posture_list(value: object) -> list[str]:
@@ -254,12 +280,60 @@ def _agent_native_schema_validation_issues(value: object, schema: object, *, pat
     return issues
 
 
+def _agent_native_result_scaffold_from_schema(schema: object) -> object:
+    if not isinstance(schema, dict):
+        return None
+    expected_type = str(schema.get("type") or "").strip()
+    if expected_type == "object":
+        properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+        property_schemas = {str(field): field_schema for field, field_schema in properties.items()}
+        required = [str(item) for item in list(schema.get("required") or []) if str(item)]
+        ordered_fields = list(dict.fromkeys(required))
+        ordered_fields.extend(field for field in property_schemas if field not in ordered_fields)
+        return {field: _agent_native_result_scaffold_from_schema(property_schemas.get(field)) for field in ordered_fields}
+    if expected_type == "array":
+        item_schema = schema.get("items")
+        return [_agent_native_result_scaffold_from_schema(item_schema)] if isinstance(item_schema, dict) else [None]
+    return None
+
+
 class ServiceAgentNativeMixin:
     @staticmethod
     def _with_agent_native_judgment_contract(result: dict[str, Any]) -> dict[str, Any]:
         run = result.get("run") if isinstance(result.get("run"), dict) else {}
         result["judgment_contract"] = build_judgment_contract(run)
+        task_next_action = ServiceAgentNativeMixin._agent_native_task_next_action(result)
+        if task_next_action:
+            result["task_next_action"] = task_next_action
         return result
+
+    @staticmethod
+    def _agent_native_task_next_action(result: dict[str, Any]) -> dict[str, Any]:
+        if result.get("complete") is not True:
+            return {}
+        run = result.get("run") if isinstance(result.get("run"), dict) else {}
+        run_status = str(run.get("run_status") or run.get("status") or "").strip()
+        if run_status not in TERMINAL_RUN_STATUSES:
+            return {}
+        task_verdict = run.get("task_verdict") if isinstance(run.get("task_verdict"), dict) else run.get("task_verdict_json")
+        task_verdict = task_verdict if isinstance(task_verdict, dict) else {}
+        status = str(task_verdict.get("status") or "").strip() or "not_evaluated"
+        if status in {"passed", "passed_with_residual_risk"}:
+            return {}
+        summary = str(task_verdict.get("summary") or "").strip()
+        return {
+            "kind": "continue_evidence",
+            "reason": "run_lifecycle_complete_task_not_proven",
+            "run_status": run_status,
+            "task_verdict_status": status,
+            "task_verdict_summary": summary,
+            "next_loop_command": "/loopora-loop",
+            "plan_action": "open_run_url_improve_with_evidence_if_loop_needs_adjustment",
+            "guidance": (
+                "Run lifecycle is complete, but the task is not proven. Run /loopora-loop again in the same "
+                "Agent session to start the next evidence pass from this verdict."
+            ),
+        }
 
     def prepare_agent_native_run(
         self,
@@ -277,6 +351,8 @@ class ServiceAgentNativeMixin:
 
         layout = self._run_artifact_layout(Path(run["runs_dir"]))
         state = self._agent_native_state(layout, adapter=kind, run=run)
+        if str(entry_source or "").strip():
+            state["entry_source"] = str(entry_source or "").strip()
         summary = "# Loopora Run Summary\n\nAwaiting host Agent step execution.\n"
         update: dict[str, Any] = {
             "status": "awaiting_agent",
@@ -329,6 +405,10 @@ class ServiceAgentNativeMixin:
 
         layout = self._run_artifact_layout(Path(run["runs_dir"]))
         state = self._agent_native_state(layout, adapter=kind, run=run)
+        entry_source = str(request.entry_source or "").strip() or str(state.get("entry_source") or "").strip()
+        if entry_source and state.get("entry_source") != entry_source:
+            state["entry_source"] = entry_source
+            self._write_agent_native_state(layout, state)
         active = state.get("active_step") if isinstance(state.get("active_step"), dict) else {}
         if active and active.get("capsule"):
             capsule = self._agent_native_capsule_with_judgment_contract(
@@ -366,6 +446,7 @@ class ServiceAgentNativeMixin:
                 iteration=iteration,
                 step=step,
                 step_order=step_index,
+                entry_source=entry_source,
             )
         )
 
@@ -436,7 +517,9 @@ class ServiceAgentNativeMixin:
             output_schema=role_request.output_schema,
             known_evidence_ids=[str(item) for item in list(evidence_context.get("known_ids") or []) if str(item).strip()],
             context_packet=context_packet,
+            entry_source=request.entry_source,
         )
+        self._write_agent_native_step_contract_files(capsule)
         state["active_step"] = {
             "claimed_at": utc_now(),
             "capsule": capsule,
@@ -461,6 +544,9 @@ class ServiceAgentNativeMixin:
                 "role_name": role["name"],
                 "archetype": role["archetype"],
                 "runtime_role": runtime_role,
+                "target_agent": str((capsule.get("role_dispatch") or {}).get("target_agent") or ""),
+                "capsule_path": str(capsule.get("capsule_path") or ""),
+                "result_template_path": str((capsule.get("submit_hint") or {}).get("result_template_path") or ""),
                 "parallel_group": str(step.get("parallel_group") or ""),
                 "control_id": str(step.get("control_id") or ""),
             },
@@ -646,9 +732,9 @@ class ServiceAgentNativeMixin:
             raise LooporaConflictError(f"cannot submit agent-native step for terminal run {run['id']}")
         if run["status"] not in ACTIVE_RUN_STATUSES:
             raise LooporaConflictError(f"cannot submit agent-native step in status {run['status']}")
-        output = request.output if isinstance(request.output, dict) else {}
-        if not output:
+        if not isinstance(request.output, dict):
             raise LooporaError("agent-native step result must be a JSON object")
+        output = request.output
 
         layout = self._run_artifact_layout(Path(run["runs_dir"]))
         state = self._agent_native_state(layout, adapter=kind, run=run)
@@ -1257,19 +1343,25 @@ class ServiceAgentNativeMixin:
         output_schema: dict,
         known_evidence_ids: list[str] | None = None,
         context_packet: dict[str, Any] | None = None,
+        entry_source: str = "",
     ) -> dict[str, Any]:
         context_path = layout.step_context_path(iter_id, step_order, step["id"])
+        capsule_path = layout.step_capsule_path(iter_id, step_order, step["id"])
         output_path = layout.step_output_raw_path(iter_id, step_order, step["id"])
+        result_outbox_dir = layout.workdir_path / ".loopora" / "agent_outbox" / adapter
+        result_template_path = result_outbox_dir / f"{run['id']}__{step['id']}.result.template.json"
         if known_evidence_ids is None:
             known_evidence_ids = [
                 str(item.get("id"))
                 for item in read_jsonl(layout.evidence_ledger_path)
                 if isinstance(item, dict) and str(item.get("id") or "").strip()
             ]
+        normalized_entry_source = str(entry_source or "").strip()
         target_agent = self._agent_native_target_agent(role["archetype"])
         return {
             "execution_plane": "agent_native",
             "adapter": adapter,
+            "entry_source": normalized_entry_source,
             "run_id": run["id"],
             "run_path": f"/runs/{run['id']}",
             "iter": iter_id,
@@ -1297,6 +1389,7 @@ class ServiceAgentNativeMixin:
             "action_policy": dict(step.get("action_policy") or {}),
             "required_coverage": self._agent_native_required_coverage(context_packet),
             "judgment_contract": self._agent_native_capsule_judgment_contract(run, context_packet),
+            "continuation": self._agent_native_capsule_continuation_context(context_packet),
             "prompt": prompt,
             "output_schema": output_schema,
             "evidence_rules": self._agent_native_evidence_rules(role["archetype"]),
@@ -1307,12 +1400,76 @@ class ServiceAgentNativeMixin:
             },
             "context_path": layout.relative(context_path),
             "context_absolute_path": str(context_path.resolve()),
+            "capsule_path": layout.relative(capsule_path),
+            "capsule_absolute_path": str(capsule_path.resolve()),
             "result_output_path": layout.relative(output_path),
             "submit_hint": {
-                "command": f"loopora agent {adapter} submit --workdir \"$PWD\" --run-id {run['id']} --step-id {step['id']} --result-file <result-json>",
-                "result_file_contract": "Write one wrapper JSON object with loopora_host_dispatch and result; result must match output_schema.",
+                "command": _agent_native_submit_command(
+                    adapter=adapter,
+                    run_id=str(run["id"]),
+                    step_id=str(step["id"]),
+                    entry_source=normalized_entry_source,
+                ),
+                "result_file_contract": "Write one wrapper JSON object with loopora_host_dispatch and a schema-shaped result; replace null placeholders before submit.",
+                "result_outbox_dir": layout.workspace_relative(result_outbox_dir),
+                "result_outbox_absolute_dir": str(result_outbox_dir.resolve()),
+                "result_template_path": layout.workspace_relative(result_template_path),
+                "result_template_absolute_path": str(result_template_path.resolve()),
             },
             "known_evidence_ids": known_evidence_ids,
+        }
+
+    def _write_agent_native_step_contract_files(self, capsule: dict[str, Any]) -> None:
+        capsule_path_text = str(capsule.get("capsule_absolute_path") or "").strip()
+        if not capsule_path_text:
+            raise LooporaError("agent-native capsule path is required")
+        capsule_path = Path(capsule_path_text)
+        write_json(capsule_path, capsule)
+
+        submit_hint = capsule.get("submit_hint") if isinstance(capsule.get("submit_hint"), dict) else {}
+        template_path_text = str(submit_hint.get("result_template_absolute_path") or "").strip()
+        if not template_path_text:
+            raise LooporaError("agent-native result template path is required")
+        template_path = Path(template_path_text)
+        write_json(template_path, self._agent_native_result_template(capsule))
+
+    @staticmethod
+    def _agent_native_result_template(capsule: dict[str, Any]) -> dict[str, Any]:
+        dispatch = capsule.get("role_dispatch") if isinstance(capsule.get("role_dispatch"), dict) else {}
+        target_agent = str(dispatch.get("target_agent") or "").strip()
+        output_schema = dict(capsule.get("output_schema") or {}) if isinstance(capsule.get("output_schema"), dict) else {}
+        return {
+            "loopora_host_dispatch": {
+                "schema_version": 1,
+                "adapter": str(capsule.get("adapter") or ""),
+                "run_id": str(capsule.get("run_id") or ""),
+                "step_id": str(capsule.get("step_id") or ""),
+                "target_agent": target_agent,
+                "actual_agent": target_agent,
+                "dispatch_mode": "host_subagent",
+                "inline": False,
+                "attestation": "The host invoked the named Loopora role agent for this step.",
+            },
+            "loopora_result_contract": {
+                "ignored_on_submit": True,
+                "result_must_match_output_schema": True,
+                "result_is_schema_shaped_scaffold": True,
+                "result_scaffold_uses_null_placeholders": True,
+                "replace_null_placeholders_before_submit": True,
+                "remove_optional_placeholders_if_unused": True,
+                "array_placeholders_show_item_shape": True,
+                "step_id": str(capsule.get("step_id") or ""),
+                "role": dict(capsule.get("role") or {}) if isinstance(capsule.get("role"), dict) else {},
+                "action_policy": dict(capsule.get("action_policy") or {}) if isinstance(capsule.get("action_policy"), dict) else {},
+                "required_coverage": dict(capsule.get("required_coverage") or {}) if isinstance(capsule.get("required_coverage"), dict) else {},
+                "known_evidence_ids": [str(item) for item in list(capsule.get("known_evidence_ids") or []) if isinstance(item, str)],
+                "evidence_ref_contract": dict(capsule.get("evidence_ref_contract") or {})
+                if isinstance(capsule.get("evidence_ref_contract"), dict)
+                else {},
+                "evidence_rules": [dict(item) for item in list(capsule.get("evidence_rules") or []) if isinstance(item, dict)],
+                "output_schema": output_schema,
+            },
+            "result": _agent_native_result_scaffold_from_schema(output_schema),
         }
 
     @classmethod
@@ -1327,7 +1484,14 @@ class ServiceAgentNativeMixin:
             raise LooporaError("agent-native active step capsule is invalid")
         normalized = dict(capsule)
         normalized["judgment_contract"] = cls._agent_native_capsule_judgment_contract(run, context_packet)
+        normalized["continuation"] = cls._agent_native_capsule_continuation_context(context_packet)
         return normalized
+
+    @staticmethod
+    def _agent_native_capsule_continuation_context(context_packet: object) -> dict[str, Any]:
+        packet = context_packet if isinstance(context_packet, dict) else {}
+        continuation = packet.get("continuation") if isinstance(packet.get("continuation"), dict) else {}
+        return dict(continuation) if continuation.get("active") is True else {}
 
     @staticmethod
     def _agent_native_capsule_judgment_contract(run: dict, context_packet: object) -> dict[str, Any]:
