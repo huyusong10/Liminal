@@ -92,31 +92,31 @@ def _release_web_adapter_fixtures(tmp_path: Path) -> ReleaseWebAdapterFixtures:
     claude_conflict_workdir.mkdir()
     opencode_conflict_workdir = tmp_path / "release-web-opencode-conflict-workdir"
     opencode_conflict_workdir.mkdir()
-    conflict_skill = conflict_workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md"
+    conflict_skill = conflict_workdir / ".agents" / "skills" / "loopora-plan" / "SKILL.md"
     conflict_skill.parent.mkdir(parents=True)
     conflict_skill.write_text("# User-owned codex Loopora-looking skill\n", encoding="utf-8")
-    claude_conflict_skill = claude_conflict_workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md"
+    claude_conflict_skill = claude_conflict_workdir / ".claude" / "skills" / "loopora-plan" / "SKILL.md"
     claude_conflict_skill.parent.mkdir(parents=True)
     claude_conflict_skill.write_text("# User-owned claude Loopora-looking skill\n", encoding="utf-8")
-    opencode_conflict_command = opencode_conflict_workdir / ".opencode" / "commands" / "loopora-gen.md"
+    opencode_conflict_command = opencode_conflict_workdir / ".opencode" / "commands" / "loopora-plan.md"
     opencode_conflict_command.parent.mkdir(parents=True)
     opencode_conflict_command.write_text("# User-owned opencode Loopora-looking skill\n", encoding="utf-8")
     return ReleaseWebAdapterFixtures(
         workdir=workdir,
         codex_paths=AdapterPaths(
             workdir=workdir,
-            gen_skill=workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md",
-            loop_skill=workdir / ".agents" / "skills" / "loopora-loop" / "SKILL.md",
+            gen_skill=workdir / ".agents" / "skills" / "loopora-plan" / "SKILL.md",
+            loop_skill=workdir / ".agents" / "skills" / "loopora-run" / "SKILL.md",
         ),
         claude_paths=AdapterPaths(
             workdir=workdir,
-            gen_skill=workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md",
-            loop_skill=workdir / ".claude" / "skills" / "loopora-loop" / "SKILL.md",
+            gen_skill=workdir / ".claude" / "skills" / "loopora-plan" / "SKILL.md",
+            loop_skill=workdir / ".claude" / "skills" / "loopora-run" / "SKILL.md",
         ),
         opencode_paths=AdapterPaths(
             workdir=workdir,
-            gen_skill=workdir / ".opencode" / "commands" / "loopora-gen.md",
-            loop_skill=workdir / ".opencode" / "commands" / "loopora-loop.md",
+            gen_skill=workdir / ".opencode" / "commands" / "loopora-plan.md",
+            loop_skill=workdir / ".opencode" / "commands" / "loopora-run.md",
         ),
         codex_conflict=AdapterPaths(workdir=conflict_workdir, gen_skill=conflict_skill),
         claude_conflict=AdapterPaths(workdir=claude_conflict_workdir, gen_skill=claude_conflict_skill),

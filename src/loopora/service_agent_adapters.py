@@ -7,6 +7,7 @@ from typing import Any
 
 from loopora.agent_adapters import (
     agent_adapter_status,
+    check_agent_adapter,
     agent_loop_command,
     list_agent_adapter_statuses,
     install_agent_adapter,
@@ -102,30 +103,31 @@ def agent_entry_loop_command(
     entry_source: str = "",
     *,
     context_id: str = "",
+    source_option_id: str = "",
 ) -> str:
-    return agent_loop_command(adapter, workdir, entry_source=entry_source, context_id=context_id)
+    return agent_loop_command(adapter, workdir, entry_source=entry_source, context_id=context_id, source_option_id=source_option_id)
 
 
 def _agent_entry_loop_projection_messages(next_loop_action: str) -> dict[str, str]:
     if next_loop_action == "start_next_run_for_unproven_verdict":
         return {
             "message_zh": (
-                "上一轮已经到达终态，但 Loop 裁决仍未证明任务通过；回到同一个 Agent 执行 /loopora-loop "
+                "上一轮已经到达终态，但 Loop 裁决仍未证明任务通过；回到同一个 Agent 执行 /loopora-run "
                 "会基于这份已审查 Loop 开启下一轮，继续补齐证据缺口。"
             ),
             "message_en": (
                 "The previous run reached a terminal lifecycle state, but the task verdict is still not proven; "
-                "run /loopora-loop in the same Agent to start the next run from this reviewed Loop and keep closing evidence gaps."
+                "run /loopora-run in the same Agent to start the next run from this reviewed Loop and keep closing evidence gaps."
             ),
         }
     return {
         "message_zh": (
-            "这个 Loop 来自当前 Coding Agent 的 /loopora-gen；继续运行必须回到同一个 Agent 执行 /loopora-loop，"
+            "这个 Loop 来自当前 Coding Agent 的 /loopora-plan；继续运行必须回到同一个 Agent 执行 /loopora-run，"
             "避免 Web 悄悄切到后台 headless worker。"
         ),
         "message_en": (
-            "This Loop came from the current Coding Agent via /loopora-gen; continue it from the same Agent "
-            "with /loopora-loop so Web does not silently switch to a headless worker."
+            "This Loop came from the current Coding Agent via /loopora-plan; continue it from the same Agent "
+            "with /loopora-run so Web does not silently switch to a headless worker."
         ),
     }
 
@@ -136,6 +138,9 @@ class ServiceAgentAdapterMixin:
 
     def get_agent_adapter(self, adapter: str, *, workdir: Path | str | None = None) -> dict[str, Any]:
         return agent_adapter_status(adapter, workdir or Path.cwd())
+
+    def check_agent_adapter(self, adapter: str, *, workdir: Path | str | None = None) -> dict[str, Any]:
+        return check_agent_adapter(adapter, workdir or Path.cwd())
 
     def install_agent_adapter(self, adapter: str, *, workdir: Path | str | None = None) -> dict[str, Any]:
         return install_agent_adapter(adapter, workdir or Path.cwd())
@@ -205,14 +210,14 @@ class ServiceAgentAdapterMixin:
             session = self._append_alignment_system_message(
                 session["id"],
                 zh=(
-                    "Loopora 已把这次 /loopora-gen 打开为 Web review：宿主 Agent 没有提交候选方案文件，"
+                    "Loopora 已把这次 /loopora-plan 打开为 Web review：宿主 Agent 没有提交候选方案文件，"
                     "而任务摘要已经说明这更像一次性处理、直接回答、不需要后续新证据，"
                     "或稳定 benchmark / proof harness 已足够裁决的工作，"
                     "所以这里不会伪装成可运行 Loop。若你仍想把范围改成可治理的长期 Loop，"
                     "请先补充为什么需要后续证据、handoff 或 GateKeeper 裁决。"
                 ),
                 en=(
-                    "Loopora opened this /loopora-gen result as Web review because the host Agent did not submit "
+                    "Loopora opened this /loopora-plan result as Web review because the host Agent did not submit "
                     "a candidate plan file, and the task summary says this is closer to a one-off fix, direct answer, "
                     "benchmark/test-harness-only path, or work where later rounds add no new evidence. This is not a runnable Loop yet. If you still "
                     "want to reshape it into a governed Loop, first explain what later evidence, handoffs, or "
@@ -223,12 +228,12 @@ class ServiceAgentAdapterMixin:
             session = self._append_alignment_system_message(
                 session["id"],
                 zh=(
-                    "Loopora 已把这次 /loopora-gen 打开为 Web review：宿主 Agent 没有提交候选方案文件，"
+                    "Loopora 已把这次 /loopora-plan 打开为 Web review：宿主 Agent 没有提交候选方案文件，"
                     "所以这里不会伪装成可运行 Loop。请继续确认或补充成功标准、伪完成风险、证据预期、"
                     "Loopora fit、执行策略、判断取舍、残余风险和本地治理责任，然后再生成可审查的 Loop 预览。"
                 ),
                 en=(
-                    "Loopora opened this /loopora-gen result as Web review because the host Agent did not submit "
+                    "Loopora opened this /loopora-plan result as Web review because the host Agent did not submit "
                     "a candidate plan file, so this is not a runnable Loop yet. Continue by confirming or filling "
                     "in the success criteria, fake-done risks, evidence expectations, Loopora fit, execution strategy, "
                     "judgment tradeoffs, residual-risk policy, and local governance responsibilities before "
@@ -273,7 +278,7 @@ class ServiceAgentAdapterMixin:
                 "preview_path": f"/loops/new/bundle?alignment_session_id={session['id']}",
                 "entry_invocations": self._append_agent_entry_invocation(
                     existing_binding,
-                    action="gen",
+                    action="plan",
                     entry_source=entry_source,
                 ),
             },
@@ -335,13 +340,14 @@ class ServiceAgentAdapterMixin:
             "diagnostic_count": len([item for item in diagnostics if str(item.get("severity") or "") != "info"]),
         }
 
-    def start_agent_loop(
+    def start_agent_loop(  # noqa: PLR0913 - public CLI/service bridge keeps explicit recovery option.
         self,
         adapter: str,
         *,
         workdir: Path | str,
         context_id: str = "",
         entry_source: str = "",
+        source_option_id: str = "",
         execute_async: bool = True,
     ) -> dict[str, Any]:
         execute_async = bool(execute_async)
@@ -349,15 +355,27 @@ class ServiceAgentAdapterMixin:
         if adapter not in {"codex", "claude", "opencode"}:
             raise LooporaError(f"{adapter} adapter is not implemented yet")
         root = resolve_adapter_project_root(workdir)
-        binding = read_agent_binding(adapter, root, context_id=context_id)
+        binding = self._selected_agent_run_binding(
+            adapter,
+            root,
+            context_id=context_id,
+            entry_source=entry_source,
+            source_option_id=source_option_id,
+        )
         if not binding:
+            context_resolution = self.resolve_loopora_context(root, intent="run", adapter=adapter, context_id=context_id)
+            if context_resolution.get("requires_user_choice"):
+                raise LooporaConflictError(
+                    f"no exact Loopora binding is associated with this {_adapter_label_for_error(adapter)} session/workdir; "
+                    "choose a recoverable context before /loopora-run can start"
+                )
             raise LooporaConflictError(
-                f"no ready Loop preview is associated with this {_adapter_label_for_error(adapter)} session/workdir; run /loopora-gen first"
+                f"no ready Loop preview is associated with this {_adapter_label_for_error(adapter)} session/workdir; run /loopora-plan first"
             )
 
         session_id = str(binding.get("alignment_session_id") or "").strip()
         if not session_id:
-            raise LooporaConflictError("agent binding does not reference a ready Loop preview; run /loopora-gen first")
+            raise LooporaConflictError("agent binding does not reference a ready Loop preview; run /loopora-plan first")
         session = self.get_alignment_session(session_id)
         self._assert_agent_binding_matches_workdir(binding, session, expected_workdir=root)
         start_context = _AgentLoopStartContext(
@@ -381,7 +399,7 @@ class ServiceAgentAdapterMixin:
         if unready_error:
             raise LooporaConflictError(unready_error)
         raise LooporaConflictError(
-            f"{_adapter_label_for_error(adapter)} session has no ready Loop preview (current status: {session['status']}); run /loopora-gen first"
+            f"{_adapter_label_for_error(adapter)} session has no ready Loop preview (current status: {session['status']}); run /loopora-plan first"
         )
 
     def _start_agent_loop_from_existing_run(
@@ -444,7 +462,7 @@ class ServiceAgentAdapterMixin:
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         loop_id = str(session.get("linked_loop_id") or previous_run.get("loop_id") or "").strip()
         if not loop_id:
-            raise LooporaConflictError("agent binding has no linked Loop for the next /loopora-loop run")
+            raise LooporaConflictError("agent binding has no linked Loop for the next /loopora-run run")
         run = self.start_run(loop_id)
         self._seed_agent_native_continuation_context(run, previous_run)
         native = self.prepare_agent_native_run(start_context.adapter, run["id"], entry_source=start_context.entry_source)
@@ -489,9 +507,83 @@ class ServiceAgentAdapterMixin:
                 "linked_run_id": native["run"]["id"],
                 "run_path": f"/runs/{native['run']['id']}",
                 "execution_plane": "agent_native",
-                "entry_invocations": self._append_agent_entry_invocation(binding, action="loop", entry_source=start_context.entry_source),
+            "entry_invocations": self._append_agent_entry_invocation(binding, action="run", entry_source=start_context.entry_source),
             },
             context_id=start_context.context_id,
+        )
+
+    def _selected_agent_run_binding(
+        self,
+        adapter: str,
+        root: Path,
+        *,
+        context_id: str,
+        entry_source: str,
+        source_option_id: str,
+    ) -> dict[str, Any]:
+        option_id = str(source_option_id or "").strip()
+        if option_id:
+            return self._bind_selected_agent_run_context(
+                adapter,
+                root,
+                context_id=context_id,
+                entry_source=entry_source,
+                source_option_id=option_id,
+            )
+        try:
+            return read_agent_binding(adapter, root, context_id=context_id)
+        except LooporaError as exc:
+            raise LooporaConflictError(f"agent binding is damaged before /loopora-run can start: {exc}") from exc
+
+    def _bind_selected_agent_run_context(
+        self,
+        adapter: str,
+        root: Path,
+        *,
+        context_id: str,
+        entry_source: str,
+        source_option_id: str,
+    ) -> dict[str, Any]:
+        choices = [choice for choice in self._agent_run_context_choices(root, adapter=adapter) if isinstance(choice, dict)]
+        selected = next((choice for choice in choices if str(choice.get("option_id") or "") == source_option_id), None)
+        if not selected:
+            raise LooporaConflictError(
+                f"selected recoverable context {source_option_id!r} is not available for /loopora-run in this workdir"
+            )
+        session_id = str(selected.get("alignment_session_id") or "").strip()
+        if not session_id:
+            raise LooporaConflictError("selected recoverable context does not reference a Loop preview; run /loopora-plan first")
+        session = self.get_alignment_session(session_id)
+        self._assert_agent_binding_matches_workdir({"workdir": str(root)}, session, expected_workdir=root)
+        try:
+            existing_binding = read_agent_binding(adapter, root, context_id=context_id)
+        except LooporaError:
+            existing_binding = {}
+        return write_agent_binding(
+            adapter,
+            root,
+            {
+                **existing_binding,
+                "alignment_session_id": session_id,
+                "alignment_status": str(session.get("status") or ""),
+                "bundle_path": session.get("bundle_path", ""),
+                "candidate_origin": "agent_entry",
+                "candidate_adapter": adapter,
+                "candidate_entry_source": str(entry_source or selected.get("entry_source") or "").strip() or "direct_cli",
+                "host_context_id": resolved_agent_context_id(adapter, context_id=context_id),
+                "requires_web_alignment": str(session.get("status") or "") not in {"ready", "imported"},
+                "requires_candidate_repair": False,
+                "loopora_fit_contradiction": False,
+                "selected_option_id": source_option_id,
+                "linked_run_id": str(selected.get("linked_run_id") or ""),
+                "preview_path": f"/loops/new/bundle?alignment_session_id={session_id}",
+                "entry_invocations": self._append_agent_entry_invocation(
+                    existing_binding,
+                    action="run_select",
+                    entry_source=entry_source,
+                ),
+            },
+            context_id=context_id,
         )
 
     def _agent_loop_result_from_native(
@@ -539,7 +631,7 @@ class ServiceAgentAdapterMixin:
                 "source": "agent_entry",
                 "requires_agent_native": True,
                 "execution_plane": "agent_native",
-                "slash_command": "/loopora-loop",
+                "slash_command": "/loopora-run",
                 "adapter": adapter,
                 "entry_source": entry_source,
                 "host_context_id": host_context_id,
@@ -824,10 +916,10 @@ class ServiceAgentAdapterMixin:
         expected = expected_workdir.expanduser().resolve()
         binding_workdir = str(binding.get("workdir") or "").strip()
         if binding_workdir and Path(binding_workdir).expanduser().resolve() != expected:
-            raise LooporaConflictError("agent binding belongs to a different workdir; run /loopora-gen again")
+            raise LooporaConflictError("agent binding belongs to a different workdir; run /loopora-plan again")
         session_workdir = str(session.get("workdir") or "").strip()
         if not session_workdir or Path(session_workdir).expanduser().resolve() != expected:
-            raise LooporaConflictError("agent binding references a Loop preview from a different workdir; run /loopora-gen again")
+            raise LooporaConflictError("agent binding references a Loop preview from a different workdir; run /loopora-plan again")
 
     @staticmethod
     def _agent_loop_result(adapter: str, root: Path, session: dict, binding: dict, run_result: dict[str, Any]) -> dict[str, Any]:
@@ -858,24 +950,24 @@ class ServiceAgentAdapterMixin:
             detail = f": {error}" if error else ""
             if binding.get("loopora_fit_contradiction"):
                 return (
-                    f"{label} Loop preview is blocked before /loopora-loop because the task summary looked one-off, "
+                    f"{label} Loop preview is blocked before /loopora-run because the task summary looked one-off, "
                     f"direct-answer, no-new-evidence, or benchmark/test-harness-only (current status: {status}); define later evidence, handoff, "
-                    f"or GateKeeper value, then rerun /loopora-gen with a reframed or repaired candidate{detail}"
+                    f"or GateKeeper value, then rerun /loopora-plan with a reframed or repaired candidate{detail}"
                 )
             return (
-                f"{label} Loop preview needs plan file repair before /loopora-loop "
-                f"(current status: {status}); rerun /loopora-gen with a repaired candidate or continue Web review{detail}"
+                f"{label} Loop preview needs plan file repair before /loopora-run "
+                f"(current status: {status}); rerun /loopora-plan with a repaired candidate or continue Web review{detail}"
             )
         if binding.get("requires_web_alignment"):
             if binding.get("loopora_fit_contradiction"):
                 return (
-                    f"{label} Loop preview needs Web review before /loopora-loop "
+                    f"{label} Loop preview needs Web review before /loopora-run "
                     f"(current status: {status}); the task summary looked one-off, direct-answer, no-new-evidence, or benchmark/test-harness-only, "
-                    "so define later evidence, handoff, or GateKeeper value in /loopora-gen or Web review first"
+                    "so define later evidence, handoff, or GateKeeper value in /loopora-plan or Web review first"
                 )
             return (
-                f"{label} Loop preview needs Web review before /loopora-loop "
-                f"(current status: {status}); continue /loopora-gen or Web review first"
+                f"{label} Loop preview needs Web review before /loopora-run "
+                f"(current status: {status}); continue /loopora-plan or Web review first"
             )
         return ""
 

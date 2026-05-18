@@ -1,4 +1,4 @@
-# Human-Shaped Loop: Why Long Agent Tasks Need the Shape of Human Judgment
+# Human-Shaped Loop: Giving Long Agent Tasks Human Judgment
 
 [简体中文](./HUMAN-SHAPED-LOOP.zh-CN.md) | **English**
 
@@ -6,11 +6,17 @@ This article explains the engineering thinking and collaboration philosophy behi
 
 Loopora begins from a plain desire: laziness.
 
-More accurately, it begins from not wanting to sit at a desk, wait for an Agent to finish a round, point out what is wrong, and nudge it to fix the same kind of thing again.
+More accurately, it begins from not wanting to sit at a desk, wait while an Agent slowly finishes a round, point out what is wrong, and nudge it to fix the same kind of thing again.
 
-The laziness here is not about avoiding judgment. It is about repeatedly applying the same kinds of judgment: whether this is done, whether evidence is strong enough, whether risk is acceptable, where the next round should return, and whether the task can close.
+The laziness here is not about avoiding judgment. It is about repeatedly applying the same kinds of judgment:
 
-The concrete answers differ by task, but the question types keep recurring. Loopora tries to turn those recurring judgments into a running structure before later rounds need them again.
+- Seeing that the page exists, then reminding the Agent: "This is still a demo; the backend flow also has to be complete."
+- Reading "safety is improved," then asking whether authorization, refund eligibility, payment failure, and auditability were actually covered.
+- Noticing that tests stay on the main path, then asking for partial refunds, disputed orders, chargebacks, and refund-window boundaries.
+- Seeing the Agent continue polishing the UI, then pulling it back to the riskier failure paths and support handoff.
+- When the code starts to bloat, asking the Agent to refactor and tighten the current implementation.
+
+These actions look different from task to task, but the pattern is similar: the human keeps pulling the Agent from "looks done" back to the real delivery judgment. The rest of this article asks why that judgment keeps returning in long tasks, and whether it can become a structure that later rounds inherit.
 
 <p align="center">
   <img src="./assets/diagrams/loopora-position.en.svg" alt="Loopora turns human judgment into a running structure outside the Agent" width="1000" />
@@ -38,7 +44,7 @@ Round one looks promising: a page, a form, a status message, a few mocked eligib
 
 The Agent says:
 
-> Done! I achieved the goal!
+> The refund flow is fully implemented. All goals have been achieved.
 
 If this were just a demo, the story might end here. But if this is meant to ship as a real product, the real problems are only beginning:
 
@@ -48,23 +54,21 @@ If this were just a demo, the story might end here. But if this is meant to ship
 - It does not explain what happens when the payment provider fails: how the system records it, what the ledger state is, and how support takes over.
 - It does not prove that the audit log is enough for support, finance, or compliance to reconstruct what happened.
 
-Now the human reviewer is not facing an abstract concern. They face a concrete shipping decision: can this go live?
+These are real engineering concerns. Now the developer is not facing an abstract concern. They face a concrete shipping decision: can this go live?
 
 The answer is no.
 
-So the reviewer says:
+So the developer says:
 
-> Not ready. Prove authorization, eligibility, payment failure, and the audit trail first. Only then polish the UI.
+> The feature is not complete yet. The permission model is not designed. First cover refund eligibility, payment failure handling, and the audit trail; polish the UI last.
 
-Round two may also look more product-like. It adds more page states, more confirmation copy, more mock data, and it mentions "authorization," "eligibility," and "audit" in the summary.
+The Agent takes the instruction and completes a second round.
 
-The trouble is exactly there: the human correction was right, and the Agent did not completely ignore it. The problem is that, in an ordinary chat, the judgment still exists only as static text. It has not become evidence that later rounds must cite, blocking conditions that cannot be waived, next-round priorities, or stop conditions that prevent closure.
+Round two may also look more product-like: more page states, a fuller confirmation flow, some added boundary rules, and a summary that mentions "authorization," "eligibility," and "audit." This is real progress. If the human engineer keeps checking and pointing out gaps, the task can move round by round toward real delivery.
 
-So the Agent may locally respond to the correction while still returning to easier work: put authorization into copy, leave eligibility in mocked rules, add more main-path tests, then say with more confidence that safety has been improved. It did a lot, but the main risk barely moved. The danger did not disappear. It hid behind a more product-like interface and a more coherent completion story.
+The cost is that every round asks the human to judge again: which risks were actually solved, which ones were only mentioned, and what should be fixed first next. In an ordinary chat, those judgments mostly stay in the human's head and a few reminders. When the Agent gets busy, it can fix A and lose B, or drift toward work that is easier to report: put authorization into copy, keep eligibility in mocked rules, add more main-path tests, then say "safety is improved." It is not completely off track, but the core risk can be hidden behind a more product-like surface and a cleaner summary.
 
-If the task keeps running in that direction, the drift may not look like obvious derailment. Round two puts authorization hints into the page, but the real authorization path is still unproven; round three adds main-path tests around mocked eligibility rules without touching the real business boundary; round four writes a final explanation and acceptance summary while still failing to explain provider failure, ledger state, and support handoff. Every round looks like progress, but progress is happening on the visible surface, not on the refund safety gate that would decide whether this can ship.
-
-The Agent is not lazy, and there were not too few rounds. The human also said the right thing. What is missing is a shape that lets the right judgment keep acting in later rounds.
+So the problem is not that the Agent is not diligent, and it is not that multi-round iteration always fails. The problem is that correct judgment still has to be applied by hand, round after round.
 
 ## 2. Human Intervention Shapes The Loop
 
@@ -86,7 +90,7 @@ The recurring control signals are small enough to name:
 
 That is what Human-shaped Loop is trying to name.
 
-It does not put the human back into every execution step, and it does not ask the human to write more at the beginning. It turns human judgment into the shape of the later loop. That shape decides what results can be accepted, what evidence is strong enough, which risks must block, why the next round should turn, and how the task can close honestly.
+It does not put the human back into every execution step, it does not ask the human to write more at the beginning, and it does not invent judgment on the human's behalf. It handles the cost, forgetting, and drift that appear when the same judgment has to be reapplied again and again: it turns human judgment into the shape of the later loop. That shape decides what results can be accepted, what evidence is strong enough, which risks must block, why the next round should turn, and how the task can close honestly.
 
 So a Human-shaped Loop is not a longer prompt, and it is not "make the model reflect for more rounds." It asks whether human judgment can be previewed, executed, evidenced, traced, and judged.
 

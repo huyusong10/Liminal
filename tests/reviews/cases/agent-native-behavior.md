@@ -39,7 +39,7 @@ Review a real or recorded Agent-host run for whether the host behaves like a Loo
 Look for:
 
 - The host creating the candidate bundle from the conversation brief instead of relying on a prewritten candidate.
-- `/loopora-gen` preceding `/loopora-loop` through the managed entry surface, with provenance visible in binding evidence.
+- `/loopora-plan` preceding `/loopora-run` through the managed entry surface, with provenance visible in binding evidence.
 - Role work being claimed and submitted through the host-native role/subagent mechanism instead of silently completed inline.
 - Builder evidence being concrete enough for GateKeeper to cite, and GateKeeper citing known evidence rather than a self-report.
 - The host avoiding nested calls to its own CLI from inside the Loopora run.

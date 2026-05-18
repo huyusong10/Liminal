@@ -61,6 +61,8 @@ AdapterMessageOption = Annotated[
     typer.Option("--message", help="Short task summary for the Loop preview; required for Agent-first traceability."),
 ]
 NoWebOption = Annotated[bool, typer.Option("--no-web", hidden=True, help="Skip local Web service startup.")]
+CheckOption = Annotated[bool, typer.Option("--check", help="Check the Loopora Agent entry without installing or repairing files.")]
+SourceOptionIdOption = Annotated[str, typer.Option("--source-option-id", help="Recoverable Loopora context option id selected by the user.")]
 
 
 def register_agent_adapter_commands(
@@ -75,35 +77,41 @@ def register_agent_adapter_commands(
 
 def _register_init_commands(init_app: typer.Typer) -> None:
     @init_app.command("codex")
-    def init_codex(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
+    def init_codex(workdir: AdapterWorkdirOption = Path("."), check: CheckOption = False, json_output: JsonOutputOption = False) -> None:
         """Install or update the Codex project entry for task-judgment first use.
 
         Then return to Codex with the task goal, fake-done risk, and required evidence.
-        Run /loopora-gen, review the READY Loop preview, and run /loopora-loop in the same Agent session.
+        Run /loopora-plan, review the READY Loop preview, and run /loopora-run in the same Agent session.
         """
-        _install_adapter("codex", workdir=workdir, json_output=json_output)
+        _install_adapter("codex", workdir=workdir, check=check, json_output=json_output)
 
     @init_app.command("claude")
-    def init_claude(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
+    def init_claude(workdir: AdapterWorkdirOption = Path("."), check: CheckOption = False, json_output: JsonOutputOption = False) -> None:
         """Install or update the Claude Code project entry for task-judgment first use.
 
         Then return to Claude Code with the task goal, fake-done risk, and required evidence.
-        Run /loopora-gen, review the READY Loop preview, and run /loopora-loop in the same Agent session.
+        Run /loopora-plan, review the READY Loop preview, and run /loopora-run in the same Agent session.
         """
-        _install_adapter("claude", workdir=workdir, json_output=json_output)
+        _install_adapter("claude", workdir=workdir, check=check, json_output=json_output)
 
     @init_app.command("opencode")
-    def init_opencode(workdir: AdapterWorkdirOption = Path("."), json_output: JsonOutputOption = False) -> None:
+    def init_opencode(workdir: AdapterWorkdirOption = Path("."), check: CheckOption = False, json_output: JsonOutputOption = False) -> None:
         """Install or update the OpenCode project entry for task-judgment first use.
 
         Then return to OpenCode with the task goal, fake-done risk, and required evidence.
-        Run /loopora-gen, review the READY Loop preview, and run /loopora-loop in the same Agent session.
+        Run /loopora-plan, review the READY Loop preview, and run /loopora-run in the same Agent session.
         """
-        _install_adapter("opencode", workdir=workdir, json_output=json_output)
+        _install_adapter("opencode", workdir=workdir, check=check, json_output=json_output)
 
 
-def _install_adapter(adapter: str, *, workdir: Path, json_output: bool) -> None:
+def _install_adapter(adapter: str, *, workdir: Path, check: bool, json_output: bool) -> None:
     try:
+        if check:
+            result = get_service().check_agent_adapter(adapter, workdir=workdir)
+            _print_adapter_check_result(result, json_output=json_output)
+            if result.get("check_status") != "pass":
+                raise typer.Exit(code=1)
+            return
         result = get_service().install_agent_adapter(adapter, workdir=workdir)
         _print_adapter_mutation_result(result, action="installed", json_output=json_output)
     except LooporaConflictError as exc:
@@ -147,8 +155,8 @@ def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_te
     adapter_app = typer.Typer(help=help_text)
     agent_app.add_typer(adapter_app, name=adapter)
 
-    @adapter_app.command("gen")
-    def agent_gen(
+    @adapter_app.command("plan")
+    def agent_plan(
         workdir: AdapterWorkdirOption = Path("."),
         message: AdapterMessageOption = "",
         bundle_file: BundleFileOption = None,
@@ -173,10 +181,11 @@ def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_te
         except (LooporaError, WorkflowError) as exc:
             handle_error(exc)
 
-    @adapter_app.command("loop")
-    def agent_loop(
+    @adapter_app.command("run")
+    def agent_run(
         workdir: AdapterWorkdirOption = Path("."),
         context_id: ContextIdOption = "",
+        source_option_id: SourceOptionIdOption = "",
         entry_source: EntrySourceOption = "",
         json_output: JsonOutputOption = False,
         no_web: NoWebOption = False,
@@ -185,12 +194,13 @@ def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_te
         service = None
         try:
             service = get_service()
-            result = service.start_agent_loop(
-                adapter,
+            result = _start_agent_loop_from_cli(
+                service,
+                adapter=adapter,
                 workdir=workdir,
                 context_id=context_id,
+                source_option_id=source_option_id,
                 entry_source=_resolved_entry_source(entry_source),
-                execute_async=False,
             )
             _spawn_agent_loop_worker_if_needed(service, result)
             _attach_web_url(result, path_key="run_path", url_key="run_url", no_web=no_web)
@@ -278,6 +288,26 @@ def _register_agent_runtime_for(agent_app: typer.Typer, *, adapter: str, help_te
             handle_error(exc)
 
 
+def _start_agent_loop_from_cli(
+    service,
+    *,
+    adapter: str,
+    workdir: Path,
+    context_id: str,
+    source_option_id: str,
+    entry_source: str,
+) -> dict:
+    start_kwargs = {
+        "workdir": workdir,
+        "context_id": context_id,
+        "entry_source": entry_source,
+        "execute_async": False,
+    }
+    if source_option_id:
+        start_kwargs["source_option_id"] = source_option_id
+    return service.start_agent_loop(adapter, **start_kwargs)
+
+
 def _attach_web_url(result: dict, *, path_key: str, url_key: str, no_web: bool) -> None:
     path = str(result.get(path_key) or "")
     if not path:
@@ -319,6 +349,27 @@ def _print_adapter_mutation_result(result: dict, *, action: str, json_output: bo
         typer.echo(f"{label} Loopora entry {action}: {result['status']}")
         typer.echo(f"target project: {result['workdir']}")
     _print_adapter_file_details(result)
+
+
+def _print_adapter_check_result(result: dict, *, json_output: bool) -> None:
+    if json_output:
+        echo_json(result)
+        return
+    label = str(result.get("label") or _adapter_label(str(result.get("adapter") or "")))
+    check_status = str(result.get("check_status") or "fail")
+    typer.echo(f"{label} Loopora entry check: {check_status}")
+    typer.echo(f"target project: {result['workdir']}")
+    checks = [item for item in list(result.get("checks") or []) if isinstance(item, dict)]
+    if checks:
+        typer.echo("checks:")
+        for item in checks:
+            suffix = f" ({item.get('path')})" if item.get("path") else ""
+            message = f": {item.get('message')}" if item.get("message") else ""
+            typer.echo(f"- {item.get('status')}: {item.get('name')}{suffix}{message}")
+    if check_status != "pass":
+        typer.echo("recovery:")
+        typer.echo(f"- Run: loopora init {result.get('adapter')} --workdir {shlex.quote(str(result.get('workdir')))}")
+        typer.echo("- If a file is unmanaged, inspect it before replacing or moving it.")
 
 
 def _handle_adapter_install_conflict(adapter: str, *, workdir: Path, exc: LooporaConflictError) -> None:
@@ -383,8 +434,8 @@ def _print_adapter_next_steps(label: str) -> None:
     typer.echo(
         f"- Return to {label} in this project with the task goal, fake-done risk, and required evidence."
     )
-    typer.echo("- Run /loopora-gen to prepare the Loop preview before starting work.")
-    typer.echo("- Review the READY Loop preview, then run /loopora-loop in the same Agent session.")
+    typer.echo("- Run /loopora-plan to prepare the Loop preview before starting work.")
+    typer.echo("- Review the READY Loop preview, then run /loopora-run in the same Agent session.")
     typer.echo("- Use Web to observe evidence, gaps, and verdicts while execution stays in the Agent.")
 
 
@@ -394,10 +445,10 @@ def _print_agent_gen_result(result: dict, *, json_output: bool) -> None:
         return
     if result.get("ready"):
         typer.echo("Loopora Loop preview is ready")
-        typer.echo("next_agent_step: review the preview URL, then run /loopora-loop in this same Agent session")
+        typer.echo("next_agent_step: review the preview URL, then run /loopora-run in this same Agent session")
         _print_agent_ready_review_projection(result.get("ready_review_projection"))
     elif result.get("requires_candidate_repair"):
-        typer.echo("Loopora Loop preview needs plan file repair before /loopora-loop")
+        typer.echo("Loopora Loop preview needs plan file repair before /loopora-run")
         if result.get("loopora_fit_contradiction"):
             typer.echo(
                 "not_fit: task summary says this looks like one-off, direct-answer, no-new-evidence, "
@@ -409,7 +460,7 @@ def _print_agent_gen_result(result: dict, *, json_output: bool) -> None:
             typer.echo(f"validation_error: {error}")
         _print_agent_repair_guidance(result)
     elif result.get("requires_web_alignment"):
-        typer.echo("Loopora Loop preview needs Web review before /loopora-loop")
+        typer.echo("Loopora Loop preview needs Web review before /loopora-run")
         if result.get("loopora_fit_contradiction"):
             typer.echo(
                 "not_fit: task summary says this looks like one-off, direct-answer, no-new-evidence, "
@@ -455,7 +506,7 @@ def _print_agent_ready_review_projection(projection: object) -> None:
     diagnostic_count = _non_bool_int(review.get("diagnostic_count"))
     if diagnostic_count:
         typer.echo(f"review_warnings: {diagnostic_count}")
-    typer.echo("review_before_loop: confirm the preview carries these judgments before running /loopora-loop")
+    typer.echo("review_before_loop: confirm the preview carries these judgments before running /loopora-run")
 
 
 def _print_ready_review_items(label: str, values: object) -> None:
@@ -477,7 +528,7 @@ def _print_agent_web_review_guidance(result: dict) -> None:
         typer.echo(f"- {item}")
     typer.echo(
         "next_review_step: open the preview URL, complete the Web review checklist, "
-        "then use /loopora-loop only after the preview is ready"
+        "then use /loopora-run only after the preview is ready"
     )
 
 
@@ -516,7 +567,7 @@ def _print_agent_repair_guidance(result: dict) -> None:
         typer.echo("repair_focus:")
         for hint in hints:
             typer.echo(f"- {hint}")
-    typer.echo("next_repair_step: repair the candidate plan file, rerun /loopora-gen, then use /loopora-loop only after the preview is ready")
+    typer.echo("next_repair_step: repair the candidate plan file, rerun /loopora-plan, then use /loopora-run only after the preview is ready")
 
 
 def _print_agent_loop_unready_guidance(
@@ -529,20 +580,54 @@ def _print_agent_loop_unready_guidance(
     no_web: bool,
     json_output: bool,
 ) -> bool:
-    if service is None:
+    result = _agent_loop_unready_recovery_result(
+        exc,
+        service=service,
+        adapter=adapter,
+        workdir=workdir,
+        context_id=context_id,
+        no_web=no_web,
+    )
+    if not result:
         return False
-    message = str(exc)
-    if "/loopora-loop" not in message:
-        return False
+    if json_output:
+        echo_json(result)
+        return True
+    _print_agent_loop_recovery_result(result)
+    return True
+
+
+def _agent_loop_unready_recovery_result(
+    exc: Exception,
+    *,
+    service,
+    adapter: str,
+    workdir: Path,
+    context_id: str,
+    no_web: bool,
+) -> dict:
+    if service is None or "/loopora-run" not in str(exc):
+        return {}
     try:
         root = resolve_adapter_project_root(workdir)
         binding = read_agent_binding(adapter, root, context_id=context_id)
         session_id = str(binding.get("alignment_session_id") or "").strip()
         session = service.get_alignment_session(session_id) if session_id else {}
+    except LooporaError as binding_exc:
+        if "agent binding is unreadable" not in str(binding_exc) and "agent binding is invalid" not in str(binding_exc):
+            return {}
+        return {
+            "adapter": adapter,
+            "workdir": str(resolve_adapter_project_root(workdir)),
+            "ready": False,
+            "loop_recovery": "repair_agent_binding",
+            "binding_error": str(binding_exc),
+            "check_command": f"loopora init {adapter} --check --workdir {shlex.quote(str(resolve_adapter_project_root(workdir)))}",
+        }
     except Exception:  # noqa: BLE001 - error recovery must never replace the primary domain error.
-        return False
+        return {}
     if not binding or not session:
-        return False
+        return _agent_loop_unbound_recovery_result(service, adapter=adapter, root=root, context_id=context_id)
     result = {
         "adapter": adapter,
         "workdir": str(root),
@@ -562,21 +647,69 @@ def _print_agent_loop_unready_guidance(
         result["loop_recovery"] = "finish_web_review"
     else:
         result["loop_recovery"] = "preview_not_ready"
-    if json_output:
-        echo_json(result)
-        return True
+    return result
+
+
+def _agent_loop_unbound_recovery_result(service, *, adapter: str, root: Path, context_id: str) -> dict:
+    try:
+        resolution = service.resolve_loopora_context(root, intent="run", adapter=adapter, context_id=context_id)
+    except Exception:  # noqa: BLE001 - error recovery must never replace the primary domain error.
+        return {}
+    if resolution.get("action") != "choose_recoverable_context":
+        return {}
+    return {
+        "adapter": adapter,
+        "workdir": str(root),
+        "ready": False,
+        "loop_recovery": "choose_recoverable_context",
+        "context_resolution": resolution,
+    }
+
+
+def _print_agent_loop_recovery_result(result: dict) -> None:
+    if result.get("loop_recovery") == "choose_recoverable_context":
+        typer.echo("loop_recovery: choose a recoverable Loopora context before /loopora-run can start")
+        _print_recoverable_context_choices(result.get("context_resolution") if isinstance(result.get("context_resolution"), dict) else {})
+        return
+    if result.get("loop_recovery") == "repair_agent_binding":
+        typer.echo("loop_recovery: repair the current Agent binding before /loopora-run can start")
+        typer.echo(f"binding_error: {result.get('binding_error')}")
+        typer.echo(f"check_command: {result.get('check_command')}")
+        typer.echo("next: inspect the binding, rerun the check, or use /loopora-plan fresh if you want a new Loop.")
+        return
     if result["requires_candidate_repair"]:
-        typer.echo("loop_recovery: repair the current plan file before /loopora-loop can start")
+        typer.echo("loop_recovery: repair the current plan file before /loopora-run can start")
         _print_agent_repair_guidance(result)
     elif result["requires_web_alignment"]:
-        typer.echo("loop_recovery: finish the current Web review before /loopora-loop can start")
+        typer.echo("loop_recovery: finish the current Web review before /loopora-run can start")
         _print_agent_web_review_guidance(result)
     else:
-        typer.echo("loop_recovery: the current preview is not ready; return to /loopora-gen or Web review before /loopora-loop")
+        typer.echo("loop_recovery: the current preview is not ready; return to /loopora-plan or Web review before /loopora-run")
+    session = result.get("session") if isinstance(result.get("session"), dict) else {}
+    session_id = str(session.get("id") or "")
     typer.echo(f"session_id: {session_id}")
     typer.echo(f"preview_url: {result.get('preview_url') or result.get('preview_path')}")
     _print_web_status(result)
-    return True
+
+
+def _print_recoverable_context_choices(resolution: dict) -> None:
+    confidence = str(resolution.get("confidence") or "").strip()
+    if confidence:
+        typer.echo(f"context_confidence: {confidence}")
+    choices = [choice for choice in resolution.get("choices") or [] if isinstance(choice, dict)]
+    typer.echo("recoverable_contexts:")
+    for choice in choices[:5]:
+        option_id = str(choice.get("option_id") or "").strip()
+        label = str(choice.get("label_en") or choice.get("label_zh") or choice.get("alignment_session_id") or "").strip()
+        action = str(choice.get("action") or "").strip()
+        session_id = str(choice.get("alignment_session_id") or "").strip()
+        run_id = str(choice.get("linked_run_id") or "").strip()
+        suffix = f" run={run_id}" if run_id else ""
+        next_command = str(choice.get("next_command") or (f"/loopora-run option:{option_id}" if option_id else "")).strip()
+        option_bits = f" option={option_id}" if option_id else ""
+        command_bits = f" next={next_command}" if next_command else ""
+        typer.echo(f"- {action}:{option_bits} {label} session={session_id}{suffix}{command_bits}")
+    typer.echo("next: choose an option token, open Web to choose the context, or run /loopora-plan fresh to start fresh.")
 
 
 def _validation_repair_hints(error: str) -> list[str]:
@@ -679,10 +812,10 @@ def _print_terminal_task_next_action(task_verdict: object, task_next_action: obj
         + (
             guidance
             if guidance
-            else "run lifecycle is complete but the task is not proven; run /loopora-loop again in this Agent session to start the next evidence pass"
+            else "run lifecycle is complete but the task is not proven; run /loopora-run again in this Agent session to start the next evidence pass"
         )
     )
-    typer.echo(f"next_loop_command: {(action.get('next_loop_command') or '/loopora-loop')!s}")
+    typer.echo(f"next_loop_command: {(action.get('next_loop_command') or '/loopora-run')!s}")
     plan_action = str(action.get("plan_action") or "").strip()
     if plan_action == "open_run_url_improve_with_evidence_if_loop_needs_adjustment":
         typer.echo("next_plan_action: open run_url and use Improve plan with evidence if the Loop itself needs adjustment")

@@ -1129,12 +1129,12 @@ document.addEventListener("DOMContentLoaded", () => {
       : localeText("这还不是可运行 Loop", "This is not a runnable Loop yet");
     const body = reviewMode === "not_fit"
       ? localeText(
-        "这次 /loopora-gen 没有提交候选方案文件，而且任务摘要像一次性处理或无需后续新证据的工作。继续前，先证明后续证据、handoff 或 GateKeeper 裁决会带来真实价值。",
-        "This /loopora-gen did not submit a candidate plan file, and the task summary looks like one-off work or work with no later evidence. Before continuing, prove that later evidence, handoffs, or GateKeeper judgment add real value."
+        "这次 /loopora-plan 没有提交候选方案文件，而且任务摘要像一次性处理或无需后续新证据的工作。继续前，先证明后续证据、handoff 或 GateKeeper 裁决会带来真实价值。",
+        "This /loopora-plan did not submit a candidate plan file, and the task summary looks like one-off work or work with no later evidence. Before continuing, prove that later evidence, handoffs, or GateKeeper judgment add real value."
       )
       : localeText(
-        "这次 /loopora-gen 来自宿主 Agent，但没有候选方案文件。Loopora 已保留任务和来源，只能先做 Web review，补齐关键判断后才会生成可审查预览。",
-        "This /loopora-gen came from the host Agent but did not include a candidate plan file. Loopora preserved the task and provenance, and must stay in Web review until the missing judgment is filled in."
+        "这次 /loopora-plan 来自宿主 Agent，但没有候选方案文件。Loopora 已保留任务和来源，只能先做 Web review，补齐关键判断后才会生成可审查预览。",
+        "This /loopora-plan came from the host Agent but did not include a candidate plan file. Loopora preserved the task and provenance, and must stay in Web review until the missing judgment is filled in."
       );
     const taskMessage = String(review.task_message || "").trim();
     const taskAnchorMarkup = taskMessage
@@ -1150,7 +1150,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const reviewStage = String(session?.alignment_stage || "");
     agentReviewBridge.innerHTML = `
       <div class="alignment-agent-review-copy">
-        <span class="alignment-agent-review-kicker">/loopora-gen Web review</span>
+        <span class="alignment-agent-review-kicker">/loopora-plan Web review</span>
         <h3>${escapeHtml(title)}</h3>
         <p>${escapeHtml(body)}</p>
         ${taskAnchorMarkup}
@@ -1653,8 +1653,8 @@ document.addEventListener("DOMContentLoaded", () => {
       : localeText("方案需要重新加载", "Plan needs reload");
     readyNote.textContent = agentEntryLaunch
       ? localeText(
-        "这份候选来自 /loopora-gen；Web 只负责展示修复面。修好源文件并重新运行 /loopora-gen，READY 后再回到同一个 Agent 执行 /loopora-loop。",
-        "This candidate came from /loopora-gen; Web only shows the repair surface. Repair the source file, rerun /loopora-gen, then return to the same Agent for /loopora-loop after READY."
+        "这份候选来自 /loopora-plan；Web 只负责展示修复面。修好源文件并重新运行 /loopora-plan，READY 后再回到同一个 Agent 执行 /loopora-run。",
+        "This candidate came from /loopora-plan; Web only shows the repair surface. Repair the source file, rerun /loopora-plan, then return to the same Agent for /loopora-run after READY."
       )
       : localeText(
         "源文件当前不可作为可运行 Loop 预览。先按修复焦点处理，再重新同步。",
@@ -2234,8 +2234,8 @@ document.addEventListener("DOMContentLoaded", () => {
         setBilingualText(importRunButton, "打开运行", "Open run");
       } else if (agentLaunch) {
         delete importRunButton.dataset.runId;
-        importRunButton.dataset.copyValue = agentLaunch.slash_command || "/loopora-loop";
-        setBilingualText(importRunButton, "复制 /loopora-loop", "Copy /loopora-loop");
+        importRunButton.dataset.copyValue = agentLaunch.slash_command || "/loopora-run";
+        setBilingualText(importRunButton, "复制 /loopora-run", "Copy /loopora-run");
       } else if (allowAction) {
         delete importRunButton.dataset.runId;
         delete importRunButton.dataset.copyValue;
@@ -2271,13 +2271,13 @@ document.addEventListener("DOMContentLoaded", () => {
     readyNote.textContent = allowAction
       ? agentLaunch?.linked_run_id
         ? localeText(
-          "这份预览已通过 /loopora-loop 启动；Web 负责观察证据和运行状态，继续执行仍回到同一个 Agent。",
-          "This preview has been launched through /loopora-loop; Web observes evidence and run state, while execution still returns to the same Agent."
+          "这份预览已通过 /loopora-run 启动；Web 负责观察证据和运行状态，继续执行仍回到同一个 Agent。",
+          "This preview has been launched through /loopora-run; Web observes evidence and run state, while execution still returns to the same Agent."
         )
         : agentLaunch
         ? localeText(
-          "这份预览来自 /loopora-gen；用同一个 Agent 执行 /loopora-loop，才能保留宿主 Agent-native 交接。",
-          "This preview came from /loopora-gen; run /loopora-loop in the same Agent to preserve host-native handoff."
+          "这份预览来自 /loopora-plan；用同一个 Agent 执行 /loopora-run，才能保留宿主 Agent-native 交接。",
+          "This preview came from /loopora-plan; run /loopora-run in the same Agent to preserve host-native handoff."
         )
         : localeText(
           "READY 只表示方案通过硬校验；确认判断地图、证据路径和运行目录后再启动。",
@@ -2285,8 +2285,8 @@ document.addEventListener("DOMContentLoaded", () => {
         )
       : agentEntryLaunch
       ? localeText(
-        "候选方案尚未通过校验。先修源候选文件，再重新运行 /loopora-gen；只有预览 READY 后，才回到同一个 Agent 执行 /loopora-loop。",
-        "The candidate plan has not passed validation. Repair the source candidate file, then rerun /loopora-gen; return to the same Agent for /loopora-loop only after the preview is READY."
+        "候选方案尚未通过校验。先修源候选文件，再重新运行 /loopora-plan；只有预览 READY 后，才回到同一个 Agent 执行 /loopora-run。",
+        "The candidate plan has not passed validation. Repair the source candidate file, then rerun /loopora-plan; return to the same Agent for /loopora-run only after the preview is READY."
       )
       : localeText(
         "候选方案尚未通过校验。按下面的修复焦点改源文件，重新同步后再运行。",
@@ -2386,7 +2386,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const adapter = adapterDisplayName(String(launch.adapter || "agent").trim());
-    const slashCommand = String(launch.slash_command || "/loopora-loop").trim();
+    const slashCommand = String(launch.slash_command || "/loopora-run").trim();
     const loopCommand = String(launch.loop_command || "").trim();
     const workdir = String(launch.workdir || "").trim();
     const linkedRunId = String(launch.linked_run_id || "").trim();
@@ -2408,7 +2408,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <span class="alignment-agent-launch-kicker">${escapeHtml(localeText("Agent-first 运行", "Agent-first run"))}</span>
         <strong>${escapeHtml(linkedRunId
           ? localeText(`当前运行已绑定 ${adapter}`, `Current run is bound to ${adapter}`)
-          : localeText(`回到 ${adapter} 执行 /loopora-loop`, `Return to ${adapter} and run /loopora-loop`))}</strong>
+          : localeText(`回到 ${adapter} 执行 /loopora-run`, `Return to ${adapter} and run /loopora-run`))}</strong>
         <p>${escapeHtml(localeText(
           linkedRunId
             ? "Web 只负责查看运行证据和当前交接；下一步执行仍回到宿主 Agent，避免改走后台 worker。"
@@ -2536,8 +2536,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const rawError = String(error || "").trim();
     const repairMessage = isAgentEntryRepair
       ? localeText(
-        "这不是运行失败，也不是 Web 创建运行入口。候选方案还没有把宿主 Agent 的任务判断编译成可运行 Loop；先修源候选文件，重新运行 /loopora-gen，READY 后回到同一个 Agent 执行 /loopora-loop。",
-        "This is not a run failure and not a Web create-run entry. The candidate plan has not compiled the host Agent task judgment into a runnable Loop yet; repair the source candidate file, rerun /loopora-gen, then return to the same Agent for /loopora-loop after READY."
+        "这不是运行失败，也不是 Web 创建运行入口。候选方案还没有把宿主 Agent 的任务判断编译成可运行 Loop；先修源候选文件，重新运行 /loopora-plan，READY 后回到同一个 Agent 执行 /loopora-run。",
+        "This is not a run failure and not a Web create-run entry. The candidate plan has not compiled the host Agent task judgment into a runnable Loop yet; repair the source candidate file, rerun /loopora-plan, then return to the same Agent for /loopora-run after READY."
       )
       : localeText(
         "这不是运行失败，而是候选方案还没有把任务判断编译成可运行 Loop。先修方案文件，再重新同步；通过校验前不会允许创建运行。",
@@ -2585,8 +2585,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (text.includes("host Agent task summary") || text.includes("project the host Agent task summary")) {
       hints.push(localeText(
-        "把 /loopora-gen 摘要里的高信号对象写进 spec、角色责任、workflow intent 和证据规则。",
-        "Project high-signal objects from the /loopora-gen summary into spec, role responsibilities, workflow intent, and evidence rules."
+        "把 /loopora-plan 摘要里的高信号对象写进 spec、角色责任、workflow intent 和证据规则。",
+        "Project high-signal objects from the /loopora-plan summary into spec, role responsibilities, workflow intent, and evidence rules."
       ));
     }
     if (text.includes("evidence preferences") || text.includes("explicit host Agent evidence")) {
@@ -2609,8 +2609,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (options.agentEntry) {
       hints.push(localeText(
-        "修完候选文件后重新执行 /loopora-gen；只有看到“Loop 已准备好，回到 Agent 运行”后，才在同一个 Agent 会话执行 /loopora-loop。",
-        "After editing the candidate file, rerun /loopora-gen; run /loopora-loop in the same Agent session only after the preview says the plan is ready for the Agent."
+        "修完候选文件后重新执行 /loopora-plan；只有看到“Loop 已准备好，回到 Agent 运行”后，才在同一个 Agent 会话执行 /loopora-run。",
+        "After editing the candidate file, rerun /loopora-plan; run /loopora-run in the same Agent session only after the preview says the plan is ready for the Agent."
       ));
     } else {
       hints.push(localeText(
@@ -2850,17 +2850,17 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     if (importRunButton.dataset.launchAction === "copy-agent-loop") {
-      const value = importRunButton.dataset.copyValue || "/loopora-loop";
+      const value = importRunButton.dataset.copyValue || "/loopora-run";
       try {
         await writeClipboardText(value);
         importRunButton.classList.add("is-copied");
         setBilingualText(importRunButton, "已复制", "Copied");
         window.setTimeout(() => {
           importRunButton.classList.remove("is-copied");
-          setBilingualText(importRunButton, "复制 /loopora-loop", "Copy /loopora-loop");
+          setBilingualText(importRunButton, "复制 /loopora-run", "Copy /loopora-run");
         }, 1400);
       } catch (error) {
-        showError(error.message || localeText("无法复制 /loopora-loop。", "Unable to copy /loopora-loop."));
+        showError(error.message || localeText("无法复制 /loopora-run。", "Unable to copy /loopora-run."));
       }
       return;
     }
@@ -2890,8 +2890,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const agentFirst = launch?.source === "agent_entry";
     const draft = agentFirst
       ? localeText(
-        "我想调整这份 Loop 预览，但保持 Agent-first 交接：审查后仍回到同一个 Agent 运行 /loopora-loop。请改进：",
-        "I want to revise this Loop preview while keeping the Agent-first handoff: after review, return to the same Agent and run /loopora-loop. Please adjust:"
+        "我想调整这份 Loop 预览，但保持 Agent-first 交接：审查后仍回到同一个 Agent 运行 /loopora-run。请改进：",
+        "I want to revise this Loop preview while keeping the Agent-first handoff: after review, return to the same Agent and run /loopora-run. Please adjust:"
       )
       : localeText(
         "我想调整这份 Loop 预览：",

@@ -45,7 +45,7 @@ app = typer.Typer(
         "Start here: in the project where your Coding Agent will work, run "
         "`loopora init codex`, `loopora init claude`, or `loopora init opencode`, "
         "then return to that Agent with the task goal, fake-done risk, and required evidence. "
-        "Run `/loopora-gen`, review the Loop preview, then run `/loopora-loop` in the same Agent session."
+        "Run `/loopora-plan`, review the Loop preview, then run `/loopora-run` in the same Agent session."
     )
 )
 loops_app = typer.Typer(help="Inspect and run saved Loops")
@@ -57,12 +57,12 @@ prompts_app = typer.Typer(help="Developer: validate and inspect prompt templates
 diagnose_app = typer.Typer(help="Inspect local diagnostics and repair safe historical issues")
 init_app = typer.Typer(
     help=(
-        "Install /loopora-gen and /loopora-loop project entries, then return to the Agent "
+        "Install /loopora-plan and /loopora-run project entries, then return to the Agent "
         "with the task goal, fake-done risk, and required evidence."
     )
 )
 uninstall_app = typer.Typer(help="Remove Loopora-managed Coding Agent project entries")
-agent_app = typer.Typer(help="Internal runtime used by /loopora-gen and /loopora-loop project entries")
+agent_app = typer.Typer(help="Internal runtime used by /loopora-plan and /loopora-run project entries")
 
 app.add_typer(init_app, name="init")
 app.add_typer(uninstall_app, name="uninstall")

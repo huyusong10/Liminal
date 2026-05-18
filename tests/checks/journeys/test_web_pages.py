@@ -150,7 +150,7 @@ def test_agent_native_loop_pages_keep_command_handoff_instead_of_web_start(
     run_page = client.get(f"/runs/{started['run']['id']}")
     for response in (loop_page, run_page):
         _assert_ok(response)
-        assert "/loopora-loop" in response.text
+        assert "/loopora-run" in response.text
         assert "codex_project_skill" in response.text
         assert 'action="/api/loops/' not in response.text
 

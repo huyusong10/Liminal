@@ -2008,11 +2008,11 @@ def test_api_run_lifecycle_rejects_web_headless_start_for_agent_first_loop(
     assert response.status_code == 409
     payload = response.json()
     assert "agent-first Loop runs" in payload["error"]
-    assert payload["agent_entry_start"]["slash_command"] == "/loopora-loop"
+    assert payload["agent_entry_start"]["slash_command"] == "/loopora-run"
     assert payload["agent_entry_start"]["execution_plane"] == "agent_native"
     assert payload["agent_entry_start"]["linked_run_id"] == started["run"]["id"]
     assert payload["agent_entry_start"]["host_context_id"] == "web-api-agent-first"
-    assert "loopora agent codex loop" in payload["agent_entry_start"]["loop_command"]
+    assert "loopora agent codex run" in payload["agent_entry_start"]["loop_command"]
     assert "--context-id web-api-agent-first" in payload["agent_entry_start"]["loop_command"]
     assert len(service.get_loop(started["run"]["loop_id"])["runs"]) == 1
 
@@ -2469,13 +2469,13 @@ def test_run_detail_rerun_routes_agent_first_terminal_run_back_to_slash_command(
     assert 'data-testid="run-agent-entry-start-guide"' in page_response.text
     assert 'data-testid="run-agent-entry-copy-command-hero"' in page_response.text
     assert 'data-testid="run-agent-entry-copy-command"' in page_response.text
-    assert "/loopora-loop" in page_response.text
-    assert "loopora agent codex loop" in page_response.text
+    assert "/loopora-run" in page_response.text
+    assert "loopora agent codex run" in page_response.text
     assert "--context-id web-api-agent-first" in page_response.text
     assert "开启下一轮" in page_response.text
     assert "复制续跑命令" in page_response.text
     assert 'data-agent-entry-command-copy' in page_response.text
-    assert 'data-copy-value="LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex loop' in page_response.text
+    assert 'data-copy-value="LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill loopora agent codex run' in page_response.text
     assert 'data-testid="run-rerun-button"' not in page_response.text
 
     rerun_response = client.post(f"/runs/{started['run']['id']}/rerun")

@@ -65,7 +65,7 @@ def _register_improvement_form_routes(app: FastAPI, ctx: WebRouteContext) -> Non
         if agent_entry_start:
             return JSONResponse(
                 {
-                    "error": "agent-first Loop runs must be restarted from /loopora-loop in the host Agent",
+                    "error": "agent-first Loop runs must be restarted from /loopora-run in the host Agent",
                     "agent_entry_start": agent_entry_start,
                 },
                 status_code=409,

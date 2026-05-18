@@ -3308,6 +3308,13 @@ def test_alignment_workdir_context_discovers_spec_and_requires_explicit_selectio
     sample_workdir: Path,
 ) -> None:
     service = service_factory(scenario="success")
+    empty_context = service.get_alignment_workdir_context(sample_workdir)
+    assert empty_context["requires_choice"] is False
+    assert empty_context["recommended_option_id"] == "regenerate"
+    assert empty_context["resolution"]["action"] == "create_new"
+    assert empty_context["resolution"]["confidence"] == "no_existing_context"
+    assert empty_context["resolution"]["fresh"] is True
+
     state_dir = sample_workdir / ".loopora"
     state_dir.mkdir()
     spec_path = state_dir / "spec.md"
@@ -3319,6 +3326,8 @@ def test_alignment_workdir_context_discovers_spec_and_requires_explicit_selectio
     context = service.get_alignment_workdir_context(sample_workdir)
 
     assert context["requires_choice"] is True
+    assert context["resolution"]["action"] == "choose_source"
+    assert context["resolution"]["requires_user_choice"] is True
     spec_option = next(option for option in context["options"] if option["source_type"] == "spec_file")
     assert spec_option["spec_path"] == str(spec_path)
     assert spec_option["label_zh"].startswith("从已有任务契约开始")
@@ -3326,6 +3335,26 @@ def test_alignment_workdir_context_discovers_spec_and_requires_explicit_selectio
     assert "roles" not in spec_option["description_zh"]
     assert "workflow" not in spec_option["description_zh"]
     assert any(option["action"] == "regenerate" for option in context["options"])
+    fresh_resolution = service.resolve_loopora_context(
+        sample_workdir,
+        intent="plan",
+        source_option_id="regenerate",
+    )
+    assert fresh_resolution["action"] == "create_new"
+    assert fresh_resolution["fresh"] is True
+    assert fresh_resolution["confidence"] == "explicit_fresh"
+    fresh_session = service.create_alignment_session(
+        workdir=sample_workdir,
+        message="重新创建一份 Loop，不复用旧 spec。",
+        source_option_id="regenerate",
+        start_immediately=False,
+    )
+    assert fresh_session["working_agreement"] == {}
+    assert not fresh_session.get("linked_bundle_id")
+    assert not fresh_session.get("linked_run_id")
+    fresh_prompt = service._build_alignment_prompt(fresh_session, mode="normal")
+    assert "Selected Loopora Source Context" not in fresh_prompt
+    assert "secret execution log" not in fresh_prompt
 
     session = service.create_alignment_session(
         workdir=sample_workdir,

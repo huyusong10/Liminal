@@ -10,7 +10,7 @@ Real probes protect the real-environment boundary that deterministic contract an
 
 | Suite | Proof target | Hard contract |
 | --- | --- | --- |
-| `real-agent` | Real Codex / Claude Code / OpenCode host entries | Conversation brief becomes a host-created candidate bundle; `/loopora-gen` happens before `/loopora-loop`; runtime activity observes the linked run; Agent-native role claim/submit happens; evidence-backed task verdict passes; nested host CLI sentinels stay silent. |
+| `real-agent` | Real Codex / Claude Code / OpenCode host entries | Conversation brief becomes a host-created candidate bundle; `/loopora-plan` happens before `/loopora-run`; runtime activity observes the linked run; Agent-native role claim/submit happens; evidence-backed task verdict passes; nested host CLI sentinels stay silent. |
 | `real-cli` | Real provider CLI execution | Provider process launches, structured outputs are parsed, artifacts persist, and resume command shape remains valid. |
 | `release-web` | Real `loopora serve` process and browser path | Web Tools can observe adapter status and drive install/update/uninstall/error states against a real local service. |
 
@@ -22,7 +22,7 @@ Design-to-evidence traceability:
 
 | Design clause | Suite | Hard assertion | Evidence artifact |
 | --- | --- | --- | --- |
-| Agent entry must be handbook-first and managed-entry driven | `real-agent` | Candidate file is host-created, and binding records managed `/loopora-gen` before `/loopora-loop` | `.loopora/real-probes/real-agent-phase-report.json`, adapter binding JSON, alignment validation JSON |
+| Agent entry must be handbook-first and managed-entry driven | `real-agent` | Candidate file is host-created, and binding records managed `/loopora-plan` before `/loopora-run` | `.loopora/real-probes/real-agent-phase-report.json`, adapter binding JSON, alignment validation JSON |
 | Agent-native role work must not be faked inline or by nested host CLI | `real-agent` | Builder and GateKeeper are claimed/submitted, dispatch is non-inline, actual agent matches target agent, and sentinel CLI log stays absent | Run events, `agent_native/state.json`, role outputs, sentinel log path |
 | GateKeeper pass must be backed by upstream evidence | `real-agent` | Builder leaves supporting proof, GateKeeper cites exact known evidence, run succeeds with task verdict `passed` | Evidence ledger, coverage projection, task verdict projection, role outputs |
 | Provider real probe only proves the executor boundary | `real-cli` | Real CLI launches, structured outputs persist, second round has resume session, and provider resume argv shape is valid | `.loopora/real-probes/real-cli-phase-report.json`, run events, role request JSONL, run contract |
@@ -90,7 +90,7 @@ Hard waiting signal: the job reaches its timeout, the host exits non-zero, the l
 Only stable facts should fail a real probe:
 
 - The host must create the candidate bundle from the conversation requirements; the harness must not prewrite it or embed a complete candidate YAML for the host to copy.
-- Managed entry provenance must show `/loopora-gen` before `/loopora-loop`.
+- Managed entry provenance must show `/loopora-plan` before `/loopora-run`.
 - Runtime activity must observe the linked run before terminal completion.
 - Builder and GateKeeper must both have context, role request, claim, and submit events.
 - `loopora_host_dispatch.inline` must be `false`, and `actual_agent` must match `target_agent`.
@@ -102,7 +102,7 @@ Only stable facts should fail a real probe:
 
 Do not make these fuzzy observations into hard assertions unless they become stable product contracts:
 
-- How many `/loopora-gen` attempts happened before READY.
+- How many `/loopora-plan` attempts happened before READY.
 - Whether host stdout is quiet for a while.
 - Provider dashboard call counts.
 - Exact model prose, timing, or validation repair wording.

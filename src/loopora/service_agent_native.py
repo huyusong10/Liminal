@@ -327,10 +327,10 @@ class ServiceAgentNativeMixin:
             "run_status": run_status,
             "task_verdict_status": status,
             "task_verdict_summary": summary,
-            "next_loop_command": "/loopora-loop",
+            "next_loop_command": "/loopora-run",
             "plan_action": "open_run_url_improve_with_evidence_if_loop_needs_adjustment",
             "guidance": (
-                "Run lifecycle is complete, but the task is not proven. Run /loopora-loop again in the same "
+                "Run lifecycle is complete, but the task is not proven. Run /loopora-run again in the same "
                 "Agent session to start the next evidence pass from this verdict."
             ),
         }
@@ -1187,7 +1187,7 @@ class ServiceAgentNativeMixin:
             binding = read_agent_binding(adapter, workdir, context_id=context_id)
             resolved_run_id = str(binding.get("linked_run_id") or "").strip()
         if not resolved_run_id:
-            raise LooporaConflictError("no Loopora run is associated with this agent session/workdir; run /loopora-loop first")
+            raise LooporaConflictError("no Loopora run is associated with this agent session/workdir; run /loopora-run first")
         try:
             return self.get_run(resolved_run_id)
         except LooporaNotFoundError:

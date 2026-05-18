@@ -64,7 +64,7 @@ def _register_loop_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
         if agent_entry_start:
             return JSONResponse(
                 {
-                    "error": "agent-first Loop runs must be started or continued with /loopora-loop in the host Agent",
+                    "error": "agent-first Loop runs must be started or continued with /loopora-run in the host Agent",
                     "agent_entry_start": agent_entry_start,
                 },
                 status_code=409,

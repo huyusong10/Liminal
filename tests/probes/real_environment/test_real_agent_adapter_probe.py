@@ -673,7 +673,7 @@ else:
         json.dumps(
             {
                 "candidate_bundle": "conversation-generated",
-                "managed_entry": "loopora-gen before loopora-loop",
+                "managed_entry": "loopora-plan before loopora-run",
                 "runtime_activity": "observed by the host release-profile probe",
                 "agent_native_submission": "builder handoff is available for GateKeeper",
             },
@@ -885,10 +885,10 @@ def _entry_source(adapter: str) -> str:
 
 def _entry_file_hint(adapter: str) -> str:
     if adapter == "claude":
-        return ".claude/skills/loopora-gen/SKILL.md and .claude/skills/loopora-loop/SKILL.md"
+        return ".claude/skills/loopora-plan/SKILL.md and .claude/skills/loopora-run/SKILL.md"
     if adapter == "opencode":
-        return ".opencode/commands/loopora-gen.md and .opencode/commands/loopora-loop.md"
-    return ".agents/skills/loopora-gen/SKILL.md and .agents/skills/loopora-loop/SKILL.md"
+        return ".opencode/commands/loopora-plan.md and .opencode/commands/loopora-run.md"
+    return ".agents/skills/loopora-plan/SKILL.md and .agents/skills/loopora-run/SKILL.md"
 
 
 def _release_probe_prompt(adapter: str, bundle_file: Path, executor_script: Path) -> str:
@@ -898,9 +898,9 @@ Use the Loopora {_agent_label(adapter)} project entry installed in this workdir.
 
 Current task: prove the installed Loopora Agent entry can guide a short task conversation into a READY bundle, start a managed run, expose runtime activity, and finish through Agent-native step submission.
 
-This is an execution task, not a planning task. You may think through a checklist, but do not return a todo-only response or stop after creating a plan. Because this host is non-interactive, do not end a response after preparatory commands such as `ls`, `test -f`, `mkdir -p`, or reading files. After creating the candidate directory, immediately continue in the same uninterrupted execution sequence to write the candidate file and invoke the installed entries. Your final response is only valid after the candidate file exists, `/loopora-gen` has returned READY, `/loopora-loop` has returned `complete: true`, the Builder and GateKeeper wrapper submissions have been accepted, a run binding exists, and the terminal run status and task verdict have been observed.
+This is an execution task, not a planning task. You may think through a checklist, but do not return a todo-only response or stop after creating a plan. Because this host is non-interactive, do not end a response after preparatory commands such as `ls`, `test -f`, `mkdir -p`, or reading files. After creating the candidate directory, immediately continue in the same uninterrupted execution sequence to write the candidate file and invoke the installed entries. Your final response is only valid after the candidate file exists, `/loopora-plan` has returned READY, `/loopora-run` has returned `complete: true`, the Builder and GateKeeper wrapper submissions have been accepted, a run binding exists, and the terminal run status and task verdict have been observed.
 
-Author the candidate bundle from the conversation brief below and save it to `{bundle_file}`. Create the parent directory if needed. The pytest harness deliberately does not pre-create, prewrite, or embed a complete candidate YAML; this real probe must prove the host can turn conversation guidance into a bundle before invoking `/loopora-gen`.
+Author the candidate bundle from the conversation brief below and save it to `{bundle_file}`. Create the parent directory if needed. The pytest harness deliberately does not pre-create, prewrite, or embed a complete candidate YAML; this real probe must prove the host can turn conversation guidance into a bundle before invoking `/loopora-plan`.
 
 Before invoking anything, read these installed project entry files: `{_entry_file_hint(adapter)}`. Use them as the only source for shell command syntax, and preserve their provenance markers exactly.
 
@@ -944,8 +944,8 @@ Required bundle structure checklist:
 Required order:
 
 0. After reading the installed entry files, create the candidate bundle on disk and verify that `{bundle_file}` exists before moving on.
-1. Invoke `/loopora-gen` or the installed `loopora-gen` project entry semantics.
-2. Only after the candidate is READY, invoke `/loopora-loop` or the installed `loopora-loop` project entry semantics.
+1. Invoke `/loopora-plan` or the installed `loopora-plan` project entry semantics.
+2. Only after the candidate is READY, invoke `/loopora-run` or the installed `loopora-run` project entry semantics.
 3. Continue the installed Agent-native loop path until Loopora returns `complete: true`. For each returned step capsule, use the host's native role/subagent mechanism named by `role_dispatch.target_agent`, write one wrapper JSON result with `loopora_host_dispatch` and `result`, follow any `evidence_rules`, `evidence_ref_contract`, and `role_dispatch`, and submit it as instructed by the installed entry.
 4. While the run is active, observe the local Loopora runtime activity endpoint or the returned run URL enough to confirm the run is visible before terminal completion.
 5. Return a short summary with the candidate URL, run URL, runtime activity observation, and terminal run status.

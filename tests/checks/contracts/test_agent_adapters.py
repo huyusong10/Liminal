@@ -24,6 +24,11 @@ from loopora.web import build_app
 from loopora.workflows import WorkflowError
 
 AGENT_ENTRY_GEN_CONTRACT_SNIPPETS = (
+    "Enter Loopora's planning stage",
+    "Compile, revise, repair, or tighten",
+    "change the judgment structure",
+    "tell them to use `/loopora-run`",
+    "start fresh, recreate the bundle, or not reuse the old Loop",
     '--message "<non-empty short task summary>"',
     'with `--message "<non-empty short task summary>"` but without `--bundle-file`',
     "Loopora fit must say why one Agent pass, one review, direct chat / direct answer, one-off task handling, or benchmark/test-harness-only validation is not enough",
@@ -50,6 +55,10 @@ AGENT_ENTRY_GEN_CONTRACT_SNIPPETS = (
 )
 
 AGENT_ENTRY_LOOP_CONTRACT_SNIPPETS = (
+    "Enter Loopora's run stage",
+    "run, resume, continue, keep going, close evidence gaps",
+    "tell them to use `/loopora-plan` or Web review first",
+    "Do not silently rewrite the Loop from `/loopora-run`",
     "loopora_host_dispatch",
     "role_dispatch.target_agent",
     "judgment_contract",
@@ -60,6 +69,7 @@ AGENT_ENTRY_LOOP_CONTRACT_SNIPPETS = (
     "next_step.known_evidence_ids",
     "next_step.submit_hint.result_template_absolute_path",
     "Read the returned JSON, even if the command exits nonzero",
+    "`loop_recovery=choose_recoverable_context`",
     "`loop_recovery=finish_web_review`",
     "`loop_recovery=repair_candidate_plan_file`",
     "Do not collapse these recovery states into a generic",
@@ -183,22 +193,22 @@ def _assert_not_fit_agent_review(review: dict) -> None:
 
 def _codex_skill_paths(workdir: Path) -> dict[str, Path]:
     return {
-        "gen": workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md",
-        "loop": workdir / ".agents" / "skills" / "loopora-loop" / "SKILL.md",
+        "plan": workdir / ".agents" / "skills" / "loopora-plan" / "SKILL.md",
+        "run": workdir / ".agents" / "skills" / "loopora-run" / "SKILL.md",
     }
 
 
 def _claude_skill_paths(workdir: Path) -> dict[str, Path]:
     return {
-        "gen": workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md",
-        "loop": workdir / ".claude" / "skills" / "loopora-loop" / "SKILL.md",
+        "plan": workdir / ".claude" / "skills" / "loopora-plan" / "SKILL.md",
+        "run": workdir / ".claude" / "skills" / "loopora-run" / "SKILL.md",
     }
 
 
 def _opencode_command_paths(workdir: Path) -> dict[str, Path]:
     return {
-        "gen": workdir / ".opencode" / "commands" / "loopora-gen.md",
-        "loop": workdir / ".opencode" / "commands" / "loopora-loop.md",
+        "plan": workdir / ".opencode" / "commands" / "loopora-plan.md",
+        "run": workdir / ".opencode" / "commands" / "loopora-run.md",
     }
 
 
@@ -486,34 +496,41 @@ def test_agent_native_result_template_uses_schema_shaped_null_scaffold() -> None
     }
 
 
-def _assert_claude_gen_entry(gen_skill: str) -> None:
+def _assert_claude_gen_entry(gen_skill: str, plan_contract: str) -> None:
     assert "disable-model-invocation: true" in gen_skill
     assert "allowed-tools:" in gen_skill
     assert "LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill" in gen_skill
-    assert 'loopora agent claude gen --workdir "$PWD"' in gen_skill
+    assert 'loopora agent claude plan --workdir "$PWD"' in gen_skill
     assert '--context-id "${CLAUDE_SESSION_ID}"' in gen_skill
     assert "--entry-source claude_project_skill" in gen_skill
-    assert "Compile the current Claude Code task goal, fake-done risks, and required evidence" in gen_skill
-    assert "Compile the current Claude Code task judgment into a Loopora Loop preview" in gen_skill
+    assert "Create, revise, repair, or tighten the current Claude Code Loop preview" in gen_skill
+    assert "thin dispatcher" in gen_skill
+    assert "references/loopora-plan-contract.md" in gen_skill
+    assert len(gen_skill.splitlines()) <= 80
     for snippet in AGENT_ENTRY_GEN_CONTRACT_SNIPPETS:
-        assert snippet in gen_skill
+        assert snippet in plan_contract
     assert "authoring YAML" not in gen_skill
     assert "fix the YAML" not in gen_skill
     assert "YAML" not in gen_skill
     assert "Web alignment URL" not in gen_skill
 
 
-def _assert_claude_loop_entry(loop_skill: str) -> None:
+def _assert_claude_loop_entry(loop_skill: str, run_contract: str) -> None:
     assert "reviewed Loop preview" in loop_skill
     assert "preserves this Claude Code task judgment and evidence requirements" in loop_skill
     assert "confirmed Loop preview" not in loop_skill
     assert "READY bundle" not in loop_skill
     assert "LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill" in loop_skill
-    assert 'loopora agent claude loop --workdir "$PWD"' in loop_skill
-    assert "loopora agent claude submit" in loop_skill
+    assert 'loopora agent claude run --workdir "$PWD"' in loop_skill
+    assert "loopora agent claude submit" in run_contract
     assert "Task" in loop_skill
+    assert "thin dispatcher" in loop_skill
+    assert "references/loopora-run-contract.md" in loop_skill
+    assert "references/loopora-recovery-matrix.md" in loop_skill
+    assert "--source-option-id" in loop_skill
+    assert len(loop_skill.splitlines()) <= 80
     for snippet in AGENT_ENTRY_LOOP_CONTRACT_SNIPPETS:
-        assert snippet in loop_skill
+        assert snippet in run_contract
     assert '--context-id "${CLAUDE_SESSION_ID}"' in loop_skill
     assert "--entry-source claude_project_skill" in loop_skill
 
@@ -533,8 +550,13 @@ def _assert_claude_manifest(manifest_path: Path) -> str:
     assert manifest_path.exists()
     first_manifest = manifest_path.read_text(encoding="utf-8")
     assert {item["path"] for item in json.loads(first_manifest)["managed_files"]} == {
-        ".claude/skills/loopora-gen/SKILL.md",
-        ".claude/skills/loopora-loop/SKILL.md",
+        ".claude/skills/loopora-plan/SKILL.md",
+        ".claude/skills/loopora-plan/references/loopora-plan-contract.md",
+        ".claude/skills/loopora-run/SKILL.md",
+        ".claude/skills/loopora-run/references/loopora-run-contract.md",
+        ".claude/skills/loopora-run/references/loopora-recovery-matrix.md",
+        ".claude/skills/loopora-run/references/loopora-result-template-guide.md",
+        ".claude/skills/loopora-run/references/loopora-role-dispatch-guide.md",
         ".claude/hooks/loopora-session-context.py",
         ".claude/agents/loopora-builder.md",
         ".claude/agents/loopora-inspector.md",
@@ -546,48 +568,64 @@ def _assert_claude_manifest(manifest_path: Path) -> str:
 
 
 def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) -> tuple[Path, str]:
-    gen_skill = skill_paths["gen"].read_text(encoding="utf-8")
-    loop_skill = skill_paths["loop"].read_text(encoding="utf-8")
+    gen_skill = skill_paths["plan"].read_text(encoding="utf-8")
+    loop_skill = skill_paths["run"].read_text(encoding="utf-8")
+    plan_contract = (workdir / ".claude" / "skills" / "loopora-plan" / "references" / "loopora-plan-contract.md").read_text(encoding="utf-8")
+    run_contract = (workdir / ".claude" / "skills" / "loopora-run" / "references" / "loopora-run-contract.md").read_text(encoding="utf-8")
+    recovery_matrix = (workdir / ".claude" / "skills" / "loopora-run" / "references" / "loopora-recovery-matrix.md").read_text(encoding="utf-8")
     settings = json.loads((workdir / ".claude" / "settings.json").read_text(encoding="utf-8"))
-    gen_command = workdir / ".claude" / "commands" / "loopora-gen.md"
-    loop_command = workdir / ".claude" / "commands" / "loopora-loop.md"
+    gen_command = workdir / ".claude" / "commands" / "loopora-plan.md"
+    loop_command = workdir / ".claude" / "commands" / "loopora-run.md"
+    old_gen_skill = workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md"
+    old_loop_skill = workdir / ".claude" / "skills" / "loopora-loop" / "SKILL.md"
     session_hook = workdir / ".claude" / "hooks" / "loopora-session-context.py"
     builder_agent = workdir / ".claude" / "agents" / "loopora-builder.md"
     orchestrator_agent = workdir / ".claude" / "agents" / "loopora-orchestrator.md"
     assert "LOOPORA-MANAGED: claude-code-adapter" in gen_skill
     assert not gen_command.exists()
     assert not loop_command.exists()
+    assert not old_gen_skill.exists()
+    assert not old_loop_skill.exists()
     for path in (session_hook, builder_agent, orchestrator_agent):
         assert path.exists()
     assert "CLAUDE_SESSION_ID" in session_hook.read_text(encoding="utf-8")
     assert _claude_settings_has_loopora_session_hook(settings)
-    _assert_claude_gen_entry(gen_skill)
+    _assert_claude_gen_entry(gen_skill, plan_contract)
     assert "READY bundle" not in gen_skill
-    _assert_claude_loop_entry(loop_skill)
+    _assert_claude_loop_entry(loop_skill, run_contract + recovery_matrix)
     _assert_claude_agent_prompts(builder_agent, orchestrator_agent)
     manifest_path = workdir / ".loopora" / "adapters" / "claude" / "manifest.json"
     return manifest_path, _assert_claude_manifest(manifest_path)
 
 
-def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Path]) -> tuple[Path, str]:
-    gen_command = command_paths["gen"].read_text(encoding="utf-8")
-    loop_command = command_paths["loop"].read_text(encoding="utf-8")
+def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Path]) -> tuple[Path, str]:  # noqa: PLR0915
+    gen_command = command_paths["plan"].read_text(encoding="utf-8")
+    loop_command = command_paths["run"].read_text(encoding="utf-8")
+    plan_contract = (workdir / ".opencode" / "loopora" / "references" / "loopora-plan-contract.md").read_text(encoding="utf-8")
+    run_contract = (workdir / ".opencode" / "loopora" / "references" / "loopora-run-contract.md").read_text(encoding="utf-8")
+    recovery_matrix = (workdir / ".opencode" / "loopora" / "references" / "loopora-recovery-matrix.md").read_text(encoding="utf-8")
     builder_agent = workdir / ".opencode" / "agents" / "loopora-builder.md"
     orchestrator_agent = workdir / ".opencode" / "agents" / "loopora-orchestrator.md"
+    old_gen_command = workdir / ".opencode" / "commands" / "loopora-gen.md"
+    old_loop_command = workdir / ".opencode" / "commands" / "loopora-loop.md"
     assert "LOOPORA-MANAGED: opencode-adapter" in gen_command
     assert builder_agent.exists()
     assert orchestrator_agent.exists()
+    assert not old_gen_command.exists()
+    assert not old_loop_command.exists()
     assert "description:" in gen_command
     assert "agent: build" not in gen_command
     assert "$ARGUMENTS" in gen_command
     assert "LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command" in gen_command
-    assert 'loopora agent opencode gen --workdir "$PWD"' in gen_command
+    assert 'loopora agent opencode plan --workdir "$PWD"' in gen_command
     assert '--context-id "${OPENCODE_SESSION_ID:-}"' in gen_command
     assert "--entry-source opencode_project_command" in gen_command
-    assert "Compile the current OpenCode task goal, fake-done risks, and required evidence" in gen_command
-    assert "Compile the current OpenCode task judgment into a Loopora Loop preview" in gen_command
+    assert "Create, revise, repair, or tighten the current OpenCode Loop preview" in gen_command
+    assert "thin dispatcher" in gen_command
+    assert ".opencode/loopora/references/loopora-plan-contract.md" in gen_command
+    assert len(gen_command.splitlines()) <= 80
     for snippet in AGENT_ENTRY_GEN_CONTRACT_SNIPPETS:
-        assert snippet in gen_command
+        assert snippet in plan_contract
     assert "authoring YAML" not in gen_command
     assert "fix the YAML" not in gen_command
     assert "YAML" not in gen_command
@@ -599,10 +637,15 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert "LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command" in loop_command
     assert "agent: loopora-orchestrator" in loop_command
     assert "subtask: true" in loop_command
-    assert 'loopora agent opencode loop --workdir "$PWD"' in loop_command
-    assert "loopora agent opencode submit" in loop_command
+    assert 'loopora agent opencode run --workdir "$PWD"' in loop_command
+    assert "loopora agent opencode submit" in run_contract
+    assert "thin dispatcher" in loop_command
+    assert ".opencode/loopora/references/loopora-run-contract.md" in loop_command
+    assert ".opencode/loopora/references/loopora-recovery-matrix.md" in loop_command
+    assert "--source-option-id" in loop_command
+    assert len(loop_command.splitlines()) <= 80
     for snippet in AGENT_ENTRY_LOOP_CONTRACT_SNIPPETS:
-        assert snippet in loop_command
+        assert snippet in run_contract + recovery_matrix
     assert '--context-id "${OPENCODE_SESSION_ID:-}"' in loop_command
     assert "--entry-source opencode_project_command" in loop_command
     builder_agent_text = builder_agent.read_text(encoding="utf-8")
@@ -619,8 +662,13 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert manifest_path.exists()
     first_manifest = manifest_path.read_text(encoding="utf-8")
     assert {item["path"] for item in json.loads(first_manifest)["managed_files"]} == {
-        ".opencode/commands/loopora-gen.md",
-        ".opencode/commands/loopora-loop.md",
+        ".opencode/commands/loopora-plan.md",
+        ".opencode/loopora/references/loopora-plan-contract.md",
+        ".opencode/commands/loopora-run.md",
+        ".opencode/loopora/references/loopora-run-contract.md",
+        ".opencode/loopora/references/loopora-recovery-matrix.md",
+        ".opencode/loopora/references/loopora-result-template-guide.md",
+        ".opencode/loopora/references/loopora-role-dispatch-guide.md",
         ".opencode/agents/loopora-builder.md",
         ".opencode/agents/loopora-inspector.md",
         ".opencode/agents/loopora-gatekeeper.md",
@@ -633,20 +681,29 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
 def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -> tuple[Path, str]:
     codex_builder_agent = workdir / ".codex" / "agents" / "loopora-builder.toml"
     codex_orchestrator_agent = workdir / ".codex" / "agents" / "loopora-orchestrator.toml"
+    old_gen_skill = workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md"
+    old_loop_skill = workdir / ".agents" / "skills" / "loopora-loop" / "SKILL.md"
     assert codex_builder_agent.exists()
     assert codex_orchestrator_agent.exists()
-    gen_skill = skill_paths["gen"].read_text(encoding="utf-8")
-    loop_skill = skill_paths["loop"].read_text(encoding="utf-8")
+    assert not old_gen_skill.exists()
+    assert not old_loop_skill.exists()
+    gen_skill = skill_paths["plan"].read_text(encoding="utf-8")
+    loop_skill = skill_paths["run"].read_text(encoding="utf-8")
+    plan_contract = (workdir / ".agents" / "skills" / "loopora-plan" / "references" / "loopora-plan-contract.md").read_text(encoding="utf-8")
+    run_contract = (workdir / ".agents" / "skills" / "loopora-run" / "references" / "loopora-run-contract.md").read_text(encoding="utf-8")
+    recovery_matrix = (workdir / ".agents" / "skills" / "loopora-run" / "references" / "loopora-recovery-matrix.md").read_text(encoding="utf-8")
     assert "LOOPORA-MANAGED: codex-adapter" in gen_skill
-    assert "name: loopora-gen" in gen_skill
+    assert "name: loopora-plan" in gen_skill
     assert "LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill" in gen_skill
-    assert 'loopora agent codex gen --workdir "$PWD"' in gen_skill
+    assert 'loopora agent codex plan --workdir "$PWD"' in gen_skill
     assert "--bundle-file" in gen_skill
     assert "--entry-source codex_project_skill" in gen_skill
-    assert "compile the current task goal, fake-done risks, and required evidence" in gen_skill
-    assert "Compile the current coding task judgment into a Loopora Loop preview" in gen_skill
+    assert "create, revise, repair, or tighten the reviewed Loop preview" in gen_skill
+    assert "thin dispatcher" in gen_skill
+    assert "references/loopora-plan-contract.md" in gen_skill
+    assert len(gen_skill.splitlines()) <= 80
     for snippet in AGENT_ENTRY_GEN_CONTRACT_SNIPPETS:
-        assert snippet in gen_skill
+        assert snippet in plan_contract
     assert "authoring YAML" not in gen_skill
     assert "fix the YAML" not in gen_skill
     assert "YAML" not in gen_skill
@@ -655,17 +712,27 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert "confirmed Loop preview" not in loop_skill
     assert "READY bundle" not in gen_skill
     assert "READY bundle" not in loop_skill
-    assert "name: loopora-loop" in loop_skill
+    assert "name: loopora-run" in loop_skill
     assert "LOOPORA_AGENT_ENTRY_SOURCE=codex_project_skill" in loop_skill
-    assert 'loopora agent codex loop --workdir "$PWD"' in loop_skill
-    assert "loopora agent codex submit" in loop_skill
-    assert "loopora-builder" in loop_skill
+    assert 'loopora agent codex run --workdir "$PWD"' in loop_skill
+    assert "loopora agent codex submit" in run_contract
+    assert "loopora-builder" in run_contract
+    assert "thin dispatcher" in loop_skill
+    assert "references/loopora-run-contract.md" in loop_skill
+    assert "references/loopora-recovery-matrix.md" in loop_skill
+    assert "--source-option-id" in loop_skill
+    assert len(loop_skill.splitlines()) <= 80
     for snippet in AGENT_ENTRY_LOOP_CONTRACT_SNIPPETS:
-        assert snippet in loop_skill
-    assert "Codex native dispatch guidance" in loop_skill
-    assert "omit `fork_context`" in loop_skill
-    assert "bounded timeout" in loop_skill
+        assert snippet in run_contract + recovery_matrix
+    assert "Codex native dispatch guidance" in run_contract
+    assert "omit `fork_context`" in run_contract
+    assert "bounded timeout" in run_contract
     assert "--entry-source codex_project_skill" in loop_skill
+    _assert_codex_role_agent_files(codex_builder_agent, codex_orchestrator_agent)
+    return _assert_codex_manifest(workdir)
+
+
+def _assert_codex_role_agent_files(codex_builder_agent: Path, codex_orchestrator_agent: Path) -> None:
     codex_builder_agent_text = codex_builder_agent.read_text(encoding="utf-8")
     assert "loopora-builder" in codex_builder_agent_text
     assert 'developer_instructions = """' in codex_builder_agent_text
@@ -674,14 +741,22 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert "Loopora Orchestrator" in codex_orchestrator_agent_text
     for snippet in AGENT_ORCHESTRATOR_CONTRACT_SNIPPETS:
         assert snippet in codex_orchestrator_agent_text
+
+
+def _assert_codex_manifest(workdir: Path) -> tuple[Path, str]:
     manifest_path = workdir / ".loopora" / "adapters" / "codex" / "manifest.json"
     assert manifest_path.exists()
     first_manifest = manifest_path.read_text(encoding="utf-8")
     manifest_payload = json.loads(first_manifest)
     assert manifest_payload["version"] == agent_adapters.ADAPTER_VERSION
     assert {item["path"] for item in manifest_payload["managed_files"]} == {
-        ".agents/skills/loopora-gen/SKILL.md",
-        ".agents/skills/loopora-loop/SKILL.md",
+        ".agents/skills/loopora-plan/SKILL.md",
+        ".agents/skills/loopora-plan/references/loopora-plan-contract.md",
+        ".agents/skills/loopora-run/SKILL.md",
+        ".agents/skills/loopora-run/references/loopora-run-contract.md",
+        ".agents/skills/loopora-run/references/loopora-recovery-matrix.md",
+        ".agents/skills/loopora-run/references/loopora-result-template-guide.md",
+        ".agents/skills/loopora-run/references/loopora-role-dispatch-guide.md",
         ".codex/agents/loopora-builder.toml",
         ".codex/agents/loopora-inspector.toml",
         ".codex/agents/loopora-gatekeeper.toml",
@@ -701,8 +776,8 @@ def test_cli_codex_adapter_install_uninstall_are_idempotent(tmp_path: Path) -> N
     assert first_install.exit_code == 0, first_install.stdout
     assert json.loads(first_install.stdout)["status"] == "installed"
     skill_paths = _codex_skill_paths(workdir)
-    assert skill_paths["gen"].exists()
-    assert skill_paths["loop"].exists()
+    assert skill_paths["plan"].exists()
+    assert skill_paths["run"].exists()
     manifest_path, first_manifest = _assert_codex_managed_install(workdir, skill_paths)
 
     second_install = runner.invoke(cli.app, ["init", "codex", "--workdir", str(workdir), "--json"])
@@ -718,8 +793,8 @@ def test_cli_codex_adapter_install_uninstall_are_idempotent(tmp_path: Path) -> N
     assert second_uninstall.exit_code == 0, second_uninstall.stdout
     assert json.loads(first_uninstall.stdout)["status"] == "not_installed"
     assert json.loads(second_uninstall.stdout)["status"] == "not_installed"
-    assert not skill_paths["gen"].exists()
-    assert not skill_paths["loop"].exists()
+    assert not skill_paths["plan"].exists()
+    assert not skill_paths["run"].exists()
     assert (workdir / ".agents").exists()
     assert (workdir / ".codex").exists()
     assert (workdir / ".loopora").exists()
@@ -747,9 +822,9 @@ def test_cli_adapter_install_human_output_points_to_agent_next_steps(tmp_path: P
     assert "next:" in result.stdout
     assert f"Return to {label} in this project" in result.stdout
     assert "task goal, fake-done risk, and required evidence" in result.stdout
-    assert "/loopora-gen" in result.stdout
+    assert "/loopora-plan" in result.stdout
     assert "READY Loop preview" in result.stdout
-    assert "/loopora-loop" in result.stdout
+    assert "/loopora-run" in result.stdout
     assert "same Agent session" in result.stdout
     assert "observe evidence, gaps, and verdicts" in result.stdout
     assert "managed files:" in result.stdout
@@ -758,9 +833,34 @@ def test_cli_adapter_install_human_output_points_to_agent_next_steps(tmp_path: P
     assert "YAML bundle" not in result.stdout
 
 
+def test_cli_adapter_check_validates_managed_supporting_files(tmp_path: Path) -> None:
+    workdir = tmp_path / "project"
+    workdir.mkdir()
+    runner = CliRunner()
+
+    install = runner.invoke(cli.app, ["init", "codex", "--workdir", str(workdir), "--json"])
+    assert install.exit_code == 0, install.stdout
+
+    healthy = runner.invoke(cli.app, ["init", "codex", "--workdir", str(workdir), "--check", "--json"])
+    assert healthy.exit_code == 0, healthy.stdout
+    healthy_payload = json.loads(healthy.stdout)
+    assert healthy_payload["check_status"] == "pass"
+    assert any(item["name"] == "supporting_file" and item["status"] == "pass" for item in healthy_payload["checks"])
+
+    reference = workdir / ".agents" / "skills" / "loopora-run" / "references" / "loopora-recovery-matrix.md"
+    reference.unlink()
+
+    unhealthy = runner.invoke(cli.app, ["init", "codex", "--workdir", str(workdir), "--check", "--json"])
+    assert unhealthy.exit_code == 1
+    unhealthy_payload = json.loads(unhealthy.stdout)
+    assert unhealthy_payload["check_status"] == "fail"
+    assert any(item["name"] == "supporting_file" and item["status"] == "fail" for item in unhealthy_payload["checks"])
+    assert not reference.exists()
+
+
 def test_cli_codex_adapter_install_conflict_guides_recovery_without_overwriting(tmp_path: Path) -> None:
     workdir = tmp_path / "project"
-    conflict = workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md"
+    conflict = workdir / ".agents" / "skills" / "loopora-plan" / "SKILL.md"
     conflict.parent.mkdir(parents=True)
     conflict.write_text("# User-owned Codex entry\n", encoding="utf-8")
     runner = CliRunner()
@@ -776,7 +876,7 @@ def test_cli_codex_adapter_install_conflict_guides_recovery_without_overwriting(
     assert f"target project: {workdir.resolve()}" in error_text
     assert "left the project unchanged" in error_text
     assert "conflicting files:" in error_text
-    assert ".agents/skills/loopora-gen/SKILL.md" in error_text
+    assert ".agents/skills/loopora-plan/SKILL.md" in error_text
     assert "recovery:" in error_text
     assert "Inspect the listed file or config" in error_text
     assert "move or rename it" in error_text
@@ -790,11 +890,11 @@ def test_cli_codex_loop_requires_ready_bundle(tmp_path: Path) -> None:
     workdir.mkdir()
     runner = CliRunner()
 
-    result = runner.invoke(cli.app, ["agent", "codex", "loop", "--workdir", str(workdir), "--no-web"])
+    result = runner.invoke(cli.app, ["agent", "codex", "run", "--workdir", str(workdir), "--no-web"])
 
     assert result.exit_code == 1
     error_text = _error_text(result)
-    assert "/loopora-gen" in error_text
+    assert "/loopora-plan" in error_text
     assert "ready Loop preview" in error_text
     assert "READY Loopora bundle" not in error_text
 
@@ -814,8 +914,8 @@ def test_cli_claude_adapter_install_uninstall_are_idempotent_and_preserve_user_c
     assert first_install.exit_code == 0, first_install.stdout
     assert json.loads(first_install.stdout)["status"] == "installed"
     skill_paths = _claude_skill_paths(workdir)
-    assert skill_paths["gen"].exists()
-    assert skill_paths["loop"].exists()
+    assert skill_paths["plan"].exists()
+    assert skill_paths["run"].exists()
     manifest_path, first_manifest = _assert_claude_managed_install(workdir, skill_paths)
     assert claude_md.read_text(encoding="utf-8") == "# User Claude instructions\n"
     settings_after_install = json.loads(claude_settings.read_text(encoding="utf-8"))
@@ -834,8 +934,8 @@ def test_cli_claude_adapter_install_uninstall_are_idempotent_and_preserve_user_c
     assert second_uninstall.exit_code == 0, second_uninstall.stdout
     assert json.loads(first_uninstall.stdout)["status"] == "not_installed"
     assert json.loads(second_uninstall.stdout)["status"] == "not_installed"
-    assert not skill_paths["gen"].exists()
-    assert not skill_paths["loop"].exists()
+    assert not skill_paths["plan"].exists()
+    assert not skill_paths["run"].exists()
     assert not (workdir / ".claude" / "hooks" / "loopora-session-context.py").exists()
     assert claude_md.exists()
     assert claude_settings.exists()
@@ -848,8 +948,8 @@ def test_claude_adapter_removes_obsolete_managed_command_wrappers(service_factor
     workdir = tmp_path / "project"
     commands_dir = workdir / ".claude" / "commands"
     commands_dir.mkdir(parents=True)
-    gen_command = commands_dir / "loopora-gen.md"
-    loop_command = commands_dir / "loopora-loop.md"
+    gen_command = commands_dir / "loopora-plan.md"
+    loop_command = commands_dir / "loopora-run.md"
     gen_command.write_text("<!-- LOOPORA-MANAGED: claude-code-adapter old gen -->\n", encoding="utf-8")
     loop_command.write_text("<!-- LOOPORA-MANAGED: claude-code-adapter old loop -->\n", encoding="utf-8")
 
@@ -857,19 +957,19 @@ def test_claude_adapter_removes_obsolete_managed_command_wrappers(service_factor
 
     assert result["status"] == "installed"
     assert result["removed_obsolete_files"] == [
-        ".claude/commands/loopora-gen.md",
-        ".claude/commands/loopora-loop.md",
+        ".claude/commands/loopora-plan.md",
+        ".claude/commands/loopora-run.md",
     ]
     assert not gen_command.exists()
     assert not loop_command.exists()
     manifest = json.loads((workdir / ".loopora" / "adapters" / "claude" / "manifest.json").read_text(encoding="utf-8"))
-    assert ".claude/commands/loopora-gen.md" not in {item["path"] for item in manifest["managed_files"]}
+    assert ".claude/commands/loopora-plan.md" not in {item["path"] for item in manifest["managed_files"]}
 
 
 def test_claude_adapter_refuses_unowned_obsolete_command_wrappers(service_factory, tmp_path: Path) -> None:
     service = service_factory(scenario="success")
     workdir = tmp_path / "project"
-    command = workdir / ".claude" / "commands" / "loopora-gen.md"
+    command = workdir / ".claude" / "commands" / "loopora-plan.md"
     command.parent.mkdir(parents=True)
     command.write_text("# User-owned Claude command\n", encoding="utf-8")
 
@@ -880,16 +980,63 @@ def test_claude_adapter_refuses_unowned_obsolete_command_wrappers(service_factor
     assert not (workdir / ".loopora" / "adapters" / "claude" / "manifest.json").exists()
 
 
+@pytest.mark.parametrize(
+    ("adapter", "old_paths"),
+    [
+        (
+            "codex",
+            [
+                ".agents/skills/loopora-gen/SKILL.md",
+                ".agents/skills/loopora-loop/SKILL.md",
+            ],
+        ),
+        (
+            "claude",
+            [
+                ".claude/skills/loopora-gen/SKILL.md",
+                ".claude/skills/loopora-loop/SKILL.md",
+            ],
+        ),
+        (
+            "opencode",
+            [
+                ".opencode/commands/loopora-gen.md",
+                ".opencode/commands/loopora-loop.md",
+            ],
+        ),
+    ],
+)
+def test_adapter_install_removes_legacy_managed_slash_entries(service_factory, tmp_path: Path, adapter: str, old_paths: list[str]) -> None:
+    service = service_factory(scenario="success")
+    workdir = tmp_path / adapter
+    workdir.mkdir()
+    for relative_path in old_paths:
+        target = workdir / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        marker = agent_adapters.MANAGED_MARKERS[adapter]
+        target.write_text(f"<!-- {marker} legacy slash entry -->\n", encoding="utf-8")
+
+    result = service.install_agent_adapter(adapter, workdir=workdir)
+
+    assert result["status"] == "installed"
+    for relative_path in old_paths:
+        assert relative_path in result["removed_obsolete_files"]
+        assert not (workdir / relative_path).exists()
+    manifest = json.loads((workdir / ".loopora" / "adapters" / adapter / "manifest.json").read_text(encoding="utf-8"))
+    managed_paths = {item["path"] for item in manifest["managed_files"]}
+    assert all(relative_path not in managed_paths for relative_path in old_paths)
+
+
 def test_cli_claude_loop_requires_ready_bundle(tmp_path: Path) -> None:
     workdir = tmp_path / "project"
     workdir.mkdir()
     runner = CliRunner()
 
-    result = runner.invoke(cli.app, ["agent", "claude", "loop", "--workdir", str(workdir), "--no-web"])
+    result = runner.invoke(cli.app, ["agent", "claude", "run", "--workdir", str(workdir), "--no-web"])
 
     assert result.exit_code == 1
     error_text = _error_text(result)
-    assert "/loopora-gen" in error_text
+    assert "/loopora-plan" in error_text
     assert "ready Loop preview" in error_text
     assert "READY Loopora bundle" not in error_text
 
@@ -912,8 +1059,8 @@ def test_cli_opencode_adapter_install_uninstall_are_idempotent_and_preserve_user
     assert first_install.exit_code == 0, first_install.stdout
     assert json.loads(first_install.stdout)["status"] == "installed"
     command_paths = _opencode_command_paths(workdir)
-    assert command_paths["gen"].exists()
-    assert command_paths["loop"].exists()
+    assert command_paths["plan"].exists()
+    assert command_paths["run"].exists()
     manifest_path, first_manifest = _assert_opencode_managed_install(workdir, command_paths)
     assert opencode_json.read_text(encoding="utf-8") == '{"model": "user/model"}\n'
     assert opencode_project_json.read_text(encoding="utf-8") == '{"permission": {"bash": "ask"}}\n'
@@ -931,8 +1078,8 @@ def test_cli_opencode_adapter_install_uninstall_are_idempotent_and_preserve_user
     assert second_uninstall.exit_code == 0, second_uninstall.stdout
     assert json.loads(first_uninstall.stdout)["status"] == "not_installed"
     assert json.loads(second_uninstall.stdout)["status"] == "not_installed"
-    assert not command_paths["gen"].exists()
-    assert not command_paths["loop"].exists()
+    assert not command_paths["plan"].exists()
+    assert not command_paths["run"].exists()
     assert opencode_json.exists()
     assert opencode_project_json.exists()
     assert opencode_agent.exists()
@@ -964,7 +1111,7 @@ def test_adapter_project_entries_are_namespaced_and_do_not_set_host_models(servi
             text = (workdir / relative_path).read_text(encoding="utf-8")
             for banned in banned_model_defaults:
                 assert banned not in text
-        assert not (workdir / ".claude" / "commands" / "loopora-gen.md").exists()
+        assert not (workdir / ".claude" / "commands" / "loopora-plan.md").exists()
 
 
 def test_cli_opencode_loop_requires_ready_bundle(tmp_path: Path) -> None:
@@ -972,11 +1119,11 @@ def test_cli_opencode_loop_requires_ready_bundle(tmp_path: Path) -> None:
     workdir.mkdir()
     runner = CliRunner()
 
-    result = runner.invoke(cli.app, ["agent", "opencode", "loop", "--workdir", str(workdir), "--no-web"])
+    result = runner.invoke(cli.app, ["agent", "opencode", "run", "--workdir", str(workdir), "--no-web"])
 
     assert result.exit_code == 1
     error_text = _error_text(result)
-    assert "/loopora-gen" in error_text
+    assert "/loopora-plan" in error_text
     assert "ready Loop preview" in error_text
     assert "READY Loopora bundle" not in error_text
 
@@ -1062,8 +1209,8 @@ def test_agent_bundle_candidate_without_yaml_opens_prefill_without_starting_alig
     assert not any(event["event_type"] == "alignment_started" for event in events)
     with pytest.raises(LooporaConflictError) as excinfo:
         service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
-    assert "needs Web review before /loopora-loop" in str(excinfo.value)
-    assert "/loopora-gen" in str(excinfo.value)
+    assert "needs Web review before /loopora-run" in str(excinfo.value)
+    assert "/loopora-plan" in str(excinfo.value)
 
 
 def test_agent_bundle_candidate_without_yaml_uses_chinese_prefill_message(
@@ -1132,7 +1279,7 @@ def test_agent_bundle_candidate_without_yaml_explains_not_fit_prefill(
     assert candidate_event["payload"]["loopora_fit_contradiction"] is True
     with pytest.raises(LooporaConflictError) as excinfo:
         service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
-    assert "needs Web review before /loopora-loop" in str(excinfo.value)
+    assert "needs Web review before /loopora-run" in str(excinfo.value)
     assert "one-off, direct-answer, no-new-evidence, or benchmark/test-harness-only" in str(excinfo.value)
     assert "GateKeeper value" in str(excinfo.value)
 
@@ -1222,7 +1369,7 @@ def test_cli_agent_gen_without_bundle_reports_web_alignment_needed(sample_workdi
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -1260,7 +1407,7 @@ def test_cli_agent_gen_reports_auto_started_web_review_url(sample_workdir: Path,
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -1285,7 +1432,7 @@ def test_cli_agent_loop_after_web_review_fallback_reprints_review_url_and_focus(
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -1301,12 +1448,12 @@ def test_cli_agent_loop_after_web_review_fallback_reprints_review_url_and_focus(
         lambda: {"base_url": "http://127.0.0.1:9988", "reused": False, "started": True, "port": 9988},
     )
 
-    loop_result = runner.invoke(cli.app, ["agent", "codex", "loop", "--workdir", str(sample_workdir)])
+    loop_result = runner.invoke(cli.app, ["agent", "codex", "run", "--workdir", str(sample_workdir)])
 
     assert gen_result.exit_code == 0, gen_result.stdout
     assert loop_result.exit_code == 1
     output_text = loop_result.output
-    assert "loop_recovery: finish the current Web review before /loopora-loop can start" in output_text
+    assert "loop_recovery: finish the current Web review before /loopora-run can start" in output_text
     assert "review_status: not runnable; no candidate plan file was submitted" in output_text
     assert "review_focus:" in output_text
     assert "Success surface:" in output_text
@@ -1328,7 +1475,7 @@ def test_cli_agent_loop_json_after_web_review_fallback_returns_structured_recove
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -1341,7 +1488,7 @@ def test_cli_agent_loop_json_after_web_review_fallback_returns_structured_recove
 
     loop_result = runner.invoke(
         cli.app,
-        ["agent", "codex", "loop", "--workdir", str(sample_workdir), "--no-web", "--json"],
+        ["agent", "codex", "run", "--workdir", str(sample_workdir), "--no-web", "--json"],
     )
 
     assert gen_result.exit_code == 0, gen_result.stdout
@@ -1364,7 +1511,7 @@ def test_cli_agent_gen_without_bundle_reports_not_fit_fallback(sample_workdir: P
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -1394,7 +1541,7 @@ def test_cli_agent_gen_without_bundle_json_reports_not_fit_fallback(sample_workd
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -1424,7 +1571,7 @@ def test_cli_agent_gen_without_bundle_rejects_missing_task_summary(sample_workdi
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--entry-source",
@@ -1465,7 +1612,7 @@ def test_cli_codex_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path,
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -1517,7 +1664,7 @@ def test_cli_agent_gen_ready_output_points_back_to_same_agent_loop(tmp_path: Pat
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -1532,7 +1679,7 @@ def test_cli_agent_gen_ready_output_points_back_to_same_agent_loop(tmp_path: Pat
 
     assert result.exit_code == 0, result.stdout
     assert "Loopora Loop preview is ready" in result.stdout
-    assert "next_agent_step: review the preview URL, then run /loopora-loop in this same Agent session" in result.stdout
+    assert "next_agent_step: review the preview URL, then run /loopora-run in this same Agent session" in result.stdout
     assert "ready_review:" in result.stdout
     assert "loopora_fit:" in result.stdout
     assert "fake_done_risks:" in result.stdout
@@ -1540,7 +1687,7 @@ def test_cli_agent_gen_ready_output_points_back_to_same_agent_loop(tmp_path: Pat
     assert "coverage_targets: 2 checks /" in result.stdout
     assert "judgment_projection: 13/13 mapped" in result.stdout
     assert "closure_gate: GateKeeper (evidence_refs_required)" in result.stdout
-    assert "review_before_loop: confirm the preview carries these judgments before running /loopora-loop" in result.stdout
+    assert "review_before_loop: confirm the preview carries these judgments before running /loopora-run" in result.stdout
     assert "preview_url: /loops/new/bundle?alignment_session_id=" in result.stdout
     assert "run_url:" not in result.stdout
     assert "Loopora run:" not in result.stdout
@@ -1556,7 +1703,7 @@ def test_cli_agent_gen_rejects_candidate_bundle_without_task_summary(tmp_path: P
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--bundle-file",
@@ -1579,7 +1726,7 @@ def test_cli_agent_gen_with_invalid_candidate_reports_repair_before_loop(tmp_pat
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -1591,7 +1738,7 @@ def test_cli_agent_gen_with_invalid_candidate_reports_repair_before_loop(tmp_pat
     )
 
     assert result.exit_code == 0, result.stdout
-    assert "Loopora Loop preview needs plan file repair before /loopora-loop" in result.stdout
+    assert "Loopora Loop preview needs plan file repair before /loopora-run" in result.stdout
     assert "needs candidate repair" not in result.stdout
     assert "validation_error:" in result.stdout
     assert "plan_file_to_repair:" in result.stdout
@@ -1615,7 +1762,7 @@ def test_cli_agent_loop_reports_candidate_repair_state_after_failed_gen(
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -1625,19 +1772,19 @@ def test_cli_agent_loop_reports_candidate_repair_state_after_failed_gen(
             "--no-web",
         ],
     )
-    loop_result = runner.invoke(cli.app, ["agent", "codex", "loop", "--workdir", str(sample_workdir), "--no-web"])
+    loop_result = runner.invoke(cli.app, ["agent", "codex", "run", "--workdir", str(sample_workdir), "--no-web"])
 
     assert gen_result.exit_code == 0, gen_result.stdout
     assert loop_result.exit_code == 1
     output_text = loop_result.output
     error_text = _error_text(loop_result)
-    assert "loop_recovery: repair the current plan file before /loopora-loop can start" in output_text
+    assert "loop_recovery: repair the current plan file before /loopora-run can start" in output_text
     assert error_text == ""
     assert "plan_file_to_repair:" in output_text
     assert "preview_plan_copy:" in output_text
     assert "repair_focus:" in output_text
     assert "preview_url: /loops/new/bundle?alignment_session_id=" in output_text
-    assert "next_repair_step: repair the candidate plan file, rerun /loopora-gen" in output_text
+    assert "next_repair_step: repair the candidate plan file, rerun /loopora-plan" in output_text
     assert "project the task objects from --message" in output_text
 
 
@@ -1654,7 +1801,7 @@ def test_cli_agent_gen_with_candidate_not_fit_reports_reframe_before_loop(
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -1664,21 +1811,21 @@ def test_cli_agent_gen_with_candidate_not_fit_reports_reframe_before_loop(
             "--no-web",
         ],
     )
-    loop_result = runner.invoke(cli.app, ["agent", "codex", "loop", "--workdir", str(sample_workdir), "--no-web"])
+    loop_result = runner.invoke(cli.app, ["agent", "codex", "run", "--workdir", str(sample_workdir), "--no-web"])
 
     assert gen_result.exit_code == 0, gen_result.stdout
-    assert "Loopora Loop preview needs plan file repair before /loopora-loop" in gen_result.stdout
+    assert "Loopora Loop preview needs plan file repair before /loopora-run" in gen_result.stdout
     assert "not_fit:" in gen_result.stdout
     assert "reframe the task with later evidence, handoff, or GateKeeper value" in gen_result.stdout
     assert "Loopora is not fit" in gen_result.stdout
     assert loop_result.exit_code == 1
     error_text = _error_text(loop_result)
     assert error_text == ""
-    assert "loop_recovery: repair the current plan file before /loopora-loop can start" in loop_result.output
+    assert "loop_recovery: repair the current plan file before /loopora-run can start" in loop_result.output
     assert "not_fit:" in loop_result.output
     assert "one-off, direct-answer, no-new-evidence, or benchmark/test-harness-only" in loop_result.output
     assert "GateKeeper value" in loop_result.output
-    assert "next_repair_step: repair the candidate plan file, rerun /loopora-gen" in loop_result.output
+    assert "next_repair_step: repair the candidate plan file, rerun /loopora-plan" in loop_result.output
 
 
 def test_cli_agent_gen_uses_repair_flag_when_candidate_status_is_not_failed(
@@ -1713,7 +1860,7 @@ def test_cli_agent_gen_uses_repair_flag_when_candidate_status_is_not_failed(
         [
             "agent",
             "codex",
-            "gen",
+            "plan",
             "--workdir",
             str(workdir),
             "--message",
@@ -1723,7 +1870,7 @@ def test_cli_agent_gen_uses_repair_flag_when_candidate_status_is_not_failed(
     )
 
     assert result.exit_code == 0, result.stdout
-    assert "Loopora Loop preview needs plan file repair before /loopora-loop" in result.stdout
+    assert "Loopora Loop preview needs plan file repair before /loopora-run" in result.stdout
     assert "needs candidate repair" not in result.stdout
     assert "validation_error: candidate is missing required audit evidence" in result.stdout
     assert "Loopora Loop preview status: blocked" not in result.stdout
@@ -2992,7 +3139,7 @@ def test_cli_claude_gen_accepts_ready_bundle_without_starting_run(tmp_path: Path
         [
             "agent",
             "claude",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -3120,7 +3267,7 @@ def test_web_import_cannot_headless_start_agent_first_preview(
         )
     )
 
-    with pytest.raises(LooporaConflictError, match="agent-first Loop previews must be started from /loopora-loop"):
+    with pytest.raises(LooporaConflictError, match="agent-first Loop previews must be started from /loopora-run"):
         service.import_alignment_bundle(generated["session"]["id"], start_immediately=True, execute_async=True)
 
     blocked_session = service.get_alignment_session(generated["session"]["id"])
@@ -3152,7 +3299,7 @@ def test_cli_agent_runtime_accepts_managed_entry_source_from_env(monkeypatch, tm
         [
             "agent",
             "claude",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -3182,7 +3329,7 @@ def test_cli_opencode_gen_accepts_ready_bundle_without_starting_run(monkeypatch,
         [
             "agent",
             "opencode",
-            "gen",
+            "plan",
             "--workdir",
             str(sample_workdir),
             "--message",
@@ -3234,7 +3381,7 @@ def test_codex_adapter_install_does_not_touch_user_configuration(service_factory
 def test_codex_adapter_refuses_unowned_target_files(service_factory, tmp_path: Path) -> None:
     service = service_factory(scenario="success")
     workdir = tmp_path / "project"
-    custom_skill = workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md"
+    custom_skill = workdir / ".agents" / "skills" / "loopora-plan" / "SKILL.md"
     custom_skill.parent.mkdir(parents=True)
     custom_skill.write_text("# User-owned skill\n", encoding="utf-8")
 
@@ -3247,7 +3394,7 @@ def test_codex_adapter_refuses_unowned_target_files(service_factory, tmp_path: P
 def test_claude_adapter_refuses_unowned_target_files(service_factory, tmp_path: Path) -> None:
     service = service_factory(scenario="success")
     workdir = tmp_path / "project"
-    custom_skill = workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md"
+    custom_skill = workdir / ".claude" / "skills" / "loopora-plan" / "SKILL.md"
     custom_skill.parent.mkdir(parents=True)
     custom_skill.write_text("# User-owned Claude skill\n", encoding="utf-8")
 
@@ -3260,7 +3407,7 @@ def test_claude_adapter_refuses_unowned_target_files(service_factory, tmp_path: 
 def test_opencode_adapter_refuses_unowned_target_files(service_factory, tmp_path: Path) -> None:
     service = service_factory(scenario="success")
     workdir = tmp_path / "project"
-    custom_command = workdir / ".opencode" / "commands" / "loopora-gen.md"
+    custom_command = workdir / ".opencode" / "commands" / "loopora-plan.md"
     custom_command.parent.mkdir(parents=True)
     custom_command.write_text("# User-owned OpenCode command\n", encoding="utf-8")
 
@@ -3276,13 +3423,13 @@ def test_codex_adapter_status_reports_needs_update_for_managed_drift(service_fac
     workdir.mkdir()
 
     service.install_agent_adapter("codex", workdir=workdir)
-    skill_path = workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md"
+    skill_path = workdir / ".agents" / "skills" / "loopora-plan" / "SKILL.md"
     skill_path.write_text(skill_path.read_text(encoding="utf-8") + "\n<!-- locally stale managed file -->\n", encoding="utf-8")
 
     status = service.get_agent_adapter("codex", workdir=workdir)
 
     assert status["status"] == "needs_update"
-    assert any(item["path"].endswith("loopora-gen/SKILL.md") and item["state"] == "needs_update" for item in status["managed_files"])
+    assert any(item["path"].endswith("loopora-plan/SKILL.md") and item["state"] == "needs_update" for item in status["managed_files"])
 
 
 def test_codex_adapter_status_reports_error_for_manifest_tracked_user_edit_without_marker(service_factory, tmp_path: Path) -> None:
@@ -3291,13 +3438,13 @@ def test_codex_adapter_status_reports_error_for_manifest_tracked_user_edit_witho
     workdir.mkdir()
 
     service.install_agent_adapter("codex", workdir=workdir)
-    skill_path = workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md"
+    skill_path = workdir / ".agents" / "skills" / "loopora-plan" / "SKILL.md"
     skill_path.write_text("# User edited this file after install\n", encoding="utf-8")
 
     status = service.get_agent_adapter("codex", workdir=workdir)
 
     assert status["status"] == "error"
-    assert "loopora-gen/SKILL.md" in status["error"]
+    assert "loopora-plan/SKILL.md" in status["error"]
     with pytest.raises(LooporaConflictError):
         service.install_agent_adapter("codex", workdir=workdir)
     assert skill_path.read_text(encoding="utf-8") == "# User edited this file after install\n"
@@ -3309,13 +3456,13 @@ def test_claude_adapter_status_reports_needs_update_for_managed_drift(service_fa
     workdir.mkdir()
 
     service.install_agent_adapter("claude", workdir=workdir)
-    skill_path = workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md"
+    skill_path = workdir / ".claude" / "skills" / "loopora-plan" / "SKILL.md"
     skill_path.write_text(skill_path.read_text(encoding="utf-8") + "\n<!-- locally stale managed file -->\n", encoding="utf-8")
 
     status = service.get_agent_adapter("claude", workdir=workdir)
 
     assert status["status"] == "needs_update"
-    assert any(item["path"].endswith("loopora-gen/SKILL.md") and item["state"] == "needs_update" for item in status["managed_files"])
+    assert any(item["path"].endswith("loopora-plan/SKILL.md") and item["state"] == "needs_update" for item in status["managed_files"])
 
 
 def test_claude_adapter_status_reports_needs_update_for_missing_managed_session_hook(service_factory, tmp_path: Path) -> None:
@@ -3339,13 +3486,13 @@ def test_opencode_adapter_status_reports_needs_update_for_managed_drift(service_
     workdir.mkdir()
 
     service.install_agent_adapter("opencode", workdir=workdir)
-    command_path = workdir / ".opencode" / "commands" / "loopora-gen.md"
+    command_path = workdir / ".opencode" / "commands" / "loopora-plan.md"
     command_path.write_text(command_path.read_text(encoding="utf-8") + "\n<!-- locally stale managed file -->\n", encoding="utf-8")
 
     status = service.get_agent_adapter("opencode", workdir=workdir)
 
     assert status["status"] == "needs_update"
-    assert any(item["path"].endswith("loopora-gen.md") and item["state"] == "needs_update" for item in status["managed_files"])
+    assert any(item["path"].endswith("loopora-plan.md") and item["state"] == "needs_update" for item in status["managed_files"])
 
 
 def test_codex_agent_gen_validates_ready_bundle_and_loop_starts_run(
@@ -3374,7 +3521,7 @@ def test_codex_agent_gen_validates_ready_bundle_and_loop_starts_run(
     assert generated["ready"] is True
     assert generated["status"] == "ready"
     assert generated["preview_path"].startswith("/loops/new/bundle?alignment_session_id=")
-    assert generated["binding"]["entry_invocations"][-1]["action"] == "gen"
+    assert generated["binding"]["entry_invocations"][-1]["action"] == "plan"
     assert generated["binding"]["entry_invocations"][-1]["entry_source"] == "codex_project_skill"
 
     started = service.start_agent_loop("codex", workdir=sample_workdir, entry_source="codex_project_skill", execute_async=False)
@@ -3410,7 +3557,7 @@ def test_codex_agent_gen_validates_ready_bundle_and_loop_starts_run(
     assert "run-local: contract/run_contract.json" in next_step_prompt
     assert Path(started["next_step"]["context_absolute_path"]).exists()
     assert started["session"]["status"] == "running_loop"
-    assert [item["action"] for item in started["binding"]["entry_invocations"][-2:]] == ["gen", "loop"]
+    assert [item["action"] for item in started["binding"]["entry_invocations"][-2:]] == ["plan", "run"]
     assert {item["entry_source"] for item in started["binding"]["entry_invocations"][-2:]} == {"codex_project_skill"}
     final = _drive_agent_native_run_to_success(service, adapter="codex", started=started, workdir=sample_workdir)
     assert final["complete"] is True
@@ -4496,7 +4643,7 @@ def test_agent_native_gatekeeper_pass_with_missing_required_coverage_keeps_task_
     assert "Required coverage" in task_verdict["summary"]
     assert final["task_next_action"]["kind"] == "continue_evidence"
     assert final["task_next_action"]["task_verdict_status"] == "insufficient_evidence"
-    assert final["task_next_action"]["next_loop_command"] == "/loopora-loop"
+    assert final["task_next_action"]["next_loop_command"] == "/loopora-run"
     assert "Run lifecycle is complete, but the task is not proven" in final["task_next_action"]["guidance"]
     agent_entry_start = service.agent_entry_loop_start_projection(run["loop_id"])
     assert agent_entry_start["next_loop_action"] == "start_next_run_for_unproven_verdict"
@@ -5179,7 +5326,7 @@ def test_peer_agent_gen_validates_ready_bundle_and_loop_starts_run(
     assert started["execution_plane"] == "agent_native"
     assert started["run"]["status"] == "awaiting_agent"
     assert started["next_step"]["step_id"] == "builder_step"
-    assert [item["action"] for item in started["binding"]["entry_invocations"][-2:]] == ["gen", "loop"]
+    assert [item["action"] for item in started["binding"]["entry_invocations"][-2:]] == ["plan", "run"]
     assert {item["entry_source"] for item in started["binding"]["entry_invocations"][-2:]} == {entry_source}
     final = _drive_agent_native_run_to_success(
         service,
@@ -5208,16 +5355,184 @@ def test_codex_agent_binding_is_scoped_by_host_context(service_factory, tmp_path
     assert generated["host_context_id"] == "thread-a"
     assert generated["binding"]["host_context_id"] == "thread-a"
 
-    with pytest.raises(LooporaConflictError, match="/loopora-gen"):
+    with pytest.raises(LooporaConflictError, match="choose a recoverable context"):
         service.start_agent_loop("codex", workdir=sample_workdir, context_id="thread-b", execute_async=False)
 
     started = service.start_agent_loop("codex", workdir=sample_workdir, context_id="thread-a", execute_async=False)
+    thread_b_resolution = service.resolve_loopora_context(
+        sample_workdir,
+        intent="run",
+        adapter="codex",
+        context_id="thread-b",
+    )
 
     assert started["started_new_run"] is True
     assert started["binding"]["context_source"] == "explicit"
     assert started["binding"]["host_context_id"] == "thread-a"
     assert started["execution_plane"] == "agent_native"
     assert started["run"]["status"] == "awaiting_agent"
+    assert thread_b_resolution["action"] == "choose_recoverable_context"
+    assert thread_b_resolution["requires_user_choice"] is True
+    assert thread_b_resolution["confidence"] == "single_recoverable"
+    assert thread_b_resolution["choices"][0]["linked_run_id"] == started["run"]["id"]
+
+
+def test_agent_run_context_resolution_covers_empty_resume_and_ambiguous_recovery(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+) -> None:
+    service = service_factory(scenario="success")
+    empty = service.resolve_loopora_context(sample_workdir, intent="run", adapter="codex", context_id="thread-empty")
+    assert empty["action"] == "plan_first"
+    assert empty["confidence"] == "no_binding"
+    assert empty["requires_user_choice"] is False
+
+    bundle_a = tmp_path / "bundle-a.yml"
+    bundle_a.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    generated_a = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Create the first recoverable Loop.",
+            bundle_file=bundle_a,
+            context_id="thread-a",
+        )
+    )
+    exact_ready = service.resolve_loopora_context(sample_workdir, intent="run", adapter="codex", context_id="thread-a")
+    assert exact_ready["action"] == "start_ready_preview"
+    assert exact_ready["confidence"] == "exact_binding"
+    assert exact_ready["choice"]["alignment_session_id"] == generated_a["session"]["id"]
+    assert exact_ready["choice"]["action"] == "start_ready_preview"
+
+    recover_ready = service.resolve_loopora_context(sample_workdir, intent="run", adapter="codex", context_id="thread-new")
+    assert recover_ready["action"] == "choose_recoverable_context"
+    assert recover_ready["confidence"] == "single_recoverable"
+    assert recover_ready["choices"][0]["action"] == "start_ready_preview"
+    assert recover_ready["choices"][0]["alignment_session_id"] == generated_a["session"]["id"]
+
+    started_a = service.start_agent_loop("codex", workdir=sample_workdir, context_id="thread-a", execute_async=False)
+    exact_active = service.resolve_loopora_context(sample_workdir, intent="run", adapter="codex", context_id="thread-a")
+    resumed_a = service.start_agent_loop("codex", workdir=sample_workdir, context_id="thread-a", execute_async=False)
+    assert exact_active["action"] == "resume_run"
+    assert exact_active["confidence"] == "exact_binding"
+    assert exact_active["choice"]["action"] == "resume_active_run"
+    assert exact_active["choice"]["linked_run_id"] == started_a["run"]["id"]
+    assert resumed_a["started_new_run"] is False
+    assert resumed_a["run"]["id"] == started_a["run"]["id"]
+    assert resumed_a["complete"] is False
+
+    bundle_b = tmp_path / "bundle-b.yml"
+    bundle_b.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    generated_b = service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Create a second recoverable Loop.",
+            bundle_file=bundle_b,
+            context_id="thread-b",
+        )
+    )
+    ambiguous = service.resolve_loopora_context(sample_workdir, intent="run", adapter="codex", context_id="thread-new")
+
+    assert ambiguous["action"] == "choose_recoverable_context"
+    assert ambiguous["confidence"] == "ambiguous"
+    assert ambiguous["requires_user_choice"] is True
+    choices_by_session = {choice["alignment_session_id"]: choice for choice in ambiguous["choices"]}
+    assert choices_by_session[generated_a["session"]["id"]]["action"] == "resume_active_run"
+    assert choices_by_session[generated_a["session"]["id"]]["linked_run_id"] == started_a["run"]["id"]
+    assert choices_by_session[generated_b["session"]["id"]]["action"] in {"start_ready_preview", "preview_not_ready"}
+    assert choices_by_session[generated_b["session"]["id"]]["linked_run_id"] == ""
+    assert choices_by_session[generated_b["session"]["id"]]["option_id"].startswith("agent_run:")
+    assert choices_by_session[generated_b["session"]["id"]]["next_command"].startswith("/loopora-run option:agent_run:")
+
+    selected_a = service.start_agent_loop(
+        "codex",
+        workdir=sample_workdir,
+        context_id="thread-new",
+        source_option_id=choices_by_session[generated_a["session"]["id"]]["option_id"],
+        execute_async=False,
+    )
+    assert selected_a["started_new_run"] is False
+    assert selected_a["run"]["id"] == started_a["run"]["id"]
+    assert selected_a["binding"]["selected_option_id"] == choices_by_session[generated_a["session"]["id"]]["option_id"]
+    assert selected_a["binding"]["context_card"]["schema_version"] == 1
+    assert selected_a["binding"]["context_card"]["entry_version"] == agent_adapters.ADAPTER_VERSION
+    assert selected_a["binding"]["context_card"]["recovery_action"] == "resume_run"
+
+
+def test_cli_agent_run_without_exact_binding_reports_recoverable_context(
+    service_factory,
+    tmp_path: Path,
+    sample_workdir: Path,
+    monkeypatch,
+) -> None:
+    service = service_factory(scenario="success")
+    bundle_file = tmp_path / "bundle.yml"
+    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
+    service.create_agent_bundle_candidate(
+        AgentBundleCandidateRequest(
+            adapter="codex",
+            workdir=sample_workdir,
+            message="Ship the focused starter experience.",
+            bundle_file=bundle_file,
+            context_id="thread-original",
+            entry_source="codex_project_skill",
+        )
+    )
+    started = service.start_agent_loop(
+        "codex",
+        workdir=sample_workdir,
+        context_id="thread-original",
+        entry_source="codex_project_skill",
+        execute_async=False,
+    )
+    monkeypatch.setattr(cli, "create_service", lambda: service)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        ["agent", "codex", "run", "--workdir", str(sample_workdir), "--context-id", "thread-new", "--no-web", "--json"],
+    )
+
+    assert result.exit_code == 1
+    assert _error_text(result) == ""
+    payload = json.loads(result.stdout)
+    assert payload["loop_recovery"] == "choose_recoverable_context"
+    assert payload["context_resolution"]["requires_user_choice"] is True
+    assert payload["context_resolution"]["choices"][0]["linked_run_id"] == started["run"]["id"]
+    assert payload["context_resolution"]["choices"][0]["option_id"].startswith("agent_run:")
+    assert payload["context_resolution"]["choices"][0]["next_command"].startswith("/loopora-run option:")
+
+
+def test_cli_agent_run_reports_damaged_binding_recovery(service_factory, sample_workdir: Path, monkeypatch) -> None:
+    service = service_factory(scenario="success")
+    binding_path = agent_adapters.agent_context_binding_path("codex", sample_workdir, context_id="thread-broken")
+    binding_path.parent.mkdir(parents=True)
+    binding_path.write_text("{not-json", encoding="utf-8")
+    monkeypatch.setattr(cli, "create_service", lambda: service)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "agent",
+            "codex",
+            "run",
+            "--workdir",
+            str(sample_workdir),
+            "--context-id",
+            "thread-broken",
+            "--no-web",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["loop_recovery"] == "repair_agent_binding"
+    assert "agent binding is unreadable" in payload["binding_error"]
+    assert "loopora init codex --check" in payload["check_command"]
 
 
 def test_agent_native_observation_snapshot_projects_current_handoff(
@@ -5515,7 +5830,7 @@ def test_cli_agent_loop_does_not_spawn_nested_worker_for_agent_native(adapter: s
 
     result = runner.invoke(
         cli.app,
-        ["agent", adapter, "loop", "--workdir", str(workdir), "--context-id", "thread-1", "--no-web"],
+        ["agent", adapter, "run", "--workdir", str(workdir), "--context-id", "thread-1", "--no-web"],
     )
 
     assert result.exit_code == 0, result.stdout
@@ -5670,7 +5985,7 @@ def test_cli_agent_loop_terminal_unproven_reports_lifecycle_without_complete(mon
                 "complete": True,
                 "task_next_action": {
                     "kind": "continue_evidence",
-                    "next_loop_command": "/loopora-loop",
+                    "next_loop_command": "/loopora-run",
                     "guidance": "Run lifecycle is complete, but the task is not proven.",
                     "task_verdict_summary": "Audit proof is still missing.",
                 },
@@ -5681,7 +5996,7 @@ def test_cli_agent_loop_terminal_unproven_reports_lifecycle_without_complete(mon
 
     result = runner.invoke(
         cli.app,
-        ["agent", "codex", "loop", "--workdir", str(workdir), "--context-id", "thread-1", "--no-web"],
+        ["agent", "codex", "run", "--workdir", str(workdir), "--context-id", "thread-1", "--no-web"],
     )
 
     assert result.exit_code == 0, result.stdout
@@ -5689,7 +6004,7 @@ def test_cli_agent_loop_terminal_unproven_reports_lifecycle_without_complete(mon
     assert f"run_contract_path: {layout.run_contract_path}" in result.stdout
     assert "task_verdict: insufficient_evidence" in result.stdout
     assert "task_next_action: Run lifecycle is complete, but the task is not proven." in result.stdout
-    assert "next_loop_command: /loopora-loop" in result.stdout
+    assert "next_loop_command: /loopora-run" in result.stdout
     assert "next_evidence_focus: Audit proof is still missing." in result.stdout
     assert "agent_native: lifecycle_closed_task_unproven" in result.stdout
     assert "agent_native_task_verdict: insufficient_evidence" in result.stdout
@@ -5940,8 +6255,8 @@ def test_cli_agent_submit_prints_terminal_task_verdict(monkeypatch, tmp_path: Pa
     assert "task_verdict_source: gatekeeper" in result.stdout
     assert "task_verdict_summary: Required coverage still lacks direct evidence." in result.stdout
     assert "task_next_action: run lifecycle is complete but the task is not proven" in result.stdout
-    assert "run /loopora-loop again in this Agent session to start the next evidence pass" in result.stdout
-    assert "next_loop_command: /loopora-loop" in result.stdout
+    assert "run /loopora-run again in this Agent session to start the next evidence pass" in result.stdout
+    assert "next_loop_command: /loopora-run" in result.stdout
     assert "next_plan_action: open run_url and use Improve plan with evidence if the Loop itself needs adjustment" in result.stdout
     assert "next_evidence_focus: Required coverage still lacks direct evidence." in result.stdout
     assert "agent_native: lifecycle_closed_task_unproven" in result.stdout
@@ -5991,7 +6306,7 @@ def test_cli_agent_submit_json_preserves_terminal_task_next_action(monkeypatch, 
                     "kind": "continue_evidence",
                     "reason": "run_lifecycle_complete_task_not_proven",
                     "task_verdict_status": "insufficient_evidence",
-                    "next_loop_command": "/loopora-loop",
+                    "next_loop_command": "/loopora-run",
                     "guidance": "Run lifecycle is complete, but the task is not proven.",
                 },
             }
@@ -6025,7 +6340,7 @@ def test_cli_agent_submit_json_preserves_terminal_task_next_action(monkeypatch, 
     assert payload["complete"] is True
     assert payload["run"]["task_verdict"]["status"] == "insufficient_evidence"
     assert payload["task_next_action"]["kind"] == "continue_evidence"
-    assert payload["task_next_action"]["next_loop_command"] == "/loopora-loop"
+    assert payload["task_next_action"]["next_loop_command"] == "/loopora-run"
 
 
 def test_cli_agent_submit_schema_error_prints_result_repair_guidance(monkeypatch, tmp_path: Path) -> None:
@@ -6272,22 +6587,22 @@ def test_agent_adapter_web_api_reports_status_and_mutates_implemented_hosts(serv
     install_response = client.post("/api/agent-adapters/codex/install", json={"workdir": str(workdir)})
     assert install_response.status_code == 200
     assert install_response.json()["status"] == "installed"
-    assert (workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md").exists()
+    assert (workdir / ".agents" / "skills" / "loopora-plan" / "SKILL.md").exists()
 
     uninstall_response = client.post("/api/agent-adapters/codex/uninstall", json={"workdir": str(workdir)})
     assert uninstall_response.status_code == 200
     assert uninstall_response.json()["status"] == "not_installed"
-    assert not (workdir / ".agents" / "skills" / "loopora-gen" / "SKILL.md").exists()
+    assert not (workdir / ".agents" / "skills" / "loopora-plan" / "SKILL.md").exists()
 
     claude_install_response = client.post("/api/agent-adapters/claude/install", json={"workdir": str(workdir)})
     assert claude_install_response.status_code == 200
     assert claude_install_response.json()["status"] == "installed"
-    assert (workdir / ".claude" / "skills" / "loopora-gen" / "SKILL.md").exists()
+    assert (workdir / ".claude" / "skills" / "loopora-plan" / "SKILL.md").exists()
 
     opencode_install_response = client.post("/api/agent-adapters/opencode/install", json={"workdir": str(workdir)})
     assert opencode_install_response.status_code == 200
     assert opencode_install_response.json()["status"] == "installed"
-    assert (workdir / ".opencode" / "commands" / "loopora-gen.md").exists()
+    assert (workdir / ".opencode" / "commands" / "loopora-plan.md").exists()
 
 
 def test_agent_adapter_web_api_reports_invalid_json(service_factory) -> None:

@@ -346,9 +346,9 @@ def test_browser_agent_native_handoff_stays_on_loopora_loop_path(tmp_path: Path)
         page = browser.new_page()
         page.goto(f"{base_url}/loops/{started['run']['loop_id']}", wait_until="domcontentloaded")
         page.get_by_test_id("loop-agent-entry-copy-command").wait_for(state="visible", timeout=10_000)
-        assert "/loopora-loop" in page.text_content("body")
+        assert "/loopora-run" in page.text_content("body")
         assert page.locator('form[action^="/api/loops/"]').count() == 0
 
         page.goto(f"{base_url}/runs/{started['run']['id']}", wait_until="domcontentloaded")
         page.get_by_test_id("agent-handoff-copy-submit").wait_for(state="visible", timeout=10_000)
-        assert "/loopora-loop" in page.text_content("body")
+        assert "/loopora-run" in page.text_content("body")

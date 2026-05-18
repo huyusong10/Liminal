@@ -36,11 +36,11 @@
     <text x="116" y="209" class="body">描述任务目标和关键判断</text>
 
     <rect x="336" y="166" width="170" height="52" rx="16" class="cmd"/>
-    <text x="421" y="199" text-anchor="middle" class="cmdText">/loopora-gen</text>
-    <text x="421" y="239" text-anchor="middle" class="small">生成候选 Loop</text>
+    <text x="421" y="199" text-anchor="middle" class="cmdText">/loopora-plan</text>
+    <text x="421" y="239" text-anchor="middle" class="small">规划候选 Loop</text>
 
     <rect x="680" y="166" width="174" height="52" rx="16" class="cmd"/>
-    <text x="767" y="199" text-anchor="middle" class="cmdText">/loopora-loop</text>
+    <text x="767" y="199" text-anchor="middle" class="cmdText">/loopora-run</text>
     <text x="767" y="239" text-anchor="middle" class="small">按 Loop 多轮执行</text>
   </g>
 

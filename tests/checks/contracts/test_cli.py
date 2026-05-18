@@ -5,6 +5,7 @@ import re
 from importlib.metadata import distribution
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from loopora import cli
@@ -36,8 +37,8 @@ def _assert_cli_list(output: str, key: str, *items: str) -> None:
 def _assert_readme_entry_points(readmes: list[str], documented_adapters: list[set[str]]) -> None:
     assert documented_adapters == [{"codex", "claude", "opencode"}, {"codex", "claude", "opencode"}]
     assert all("loopora serve " in readme for readme in readmes)
-    assert "After the preview looks right, run `/loopora-loop`" in readmes[0]
-    assert "预览看起来正确后，运行 `/loopora-loop`" in readmes[1]
+    assert "After the preview looks right, run `/loopora-run`" in readmes[0]
+    assert "预览看起来正确后，运行 `/loopora-run`" in readmes[1]
     assert all("confirmed Loop" not in readme for readme in readmes)
 
 
@@ -73,7 +74,9 @@ def _assert_alignment_language_assets(design_docs: dict[str, str], governance_sc
     assert "Web is full-function" in contracts
     assert "same Core" in contracts
     assert "Run status and Loop verdict are separate" in contracts
-    assert "`/loopora-gen` and `/loopora-loop`" in contracts
+    assert "`/loopora-plan -> /loopora-run`" in contracts
+    assert "`/loopora-plan` is the planning stage" in contracts
+    assert "`/loopora-run` is the run stage" in contracts
     assert "明确确认工作约定后进入 READY" in governance_scenario
     assert "确认方案后进入 READY" not in governance_scenario
 
@@ -87,9 +90,9 @@ def _assert_documented_cli_entries_available(documented_adapters: list[set[str]]
         assert "fake-done risk" in result.stdout
         assert "required" in result.stdout
         assert "evidence" in result.stdout
-        assert "/loopora-gen" in result.stdout
+        assert "/loopora-plan" in result.stdout
         assert "READY Loop preview" in result.stdout
-        assert "/loopora-loop" in result.stdout
+        assert "/loopora-run" in result.stdout
         assert "same Agent session" in result.stdout
 
     serve_result = runner.invoke(cli.app, ["serve", "--help"])
@@ -102,14 +105,14 @@ def _assert_documented_cli_entries_available(documented_adapters: list[set[str]]
     assert "task goal" in help_result.stdout
     assert "fake-done risk" in help_result.stdout
     assert "required evidence" in help_result.stdout
-    assert "/loopora-gen" in help_result.stdout
-    assert "/loopora-loop" in help_result.stdout
+    assert "/loopora-plan" in help_result.stdout
+    assert "/loopora-run" in help_result.stdout
     assert "same" in help_result.stdout
     assert "Agent session" in help_result.stdout
     assert help_result.stdout.index("Start here:") < help_result.stdout.index("Expert: create and run")
     assert help_result.stdout.index("│ init") < help_result.stdout.index("│ run")
     assert help_result.stdout.index("│ serve") < help_result.stdout.index("│ run")
-    assert help_result.stdout.index("Install /loopora-gen") < help_result.stdout.index(
+    assert help_result.stdout.index("Install /loopora-plan") < help_result.stdout.index(
         "Expert: create and inspect reusable run flows"
     )
 
@@ -154,14 +157,19 @@ def test_cli_help_keeps_first_use_language_on_plan_files() -> None:
     root_help = runner.invoke(cli.app, ["--help"])
     assert root_help.exit_code == 0, _result_error_text(root_help)
     assert "Import, export, and manage Loop plan files" in root_help.stdout
-    assert "Install /loopora-gen and /loopora-loop project entries" in root_help.stdout
+    assert "Install /loopora-plan and /loopora-run project entries" in root_help.stdout
     assert "task goal, fake-done risk, and required evidence" in root_help.stdout
     assert "Remove Loopora-managed Coding Agent project entries" in root_help.stdout
-    assert "Internal runtime used by /loopora-gen and /loopora-loop" in root_help.stdout
+    assert "Internal runtime used by /loopora-plan and /loopora-run" in root_help.stdout
     assert "project entries" in root_help.stdout
     assert "Import and manage YAML bundles" not in root_help.stdout
     assert "Coding Agent adapters" not in root_help.stdout
 
+    _assert_cli_agent_entry_help(runner)
+    _assert_cli_bundle_import_help(runner)
+
+
+def _assert_cli_agent_entry_help(runner: CliRunner) -> None:
     init_group_help = runner.invoke(cli.app, ["init", "--help"])
     assert init_group_help.exit_code == 0, _result_error_text(init_group_help)
     assert "task goal, fake-done risk, and required evidence" in init_group_help.stdout
@@ -173,9 +181,9 @@ def test_cli_help_keeps_first_use_language_on_plan_files() -> None:
     assert "fake-done risk" in init_help.stdout
     assert "required" in init_help.stdout
     assert "evidence" in init_help.stdout
-    assert "/loopora-gen" in init_help.stdout
+    assert "/loopora-plan" in init_help.stdout
     assert "READY Loop preview" in init_help.stdout
-    assert "/loopora-loop" in init_help.stdout
+    assert "/loopora-run" in init_help.stdout
     assert "same Agent session" in init_help.stdout
     assert "Project directory where the Coding Agent will" in init_help.stdout
     assert "work." in init_help.stdout
@@ -188,7 +196,7 @@ def test_cli_help_keeps_first_use_language_on_plan_files() -> None:
     assert "work." in uninstall_help.stdout
     assert "adapter" not in uninstall_help.stdout.lower()
 
-    agent_help = runner.invoke(cli.app, ["agent", "codex", "gen", "--help"])
+    agent_help = runner.invoke(cli.app, ["agent", "codex", "plan", "--help"])
     assert agent_help.exit_code == 0, _result_error_text(agent_help)
     assert "Validate a generated Loop plan and return the Loop preview URL." in agent_help.stdout
     assert "Candidate Loop plan file" in agent_help.stdout
@@ -199,13 +207,26 @@ def test_cli_help_keeps_first_use_language_on_plan_files() -> None:
     agent_group_help = runner.invoke(cli.app, ["agent", "codex", "--help"])
     assert agent_group_help.exit_code == 0, _result_error_text(agent_group_help)
     assert "Internal Codex runtime used by Loopora project entries" in agent_group_help.stdout
+    assert " plan" in agent_group_help.stdout
+    assert " run" in agent_group_help.stdout
     assert "adapter runtime" not in agent_group_help.stdout.lower()
 
+
+def _assert_cli_bundle_import_help(runner: CliRunner) -> None:
     import_help = runner.invoke(cli.app, ["bundles", "import", "--help"])
     assert import_help.exit_code == 0, _result_error_text(import_help)
     assert "Import one Loop plan file and materialize its run-ready assets." in import_help.stdout
     assert "Path to a Loop plan file" in import_help.stdout
     assert "YAML bundle" not in import_help.stdout
+
+
+@pytest.mark.parametrize("old_action", ["gen", "loop"])
+def test_agent_runtime_does_not_keep_old_plan_run_aliases(old_action: str) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(cli.app, ["agent", "codex", old_action, "--help"])
+
+    assert result.exit_code != 0
 
 
 def test_design_main_workflow_anchors_separate_run_status_and_loop_verdict() -> None:

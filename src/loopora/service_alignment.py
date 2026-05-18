@@ -15,7 +15,7 @@ from loopora.alignment_semantics import (
     semantic_antipattern_match_is_negated,
     text_mentions_loop_fit_contradiction,
 )
-from loopora.agent_adapters import agent_loop_command
+from loopora.agent_adapters import agent_loop_command, read_agent_binding
 from loopora.alignment_guidance import load_alignment_guidance_assets
 from loopora.branding import APP_STATE_DIRNAME, state_dir_for_workdir
 from loopora.bundles import (
@@ -41,7 +41,7 @@ from loopora.service_alignment_diagnostics import (
 )
 from loopora.service_alignment_legacy import ServiceAlignmentLegacyMixin
 from loopora.service_cleanup_diagnostics import best_effort_rmtree, cleanup_diagnostic_payload, log_cleanup_diagnostic
-from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError
+from loopora.service_types import LooporaConflictError, LooporaError, LooporaNotFoundError, TERMINAL_RUN_STATUSES
 from loopora.specs import SpecError, compile_markdown_spec
 from loopora.structured_numbers import structured_non_negative_int
 from loopora.utils import make_id, utc_now
@@ -930,6 +930,29 @@ class ServiceAlignmentMixin(ServiceAlignmentLegacyMixin):
 
     def get_alignment_workdir_context(self, workdir: Path) -> dict:
         root = workdir.expanduser().resolve()
+        context = self._alignment_workdir_context_payload(root)
+        context["resolution"] = self._resolve_plan_context_from_workdir_context(context)
+        return context
+
+    def resolve_loopora_context(
+        self,
+        workdir: Path,
+        *,
+        intent: str = "plan",
+        adapter: str = "",
+        context_id: str = "",
+        source_option_id: str = "",
+    ) -> dict:
+        root = workdir.expanduser().resolve()
+        if not root.exists() or not root.is_dir():
+            raise LooporaError(f"workdir does not exist: {root}")
+        normalized_intent = str(intent or "plan").strip().lower()
+        if normalized_intent == "run":
+            return self._resolve_run_context(root, adapter=adapter, context_id=context_id)
+        context = self._alignment_workdir_context_payload(root)
+        return self._resolve_plan_context_from_workdir_context(context, source_option_id=source_option_id)
+
+    def _alignment_workdir_context_payload(self, root: Path) -> dict:
         if not root.exists() or not root.is_dir():
             raise LooporaError(f"workdir does not exist: {root}")
         options: list[dict] = []
@@ -966,6 +989,60 @@ class ServiceAlignmentMixin(ServiceAlignmentLegacyMixin):
             "requires_choice": has_sources,
             "recommended_option_id": "" if has_sources else "regenerate",
             "options": bounded_options,
+        }
+
+    @staticmethod
+    def _resolve_plan_context_from_workdir_context(context: dict, *, source_option_id: str = "") -> dict:
+        option_id = str(source_option_id or context.get("recommended_option_id") or "").strip()
+        options = [option for option in context.get("options") or [] if isinstance(option, dict)]
+        selected = next((option for option in options if option.get("option_id") == option_id), None)
+        base = {
+            "schema_version": 1,
+            "intent": "plan",
+            "workdir": str(context.get("workdir") or ""),
+            "state_dir": str(context.get("state_dir") or ""),
+            "has_loopora_state": bool(context.get("has_loopora_state")),
+            "selected_option_id": option_id,
+            "requires_user_choice": False,
+            "choices": [],
+        }
+        if selected and selected.get("action") == "regenerate":
+            return {
+                **base,
+                "action": "create_new",
+                "confidence": "explicit_fresh" if source_option_id else "no_existing_context",
+                "fresh": True,
+            }
+        if selected and selected.get("action") == "continue_session":
+            return {
+                **base,
+                "action": "continue_session",
+                "confidence": "selected_context",
+                "fresh": False,
+                "selected": selected,
+            }
+        if selected:
+            return {
+                **base,
+                "action": "improve_existing",
+                "confidence": "selected_context",
+                "fresh": False,
+                "selected": selected,
+            }
+        if context.get("requires_choice"):
+            return {
+                **base,
+                "action": "choose_source",
+                "confidence": "ambiguous",
+                "fresh": False,
+                "requires_user_choice": True,
+                "choices": options,
+            }
+        return {
+            **base,
+            "action": "create_new",
+            "confidence": "no_existing_context",
+            "fresh": True,
         }
 
     def get_alignment_bundle(self, session_id: str) -> dict:
@@ -1128,7 +1205,7 @@ class ServiceAlignmentMixin(ServiceAlignmentLegacyMixin):
         if session["status"] != "ready":
             raise LooporaConflictError(f"alignment session is not READY: {session['status']}")
         if _coerce_alignment_start_immediately(start_immediately) and execute_async and self._alignment_session_has_agent_entry_candidate(session_id):
-            raise LooporaConflictError("agent-first Loop previews must be started from /loopora-loop so the host Agent executes the run natively")
+            raise LooporaConflictError("agent-first Loop previews must be started from /loopora-run so the host Agent executes the run natively")
         bundle_path = Path(session["bundle_path"])
         if not bundle_path.exists():
             raise LooporaNotFoundError(f"alignment bundle does not exist: {bundle_path}")
@@ -3280,13 +3357,13 @@ class ServiceAlignmentMixin(ServiceAlignmentLegacyMixin):
         if cls._alignment_prefers_chinese(session):
             if review_mode == "not_fit":
                 return (
-                    "请先按这次 /loopora-gen 的任务锚点重新判断是否适合 Loopora："
+                    "请先按这次 /loopora-plan 的任务锚点重新判断是否适合 Loopora："
                     f"{task_anchor}\n"
                     "如果仍要继续，请明确后续轮次会新增哪些证据、handoff 或 GateKeeper 裁决价值；"
                     "如果不适合，请不要生成可运行 Loop。"
                 )
             return (
-                "请基于这次 /loopora-gen 的任务锚点继续 Web review："
+                "请基于这次 /loopora-plan 的任务锚点继续 Web review："
                 f"{task_anchor}\n"
                 "推荐采用证据优先路径：先确认 Loopora fit，再把完成标准、伪完成风险、证据预期、"
                 "执行策略、判断取舍、残余风险和本地治理责任整理成可确认的工作协议；"
@@ -3294,13 +3371,13 @@ class ServiceAlignmentMixin(ServiceAlignmentLegacyMixin):
             )
         if review_mode == "not_fit":
             return (
-                "First re-check whether this /loopora-gen task anchor fits Loopora: "
+                "First re-check whether this /loopora-plan task anchor fits Loopora: "
                 f"{task_anchor}\n"
                 "If we should continue, explain what later evidence, handoffs, or GateKeeper judgment would add; "
                 "if it does not fit, do not generate a runnable Loop."
             )
         return (
-            "Continue Web review from this /loopora-gen task anchor: "
+            "Continue Web review from this /loopora-plan task anchor: "
             f"{task_anchor}\n"
             "Use the evidence-first path: first confirm Loopora fit, then turn the success criteria, fake-done risks, "
             "evidence expectations, execution strategy, judgment tradeoffs, residual-risk policy, and local governance "
@@ -3458,7 +3535,7 @@ class ServiceAlignmentMixin(ServiceAlignmentLegacyMixin):
             "adapter": adapter,
             "entry_source": entry_source,
             "host_context_id": host_context_id,
-            "slash_command": "/loopora-loop",
+            "slash_command": "/loopora-run",
             "loop_command": loop_command,
             "workdir": workdir,
             "candidate_sha256": str(payload.get("candidate_sha256") or ""),
@@ -4499,6 +4576,186 @@ class ServiceAlignmentMixin(ServiceAlignmentLegacyMixin):
         if regenerate is not None and all(option.get("option_id") != "regenerate" for option in bounded):
             bounded = [*bounded[: max(0, limit - 1)], regenerate]
         return bounded
+
+    def _resolve_run_context(self, root: Path, *, adapter: str, context_id: str) -> dict:
+        normalized_adapter = str(adapter or "").strip()
+        base = {
+            "schema_version": 1,
+            "intent": "run",
+            "workdir": str(root),
+            "adapter": normalized_adapter,
+            "context_id": str(context_id or "").strip(),
+            "requires_user_choice": False,
+            "choices": [],
+        }
+        if normalized_adapter:
+            try:
+                binding = read_agent_binding(normalized_adapter, root, context_id=context_id)
+            except LooporaError as exc:
+                return {
+                    **base,
+                    "action": "repair_agent_binding",
+                    "confidence": "damaged_binding",
+                    "binding_error": str(exc),
+                    "message": "Agent binding is unreadable; repair it or choose a recoverable context before /loopora-run starts.",
+                }
+            if binding:
+                return self._resolve_run_context_from_exact_binding(root, base=base, binding=binding)
+        choices = self._agent_run_context_choices(root, adapter=normalized_adapter)
+        if choices:
+            return {
+                **base,
+                "action": "choose_recoverable_context",
+                "confidence": "single_recoverable" if len(choices) == 1 else "ambiguous",
+                "requires_user_choice": True,
+                "choices": choices,
+                "message": "Choose a recoverable Loopora run context before /loopora-run starts.",
+            }
+        return {
+            **base,
+            "action": "plan_first",
+            "confidence": "no_binding",
+            "message": "No Loopora run context is bound to this Agent session/workdir; run /loopora-plan first.",
+        }
+
+    def _resolve_run_context_from_exact_binding(self, root: Path, *, base: dict, binding: dict) -> dict:
+        session_id = str(binding.get("alignment_session_id") or "").strip()
+        if not session_id:
+            return {
+                **base,
+                "action": "blocked",
+                "confidence": "stale_binding",
+                "binding": self._redact_agent_context_binding(binding),
+                "message": "Agent binding exists but does not reference a Loop preview; run /loopora-plan again.",
+            }
+        try:
+            session = self.get_alignment_session(session_id)
+        except LooporaError:
+            return {
+                **base,
+                "action": "blocked",
+                "confidence": "stale_binding",
+                "binding": self._redact_agent_context_binding(binding),
+                "alignment_session_id": session_id,
+                "message": "Agent binding references a missing Loop preview; run /loopora-plan again.",
+            }
+        if not self._same_alignment_workdir(binding.get("workdir") or session.get("workdir"), root):
+            return {
+                **base,
+                "action": "blocked",
+                "confidence": "workdir_mismatch",
+                "binding": self._redact_agent_context_binding(binding),
+                "alignment_session_id": session_id,
+                "message": "Agent binding belongs to a different workdir; run /loopora-plan again.",
+            }
+        choice = self._agent_run_context_choice_from_session(session, adapter=str(base.get("adapter") or ""))
+        action = "resume_run"
+        if choice.get("linked_run_id"):
+            action = "resume_run"
+        elif choice.get("alignment_status") in {"ready", "imported"}:
+            action = "start_ready_preview"
+        else:
+            action = "blocked"
+        return {
+            **base,
+            "action": action,
+            "confidence": "exact_binding",
+            "alignment_session_id": session_id,
+            "binding": self._redact_agent_context_binding(binding),
+            "choice": choice,
+            "message": "Exact Agent binding found.",
+        }
+
+    def _agent_run_context_choices(self, root: Path, *, adapter: str) -> list[dict]:
+        list_sessions = getattr(self.repository, "list_all_alignment_sessions", None)
+        sessions = list_sessions() if callable(list_sessions) else self.repository.list_alignment_sessions(limit=100)
+        choices: list[dict] = []
+        seen: set[str] = set()
+        for session in sessions:
+            if not self._same_alignment_workdir(session.get("workdir"), root):
+                continue
+            candidate_event = self._alignment_session_agent_entry_candidate_event(str(session.get("id") or ""))
+            if not candidate_event:
+                continue
+            payload = candidate_event.get("payload") if isinstance(candidate_event.get("payload"), dict) else {}
+            event_adapter = str(payload.get("adapter") or session.get("executor_kind") or "").strip()
+            if adapter and event_adapter != adapter:
+                continue
+            choice = self._agent_run_context_choice_from_session(session, adapter=event_adapter, payload=payload)
+            option_id = str(choice.get("option_id") or "")
+            if option_id and option_id not in seen:
+                choices.append(choice)
+                seen.add(option_id)
+        return self._bounded_alignment_context_options(choices)
+
+    def _agent_run_context_choice_from_session(self, session: dict, *, adapter: str, payload: dict | None = None) -> dict:
+        session_id = str(session.get("id") or "").strip()
+        linked_run_id = str(session.get("linked_run_id") or "").strip()
+        option_id = self._alignment_source_option_id("agent_run", session_id)
+        entry_source = str((payload or {}).get("entry_source") or "")
+        linked_run_status = ""
+        next_action = "start_ready_preview"
+        if linked_run_id:
+            try:
+                run = self.get_run(linked_run_id)
+                linked_run_status = str(run.get("status") or "")
+                next_action = "replay_terminal_run" if linked_run_status in TERMINAL_RUN_STATUSES else "resume_active_run"
+            except LooporaError:
+                next_action = "stale_linked_run"
+        elif str(session.get("status") or "") not in {"ready", "imported"}:
+            next_action = "preview_not_ready"
+        title = self._alignment_context_title_from_session(session)
+        return {
+            "option_id": option_id,
+            "action": next_action,
+            "source_type": "agent_entry",
+            "adapter": adapter,
+            "alignment_session_id": session_id,
+            "alignment_status": str(session.get("status") or ""),
+            "linked_run_id": linked_run_id,
+            "linked_run_status": linked_run_status,
+            "updated_at": session.get("updated_at", ""),
+            "entry_source": entry_source,
+            "host_context_id": str((payload or {}).get("host_context_id") or ""),
+            "next_command": f"/loopora-run option:{option_id}",
+            "agent_cli_command": agent_loop_command(
+                adapter,
+                str(session.get("workdir") or "."),
+                entry_source=entry_source,
+                source_option_id=option_id,
+            )
+            if adapter
+            else "",
+            "label_zh": f"恢复 Agent 运行：{title}",
+            "label_en": f"Resume Agent run: {title}",
+            "description_zh": "回到这个 Agent Native Loop 的现有运行或 READY 预览；不会重新规划。",
+            "description_en": "Return to this Agent Native Loop's existing run or READY preview without replanning.",
+        }
+
+    @staticmethod
+    def _redact_agent_context_binding(binding: dict) -> dict:
+        return {
+            key: redact_sensitive_value(key, value)
+            for key, value in binding.items()
+            if key
+            in {
+                "path",
+                "alignment_session_id",
+                "alignment_status",
+                "linked_run_id",
+                "linked_loop_id",
+                "linked_bundle_id",
+                "workdir",
+                "host_context_id",
+                "context_source",
+                "updated_at",
+                "requires_web_alignment",
+                "requires_candidate_repair",
+                "loopora_fit_contradiction",
+                "preview_path",
+                "run_path",
+            }
+        }
 
     def _collect_alignment_session_context_options(self, root: Path, options: list[dict], seen_option_ids: set[str]) -> set[str]:
         seen_bundle_paths: set[str] = set()

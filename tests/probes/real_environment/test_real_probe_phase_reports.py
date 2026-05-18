@@ -101,8 +101,8 @@ def test_release_web_phase_report_projects_adapter_state_matrix(tmp_path: Path) 
     for adapter in module.ADAPTERS:
         paths = module.AdapterPaths(
             workdir=workdir,
-            gen_skill=workdir / adapter / "loopora-gen.md",
-            loop_skill=workdir / adapter / "loopora-loop.md",
+            gen_skill=workdir / adapter / "loopora-plan.md",
+            loop_skill=workdir / adapter / "loopora-run.md",
         )
         paths.gen_skill.parent.mkdir(parents=True, exist_ok=True)
         paths.gen_skill.write_text("managed", encoding="utf-8")

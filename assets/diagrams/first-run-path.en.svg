@@ -36,11 +36,11 @@
     <text x="116" y="209" class="body">Describe the task and judgment</text>
 
     <rect x="336" y="166" width="170" height="52" rx="16" class="cmd"/>
-    <text x="421" y="199" text-anchor="middle" class="cmdText">/loopora-gen</text>
-    <text x="421" y="239" text-anchor="middle" class="small">Create Loop candidate</text>
+    <text x="421" y="199" text-anchor="middle" class="cmdText">/loopora-plan</text>
+    <text x="421" y="239" text-anchor="middle" class="small">Plan Loop candidate</text>
 
     <rect x="680" y="166" width="174" height="52" rx="16" class="cmd"/>
-    <text x="767" y="199" text-anchor="middle" class="cmdText">/loopora-loop</text>
+    <text x="767" y="199" text-anchor="middle" class="cmdText">/loopora-run</text>
     <text x="767" y="239" text-anchor="middle" class="small">Run Agent rounds</text>
   </g>
 

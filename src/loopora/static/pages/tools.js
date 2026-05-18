@@ -406,8 +406,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function agentAdapterInstallSuccessMessage(label) {
     return localeText(
-      `${label} 接入已安装或更新。回到 ${label}，说明任务目标、伪完成风险和必需证据后运行 /loopora-gen；预览 READY 并审查后，在同一 Agent 会话运行 /loopora-loop。`,
-      `${label} entry is installed or updated. Return to ${label} with the task goal, fake-done risk, and required evidence before /loopora-gen; after the READY preview is reviewed, run /loopora-loop in the same Agent session.`,
+      `${label} 接入已安装或更新。回到 ${label}，说明任务目标、伪完成风险和必需证据后运行 /loopora-plan；预览 READY 并审查后，在同一 Agent 会话运行 /loopora-run。`,
+      `${label} entry is installed or updated. Return to ${label} with the task goal, fake-done risk, and required evidence before /loopora-plan; after the READY preview is reviewed, run /loopora-run in the same Agent session.`,
     );
   }
 
@@ -521,7 +521,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <span class="${escapeHtml(agentAdapterPillClass(status))}">${escapeHtml(handoffStatusLabel(status))}</span>
       </div>
       <div class="agent-adapter-judgment-brief" data-testid="agent-adapter-judgment-brief">
-        <strong>${escapeHtml(localeText("把任务判断交给 /loopora-gen，不只是任务标题。", "Give /loopora-gen the task judgment, not just a task title."))}</strong>
+        <strong>${escapeHtml(localeText("把任务判断交给 /loopora-plan，不只是任务标题。", "Give /loopora-plan the task judgment, not just a task title."))}</strong>
         <ul>
           <li><span>${escapeHtml(localeText("目标", "Goal"))}</span>${escapeHtml(localeText("要证明的用户结果", "User result to prove"))}</li>
           <li><span>${escapeHtml(localeText("伪完成", "Fake done"))}</span>${escapeHtml(localeText("看似完成但必须阻断的状态", "Looks done but must block"))}</li>
@@ -532,31 +532,31 @@ document.addEventListener("DOMContentLoaded", () => {
         <button
           class="agent-adapter-command-button"
           type="button"
-          data-agent-adapter-command-copy="/loopora-gen"
-          data-copy-value="/loopora-gen"
+          data-agent-adapter-command-copy="/loopora-plan"
+          data-copy-value="/loopora-plan"
           data-testid="agent-adapter-copy-gen"
-          aria-label="${escapeHtml(localeText("复制 /loopora-gen", "Copy /loopora-gen"))}"
+          aria-label="${escapeHtml(localeText("复制 /loopora-plan", "Copy /loopora-plan"))}"
         >
           <span>1</span>
-          <code>/loopora-gen</code>
+          <code>/loopora-plan</code>
         </button>
         <span class="agent-adapter-command-then">${escapeHtml(localeText("审查 READY Loop 预览", "Review READY Loop preview"))}</span>
         <button
           class="agent-adapter-command-button"
           type="button"
-          data-agent-adapter-command-copy="/loopora-loop"
-          data-copy-value="/loopora-loop"
+          data-agent-adapter-command-copy="/loopora-run"
+          data-copy-value="/loopora-run"
           data-testid="agent-adapter-copy-loop"
-          aria-label="${escapeHtml(localeText("复制 /loopora-loop", "Copy /loopora-loop"))}"
+          aria-label="${escapeHtml(localeText("复制 /loopora-run", "Copy /loopora-run"))}"
         >
           <span>2</span>
-          <code>/loopora-loop</code>
+          <code>/loopora-run</code>
         </button>
       </div>
       <p class="agent-adapter-handoff-note" data-testid="agent-adapter-handoff-note">
         ${escapeHtml(localeText(
-          "只有预览匹配这些判断后才运行 /loopora-loop；Web 用来观察证据、缺口和裁决，执行仍回到同一个 Agent。",
-          "Run /loopora-loop only after the preview matches those judgments; Web observes evidence, gaps, and verdicts while execution stays in the same Agent.",
+          "只有预览匹配这些判断后才运行 /loopora-run；Web 用来观察证据、缺口和裁决，执行仍回到同一个 Agent。",
+          "Run /loopora-run only after the preview matches those judgments; Web observes evidence, gaps, and verdicts while execution stays in the same Agent.",
         ))}
       </p>
       <div class="agent-adapter-install-proof" data-testid="agent-adapter-install-proof">

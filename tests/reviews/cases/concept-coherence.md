@@ -22,9 +22,9 @@ targets:
       - src/loopora/templates/tutorial.html
       - assets/diagrams/*.svg
     max_bytes_per_file: 8000
-  - id: gen-loop-contract-text
+  - id: plan-run-contract-text
     type: text_globs
-    title: Bundle, gen, and loop execution design contracts
+    title: Bundle, planning, and run execution design contracts
     globs:
       - design/contracts.md
     max_bytes_per_file: 40000
@@ -91,7 +91,7 @@ Look for:
 - Concepts that are correct in one language but drift in another.
 - Visible top-level docs shipping inline editorial review notes instead of reader-facing product explanation.
 - Whether bundle design still externalizes task-scoped human judgment into runnable surfaces rather than becoming either YAML configuration or a catalog product.
-- Whether `/loopora-gen` still helps the human externalize judgment by checking fit and sufficiency, asking one focused question or returning Web review when needed, and refusing to invent missing judgment.
-- Whether `/loopora-loop` still executes the reviewed Loop through run contracts, step capsules, host dispatch, required coverage, evidence gates, and task verdicts rather than relying on host memory or inline shortcuts.
+- Whether `/loopora-plan` still helps the human externalize judgment by checking fit and sufficiency, asking one focused question or returning Web review when needed, and refusing to invent missing judgment.
+- Whether `/loopora-run` still executes the reviewed Loop through run contracts, step capsules, host dispatch, required coverage, evidence gates, and task verdicts rather than relying on host memory or inline shortcuts.
 
 Review findings should name the conflicting surfaces and the stable product invariant they violate. Prefer updating the relevant design or current docs over adding a brittle text assertion.

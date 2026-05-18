@@ -24,7 +24,7 @@ In a Coding Agent, a persistent goal such as `/goal` feels natural: give the Age
 
 The hard part of complex work is usually not only "keep going." It is judging after each round whether the Agent actually did the right thing: whether evidence is strong enough, whether risk is acceptable, whether the next round should turn, and whether the task can close. A bare persistent goal can keep the work moving, but it can also become a black box: the Agent keeps making the result more complete while early drift, weak evidence, and fake completion are inherited too.
 
-Loopora handles that layer. When a task is too heavy to run as a bare `/goal`, use `/loopora-gen` to turn the objective, done criteria, fake-done patterns, evidence requirements, blocking risks, and next-round priorities into a reviewable Loop. Then use `/loopora-loop` to let the Agent keep executing inside that Loop.
+Loopora handles that layer. When a task is too heavy to run as a bare `/goal`, use `/loopora-plan` to turn the objective, done criteria, fake-done patterns, evidence requirements, blocking risks, and next-round priorities into a reviewable Loop. Then use `/loopora-run` to let the Agent keep executing inside that Loop.
 
 The Agent still reads code, edits files, and runs tools. Loopora reduces error accumulation by making each round return to the same judgment, with evidence, gaps, blockers, and the final task verdict visible in Web.
 
@@ -45,8 +45,8 @@ If you would have written:
 Loopora wants you to split that into two steps:
 
 ```text
-/loopora-gen
-/loopora-loop
+/loopora-plan
+/loopora-run
 ```
 
 The difference is not command length. It is the reviewable judgment structure created before the long run starts.
@@ -113,14 +113,22 @@ loopora init claude
 loopora init opencode
 ```
 
-Then return to your Agent and use two entries for the current task:
+To check whether the project Agent entry is complete, still Loopora-managed, and has all managed protocol files, run:
 
-```text
-/loopora-gen
-/loopora-loop
+```bash
+loopora init codex --check
 ```
 
-For a first run, invoke `/loopora-gen` inside your Agent and describe the task plus the judgment that matters:
+`--check` diagnoses only; it does not install, repair, or overwrite files. Use Web for run status and details.
+
+Then return to your Agent and use two stage entries for the current task:
+
+```text
+/loopora-plan
+/loopora-run
+```
+
+For a first run, invoke `/loopora-plan` inside your Agent and describe the task plus the judgment that matters:
 
 ```text
 I need to build a refund request admin:
@@ -130,15 +138,15 @@ I need to build a refund request admin:
 - the audit trail must reconstruct a refund
 ```
 
-Loopora uses the judgment already visible in the current Agent context. If the important judgment is missing, `/loopora-gen` should ask one focused question or open Web review instead of guessing. After the preview looks right, run `/loopora-loop`; the current Agent enters the multi-round task under that Loop.
+Loopora uses the judgment already visible in the current Agent context. If the important judgment is missing, `/loopora-plan` should ask one focused question or open Web review instead of guessing. Later, if you want to tighten evidence, repair the candidate plan, adjust role responsibilities, or improve the Loop from run evidence, use `/loopora-plan` again. After the preview looks right, run `/loopora-run`; the current Agent enters the multi-round task under that Loop. Natural-language intents such as "continue," "resume," or "close the evidence gap" also belong to the `/loopora-run` stage.
 
 <p align="center">
   <img src="./assets/diagrams/first-run-path.en.svg" alt="Loopora recommends generating and running a Loop inside the Agent while the Web UI observes and manages the evidence" width="1000" />
 </p>
 
-## What Does `/loopora-gen` Produce?
+## How Does `/loopora-plan` Plan?
 
-`/loopora-gen` does not start execution immediately. Its job is to create a reviewable task plan. For first-use readers, think of that plan as the portable form of the Loop: it turns a long objective into judgment structure the later run cannot avoid.
+`/loopora-plan` does not start execution immediately. It enters the Loop planning stage: create, revise, repair, or tighten a reviewable task plan. For first-use readers, think of that plan as the portable form of the Loop: it turns a long objective into judgment structure the later run cannot avoid. If run evidence shows the evidence rules, verdict conditions, or role responsibilities are wrong, return to `/loopora-plan` or Web review instead of letting the run stage silently rewrite the plan.
 
 In the path started from the Agent, the plan has to carry task-specific judgment, not just a task summary. Important task objects, risks, and evidence expectations should appear in the task contract, Agent responsibilities, and run flow.
 
@@ -162,9 +170,25 @@ The plan is not trying to encode all human judgment. It encodes the part of judg
 
 At runtime, Loopora turns those reader-facing pieces into a runnable plan: the task contract, Agent responsibilities, step order, handoffs, and evidence rules stay linked, so a Loop can be reviewed before execution and audited after execution.
 
-## How Does `/loopora-loop` Run?
+## How Does `/loopora-run` Advance?
 
-`/loopora-loop` starts or resumes a long-running task managed by Loopora. The Agent remains the main execution subject: it reads code, edits files, runs checks, and explains results. Loopora keeps each round tied back to the reviewed plan, required evidence, and verdict rules instead of letting the task continue from chat memory or a bare goal alone.
+`/loopora-run` enters the Loop run stage: start, continue, resume, or close evidence gaps. The Agent remains the main execution subject: it reads code, edits files, runs checks, and explains results. Loopora keeps each round tied back to the reviewed plan, required evidence, and verdict rules instead of letting the task continue from chat memory or a bare goal alone. If the user asks to change the judgment standard during this stage, the Agent should stop and route them back to `/loopora-plan` or Web review.
+
+If the current Agent session has an exact Loopora binding, `/loopora-run` can resume it directly. If the workdir has recoverable Loopora runs but the current Agent session is different or ambiguous, Loopora should surface the choices instead of guessing. To create a fresh Loop rather than reuse old judgment, return to `/loopora-plan` or Web and choose the fresh path explicitly.
+
+Common recovery paths follow the user's intent:
+
+| Situation | What Loopora should do |
+| --- | --- |
+| The current directory has no Loopora context yet | `/loopora-plan` creates a fresh candidate Loop by default. |
+| The current directory already has a spec, candidate Loop, run, or evidence | `/loopora-plan` surfaces available sources so you can continue, improve, or explicitly start fresh. |
+| Work stopped halfway and you return to the same Agent session | `/loopora-run` resumes the exact bound run without replanning. |
+| You return from a different Agent session or several contexts are recoverable | `/loopora-run` surfaces choices with an `option:<id>` recovery token, so you can pick the token, pick in Web, or return to `/loopora-plan fresh`. |
+| The previous run ended but evidence is still insufficient | `/loopora-run` starts the next run from the same Loop and focuses on the unproven gaps. |
+| The previous task verdict already passed | `/loopora-run` replays the completed state instead of creating another run. |
+| You explicitly want to recreate the bundle | Use the fresh path in `/loopora-plan`; old runs and evidence stay history, not current judgment. |
+| The local Agent binding or context card is damaged | `/loopora-run` returns repair guidance; run `loopora init <adapter> --check` first, then repair the binding or use `/loopora-plan fresh`. |
+| Local file cleanup fails while deleting or replacing a bundle | The record deletion can still complete, but Loopora returns `cleanup_warnings` with the path and error to clean up manually. |
 
 A run roughly progresses like this:
 
@@ -207,7 +231,7 @@ This boundary matters: Loopora is not trying to help the Agent claim completion 
 
 ## What Can Web Do?
 
-The Web UI is the fuller observation and management surface. You can start a Loop from inside the Agent, then open Web whenever you want to inspect or manage it. When started from the Agent, `/loopora-gen` or `/loopora-loop` starts or reuses the local Web service when it returns a Web link, and the CLI output reports that status.
+The Web UI is the fuller observation and management surface. You can start a Loop from inside the Agent, then open Web whenever you want to inspect or manage it. When started from the Agent, `/loopora-plan` or `/loopora-run` starts or reuses the local Web service when it returns a Web link, and the CLI output reports that status.
 
 Start the local Web service manually:
 

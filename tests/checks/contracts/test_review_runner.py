@@ -207,7 +207,7 @@ def test_concept_coherence_case_keeps_core_concepts_out_of_drift_hints() -> None
     drift_terms = _target_terms(targets["concept-drift-hints"])
     drift_globs = set(targets["concept-drift-hints"]["globs"])
     source_globs = set(targets["concept-source-text"]["globs"])
-    gen_loop_globs = set(targets["gen-loop-contract-text"]["globs"])
+    plan_run_globs = set(targets["plan-run-contract-text"]["globs"])
 
     assert anchor_globs == {
         "README.md",
@@ -230,15 +230,15 @@ def test_concept_coherence_case_keeps_core_concepts_out_of_drift_hints() -> None
     assert "src/loopora/assets/alignment/system-prompt.md" in source_globs
     assert "design/detailed-design/08-bundles-and-alignment.md" not in source_globs
     assert "design/detailed-design/10-agent-adapters.md" not in source_globs
-    assert gen_loop_globs == {"design/contracts.md"}
-    assert targets["gen-loop-contract-text"]["max_bytes_per_file"] >= 40000
+    assert plan_run_globs == {"design/contracts.md"}
+    assert targets["plan-run-contract-text"]["max_bytes_per_file"] >= 40000
     assert "design/core-ideas/*.md" not in drift_globs
     assert "src/loopora/assets/alignment/*.md" not in drift_globs
     assert "README.md" in drift_globs
     assert "src/loopora/templates/tutorial.html" in drift_globs
     assert "Whether bundle design still externalizes task-scoped human judgment" in case.brief
-    assert "Whether `/loopora-gen` still helps the human externalize judgment" in case.brief
-    assert "Whether `/loopora-loop` still executes the reviewed Loop" in case.brief
+    assert "Whether `/loopora-plan` still helps the human externalize judgment" in case.brief
+    assert "Whether `/loopora-run` still executes the reviewed Loop" in case.brief
 
 
 def test_concept_coherence_anchor_text_reaches_agent_first_execution_contract(tmp_path: Path) -> None:
@@ -256,16 +256,17 @@ def test_concept_coherence_anchor_text_reaches_agent_first_execution_contract(tm
     assert "每一步都应继承这些判断、行动边界和证据缺口" in report
 
 
-def test_concept_coherence_design_text_reaches_gen_and_loop_contracts(tmp_path: Path) -> None:
+def test_concept_coherence_design_text_reaches_plan_and_run_contracts(tmp_path: Path) -> None:
     case = review_runner._parse_case(ROOT / "tests" / "reviews" / "cases" / "concept-coherence.md")
     targets = {target["id"]: target for target in case.targets}
-    artifact = review_runner._write_text_index(targets["gen-loop-contract-text"], tmp_path)
+    artifact = review_runner._write_text_index(targets["plan-run-contract-text"], tmp_path)
 
     report = artifact.path.read_text(encoding="utf-8")
 
     assert "The compiler turns task judgment into a reviewable and runnable Loop." in report
     assert "Web dialogue, Agent candidate plans, YAML import/export, preview, and run creation" in report
-    assert "`/loopora-gen` and `/loopora-loop` keep the current host Agent" in report
+    assert "`/loopora-plan` is the planning stage" in report
+    assert "`/loopora-run` is the run stage" in report
     assert "The default user model is linear and explainable" in report
 
 
