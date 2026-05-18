@@ -1,37 +1,37 @@
 {% extends "base.html" %}
-{% block title %}{{ 'Plan Packages' if page_locale == 'en' else '方案包' }}{% endblock %}
+{% block title %}{{ 'Plan Files' if page_locale == 'en' else '方案文件' }}{% endblock %}
 {% block content %}
 <div class="page-stack page-stack--catalog" data-testid="bundles-page">
   <section class="hero hero-tight">
     <div class="hero-copy-stack">
       <h1>
-        <span data-lang="zh">管理可交换的方案包。</span>
-        <span data-lang="en">Manage reusable loop plans.</span>
+        <span data-lang="zh">管理可交换的方案文件。</span>
+        <span data-lang="en">Manage exchangeable Loop plan files.</span>
       </h1>
       <p>
-        <span data-lang="zh">这里保留已经导入或派生的方案包，方便查看、导出、替换和整包删除。它是专家交换格式，不是日常查看 Loop 的入口。</span>
-        <span data-lang="en">This library keeps materialized task plans available for viewing, export, derivation, and whole-plan deletion. YAML bundles remain the expert exchange format, not the default new-task starting point.</span>
+        <span data-lang="zh">这里保留已物化的 YAML 方案文件，方便查看、导出、替换和整包删除。它是交换格式，不是长期治理对象。</span>
+        <span data-lang="en">This surface keeps materialized YAML plan files available for viewing, export, replacement, and deletion. It is an exchange surface, not a catalog product.</span>
       </p>
     </div>
     <div class="card-actions">
       <a class="primary-button" href="/loops/new/manual#bundle-import-form" data-testid="bundles-create-loop-link">
         <span data-lang="zh">导入方案文件</span>
-        <span data-lang="en">Import Existing Plan</span>
+        <span data-lang="en">Import Plan File</span>
       </a>
-      <a class="ghost-button" href="/loops/new/manual">
-        <span data-lang="zh">手动编排</span>
-        <span data-lang="en">Manual Expert Mode</span>
+      <a class="ghost-button" href="/loops/new/bundle">
+        <span data-lang="zh">Web 编排</span>
+        <span data-lang="en">Web Composer</span>
       </a>
     </div>
   </section>
 
   <section class="panel">
     <header class="panel-header">
-    <h2><span data-lang="zh">从现有 Loop 导出方案包</span><span data-lang="en">Derive a Plan From a Loop</span></h2>
+      <h2><span data-lang="zh">从现有 Loop 导出方案文件</span><span data-lang="en">Export a Plan From a Loop</span></h2>
     </header>
     <p class="panel-note">
-      <span data-lang="zh">这条路径适合把手动编排过的 Loop 导出成可交换方案包，再交给外部智能体、团队成员或其他工具使用。</span>
-      <span data-lang="en">Use this path to export an existing manual loop into a reusable plan for an external agent, teammate, or another tool.</span>
+      <span data-lang="zh">这条路径适合把现有 Loop 导出成可交换 YAML，再交给外部智能体、团队成员或其他工具使用。</span>
+      <span data-lang="en">Use this path to export an existing Loop into exchangeable YAML for an external agent, teammate, or another tool.</span>
     </p>
     <form class="form-panel" method="post" action="/bundles/derive" data-testid="bundle-derive-form">
       <div class="field-status is-error" aria-live="polite" {% if not derive_error %}hidden{% endif %}>{{ derive_error or "" }}</div>
@@ -46,7 +46,7 @@
           </select>
         </label>
         <label>
-          <span><span data-lang="zh">方案包名称</span><span data-lang="en">Plan name</span></span>
+          <span><span data-lang="zh">方案名称</span><span data-lang="en">Plan name</span></span>
           <input name="name" value="{{ derive_values.name }}" />
         </label>
         <label class="wide">
@@ -60,8 +60,8 @@
       </div>
       <div class="card-actions">
         <button class="secondary-button" type="submit">
-          <span data-lang="zh">导出方案包</span>
-          <span data-lang="en">Export Plan</span>
+          <span data-lang="zh">导出方案文件</span>
+          <span data-lang="en">Export Plan File</span>
         </button>
       </div>
     </form>
@@ -69,18 +69,16 @@
 
   <section class="panel" data-testid="bundle-list">
     <header class="panel-header">
-      <h2><span data-lang="zh">已导入的方案包</span><span data-lang="en">Imported Plans</span></h2>
+      <h2><span data-lang="zh">已导入的方案文件</span><span data-lang="en">Imported Plan Files</span></h2>
       <span><span id="bundle-count" data-testid="bundle-count">{{ bundles|length }}</span> <span data-lang="zh">个</span><span data-lang="en">total</span></span>
     </header>
     {% if bundles %}
       <div class="loop-grid loop-grid--created" id="bundle-grid">
         {% for bundle in bundles %}
-        {% set governance = bundle.governance_summary %}
-        {% set gatekeeper = governance.gatekeeper %}
         <article
           class="loop-card is-clickable"
           data-open-card="/bundles/{{ bundle.id }}"
-          data-testid="bundle-governance-card-{{ bundle.id }}"
+          data-testid="bundle-exchange-item-{{ bundle.id }}"
           tabindex="0"
         >
           <a class="loop-card-link" href="/bundles/{{ bundle.id }}" tabindex="-1" aria-hidden="true"></a>
@@ -90,113 +88,9 @@
               <p>{{ bundle.collaboration_summary }}</p>
             </div>
           </div>
-          <div class="bundle-governance-grid" data-testid="bundle-governance-summary">
-            <div class="bundle-governance-item" data-testid="bundle-governance-success">
-              <span><span data-lang="zh">成功面</span><span data-lang="en">Success surface</span></span>
-              <strong>
-                {% if governance.success_surface %}
-                {{ governance.success_surface[:2]|join(" / ") }}
-                {% else %}
-                <span data-lang="zh">未声明</span><span data-lang="en">Not declared</span>
-                {% endif %}
-              </strong>
-            </div>
-            <div class="bundle-governance-item" data-testid="bundle-governance-failure">
-              <span><span data-lang="zh">失败模式</span><span data-lang="en">Failure mode</span></span>
-              <strong>
-                {% if governance.failure_modes %}
-                {{ governance.failure_modes[:2]|join(" / ") }}
-                {% else %}
-                <span data-lang="zh">未声明</span><span data-lang="en">Not declared</span>
-                {% endif %}
-              </strong>
-            </div>
-            <div class="bundle-governance-item" data-testid="bundle-governance-evidence">
-              <span><span data-lang="zh">证据风格</span><span data-lang="en">Evidence style</span></span>
-              <strong>
-                {% if governance.evidence_style %}
-                {{ governance.evidence_style[:2]|join(" / ") }}
-                {% else %}
-                <span data-lang="zh">运行时落账</span><span data-lang="en">Runtime ledger</span>
-                {% endif %}
-              </strong>
-            </div>
-            <div class="bundle-governance-item" data-testid="bundle-governance-coverage">
-              <span><span data-lang="zh">覆盖目标</span><span data-lang="en">Coverage targets</span></span>
-              <strong>
-                {% if governance.coverage_summary %}
-                {{ governance.coverage_summary }}
-                {% else %}
-                <span data-lang="zh">运行时派生</span><span data-lang="en">Runtime-derived</span>
-                {% endif %}
-              </strong>
-            </div>
-            <div class="bundle-governance-item" data-testid="bundle-governance-residual-risk">
-              <span><span data-lang="zh">残余风险</span><span data-lang="en">Residual risk</span></span>
-              <strong>
-                {% if governance.residual_risk_policy %}
-                {{ governance.residual_risk_policy[:1]|join(" / ") }}
-                {% else %}
-                <span data-lang="zh">失败关闭</span><span data-lang="en">Fail closed</span>
-                {% endif %}
-              </strong>
-            </div>
-            <div class="bundle-governance-item" data-testid="bundle-governance-execution-strategy">
-              <span><span data-lang="zh">执行策略</span><span data-lang="en">Execution strategy</span></span>
-              <strong>
-                {% if governance.execution_strategy %}
-                {{ governance.execution_strategy[:1]|join(" / ") }}
-                {% else %}
-                <span data-lang="zh">下一步未声明</span><span data-lang="en">Next step not declared</span>
-                {% endif %}
-              </strong>
-            </div>
-            <div class="bundle-governance-item" data-testid="bundle-governance-tradeoffs">
-              <span><span data-lang="zh">判断取舍</span><span data-lang="en">Tradeoffs</span></span>
-              <strong>
-                {% if governance.judgment_tradeoffs %}
-                {{ governance.judgment_tradeoffs[:1]|join(" / ") }}
-                {% else %}
-                <span data-lang="zh">未声明</span><span data-lang="en">Not declared</span>
-                {% endif %}
-              </strong>
-            </div>
-            <div class="bundle-governance-item" data-testid="bundle-governance-local">
-              <span><span data-lang="zh">本地治理</span><span data-lang="en">Local governance</span></span>
-              <strong>
-                {% if governance.local_governance %}
-                {{ governance.local_governance[:1]|join(" / ") }}
-                {% else %}
-                <span data-lang="zh">未声明</span><span data-lang="en">Not declared</span>
-                {% endif %}
-              </strong>
-            </div>
-            <div class="bundle-governance-item" data-testid="bundle-governance-workflow">
-              <span><span data-lang="zh">流程</span><span data-lang="en">workflow</span></span>
-              <strong>
-                {% if governance.workflow_shape %}
-                {{ governance.workflow_shape }}
-                {% else %}
-                {{ governance.workflow_step_count }} <span data-lang="zh">步</span><span data-lang="en">steps</span>
-                {% endif %}
-              </strong>
-            </div>
-            <div class="bundle-governance-item" data-testid="bundle-governance-gatekeeper">
-              <span><span data-lang="zh">守门裁决</span><span data-lang="en">GateKeeper</span></span>
-              <strong>
-                {% if gatekeeper.enabled %}
-                <span data-lang="zh">证据引用门禁</span><span data-lang="en">Evidence-ref gate</span>
-                {% else %}
-                <span data-lang="zh">未配置</span><span data-lang="en">Not configured</span>
-                {% endif %}
-              </strong>
-            </div>
-          </div>
-          <details class="bundle-card-expert">
-            <summary><span data-lang="zh">专家信息</span><span data-lang="en">Expert details</span></summary>
           <dl class="meta-grid">
             <div>
-              <dt><span data-lang="zh">方案包 ID</span><span data-lang="en">Bundle ID</span></dt>
+              <dt><span data-lang="zh">方案 ID</span><span data-lang="en">Plan ID</span></dt>
               <dd>{{ bundle.id }}</dd>
             </div>
             <div>
@@ -204,23 +98,22 @@
               <dd>{{ bundle.workdir }}</dd>
             </div>
             <div>
-              <dt><span data-lang="zh">角色定义</span><span data-lang="en">Role definitions</span></dt>
+              <dt><span data-lang="zh">角色</span><span data-lang="en">Roles</span></dt>
               <dd>{{ bundle.role_definitions|length }}</dd>
             </div>
             <div>
-              <dt><span data-lang="zh">流程编排</span><span data-lang="en">Orchestration</span></dt>
+              <dt><span data-lang="zh">流程</span><span data-lang="en">Flow</span></dt>
               <dd>{{ bundle.orchestration.name if bundle.orchestration else '-' }}</dd>
             </div>
           </dl>
-          </details>
           <div class="card-actions card-actions--loop">
             <a class="secondary-button" href="/bundles/{{ bundle.id }}">
-              <span data-lang="zh">查看方案包</span>
+              <span data-lang="zh">查看方案文件</span>
               <span data-lang="en">View Plan</span>
             </a>
             <a class="ghost-button" href="/api/bundles/{{ bundle.id }}/export">
-              <span data-lang="zh">导出方案包</span>
-              <span data-lang="en">Export Plan</span>
+              <span data-lang="zh">导出 YAML</span>
+              <span data-lang="en">Export YAML</span>
             </a>
             <button
               class="ghost-button danger-button"
@@ -228,7 +121,7 @@
               data-delete-bundle="{{ bundle.id }}"
               data-bundle-name="{{ bundle.name }}"
             >
-              <span data-lang="zh">删除方案包</span>
+              <span data-lang="zh">删除方案文件</span>
               <span data-lang="en">Delete Plan</span>
             </button>
           </div>
@@ -241,10 +134,10 @@
       </p>
       <div class="empty-state" id="bundles-empty-state" hidden>
         <img class="empty-state-logo" src="/logo/logo.svg" alt="" aria-hidden="true" />
-        <h3><span data-lang="zh">还没有方案包</span><span data-lang="en">No plans yet</span></h3>
+        <h3><span data-lang="zh">还没有方案文件</span><span data-lang="en">No plan files yet</span></h3>
         <p>
-          <span data-lang="zh">可以先在 Loop 工作台对话编排 Loop，或从已有 Loop 导出一份方案文件再导入。</span>
-          <span data-lang="en">Compose a Loop from the workspace, or derive expert YAML from an existing Loop and import it here.</span>
+          <span data-lang="zh">可以先在 Loop 工作台对话编排 Loop，或从已有 Loop 导出一份 YAML 再导入。</span>
+          <span data-lang="en">Compose a Loop from the workspace, or export YAML from an existing Loop and import it here.</span>
         </p>
       </div>
     {% else %}
@@ -255,10 +148,10 @@
       </p>
       <div class="empty-state" id="bundles-empty-state">
         <img class="empty-state-logo" src="/logo/logo.svg" alt="" aria-hidden="true" />
-        <h3><span data-lang="zh">还没有方案包</span><span data-lang="en">No plans yet</span></h3>
+        <h3><span data-lang="zh">还没有方案文件</span><span data-lang="en">No plan files yet</span></h3>
         <p>
-          <span data-lang="zh">可以先在 Loop 工作台对话编排 Loop，或者从已有 Loop 导出一份方案文件。</span>
-          <span data-lang="en">Compose a Loop from the workspace, or derive expert YAML from an existing Loop.</span>
+          <span data-lang="zh">可以先在 Loop 工作台对话编排 Loop，或者从已有 Loop 导出一份 YAML。</span>
+          <span data-lang="en">Compose a Loop from the workspace, or export YAML from an existing Loop.</span>
         </p>
       </div>
     {% endif %}

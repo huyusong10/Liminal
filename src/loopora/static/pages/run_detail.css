@@ -102,13 +102,7 @@
   background: var(--progress-live-bg);
 }
 
-.progress-live-card--active {
-  --progress-live-accent: var(--accent);
-  --progress-live-border: rgba(214, 106, 54, 0.16);
-  --progress-live-bg: linear-gradient(180deg, rgba(214, 106, 54, 0.08), rgba(255, 250, 244, 0.92));
-  --progress-live-ring: rgba(214, 106, 54, 0.1);
-}
-
+.progress-live-card--active,
 .progress-live-card--queued {
   --progress-live-accent: var(--accent);
   --progress-live-border: rgba(214, 106, 54, 0.16);

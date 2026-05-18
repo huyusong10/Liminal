@@ -161,7 +161,7 @@
             {% if loop_item.managed_by_bundle %}
             <p class="field-note">
               <span data-lang="zh">这条 Loop 来自方案文件 “{{ loop_item.bundle_name or loop_item.bundle_id }}”，删除时会一起清理关联资源。</span>
-              <span data-lang="en">This loop came from plan file “{{ loop_item.bundle_name or loop_item.bundle_id }}”, so deletion also cleans up linked resources.</span>
+              <span data-lang="en">This loop came from plan file “{{ loop_item.bundle_name or loop_item.bundle_id }}”, so deletion also cleans up linked assets.</span>
             </p>
             {% endif %}
           </div>

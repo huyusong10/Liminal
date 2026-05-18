@@ -14,7 +14,8 @@ targets:
     type: text_globs
     title: Agent-native design and probe handbook
     globs:
-      - design/detailed-design/10-agent-adapters.md
+      - design/contracts.md
+      - design/decisions/agent-native-execution-plane.md
       - tests/probes/real_environment/README.md
       - tests/probes/real_environment/test_real_agent_adapter_probe.py
       - tests/probes/real_environment/run_real_probes.py

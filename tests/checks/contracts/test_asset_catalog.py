@@ -59,12 +59,12 @@ def _assert_orchestration_catalog_flags(
     custom_orchestration: dict,
 ) -> None:
     assert builtin_orchestration["source"] == "builtin"
-    assert builtin_orchestration["workflow_json"]["preset"] == "build_then_parallel_review"
+    assert builtin_orchestration["workflow_json"]["preset"] == "quality_gate"
     assert builtin_orchestration["workflow_json"]["steps"][0]["inherit_session"] is True
     assert builtin_orchestration["workflow_json"]["steps"][1]["inherit_session"] is False
     assert builtin_orchestration["workflow_json"]["steps"][0]["extra_cli_args"] == ""
-    assert builtin_orchestration["parallel_groups"] == ["inspection_pack"]
-    assert builtin_orchestration["parallel_group_count"] == 1
+    assert builtin_orchestration["parallel_groups"] == []
+    assert builtin_orchestration["parallel_group_count"] == 0
     assert builtin_orchestration["scenario_zh"]
     assert builtin_orchestration["scenario_en"]
 
@@ -80,8 +80,6 @@ def _assert_builtin_practice_assets(builtin_orchestrations: list[dict]) -> None:
         "## 场景",
         "## 需求",
         "## 适合这个流程，因为",
-        "## 为什么不是其他流程",
-        "## 为什么不直接交给 AI Agent",
         "## 示例 spec",
         "# Task",
         "# Role Notes",
@@ -92,8 +90,6 @@ def _assert_builtin_practice_assets(builtin_orchestrations: list[dict]) -> None:
         "## Scenario",
         "## Request",
         "## Why this workflow fits",
-        "## Why not the other workflows",
-        "## Why not just let an AI Agent do it",
         "## Example spec",
         "# Task",
         "# Role Notes",
@@ -105,19 +101,21 @@ def _assert_builtin_practice_assets(builtin_orchestrations: list[dict]) -> None:
         assert item["spec_practice_summary_en"].startswith("Scenario:")
         assert all(section in item["spec_practice_markdown_zh"] for section in zh_sections)
         assert all(section in item["spec_practice_markdown_en"] for section in en_sections)
-    assert len(builtin_orchestrations) == 4
+    assert len(builtin_orchestrations) == 3
     assert any(item["id"] == "builtin:evidence_first" for item in builtin_orchestrations)
     assert any(item["id"] == "builtin:benchmark_gate" for item in builtin_orchestrations)
+    assert any(item["id"] == "builtin:quality_gate" for item in builtin_orchestrations)
     assert all(item["id"] != "builtin:fast_lane" for item in builtin_orchestrations)
-    assert all(item["id"] != "builtin:quality_gate" for item in builtin_orchestrations)
+    assert all(item["id"] != "builtin:build_then_parallel_review" for item in builtin_orchestrations)
     assert all(item["id"] != "builtin:build_first" for item in builtin_orchestrations)
 
 
 def _assert_hidden_legacy_orchestrations_remain_addressable(catalog: WorkflowAssetCatalog) -> None:
     expectations = {
         "builtin:fast_lane": ("Fast Lane", "fast_lane"),
-        "builtin:quality_gate": ("Quality Gate", "quality_gate"),
+        "builtin:build_then_parallel_review": ("Build + Parallel Review", "build_then_parallel_review"),
         "builtin:build_first": ("Build First", "build_first"),
+        "builtin:repair_loop": ("Repair Loop", "repair_loop"),
     }
     for orchestration_id, (name, preset) in expectations.items():
         orchestration = catalog.get_orchestration(orchestration_id)
@@ -137,7 +135,7 @@ def test_asset_catalog_lists_builtin_and_custom_assets_with_stable_flags(tmp_pat
         custom_role=_item_by_id(role_definitions, role_definition["id"]),
     )
     _assert_orchestration_catalog_flags(
-        builtin_orchestration=_item_by_id(orchestrations, "builtin:build_then_parallel_review"),
+        builtin_orchestration=_item_by_id(orchestrations, "builtin:quality_gate"),
         custom_orchestration=_item_by_id(orchestrations, orchestration["id"]),
     )
     _assert_builtin_practice_assets(builtin_orchestrations)

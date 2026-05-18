@@ -874,6 +874,8 @@ def test_bundle_preview_warns_when_gatekeeper_drops_parallel_review_fan_in(
     service = service_factory(scenario="success")
     bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
     steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
+    steps_by_id["contract_inspection_step"]["parallel_group"] = "inspection_pack"
+    steps_by_id["evidence_inspection_step"]["parallel_group"] = "inspection_pack"
     gatekeeper_inputs = steps_by_id["gatekeeper_step"]["inputs"]
     gatekeeper_inputs["handoffs_from"] = ["evidence_inspection_step"]
     gatekeeper_inputs["evidence_query"]["archetypes"] = ["builder"]

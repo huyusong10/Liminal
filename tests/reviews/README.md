@@ -38,7 +38,7 @@ uv run python tests/reviews/run.py --case default-path-language
 uv run python tests/reviews/run.py --case concept-coherence
 ```
 
-`default-path-language` keeps its expert-term hints scoped to default visible Web surfaces and localized strings. It may include a small set of conversation-guidance prompt assets as reviewer context, but internal compiler references, resource-library detail pages, and expert editing screens belong in `concept-coherence` or scenario review instead.
+`default-path-language` keeps its expert-term hints scoped to default visible Web surfaces and localized strings. It may include a small set of conversation-guidance prompt assets as reviewer context, but internal compiler references, plan-file detail pages, and expert editing screens belong in `concept-coherence` or scenario review instead.
 
 `concept-coherence` keeps the top-level README and Human-Shaped Loop docs fully indexed as the review anchors, then adds bounded previews of design docs, prompt assets, tutorial text, and diagrams. Machine hints focus on anti-framing terms such as prompt-pack, role-zoo, loop-script, or chat-wrapper drift on public reader surfaces. Core product anchors like evidence, judgment, and GateKeeper remain in the text index, but they should not flood the hint stream as findings by themselves.
 

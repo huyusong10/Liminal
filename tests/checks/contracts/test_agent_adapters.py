@@ -23,6 +23,74 @@ from loopora.run_artifacts import RunArtifactLayout, read_jsonl
 from loopora.web import build_app
 from loopora.workflows import WorkflowError
 
+AGENT_ENTRY_GEN_CONTRACT_SNIPPETS = (
+    '--message "<non-empty short task summary>"',
+    'with `--message "<non-empty short task summary>"` but without `--bundle-file`',
+    "Loopora fit must say why one Agent pass, one review, direct chat / direct answer, one-off task handling, or benchmark/test-harness-only validation is not enough",
+    "new evidence, handoffs, or a GateKeeper verdict",
+    "compile them into Builder reading, Inspector / Custom verification, and GateKeeper Weak / Unproven / Blocking responsibility rather than a marker list",
+    "Loopora fit reason, high-signal objects, success outcome categories, fake-done risk categories, concrete evidence modes, execution priorities, judgment tradeoffs, local governance responsibilities, and risk terms",
+    "Check Loopora fit and judgment sufficiency before authoring a Loop plan file",
+    "If Loopora fit is false",
+    "ask one focused question",
+    "return a Web review prefill",
+    "execution strategy",
+    "what to build, prove, repair, narrow, expand, or defer first",
+    "judgment tradeoffs",
+    "local governance responsibilities",
+    "owner, follow-up, or acceptance path",
+    "do not let a bundle pass merely because it repeats one or two object words from the task",
+    "Do not invent human judgment just to pass validation",
+    "ready_review_projection",
+    "confirm that review summary and preview URL",
+    "do not start the run from Web",
+    "repair the plan file",
+    "Loop preview",
+    "Web review",
+)
+
+AGENT_ENTRY_LOOP_CONTRACT_SNIPPETS = (
+    "loopora_host_dispatch",
+    "role_dispatch.target_agent",
+    "judgment_contract",
+    "next_step.judgment_contract",
+    "next_step.required_coverage",
+    "next_step.output_schema",
+    "next_step.action_policy",
+    "next_step.known_evidence_ids",
+    "next_step.submit_hint.result_template_absolute_path",
+    "Read the returned JSON, even if the command exits nonzero",
+    "`loop_recovery=finish_web_review`",
+    "`loop_recovery=repair_candidate_plan_file`",
+    "Do not collapse these recovery states into a generic",
+    "If the command returns `loop_recovery`, report that recovery path and stop",
+    "loopora_result_contract",
+    "Do not hand-write the wrapper from memory",
+    "Fill only the `result` object",
+    "next_step.submit_hint.command",
+    "run.task_verdict",
+    "task_next_action",
+    "task_next_action.kind",
+    "task_next_action.next_loop_command",
+    "continue_evidence",
+    "next_step.prompt",
+    "next_step.context_absolute_path",
+)
+
+AGENT_ORCHESTRATOR_CONTRACT_SNIPPETS = (
+    "next_step.judgment_contract",
+    "next_step.prompt",
+    "next_step.output_schema",
+    "next_step.action_policy",
+    "next_step.known_evidence_ids",
+    "next_step.submit_hint.result_template_absolute_path",
+    "loopora_result_contract",
+    "schema-shaped `result` scaffold",
+    "replace every `null` placeholder",
+    "task_next_action.kind=continue_evidence",
+    "context_absolute_path",
+)
+
 
 def _error_text(result) -> str:
     try:
@@ -183,8 +251,9 @@ def _alignment_bundle_yaml_with_gatekeeper_control(
 
 def _alignment_bundle_yaml_with_peer_visible_parallel_review_inputs(workdir: Path) -> str:
     payload = yaml.safe_load(alignment_bundle_yaml(str(workdir.resolve())))
-    for step in list(payload["workflow"]["steps"]):
-        if str(step.get("parallel_group") or "").strip():
+    for step in payload["workflow"]["steps"]:
+        if step.get("id") in {"contract_inspection_step", "evidence_inspection_step"}:
+            step["parallel_group"] = "inspection_pack"
             step["inputs"] = {
                 "handoffs_from": ["builder_step", "contract_inspection_step"],
                 "evidence_query": {"archetypes": ["builder", "inspector"], "limit": 12},
@@ -427,31 +496,7 @@ def _assert_claude_gen_entry(gen_skill: str, gen_command_text: str) -> None:
     assert "Compile the current Claude Code task goal, fake-done risks, and required evidence" in gen_skill
     assert "Compile the current Claude Code task judgment into a Loopora Loop preview" in gen_skill
     assert "Compile the current Claude Code task goal, fake-done risks, and required evidence" in gen_command_text
-    for snippet in (
-        '--message "<non-empty short task summary>"',
-        'with `--message "<non-empty short task summary>"` but without `--bundle-file`',
-        "Loopora fit must say why one Agent pass, one review, direct chat / direct answer, one-off task handling, or benchmark/test-harness-only validation is not enough",
-        "new evidence, handoffs, or a GateKeeper verdict",
-        "compile them into Builder reading, Inspector / Custom verification, and GateKeeper Weak / Unproven / Blocking responsibility rather than a marker list",
-        "Loopora fit reason, high-signal objects, success outcome categories, fake-done risk categories, concrete evidence modes, execution priorities, judgment tradeoffs, local governance responsibilities, and risk terms",
-        "Check Loopora fit and judgment sufficiency before authoring a Loop plan file",
-        "If Loopora fit is false",
-        "ask one focused question",
-        "return a Web review prefill",
-        "execution strategy",
-        "what to build, prove, repair, narrow, expand, or defer first",
-        "judgment tradeoffs",
-        "local governance responsibilities",
-        "owner, follow-up, or acceptance path",
-        "do not let a bundle pass merely because it repeats one or two object words from the task",
-        "Do not invent human judgment just to pass validation",
-        "ready_review_projection",
-        "confirm that review summary and preview URL",
-        "do not start the run from Web",
-        "repair the plan file",
-        "Loop preview",
-        "Web review",
-    ):
+    for snippet in AGENT_ENTRY_GEN_CONTRACT_SNIPPETS:
         assert snippet in gen_skill
     assert "authoring YAML" not in gen_skill
     assert "fix the YAML" not in gen_skill
@@ -469,33 +514,7 @@ def _assert_claude_loop_entry(loop_skill: str, loop_command_text: str) -> None:
     assert 'loopora agent claude loop --workdir "$PWD"' in loop_skill
     assert "loopora agent claude submit" in loop_skill
     assert "Task" in loop_skill
-    for snippet in (
-        "loopora_host_dispatch",
-        "role_dispatch.target_agent",
-        "judgment_contract",
-        "next_step.judgment_contract",
-        "next_step.required_coverage",
-        "next_step.output_schema",
-        "next_step.action_policy",
-        "next_step.known_evidence_ids",
-        "next_step.submit_hint.result_template_absolute_path",
-        "Read the returned JSON, even if the command exits nonzero",
-        "`loop_recovery=finish_web_review`",
-        "`loop_recovery=repair_candidate_plan_file`",
-        "Do not collapse these recovery states into a generic",
-        "If the command returns `loop_recovery`, report that recovery path and stop",
-        "loopora_result_contract",
-        "Do not hand-write the wrapper from memory",
-        "Fill only the `result` object",
-        "next_step.submit_hint.command",
-        "run.task_verdict",
-        "task_next_action",
-        "task_next_action.kind",
-        "task_next_action.next_loop_command",
-        "continue_evidence",
-        "next_step.prompt",
-        "next_step.context_absolute_path",
-    ):
+    for snippet in AGENT_ENTRY_LOOP_CONTRACT_SNIPPETS:
         assert snippet in loop_skill
     assert '--context-id "${CLAUDE_SESSION_ID}"' in loop_skill
     assert "--entry-source claude_project_skill" in loop_skill
@@ -508,19 +527,7 @@ def _assert_claude_agent_prompts(builder_agent: Path, orchestrator_agent: Path) 
     assert "tools: Read, Glob, Grep, Bash, Write, Edit, MultiEdit" in builder_agent_text
     assert "Loopora Orchestrator" in orchestrator_agent_text
     assert "tools: Task, Read, Write, Bash" in orchestrator_agent_text
-    for snippet in (
-        "next_step.judgment_contract",
-        "next_step.prompt",
-        "next_step.output_schema",
-        "next_step.action_policy",
-        "next_step.known_evidence_ids",
-        "next_step.submit_hint.result_template_absolute_path",
-        "loopora_result_contract",
-        "schema-shaped `result` scaffold",
-        "replace every `null` placeholder",
-        "task_next_action.kind=continue_evidence",
-        "context_absolute_path",
-    ):
+    for snippet in AGENT_ORCHESTRATOR_CONTRACT_SNIPPETS:
         assert snippet in orchestrator_agent_text
 
 
@@ -581,31 +588,7 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert "--entry-source opencode_project_command" in gen_command
     assert "Compile the current OpenCode task goal, fake-done risks, and required evidence" in gen_command
     assert "Compile the current OpenCode task judgment into a Loopora Loop preview" in gen_command
-    for snippet in (
-        '--message "<non-empty short task summary>"',
-        'with `--message "<non-empty short task summary>"` but without `--bundle-file`',
-        "Loopora fit must say why one Agent pass, one review, direct chat / direct answer, one-off task handling, or benchmark/test-harness-only validation is not enough",
-        "new evidence, handoffs, or a GateKeeper verdict",
-        "compile them into Builder reading, Inspector / Custom verification, and GateKeeper Weak / Unproven / Blocking responsibility rather than a marker list",
-        "Loopora fit reason, high-signal objects, success outcome categories, fake-done risk categories, concrete evidence modes, execution priorities, judgment tradeoffs, local governance responsibilities, and risk terms",
-        "Check Loopora fit and judgment sufficiency before authoring a Loop plan file",
-        "If Loopora fit is false",
-        "ask one focused question",
-        "return a Web review prefill",
-        "execution strategy",
-        "what to build, prove, repair, narrow, expand, or defer first",
-        "judgment tradeoffs",
-        "local governance responsibilities",
-        "owner, follow-up, or acceptance path",
-        "do not let a bundle pass merely because it repeats one or two object words from the task",
-        "Do not invent human judgment just to pass validation",
-        "ready_review_projection",
-        "confirm that review summary and preview URL",
-        "do not start the run from Web",
-        "repair the plan file",
-        "Loop preview",
-        "Web review",
-    ):
+    for snippet in AGENT_ENTRY_GEN_CONTRACT_SNIPPETS:
         assert snippet in gen_command
     assert "authoring YAML" not in gen_command
     assert "fix the YAML" not in gen_command
@@ -620,33 +603,7 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert "subtask: true" in loop_command
     assert 'loopora agent opencode loop --workdir "$PWD"' in loop_command
     assert "loopora agent opencode submit" in loop_command
-    for snippet in (
-        "loopora_host_dispatch",
-        "role_dispatch.target_agent",
-        "judgment_contract",
-        "next_step.judgment_contract",
-        "next_step.required_coverage",
-        "next_step.output_schema",
-        "next_step.action_policy",
-        "next_step.known_evidence_ids",
-        "next_step.submit_hint.result_template_absolute_path",
-        "Read the returned JSON, even if the command exits nonzero",
-        "`loop_recovery=finish_web_review`",
-        "`loop_recovery=repair_candidate_plan_file`",
-        "Do not collapse these recovery states into a generic",
-        "If the command returns `loop_recovery`, report that recovery path and stop",
-        "loopora_result_contract",
-        "Do not hand-write the wrapper from memory",
-        "Fill only the `result` object",
-        "next_step.submit_hint.command",
-        "run.task_verdict",
-        "task_next_action",
-        "task_next_action.kind",
-        "task_next_action.next_loop_command",
-        "continue_evidence",
-        "next_step.prompt",
-        "next_step.context_absolute_path",
-    ):
+    for snippet in AGENT_ENTRY_LOOP_CONTRACT_SNIPPETS:
         assert snippet in loop_command
     assert '--context-id "${OPENCODE_SESSION_ID:-}"' in loop_command
     assert "--entry-source opencode_project_command" in loop_command
@@ -658,19 +615,7 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert "Loopora Orchestrator" in orchestrator_agent_text
     assert "mode: subagent" in orchestrator_agent_text
     assert "loopora-builder: allow" in orchestrator_agent_text
-    for snippet in (
-        "next_step.judgment_contract",
-        "next_step.prompt",
-        "next_step.output_schema",
-        "next_step.action_policy",
-        "next_step.known_evidence_ids",
-        "next_step.submit_hint.result_template_absolute_path",
-        "loopora_result_contract",
-        "schema-shaped `result` scaffold",
-        "replace every `null` placeholder",
-        "task_next_action.kind=continue_evidence",
-        "context_absolute_path",
-    ):
+    for snippet in AGENT_ORCHESTRATOR_CONTRACT_SNIPPETS:
         assert snippet in orchestrator_agent_text
     manifest_path = workdir / ".loopora" / "adapters" / "opencode" / "manifest.json"
     assert manifest_path.exists()
@@ -702,31 +647,7 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert "--entry-source codex_project_skill" in gen_skill
     assert "compile the current task goal, fake-done risks, and required evidence" in gen_skill
     assert "Compile the current coding task judgment into a Loopora Loop preview" in gen_skill
-    for snippet in (
-        '--message "<non-empty short task summary>"',
-        'with `--message "<non-empty short task summary>"` but without `--bundle-file`',
-        "Loopora fit must say why one Agent pass, one review, direct chat / direct answer, one-off task handling, or benchmark/test-harness-only validation is not enough",
-        "new evidence, handoffs, or a GateKeeper verdict",
-        "compile them into Builder reading, Inspector / Custom verification, and GateKeeper Weak / Unproven / Blocking responsibility rather than a marker list",
-        "Loopora fit reason, high-signal objects, success outcome categories, fake-done risk categories, concrete evidence modes, execution priorities, judgment tradeoffs, local governance responsibilities, and risk terms",
-        "Check Loopora fit and judgment sufficiency before authoring a Loop plan file",
-        "If Loopora fit is false",
-        "ask one focused question",
-        "return a Web review prefill",
-        "execution strategy",
-        "what to build, prove, repair, narrow, expand, or defer first",
-        "judgment tradeoffs",
-        "local governance responsibilities",
-        "owner, follow-up, or acceptance path",
-        "do not let a bundle pass merely because it repeats one or two object words from the task",
-        "Do not invent human judgment just to pass validation",
-        "ready_review_projection",
-        "confirm that review summary and preview URL",
-        "do not start the run from Web",
-        "repair the plan file",
-        "Loop preview",
-        "Web review",
-    ):
+    for snippet in AGENT_ENTRY_GEN_CONTRACT_SNIPPETS:
         assert snippet in gen_skill
     assert "authoring YAML" not in gen_skill
     assert "fix the YAML" not in gen_skill
@@ -741,33 +662,7 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert 'loopora agent codex loop --workdir "$PWD"' in loop_skill
     assert "loopora agent codex submit" in loop_skill
     assert "loopora-builder" in loop_skill
-    for snippet in (
-        "loopora_host_dispatch",
-        "role_dispatch.target_agent",
-        "judgment_contract",
-        "next_step.judgment_contract",
-        "next_step.required_coverage",
-        "next_step.output_schema",
-        "next_step.action_policy",
-        "next_step.known_evidence_ids",
-        "next_step.submit_hint.result_template_absolute_path",
-        "Read the returned JSON, even if the command exits nonzero",
-        "`loop_recovery=finish_web_review`",
-        "`loop_recovery=repair_candidate_plan_file`",
-        "Do not collapse these recovery states into a generic",
-        "If the command returns `loop_recovery`, report that recovery path and stop",
-        "loopora_result_contract",
-        "Do not hand-write the wrapper from memory",
-        "Fill only the `result` object",
-        "next_step.submit_hint.command",
-        "run.task_verdict",
-        "task_next_action",
-        "task_next_action.kind",
-        "task_next_action.next_loop_command",
-        "continue_evidence",
-        "next_step.prompt",
-        "next_step.context_absolute_path",
-    ):
+    for snippet in AGENT_ENTRY_LOOP_CONTRACT_SNIPPETS:
         assert snippet in loop_skill
     assert "Codex native dispatch guidance" in loop_skill
     assert "omit `fork_context`" in loop_skill
@@ -779,19 +674,7 @@ def _assert_codex_managed_install(workdir: Path, skill_paths: dict[str, Path]) -
     assert '\ninstructions = """' not in codex_builder_agent_text
     codex_orchestrator_agent_text = codex_orchestrator_agent.read_text(encoding="utf-8")
     assert "Loopora Orchestrator" in codex_orchestrator_agent_text
-    for snippet in (
-        "next_step.judgment_contract",
-        "next_step.prompt",
-        "next_step.output_schema",
-        "next_step.action_policy",
-        "next_step.known_evidence_ids",
-        "next_step.submit_hint.result_template_absolute_path",
-        "loopora_result_contract",
-        "schema-shaped `result` scaffold",
-        "replace every `null` placeholder",
-        "task_next_action.kind=continue_evidence",
-        "context_absolute_path",
-    ):
+    for snippet in AGENT_ORCHESTRATOR_CONTRACT_SNIPPETS:
         assert snippet in codex_orchestrator_agent_text
     manifest_path = workdir / ".loopora" / "adapters" / "codex" / "manifest.json"
     assert manifest_path.exists()
@@ -5152,107 +5035,95 @@ def test_agent_native_no_evidence_progress_control_claims_stalled_context(
     assert any(entry["evidence_kind"] == "control" and "control:no_evidence_progress" in entry["verifies"] for entry in evidence_ledger)
 
 
-def test_claude_agent_gen_validates_ready_bundle_and_loop_starts_run(
-    service_factory,
-    tmp_path: Path,
-    sample_workdir: Path,
-) -> None:
-    service = service_factory(scenario="success")
-    bundle_file = tmp_path / "bundle.yml"
-    bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
-
-    generated = service.create_agent_bundle_candidate(
-        AgentBundleCandidateRequest(
-            adapter="claude",
-            workdir=sample_workdir,
-            message="Ship the focused starter experience.",
-            bundle_file=bundle_file,
-            context_id="claude-session-a",
-            entry_source="claude_project_skill",
-        )
-    )
-
-    assert generated["adapter"] == "claude"
-    assert generated["candidate_origin"] == "agent_entry"
-    assert generated["candidate_entry_source"] == "claude_project_skill"
-    assert generated["host_context_id"] == "claude-session-a"
-    assert generated["ready"] is True
-    assert generated["binding"]["context_source"] == "explicit"
-    assert generated["binding"]["host_context_id"] == "claude-session-a"
-    assert generated["binding"]["candidate_origin"] == "agent_entry"
-    assert generated["binding"]["candidate_adapter"] == "claude"
-    assert generated["binding"]["candidate_entry_source"] == "claude_project_skill"
-    assert generated["binding"]["entry_invocations"][-1]["entry_source"] == "claude_project_skill"
-    candidate_events = service.list_alignment_events(generated["session"]["id"], limit=20)
-    assert any(
-        event["event_type"] == "agent_candidate_received"
-        and event["payload"]["candidate_origin"] == "agent_entry"
-        and event["payload"]["adapter"] == "claude"
-        and event["payload"]["entry_source"] == "claude_project_skill"
-        and event["payload"]["host_context_id"] == "claude-session-a"
-        and event["payload"]["has_candidate_yaml"] is True
-        for event in candidate_events
-    )
-
-    started = service.start_agent_loop("claude", workdir=sample_workdir, context_id="claude-session-a", entry_source="claude_project_skill", execute_async=False)
-
-    assert started["adapter"] == "claude"
-    assert started["run"]["id"]
-    assert started["started_new_run"] is True
-    assert started["execution_plane"] == "agent_native"
-    assert started["run"]["status"] == "awaiting_agent"
-    assert started["next_step"]["step_id"] == "builder_step"
-    assert [item["action"] for item in started["binding"]["entry_invocations"][-2:]] == ["gen", "loop"]
-    assert {item["entry_source"] for item in started["binding"]["entry_invocations"][-2:]} == {"claude_project_skill"}
-    final = _drive_agent_native_run_to_success(
-        service,
-        adapter="claude",
-        started=started,
-        workdir=sample_workdir,
-        context_id="claude-session-a",
-    )
-    assert final["complete"] is True
-
-
-def test_opencode_agent_gen_validates_ready_bundle_and_loop_starts_run(
+@pytest.mark.parametrize(
+    "agent_case",
+    [
+        {
+            "adapter": "claude",
+            "entry_source": "claude_project_skill",
+            "context_id": "claude-session-a",
+            "context_source": "explicit",
+        },
+        {
+            "adapter": "opencode",
+            "entry_source": "opencode_project_command",
+            "context_id": "",
+            "context_source": "workdir",
+        },
+    ],
+)
+def test_peer_agent_gen_validates_ready_bundle_and_loop_starts_run(
     service_factory,
     monkeypatch,
     tmp_path: Path,
     sample_workdir: Path,
+    agent_case: dict[str, str],
 ) -> None:
     service = service_factory(scenario="success")
     bundle_file = tmp_path / "bundle.yml"
     bundle_file.write_text(alignment_bundle_yaml(str(sample_workdir.resolve())), encoding="utf-8")
-    monkeypatch.setenv("CODEX_SESSION_ID", "codex-thread-must-not-bind-opencode")
+    monkeypatch.setenv("CODEX_SESSION_ID", "codex-thread-must-not-bind-peer-agent")
+    adapter = agent_case["adapter"]
+    entry_source = agent_case["entry_source"]
+    context_id = agent_case["context_id"]
+    context_source = agent_case["context_source"]
 
     generated = service.create_agent_bundle_candidate(
         AgentBundleCandidateRequest(
-            adapter="opencode",
+            adapter=adapter,
             workdir=sample_workdir,
             message="Ship the focused starter experience.",
             bundle_file=bundle_file,
-            entry_source="opencode_project_command",
+            context_id=context_id,
+            entry_source=entry_source,
         )
     )
 
-    assert generated["adapter"] == "opencode"
+    assert generated["adapter"] == adapter
+    assert generated["candidate_origin"] == "agent_entry"
+    assert generated["candidate_entry_source"] == entry_source
+    assert generated["host_context_id"] == context_id
     assert generated["ready"] is True
-    assert generated["host_context_id"] == ""
-    assert generated["binding"]["context_source"] == "workdir"
-    assert generated["binding"]["host_context_id"] == ""
-    assert generated["binding"]["entry_invocations"][-1]["entry_source"] == "opencode_project_command"
+    assert generated["binding"]["context_source"] == context_source
+    assert generated["binding"]["host_context_id"] == context_id
+    assert generated["binding"]["candidate_origin"] == "agent_entry"
+    assert generated["binding"]["candidate_adapter"] == adapter
+    assert generated["binding"]["candidate_entry_source"] == entry_source
+    assert generated["binding"]["entry_invocations"][-1]["entry_source"] == entry_source
+    candidate_events = service.list_alignment_events(generated["session"]["id"], limit=20)
+    assert any(
+        event["event_type"] == "agent_candidate_received"
+        and event["payload"]["candidate_origin"] == "agent_entry"
+        and event["payload"]["adapter"] == adapter
+        and event["payload"]["entry_source"] == entry_source
+        and event["payload"]["host_context_id"] == context_id
+        and event["payload"]["has_candidate_yaml"] is True
+        for event in candidate_events
+    )
 
-    started = service.start_agent_loop("opencode", workdir=sample_workdir, entry_source="opencode_project_command", execute_async=False)
+    started = service.start_agent_loop(
+        adapter,
+        workdir=sample_workdir,
+        context_id=context_id,
+        entry_source=entry_source,
+        execute_async=False,
+    )
 
-    assert started["adapter"] == "opencode"
+    assert started["adapter"] == adapter
     assert started["run"]["id"]
     assert started["started_new_run"] is True
     assert started["execution_plane"] == "agent_native"
     assert started["run"]["status"] == "awaiting_agent"
     assert started["next_step"]["step_id"] == "builder_step"
     assert [item["action"] for item in started["binding"]["entry_invocations"][-2:]] == ["gen", "loop"]
-    assert {item["entry_source"] for item in started["binding"]["entry_invocations"][-2:]} == {"opencode_project_command"}
-    final = _drive_agent_native_run_to_success(service, adapter="opencode", started=started, workdir=sample_workdir)
+    assert {item["entry_source"] for item in started["binding"]["entry_invocations"][-2:]} == {entry_source}
+    final = _drive_agent_native_run_to_success(
+        service,
+        adapter=adapter,
+        started=started,
+        workdir=sample_workdir,
+        context_id=context_id,
+    )
     assert final["complete"] is True
 
 
@@ -5611,8 +5482,8 @@ def _write_agent_native_cli_contract(layout: RunArtifactLayout) -> None:
                 "role_postures": [{"role_name": "GateKeeper", "archetype": "gatekeeper", "posture_notes": "Fail closed when evidence is weak."}],
                 "completion_mode": "gatekeeper",
                 "workflow": {
-                    "preset": "build_then_parallel_review",
-                    "collaboration_intent": "Parallel review must feed GateKeeper before closure.",
+                    "preset": "quality_gate",
+                    "collaboration_intent": "Linear review must feed GateKeeper before closure.",
                 },
                 "compiled_spec": {
                     "check_mode": "specified",
@@ -5641,8 +5512,8 @@ def _assert_agent_native_cli_output(stdout: str, layout: RunArtifactLayout) -> N
     assert "judgment_contract_summary: Prefer frozen judgment over lifecycle optimism." in stdout
     assert "check_mode: specified" in stdout
     assert "completion_mode: gatekeeper" in stdout
-    assert "workflow_preset: build_then_parallel_review" in stdout
-    assert "workflow_collaboration_intent: Parallel review must feed GateKeeper before closure." in stdout
+    assert "workflow_preset: quality_gate" in stdout
+    assert "workflow_collaboration_intent: Linear review must feed GateKeeper before closure." in stdout
     assert "check_count: 2" in stdout
     _assert_cli_list(stdout, "coverage_targets", "done_when.check_001 (required)", "gatekeeper.finish (required)")
     _assert_cli_list(stdout, "loop_fit_reasons", "Future Agent rounds keep the same proof bar active.")
@@ -5783,8 +5654,8 @@ def test_cli_agent_next_prints_run_contract_for_intermediate_capsule(monkeypatch
                 ],
                 "completion_mode": "gatekeeper",
                 "workflow": {
-                    "preset": "repair_loop",
-                    "collaboration_intent": "Inspector proof gaps must shape the repair loop.",
+                    "preset": "quality_gate",
+                    "collaboration_intent": "Inspector proof gaps must shape the release gate.",
                 },
                 "compiled_spec": {
                     "check_mode": "specified",
@@ -5866,8 +5737,8 @@ def test_cli_agent_next_prints_run_contract_for_intermediate_capsule(monkeypatch
     assert "judgment_contract_summary: Keep intermediate capsules tied to frozen judgment." in result.stdout
     assert "check_mode: specified" in result.stdout
     assert "completion_mode: gatekeeper" in result.stdout
-    assert "workflow_preset: repair_loop" in result.stdout
-    assert "workflow_collaboration_intent: Inspector proof gaps must shape the repair loop." in result.stdout
+    assert "workflow_preset: quality_gate" in result.stdout
+    assert "workflow_collaboration_intent: Inspector proof gaps must shape the release gate." in result.stdout
     assert "check_count: 1" in result.stdout
     _assert_cli_list(result.stdout, "coverage_targets", "done_when.check_001 (required)", "gatekeeper.finish (required)")
     _assert_cli_list(result.stdout, "loop_fit_reasons", "The next role needs the same proof bar as the first role.")

@@ -18,7 +18,7 @@ For each dimension, write concrete evidence. A bare `true` is not enough.
 | `judgment_tradeoffs` | Captures a concrete preference order or contrast: which imperfect result to reject, when speed loses to proof, or when strict blocking beats pragmatic progress | “Balance quality and progress” |
 | `local_governance` | States whether project-local governance markers affect this Loop; if `AGENTS.md`, applicable parent `AGENTS.md`, `design/README.md`, `design/`, or `tests/` are relevant, maps them to Builder reading, Inspector / Custom verification, and GateKeeper Weak / Unproven / Blocking treatment without inventing contents | Marker lists with no runtime responsibility |
 | `role_posture` | Says how Builder, each Inspector responsibility, Guide, GateKeeper, and Custom reviewers should behave differently for this task when present | “Use three roles” |
-| `workflow_shape` | Explains why the chosen order, any parallel inspection group, information flow, final GateKeeper judgment / closure, and early error-exposure path fit this task | “Builder then checker” |
+| `workflow_shape` | Explains why the chosen order, information flow, final GateKeeper judgment / closure, and early error-exposure path fit this task | “Builder then checker” |
 | `workdir_facts` | Lists observed facts supported by the Workdir Snapshot or clearly labels assumptions; when governance markers such as `AGENTS.md`, applicable parent `AGENTS.md`, `design/README.md`, `design/`, or `tests/` exist, explains how roles will read, verify, or gate against them without inventing their contents | Empty, invented facts, or marker lists with no role responsibility |
 
 ## Working agreement quality bar
@@ -38,12 +38,11 @@ A working agreement is ready only when it includes:
 - workflow rationale, not just workflow order
 - where weak evidence, drift, or fake done will be exposed early
 - if the workflow is a 5+ role or multi-Builder long chain, why each phase creates a new artifact, proof target, handoff, or review boundary instead of role-zoo complexity
-- an explicit reason when the workflow chooses parallel inspection or avoids it
 - role-to-role and iteration-to-iteration information flow when the workflow has more than one reviewer or repair pass
-- an agreement-to-bundle traceability check: every confirmed judgment item can be mapped to `collaboration_summary`, `spec.markdown` / `# Role Notes`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, workflow controls, or GateKeeper evidence rules; metadata and loop names do not count
+- an agreement-to-bundle traceability check: every confirmed judgment item can be mapped to `collaboration_summary`, `spec.markdown` / `# Role Notes`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, or GateKeeper evidence rules; metadata and loop names do not count
 - a private complete-run rehearsal: Builder, Inspector / Custom review, optional Guide repair direction, any second Builder pass, GateKeeper verdict, and user evidence audit can all be followed through explicit handoffs, evidence queries, and evidence buckets
 - a private failed-round pressure test: at least one plausible fake-done, weak-proof, drift, or residual-risk failure would be exposed, repaired, or blocked by the proposed `spec`, roles, workflow, handoffs, evidence queries, and GateKeeper rules
-- if `workflow.controls` exist, the specific error risk each control reduces
+- advanced workflow fields, if present, are justified by explicit expert/source compatibility and a concrete risk boundary
 - workdir facts or explicit uncertainty
 - if project-local governance markers exist, role responsibilities or validation expectations that make Builder / Inspector / Custom / GateKeeper respect those markers
 - `open_questions` empty, no-open-questions, or explicit-confirmation-only; unresolved bundle-shaping choices must be asked next
@@ -56,9 +55,9 @@ Clarifying turns before the agreement should also pass a user-guidance bar:
 - clicking the recommended option would produce a complete enough user reply for the next compiler step
 - the question follows the current decision branch instead of restarting a generic checklist
 - observable facts from transcript, source context, current bundle, or Workdir Snapshot have been used instead of being asked back to the user
-- the question identifies the bundle-shaping consequence: Loopora fit, `spec`, role posture, workflow information flow, controls, or GateKeeper strictness
+- the question identifies the bundle-shaping consequence: Loopora fit, `spec`, role posture, workflow information flow, advanced workflow fields, or GateKeeper strictness
 
-Use bounded parallel inspection when separate evidence responsibilities should inspect the same Builder output without turning the workflow into an arbitrary DAG.
+Use advanced workflow fields only when expert/source compatibility requires them; default bundles should stay linear and express most complexity through role posture, `inputs`, evidence queries, and GateKeeper strictness.
 
 ## Bundle quality bar
 
@@ -78,22 +77,21 @@ Treat this section as quality guidance, not a fixed regex vocabulary. Loopora's 
 - the bundle visibly projects task verdict evidence into all five stable buckets: Proven, Weak, Unproven, Blocking, and Residual risk.
 - default alignment bundles use `completion_mode: "gatekeeper"` so task verdicts are evidence-based rather than only lifecycle-based.
 - `workflow.collaboration_intent` explains the task-specific judgment order, evidence flow, and final GateKeeper judgment / closure.
-- if the workflow uses `parallel_group`, `workflow.collaboration_intent` explains why bounded parallel or independent inspection is needed.
-- workflow steps use `parallel_group` only for bounded Inspector / Custom fan-out and use `inputs` when downstream roles should not receive indiscriminate context.
+- default workflow output is linear; advanced workflow fields are absent unless expert/source compatibility requires them and validation proves why they exist.
 - long-chain workflows use linear `workflow.steps`, not nested Loops, dynamic branches, or sub-workflow entities.
 - 5+ role or multi-Builder workflows justify every added role through a distinct artifact, proof target, handoff, review responsibility, repair direction, or GateKeeper input.
 - multiple Builder roles or Builder steps have task-specific names and phase responsibilities, not `Builder 1` / `Builder 2`; later Builders read prior phase, review, or Guide handoffs when those handoffs shape the next phase.
 - complex review or repair steps declare `inputs.iteration_memory` so cross-iteration evidence flow is explicit instead of relying on ambient context.
 - Inspector / Custom review steps after Builder name a Builder handoff and query Builder evidence instead of relying on ambient context.
 - Builder after Inspector / Custom / benchmark review reads the review handoff when no Guide has narrowed the direction.
-- parallel Inspector / Custom review steps name the same upstream Builder handoff in `inputs.handoffs_from` and query Builder evidence in `inputs.evidence_query`.
-- parallel specialized Inspector / Custom review roles use distinct `role_definition_key` values with responsibility-specific prompt and posture.
+- multiple Inspector / Custom review steps name the relevant upstream Builder handoff in `inputs.handoffs_from` and query Builder evidence in `inputs.evidence_query`.
+- specialized Inspector / Custom review roles use distinct `role_definition_key` values with responsibility-specific prompt and posture.
 - Custom review roles state low-permission or read-only specialized review / advisory responsibility and do not claim workdir writes or final pass/fail authority.
 - Guide after review reads review handoffs and queries review evidence before giving repair guidance.
 - Builder after Guide reads the Guide handoff before making the next implementation pass.
-- any finishing GateKeeper names upstream handoffs and queries relevant evidence; when parallel inspection is used, GateKeeper `inputs.handoffs_from` names every parallel Inspector / Custom step and its `inputs.evidence_query` includes Builder, Inspector, and Custom evidence as applicable.
+- any finishing GateKeeper names upstream handoffs and queries relevant evidence from Builder, Inspector, Custom, or Guide steps as applicable.
 - finishing GateKeeper reads Inspector / Custom / Guide review handoffs and queries review evidence whenever review happened before final judgment; a final verdict based only on Builder evidence is not enough after review.
-- `workflow.controls` are omitted unless the task has a concrete runtime error risk; when present they call only Inspector, Guide, or GateKeeper roles.
+- default bundles keep advanced workflow fields out of the main path; complexity should usually live in role posture, `inputs`, evidence queries, and GateKeeper strictness.
 - GateKeeper can finish the run only after evidence satisfies the task contract.
 - the candidate Loop has survived a private complete-run rehearsal: Builder, Inspector / Custom review, optional Guide repair direction, any second Builder pass, GateKeeper verdict, and user evidence audit are connected by explicit handoffs, evidence queries, and evidence buckets rather than ambient chat memory.
 - the candidate Loop has survived a private failed-round pressure test: a plausible shallow completion, weak proof, drift, or unacceptable residual risk would not slip through as a pass.
@@ -117,22 +115,21 @@ Reject these patterns:
 - all posture placed in `spec` while role prompts stay generic
 - role prompts that mention evidence but never state the Builder / Inspector / Guide / GateKeeper / Custom responsibility they are supposed to carry
 - workflow chosen only because it is the default
-- parallel groups present in YAML while `workflow.collaboration_intent` never explains why parallel or independent inspection is needed
+- advanced workflow fields present in YAML without explicit expert/source compatibility or a concrete risk boundary
 - evidence-first or benchmark-first workflows where Builder does not read the review handoff that was supposed to shape the implementation
-- parallel Inspectors named generically as “Inspector 1” and “Inspector 2”
-- parallel Custom review steps that bypass the handoff / evidence rules required of Inspector reviewers
+- specialized Inspectors named generically as “Inspector 1” and “Inspector 2”
+- Custom review steps that bypass the handoff / evidence rules required of Inspector reviewers
 - Custom review roles that sound like generic advisers, workdir writers, or final decision makers instead of low-permission specialized reviewers
 - adding many roles without distinct evidence responsibilities
 - long-chain workflows where extra Builders do not create distinct phase evidence or handoff boundaries
 - nested Loop, arbitrary branch, or dynamic DAG language disguised as workflow v1
-- GateKeeper relying on only the last Inspector when parallel inspection was used
 - GateKeeper relying only on the final Builder in a long chain while skipping earlier phase handoffs or evidence
 - finishing GateKeeper steps with no upstream handoff or no evidence query
 - finishing GateKeeper steps that skip Inspector / Custom / Guide review handoffs or review evidence
-- Inspector or GateKeeper steps reading only handoff prose when the workflow has parallel evidence responsibilities
+- Inspector or GateKeeper steps reading only handoff prose when durable evidence queries are required
 - Guide repair steps that do not query review evidence, or second Builder steps that ignore Guide handoff
 - every step receiving all previous context when a focused input policy is needed
-- controls used as generic timers, cron, webhook-like automation, or implicit Builder repair
+- expert controls used as generic timers, cron, webhook-like automation, or implicit Builder repair
 - “confirm” treated as enough when the agreement is still vague
 - Chinese labels wrapped around English working-agreement evidence
 - evidence described as “tests or screenshots” without saying which one should persuade this task

@@ -120,26 +120,6 @@
           </div>
           <div id="workflow-steps-list" class="workflow-steps-list" data-testid="workflow-steps-list"></div>
         </section>
-        <section class="workflow-editor-section workflow-controls-panel" data-testid="workflow-controls-panel">
-          <div class="workflow-section-head">
-            <div>
-              <strong><span data-lang="zh">运行控制</span><span data-lang="en">Runtime controls</span></strong>
-              <p class="workflow-section-note">
-              <span data-lang="zh">高级触发器只用于误差控制：空转、失败、超时或守门裁决拒绝时调用现有检查、引导或守门角色。</span>
-                <span data-lang="en">Advanced triggers are only for error control: call an existing Inspector, Guide, or GateKeeper when progress stalls, a role fails, a step times out, or GateKeeper rejects.</span>
-              </p>
-            </div>
-          </div>
-          <div id="workflow-controls-list" class="workflow-steps-list workflow-controls-list" data-testid="workflow-controls-list"></div>
-          <label class="workflow-controls-json-shell">
-            <span><span data-lang="zh">控制配置</span><span data-lang="en">Controls JSON</span></span>
-            <textarea id="workflow-controls-json-input" rows="7" data-testid="workflow-controls-json-input" {% if orchestration_locked %}readonly{% endif %}></textarea>
-            <small class="field-note">
-              <span data-lang="zh">用于复制或专家修改。保存前会和流程一起校验；新手路径不会展示这些配置。</span>
-              <span data-lang="en">For copying or expert edits. It is validated with the workflow before saving; the beginner path does not expose this configuration.</span>
-            </small>
-          </label>
-        </section>
       </div>
       <textarea id="workflow-json-input" name="workflow_json" rows="12" data-testid="workflow-json-input" hidden>{{- form_values.workflow_json -}}</textarea>
       <textarea id="prompt-files-json-input" name="prompt_files_json" rows="12" data-testid="prompt-files-json-input" hidden>{{- form_values.prompt_files_json -}}</textarea>
@@ -275,8 +255,8 @@
               <option value="finish_run" data-label-zh="通过后结束流程" data-label-en="Finish run">{{ "通过后结束流程" if page_locale == "zh" else "Finish run" }}</option>
             </select>
           </label>
-          <label>
-            <span><span data-lang="zh">并行检视组</span><span data-lang="en">Parallel review group</span></span>
+          <label class="wide">
+            <span><span data-lang="zh">并行检视组（高级）</span><span data-lang="en">Parallel review group (advanced)</span></span>
             <input
               id="workflow-settings-step-parallel-group"
               data-step-field="parallel_group"
@@ -284,8 +264,8 @@
               placeholder="inspection_pack"
             />
             <p class="workflow-settings-field-note">
-              <span data-lang="zh">仅用于相邻的 Inspector / Custom 只读检视步骤；留空表示线性执行。</span>
-              <span data-lang="en">Only for adjacent read-only Inspector / Custom review steps; leave blank for linear execution.</span>
+              <span data-lang="zh">只用于需要相邻 Inspector / Custom 步骤并行检视同一上游证据的 expert workflow；默认保持为空。</span>
+              <span data-lang="en">Use only for expert workflows where adjacent Inspector / Custom steps review the same upstream evidence in parallel. Leave empty by default.</span>
             </p>
           </label>
           <label class="workflow-settings-toggle-row wide">

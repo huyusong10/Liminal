@@ -117,19 +117,17 @@ class ServiceBundleAssetMixin:
     def list_bundles(self) -> list[dict]:
         return [self._hydrate_bundle_links(bundle) for bundle in self.repository.list_bundles()]
 
+    def list_bundle_exchange_items(self) -> list[dict]:
+        """Return imported plan files without derived governance-card projections."""
+        return self.list_bundles()
+
     def local_asset_diagnostics(self) -> dict:
         return build_local_asset_diagnostics(self)
 
     def list_bundle_governance_cards(self) -> list[dict]:
-        cards = []
-        for bundle in self.list_bundles():
-            try:
-                exported_bundle = self.export_bundle(bundle["id"])
-                governance_summary = self._bundle_governance_summary(exported_bundle)
-            except LooporaError:
-                governance_summary = self._empty_bundle_governance_summary()
-            cards.append({**bundle, "governance_summary": governance_summary})
-        return cards
+        # Compatibility alias for older callers. The default Web/API surface no
+        # longer promotes bundle governance cards as a catalog product.
+        return self.list_bundle_exchange_items()
 
     def get_bundle(self, bundle_id: str) -> dict:
         bundle = self.repository.get_bundle(bundle_id)

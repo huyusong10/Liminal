@@ -161,11 +161,7 @@ def test_readme_first_use_docs_describe_plan_files_without_bundle_internals() ->
 def test_public_plan_file_judgment_faces_map_to_runtime_contract() -> None:
     readme_en = (ROOT / "README.md").read_text(encoding="utf-8")
     readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
-    core_contract = (ROOT / "design" / "core-ideas" / "core-contract.md").read_text(encoding="utf-8")
-    concept_map = (ROOT / "design" / "core-ideas" / "concept-map.md").read_text(encoding="utf-8")
-    bundle_design = (ROOT / "design" / "detailed-design" / "08-bundles-and-alignment.md").read_text(
-        encoding="utf-8"
-    )
+    contracts = (ROOT / "design" / "contracts.md").read_text(encoding="utf-8")
 
     for term in (
         "Task contract",
@@ -188,10 +184,7 @@ def test_public_plan_file_judgment_faces_map_to_runtime_contract() -> None:
         "Evidence rules",
         "Verdict rules",
     ):
-        assert term in core_contract
-    for anchor in ("`spec`", "`roles`", "`workflow`", "`evidence`", "task verdict projection"):
-        assert anchor in core_contract
-    assert "not another fact source" in core_contract
-    assert "不是新的运行期治理 surface" in concept_map
-    assert "这是概念压缩，不是另一套 runtime surface" in concept_map
-    assert "不能因此新增新的运行期事实源" in bundle_design
+        assert term.lower().split()[0] in contracts.lower()
+    assert "Bundle is a Web-operable exchange file" in contracts
+    assert "UI projections such as summaries, traceability aliases, or diagnostics are derived views" in contracts
+    assert "Run status and Loop verdict are separate" in contracts

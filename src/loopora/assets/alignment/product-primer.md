@@ -116,7 +116,7 @@ It must jointly express:
 | --- | --- |
 | `spec` | task scope, success surface, fake-done risks, guardrails, evidence preferences, execution priorities, judgment tradeoffs, and residual-risk policy |
 | `role_definitions` | how each role should build, inspect, gate, redirect, or carry project-local governance for this task |
-| `workflow` | when judgment happens, what evidence flows where, where project-local governance checkpoints occur, how automatic iteration, parallel inspection, or repair works, and what can end the run |
+| `workflow` | when judgment happens, what evidence flows where, where project-local governance checkpoints occur, how automatic iteration or repair works, and what can end the run |
 
 Do not put all posture in one surface. If a user says "I care more about real evidence than a pretty demo", that should affect the `spec`, the Inspector posture, the GateKeeper posture, and usually the workflow shape.
 
@@ -126,7 +126,7 @@ Use this projection when compiling the working agreement:
 | --- | --- |
 | What would the human ask the Agent to prove or preserve? | `spec.markdown` task scope, success surface, fake-done risks, evidence preferences, execution priorities, judgment tradeoffs, and residual-risk policy |
 | Who would catch weak, shallow, risky, or locally noncompliant work? | task-specific Builder / Inspector / Guide / GateKeeper / Custom `role_definitions`, local-governance responsibilities, and posture when those archetypes are used |
-| When should correction, repair, local-governance checks, or stop happen? | `workflow` order, `parallel_group`, local-governance checkpoints, GateKeeper finish gate, and controls only when needed |
+| When should correction, repair, local-governance checks, or stop happen? | `workflow` order, step `inputs`, local-governance checkpoints, GateKeeper finish gate, and advanced fields only in expert mode |
 | What proof should survive the round? | `inputs.handoffs_from`, `inputs.evidence_query`, evidence ledger expectations, and GateKeeper verdict |
 
 If you cannot explain this projection in the `collaboration_summary`, the bundle is probably still a YAML-shaped sketch rather than a human-shaped Loop.
@@ -183,9 +183,9 @@ Choose workflow shape because it reduces a concrete error risk.
 
 Common shapes:
 
-- `Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper`: target is clear enough to build, but one reviewer may miss contract or evidence risk.
+- `Builder -> Contract Inspector -> Evidence Inspector -> GateKeeper`: target is clear enough to build, but one reviewer may miss contract or evidence risk.
 - `Inspector -> Builder -> GateKeeper`: first safe change is unclear; evidence must come before implementation.
-- `Builder -> [Regression Inspector + Contract Inspector] -> Guide -> Builder -> GateKeeper`: one repair pass is expected to expose a second decision.
+- `Builder -> Regression Inspector -> Contract Inspector -> Guide -> Builder -> GateKeeper`: one repair pass is expected to expose a second decision.
 - `Benchmark Inspector -> Builder -> Regression Inspector -> GateKeeper`: an existing benchmark or contract proof should control before/after judgment.
 
 Avoid arbitrary role piles. More roles are justified only when they carry distinct evidence responsibilities.
@@ -202,24 +202,11 @@ When the workflow has multiple reviewers or repair passes, decide:
 
 Use `inputs.handoffs_from`, `inputs.evidence_query`, and `inputs.iteration_memory` when they make the Loop more inspectable.
 
-Use `parallel_group` only for bounded contiguous Inspector / Custom fan-out. Do not put Builder, Guide, or GateKeeper inside a parallel group.
-
-## Controls are not automation
-
-Optional `workflow.controls` are advanced runtime error controls. They are not cron, webhooks, file watchers, or generic timers.
-
-Only add controls when the task has a named long-run risk such as:
-
-- no new evidence progress
-- role timeout or failure
-- repeated GateKeeper rejection
-- evidence becoming stale before the next decision
-
-Controls may call only existing Inspector, Guide, or GateKeeper roles. They must never call Builder or silently write to the workdir.
+Advanced workflow fields such as `parallel_group` and `workflow.controls` are expert / compatibility surfaces. They are not the default Web compiler path; preserve or emit them only when an expert source bundle already needs them and validation still proves a concrete risk boundary.
 
 ## The five-minute rule
 
-The user should not need to understand `bundle`, `spec`, `roles`, `workflow`, `parallel_group`, `inputs`, or `controls` before getting value.
+The user should not need to understand `bundle`, `spec`, `roles`, `workflow`, `inputs`, or advanced workflow fields before getting value.
 
 Ask in human task language. Compile complexity into the Loop yourself.
 Ask one Loop-shaping question at a time. A long questionnaire is a sign that you have not chosen the next most important judgment yet.
@@ -230,7 +217,7 @@ Good:
 
 Bad:
 
-> 你要不要配置两个 Inspector、一个 GateKeeper 和 workflow controls？
+> 你要不要配置两个 Inspector、一个 GateKeeper 和高级 workflow 字段？
 
 If a model asks that kind of mechanical configuration question in Web alignment, Loopora should reframe it into task-risk language before asking the user.
 
@@ -272,10 +259,10 @@ Use this agreement-to-bundle traceability checklist:
 | Loopora fit and readable governance story | `collaboration_summary` |
 | task scope, success surface, fake-done risks, evidence preferences, execution priorities, residual-risk policy, judgment tradeoffs | `spec.markdown` |
 | Builder / Inspector / Guide / GateKeeper / Custom responsibilities, role-level tradeoffs, and project-local governance responsibilities | `spec.markdown` `# Role Notes`, `role_definitions[].prompt_markdown`, and `posture_notes` |
-| judgment order, build/prove/repair/narrow/expand/defer priorities, local-governance checkpoints, repair timing, stop decisions, handoffs, evidence queries, memory policy, controlled error triggers | `workflow.collaboration_intent`, step `inputs`, and workflow controls |
+| judgment order, build/prove/repair/narrow/expand/defer priorities, local-governance checkpoints, repair timing, stop decisions, handoffs, evidence queries, and memory policy | `workflow.collaboration_intent` and step `inputs` |
 | final acceptance and evidence-bucket policy | GateKeeper posture, handoffs, evidence queries, and verdict rules |
 
-If a judgment item only appears in the working agreement, readiness evidence, transcript, metadata / loop names, or hidden reasoning, the Loop is not compiled yet. Ask one focused question or revise `collaboration_summary`, `spec`, role posture, workflow inputs, workflow controls, evidence queries, or GateKeeper rules before continuing.
+If a judgment item only appears in the working agreement, readiness evidence, transcript, metadata / loop names, or hidden reasoning, the Loop is not compiled yet. Ask one focused question or revise `collaboration_summary`, `spec`, role posture, workflow inputs, evidence queries, or GateKeeper rules before continuing.
 
 ## Pressure-test the candidate Loop
 

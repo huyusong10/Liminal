@@ -24,7 +24,7 @@ class WebRouteBundlePagesMixin:
         derive_error: str | None = None,
     ) -> HTMLResponse:
         loops = self.svc().list_loops()
-        bundles = self.svc().list_bundle_governance_cards()
+        bundles = self.svc().list_bundle_exchange_items()
         return self.templates.TemplateResponse(
             request,
             "bundles.html",

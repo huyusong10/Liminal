@@ -66,24 +66,14 @@ def _assert_public_anchor_default_language(
         assert forbidden not in hsl_intro
 
 
-def _assert_alignment_language_assets(
-    agent_first_design: str,
-    product_principle: str,
-    core_contract: str,
-    web_alignment_design: str,
-    governance_scenario: str,
-) -> None:
-    assert "查看、审查或修改候选 Loop" in agent_first_design
-    assert "确认候选 Loop" not in agent_first_design
-    assert "我审查并认可 Loop 的任务目标" in product_principle
-    assert "我确认 Loop" not in product_principle
-    assert "Loop composition -> Loop review -> run" in core_contract
-    assert "Loop confirmation" not in core_contract
-    assert "最近对话、三种编排模式入口" in web_alignment_design
-    assert "继续已有对话，基于已有 Loop、方案文件、运行证据或任务契约改进" in web_alignment_design
-    assert "最近 alignment sessions" not in web_alignment_design
-    assert "继续已有 alignment session" not in web_alignment_design
-    assert "已有 Loop / bundle / run / spec" not in web_alignment_design
+def _assert_alignment_language_assets(design_docs: dict[str, str], governance_scenario: str) -> None:
+    contracts = design_docs["contracts"]
+    assert "Web composer and Agent Native are peer entry surfaces" in contracts
+    assert "`contracts.md`" in design_docs["readme"]
+    assert "Web is full-function" in contracts
+    assert "same Core" in contracts
+    assert "Run status and Loop verdict are separate" in contracts
+    assert "`/loopora-gen` and `/loopora-loop`" in contracts
     assert "明确确认工作约定后进入 READY" in governance_scenario
     assert "确认方案后进入 READY" not in governance_scenario
 
@@ -143,12 +133,10 @@ def test_readme_first_use_commands_match_cli_entries() -> None:
         (root / "HUMAN-SHAPED-LOOP.md").read_text(encoding="utf-8"),
         (root / "HUMAN-SHAPED-LOOP.zh-CN.md").read_text(encoding="utf-8"),
     ]
-    agent_first_design = (root / "design" / "core-ideas" / "agent-first-loopora.md").read_text(encoding="utf-8")
-    product_principle = (root / "design" / "core-ideas" / "product-principle.md").read_text(encoding="utf-8")
-    core_contract = (root / "design" / "core-ideas" / "core-contract.md").read_text(encoding="utf-8")
-    web_alignment_design = (root / "design" / "detailed-design" / "09-web-bundle-alignment.md").read_text(
-        encoding="utf-8"
-    )
+    design_docs = {
+        "readme": (root / "design" / "README.md").read_text(encoding="utf-8"),
+        "contracts": (root / "design" / "contracts.md").read_text(encoding="utf-8"),
+    }
     governance_scenario = (root / "tests" / "scenarios" / "long_running_governance_loop.md").read_text(
         encoding="utf-8"
     )
@@ -156,13 +144,7 @@ def test_readme_first_use_commands_match_cli_entries() -> None:
 
     _assert_readme_entry_points(readmes, documented_adapters)
     _assert_public_anchor_default_language(english_readme, chinese_readme, human_shaped_loop_docs)
-    _assert_alignment_language_assets(
-        agent_first_design,
-        product_principle,
-        core_contract,
-        web_alignment_design,
-        governance_scenario,
-    )
+    _assert_alignment_language_assets(design_docs, governance_scenario)
     _assert_documented_cli_entries_available(documented_adapters)
 
 
@@ -230,101 +212,45 @@ def test_design_main_workflow_anchors_separate_run_status_and_loop_verdict() -> 
     root = Path(__file__).resolve().parents[3]
     design_sources = {
         "design/README.md": (root / "design" / "README.md").read_text(encoding="utf-8"),
-        "design/core-ideas/README.md": (root / "design" / "core-ideas" / "README.md").read_text(encoding="utf-8"),
-        "design/core-ideas/product-principle.md": (
-            root / "design" / "core-ideas" / "product-principle.md"
-        ).read_text(encoding="utf-8"),
-        "design/core-ideas/concept-map.md": (root / "design" / "core-ideas" / "concept-map.md").read_text(
-            encoding="utf-8"
-        ),
-        "design/core-ideas/task-scoped-alignment.md": (
-            root / "design" / "core-ideas" / "task-scoped-alignment.md"
-        ).read_text(encoding="utf-8"),
+        "design/contracts.md": (root / "design" / "contracts.md").read_text(encoding="utf-8"),
     }
 
-    full_workflow = "`编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出运行状态、Loop 裁决与结果`"
-    runtime_tail = "`运行 Loop -> 自动迭代并收集证据 -> 输出运行状态、Loop 裁决与结果`"
-    assert full_workflow in design_sources["design/README.md"]
-    assert full_workflow in design_sources["design/core-ideas/README.md"]
-    assert full_workflow in design_sources["design/core-ideas/product-principle.md"]
-    assert full_workflow in design_sources["design/core-ideas/concept-map.md"]
-    assert runtime_tail in design_sources["design/core-ideas/task-scoped-alignment.md"]
-    assert "运行状态与 Loop 裁决必须分开表达" in design_sources["design/core-ideas/concept-map.md"]
-    assert "Web 内置对话编排入口" in design_sources["design/README.md"]
-    assert "Web 内置任务对齐入口" not in design_sources["design/README.md"]
+    contracts = design_sources["design/contracts.md"]
+    assert "Web is full-function" in contracts
+    assert "READY preview must reflect current canonical content" in contracts
+    assert "Run status and Loop verdict are separate" in contracts
+    assert "Templates/tests inherit host model/provider defaults" in contracts
 
-    for name, source in design_sources.items():
-        assert "输出证据裁决与结果" not in source, name
+    for source in design_sources.values():
+        assert "bundle library" not in source.lower()
+        assert "Web 只是观察面" not in source
 
 
-def test_interface_design_uses_loop_verdict_for_user_result_surface() -> None:
+def test_design_tree_stays_small_and_current() -> None:
     root = Path(__file__).resolve().parents[3]
-    interface_design = (root / "design" / "detailed-design" / "05-interfaces.md").read_text(encoding="utf-8")
+    design_files = sorted(path.relative_to(root).as_posix() for path in (root / "design").rglob("*.md"))
 
-    assert "查看 Loop 裁决后" in interface_design
-    assert "Loopora fit、执行策略、判断取舍、本地治理责任与角色姿态" in interface_design
-    assert "evidence verdict" not in interface_design
+    assert "design/core-ideas/product-principle.md" not in design_files
+    assert "design/detailed-design/09-web-bundle-alignment.md" not in design_files
+    assert "design/contracts.md" in design_files
+    assert len(design_files) <= 3
 
 
-def test_runtime_design_uses_loop_verdict_for_chinese_result_surface() -> None:
+def test_workflow_design_default_is_linear_with_advanced_compatibility() -> None:
     root = Path(__file__).resolve().parents[3]
-    design_paths = [
-        root / "design" / "detailed-design" / "02-orchestration-service.md",
-        root / "design" / "detailed-design" / "07-observability-and-diagnostics.md",
-        root / "design" / "detailed-design" / "08-bundles-and-alignment.md",
-        root / "design" / "detailed-design" / "09-web-bundle-alignment.md",
-    ]
+    runtime_design = (root / "design" / "contracts.md").read_text(encoding="utf-8")
 
-    for path in design_paths:
-        source = path.read_text(encoding="utf-8")
-        assert "Loop 裁决" in source, path.name
-        assert "任务裁决" not in source, path.name
+    assert "Builder -> optional Inspector/Guide -> GateKeeper" in runtime_design
+    assert "Advanced parallel/control fields are compatibility or expert-only surfaces" in runtime_design
 
 
-def test_workflow_design_freezes_execution_strategy_in_runtime_contract() -> None:
+def test_compiler_design_keeps_web_and_agent_on_same_core() -> None:
     root = Path(__file__).resolve().parents[3]
-    workflow_design = (root / "design" / "detailed-design" / "06-workflow-and-prompts.md").read_text(
-        encoding="utf-8"
-    )
+    contracts = (root / "design" / "contracts.md").read_text(encoding="utf-8")
 
-    frozen_fields = (
-        "Task / Done When / Guardrails / Success Surface / Fake Done / Evidence Preferences / "
-        "Execution Strategy / Judgment Tradeoffs / Local Governance / Residual Risk"
-    )
-    assert frozen_fields in workflow_design
-    assert "Evidence Preferences / Judgment Tradeoffs / Local Governance / Residual Risk" not in workflow_design
-    assert "已进入运行责任链的本地治理" in workflow_design
-    assert "形成 Builder 读取、Inspector / Custom 验证、GateKeeper 阻断 / 弱证据处理链路" in workflow_design
-
-
-def test_bundle_alignment_design_traceability_includes_local_governance() -> None:
-    root = Path(__file__).resolve().parents[3]
-    bundle_design = (root / "design" / "detailed-design" / "08-bundles-and-alignment.md").read_text(
-        encoding="utf-8"
-    )
-    web_alignment_design = (root / "design" / "detailed-design" / "09-web-bundle-alignment.md").read_text(
-        encoding="utf-8"
-    )
-    agent_adapter_design = (root / "design" / "detailed-design" / "10-agent-adapters.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "执行策略、残余风险、本地治理责任、判断取舍" in bundle_design
-    assert "本地治理责任不能只停留在 `collaboration_summary`" in bundle_design
-    assert "`spec.markdown` 的 `Role Notes`" in bundle_design
-    assert "本地治理责任没有进入 `Role Notes` / 角色 prompt / posture / `workflow`" in bundle_design
-    assert "残余风险策略只有命名可接受风险及其负责人" in bundle_design
-    assert "本地治理责任的预览卡片只展示已形成 Builder 读取" in bundle_design
-    assert "READY 预览、导入或 Agent-first `/loopora-loop` 启动前必须重新读取当前 canonical `bundle.yml`" in bundle_design
-    assert "旧 `validation.json` 或 DB validation 不能让已被改坏或指向其他目录的文件继续成为候选来源" in bundle_design
-    assert "`spec.markdown` / `Role Notes`" in web_alignment_design
-    assert "空泛风险话术只能暴露为 warning 和 traceability 缺口" in web_alignment_design
-    assert "本地治理责任卡片只展示已形成 Builder 读取" in web_alignment_design
-    assert "READY 预览必须读取当前 canonical `artifacts/bundle.yml`" in web_alignment_design
-    assert "旧 validation 不能让已被改坏或指向其他目录的文件继续成为可改进来源" in web_alignment_design
-    assert "重新读取当前 bundle 文件并执行同一套结构、语义与 traceability 校验" in agent_adapter_design
-    assert "binding 与 alignment session 的 workdir 都等于当前 adapter root" in agent_adapter_design
-    assert "冻结 `judgment_contract` 投影" in agent_adapter_design
+    assert "same Core" in contracts
+    assert "One shared success path and one shared failure path across Web/Agent" in contracts
+    assert "Templates/tests inherit host model/provider defaults" in contracts
 
 
 def test_cli_run_result_separates_run_status_and_task_verdict(capsys, tmp_path: Path) -> None:
@@ -392,7 +318,7 @@ def test_cli_run_result_prints_frozen_judgment_contract_summary(capsys, tmp_path
                 },
                 "completion_mode": "gatekeeper",
                 "workflow": {
-                    "preset": "build_then_parallel_review",
+                    "preset": "quality_gate",
                     "collaboration_intent": "Builder evidence feeds Inspector review before GateKeeper closure.",
                 },
                 "compiled_spec": {
@@ -429,7 +355,7 @@ def test_cli_run_result_prints_frozen_judgment_contract_summary(capsys, tmp_path
     assert "judgment_contract_summary: Prefer proof before speed." in output
     assert "check_mode: specified" in output
     assert "completion_mode: gatekeeper" in output
-    assert "workflow_preset: build_then_parallel_review" in output
+    assert "workflow_preset: quality_gate" in output
     assert "workflow_collaboration_intent: Builder evidence feeds Inspector review before GateKeeper closure." in output
     assert "check_count: 2" in output
     _assert_cli_list(output, "coverage_targets", "done_when.check_001 (required)", "gatekeeper.finish (required)")

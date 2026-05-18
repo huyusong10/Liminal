@@ -409,29 +409,17 @@ def test_alignment_semantic_lint_rejects_final_bundle_loop_fit_contradictions(
     ) in issues
 
 
-def test_alignment_semantic_lint_requires_parallel_review_to_read_upstream_handoffs(
-    sample_workdir: Path,
-) -> None:
-    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
-    assert not any("parallel review step must name upstream handoffs" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
-
-    yaml_with_missing_parallel_handoff_input = alignment_bundle_yaml(str(sample_workdir.resolve())).replace(
-        'handoffs_from: ["builder_step"]',
-        "handoffs_from: []",
-        1,
-    )
-    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_missing_parallel_handoff_input))
-
-    assert ("parallel review step must name upstream handoffs in inputs.handoffs_from: contract_inspection_step") in issues
-
-
+@pytest.mark.parametrize("review_archetype", ["inspector", "custom"])
 def test_alignment_semantic_lint_requires_review_after_builder_to_read_builder_inputs(
     sample_workdir: Path,
+    review_archetype: str,
 ) -> None:
     bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
+    if review_archetype == "custom":
+        _make_contract_inspector_custom_review(bundle)
     steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
-    steps_by_id["contract_inspection_step"].pop("parallel_group")
-    steps_by_id["evidence_inspection_step"].pop("parallel_group")
+    if review_archetype == "custom":
+        steps_by_id["gatekeeper_step"]["inputs"]["evidence_query"]["archetypes"].append("custom")
     assert not any("review step after Builder" in issue for issue in lint_alignment_bundle_semantics(bundle))
 
     steps_by_id["contract_inspection_step"].pop("inputs")
@@ -441,104 +429,21 @@ def test_alignment_semantic_lint_requires_review_after_builder_to_read_builder_i
     assert ("review step after Builder must query Builder evidence in inputs.evidence_query: contract_inspection_step") in issues
 
 
-def test_alignment_semantic_lint_requires_custom_after_builder_to_read_builder_inputs(
-    sample_workdir: Path,
-) -> None:
+def test_alignment_semantic_lint_preserves_expert_parallel_review_guards(sample_workdir: Path) -> None:
     bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
-    _make_contract_inspector_custom_review(bundle)
     steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
-    steps_by_id["contract_inspection_step"].pop("parallel_group")
-    steps_by_id["evidence_inspection_step"].pop("parallel_group")
-    steps_by_id["gatekeeper_step"]["inputs"]["evidence_query"]["archetypes"].append("custom")
-    assert not any("review step after Builder" in issue for issue in lint_alignment_bundle_semantics(bundle))
+    steps_by_id["contract_inspection_step"]["parallel_group"] = "inspection_pack"
+    steps_by_id["evidence_inspection_step"]["parallel_group"] = "inspection_pack"
+    assert not any("parallel review step must query Builder evidence" in issue for issue in lint_alignment_bundle_semantics(bundle))
 
-    steps_by_id["contract_inspection_step"].pop("inputs")
-    issues = lint_alignment_bundle_semantics(bundle)
-
-    assert ("review step after Builder must name a Builder handoff in inputs.handoffs_from: contract_inspection_step") in issues
-    assert ("review step after Builder must query Builder evidence in inputs.evidence_query: contract_inspection_step") in issues
-
-
-def test_alignment_semantic_lint_requires_parallel_review_to_read_same_upstream_handoff(
-    sample_workdir: Path,
-) -> None:
-    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
-    assert not any("same upstream handoffs" in issue for issue in lint_alignment_bundle_semantics(bundle))
-    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
     steps_by_id["evidence_inspection_step"]["inputs"]["handoffs_from"] = ["contract_inspection_step"]
+    steps_by_id["contract_inspection_step"]["inputs"].pop("evidence_query")
+    steps_by_id["contract_inspection_step"]["inputs"].pop("iteration_memory")
     issues = lint_alignment_bundle_semantics(bundle)
 
     assert ("parallel review steps must read the same upstream handoffs: contract_inspection_step, evidence_inspection_step") in issues
-
-
-def test_alignment_semantic_lint_requires_parallel_review_to_query_builder_evidence(
-    sample_workdir: Path,
-) -> None:
-    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
-    assert not any("parallel review step must query Builder evidence" in issue for issue in lint_alignment_bundle_semantics(bundle))
-    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
-    steps_by_id["contract_inspection_step"]["inputs"].pop("evidence_query")
-    issues = lint_alignment_bundle_semantics(bundle)
-
     assert ("parallel review step must query Builder evidence in inputs.evidence_query: contract_inspection_step") in issues
-
-
-def test_alignment_semantic_lint_requires_parallel_review_iteration_memory(
-    sample_workdir: Path,
-) -> None:
-    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
-    assert not any("parallel review step must declare inputs.iteration_memory" in issue for issue in lint_alignment_bundle_semantics(bundle))
-    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
-    steps_by_id["contract_inspection_step"]["inputs"].pop("iteration_memory")
-
-    issues = lint_alignment_bundle_semantics(bundle)
-
     assert ("parallel review step must declare inputs.iteration_memory so cross-iteration evidence flow is explicit: contract_inspection_step") in issues
-
-
-def test_alignment_semantic_lint_requires_parallel_review_summary_memory(
-    sample_workdir: Path,
-) -> None:
-    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
-    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
-    steps_by_id["contract_inspection_step"]["inputs"]["iteration_memory"] = "same_step"
-
-    issues = lint_alignment_bundle_semantics(bundle)
-
-    assert (
-        "parallel review step must use inputs.iteration_memory=summary_only so previous GateKeeper verdict stays visible: contract_inspection_step"
-    ) in issues
-
-
-def test_alignment_semantic_lint_requires_parallel_review_to_use_distinct_role_definitions(
-    sample_workdir: Path,
-) -> None:
-    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
-    assert not any("distinct role_definition_key" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
-
-    yaml_with_shared_parallel_role_definition = alignment_bundle_yaml(str(sample_workdir.resolve())).replace(
-        'role_definition_key: "contract-inspector"',
-        'role_definition_key: "evidence-inspector"',
-        1,
-    )
-    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_shared_parallel_role_definition))
-
-    assert ("parallel review steps must use distinct role_definition_key values: contract_inspection_step, evidence_inspection_step") in issues
-
-
-def test_alignment_semantic_lint_requires_parallel_review_to_have_distinct_posture(
-    sample_workdir: Path,
-) -> None:
-    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
-    assert not any("responsibility-specific prompt and posture" in issue for issue in lint_alignment_bundle_semantics(bundle))
-    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
-    role_by_key["contract-inspector"]["name"] = role_by_key["evidence-inspector"]["name"]
-    role_by_key["contract-inspector"]["description"] = role_by_key["evidence-inspector"]["description"]
-    role_by_key["contract-inspector"]["prompt_markdown"] = role_by_key["evidence-inspector"]["prompt_markdown"]
-    role_by_key["contract-inspector"]["posture_notes"] = role_by_key["evidence-inspector"]["posture_notes"]
-    issues = lint_alignment_bundle_semantics(bundle)
-
-    assert ("parallel review role_definitions must have responsibility-specific prompt and posture: contract-inspector, evidence-inspector") in issues
 
 
 def test_alignment_semantic_lint_rejects_generic_role_names(sample_workdir: Path) -> None:
@@ -671,8 +576,6 @@ def test_alignment_semantic_lint_treats_custom_as_review_before_gatekeeper(
     bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
     _make_contract_inspector_custom_review(bundle)
     steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
-    steps_by_id["contract_inspection_step"].pop("parallel_group")
-    steps_by_id["evidence_inspection_step"].pop("parallel_group")
     steps_by_id["gatekeeper_step"]["inputs"]["handoffs_from"] = ["evidence_inspection_step"]
     steps_by_id["gatekeeper_step"]["inputs"]["evidence_query"]["archetypes"] = ["builder", "inspector"]
 
@@ -851,20 +754,6 @@ def test_alignment_semantic_lint_requires_builder_after_review_summary_memory(
     assert ("Builder step after review must use inputs.iteration_memory=summary_only so previous GateKeeper repair direction stays visible: builder_step") in issues
 
 
-def test_alignment_semantic_lint_requires_gatekeeper_to_read_parallel_handoffs(sample_workdir: Path) -> None:
-    valid_bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
-    assert not any("parallel review handoff" in issue for issue in lint_alignment_bundle_semantics(valid_bundle))
-
-    yaml_with_missing_parallel_handoff = alignment_bundle_yaml(str(sample_workdir.resolve())).replace(
-        'handoffs_from: ["contract_inspection_step", "evidence_inspection_step"]',
-        'handoffs_from: ["evidence_inspection_step"]',
-        1,
-    )
-    issues = lint_alignment_bundle_semantics(load_bundle_text(yaml_with_missing_parallel_handoff))
-
-    assert ("GateKeeper step must include every parallel review handoff in inputs.handoffs_from: contract_inspection_step") in issues
-
-
 def test_alignment_semantic_lint_requires_finishing_gatekeeper_to_read_handoff_and_evidence(
     sample_workdir: Path,
 ) -> None:
@@ -884,8 +773,6 @@ def test_alignment_semantic_lint_requires_gatekeeper_after_review_to_read_review
     bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
     assert not any("GateKeeper after review" in issue for issue in lint_alignment_bundle_semantics(bundle))
     steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
-    steps_by_id["contract_inspection_step"].pop("parallel_group")
-    steps_by_id["evidence_inspection_step"].pop("parallel_group")
     steps_by_id["gatekeeper_step"]["inputs"]["handoffs_from"] = ["builder_step"]
     steps_by_id["gatekeeper_step"]["inputs"]["evidence_query"]["archetypes"] = ["builder"]
 
@@ -895,49 +782,6 @@ def test_alignment_semantic_lint_requires_gatekeeper_after_review_to_read_review
         "finishing GateKeeper after review must include review handoffs in inputs.handoffs_from: contract_inspection_step, evidence_inspection_step"
     ) in issues
     assert ("finishing GateKeeper after review must query review evidence in inputs.evidence_query: inspector") in issues
-
-
-def test_alignment_semantic_lint_requires_gatekeeper_to_query_builder_and_inspector_evidence(
-    sample_workdir: Path,
-) -> None:
-    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
-    assert not any("GateKeeper step must query Builder and parallel review evidence" in issue for issue in lint_alignment_bundle_semantics(bundle))
-    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
-    steps_by_id["gatekeeper_step"]["inputs"]["evidence_query"]["archetypes"] = ["inspector"]
-    issues = lint_alignment_bundle_semantics(bundle)
-
-    assert ("GateKeeper step must query Builder and parallel review evidence in inputs.evidence_query: builder") in issues
-
-
-def test_alignment_semantic_lint_gatekeeper_fan_in_counts_parallel_custom_review_steps(
-    sample_workdir: Path,
-) -> None:
-    bundle = load_bundle_text(alignment_bundle_yaml(str(sample_workdir.resolve())))
-    role_by_key = {role["key"]: role for role in bundle["role_definitions"]}
-    role_by_key["contract-inspector"]["archetype"] = "custom"
-    role_by_key["evidence-inspector"]["archetype"] = "custom"
-    role_by_key["contract-inspector"]["prompt_markdown"] = role_by_key["contract-inspector"]["prompt_markdown"].replace(
-        "archetype: inspector", "archetype: custom"
-    )
-    role_by_key["evidence-inspector"]["prompt_markdown"] = role_by_key["evidence-inspector"]["prompt_markdown"].replace(
-        "archetype: inspector", "archetype: custom"
-    )
-    role_by_key["contract-inspector"]["prompt_markdown"] += (
-        "\n\n      Act as a read-only specialized Custom reviewer for contract evidence; do not edit files, and leave a focused handoff."
-    )
-    role_by_key["contract-inspector"]["posture_notes"] += " As a low-permission Custom reviewer, provide only specialized review signal."
-    role_by_key["evidence-inspector"]["prompt_markdown"] += (
-        "\n\n      Act as a read-only specialized Custom reviewer for evidence quality; do not edit files, and leave a focused handoff."
-    )
-    role_by_key["evidence-inspector"]["posture_notes"] += " As a low-permission Custom reviewer, provide only specialized evidence signal."
-    steps_by_id = {step["id"]: step for step in bundle["workflow"]["steps"]}
-    steps_by_id["gatekeeper_step"]["inputs"]["handoffs_from"] = []
-    steps_by_id["gatekeeper_step"]["inputs"]["evidence_query"]["archetypes"] = ["builder"]
-
-    issues = lint_alignment_bundle_semantics(bundle)
-
-    assert ("GateKeeper step must include every parallel review handoff in inputs.handoffs_from: contract_inspection_step, evidence_inspection_step") in issues
-    assert ("GateKeeper step must query Builder and parallel review evidence in inputs.evidence_query: custom") in issues
 
 
 def _long_chain_multi_builder_bundle(workdir: Path) -> dict:

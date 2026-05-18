@@ -483,24 +483,16 @@ def test_workflow_warnings_accept_guide_steps_with_upstream_handoff_and_evidence
 
 def test_visible_workflow_presets_are_curated_governance_shapes() -> None:
     assert preset_names() == [
-        "build_then_parallel_review",
         "evidence_first",
         "benchmark_gate",
-        "repair_loop",
+        "quality_gate",
     ]
 
     default_workflow = normalize_workflow(None)
-    assert default_workflow["preset"] == "build_then_parallel_review"
-    assert [step.get("parallel_group", "") for step in default_workflow["steps"]] == [
-        "",
-        "inspection_pack",
-        "inspection_pack",
-        "",
-    ]
-    assert default_workflow["steps"][-1]["inputs"]["handoffs_from"] == [
-        "contract_inspection_step",
-        "evidence_inspection_step",
-    ]
+    assert default_workflow["preset"] == "quality_gate"
+    assert [step["role_id"] for step in default_workflow["steps"]] == ["builder", "inspector", "gatekeeper"]
+    assert all(not step.get("parallel_group") for step in default_workflow["steps"])
+    assert default_workflow["steps"][-1]["on_pass"] == "finish_run"
 
 
 def test_builtin_guide_steps_read_upstream_handoffs_and_evidence() -> None:
@@ -697,127 +689,59 @@ def test_normalize_workflow_preserves_control_triggers() -> None:
     ]
 
 
-def test_normalize_workflow_rejects_zero_control_fire_limit() -> None:
-    with pytest.raises(WorkflowError, match="control max_fires_per_run must be between 1 and 20"):
-        normalize_workflow(
-            {
-                "version": 1,
-                "roles": [
-                    {"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"},
-                ],
-                "steps": [
-                    {"id": "guide_step", "role_id": "guide"},
-                ],
-                "controls": [
-                    {
-                        "id": "disabled_control",
-                        "when": {"signal": "no_evidence_progress", "after": "0s"},
-                        "call": {"role_id": "guide"},
-                        "max_fires_per_run": 0,
-                    }
-                ],
-            }
-        )
-
-
-@pytest.mark.parametrize("max_fires_per_run", [True, 1.5, "2"])
-def test_normalize_workflow_rejects_non_integer_control_fire_limit(max_fires_per_run) -> None:
-    with pytest.raises(WorkflowError, match="control max_fires_per_run must be an integer"):
-        normalize_workflow(
-            {
-                "version": 1,
-                "roles": [
-                    {"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"},
-                ],
-                "steps": [
-                    {"id": "guide_step", "role_id": "guide"},
-                ],
-                "controls": [
-                    {
-                        "id": "non_integer_control",
-                        "when": {"signal": "no_evidence_progress", "after": "0s"},
-                        "call": {"role_id": "guide"},
-                        "max_fires_per_run": max_fires_per_run,
-                    }
-                ],
-            }
-        )
+def _workflow_with_control(
+    control: dict,
+    *,
+    roles: list[dict] | None = None,
+    steps: list[dict] | None = None,
+) -> dict:
+    return {
+        "version": 1,
+        "roles": roles or [{"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"}],
+        "steps": steps or [{"id": "guide_step", "role_id": "guide"}],
+        "controls": [control],
+    }
 
 
 @pytest.mark.parametrize(
-    ("control_patch", "message"),
+    ("control_patch", "message", "roles", "steps"),
     [
-        ({"mode": False}, "workflow control mode must be advisory, blocking, or repair_guidance"),
-        ({"when": {"signal": "no_evidence_progress", "after": False}}, r"workflow control when\.after"),
+        ({"max_fires_per_run": 0}, "control max_fires_per_run must be between 1 and 20", None, None),
+        ({"max_fires_per_run": True}, "control max_fires_per_run must be an integer", None, None),
+        ({"max_fires_per_run": 1.5}, "control max_fires_per_run must be an integer", None, None),
+        ({"max_fires_per_run": "2"}, "control max_fires_per_run must be an integer", None, None),
+        ({"mode": False}, "workflow control mode must be advisory, blocking, or repair_guidance", None, None),
+        ({"when": {"signal": "no_evidence_progress", "after": False}}, r"workflow control when\.after", None, None),
+        ({"when": {"signal": "cron", "after": "20m"}}, r"when\.signal", None, None),
+        (
+            {"id": "bad_repair", "when": {"signal": "step_failed", "after": "0s"}, "call": {"role_id": "builder"}},
+            "controls may only call Inspector, Guide, or GateKeeper",
+            [
+                {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
+                {"id": "gatekeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
+            ],
+            [
+                {"id": "builder_step", "role_id": "builder"},
+                {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
+            ],
+        ),
     ],
 )
-def test_normalize_workflow_rejects_non_string_control_enums(control_patch: dict, message: str) -> None:
+def test_normalize_workflow_rejects_invalid_advanced_controls(
+    control_patch: dict,
+    message: str,
+    roles: list[dict] | None,
+    steps: list[dict] | None,
+) -> None:
     control = {
-        "id": "control_with_bad_enum",
+        "id": "advanced_control",
         "when": {"signal": "no_evidence_progress", "after": "0s"},
         "call": {"role_id": "guide"},
     }
     control.update(control_patch)
 
     with pytest.raises(WorkflowError, match=message):
-        normalize_workflow(
-            {
-                "version": 1,
-                "roles": [
-                    {"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"},
-                ],
-                "steps": [
-                    {"id": "guide_step", "role_id": "guide"},
-                ],
-                "controls": [control],
-            }
-        )
-
-
-def test_normalize_workflow_rejects_builder_control_targets() -> None:
-    with pytest.raises(WorkflowError, match="controls may only call Inspector, Guide, or GateKeeper"):
-        normalize_workflow(
-            {
-                "version": 1,
-                "roles": [
-                    {"id": "builder", "archetype": "builder", "prompt_ref": "builder.md"},
-                    {"id": "gatekeeper", "archetype": "gatekeeper", "prompt_ref": "gatekeeper.md"},
-                ],
-                "steps": [
-                    {"id": "builder_step", "role_id": "builder"},
-                    {"id": "gatekeeper_step", "role_id": "gatekeeper", "on_pass": "finish_run"},
-                ],
-                "controls": [
-                    {
-                        "id": "bad_repair",
-                        "when": {"signal": "step_failed", "after": "0s"},
-                        "call": {"role_id": "builder"},
-                    }
-                ],
-            }
-        )
-
-
-def test_normalize_workflow_rejects_unknown_control_signals() -> None:
-    with pytest.raises(WorkflowError, match=r"when\.signal"):
-        normalize_workflow(
-            {
-                "version": 1,
-                "roles": [
-                    {"id": "guide", "archetype": "guide", "prompt_ref": "guide.md"},
-                ],
-                "steps": [
-                    {"id": "guide_step", "role_id": "guide"},
-                ],
-                "controls": [
-                    {
-                        "id": "generic_timer",
-                        "when": {"signal": "cron", "after": "20m"},
-                        "call": {"role_id": "guide"},
-                    }
-                ],
-            }
-        )
+        normalize_workflow(_workflow_with_control(control, roles=roles, steps=steps))
 
 
 def test_workflow_file_can_express_controls(tmp_path) -> None:

@@ -404,7 +404,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const selected = currentOrchestration();
     if (!selected) {
       applyOrchestrationPolicy();
-      showStatus(orchestrationSummary, localeText("还没有可用的编排方案，请先去“流程编排”里创建。", "No flow is available yet. Create one from the Flow library."), "error");
+      showStatus(orchestrationSummary, localeText("还没有可用的编排方案，请先去“流程编排”里创建。", "No flow is available yet. Create one from Flows."), "error");
       return;
     }
     const workflow = selected.workflow_json || {};
@@ -431,7 +431,7 @@ document.addEventListener("DOMContentLoaded", () => {
         orchestrationSummary,
         localeText(
           `当前方案是 ${selected.name} · ${source} · 角色 ${roles} · 步骤 ${steps} · 执行 ${runtimeSummary}${notes.length ? ` · ${notes.join(" · ")}` : ""}。如果你想用守门裁决收束，请先去编排页补一个“通过即结束”的守门者步骤。`,
-          `The selected flow is ${selected.name} · ${source} · Roles ${roles} · Steps ${steps} · Runtime ${runtimeSummary}${notes.length ? ` · ${notes.join(" · ")}` : ""}. Add a finish-on-pass GateKeeper step in the Flow library if you want gate-based completion.`,
+          `The selected flow is ${selected.name} · ${source} · Roles ${roles} · Steps ${steps} · Runtime ${runtimeSummary}${notes.length ? ` · ${notes.join(" · ")}` : ""}. Add a finish-on-pass GateKeeper step in Flows if you want gate-based completion.`,
         ),
         "warning",
       );

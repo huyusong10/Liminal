@@ -15,6 +15,7 @@ from loopora.service_bundle_control_summary import build_bundle_control_summary
 from loopora.web import build_app
 from loopora.web_streaming import MAX_EVENT_CURSOR_ID
 import loopora.service_alignment as alignment_module
+import loopora.service_alignment_legacy as alignment_legacy_module
 import loopora.service_cleanup_diagnostics as cleanup_diagnostics
 
 
@@ -1196,8 +1197,8 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
         "If a judgment only appears in `agreement_summary`",
         "Metadata and loop names are not enough to prove traceability",
         "metadata and loop names do not count",
-        "workflow controls carry judgment order",
-        "workflow controls, or GateKeeper evidence rules",
+        "step `inputs` carry judgment order",
+        "step `inputs`, or GateKeeper evidence rules",
         "optional Guide / Custom responsibility when used",
         "AGENTS.md exists: yes",
         "design/README.md exists: yes",
@@ -1205,9 +1206,9 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
         "Builder should read applicable project-local rules",
         "Custom must describe low-permission specialized review or advisory responsibility",
         "Keep readiness evidence task-scoped",
-        "must read the same upstream Builder handoff",
-        "A non-parallel Inspector or Custom review step after Builder",
-        "Parallel review steps, Guide after review, Builder after review, and Builder after Guide should declare `inputs.iteration_memory`",
+        "multiple reviewers or repair passes",
+        "An Inspector or Custom review step after Builder",
+        "Review steps, Guide after review, Builder after review, and Builder after Guide should declare `inputs.iteration_memory`",
         "Ask in task-risk language, not configuration language",
         "Do not ask abstract preference or quality-style questions",
         "Do not present long questionnaires",
@@ -1219,9 +1220,9 @@ def test_alignment_prompt_and_source_sync_follow_user_language(service_factory, 
         "must not claim an observed stack",
         "bare archetypes or numbered placeholders",
         "separate Inspector `role_definitions`",
-        "must include every parallel Inspector or Custom review step id",
+        "advanced workflow fields",
         "If Inspector, Custom, or Guide review happened before final judgment",
-        "must query Builder, Inspector, and Custom evidence",
+        "query relevant upstream evidence",
         "Any finishing GateKeeper step must name upstream handoffs",
         "`GateKeeper`, `Guide`, `Custom`, `workdir`, `READY`",
         "substantive task or alignment content is Chinese",
@@ -3898,14 +3899,14 @@ def test_alignment_legacy_migration_failure_writes_structured_diagnostics(
             "executor_session_ref": {},
         }
     )
-    original_move = alignment_module.shutil.move
+    original_move = alignment_legacy_module.shutil.move
 
     def fail_stale_move(source: str, target: str):
         if Path(source).name == "stale.tmp":
             raise OSError("locked legacy file")
         return original_move(source, target)
 
-    monkeypatch.setattr(alignment_module.shutil, "move", fail_stale_move)
+    monkeypatch.setattr(alignment_legacy_module.shutil, "move", fail_stale_move)
     with caplog.at_level(logging.WARNING, logger="loopora.service_alignment"):
         migrated = service.get_alignment_session(session_id)
 

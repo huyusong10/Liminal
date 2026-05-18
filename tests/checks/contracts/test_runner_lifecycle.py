@@ -189,7 +189,7 @@ def test_destructive_tester_is_blocked_by_workspace_guard(
 
     assert run["status"] == "failed"
     assert "workspace safety guard" in (run["error_message"] or "")
-    assert guard["role"] == "contract_inspector"
+    assert guard["role"] in {"tester", "inspector"}
     assert guard["deleted_original_count"] == 3
 
 

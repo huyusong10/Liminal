@@ -8,4 +8,4 @@
 当前保留：
 
 - `long_running_governance_loop.md`：跨对话编排、READY、运行、证据、裁决和导出，关注端到端产品心智与证据串联。
-- `resource_navigation_and_editing.md`：跨 Loop 卡片、资源库、编辑器与危险动作，关注多入口之间的人工导航判断。
+- `asset_navigation_and_editing.md`：跨 Loop 卡片、方案文件、编辑器与危险动作，关注多入口之间的人工导航判断。

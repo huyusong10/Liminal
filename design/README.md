@@ -1,84 +1,21 @@
 # Loopora Design
 
-## 1. 目的
+This directory is the current design boundary map. Product truth starts in `HUMAN-SHAPED-LOOP.zh-CN.md` and
+`README.zh-CN.md`; design only records the contracts an implementation change must preserve.
 
-本目录记录 Loopora 的设计约束与实现分解。
+Loopora's stable workflow is:
 
-最高产品原则见 `core-ideas/product-principle.md`：
+`compose Loop -> review Loop -> run Loop -> collect evidence -> report run status, Loop verdict, and result`
 
-> Loopora 是面向长期 AI Agent 任务的本地任务平台。它把未来多轮任务中原本需要人类反复做的判断、纠偏、取证和阻断，提前编译成一个可运行的 human-shaped Loop。所有设计都必须服务于 `编排 Loop -> 运行 Loop -> 自动迭代并收集证据 -> 输出运行状态、Loop 裁决与结果` 的主工作流，而不是退化成 role zoo、prompt pack、loop script、通用聊天界面或内部资产 CRUD console。
+## Design Map
 
-同一原则还包含 human-shaped Loop、“主次关系”和“5 分钟上手”硬约束：核心概念必须围绕 Loop 的判断外化、编排、运行、自动迭代、证据和裁决；Web 问答、手动编排、导入 YAML 和对话改进只是取得或调整 Loop 的场景。
+| Document | Stable boundary |
+| --- | --- |
+| `contracts.md` | Product, compiler, bundle, runtime, workflow, Web composer, and Agent Native contracts |
+| `decisions/agent-native-execution-plane.md` | Accepted execution-plane split between Agent Native and headless worker paths |
 
-文档分成三个子模块：
+## Maintenance Rules
 
-- `core-ideas/`：只保留抽象规则、反例、非目标；作为项目级约束。
-- `detailed-design/`：按高内聚模块拆分实现设计；作为实现和演进的参考面。
-- `decisions/`：记录已经接受的重要架构取舍；只在取舍本身会影响多个模块或验证边界时新增。
-
-## 2. 使用规则
-
-- `core-ideas/` 优先回答“什么绝不能变形”。
-- `detailed-design/` 优先回答“模块边界如何切、职责如何分、依赖如何流动”。
-- 本目录不是 README 扩写版；不重复安装、使用教程、营销性描述。
-- 本目录默认以当前代码为准；如果文档与实现冲突，应同时修正文档和实现，不允许长期漂移。
-- 细节设计不追踪易变细节；字段枚举、提示词文案、常量阈值、临时 UI copy 不是这里的重点。
-- 临时原型、视觉草稿和一次性探索资产不属于 `design/` 契约目录；如果需要本地保留，应放在已忽略的临时目录中。
-
-## 3. 文档稳定性原则
-
-以下变化通常不要求更新 `detailed-design/`：
-
-- 小范围字段增删
-- 文案调整
-- 默认值调整
-- provider 参数细节调整
-- 日志结构小幅扩展
-
-以下变化必须更新 `detailed-design/`：
-
-- 模块职责迁移
-- 依赖方向改变
-- 生命周期或状态机改变
-- 新增或删除一层核心边界
-- 原有不变量失效
-
-## 4. 文档地图
-
-| 子模块 | 文档 | 主题 | 主要代码边界 |
-| --- | --- | --- | --- |
-| 核心思想 | `core-ideas/README.md` | 项目公理、反例、非目标 | 全局 |
-| 核心思想 | `core-ideas/product-principle.md` | 最高产品原则、长期任务平台主工作流与默认用户心智 | 全局 |
-| 核心思想 | `core-ideas/concept-map.md` | 术语层级、主工作流、场景边界与易混边界 | 全局 |
-| 核心思想 | `core-ideas/core-contract.md` | 当前治理 surface、巡检流程与测试对齐锚点 | 全局 |
-| 核心思想 | `core-ideas/collaboration-posture.md` | 用户判断姿态如何成为治理输入 | 全局 |
-| 核心思想 | `core-ideas/task-scoped-alignment.md` | 任务驱动对齐、working agreement 与 Loop 编排场景 | 全局 |
-| 核心思想 | `core-ideas/agent-first-loopora.md` | Coding Agent 作为主入口和执行主体、Loopora 作为上层治理编排器的当前产品边界 | 全局 |
-| 核心思想 / 参考资料 | `core-ideas/codex-goal-reference.md` | Codex `/goal` 的持久目标、自动续跑和受限模型工具机制参考 | 全局 |
-| 核心思想 / 参考资料 | `core-ideas/trellis-agent-orchestration-reference.md` | Trellis 的 Agent-first、本地编排、多平台 adapter 与上下文注入机制参考 | 全局 |
-| 架构决策 | `decisions/agent-native-execution-plane.md` | Agent-first 默认执行平面与 headless executor 的分界 | 全局 |
-| 细节设计 | `detailed-design/01-spec-subsystem.md` | `spec.md` 编译与 checks 冻结 | `src/loopora/specs.py`, `src/loopora/context_flow.py`, `src/loopora/service_prompts.py` |
-| 细节设计 | `detailed-design/02-orchestration-service.md` | loop/run 编排与角色循环 | `src/loopora/service.py`, `src/loopora/service_run_*.py`, `src/loopora/service_workflow_*.py`, `src/loopora/service_agent_native.py` |
-| 细节设计 | `detailed-design/03-executor-subsystem.md` | 执行器、provider 适配、命令模式 | `src/loopora/executor.py`, `src/loopora/providers.py` |
-| 细节设计 | `detailed-design/04-persistence-and-reliability.md` | 存储、事件、锁、恢复、安全守卫 | `src/loopora/db*.py`, `src/loopora/settings.py`, `src/loopora/recovery.py`, `src/loopora/stagnation.py`, `src/loopora/service_cleanup_diagnostics.py` |
-| 细节设计 | `detailed-design/05-interfaces.md` | Web / CLI / API 交互面 | `src/loopora/cli*.py`, `src/loopora/web*.py`, `src/loopora/web_route_*.py`, `src/loopora/templates/`, `src/loopora/static/` |
-| 细节设计 | `detailed-design/06-workflow-and-prompts.md` | workflow、prompt 与角色快照契约 | `src/loopora/workflows.py`, `src/loopora/context_flow.py` |
-| 细节设计 | `detailed-design/07-observability-and-diagnostics.md` | 统一日志契约、事件命名与分级规则 | `src/loopora/diagnostics.py`, `src/loopora/settings.py`, `src/loopora/db*.py`, `src/loopora/service_*diagnostics.py`, `src/loopora/service_run_lifecycle.py`, `src/loopora/web*.py`, `src/loopora/cli*.py` |
-| 细节设计 | `detailed-design/08-bundles-and-alignment.md` | bundle 生命周期、专家交换格式与 task-scoped alignment 落点 | `src/loopora/bundles.py`, `src/loopora/service_bundle_assets.py`, `src/loopora/service_alignment.py`, `src/loopora/assets/alignment/` |
-| 细节设计 | `detailed-design/09-web-bundle-alignment.md` | Web 内置对话编排入口、alignment session、READY 预览与创建运行 | `src/loopora/web_route_*.py`, `src/loopora/templates/`, `src/loopora/static/`, `src/loopora/executor.py`, `src/loopora/bundles.py` |
-| 细节设计 | `detailed-design/10-agent-adapters.md` | Agent-first Coding Agent adapter、安装卸载 ownership、`/loopora-gen` 与 `/loopora-loop` 入口边界 | `src/loopora/agent_adapters.py`, `src/loopora/service_agent_adapters.py`, `src/loopora/cli_agent_adapter_commands.py`, `src/loopora/web_route_agent_adapters_api.py`, `src/loopora/templates/tools.html`, `src/loopora/static/pages/tools.js` |
-
-## 5. 读者约定
-
-- 产品与架构讨论先读 `core-ideas/README.md`；如果被术语层级绕住，先读 `core-ideas/concept-map.md`。
-- 改某个模块前先读对应的 `detailed-design/*.md`。
-- 演进路线、阶段性落点和非契约规划记录不作为模块改动前的必读设计契约；若后续重新引入规划目录，必须在本文档登记当前入口。
-- 涉及跨模块变更时，至少同时检查：
-  - `02-orchestration-service.md`
-  - `04-persistence-and-reliability.md`
-  - `05-interfaces.md`
-  - `06-workflow-and-prompts.md`
-  - `08-bundles-and-alignment.md`
-  - `09-web-bundle-alignment.md`
-  - `07-observability-and-diagnostics.md`
-  - `10-agent-adapters.md`
+- Do not add a new design file for implementation details, CSS, DOM shape, prompt wording, or one-off history.
+- Keep stable claims in `contracts.md` as a compact table: boundary, claim, owning code, verification, and non-contracts.
+- Tests should cite design only for stable product boundaries, not exact copy.

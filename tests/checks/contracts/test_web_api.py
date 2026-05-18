@@ -3742,19 +3742,6 @@ def _assert_bundle_preview_control_summary(preview: dict) -> None:
     assert isinstance(preview["diagnostics"], list)
 
 
-def _assert_bundle_governance_summary(governance_summary: dict) -> None:
-    assert governance_summary["workflow_step_count"] >= 1
-    assert (
-        governance_summary["residual_risk_policy"]
-        and governance_summary["execution_strategy"]
-        and governance_summary["role_postures"]
-    )
-    assert governance_summary["coverage_summary"]
-    assert governance_summary["coverage_targets"]
-    assert isinstance(governance_summary["loop_fit_reasons"], list)
-    assert governance_summary["gatekeeper"]["strictness"] == "evidence_refs_required"
-
-
 def test_api_bundles_import_export_and_delete(
     service_factory,
     sample_spec_file: Path,
@@ -3805,7 +3792,8 @@ def test_api_bundles_import_export_and_delete(
     list_response = client.get("/api/bundles")
     assert list_response.status_code == 200
     listed_bundle = next(item for item in list_response.json() if item["id"] == bundle["id"])
-    _assert_bundle_governance_summary(listed_bundle["governance_summary"])
+    assert listed_bundle["loop_id"]
+    assert "governance_summary" not in listed_bundle
 
     get_response = client.get(f"/api/bundles/{bundle['id']}")
     assert get_response.status_code == 200
@@ -4217,15 +4205,15 @@ def test_bundle_api_and_detail_hide_legacy_lineage_surfaces(
     assert f'value="{source["id"]}"' not in page_response.text
     assert 'data-testid="bundle-revision-delta-summary"' not in page_response.text
     assert list_response.status_code == 200
-    assert f'data-testid="bundle-governance-card-{imported["id"]}"' in list_response.text
-    assert 'data-testid="bundle-governance-failure"' in list_response.text
-    assert 'data-testid="bundle-governance-evidence"' in list_response.text
-    assert 'data-testid="bundle-governance-coverage"' in list_response.text
-    assert 'data-testid="bundle-governance-residual-risk"' in list_response.text
-    assert 'data-testid="bundle-governance-execution-strategy"' in list_response.text
-    assert 'data-testid="bundle-governance-local"' in list_response.text
-    assert 'data-testid="bundle-governance-workflow"' in list_response.text
-    assert 'data-testid="bundle-governance-gatekeeper"' in list_response.text
+    assert f'data-testid="bundle-exchange-item-{imported["id"]}"' in list_response.text
+    assert 'data-testid="bundle-governance-failure"' not in list_response.text
+    assert 'data-testid="bundle-governance-evidence"' not in list_response.text
+    assert 'data-testid="bundle-governance-coverage"' not in list_response.text
+    assert 'data-testid="bundle-governance-residual-risk"' not in list_response.text
+    assert 'data-testid="bundle-governance-execution-strategy"' not in list_response.text
+    assert 'data-testid="bundle-governance-local"' not in list_response.text
+    assert 'data-testid="bundle-governance-workflow"' not in list_response.text
+    assert 'data-testid="bundle-governance-gatekeeper"' not in list_response.text
     assert 'data-testid="bundle-governance-changed-surfaces"' not in list_response.text
 
 

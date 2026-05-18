@@ -224,7 +224,7 @@ class WebRouteLoopPagesMixin:
                 "spec_practice_rendered_html_en": render_safe_markdown_html(spec_practice_markdown_en) if spec_practice_markdown_en else "",
                 "orchestration_locked": is_builtin_template,
                 "orchestration_create_from_preset_href": (
-                    f"/orchestrations/new?workflow_preset={form_values.get('workflow_preset', 'build_then_parallel_review')}"
+                    f"/orchestrations/new?workflow_preset={form_values.get('workflow_preset', 'quality_gate')}"
                     if is_builtin_template
                     else ""
                 ),

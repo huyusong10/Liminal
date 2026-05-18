@@ -568,7 +568,7 @@
   </header>
   {% if import_values.replace_bundle_id %}
   <div class="field-status is-success" data-testid="bundle-replace-target-note">
-    <span data-lang="zh">当前导入会显式替换已有方案包 <code>{{ import_values.replace_bundle_id }}</code>。</span>
+    <span data-lang="zh">当前导入会显式替换已有方案文件 <code>{{ import_values.replace_bundle_id }}</code>。</span>
     <span data-lang="en">The next import will explicitly replace plan <code>{{ import_values.replace_bundle_id }}</code>.</span>
   </div>
   {% endif %}
@@ -594,7 +594,7 @@
         </div>
       </label>
       <label>
-        <span><span data-lang="zh">替换已有方案包 ID</span><span data-lang="en">Replace plan id</span></span>
+        <span><span data-lang="zh">替换已有方案 ID</span><span data-lang="en">Replace plan id</span></span>
         <input id="bundle-import-replace-id" name="replace_bundle_id" value="{{ import_values.replace_bundle_id }}" />
       </label>
       <label class="wide">
@@ -791,13 +791,13 @@
           <span><span data-lang="zh">契约路径</span><span data-lang="en">Spec path</span></span>
           {{ tip_button(
             "如果不知道 Loop 契约该怎么写，先去流程编排里找最接近的例子，再按你的需求改。要是暂时还不想把成功条件写死，也可以先省略完成条件，让系统在运行开始时自动冻结检查项。",
-            "If you're not sure how to write the Loop contract, start from the closest example in the Flow library and adapt it to your case. If you're not ready to lock the success conditions yet, you can omit Done When and let the system freeze checks at run start.",
+            "If you're not sure how to write the Loop contract, start from the closest flow example and adapt it to your case. If you're not ready to lock the success conditions yet, you can omit Done When and let the system freeze checks at run start.",
             "loop-spec-tip"
           ) }}
         </span>
         <a class="inline-hint-link" href="/orchestrations">
           <span data-lang="zh">不知道怎么写？先去流程编排看样例。</span>
-          <span data-lang="en">Not sure how to write it yet? Start with an example in the Flow library.</span>
+          <span data-lang="en">Not sure how to write it yet? Start with a flow example.</span>
         </a>
       </span>
       <div class="input-with-action input-with-multi-actions">
@@ -849,7 +849,7 @@
           </a>
           <a class="ghost-button" href="/orchestrations">
             <span data-lang="zh">流程编排</span>
-            <span data-lang="en">Flow library</span>
+            <span data-lang="en">Flows</span>
           </a>
           <a class="ghost-button" href="/tutorial">
             <span data-lang="zh">使用教程</span>

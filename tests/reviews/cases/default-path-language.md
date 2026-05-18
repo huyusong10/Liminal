@@ -69,7 +69,7 @@ targets:
       - role zoo
 ---
 
-Review default user-facing paths as a non-expert user would encounter them. The text index may include conversation guidance that shapes the default Web compiler, but expert-term machine hints intentionally stay limited to visible Web surfaces and localized strings. Internal compiler references, resource-library detail pages, and expert editing screens belong in concept-coherence or scenario review, not this default-path hint stream.
+Review default user-facing paths as a non-expert user would encounter them. The text index may include conversation guidance that shapes the default Web compiler, but expert-term machine hints intentionally stay limited to visible Web surfaces and localized strings. Internal compiler references, plan-file detail pages, and expert editing screens belong in concept-coherence or scenario review, not this default-path hint stream.
 
 Look for:
 

@@ -167,7 +167,7 @@ def _alignment_preconfirmation_scenario_payload(scenario: str, *, workdir: str) 
         needs_user_input = False
         phase = "blocked"
     elif scenario == "alignment_mechanical_question":
-        assistant_message = "你要不要配置两个 Inspector、一个 GateKeeper 和 workflow controls？"
+        assistant_message = "你要不要配置两个 Inspector、一个 GateKeeper 和高级 workflow 字段？"
     elif scenario == "alignment_generic_preference_question":
         assistant_message = "你有什么偏好？你想要高质量还是快一点？"
     elif scenario == "alignment_questionnaire_overload":
@@ -843,7 +843,7 @@ def alignment_improvement_readiness_evidence(*, open_questions: str = "") -> dic
             "test obligations, and GateKeeper treats skipped local governance as Weak, Unproven, or Blocking."
         ),
         "role_posture": "Preserve useful Builder caution, change Inspector responsibilities around evidence gaps, and keep GateKeeper strict with clear blockers and handoffs.",
-        "workflow_shape": "Preserve the basic Builder -> Inspector -> GateKeeper order unless feedback requires bounded parallel inspection; change inputs and handoffs because evidence gaps need explicit review and early exposure before GateKeeper closure.",
+        "workflow_shape": "Preserve the basic Builder -> Inspector -> GateKeeper order unless feedback requires an explicit extra review or repair stage; change inputs and handoffs because evidence gaps need explicit review and early exposure before GateKeeper closure.",
         "workdir_facts": "Observed source context is the current bundle or run evidence snapshot; exact stack facts remain unknown assumptions until roles verify them.",
         "open_questions": open_questions,
     }
@@ -1045,8 +1045,8 @@ role_definitions:
     reasoning_effort: ""
 workflow:
   version: 1
-  preset: "build_then_parallel_review"
-  collaboration_intent: "Build one focused starter slice, inspect the contract and evidence in parallel so weak evidence, drift, or fake done surface early, then let GateKeeper finish only when both inspection branches support the task contract."
+  preset: "build_then_review"
+  collaboration_intent: "Build one focused starter slice, inspect the contract and evidence in sequence so weak evidence, drift, or fake done surface early, then let GateKeeper finish only when both inspection views support the task contract."
   roles:
     - id: "builder"
       role_definition_key: "builder"
@@ -1061,7 +1061,6 @@ workflow:
       role_id: "builder"
     - id: "contract_inspection_step"
       role_id: "contract_inspector"
-      parallel_group: "inspection_pack"
       inputs:
         handoffs_from: ["builder_step"]
         evidence_query:
@@ -1070,7 +1069,6 @@ workflow:
         iteration_memory: "summary_only"
     - id: "evidence_inspection_step"
       role_id: "evidence_inspector"
-      parallel_group: "inspection_pack"
       inputs:
         handoffs_from: ["builder_step"]
         evidence_query:
@@ -1173,9 +1171,9 @@ def alignment_chinese_bundle_yaml(workdir: str) -> str:
             "      只有任务和验证证据一致时才收束；handoff evidence 缺失、薄弱或没有覆盖主流程时必须 fail closed。"
         ),
         (
-            '  collaboration_intent: "Build one focused starter slice, inspect the contract and evidence in parallel so weak evidence, drift, or fake done surface early, then let GateKeeper finish only when both inspection branches support the task contract."'
+            '  collaboration_intent: "Build one focused starter slice, inspect the contract and evidence in sequence so weak evidence, drift, or fake done surface early, then let GateKeeper finish only when both inspection views support the task contract."'
         ): (
-            '  collaboration_intent: "先构建一个聚焦 starter slice，再并行检查契约和证据，让证据薄弱、偏差或假完成提前暴露；只有两条检查分支都支持任务契约时，GateKeeper 才能 finish。"'
+            '  collaboration_intent: "先构建一个聚焦 starter slice，再顺序检查契约和证据，让证据薄弱、偏差或假完成提前暴露；只有两个检查视角都支持任务契约时，GateKeeper 才能 finish。"'
         ),
     }
     for old, new in replacements.items():
@@ -1287,8 +1285,8 @@ def alignment_improvement_bundle_yaml(workdir: str) -> str:
             "    - Preserve source intent, but tighten evidence expectations from feedback, run evidence, coverage, and GateKeeper verdict before screenshots or claims.\n",
         )
         .replace(
-            '  collaboration_intent: "Build one focused starter slice, inspect the contract and evidence in parallel so weak evidence, drift, or fake done surface early, then let GateKeeper finish only when both inspection branches support the task contract."',
-            '  collaboration_intent: "Preserve the source Loop shape where it still fits, but route the feedback-driven evidence delta through parallel contract and evidence review so weak evidence, evidence gaps, or fake done surface early before GateKeeper closes."',
+            '  collaboration_intent: "Build one focused starter slice, inspect the contract and evidence in sequence so weak evidence, drift, or fake done surface early, then let GateKeeper finish only when both inspection views support the task contract."',
+            '  collaboration_intent: "Preserve the source Loop shape where it still fits, but route the feedback-driven evidence delta through contract and evidence review so weak evidence, evidence gaps, or fake done surface early before GateKeeper closes."',
         )
     )
 
@@ -1315,8 +1313,8 @@ def alignment_chinese_improvement_bundle_yaml(workdir: str) -> str:
             "    - 保留来源意图，但根据反馈、运行证据、coverage 和 GateKeeper verdict 收紧证据期望，而不是依赖截图或口头声称。\n",
         )
         .replace(
-            '  collaboration_intent: "先构建一个聚焦 starter slice，再并行检查契约和证据，让证据薄弱、偏差或假完成提前暴露；只有两条检查分支都支持任务契约时，GateKeeper 才能 finish。"',
-            '  collaboration_intent: "保留来源 Loop 中仍然有效的形状，但把反馈驱动的证据变化通过并行契约和证据 review 暴露出来，让弱证据、证据缺口或假完成在 GateKeeper 收束前可见。"',
+            '  collaboration_intent: "先构建一个聚焦 starter slice，再顺序检查契约和证据，让证据薄弱、偏差或假完成提前暴露；只有两个检查视角都支持任务契约时，GateKeeper 才能 finish。"',
+            '  collaboration_intent: "保留来源 Loop 中仍然有效的形状，但把反馈驱动的证据变化通过契约和证据 review 暴露出来，让弱证据、证据缺口或假完成在 GateKeeper 收束前可见。"',
         )
     )
 

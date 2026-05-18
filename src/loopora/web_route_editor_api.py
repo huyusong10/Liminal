@@ -55,7 +55,7 @@ def register_editor_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
 def _register_bundle_record_api_routes(app: FastAPI, ctx: WebRouteContext) -> None:
     @app.get("/api/bundles")
     async def api_list_bundles() -> JSONResponse:
-        return JSONResponse(ctx.svc().list_bundle_governance_cards())
+        return JSONResponse(ctx.svc().list_bundle_exchange_items())
 
     @app.get("/api/bundles/{bundle_id}")
     async def api_get_bundle(bundle_id: str) -> JSONResponse:

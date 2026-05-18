@@ -743,7 +743,7 @@ def _coerce_preset_step_spec(spec: PresetStepSpec | None, raw_spec: Mapping[str,
     return spec or PresetStepSpec(**raw_spec)
 
 
-DEFAULT_WORKFLOW_PRESET = "build_then_parallel_review"
+DEFAULT_WORKFLOW_PRESET = "quality_gate"
 
 
 WORKFLOW_PRESETS = {
@@ -751,13 +751,14 @@ WORKFLOW_PRESETS = {
         label_zh="构建后并行检视",
         label_en="Build + Parallel Review",
         description_zh="构建者 -> [契约巡检者 + 证据巡检者] -> 守门者",
-        description_en="Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper",
+        description_en="Builder -> Contract Inspector + Evidence Inspector (advanced parallel) -> GateKeeper",
         scenario_zh="适合目标已经足够清楚，但误差风险来自多个方向的长期 Loop：一个智能体可以先推进实现，之后由两个检视视角并行检查用户契约和可复验证据，再由守门者汇总裁决。",
         scenario_en="Best when the target is clear but error risk comes from multiple directions: one AI Agent can push the implementation, two inspection perspectives can review contract and evidence in parallel, and GateKeeper can make the final call.",
-        choice_zh="默认选它，因为它把人类常做的“先让智能体干活，再从不同角度复查，再决定能不能收工”外化成可运行的治理结构。",
-        choice_en="Choose this by default because it externalizes the common human loop: let the agent build, review from more than one angle, then decide whether the task can close.",
+        choice_zh="这是高级兼容流程，只在确实需要并行检视时选择；默认 Loop 应先使用线性流程降低心智成本。",
+        choice_en="This is an advanced compatibility flow for tasks that truly need parallel inspection; use the linear default first to keep the Loop easier to review.",
         decision_zh="先构建可检查产物，再用并行检视降低单一巡检视角漏看风险，最后由守门者基于汇总证据收束。",
         decision_en="Build an inspectable result first, reduce single-reviewer blind spots through parallel inspection, then let GateKeeper close from the gathered evidence.",
+        visible=False,
         roles=[
             _preset_role(
                 role_id="builder",
@@ -1048,9 +1049,9 @@ WORKFLOW_PRESETS = {
         description_en="Builder -> Inspector -> GateKeeper(finish)",
         scenario_zh="适合发布前最后一轮收口：构建者补完已知缺口，巡检者按验收点检查，守门者给出可发或不可发判断。",
         scenario_en="Best for the final release pass: Builder closes known gaps, Inspector checks the acceptance surface, and GateKeeper makes the release call.",
-        choice_zh="当实现已经基本齐了，只差最后一轮交付与放行判断时才选它。它不是默认核心流程，只保留给兼容旧流程或少数发布前场景。",
-        choice_en="Use this only when the implementation is already nearly complete and the remaining job is a final release decision. It stays for compatibility, not as a default core flow.",
-        visible=False,
+        choice_zh="默认从这里开始：构建者先产出可检查结果，巡检者补证据视角，守门者决定是否收束。",
+        choice_en="Start here by default: Builder creates an inspectable result, Inspector adds the evidence view, and GateKeeper decides whether the Loop can close.",
+        visible=True,
         roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(role_id="inspector", archetype="inspector", prompt_ref=PROMPT_FILES["inspector"], role_definition_id="builtin:inspector"),
@@ -1113,14 +1114,15 @@ WORKFLOW_PRESETS = {
     "repair_loop": _workflow_preset_definition(
         label_zh="修复回路",
         label_en="Repair Loop",
-        description_zh="构建者 -> [回归巡检者 + 契约巡检者] -> 引导者 -> 构建者 -> 守门者",
-        description_en="Builder -> [Regression Inspector + Contract Inspector] -> Guide -> Builder -> GateKeeper",
+        description_zh="构建者 -> 回归巡检者 -> 契约巡检者 -> 引导者 -> 构建者 -> 守门者",
+        description_en="Builder -> Regression Inspector -> Contract Inspector -> Guide -> Builder -> GateKeeper",
         scenario_zh="适合从一开始就知道一轮修复不够，如果没有 Loop，人类会在每轮后重新进来判断第二轮怎么修的长期工作。",
         scenario_en="Best for long tasks where you already know one repair pass will not be enough, so without a loop humans would have to re-enter after each round to decide how the next repair should change.",
         choice_zh="当你已经预期一轮修复不够，而且第一轮改动本身就是下一轮证据来源时选择它。",
         choice_en="Choose this when you already expect one pass not to be enough, and when the first code change is itself the only way to surface the next evidence.",
         decision_zh="先打一轮，再用复查结果决定第二轮，减少人类在每轮后重新指路。",
         decision_en="Ship the first repair, then let fresh evidence shape the second one so humans do not have to keep stepping back in to redirect it.",
+        visible=False,
         roles=[
             _preset_role(role_id="builder", archetype="builder", prompt_ref=PROMPT_FILES["builder"], role_definition_id="builtin:builder"),
             _preset_role(

@@ -124,7 +124,6 @@ workflow:
       on_pass: "continue"
     - id: "contract_inspection_step"
       role_id: "contract_inspector"
-      parallel_group: "inspection_pack"
       inputs:
         handoffs_from: ["builder_step"]
         evidence_query:
@@ -134,7 +133,6 @@ workflow:
       on_pass: "continue"
     - id: "evidence_inspection_step"
       role_id: "evidence_inspector"
-      parallel_group: "inspection_pack"
       inputs:
         handoffs_from: ["builder_step"]
         evidence_query:
@@ -225,7 +223,6 @@ Use workflow for execution shape:
 - whether evidence comes before implementation
 - where Guide intervenes
 - whether the loop is tightly gated or more exploratory
-- whether bounded parallel inspection is needed
 - what upstream handoffs, evidence, and iteration memory each step should see
 
 Use `workflow.collaboration_intent` to capture the high-level execution bias.
@@ -236,26 +233,24 @@ Runtime invariant:
 - `loop.executor_kind` / `loop.executor_mode` must use the same supported executor contract as normal Loop creation; custom executors require command mode and valid command arguments.
 - If a role omits executor fields, Loopora Core treats it as inheriting the normalized loop executor defaults; prefer emitting the fields explicitly for generated bundles so the selected runtime is visible before import.
 - In `gatekeeper` mode, the workflow must include a role whose role definition has `archetype: "gatekeeper"` and at least one step for that role with `on_pass: "finish_run"`.
-- For fresh implementation bundles where the target is clear enough to build, prefer Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper.
+- For fresh implementation bundles where the target is clear enough to build, prefer Builder -> Contract Inspector -> Evidence Inspector -> GateKeeper.
 - Use Inspector -> Builder -> GateKeeper when the first safe change is unclear.
-- Use Builder -> [parallel Inspectors / Custom reviewers] -> Guide -> Builder -> GateKeeper when the task expects a second repair pass.
+- Use Builder -> Regression Inspector -> Contract Inspector -> Guide -> Builder -> GateKeeper when the task expects a second repair pass.
 - Use Benchmark Inspector -> Builder -> Regression Inspector -> GateKeeper when an existing benchmark or contract proof should control the decision.
 - Use a long-chain phase workflow when the task has multiple evidence-bearing stages that would otherwise be hidden inside one oversized Builder prompt. A 5+ role or step chain is acceptable when every added role produces a distinct artifact, proof target, handoff, review responsibility, repair direction, or GateKeeper input.
 - Long-chain workflows are still one linear `workflow.steps` sequence in version 1. Do not emit nested Loops, arbitrary branch syntax, dynamic DAGs, or sub-workflow entities.
 - Multiple Builder roles or Builder steps must be task-specific, such as API Builder, UI Builder, Migration Builder, Repair Builder, or Evidence Hardening Builder. Do not use `Builder 1` / `Builder 2`, and do not split a single continuous implementation into multiple Builders unless the split creates a clearer evidence boundary.
-- `parallel_group` is only for contiguous Inspector / Custom steps. Do not put Builder, Guide, or GateKeeper inside a parallel group.
-- If the workflow uses `parallel_group`, `workflow.collaboration_intent` must explain why bounded parallel or independent inspection fits this task.
+- `parallel_group` is an expert / compatibility field, not default compiler output. Preserve or emit it only when an expert source bundle already needs bounded Inspector / Custom fan-out and validation still proves why it exists.
 - `workflow.collaboration_intent` must also explain where weak evidence, drift, or fake done is exposed early. A role order that only says Builder then Inspector then GateKeeper is not yet human-shaped.
 - Use `inputs.handoffs_from`, `inputs.evidence_query`, and `inputs.iteration_memory` to express information flow when the workflow has multiple review views or repair passes.
-- Parallel Inspector / Custom review steps must name the same upstream Builder handoff through `inputs.handoffs_from` so independent reviewers inspect the same artifact from different evidence responsibilities.
-- Parallel Inspector / Custom review steps must query Builder evidence through `inputs.evidence_query` so each review can inspect durable proof, not only a prose handoff.
-- Parallel Inspector / Custom review steps must declare `inputs.iteration_memory`, usually `summary_only`, so the next run iteration has an explicit memory policy instead of relying on ambient context.
+- Multiple Inspector / Custom review steps must name relevant upstream Builder handoffs through `inputs.handoffs_from` and query Builder evidence through `inputs.evidence_query` so each review inspects durable proof, not only a prose handoff.
+- Multiple review steps should declare `inputs.iteration_memory`, usually `summary_only`, so the next run iteration has an explicit memory policy instead of relying on ambient context.
 - Custom review role prompts and posture must state their low-permission or read-only specialized review / advisory responsibility. A Custom reviewer must not imply it can write the workdir or make the final pass/fail decision.
-- A non-parallel Inspector / Custom review step that runs after a Builder must still name a Builder handoff and query Builder evidence; otherwise the review is relying on ambient context.
+- An Inspector / Custom review step that runs after a Builder must name a Builder handoff and query Builder evidence; otherwise the review is relying on ambient context.
 - A Builder step that runs after Inspector / Custom / benchmark review and before any Guide must name the review handoff, otherwise the evidence-first or benchmark-first workflow is only a visual order.
 - A Builder step that runs after Inspector / Custom / benchmark review and before any Guide must declare `inputs.iteration_memory` so the evidence-first repair pass does not rely on ambient context.
 - A Builder step that runs after another Builder step should either name the prior phase handoff or be separated by Inspector / Custom / Guide evidence that it explicitly reads. If it does neither, the long-chain split probably belongs in one Builder step.
-- Parallel specialized Inspectors must use distinct task-scoped `role_definition_key` values so each evidence responsibility has its own prompt and posture; copying the same Inspector prompt under two keys is not enough.
+- Specialized Inspectors must use distinct task-scoped `role_definition_key` values so each evidence responsibility has its own prompt and posture; copying the same Inspector prompt under two keys is not enough.
 - A Guide step that runs after Inspector / Custom review must name those review handoffs and query review evidence before producing repair guidance.
 - A Guide step that runs after Inspector / Custom review must declare `inputs.iteration_memory`, usually `summary_only`, so repair guidance can cite prior iteration evidence explicitly.
 - A Builder step that runs after Guide must name the Guide handoff so the next implementation pass follows the narrowed repair direction instead of ambient context.
@@ -263,11 +258,9 @@ Runtime invariant:
 - Any finishing GateKeeper step must name upstream handoffs through `inputs.handoffs_from` and query relevant evidence through `inputs.evidence_query`; final judgment cannot rely only on the GateKeeper prompt.
 - If Inspector, Custom, or Guide review / correction steps run before a finishing GateKeeper, that GateKeeper must read those review handoffs and query their evidence. Do not let the final verdict look only at Builder evidence after review has happened.
 - In a long-chain workflow, the finishing GateKeeper must read the critical phase handoffs, not only the final Builder handoff. It should query Builder, Inspector, Custom, and Guide evidence as applicable so the final verdict can explain which phase claims are Proven, Weak, Unproven, Blocking, or Residual risk.
-- When a GateKeeper finishes after a parallel inspection group, its `inputs.handoffs_from` must name every parallel Inspector / Custom review step id, not only the last review or a generic Inspector label.
-- A finishing GateKeeper after parallel inspection must query Builder, Inspector, and Custom evidence as applicable through `inputs.evidence_query`.
 - Every workflow role must have task-scoped `name` and `posture_notes`; Web alignment treats bare names like `Builder`, `Inspector`, `GateKeeper`, or numbered names like `Inspector 1` as semantic lint failures.
 
-Optional runtime controls:
+Expert / compatibility runtime controls:
 - `workflow.controls[]` is an advanced error-control mechanism, not a general timer or event automation system.
 - Use controls only when the task has a concrete long-run risk: no evidence progress, role timeout/failure, or repeated GateKeeper rejection.
 - `when.signal` may only be `no_evidence_progress`, `role_timeout`, `step_failed`, or `gatekeeper_rejected`.
@@ -281,8 +274,8 @@ Optional runtime controls:
 - Produce a bundle only after Loopora fit is established; do not use YAML to force direct Agent work, one-review tasks, direct-answer / one-off tasks, or benchmark/test-harness-only work into a governed Loop.
 - Before emitting YAML, privately rehearse one complete intended run path: Builder output and handoff, Inspector / Custom review evidence, optional Guide repair direction, any second Builder pass, GateKeeper evidence-backed verdict, and the user's evidence audit. If any step depends on ambient chat context instead of explicit `inputs.handoffs_from`, `inputs.evidence_query`, role posture, or evidence buckets, revise the bundle or ask one focused question before producing YAML.
 - Before emitting YAML, privately pressure-test the candidate Loop with one plausible future failure: a shallow completion, weak proof, drift, missing coverage, or unacceptable residual risk. If the `spec`, role posture, workflow, handoffs, evidence queries, and GateKeeper rules would not expose, repair, or block it, revise those surfaces or ask another focused question before producing the bundle.
-- Project the working agreement into all governance surfaces: `collaboration_summary` tells why this task needs multi-round Loopora governance and how future human proof demands, user-facing rejection criteria, correction roles, execution priorities, local-governance responsibilities, timing / stop decisions, strict-vs-pragmatic closure choices, and durable proof expectations become `spec`, `roles`, and `workflow`; it must describe that mapping, not merely list the surface names. `spec.markdown` carries concrete task scope / success / fake-done / evidence / residual-risk policy / execution priorities / judgment tradeoffs; `spec.markdown` `# Role Notes` or `role_definitions` carry Builder / Inspector / Guide / GateKeeper / Custom posture, role-level tradeoffs, and project-local governance responsibilities when those archetypes or markers are used; and `workflow.collaboration_intent` plus step `inputs` and workflow controls carry judgment order, build/prove/repair/narrow/expand/defer priorities, local-governance checkpoints, closure choices, error exposure, and evidence flow.
-- Run an agreement-to-bundle traceability checklist before final YAML: every confirmed judgment item must land in `collaboration_summary`, `spec.markdown` / `# Role Notes`, `role_definitions[].prompt_markdown` / `posture_notes`, `workflow.collaboration_intent`, step `inputs`, workflow controls, or GateKeeper evidence rules. Metadata and loop names are not enough. If the only copy of a judgment is in `agreement_summary`, readiness evidence, transcript memory, metadata / loop names, or private reasoning, the bundle is not complete.
+- Project the working agreement into all governance surfaces: `collaboration_summary` tells why this task needs multi-round Loopora governance and how future human proof demands, user-facing rejection criteria, correction roles, execution priorities, local-governance responsibilities, timing / stop decisions, strict-vs-pragmatic closure choices, and durable proof expectations become `spec`, `roles`, and `workflow`; it must describe that mapping, not merely list the surface names. `spec.markdown` carries concrete task scope / success / fake-done / evidence / residual-risk policy / execution priorities / judgment tradeoffs; `spec.markdown` `# Role Notes` or `role_definitions` carry Builder / Inspector / Guide / GateKeeper / Custom posture, role-level tradeoffs, and project-local governance responsibilities when those archetypes or markers are used; and `workflow.collaboration_intent` plus step `inputs` carry judgment order, build/prove/repair/narrow/expand/defer priorities, local-governance checkpoints, closure choices, error exposure, and evidence flow.
+- Run an agreement-to-bundle traceability checklist before final YAML: every confirmed judgment item must land in `collaboration_summary`, `spec.markdown` / `# Role Notes`, `role_definitions[].prompt_markdown` / `posture_notes`, `workflow.collaboration_intent`, step `inputs`, or GateKeeper evidence rules. Metadata and loop names are not enough. If the only copy of a judgment is in `agreement_summary`, readiness evidence, transcript memory, metadata / loop names, or private reasoning, the bundle is not complete.
 - Make it clear how GateKeeper should distinguish Proven, Weak, Unproven, Blocking, and Residual risk evidence. A bundle that lets a normal run status masquerade as task proof is not aligned with Loopora's verdict contract.
 - Preserve one coherent story across summary, spec, roles, and workflow.
 - Keep workdir grounding consistent across readiness evidence and final YAML. Bundle prose may use the user's requested stack, but it must not say the Workdir Snapshot observed a framework, test suite, or build capability unless snapshot markers support that claim.

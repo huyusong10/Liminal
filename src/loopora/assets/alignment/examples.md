@@ -106,7 +106,7 @@ If no Inspector is responsible for contract / permission evidence, no Evidence I
 
 Before a working agreement or bundle, silently rehearse the normal evidence path too.
 
-If the task is the same CRM and the draft uses `Builder -> [Permission Inspector + Report Evidence Inspector] -> Guide -> Builder -> GateKeeper`, walk the chain privately:
+If the task is the same CRM and the draft uses `Builder -> Permission Inspector -> Report Evidence Inspector -> Guide -> Builder -> GateKeeper`, walk the chain privately:
 
 > Builder leaves a CRM candidate handoff; Permission Inspector and Report Evidence Inspector both read that handoff and query Builder evidence; Guide reads both review handoffs and turns Blocking / Unproven findings into a repair direction; the second Builder reads Guide handoff; GateKeeper reads review and repair handoffs plus Builder / Inspector evidence; the user can audit Proven, Weak, Unproven, Blocking, and Residual risk buckets.
 
@@ -120,7 +120,7 @@ Before YAML, silently trace each confirmed agreement item into bundle surfaces.
 
 For the CRM example, the private checklist should show:
 
-> Loopora fit and why one Agent pass is not enough goes to `collaboration_summary`; lead ownership, report provenance, success, fake done, evidence preference, execution priority, residual risk, tradeoff order, and strict blocking go to `spec.markdown`; Permission Inspector, Report Evidence Inspector, Guide, Builder, and GateKeeper responsibilities, including any project-local governance reading or verification duties, go to role prompts and `posture_notes`; parallel inspection, Guide repair, second Builder repair, local-governance checkpoints, and GateKeeper fan-in go to `workflow.collaboration_intent` plus `inputs.handoffs_from`, `inputs.evidence_query`, and `inputs.iteration_memory`; Proven / Weak / Unproven / Blocking / Residual risk acceptance goes to GateKeeper posture and evidence rules.
+> Loopora fit and why one Agent pass is not enough goes to `collaboration_summary`; lead ownership, report provenance, success, fake done, evidence preference, execution priority, residual risk, tradeoff order, and strict blocking go to `spec.markdown`; Permission Inspector, Report Evidence Inspector, Guide, Builder, and GateKeeper responsibilities, including any project-local governance reading or verification duties, go to role prompts and `posture_notes`; review order, Guide repair, second Builder repair, local-governance checkpoints, and GateKeeper fan-in go to `workflow.collaboration_intent` plus `inputs.handoffs_from`, `inputs.evidence_query`, and `inputs.iteration_memory`; Proven / Weak / Unproven / Blocking / Residual risk acceptance goes to GateKeeper posture and evidence rules.
 
 If “data provenance must block” only appears in the working agreement but not in `spec`, Evidence Inspector posture, workflow evidence query, or GateKeeper rules, do not emit YAML. Revise those surfaces or ask one focused question.
 

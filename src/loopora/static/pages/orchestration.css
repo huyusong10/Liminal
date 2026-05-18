@@ -114,12 +114,6 @@
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
-.workflow-controls-panel {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 12px;
-}
-
 .workflow-steps-panel .workflow-steps-list {
   align-content: start;
 }
@@ -299,17 +293,6 @@
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.6;
-}
-
-.workflow-controls-json-shell {
-  display: grid;
-  gap: 6px;
-}
-
-.workflow-controls-json-shell textarea {
-  min-height: 132px;
-  font-family: "SFMono-Regular", "SF Mono", "IBM Plex Mono", "Menlo", monospace;
-  font-size: 0.84rem;
 }
 
 .workflow-settings-modal {

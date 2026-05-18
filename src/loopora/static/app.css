@@ -1422,75 +1422,6 @@ html[data-locale="zh"] .bundle-revision-delta span {
   gap: 8px;
 }
 
-.bundle-lineage-pill {
-  max-width: 180px;
-  color: var(--muted);
-  font-size: 0.78rem;
-  line-height: 1.35;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
-
-.bundle-governance-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-  padding: 12px 0;
-  border-top: 1px solid rgba(var(--outline-rgb), 0.08);
-  border-bottom: 1px solid rgba(var(--outline-rgb), 0.08);
-}
-
-.bundle-governance-item {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-}
-
-.bundle-governance-item span,
-.bundle-changed-surfaces > span {
-  color: var(--muted);
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-html[data-locale="zh"] .bundle-governance-item span,
-html[data-locale="zh"] .bundle-changed-surfaces > span {
-  letter-spacing: 0.02em;
-  text-transform: none;
-}
-
-.bundle-governance-item strong {
-  min-width: 0;
-  color: var(--ink);
-  font-size: 0.9rem;
-  line-height: 1.42;
-  overflow-wrap: anywhere;
-}
-
-.bundle-changed-surfaces {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.bundle-changed-surfaces em {
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(214, 106, 54, 0.1);
-  color: #9a4b24;
-  font-size: 0.78rem;
-  font-style: normal;
-  font-weight: 800;
-}
-
-[data-theme="dark"] .bundle-changed-surfaces em {
-  background: rgba(214, 106, 54, 0.16);
-  color: #f0a16b;
-}
-
 .bundle-role-actions {
   flex-wrap: wrap;
 }
@@ -5587,9 +5518,6 @@ html[data-locale="zh"] .preview-box {
     min-width: min(100%, 320px);
   }
 
-  .bundle-governance-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (min-width: 1440px) {
@@ -5639,15 +5567,6 @@ html[data-locale="zh"] .preview-box {
 
   .bundle-card-status {
     align-items: flex-start;
-  }
-
-  .bundle-lineage-pill {
-    max-width: 100%;
-    text-align: left;
-  }
-
-  .bundle-governance-grid {
-    grid-template-columns: 1fr;
   }
 
   .bundle-traceability-map {

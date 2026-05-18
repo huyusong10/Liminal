@@ -15,11 +15,8 @@ targets:
     type: text_globs
     title: Product concept, diagram, tutorial, and prompt surfaces
     globs:
-      - design/core-ideas/*.md
+      - design/contracts.md
       - design/decisions/*.md
-      - design/detailed-design/05-interfaces.md
-      - design/detailed-design/06-workflow-and-prompts.md
-      - design/detailed-design/09-web-bundle-alignment.md
       - src/loopora/assets/alignment/product-primer.md
       - src/loopora/assets/alignment/system-prompt.md
       - src/loopora/templates/tutorial.html
@@ -29,8 +26,7 @@ targets:
     type: text_globs
     title: Bundle, gen, and loop execution design contracts
     globs:
-      - design/detailed-design/08-bundles-and-alignment.md
-      - design/detailed-design/10-agent-adapters.md
+      - design/contracts.md
     max_bytes_per_file: 40000
   - id: concept-drift-hints
     type: term_hints
@@ -90,11 +86,11 @@ Look for:
 - Human-shaped Loop being replaced by a generic role list, prompt pack, loop script / script runner, or chat wrapper / chat assistant framing.
 - Evidence, judgment, correction, and GateKeeper semantics being described inconsistently across docs, UI, and generated bundles.
 - Diagrams or examples that imply humans only react after every round instead of shaping judgment before the loop runs.
-- Import, manual composition, Web dialogue, and adapter flows being presented as the main product rather than routes for obtaining or improving a Loop.
+- Web composer and Agent Native drifting apart instead of remaining peer routes into the same Core compiler and runtime.
 - Tutorial orientation surfaces that teach the wrong start path, over-center expert assets, or drift away from the human-shaped Loop invariant.
 - Concepts that are correct in one language but drift in another.
 - Visible top-level docs shipping inline editorial review notes instead of reader-facing product explanation.
-- Whether bundle design still externalizes task-scoped human judgment into runnable surfaces rather than becoming YAML configuration.
+- Whether bundle design still externalizes task-scoped human judgment into runnable surfaces rather than becoming either YAML configuration or a catalog product.
 - Whether `/loopora-gen` still helps the human externalize judgment by checking fit and sufficiency, asking one focused question or returning Web review when needed, and refusing to invent missing judgment.
 - Whether `/loopora-loop` still executes the reviewed Loop through run contracts, step capsules, host dispatch, required coverage, evidence gates, and task verdicts rather than relying on host memory or inline shortcuts.
 

@@ -12,7 +12,7 @@ A weak alignment produces a valid-looking config. A strong alignment produces a 
 
 Think of alignment as a time-shifted conversation: the human corrections that would otherwise happen after future rounds should be surfaced before the run starts. The goal is not to make the model permanently learn the user; the goal is to make this Loop temporarily inherit the user's judgment for this task.
 
-Loopora's default experience must stay usable in five minutes: describe task, choose workdir, confirm the working agreement, review the READY Loop, run, inspect evidence. Ask in user language; compile advanced workflow controls only when they clearly reduce task error.
+Loopora's default experience must stay usable in five minutes: describe task, choose workdir, confirm the working agreement, review the READY Loop, run, inspect evidence. Ask in user language; keep the default workflow linear unless the user explicitly enters expert workflow editing.
 
 ## The Loopora loop
 
@@ -130,13 +130,13 @@ Decide how strict each role should be for this task:
 
 Choose the workflow because of the posture:
 
-- Builder -> [Contract Inspector + Evidence Inspector] -> GateKeeper when the target is clear enough to build and two independent evidence views reduce drift.
+- Builder -> Contract Inspector -> Evidence Inspector -> GateKeeper when the target is clear enough to build and two evidence views reduce drift.
 - Inspector -> Builder -> GateKeeper when the first safe change is unclear.
-- Builder -> [Regression Inspector + Contract Inspector] -> Guide -> Builder -> GateKeeper when a second repair pass is expected.
+- Builder -> Regression Inspector -> Contract Inspector -> Guide -> Builder -> GateKeeper when a second repair pass is expected.
 - Benchmark Inspector -> Builder -> Regression Inspector -> GateKeeper when an existing benchmark, contract proof, or repeatable measurement should control the decision.
 - A long-chain phase workflow when the task has multiple evidence-bearing stages that should not be hidden inside one oversized Builder prompt. Use task-specific Builder roles or Builder steps for distinct phase artifacts, such as API Builder, UI Builder, Migration Builder, or Evidence Hardening Builder.
 
-Do not use arbitrary DAG language. Loopora supports bounded fan-out / fan-in inspection groups: two or more contiguous Inspector or Custom steps may share a `parallel_group`, then downstream roles consume their handoffs and evidence.
+Do not use arbitrary DAG language. The default workflow is one readable linear `steps[]` sequence. Advanced fields such as `parallel_group` may appear only in expert or source-compatible bundles, not in the default Web compiler path.
 Do not use nested Loop language. A long-chain workflow is still one linear `steps[]` sequence inside workflow v1; the outer run iteration repeats the whole chain when GateKeeper does not close.
 
 ### 6. Decide information flow
@@ -149,11 +149,11 @@ Workflow shape is not only order. Decide what information should flow:
 
 Use these workflow fields when they make the bundle clearer:
 
-- `parallel_group`: bounded parallel inspection for contiguous Inspector / Custom steps.
 - `inputs.handoffs_from`: selected upstream step ids, role ids, role names, archetypes, or runtime roles.
 - `inputs.evidence_query`: selected evidence by `archetypes`, `verifies`, and `limit`.
 - `inputs.iteration_memory`: `default`, `none`, `same_step`, `same_role`, or `summary_only`.
-- `controls`: only for concrete runtime error risks such as no evidence progress, role failure, timeout, or repeated GateKeeper rejection. A control may call an existing Inspector, Guide, or GateKeeper, never Builder.
+
+Expert / compatibility workflow fields such as `parallel_group` and `controls` are not default compiler output. Preserve or emit them only when an expert source bundle already needs them and validation still proves a concrete risk boundary.
 
 For long-chain workflows:
 
@@ -179,10 +179,9 @@ Do not generate a bundle when any of these are missing:
 - whether project-local governance markers create Builder reading, Inspector / Custom verification, or GateKeeper blocking responsibility
 - how strict the roles should be
 - why the workflow order fits
-- whether bounded parallel inspection is needed or deliberately avoided
 - what information flow prevents prompt flooding or evidence loss
 - how GateKeeper should distinguish Proven, Weak, Unproven, Blocking, and Residual risk evidence
-- whether the agreement-to-bundle traceability checklist is satisfied: every confirmed judgment item has a concrete bundle destination in `collaboration_summary`, `spec.markdown`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, workflow controls, or GateKeeper evidence rules; metadata and loop names are not enough
+- whether the agreement-to-bundle traceability checklist is satisfied: every confirmed judgment item has a concrete bundle destination in `collaboration_summary`, `spec.markdown`, `role_definitions`, `workflow.collaboration_intent`, step `inputs`, or GateKeeper evidence rules; metadata and loop names are not enough
 - whether one complete intended run path has been privately rehearsed: Builder output, Inspector / Custom review, optional Guide repair direction, any second Builder pass, GateKeeper verdict, and user evidence audit must all be connected through explicit handoffs, evidence queries, and evidence buckets
 - whether one plausible failed future round has been privately pressure-tested against the candidate Loop: a fake-done, weak-proof, drift, missing-coverage, or unacceptable residual-risk result must be exposed, repaired, or blocked by the proposed `spec`, roles, workflow, handoffs, evidence queries, and GateKeeper rules
 

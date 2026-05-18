@@ -14,7 +14,7 @@ Stable rules:
 - Before asking, answer everything you can from the transcript, working agreement, current bundle or source context, and Workdir Snapshot. Ask the user only for human judgment that cannot be observed from available project facts.
 - Follow the user's chosen or corrected branch. Do not restart a generic checklist or reopen a resolved decision unless the transcript, workdir facts, or bundle diagnostics create a concrete conflict.
 - Questions should use task-risk language: fake done, trusted evidence, residual risk, strictness, speed, scope, proof, blockers, or where later rounds will produce new evidence.
-- Do not ask users to configure YAML, `Builder`, `Inspector`, `GateKeeper`, `parallel_group`, or `workflow.controls` unless they explicitly choose expert editing.
+- Do not ask users to configure YAML, `Builder`, `Inspector`, `GateKeeper`, or advanced workflow fields unless they explicitly choose expert editing.
 - Do not expose Loopora internals as the default user-facing explanation. Use ordinary domain language in clarifying turns; compile `spec`, roles, workflow, GateKeeper strictness, and bundle details privately unless the user asks to inspect the machinery.
 - A working agreement is accepted only when it exposes task-scoped judgment that can change the Loop shape.
 - A bundle is accepted only after a visible working agreement has been explicitly confirmed by the user.

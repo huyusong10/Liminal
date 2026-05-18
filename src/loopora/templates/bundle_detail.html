@@ -9,7 +9,7 @@
     </div>
     <div class="card-actions">
       <a class="primary-button" href="/api/bundles/{{ bundle.id }}/export">
-        <span data-lang="zh">导出方案包</span>
+        <span data-lang="zh">导出方案文件</span>
         <span data-lang="en">Export plan</span>
       </a>
       <a class="secondary-button" href="/loops/new/manual?replace_bundle_id={{ bundle.id }}#bundle-import-form" data-testid="bundle-replace-yaml-link">
@@ -34,16 +34,16 @@
         data-delete-bundle="{{ bundle.id }}"
         data-bundle-name="{{ bundle.name }}"
       >
-        <span data-lang="zh">删除方案包</span>
+        <span data-lang="zh">删除方案文件</span>
         <span data-lang="en">Delete Plan</span>
       </button>
     </div>
   </section>
 
-  <section class="panel" data-testid="bundle-governance-projection">
+  <section class="panel" data-testid="bundle-diagnostic-projection">
     <header class="panel-header">
       <div>
-        <h2><span data-lang="zh">治理投影</span><span data-lang="en">Governance Projection</span></h2>
+        <h2><span data-lang="zh">判断投影</span><span data-lang="en">Judgment Projection</span></h2>
         <p class="panel-note">
           <span data-lang="zh">这里展示当前方案文件如何把判断投影到可运行表面，以及哪些流程风险需要在运行前审计。</span>
           <span data-lang="en">This shows how the current plan projects judgment into runnable surfaces, and which workflow risks should be audited before a run.</span>
@@ -145,7 +145,7 @@
       <span data-lang="en">Expert details: underlying assets</span>
     </summary>
     <p class="panel-note">
-      <span data-lang="zh">方案包的协作姿态由 Loop 契约、角色定义和流程编排共同承载。你可以分别微调它们；保存后会重新导出同一份方案文件。</span>
+      <span data-lang="zh">方案文件的协作姿态由 Loop 契约、角色定义和流程编排共同承载。你可以分别微调它们；保存后会重新导出同一份方案文件。</span>
       <span data-lang="en">The collaboration posture is carried jointly by the spec, role definitions, and orchestration. You can tweak them separately; saving regenerates the same YAML package.</span>
     </p>
     <div class="bundle-surface-grid">
@@ -230,7 +230,7 @@
     <div class="field-status is-error" aria-live="polite" {% if not form_error %}hidden{% endif %}>{{ form_error or "" }}</div>
     {% if request.query_params.get("saved") == "1" %}
     <div class="field-status is-success">
-      <span data-lang="zh">方案包已更新。</span>
+      <span data-lang="zh">方案文件已更新。</span>
       <span data-lang="en">Plan updated.</span>
     </div>
     {% endif %}
@@ -270,7 +270,7 @@
 
     <div class="card-actions">
       <button class="primary-button" type="submit">
-        <span data-lang="zh">保存方案包</span>
+        <span data-lang="zh">保存方案文件</span>
         <span data-lang="en">Save plan</span>
       </button>
     </div>
@@ -293,7 +293,7 @@
       <div class="card-actions">
         {% if access_state.native_dialogs_enabled %}
         <button class="ghost-button" type="button" data-reveal-path="{{ bundle.managed_dir }}" data-testid="bundle-reveal-dir-button">
-          <span data-lang="zh">打开方案包目录</span>
+          <span data-lang="zh">打开方案文件目录</span>
           <span data-lang="en">Reveal bundle folder</span>
         </button>
         {% endif %}
@@ -304,7 +304,7 @@
       </div>
     </header>
     <p class="panel-note">
-      <span data-lang="zh">这里展示的是当前方案包的完整源文件。用户在系统外得到新文件后，可以用上面的“导入方案文件替换”显式替换。</span>
+      <span data-lang="zh">这里展示的是当前方案文件的完整源文件。用户在系统外得到新文件后，可以用上面的“导入方案文件替换”显式替换。</span>
       <span data-lang="en">This is the full YAML for the current plan. When you produce a new YAML outside Loopora, use “Replace from YAML” above to replace it explicitly.</span>
     </p>
     <label class="wide">
@@ -312,7 +312,7 @@
       <input value="{{ bundle.bundle_yaml_path }}" readonly />
     </label>
     <label class="wide">
-      <span><span data-lang="zh">方案包 ID</span><span data-lang="en">Bundle ID</span></span>
+      <span><span data-lang="zh">方案 ID</span><span data-lang="en">Plan ID</span></span>
       <input value="{{ bundle.id }}" readonly />
     </label>
     <label class="wide">

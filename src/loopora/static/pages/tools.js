@@ -109,7 +109,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const label = key === "orphan_alignment_dirs"
         ? localeText("对话编排残留目录", "Conversation orphan dirs")
         : key === "orphan_bundle_dirs"
-          ? localeText("方案包残留目录", "Plan file orphan dirs")
+          ? localeText("方案文件残留目录", "Plan file orphan dirs")
           : key === "orphan_run_dirs"
             ? localeText("运行残留目录", "Run orphan dirs")
             : localeText("记录缺失目录", "Records missing dirs");
@@ -153,8 +153,8 @@ document.addEventListener("DOMContentLoaded", () => {
         ),
       },
       orphan_bundle_dirs: {
-        title: localeText("方案包残留目录", "Plan file orphan directories"),
-        idLabel: localeText("方案包", "Plan file"),
+        title: localeText("方案文件残留目录", "Plan file orphan directories"),
+        idLabel: localeText("方案文件", "Plan file"),
         idField: "bundle_id",
         action: localeText("打开目录", "Open folder"),
         suggestion: localeText(

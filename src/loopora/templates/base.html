@@ -41,8 +41,8 @@
             aria-expanded="false"
             aria-controls="nav-resource-panel"
           >
-            <span data-lang="zh">资源库</span>
-            <span data-lang="en">Library</span>
+            <span data-lang="zh">构件</span>
+            <span data-lang="en">Assets</span>
             <span class="nav-menu-caret" aria-hidden="true"></span>
           </button>
           <div
@@ -54,7 +54,7 @@
           >
             <section class="nav-preferences-section nav-preferences-section--links" data-testid="nav-resources-menu">
               <div class="nav-preferences-head">
-                <strong><span data-lang="zh">可复用构件</span><span data-lang="en">Reusable pieces</span></strong>
+                <strong><span data-lang="zh">Loop 构件</span><span data-lang="en">Loop assets</span></strong>
                 <p><span data-lang="zh">维护方案文件、角色和流程，供 Loop 编排时复用。</span><span data-lang="en">Maintain plan files, roles, and flows reused by Loops.</span></p>
               </div>
               <div class="nav-menu-list">
@@ -68,7 +68,7 @@
                 </a>
                 <a class="nav-menu-link {% if request.url.path.startswith('/orchestrations') %}active{% endif %}" href="/orchestrations" data-testid="nav-menu-orchestrations-link">
                   <span data-lang="zh">流程编排</span>
-                  <span data-lang="en">Flow library</span>
+                  <span data-lang="en">Flows</span>
                 </a>
               </div>
             </section>
