@@ -13,7 +13,7 @@ from loopora.utils import utc_now
 
 AGENT_ADAPTER_KINDS = ("codex", "claude", "opencode")
 IMPLEMENTED_AGENT_ADAPTERS = {"codex", "claude", "opencode"}
-ADAPTER_VERSION = 18
+ADAPTER_VERSION = 19
 CODEX_ADAPTER_VERSION = ADAPTER_VERSION
 CLAUDE_ADAPTER_VERSION = ADAPTER_VERSION
 OPENCODE_ADAPTER_VERSION = ADAPTER_VERSION
@@ -35,6 +35,12 @@ MANIFEST_RELATIVE_PATHS = {
     "opencode": OPENCODE_MANIFEST_RELATIVE_PATH,
 }
 MANIFEST_RELATIVE_PATH = CODEX_MANIFEST_RELATIVE_PATH
+OBSOLETE_MANAGED_PATHS = {
+    "claude": (
+        ".claude/commands/loopora-gen.md",
+        ".claude/commands/loopora-loop.md",
+    ),
+}
 CLAUDE_SETTINGS_RELATIVE_PATH = ".claude/settings.json"
 CLAUDE_SESSION_HOOK_RELATIVE_PATH = ".claude/hooks/loopora-session-context.py"
 CLAUDE_SESSION_HOOK_SETTINGS_REF = ".claude/settings.json#hooks.SessionStart.loopora"
@@ -96,6 +102,7 @@ def install_agent_adapter(adapter: str, workdir: Path | str | None) -> dict[str,
     templates = _managed_templates(kind)
     marker = _managed_marker(kind)
     _assert_targets_are_replaceable(kind, root, templates)
+    removed_obsolete_files = _remove_obsolete_managed_files(kind, root, templates)
     _assert_host_config_is_replaceable(kind, root)
     written: list[dict[str, str]] = []
     for relative_path, content in templates.items():
@@ -126,6 +133,7 @@ def install_agent_adapter(adapter: str, workdir: Path | str | None) -> dict[str,
         "manifest_path": str(manifest_path),
         "managed_files": status["managed_files"],
         "managed_marker": marker,
+        "removed_obsolete_files": removed_obsolete_files,
     }
 
 
@@ -321,7 +329,7 @@ def _managed_adapter_status(kind: str, root: Path) -> dict[str, Any]:
     unmanaged_conflicts = []
     needs_update = False
     installed_count = 0
-    paths = sorted(set(_manifest_paths(manifest_payload)) | set(templates)) if manifest_exists else sorted(templates)
+    paths = _managed_status_paths(kind, root, manifest_payload, manifest_exists=manifest_exists, templates=templates)
     managed_marker_found = False
     for relative_path in paths:
         expected = templates.get(relative_path, "")
@@ -456,6 +464,59 @@ def _manifest_payload(kind: str, root: Path, managed_files: list[dict[str, str]]
         "installed_at": installed_at or utc_now(),
         "managed_files": managed_files,
     }
+
+
+def _managed_status_paths(
+    kind: str,
+    root: Path,
+    manifest_payload: dict[str, Any] | None,
+    *,
+    manifest_exists: bool,
+    templates: dict[str, str],
+) -> list[str]:
+    paths = set(templates)
+    if manifest_exists:
+        paths.update(_manifest_paths(manifest_payload))
+    for relative_path in _obsolete_managed_paths(kind):
+        if relative_path in paths or (root / relative_path).exists():
+            paths.add(relative_path)
+    return sorted(paths)
+
+
+def _obsolete_managed_paths(kind: str) -> set[str]:
+    return set(OBSOLETE_MANAGED_PATHS.get(kind, ()))
+
+
+def _remove_obsolete_managed_files(kind: str, root: Path, templates: dict[str, str]) -> list[str]:
+    manifest_payload, _ = _read_manifest(kind, root)
+    manifest_paths = set(_manifest_paths(manifest_payload)) if isinstance(manifest_payload, dict) else set()
+    obsolete_paths = sorted((manifest_paths | _obsolete_managed_paths(kind)) - set(templates))
+    removed: list[str] = []
+    conflicts: list[str] = []
+    marker = _managed_marker(kind)
+    for relative_path in obsolete_paths:
+        target = root / relative_path
+        if not target.exists():
+            continue
+        try:
+            content = target.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            conflicts.append(f"{relative_path} ({exc})")
+            continue
+        content_hash = _sha256_text(content)
+        manifest_hash = _manifest_hash_for_path(manifest_payload, relative_path) if isinstance(manifest_payload, dict) else ""
+        if marker in content or (manifest_hash and content_hash == manifest_hash):
+            target.unlink()
+            removed.append(relative_path)
+            _remove_empty_parents(root, target.parent)
+            continue
+        conflicts.append(relative_path)
+    if conflicts:
+        raise LooporaConflictError(
+            f"refusing to remove or ignore non-Loopora obsolete {_adapter_label(kind)} adapter files: "
+            + ", ".join(conflicts)
+        )
+    return removed
 
 
 def _assert_targets_are_replaceable(kind: str, root: Path, templates: dict[str, str]) -> None:
@@ -768,8 +829,6 @@ def _codex_managed_templates() -> dict[str, str]:
 
 def _claude_managed_templates() -> dict[str, str]:
     return {
-        ".claude/commands/loopora-gen.md": _claude_loopora_gen_command(),
-        ".claude/commands/loopora-loop.md": _claude_loopora_loop_command(),
         ".claude/skills/loopora-gen/SKILL.md": _claude_loopora_gen_skill(),
         ".claude/skills/loopora-loop/SKILL.md": _claude_loopora_loop_skill(),
         CLAUDE_SESSION_HOOK_RELATIVE_PATH: _claude_session_hook_script(),
@@ -1150,38 +1209,9 @@ allowed-tools: "Bash(loopora agent claude loop *) Bash(loopora agent claude next
 """
 
 
-def _claude_loopora_gen_command() -> str:
-    return f"""---
-description: Compile the current Claude Code task goal, fake-done risks, and required evidence into a Loopora Loop preview without starting a run.
-allowed-tools: Bash(loopora agent claude gen *), Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude gen *)
----
-
-<!-- {CLAUDE_MANAGED_MARKER} version={CLAUDE_ADAPTER_VERSION} file=loopora-gen-command -->
-
-# Loopora Gen
-
-Follow `.claude/skills/loopora-gen/SKILL.md` in this project. Preserve its `LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill` and `--entry-source claude_project_skill` provenance markers.
-"""
-
-
-def _claude_loopora_loop_command() -> str:
-    return f"""---
-description: Start or reuse the reviewed Loop preview that preserves this Claude Code task judgment and evidence requirements.
-allowed-tools: Bash(loopora agent claude loop *), Bash(loopora agent claude next *), Bash(loopora agent claude submit *), Bash(LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill loopora agent claude *), Task
----
-
-<!-- {CLAUDE_MANAGED_MARKER} version={CLAUDE_ADAPTER_VERSION} file=loopora-loop-command -->
-
-# Loopora Loop
-
-{_agent_native_loop_body(adapter="claude", marker_source="claude_project_skill", context_arg='--context-id "${CLAUDE_SESSION_ID}"').rstrip()}
-"""
-
-
 def _opencode_loopora_gen_command() -> str:
     return f"""---
 description: Compile the current OpenCode task goal, fake-done risks, and required evidence into a Loopora Loop preview without starting a run.
-agent: build
 ---
 
 <!-- {OPENCODE_MANAGED_MARKER} version={OPENCODE_ADAPTER_VERSION} file=loopora-gen -->

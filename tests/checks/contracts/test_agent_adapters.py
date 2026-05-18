@@ -486,7 +486,7 @@ def test_agent_native_result_template_uses_schema_shaped_null_scaffold() -> None
     }
 
 
-def _assert_claude_gen_entry(gen_skill: str, gen_command_text: str) -> None:
+def _assert_claude_gen_entry(gen_skill: str) -> None:
     assert "disable-model-invocation: true" in gen_skill
     assert "allowed-tools:" in gen_skill
     assert "LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill" in gen_skill
@@ -495,7 +495,6 @@ def _assert_claude_gen_entry(gen_skill: str, gen_command_text: str) -> None:
     assert "--entry-source claude_project_skill" in gen_skill
     assert "Compile the current Claude Code task goal, fake-done risks, and required evidence" in gen_skill
     assert "Compile the current Claude Code task judgment into a Loopora Loop preview" in gen_skill
-    assert "Compile the current Claude Code task goal, fake-done risks, and required evidence" in gen_command_text
     for snippet in AGENT_ENTRY_GEN_CONTRACT_SNIPPETS:
         assert snippet in gen_skill
     assert "authoring YAML" not in gen_skill
@@ -504,10 +503,9 @@ def _assert_claude_gen_entry(gen_skill: str, gen_command_text: str) -> None:
     assert "Web alignment URL" not in gen_skill
 
 
-def _assert_claude_loop_entry(loop_skill: str, loop_command_text: str) -> None:
+def _assert_claude_loop_entry(loop_skill: str) -> None:
     assert "reviewed Loop preview" in loop_skill
     assert "preserves this Claude Code task judgment and evidence requirements" in loop_skill
-    assert "preserves this Claude Code task judgment and evidence requirements" in loop_command_text
     assert "confirmed Loop preview" not in loop_skill
     assert "READY bundle" not in loop_skill
     assert "LOOPORA_AGENT_ENTRY_SOURCE=claude_project_skill" in loop_skill
@@ -535,8 +533,6 @@ def _assert_claude_manifest(manifest_path: Path) -> str:
     assert manifest_path.exists()
     first_manifest = manifest_path.read_text(encoding="utf-8")
     assert {item["path"] for item in json.loads(first_manifest)["managed_files"]} == {
-        ".claude/commands/loopora-gen.md",
-        ".claude/commands/loopora-loop.md",
         ".claude/skills/loopora-gen/SKILL.md",
         ".claude/skills/loopora-loop/SKILL.md",
         ".claude/hooks/loopora-session-context.py",
@@ -559,13 +555,15 @@ def _assert_claude_managed_install(workdir: Path, skill_paths: dict[str, Path]) 
     builder_agent = workdir / ".claude" / "agents" / "loopora-builder.md"
     orchestrator_agent = workdir / ".claude" / "agents" / "loopora-orchestrator.md"
     assert "LOOPORA-MANAGED: claude-code-adapter" in gen_skill
-    for path in (gen_command, loop_command, session_hook, builder_agent, orchestrator_agent):
+    assert not gen_command.exists()
+    assert not loop_command.exists()
+    for path in (session_hook, builder_agent, orchestrator_agent):
         assert path.exists()
     assert "CLAUDE_SESSION_ID" in session_hook.read_text(encoding="utf-8")
     assert _claude_settings_has_loopora_session_hook(settings)
-    _assert_claude_gen_entry(gen_skill, gen_command.read_text(encoding="utf-8"))
+    _assert_claude_gen_entry(gen_skill)
     assert "READY bundle" not in gen_skill
-    _assert_claude_loop_entry(loop_skill, loop_command.read_text(encoding="utf-8"))
+    _assert_claude_loop_entry(loop_skill)
     _assert_claude_agent_prompts(builder_agent, orchestrator_agent)
     manifest_path = workdir / ".loopora" / "adapters" / "claude" / "manifest.json"
     return manifest_path, _assert_claude_manifest(manifest_path)
@@ -580,7 +578,7 @@ def _assert_opencode_managed_install(workdir: Path, command_paths: dict[str, Pat
     assert builder_agent.exists()
     assert orchestrator_agent.exists()
     assert "description:" in gen_command
-    assert "agent: build" in gen_command
+    assert "agent: build" not in gen_command
     assert "$ARGUMENTS" in gen_command
     assert "LOOPORA_AGENT_ENTRY_SOURCE=opencode_project_command" in gen_command
     assert 'loopora agent opencode gen --workdir "$PWD"' in gen_command
@@ -845,6 +843,43 @@ def test_cli_claude_adapter_install_uninstall_are_idempotent_and_preserve_user_c
     assert settings_after_uninstall == {"permissions": {"allow": []}}
 
 
+def test_claude_adapter_removes_obsolete_managed_command_wrappers(service_factory, tmp_path: Path) -> None:
+    service = service_factory(scenario="success")
+    workdir = tmp_path / "project"
+    commands_dir = workdir / ".claude" / "commands"
+    commands_dir.mkdir(parents=True)
+    gen_command = commands_dir / "loopora-gen.md"
+    loop_command = commands_dir / "loopora-loop.md"
+    gen_command.write_text("<!-- LOOPORA-MANAGED: claude-code-adapter old gen -->\n", encoding="utf-8")
+    loop_command.write_text("<!-- LOOPORA-MANAGED: claude-code-adapter old loop -->\n", encoding="utf-8")
+
+    result = service.install_agent_adapter("claude", workdir=workdir)
+
+    assert result["status"] == "installed"
+    assert result["removed_obsolete_files"] == [
+        ".claude/commands/loopora-gen.md",
+        ".claude/commands/loopora-loop.md",
+    ]
+    assert not gen_command.exists()
+    assert not loop_command.exists()
+    manifest = json.loads((workdir / ".loopora" / "adapters" / "claude" / "manifest.json").read_text(encoding="utf-8"))
+    assert ".claude/commands/loopora-gen.md" not in {item["path"] for item in manifest["managed_files"]}
+
+
+def test_claude_adapter_refuses_unowned_obsolete_command_wrappers(service_factory, tmp_path: Path) -> None:
+    service = service_factory(scenario="success")
+    workdir = tmp_path / "project"
+    command = workdir / ".claude" / "commands" / "loopora-gen.md"
+    command.parent.mkdir(parents=True)
+    command.write_text("# User-owned Claude command\n", encoding="utf-8")
+
+    with pytest.raises(LooporaConflictError, match="obsolete Claude Code adapter files"):
+        service.install_agent_adapter("claude", workdir=workdir)
+
+    assert command.read_text(encoding="utf-8") == "# User-owned Claude command\n"
+    assert not (workdir / ".loopora" / "adapters" / "claude" / "manifest.json").exists()
+
+
 def test_cli_claude_loop_requires_ready_bundle(tmp_path: Path) -> None:
     workdir = tmp_path / "project"
     workdir.mkdir()
@@ -901,6 +936,35 @@ def test_cli_opencode_adapter_install_uninstall_are_idempotent_and_preserve_user
     assert opencode_json.exists()
     assert opencode_project_json.exists()
     assert opencode_agent.exists()
+
+
+def test_adapter_project_entries_are_namespaced_and_do_not_set_host_models(service_factory, tmp_path: Path) -> None:
+    service = service_factory(scenario="success")
+    banned_model_defaults = (
+        "gpt-",
+        "anthropic/",
+        "openai/",
+        "model =",
+        "\nmodel:",
+        "reasoning_effort =",
+        "\nreasoning_effort:",
+    )
+
+    for adapter in ("codex", "claude", "opencode"):
+        workdir = tmp_path / adapter
+        workdir.mkdir()
+        service.install_agent_adapter(adapter, workdir=workdir)
+        manifest = json.loads((workdir / ".loopora" / "adapters" / adapter / "manifest.json").read_text(encoding="utf-8"))
+        managed_paths = [item["path"] for item in manifest["managed_files"]]
+        assert managed_paths
+        for relative_path in managed_paths:
+            name = Path(relative_path).name
+            if relative_path.endswith((".md", ".toml")) and "loopora-session-context" not in relative_path:
+                assert name.startswith("loopora-") or name == "SKILL.md"
+            text = (workdir / relative_path).read_text(encoding="utf-8")
+            for banned in banned_model_defaults:
+                assert banned not in text
+        assert not (workdir / ".claude" / "commands" / "loopora-gen.md").exists()
 
 
 def test_cli_opencode_loop_requires_ready_bundle(tmp_path: Path) -> None:

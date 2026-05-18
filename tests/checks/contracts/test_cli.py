@@ -220,6 +220,8 @@ def test_design_main_workflow_anchors_separate_run_status_and_loop_verdict() -> 
     assert "READY preview must reflect current canonical content" in contracts
     assert "Run status and Loop verdict are separate" in contracts
     assert "Templates/tests inherit host model/provider defaults" in contracts
+    assert "Loopora only owns `.loopora/` state plus host entry files" in contracts
+    assert "Public adapter names stay `loopora-*`" in contracts
 
     for source in design_sources.values():
         assert "bundle library" not in source.lower()
@@ -251,6 +253,7 @@ def test_compiler_design_keeps_web_and_agent_on_same_core() -> None:
     assert "same Core" in contracts
     assert "One shared success path and one shared failure path across Web/Agent" in contracts
     assert "Templates/tests inherit host model/provider defaults" in contracts
+    assert "model/provider defaults" in contracts
 
 
 def test_cli_run_result_separates_run_status_and_task_verdict(capsys, tmp_path: Path) -> None:

@@ -359,16 +359,23 @@ def _print_adapter_file_details(result: dict) -> None:
             if isinstance(item, dict):
                 typer.echo(f"- {item.get('path')}: {item.get('state', 'managed')}")
     removed_files = result.get("removed_files")
-    if isinstance(removed_files, list) and removed_files:
-        typer.echo("removed:")
-        for item in removed_files:
-            typer.echo(f"- {item}")
+    _print_adapter_plain_list("removed:", removed_files)
+    removed_obsolete_files = result.get("removed_obsolete_files")
+    _print_adapter_plain_list("removed obsolete managed files:", removed_obsolete_files)
     kept_files = result.get("kept_files")
     if isinstance(kept_files, list) and kept_files:
         typer.echo("kept:")
         for item in kept_files:
             if isinstance(item, dict):
                 typer.echo(f"- {item.get('path')}: {item.get('reason')}")
+
+
+def _print_adapter_plain_list(label: str, items: object) -> None:
+    if not isinstance(items, list) or not items:
+        return
+    typer.echo(label)
+    for item in items:
+        typer.echo(f"- {item}")
 
 
 def _print_adapter_next_steps(label: str) -> None:
