@@ -20,11 +20,11 @@ on:
         required: false
         default: ""
       real_claude_agent_command_template:
-        description: "Optional Claude Code command template; release path should include Kimi-K2.6"
+        description: "Optional Claude Code command template; ordinary release path should use host default model and effort"
         required: false
         default: ""
       real_opencode_agent_command_template:
-        description: "Optional OpenCode command template; release path should include minimax-token-plan/MiniMax-M2.7"
+        description: "Optional OpenCode command template; ordinary release path should use host default model and variant"
         required: false
         default: ""
       setup_command:
@@ -40,7 +40,7 @@ on:
         required: false
         default: "3"
       allow_model_override:
-        description: "Allow Claude/OpenCode real probes to use a non-default model for intentional override validation"
+        description: "Allow real probes to use explicit model, effort, or variant overrides for intentional override validation"
         required: false
         type: boolean
         default: false
@@ -98,7 +98,7 @@ jobs:
             echo "- Agent command template configured: $([[ -n "${LOOPORA_REAL_AGENT_COMMAND_TEMPLATE:-}" ]] && echo yes || echo no)"
             echo "- Claude command template configured: $([[ -n "${LOOPORA_REAL_CLAUDE_AGENT_COMMAND_TEMPLATE:-}" ]] && echo yes || echo no)"
             echo "- OpenCode command template configured: $([[ -n "${LOOPORA_REAL_OPENCODE_AGENT_COMMAND_TEMPLATE:-}" ]] && echo yes || echo no)"
-            echo "- Model override allowed: $([[ "${LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE:-}" == "1" ]] && echo yes || echo no)"
+            echo "- External config override allowed: $([[ "${LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE:-}" == "1" ]] && echo yes || echo no)"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run real probe runner

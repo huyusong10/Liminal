@@ -93,8 +93,8 @@
 - 统一开关为 `LOOPORA_ENABLE_REAL_CLI_PROBE=1`；默认关闭。
 - `LOOPORA_REAL_CLI_TARGETS=codex,claude,opencode` 可缩小 provider 范围。若未设置，则按本机实际存在的 CLI 自动过滤。
 - `LOOPORA_REAL_CLI_TIMEOUT_SECONDS` 控制单条 run 的最长等待时间。
-- provider 模型覆盖通过可选环境变量注入：`LOOPORA_REAL_CLI_CODEX_MODEL`、`LOOPORA_REAL_CLI_CLAUDE_MODEL`、`LOOPORA_REAL_CLI_OPENCODE_MODEL`；普通发布 real probe 不应静默覆盖 Claude Code / OpenCode 默认模型，覆盖路径必须同时设置显式 real probe override 开关，让报告和断言都能区分默认套餐路径与覆盖路径。
-- 真实 CLI real probe 失败时应保留 `.loopora/real-probes/real-cli-phase-report.json`，至少包含 provider、实际模型、run 终态、命令事件摘要、resume 断言线索与关键 artifact 是否存在。
+- provider 模型覆盖通过可选环境变量注入：`LOOPORA_REAL_CLI_CODEX_MODEL`、`LOOPORA_REAL_CLI_CLAUDE_MODEL`、`LOOPORA_REAL_CLI_OPENCODE_MODEL`；普通发布 real probe 不应主动传模型、推理强度或 provider variant，覆盖路径必须同时设置显式 real probe override 开关，让报告和断言都能区分默认宿主配置路径与覆盖路径。
+- 真实 CLI real probe 失败时应保留 `.loopora/real-probes/real-cli-phase-report.json`，至少包含 provider、外部配置覆盖状态、run 终态、命令事件摘要、resume 断言线索与关键 artifact 是否存在。
 - Real probe phase report 是可分享的诊断投影，只能保存脱敏后的命令、错误、事件和 artifact 摘要；不得把完整 prompt、schema、环境变量、token、认证头、Cookie 或命令中的 secret 原值写入报告。
 - 若环境缺少 CLI、浏览器或宿主权限，这类用例应明确 skip，而不是伪造成功结果。
 - 除基础设施矩阵外，仓库还允许保留 scenario-driven 的真实 workflow 用例；这类用例应围绕教程里的真实样例场景组织，并把复制后的 workspace、`.loopora` 运行目录、proof 结果和 review 摘要落到 `artifacts/real_search_loop_experiments/<run-id>/...`，避免真实 run 结束后被清理。

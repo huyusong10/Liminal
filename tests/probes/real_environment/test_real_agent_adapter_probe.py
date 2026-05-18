@@ -18,7 +18,6 @@ import pytest
 from loopora.branding import state_dir_for_workdir
 from loopora.db import LooporaRepository
 from loopora.event_redaction import redact_sensitive_value
-from loopora.providers import CLAUDE_DEFAULT_MODEL, OPENCODE_DEFAULT_MODEL
 from loopora.service import LooporaService
 from loopora.service_types import TERMINAL_RUN_STATUSES
 from loopora.settings import AppSettings
@@ -87,11 +86,18 @@ def _template_env_for_adapter(adapter: str) -> str:
     }.get(adapter, COMMAND_TEMPLATE_ENV)
 
 
-def _expected_model_for_adapter(adapter: str) -> str:
-    return {
-        "claude": CLAUDE_DEFAULT_MODEL,
-        "opencode": OPENCODE_DEFAULT_MODEL,
-    }.get(adapter, "")
+def _command_has_external_config_arg(command: str) -> bool:
+    try:
+        args = shlex.split(command)
+    except ValueError:
+        args = command.split()
+    pinned_flags = {"--model", "--effort", "--variant"}
+    return any(
+        arg in pinned_flags
+        or any(arg.startswith(f"{flag}=") for flag in pinned_flags)
+        or "model_reasoning_effort" in arg
+        for arg in args
+    )
 
 
 def _model_override_allowed() -> bool:
@@ -99,21 +105,21 @@ def _model_override_allowed() -> bool:
 
 
 def _model_policy_summary(adapter: str, command: str) -> dict:
-    expected = _expected_model_for_adapter(adapter)
+    external_config_arg_present = _command_has_external_config_arg(command)
     return {
         "adapter": adapter,
-        "expected_default_model": expected,
+        "expected_default_model": "",
         "model_override_allowed": _model_override_allowed(),
-        "default_model_observed": bool(not expected or expected in command),
+        "delegates_to_host_default": not external_config_arg_present,
+        "external_config_arg_present": external_config_arg_present,
     }
 
 
 def _assert_real_agent_command_model_policy(adapter: str, command: str) -> None:
-    expected = _expected_model_for_adapter(adapter)
-    if not expected or expected in command:
+    if not _command_has_external_config_arg(command):
         return
     assert _model_override_allowed(), (
-        f"{adapter} real-agent probe must use default model {expected!r} on the release path. "
+        f"{adapter} real-agent probe should delegate model and reasoning configuration to the host Agent on the release path. "
         f"Set {REAL_PROBE_MODEL_OVERRIDE_ENV}=1 only for an intentional override validation."
     )
 
@@ -447,7 +453,8 @@ def _phase_statuses(inputs: PhaseStatusInput) -> dict[str, dict]:
         "terminal_run_finished": {"ok": any(event.get("event_type") == "run_finished" for event in inputs.events)},
         "task_verdict_passed": {
             "ok": any(
-                event.get("event_type") == "run_finished" and (event.get("payload") or {}).get("task_verdict_status") == "passed"
+                event.get("event_type") == "run_finished"
+                and (event.get("payload") or {}).get("task_verdict_status") == "passed"
                 for event in inputs.events
                 if isinstance(event.get("payload") or {}, dict)
             )
@@ -694,11 +701,81 @@ print(json.dumps({"type": "stdout", "message": f"loopora-agent-release-executor 
     return script
 
 
+def _stop_host_process(process: subprocess.Popen[str], *, graceful: bool = False) -> None:
+    if process.poll() is not None:
+        return
+    if graceful:
+        process.terminate()
+    else:
+        process.kill()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+
+
+def _write_monitor_phase_report(
+    request: HostCommandMonitorRequest,
+    activity_snapshots: list[dict],
+) -> tuple[dict, Path]:
+    return _write_real_probe_phase_report(
+        adapter=request.adapter,
+        workdir=request.workdir,
+        activity_snapshots=activity_snapshots,
+        sentinel_log=request.sentinel_log,
+        command=request.command,
+    )
+
+
+def _record_runtime_activity(request: HostCommandMonitorRequest, activity_snapshots: list[dict]) -> None:
+    try:
+        activity = _fetch_runtime_activity(request.agent_web_url)
+        activity_snapshots.append(activity)
+    except (AssertionError, json.JSONDecodeError, OSError, TimeoutError):
+        pass
+
+
+def _raise_host_command_timeout(
+    request: HostCommandMonitorRequest,
+    process: subprocess.Popen[str],
+    stdout_file,
+    stderr_file,
+    activity_snapshots: list[dict],
+) -> None:
+    _stop_host_process(process)
+    stdout_file.flush()
+    stderr_file.flush()
+    stdout = Path(stdout_file.name).read_text(encoding="utf-8", errors="replace")
+    stderr = Path(stderr_file.name).read_text(encoding="utf-8", errors="replace")
+    phase_report, phase_report_path = _write_monitor_phase_report(request, activity_snapshots)
+    raise AssertionError(
+        _format_real_probe_diagnostic_failure(
+            f"timed out waiting for real {request.adapter} Agent host command\nstdout:\n{stdout}\nstderr:\n{stderr}",
+            report=phase_report,
+            report_path=phase_report_path,
+        )
+    ) from None
+
+
+def _raise_host_command_failure(
+    request: HostCommandMonitorRequest,
+    completed: subprocess.CompletedProcess[str],
+    activity_snapshots: list[dict],
+) -> None:
+    phase_report, phase_report_path = _write_monitor_phase_report(request, activity_snapshots)
+    raise AssertionError(
+        _format_real_probe_diagnostic_failure(
+            f"real {request.adapter} Agent host command exited {completed.returncode}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
+            report=phase_report,
+            report_path=phase_report_path,
+        )
+    ) from None
+
+
 def _wait_for_host_command_with_runtime_monitoring(request: HostCommandMonitorRequest) -> HostCommandMonitorResult:
     deadline = time.monotonic() + request.timeout
     activity_snapshots: list[dict] = []
-    phase_report: dict = {}
-    phase_report_path = _phase_report_path(request.workdir)
     with tempfile.NamedTemporaryFile(
         "w+", prefix="loopora-real-agent-stdout-", suffix=".log", encoding="utf-8", delete=False
     ) as stdout_file, tempfile.NamedTemporaryFile(
@@ -710,45 +787,14 @@ def _wait_for_host_command_with_runtime_monitoring(request: HostCommandMonitorRe
             while process.poll() is None:
                 now = time.monotonic()
                 if now >= deadline:
-                    process.kill()
-                    process.wait(timeout=5)
-                    stdout_file.flush()
-                    stderr_file.flush()
-                    stdout = Path(stdout_file.name).read_text(encoding="utf-8", errors="replace")
-                    stderr = Path(stderr_file.name).read_text(encoding="utf-8", errors="replace")
-                    phase_report, phase_report_path = _write_real_probe_phase_report(
-                        adapter=request.adapter,
-                        workdir=request.workdir,
-                        activity_snapshots=activity_snapshots,
-                        sentinel_log=request.sentinel_log,
-                        command=request.command,
-                    )
-                    raise AssertionError(
-                        _format_real_probe_diagnostic_failure(
-                            f"timed out waiting for real {request.adapter} Agent host command\nstdout:\n{stdout}\nstderr:\n{stderr}",
-                            report=phase_report,
-                            report_path=phase_report_path,
-                        )
-                    ) from None
-                try:
-                    activity = _fetch_runtime_activity(request.agent_web_url)
-                    activity_snapshots.append(activity)
-                except (AssertionError, json.JSONDecodeError, OSError, TimeoutError):
-                    pass
+                    _raise_host_command_timeout(request, process, stdout_file, stderr_file, activity_snapshots)
+                _record_runtime_activity(request, activity_snapshots)
                 if now - last_report_at >= 2:
-                    phase_report, phase_report_path = _write_real_probe_phase_report(
-                        adapter=request.adapter,
-                        workdir=request.workdir,
-                        activity_snapshots=activity_snapshots,
-                        sentinel_log=request.sentinel_log,
-                        command=request.command,
-                    )
+                    _write_monitor_phase_report(request, activity_snapshots)
                     last_report_at = now
                 time.sleep(0.5)
         finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait(timeout=5)
+            _stop_host_process(process)
         stdout_path = Path(stdout_file.name)
         stderr_path = Path(stderr_file.name)
     stdout = stdout_path.read_text(encoding="utf-8", errors="replace")
@@ -756,26 +802,22 @@ def _wait_for_host_command_with_runtime_monitoring(request: HostCommandMonitorRe
     stdout_path.unlink(missing_ok=True)
     stderr_path.unlink(missing_ok=True)
     completed = subprocess.CompletedProcess(request.command, int(process.returncode or 0), stdout, stderr)
+    if completed.returncode != 0:
+        _raise_host_command_failure(request, completed, activity_snapshots)
     binding = _linked_run_binding(request.adapter, request.workdir)
     if binding is None:
         try:
             binding = _wait_for_run_binding(request.adapter, request.workdir, timeout=30)
         except AssertionError as exc:
-            phase_report, phase_report_path = _write_real_probe_phase_report(
-                adapter=request.adapter,
-                workdir=request.workdir,
-                activity_snapshots=activity_snapshots,
-                sentinel_log=request.sentinel_log,
-                command=request.command,
+            phase_report, phase_report_path = _write_monitor_phase_report(request, activity_snapshots)
+            message = (
+                f"{exc}\n"
+                f"host returncode: {completed.returncode}\n"
+                f"host stdout:\n{completed.stdout}\n"
+                f"host stderr:\n{completed.stderr}"
             )
-            raise AssertionError(_format_real_probe_diagnostic_failure(exc, report=phase_report, report_path=phase_report_path)) from None
-    phase_report, phase_report_path = _write_real_probe_phase_report(
-        adapter=request.adapter,
-        workdir=request.workdir,
-        activity_snapshots=activity_snapshots,
-        sentinel_log=request.sentinel_log,
-        command=request.command,
-    )
+            raise AssertionError(_format_real_probe_diagnostic_failure(message, report=phase_report, report_path=phase_report_path)) from None
+    phase_report, phase_report_path = _write_monitor_phase_report(request, activity_snapshots)
     return HostCommandMonitorResult(
         completed=completed,
         binding=binding,
@@ -849,6 +891,75 @@ def _entry_file_hint(adapter: str) -> str:
     return ".agents/skills/loopora-gen/SKILL.md and .agents/skills/loopora-loop/SKILL.md"
 
 
+def _release_probe_prompt(adapter: str, bundle_file: Path, executor_script: Path) -> str:
+    return f"""# Loopora Agent Adapter Release Gate
+
+Use the Loopora {_agent_label(adapter)} project entry installed in this workdir. If this non-interactive host does not expose native slash commands directly, inspect the installed project entry files and follow their instructions.
+
+Current task: prove the installed Loopora Agent entry can guide a short task conversation into a READY bundle, start a managed run, expose runtime activity, and finish through Agent-native step submission.
+
+This is an execution task, not a planning task. You may think through a checklist, but do not return a todo-only response or stop after creating a plan. Because this host is non-interactive, do not end a response after preparatory commands such as `ls`, `test -f`, `mkdir -p`, or reading files. After creating the candidate directory, immediately continue in the same uninterrupted execution sequence to write the candidate file and invoke the installed entries. Your final response is only valid after the candidate file exists, `/loopora-gen` has returned READY, `/loopora-loop` has returned `complete: true`, the Builder and GateKeeper wrapper submissions have been accepted, a run binding exists, and the terminal run status and task verdict have been observed.
+
+Author the candidate bundle from the conversation brief below and save it to `{bundle_file}`. Create the parent directory if needed. The pytest harness deliberately does not pre-create, prewrite, or embed a complete candidate YAML; this real probe must prove the host can turn conversation guidance into a bundle before invoking `/loopora-gen`.
+
+Before invoking anything, read these installed project entry files: `{_entry_file_hint(adapter)}`. Use them as the only source for shell command syntax, and preserve their provenance markers exactly.
+
+Use these requirements to author, not copy, the candidate:
+
+- Produce one raw `version: 1` Loopora bundle file, with no Markdown fences or prose outside YAML.
+- Use metadata name `agent-adapter-release-profile-probe` and describe it as a release-profile probe for Loopora Agent managed entry and Agent-native submission.
+- Explain in `collaboration_summary` that one Agent pass cannot prove the whole managed-entry contract, so Loopora must govern candidate validation, managed run binding, runtime visibility, native role dispatch, exact evidence refs, and evidence-backed verdict buckets.
+- Use `completion_mode: gatekeeper`, `executor_kind: custom`, `executor_mode: command`, `command_cli: {sys.executable}`, and this executor script for both the loop defaults and the role definitions: `{executor_script}`.
+- Keep `model` and `reasoning_effort` blank everywhere so the probe delegates model and reasoning configuration to the current host/provider defaults.
+- The Builder command args must pass the executor script, the literal role `builder`, `{{output_path}}`, and `{{prompt}}`; the GateKeeper command args must pass the executor script, the literal role `gatekeeper`, `{{output_path}}`, and `{{prompt}}`.
+- Keep the workflow minimal and explicit: `builder_step` runs first; `gatekeeper_step` reads `handoffs_from: [builder_step]`, queries Builder evidence, and uses `on_pass: finish_run`.
+- The Builder role must create `loopora-agent-release-proof.json` and return it in `proof_files`.
+- The GateKeeper role must cite only exact upstream Builder evidence ids from `known_evidence_ids`, use `covered` as the coverage status for satisfied targets, and keep Proven, Weak, Unproven, Blocking, and Residual risk as verdict bucket prose.
+- The spec must include Task, Done When, Success Surface, Guardrails, Fake Done, Evidence Preferences, and Residual Risk sections covering managed entry provenance, runtime visibility, Builder proof evidence, GateKeeper exact evidence refs, task verdict buckets, no nested host CLI, and the limited residual risk of non-interactive host-native role dispatch.
+- `# Done When` becomes the required coverage contract for this deterministic probe. It must contain exactly three top-level bullet items, no more and no fewer: candidate validation plus managed run binding/runtime visibility; Builder proof file plus `proof_files`; GateKeeper exact upstream evidence refs plus `covered` coverage status before `finish_run`.
+- Do not put terminal run status, task verdict, fake-done risks, guardrails, or evidence preferences in `# Done When`; those belong in `# Success Surface`, `# Guardrails`, `# Fake Done`, or `# Evidence Preferences`. Extra Done When bullets create uncovered required targets and fail this release gate.
+- The Success Surface must require terminal run status `succeeded` with task verdict `passed`; do not author a residual-risk pass for this release gate.
+- `# Fake Done` must contain exactly two top-level bullet items: run visibility alone is not enough without Builder proof; GateKeeper cannot pass without citing exact upstream Builder evidence ids.
+- `# Evidence Preferences` must contain exactly two top-level bullet items: task verdict buckets are Proven, Weak, Unproven, Blocking, and Residual risk; evidence references must use exact ids from `known_evidence_ids`.
+- `collaboration_summary` must explicitly describe GateKeeper / final judgment posture, not just setup or execution mechanics.
+- Residual Risk must say the limited non-interactive native-dispatch risk is accepted only for this probe when wrapper JSON, dispatch metadata, role outputs, exact evidence refs, and terminal verdict buckets are present; otherwise fail closed.
+- Do not claim an observed workdir stack, framework, language, or product architecture. This fixture only gives you the installed Loopora entries, a README, and the executor script path, so omit stack/architecture claims entirely.
+- The user-facing bundle prose should say this is a release-profile probe for conversation-guided bundle generation, managed run binding, runtime activity, and Agent-native submission. Do not reduce it to a generic smoke test.
+
+Required bundle structure checklist:
+
+- Top-level keys include `version`, `metadata`, `collaboration_summary`, `loop`, `spec`, `role_definitions`, and `workflow`.
+- Use quoted strings or YAML block scalars for long prose. Prefer block scalars for `collaboration_summary`, `spec.markdown`, `prompt_markdown`, `posture_notes`, and `command_args_text` so colons and punctuation cannot break YAML parsing.
+- `metadata` contains only identity fields such as `name` and `description`; do not place `collaboration_summary`, `completion_mode`, executor settings, roles, or steps inside `metadata`.
+- `loop` is the run configuration object and must include `name`, `workdir`, `completion_mode`, `executor_kind`, `executor_mode`, `command_cli`, `command_args_text`, `model`, and `reasoning_effort`.
+- Every custom `command_args_text` block must preserve the literal placeholders `{{output_path}}` and `{{prompt}}`; do not replace them with concrete paths while authoring the bundle.
+- `spec` is an object with `markdown` containing the Task, Done When, Success Surface, Guardrails, Fake Done, Evidence Preferences, and Residual Risk sections.
+- `spec.markdown` must use these exact top-level Markdown headings: `# Task`, `# Done When`, `# Success Surface`, `# Guardrails`, `# Fake Done`, `# Evidence Preferences`, and `# Residual Risk`.
+- `role_definitions` is a list containing one Builder role definition with key `release-proof-builder` and one GateKeeper role definition with key `release-gatekeeper`; each role has `key`, `name`, `description`, `archetype`, `prompt_ref`, `prompt_markdown`, `posture_notes`, repeats the custom command executor settings, and keeps `model` / `reasoning_effort` blank.
+- Each role `prompt_markdown` must start with YAML front matter: `---`, then `version: 1`, then the matching `archetype`, then `---`, followed by role guidance.
+- `workflow` is the workflow object, not the `loop` object. It should define `roles` as objects such as `{{id, role_definition_key}}`; use role id `builder` with `role_definition_key: release-proof-builder` and role id `gatekeeper` with `role_definition_key: release-gatekeeper`.
+- `workflow.collaboration_intent` is required and must explain evidence flow, GateKeeper closure, and weak-evidence or fake-done exposure: Builder creates durable proof first, then GateKeeper queries exact Builder evidence before `finish_run`.
+- `workflow.steps` must be a list. Each step object must use an explicit `id`; do not use `key`, generated names, or omitted ids. The exact step id `builder_step` uses `role_id: builder` and runs first. The exact step id `gatekeeper_step` uses `role_id: gatekeeper`, has `inputs.handoffs_from: [builder_step]`, has `inputs.evidence_query.archetypes: [builder]`, has `inputs.evidence_query.limit` set to a small integer, and sets `on_pass: finish_run`. Do not use unsupported evidence query keys such as `from_steps`.
+
+Required order:
+
+0. After reading the installed entry files, create the candidate bundle on disk and verify that `{bundle_file}` exists before moving on.
+1. Invoke `/loopora-gen` or the installed `loopora-gen` project entry semantics.
+2. Only after the candidate is READY, invoke `/loopora-loop` or the installed `loopora-loop` project entry semantics.
+3. Continue the installed Agent-native loop path until Loopora returns `complete: true`. For each returned step capsule, use the host's native role/subagent mechanism named by `role_dispatch.target_agent`, write one wrapper JSON result with `loopora_host_dispatch` and `result`, follow any `evidence_rules`, `evidence_ref_contract`, and `role_dispatch`, and submit it as instructed by the installed entry.
+4. While the run is active, observe the local Loopora runtime activity endpoint or the returned run URL enough to confirm the run is visible before terminal completion.
+5. Return a short summary with the candidate URL, run URL, runtime activity observation, and terminal run status.
+
+Keep each role dispatch small and deterministic for this release-profile probe. Builder must create `loopora-agent-release-proof.json` in the workdir and return `proof_files: ["loopora-agent-release-proof.json"]`; it may still return empty `changed_files`, `proof_artifacts`, and `artifact_paths`. GateKeeper should cite only the exact Builder evidence id returned in `known_evidence_ids`. For every satisfied `coverage_results` target, set `status` to `covered`; do not use verdict bucket words such as `proven` or `unproven` as coverage status values. For Codex, if you use `spawn_agent`, set `agent_type` to the exact target agent, omit `fork_context`, and wait with a bounded timeout shorter than this harness timeout.
+
+For every result file, use the installed entry's wrapper format: top-level `loopora_host_dispatch` plus top-level `result`. The `result` object must use the exact top-level keys required by the step capsule's `output_schema`. For GateKeeper, write `passed`, `decision_summary`, `metrics`, `metric_scores`, `evidence_refs`, `evidence_claims`, and the other schema fields inside `result`; do not use a `verdict` or `task_verdict` envelope. In `loopora_host_dispatch`, set both `target_agent` and `actual_agent` to the exact `role_dispatch.target_agent`, set `dispatch_mode` to `host_subagent`, `host_task`, or `host_agent`, and set `inline` to false. Every `evidence_refs` list, including inside `coverage_results`, must contain only exact strings copied from `known_evidence_ids`. If `known_evidence_ids` contains only `ev_000_00_builder_step`, use only `ev_000_00_builder_step`; do not invent suffixes such as `_binding`, `_output`, `_preference`, or `_fake_done_risk`. Artifact labels and file names belong in evidence_claims or notes.
+
+Do not edit user-owned config files.
+Do not invent a direct Loopora CLI command from this prompt; follow the installed project entry instructions when a shell command is needed.
+Do not invoke codex, claude, or opencode from inside this Agent session; this release-profile probe must prove the host Agent itself performs the role work.
+"""
+
+
 def _assert_managed_gen_before_loop(adapter: str, entry_invocations: list[dict]) -> None:
     expected_source = _entry_source(adapter)
     normalized = [(item.get("action"), item.get("entry_source")) for item in entry_invocations if isinstance(item, dict)]
@@ -884,46 +995,7 @@ def test_real_agent_host_can_guide_bundle_then_monitor_loop(adapter: str, tmp_pa
     prompt_file = workdir / "loopora-agent-release-prompt.md"
     command = ""
     activity_snapshots: list[dict] = []
-    prompt_file.write_text(
-        f"""# Loopora Agent Adapter Release Gate
-
-Use the Loopora {_agent_label(adapter)} project entry installed in this workdir. If this non-interactive host does not expose native slash commands directly, inspect the installed project entry files and follow their instructions.
-
-Current task: prove the installed Loopora Agent entry can guide a short task conversation into a READY bundle, start a managed run, expose runtime activity, and finish through Agent-native step submission.
-
-Author the candidate bundle from the conversation brief below and save it to `{bundle_file}`. Create the parent directory if needed. The pytest harness deliberately does not pre-create or prewrite this candidate file; this real probe must prove the host can turn conversation guidance into a bundle before invoking `/loopora-gen`.
-
-Before invoking anything, read these installed project entry files: `{_entry_file_hint(adapter)}`. Use them as the only source for shell command syntax, and preserve their provenance markers exactly.
-
-Use these requirements to author, not copy, the candidate:
-
-- Produce one raw `version: 1` Loopora bundle file, with no Markdown fences or prose outside YAML.
-- Use `completion_mode: gatekeeper`, `executor_kind: custom`, `executor_mode: command`, `command_cli: {sys.executable}`, and this executor script for both the loop defaults and the role definitions: `{executor_script}`.
-- The Builder command args must pass the executor script, the literal role `builder`, `{{output_path}}`, and `{{prompt}}`; the GateKeeper command args must pass the executor script, the literal role `gatekeeper`, `{{output_path}}`, and `{{prompt}}`.
-- Keep the workflow minimal and explicit: `builder_step` runs first; `gatekeeper_step` reads `handoffs_from: [builder_step]`, queries Builder evidence, and uses `on_pass: finish_run`.
-- The Builder role must create `loopora-agent-release-proof.json` and return it in `proof_files`.
-- The GateKeeper role must cite only exact upstream Builder evidence ids from `known_evidence_ids`, use `covered` as the coverage status for satisfied targets, and keep Proven, Weak, Unproven, Blocking, and Residual risk as verdict bucket prose.
-- The spec must include Task, Done When, Success Surface, Guardrails, Fake Done, Evidence Preferences, and Residual Risk sections covering managed entry provenance, runtime visibility, Builder proof evidence, GateKeeper exact evidence refs, task verdict buckets, no nested host CLI, and the limited residual risk of non-interactive host-native role dispatch.
-- The user-facing bundle prose should say this is a release-profile probe for conversation-guided bundle generation, managed run binding, runtime activity, and Agent-native submission. Do not reduce it to a generic smoke test.
-
-Required order:
-
-1. Invoke `/loopora-gen` or the installed `loopora-gen` project entry semantics.
-2. Only after the candidate is READY, invoke `/loopora-loop` or the installed `loopora-loop` project entry semantics.
-3. Continue the installed Agent-native loop path until Loopora returns `complete: true`. For each returned step capsule, use the host's native role/subagent mechanism named by `role_dispatch.target_agent`, write one wrapper JSON result with `loopora_host_dispatch` and `result`, follow any `evidence_rules`, `evidence_ref_contract`, and `role_dispatch`, and submit it as instructed by the installed entry.
-4. While the run is active, observe the local Loopora runtime activity endpoint or the returned run URL enough to confirm the run is visible before terminal completion.
-5. Return a short summary with the candidate URL, run URL, runtime activity observation, and terminal run status.
-
-Keep each role dispatch small and deterministic for this release-profile probe. Builder must create `loopora-agent-release-proof.json` in the workdir and return `proof_files: ["loopora-agent-release-proof.json"]`; it may still return empty `changed_files`, `proof_artifacts`, and `artifact_paths`. GateKeeper should cite only the exact Builder evidence id returned in `known_evidence_ids`. For every satisfied `coverage_results` target, set `status` to `covered`; do not use verdict bucket words such as `proven` or `unproven` as coverage status values. For Codex, if you use `spawn_agent`, set `agent_type` to the exact target agent, omit `fork_context`, and wait with a bounded timeout shorter than this harness timeout.
-
-For every result file, use the installed entry's wrapper format: top-level `loopora_host_dispatch` plus top-level `result`. The `result` object must use the exact top-level keys required by the step capsule's `output_schema`. For GateKeeper, write `passed`, `decision_summary`, `metrics`, `metric_scores`, `evidence_refs`, `evidence_claims`, and the other schema fields inside `result`; do not use a `verdict` or `task_verdict` envelope. In `loopora_host_dispatch`, set both `target_agent` and `actual_agent` to the exact `role_dispatch.target_agent`, set `dispatch_mode` to `host_subagent`, `host_task`, or `host_agent`, and set `inline` to false. Every `evidence_refs` list, including inside `coverage_results`, must contain only exact strings copied from `known_evidence_ids`. If `known_evidence_ids` contains only `ev_000_00_builder_step`, use only `ev_000_00_builder_step`; do not invent suffixes such as `_binding`, `_output`, `_preference`, or `_fake_done_risk`. Artifact labels and file names belong in evidence_claims or notes.
-
-Do not edit user-owned config files.
-Do not invent a direct Loopora CLI command from this prompt; follow the installed project entry instructions when a shell command is needed.
-Do not invoke codex, claude, or opencode from inside this Agent session; this release-profile probe must prove the host Agent itself performs the role work.
-""",
-        encoding="utf-8",
-    )
+    prompt_file.write_text(_release_probe_prompt(adapter, bundle_file, executor_script), encoding="utf-8")
 
     try:
         install = subprocess.run(

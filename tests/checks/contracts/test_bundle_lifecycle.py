@@ -782,7 +782,7 @@ def test_bundle_loader_normalizes_loop_executor_aliases(sample_workdir: Path) ->
     assert bundle["loop"]["executor_mode"] == "preset"
     assert bundle["loop"]["command_cli"] == ""
     assert bundle["loop"]["command_args_text"] == ""
-    assert bundle["loop"]["model"] == "Kimi-K2.6"
+    assert bundle["loop"]["model"] == ""
     assert bundle["loop"]["reasoning_effort"] == "max"
 
 
@@ -796,7 +796,7 @@ def test_bundle_roles_inherit_loop_executor_when_role_fields_are_omitted(sample_
 
     assert {role["executor_kind"] for role in bundle["role_definitions"]} == {"claude"}
     assert {role["executor_mode"] for role in bundle["role_definitions"]} == {"preset"}
-    assert {role["model"] for role in bundle["role_definitions"]} == {"Kimi-K2.6"}
+    assert {role["model"] for role in bundle["role_definitions"]} == {""}
     assert {role["reasoning_effort"] for role in bundle["role_definitions"]} == {"max"}
 
 

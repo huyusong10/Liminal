@@ -134,7 +134,7 @@ class RepositorySchemaMixin:
                     command_cli TEXT NOT NULL DEFAULT 'codex',
                     command_args_text TEXT NOT NULL DEFAULT '',
                     model TEXT NOT NULL DEFAULT '',
-                    reasoning_effort TEXT NOT NULL DEFAULT 'medium',
+                    reasoning_effort TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -183,7 +183,7 @@ class RepositorySchemaMixin:
                     command_cli TEXT NOT NULL DEFAULT '',
                     command_args_text TEXT NOT NULL DEFAULT '',
                     model TEXT NOT NULL DEFAULT '',
-                    reasoning_effort TEXT NOT NULL DEFAULT 'medium',
+                    reasoning_effort TEXT NOT NULL DEFAULT '',
                     workdir TEXT NOT NULL,
                     bundle_path TEXT NOT NULL,
                     transcript_json TEXT NOT NULL DEFAULT '[]',
@@ -281,7 +281,7 @@ class RepositorySchemaMixin:
         cls._ensure_column(connection, "role_definitions", "command_cli", "TEXT NOT NULL DEFAULT 'codex'")
         cls._ensure_column(connection, "role_definitions", "command_args_text", "TEXT NOT NULL DEFAULT ''")
         cls._ensure_column(connection, "role_definitions", "posture_notes", "TEXT NOT NULL DEFAULT ''")
-        cls._ensure_column(connection, "role_definitions", "reasoning_effort", "TEXT NOT NULL DEFAULT 'medium'")
+        cls._ensure_column(connection, "role_definitions", "reasoning_effort", "TEXT NOT NULL DEFAULT ''")
         cls._ensure_column(connection, "alignment_sessions", "executor_mode", "TEXT NOT NULL DEFAULT 'preset'")
         cls._ensure_column(connection, "alignment_sessions", "command_cli", "TEXT NOT NULL DEFAULT ''")
         cls._ensure_column(connection, "alignment_sessions", "command_args_text", "TEXT NOT NULL DEFAULT ''")

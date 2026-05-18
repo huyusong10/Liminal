@@ -130,11 +130,11 @@ class ServiceIterationReportingMixin:
             )
         if not reasons:
             return (
-                "GateKeeper did not accept this iteration because Weak or Unproven evidence remains below threshold; "
+                "Task verdict is not ready: GateKeeper did not accept this iteration because Weak or Unproven evidence remains below threshold; "
                 "do not lower the frozen run contract."
             )
         return (
-            "GateKeeper did not accept this iteration because "
+            "Task verdict is not ready: GateKeeper did not accept this iteration because "
             + "; ".join(reasons)
             + ". Treat these as Blocking or Unproven evidence until repaired."
         )

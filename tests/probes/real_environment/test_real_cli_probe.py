@@ -61,6 +61,7 @@ class RealCliPhaseReportInput:
     provider: str
     workdir: Path
     model: str
+    reasoning_effort: str
     run: dict | None
     artifacts: RealRunArtifacts | None
     error: object | None = None
@@ -132,7 +133,7 @@ def _provider_model(provider: str) -> str:
     override = str(os.environ.get(env_name, "") or "").strip()
     if override:
         return override
-    return executor_profile(provider).default_model
+    return ""
 
 
 def _model_override_allowed() -> bool:
@@ -140,14 +141,11 @@ def _model_override_allowed() -> bool:
 
 
 def _assert_real_cli_model_policy(provider: str, model: str) -> None:
-    if provider == "codex":
-        return
-    expected = executor_profile(provider).default_model
-    if model == expected:
+    if not model:
         return
     assert _model_override_allowed(), (
-        f"{provider} real-cli probe must use default model {expected!r} on the release path; "
-        f"got {model!r}. Set {REAL_PROBE_MODEL_OVERRIDE_ENV}=1 only for an intentional override validation."
+        f"{provider} real-cli probe should delegate to the provider's current default model on the release path; "
+        f"got explicit model {model!r}. Set {REAL_PROBE_MODEL_OVERRIDE_ENV}=1 only for an intentional override validation."
     )
 
 
@@ -330,12 +328,22 @@ def _assert_provider_resume_command_shape(artifacts: RealRunArtifacts) -> None:
 
 
 def _assert_real_cli_model_observed(artifacts: RealRunArtifacts, model: str) -> None:
-    if artifacts.provider == "codex":
+    if not model:
         return
     messages = _command_messages(artifacts)
     assert any(model in message for message in messages), (
         f"expected real {artifacts.provider} command events to include selected model {model!r}; messages={messages[:3]}"
     )
+
+
+def _default_external_config_delegated(artifacts: RealRunArtifacts | None, *, model: str, reasoning_effort: str) -> bool:
+    if artifacts is None:
+        return False
+    if model or reasoning_effort:
+        return True
+    messages = _command_messages(artifacts)
+    pinned_tokens = (" --model ", " --model=", " --effort ", " --effort=", " --variant ", " --variant=", "model_reasoning_effort")
+    return not any(any(token in f" {message} " for token in pinned_tokens) for message in messages)
 
 
 def _phase_report_path(workdir: Path) -> Path:
@@ -370,9 +378,9 @@ def _role_request_summaries(artifacts: RealRunArtifacts | None) -> list[dict]:
 def _build_real_cli_phase_report(inputs: RealCliPhaseReportInput) -> dict:
     provider = inputs.provider
     model = inputs.model
+    reasoning_effort = inputs.reasoning_effort
     run = inputs.run
     artifacts = inputs.artifacts
-    expected_model = executor_profile(provider).default_model
     builder_requests = _requests_for_step(artifacts, "builder_step") if artifacts is not None else []
     resume_result = _provider_resume_command_shape_result(artifacts) if artifacts is not None else {"ok": False, "resume_messages": [], "invalid_flags": []}
     run_dir_value = str((run or {}).get("runs_dir") or "")
@@ -382,17 +390,21 @@ def _build_real_cli_phase_report(inputs: RealCliPhaseReportInput) -> dict:
         "provider": provider,
         "workdir": str(inputs.workdir),
         "selected_model": model,
-        "expected_default_model": expected_model,
+        "selected_reasoning_effort": reasoning_effort,
+        "expected_default_model": "",
         "model_override_allowed": _model_override_allowed(),
         "phase_statuses": {
-            "model_policy": {"ok": provider == "codex" or model == expected_model or _model_override_allowed()},
+            "model_policy": {"ok": not model or _model_override_allowed()},
+            "default_external_config_delegated": {
+                "ok": _default_external_config_delegated(artifacts, model=model, reasoning_effort=reasoning_effort)
+            },
             "run_finished": {"ok": bool(artifacts and artifacts.terminal_event["payload"].get("status") == "succeeded")},
             "structured_output_observed": {"ok": bool(artifacts and _role_execution_summaries(artifacts))},
             "artifacts_persisted": {"ok": run_dir is not None and (run_dir / "summary.md").exists() and (run_dir / "contract" / "run_contract.json").exists()},
             "resume_session_observed": {"ok": len(builder_requests) >= 2 and bool(builder_requests[1].get("resume_session_id"))},
             "resume_command_shape_observed": {"ok": bool(resume_result.get("ok"))},
             "model_observed": {
-                "ok": provider == "codex" or bool(artifacts and any(model in message for message in _command_messages(artifacts))),
+                "ok": not model or bool(artifacts and any(model in message for message in _command_messages(artifacts))),
             },
         },
         "diagnostics": {
@@ -432,6 +444,7 @@ def _format_real_cli_diagnostic_failure(message: object, *, report: dict, report
     compact = {
         "provider": report.get("provider"),
         "selected_model": report.get("selected_model"),
+        "selected_reasoning_effort": report.get("selected_reasoning_effort"),
         "expected_default_model": report.get("expected_default_model"),
         "model_override_allowed": report.get("model_override_allowed"),
         "phase_statuses": report.get("phase_statuses"),
@@ -449,6 +462,7 @@ def test_real_cli_provider_adapter_minimal_bundle_runs_and_resumes(tmp_path: Pat
     service = _real_service(tmp_path, provider=provider)
     timeout_seconds = float(os.environ.get(REAL_CLI_TIMEOUT_ENV, "600"))
     model = _provider_model(provider)
+    reasoning_effort = _provider_reasoning_effort(provider)
     queued_run: dict | None = None
     final_run: dict | None = None
     artifacts: RealRunArtifacts | None = None
@@ -469,7 +483,16 @@ def test_real_cli_provider_adapter_minimal_bundle_runs_and_resumes(tmp_path: Pat
         final_summary = _summary_text(Path(final_run["runs_dir"]))
         assert final_run["status"] == "succeeded", final_summary
         artifacts = _collect_artifacts(provider, workdir, final_run)
-        _write_real_cli_phase_report(RealCliPhaseReportInput(provider=provider, workdir=workdir, model=model, run=final_run, artifacts=artifacts))
+        _write_real_cli_phase_report(
+            RealCliPhaseReportInput(
+                provider=provider,
+                workdir=workdir,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                run=final_run,
+                artifacts=artifacts,
+            )
+        )
         summary = _summary_text(artifacts.run_dir)
 
         assert artifacts.terminal_event["payload"]["status"] == "succeeded", summary
@@ -486,9 +509,18 @@ def test_real_cli_provider_adapter_minimal_bundle_runs_and_resumes(tmp_path: Pat
         assert len(_role_execution_summaries(artifacts)) >= 2, summary
         assert not any("unexpected argument '--cd'" in message for message in _command_messages(artifacts))
         _assert_real_cli_model_observed(artifacts, model)
+        assert _default_external_config_delegated(artifacts, model=model, reasoning_effort=reasoning_effort)
         _assert_provider_resume_command_shape(artifacts)
     except AssertionError as exc:
         report, report_path = _write_real_cli_phase_report(
-            RealCliPhaseReportInput(provider=provider, workdir=workdir, model=model, run=final_run or queued_run, artifacts=artifacts, error=exc)
+            RealCliPhaseReportInput(
+                provider=provider,
+                workdir=workdir,
+                model=model,
+                reasoning_effort=reasoning_effort,
+                run=final_run or queued_run,
+                artifacts=artifacts,
+                error=exc,
+            )
         )
         raise AssertionError(_format_real_cli_diagnostic_failure(exc, report=report, report_path=report_path)) from None

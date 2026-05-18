@@ -93,7 +93,7 @@ Execution modes 只描述 headless execution plane。
 
 如果一个新 provider 无法满足这四点，它不应进入核心适配层。
 
-模型字段在预设模式下是可选 pin：provider profile 可以给出 Loopora 套餐默认模型，空值仍表示继承对应 CLI 的当前默认模型。执行器只在请求模型非空时向 provider 命令传递模型参数；用户需要完全固定 argv 或绕过套餐默认时，应显式覆盖模型字段或改用 command mode。
+模型和推理强度字段在预设模式下都是可选 pin：空值表示继承对应 CLI 的当前默认配置。执行器只在请求模型或推理强度非空时向 provider 命令传递对应参数；用户需要完全固定 argv 时，应显式覆盖字段或改用 command mode。
 
 预设模式不应默认切断宿主正常用户认证或 setting 上下文。真实 CLI 需要用户级 keychain、OAuth 或配置才能运行时，Loopora 的默认参数必须允许读取这些正常来源；用户需要完全固定 argv 时，应改用 command mode。
 
@@ -135,7 +135,7 @@ fake executor 的职责是模拟边界，不是复制真实 provider 行为。
 
 因为 fake executor 的结构化输出会被编排测试、证据账本和本地演示直接消费，它的 canned payload 仍必须保留最小运行期语义：角色输出不能暗示可以降低已冻结的 Task / Done When / checks / guardrails；GateKeeper 成功样例必须来自 evidence refs 或可测量 evidence claims，而不是 run 生命周期本身；失败样例应把缺口表达为 weak / unproven / blocking evidence，而不是把“未通过”伪装成普通完成状态。
 
-headless provider real probe 只验证 executor 边界：真实 CLI 能启动、返回结构化输出、写入 run artifact，并在同一 step 的后续轮次使用正确 resume 形状。复杂任务质量、alignment 追问质量、GateKeeper 证据门禁和多 workflow 语义应主要由确定性 fake executor、contract checks、journey checks 和必要的 review/scenario 验证覆盖；它们不应默认进入 provider real probe 发布阻断。Codex / Claude Code / OpenCode 的 provider real probe 目标彼此独立，发布验证入口可以按目标拆成并行 pytest 子进程，但每个子进程必须保留单独的 target env、临时 workdir 和 run storage。默认发布路径还应断言 Claude Code 的 `Kimi-K2.6` 与 OpenCode 的 `minimax-token-plan/MiniMax-M2.7` 出现在真实 provider 命令事件中；显式模型覆盖需要单独开关，并表示本次只验证覆盖路径而不是默认套餐路径。provider real probe harness 应写出 `.loopora/real-probes/real-cli-phase-report.json`，投影模型、run 状态、命令事件、resume 形状和关键 artifact。
+headless provider real probe 只验证 executor 边界：真实 CLI 能启动、返回结构化输出、写入 run artifact，并在同一 step 的后续轮次使用正确 resume 形状。复杂任务质量、alignment 追问质量、GateKeeper 证据门禁和多 workflow 语义应主要由确定性 fake executor、contract checks、journey checks 和必要的 review/scenario 验证覆盖；它们不应默认进入 provider real probe 发布阻断。Codex / Claude Code / OpenCode 的 provider real probe 目标彼此独立，发布验证入口可以按目标拆成并行 pytest 子进程，但每个子进程必须保留单独的 target env、临时 workdir 和 run storage。默认发布路径不得主动固定 provider 模型、推理强度或 provider variant，应让真实 CLI 使用当前宿主默认配置；显式覆盖需要单独开关，并表示本次只验证覆盖路径而不是默认宿主配置路径。provider real probe harness 应写出 `.loopora/real-probes/real-cli-phase-report.json`，投影外部配置覆盖状态、run 状态、命令事件、resume 形状和关键 artifact。
 
 Agent-first adapter 的 real probe 属于宿主入口验证，不属于 executor real probe。它必须覆盖：真实宿主读取项目级入口、按 `gen -> loop -> next/submit` 完成最小 Loop、Web adapter card 可仿真安装/状态/卸载，并证明 Loopora 没有从宿主内部再调用同名宿主 CLI。
 
@@ -151,7 +151,7 @@ Agent-first adapter 的 real probe 属于宿主入口验证，不属于 executor
 
 - 某个 provider 的具体参数变化
 - 输出解析的局部细节变化
-- 默认模型和默认 effort 调整
+- provider 参数支持范围、别名或提示文案调整
 
 ## 11. Non-Goals
 

@@ -14,6 +14,7 @@ targets:
       - src/loopora/templates/index.html
       - src/loopora/templates/loop_detail.html
       - src/loopora/templates/new_loop.html
+      - src/loopora/templates/partials/*.html
       - src/loopora/templates/run_console.html
       - src/loopora/templates/run_detail.html
       - src/loopora/templates/tools.html
@@ -43,6 +44,7 @@ targets:
       - src/loopora/templates/index.html
       - src/loopora/templates/loop_detail.html
       - src/loopora/templates/new_loop.html
+      - src/loopora/templates/partials/*.html
       - src/loopora/templates/run_console.html
       - src/loopora/templates/run_detail.html
       - src/loopora/templates/tools.html

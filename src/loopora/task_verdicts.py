@@ -193,14 +193,15 @@ def _append_residual_risk_buckets(buckets: dict[str, list[dict]], risk_signals: 
     for risk in _strict_string_list(risk_signals):
         text = _clean_text(risk, max_length=240)
         if not acceptance_allowed and residual_risk_is_meaningful(text):
-            buckets["weak"].append({"label": text, "reason": DISALLOWED_RESIDUAL_RISK_REASON})
+            buckets["weak"].append({"label": text, "reason": DISALLOWED_RESIDUAL_RISK_REASON, "residual_risk_policy": "disallowed"})
         elif residual_risk_is_managed(text):
-            buckets["residual_risk"].append({"label": text})
+            buckets["residual_risk"].append({"label": text, "managed": True})
         elif residual_risk_is_meaningful(text):
             buckets["weak"].append(
                 {
                     "label": text,
                     "reason": "Residual risk was observed without enough management detail to accept it.",
+                    "managed": False,
                 }
             )
 
@@ -208,14 +209,15 @@ def _append_residual_risk_buckets(buckets: dict[str, list[dict]], risk_signals: 
 def _append_verdict_residual_risk_buckets(buckets: dict[str, list[dict]], verdict: Mapping[str, Any], *, acceptance_allowed: bool) -> None:
     for risk in _verdict_residual_risk_texts(verdict):
         if not acceptance_allowed and residual_risk_is_meaningful(risk):
-            buckets["weak"].append({"label": _clean_text(risk, max_length=240), "reason": DISALLOWED_RESIDUAL_RISK_REASON})
+            buckets["weak"].append({"label": _clean_text(risk, max_length=240), "reason": DISALLOWED_RESIDUAL_RISK_REASON, "residual_risk_policy": "disallowed"})
         elif residual_risk_is_managed(risk):
-            buckets["residual_risk"].append({"label": _clean_text(risk, max_length=240)})
+            buckets["residual_risk"].append({"label": _clean_text(risk, max_length=240), "managed": True})
         elif residual_risk_is_meaningful(risk):
             buckets["weak"].append(
                 {
                     "label": _clean_text(risk, max_length=240),
                     "reason": "Residual risk was reported without enough management detail to accept it.",
+                    "managed": False,
                 }
             )
 

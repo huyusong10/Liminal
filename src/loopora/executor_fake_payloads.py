@@ -905,7 +905,7 @@ loop:
   command_cli: ""
   command_args_text: ""
   model: ""
-  reasoning_effort: "medium"
+  reasoning_effort: ""
   iteration_interval_seconds: 0
   max_iters: 4
   max_role_retries: 1

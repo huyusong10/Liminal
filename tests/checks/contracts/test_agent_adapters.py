@@ -4598,6 +4598,8 @@ def test_agent_loop_restarts_after_terminal_insufficient_evidence(
     assert continuation["previous_task_verdict"]["status"] == "insufficient_evidence"
     assert continuation["previous_task_verdict_path"].endswith("evidence/task_verdict.json")
     assert continuation["coverage"]["missing_check_count"] > 0
+    assert continuation["coverage"]["target_count"] > 0
+    assert continuation["coverage"]["missing_target_count"] > 0
     assert any(gap["target_id"] == "done_when.check_001" for gap in continuation["coverage"]["top_gaps"])
     assert capsule["continuation"]["previous_run_id"] == previous_run["id"]
     assert previous_run["id"] in continued["next_step"]["prompt"]
@@ -4609,11 +4611,30 @@ def test_agent_loop_restarts_after_terminal_insufficient_evidence(
     assert current_step["continuation"]["previous_run_id"] == previous_run["id"]
     assert current_step["continuation"]["previous_task_verdict"]["status"] == "insufficient_evidence"
     assert current_step["continuation"]["coverage"]["missing_check_count"] > 0
+    assert current_step["continuation"]["coverage"]["target_count"] > 0
     assert current_step["continuation"]["next_focus"]
     session = service.get_alignment_session(started["session"]["id"])
     assert session["linked_run_id"] == continued["run"]["id"]
     assert continued["binding"]["linked_run_id"] == continued["run"]["id"]
     assert service.get_run(previous_run["id"])["task_verdict"]["status"] == "insufficient_evidence"
+
+
+def test_agent_continuation_focus_reads_bucket_labels_and_reasons(service_factory) -> None:
+    service = service_factory(scenario="success")
+
+    focus = service._agent_native_continuation_focus(
+        {
+            "buckets": {
+                "blocking": [{"label": "Permission audit is missing."}],
+                "weak": [{"reason": "Residual risk lacks an owner."}],
+            }
+        },
+        {"top_gaps": [{"target_id": "done_when.audit", "text": "Audit command has no output."}]},
+    )
+
+    assert "Permission audit is missing." in focus
+    assert "Residual risk lacks an owner." in focus
+    assert "done_when.audit: Audit command has no output." in focus
 
 
 def test_agent_loop_replays_terminal_passed_task_verdict(

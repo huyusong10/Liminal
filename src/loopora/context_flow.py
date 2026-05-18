@@ -323,11 +323,28 @@ TASK_VERDICT_CONTEXT_SCHEMA = {
 
 CONTINUATION_COVERAGE_SCHEMA = {
     "type": "object",
-    "required": ["status", "covered_check_count", "missing_check_count", "covered_check_ids", "missing_check_ids", "top_gaps"],
+    "required": [
+        "status",
+        "covered_check_count",
+        "missing_check_count",
+        "target_count",
+        "covered_target_count",
+        "weak_target_count",
+        "missing_target_count",
+        "blocked_target_count",
+        "covered_check_ids",
+        "missing_check_ids",
+        "top_gaps",
+    ],
     "properties": {
         "status": {"type": "string"},
         "covered_check_count": {"type": "integer"},
         "missing_check_count": {"type": "integer"},
+        "target_count": {"type": "integer"},
+        "covered_target_count": {"type": "integer"},
+        "weak_target_count": {"type": "integer"},
+        "missing_target_count": {"type": "integer"},
+        "blocked_target_count": {"type": "integer"},
         "covered_check_ids": {"type": "array", "items": {"type": "string"}},
         "missing_check_ids": {"type": "array", "items": {"type": "string"}},
         "top_gaps": {"type": "array", "items": EVIDENCE_COVERAGE_GAP_SCHEMA},
@@ -918,6 +935,11 @@ def _empty_continuation_context() -> dict:
             "status": "pending",
             "covered_check_count": 0,
             "missing_check_count": 0,
+            "target_count": 0,
+            "covered_target_count": 0,
+            "weak_target_count": 0,
+            "missing_target_count": 0,
+            "blocked_target_count": 0,
             "covered_check_ids": [],
             "missing_check_ids": [],
             "top_gaps": [],
@@ -943,6 +965,11 @@ def _normalize_continuation_context(value: object) -> dict:
             "status": _contract_string(coverage.get("status")) or "pending",
             "covered_check_count": _int_value(coverage.get("covered_check_count")),
             "missing_check_count": _int_value(coverage.get("missing_check_count")),
+            "target_count": _int_value(coverage.get("target_count")),
+            "covered_target_count": _int_value(coverage.get("covered_target_count")),
+            "weak_target_count": _int_value(coverage.get("weak_target_count")),
+            "missing_target_count": _int_value(coverage.get("missing_target_count")),
+            "blocked_target_count": _int_value(coverage.get("blocked_target_count")),
             "covered_check_ids": _string_list(coverage.get("covered_check_ids")),
             "missing_check_ids": _string_list(coverage.get("missing_check_ids")),
             "top_gaps": _normalize_coverage_gap_rows(coverage.get("top_gaps")),
@@ -1554,6 +1581,11 @@ def render_continuation_section(continuation: dict) -> str:
         f"- Previous task verdict file: {continuation.get('previous_task_verdict_path') or '-'}",
         f"- Previous coverage file: {continuation.get('previous_evidence_coverage_path') or '-'}",
         f"- Previous required coverage: {coverage.get('covered_check_count', 0)} covered, {coverage.get('missing_check_count', 0)} missing",
+        (
+            f"- Previous coverage targets: {coverage.get('covered_target_count', 0)}/{coverage.get('target_count', 0)} covered, "
+            f"{coverage.get('weak_target_count', 0)} weak, {coverage.get('missing_target_count', 0)} missing, "
+            f"{coverage.get('blocked_target_count', 0)} blocked"
+        ),
     ]
     missing_check_ids = _string_list(coverage.get("missing_check_ids"))[:8]
     if missing_check_ids:

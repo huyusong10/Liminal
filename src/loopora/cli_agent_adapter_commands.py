@@ -753,15 +753,52 @@ def _print_agent_continuation(continuation: object) -> None:
     status = str(verdict.get("status") or "").strip()
     if status:
         typer.echo(f"continuation_task_verdict: {status}")
+    summary = str(verdict.get("summary") or "").strip()
+    if summary:
+        typer.echo(f"continuation_task_verdict_summary: {_clip(summary, 200)}")
+    _print_continuation_coverage(coverage)
+    _print_continuation_focus_items("blocking", continuation.get("focus_blocking"))
+    _print_continuation_focus_items("unproven", continuation.get("focus_unproven"))
+    _print_continuation_focus_items("weak", continuation.get("focus_weak"))
+    _print_continuation_next_focus(continuation.get("next_focus"))
+
+
+def _print_continuation_coverage(coverage: dict) -> None:
     missing = coverage.get("missing_check_count")
     covered = coverage.get("covered_check_count")
     if covered is not None or missing is not None:
         typer.echo(f"continuation_required_coverage: {covered or 0} covered / {missing or 0} missing")
-    next_focus = [str(item).strip() for item in list(continuation.get("next_focus") or []) if str(item).strip()]
+    target_count = coverage.get("target_count")
+    covered_targets = coverage.get("covered_target_count")
+    weak_targets = coverage.get("weak_target_count")
+    missing_targets = coverage.get("missing_target_count")
+    blocked_targets = coverage.get("blocked_target_count")
+    if target_count:
+        target_bits = [f"{covered_targets or 0} covered"]
+        if weak_targets:
+            target_bits.append(f"{weak_targets} weak")
+        if missing_targets:
+            target_bits.append(f"{missing_targets} missing")
+        if blocked_targets:
+            target_bits.append(f"{blocked_targets} blocked")
+        typer.echo(f"continuation_coverage_targets: {target_count} total ({' / '.join(target_bits)})")
+
+
+def _print_continuation_next_focus(items: object) -> None:
+    next_focus = [str(item).strip() for item in list(items or []) if str(item).strip()]
     if next_focus:
         typer.echo("continuation_next_focus:")
         for item in next_focus[:5]:
             typer.echo(f"- {item}")
+
+
+def _print_continuation_focus_items(label: str, items: object) -> None:
+    focus_items = [str(item).strip() for item in list(items or []) if str(item).strip()]
+    if not focus_items:
+        return
+    typer.echo(f"continuation_{label}:")
+    for item in focus_items[:4]:
+        typer.echo(f"- {_clip(item, 180)}")
 
 
 def _action_policy_summary(action_policy: dict) -> str:
@@ -780,9 +817,26 @@ def _required_coverage_summary(required_coverage: object) -> str:
     status = str(required_coverage.get("status") or "pending").strip()
     covered = _non_bool_int(required_coverage.get("covered_check_count"))
     missing = _non_bool_int(required_coverage.get("missing_check_count"))
-    if covered is None and missing is None:
+    target_count = _non_bool_int(required_coverage.get("target_count"))
+    covered_targets = _non_bool_int(required_coverage.get("covered_target_count"))
+    weak_targets = _non_bool_int(required_coverage.get("weak_target_count"))
+    missing_targets = _non_bool_int(required_coverage.get("missing_target_count"))
+    blocked_targets = _non_bool_int(required_coverage.get("blocked_target_count"))
+    bits = []
+    if covered is not None or missing is not None:
+        bits.append(f"required checks {covered or 0} covered / {missing or 0} missing")
+    if target_count:
+        target_bits = [f"{covered_targets or 0}/{target_count} targets"]
+        if weak_targets:
+            target_bits.append(f"{weak_targets} weak")
+        if missing_targets:
+            target_bits.append(f"{missing_targets} missing")
+        if blocked_targets:
+            target_bits.append(f"{blocked_targets} blocked")
+        bits.append(" / ".join(target_bits))
+    if not bits:
         return status
-    return f"{status}; required checks {covered or 0} covered / {missing or 0} missing"
+    return f"{status}; {', '.join(bits)}"
 
 
 def _print_top_coverage_gaps(required_coverage: object) -> None:
@@ -797,13 +851,15 @@ def _print_top_coverage_gaps(required_coverage: object) -> None:
     typer.echo("top_coverage_gaps:")
     for gap in visible_gaps:
         target_id = str(gap.get("target_id") or gap.get("id") or "").strip()
+        source_section = str(gap.get("source_section") or "").strip()
         text = _clip(str(gap.get("text") or gap.get("reason") or "").strip(), 180)
+        source_prefix = f"[{source_section}] " if source_section else ""
         if target_id and text:
-            typer.echo(f"- {target_id}: {text}")
+            typer.echo(f"- {target_id}: {source_prefix}{text}")
         elif target_id:
-            typer.echo(f"- {target_id}")
+            typer.echo(f"- {target_id}: {source_prefix}")
         elif text:
-            typer.echo(f"- {text}")
+            typer.echo(f"- {source_prefix}{text}")
 
 
 def _non_bool_int(value: object) -> int | None:

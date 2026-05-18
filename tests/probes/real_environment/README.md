@@ -43,17 +43,17 @@ Agent-host command templates are required for `real-agent`:
 
 ```bash
 export LOOPORA_REAL_AGENT_COMMAND_TEMPLATE='codex exec --cd {workdir} --skip-git-repo-check "$(cat {prompt_file})"'
-export LOOPORA_REAL_CLAUDE_AGENT_COMMAND_TEMPLATE='claude --model "Kimi-K2.6" --cwd {workdir} --dangerously-skip-permissions "$(cat {prompt_file})"'
-export LOOPORA_REAL_OPENCODE_AGENT_COMMAND_TEMPLATE='opencode run --dir {workdir} --dangerously-skip-permissions --model "minimax-token-plan/MiniMax-M2.7" "$(cat {prompt_file})"'
+export LOOPORA_REAL_CLAUDE_AGENT_COMMAND_TEMPLATE='claude -p --dangerously-skip-permissions "$(cat {prompt_file})"'
+export LOOPORA_REAL_OPENCODE_AGENT_COMMAND_TEMPLATE='opencode run --dir {workdir} --dangerously-skip-permissions "$(cat {prompt_file})"'
 ```
 
-Provider defaults are part of the release expectation: Claude Code should use `Kimi-K2.6`; OpenCode should use `minimax-token-plan/MiniMax-M2.7` unless the release explicitly tests an override.
+Provider defaults belong to the real host CLI configuration, not the release probe. The ordinary release path should not pass `--model`, `--effort`, `--variant`, or Codex `model_reasoning_effort` for Claude Code, OpenCode, or Codex.
 
-Default model policy is a hard release-path assertion:
+Default external configuration delegation is a hard release-path assertion:
 
-- `real-agent` requires the Claude command template to contain `Kimi-K2.6` and the OpenCode command template to contain `minimax-token-plan/MiniMax-M2.7`.
-- `real-cli` requires the generated provider command events to contain the selected Claude/OpenCode model.
-- To intentionally run a model override, set `LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE=1` and make the override explicit in the command template or provider model env var. Do not use this exemption for an ordinary release check.
+- `real-agent` rejects command templates containing `--model`, `--effort`, `--variant`, or `model_reasoning_effort` unless an explicit override validation is enabled.
+- `real-cli` leaves the bundle model and reasoning effort blank unless an explicit provider model env var is set.
+- To intentionally run an external configuration override, set `LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE=1` and make the override explicit in the command template or provider model env var. Do not use this exemption for an ordinary release check.
 
 ## 3. Parallelism
 
@@ -98,7 +98,7 @@ Only stable facts should fail a real probe:
 - GateKeeper must cite exact known evidence IDs.
 - Run lifecycle must finish `succeeded`, and task verdict must be `passed`.
 - Nested host CLI sentinels must remain silent.
-- Default Claude/OpenCode model selection must be visible unless `LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE=1` is set for an intentional override run.
+- Default host model and reasoning configuration must be delegated to the real host unless `LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE=1` is set for an intentional override run.
 
 Do not make these fuzzy observations into hard assertions unless they become stable product contracts:
 

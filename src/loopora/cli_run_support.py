@@ -250,6 +250,16 @@ def print_task_verdict(task_verdict: object) -> None:
         typer.echo(f"task_verdict_source: {task_verdict['source']}")
     if task_verdict.get("summary"):
         typer.echo(f"task_verdict_summary: {task_verdict['summary']}")
+    buckets = task_verdict.get("buckets") if isinstance(task_verdict.get("buckets"), dict) else {}
+    if buckets:
+        bucket_counts = [
+            f"proven {len(buckets.get('proven') or [])}",
+            f"weak {len(buckets.get('weak') or [])}",
+            f"unproven {len(buckets.get('unproven') or [])}",
+            f"blocking {len(buckets.get('blocking') or [])}",
+            f"residual_risk {len(buckets.get('residual_risk') or [])}",
+        ]
+        typer.echo(f"task_verdict_buckets: {' / '.join(bucket_counts)}")
 
 
 def background_worker_command(run_id: str) -> list[str]:

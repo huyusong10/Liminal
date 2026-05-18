@@ -224,7 +224,8 @@ def build_codex_exec_args(request: RoleRequest, schema_path: Path) -> list[str]:
         ]
         if request.model.strip():
             args.extend(["--model", request.model.strip()])
-        args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
+        if reasoning_effort:
+            args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
         args.extend(extra_args)
         args.append(resume_session_id)
         args.append(request.prompt)
@@ -246,7 +247,8 @@ def build_codex_exec_args(request: RoleRequest, schema_path: Path) -> list[str]:
     ]
     if request.model.strip():
         args.extend(["--model", request.model.strip()])
-    args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
+    if reasoning_effort:
+        args.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
     args.extend(extra_args)
     args.append(request.prompt)
     return args

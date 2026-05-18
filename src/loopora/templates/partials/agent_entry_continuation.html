@@ -1,0 +1,97 @@
+{% if agent_entry_start.continuation_summary %}
+{% set continuation = agent_entry_start.continuation_summary %}
+{% set verdict = continuation.previous_task_verdict %}
+{% set coverage = continuation.coverage %}
+<div class="agent-entry-continuation-summary" data-testid="agent-entry-continuation-summary">
+  <span class="agent-entry-continuation-kicker">
+    <span data-lang="zh">下一轮证据接力</span>
+    <span data-lang="en">Next evidence pass</span>
+  </span>
+  <strong>
+    <span data-lang="zh">任务还未证明，下一轮先补这些缺口。</span>
+    <span data-lang="en">The task is still unproven; the next run starts from these gaps.</span>
+  </strong>
+  <p class="agent-entry-continuation-priority-note">
+    <span data-lang="zh">阻断项必须先解决，然后是未证明，最后是弱证据——按优先级补缺口。</span>
+    <span data-lang="en">Blockers must be resolved first, then unproven, then weak—prioritize gaps in order.</span>
+  </p>
+  <div class="agent-entry-continuation-metrics">
+    <span><span data-lang="zh">裁决</span><span data-lang="en">Verdict</span>: {{ verdict.status or "-" }}</span>
+    <span><span data-lang="zh">缺失检查</span><span data-lang="en">Missing checks</span>: {{ coverage.missing_check_count }}</span>
+    <span><span data-lang="zh">已覆盖</span><span data-lang="en">Covered</span>: {{ coverage.covered_check_count }}</span>
+  </div>
+  {% if verdict.summary %}
+  <p class="agent-entry-verdict-summary">{{ verdict.summary }}</p>
+  {% endif %}
+  {% if continuation.focus_blocking %}
+  <div class="agent-entry-focus-group agent-entry-focus-group--blocking">
+    <span class="agent-entry-focus-kicker">
+      <span data-lang="zh">阻断项（必须先解决）</span>
+      <span data-lang="en">Blocking (must resolve first)</span>
+    </span>
+    <ol class="agent-entry-focus-list">
+      {% for item in continuation.focus_blocking %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endif %}
+  {% if continuation.focus_unproven %}
+  <div class="agent-entry-focus-group agent-entry-focus-group--unproven">
+    <span class="agent-entry-focus-kicker">
+      <span data-lang="zh">未证明（优先补证据）</span>
+      <span data-lang="en">Unproven (prioritize evidence)</span>
+    </span>
+    <ol class="agent-entry-focus-list">
+      {% for item in continuation.focus_unproven %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endif %}
+  {% if continuation.focus_weak %}
+  <div class="agent-entry-focus-group agent-entry-focus-group--weak">
+    <span class="agent-entry-focus-kicker">
+      <span data-lang="zh">弱证据（补充强证据）</span>
+      <span data-lang="en">Weak (strengthen evidence)</span>
+    </span>
+    <ol class="agent-entry-focus-list">
+      {% for item in continuation.focus_weak %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endif %}
+  {% if coverage.top_gaps %}
+  <div class="agent-entry-focus-group agent-entry-focus-group--gaps">
+    <span class="agent-entry-focus-kicker">
+      <span data-lang="zh">覆盖缺口</span>
+      <span data-lang="en">Coverage gaps</span>
+    </span>
+    <ol class="agent-entry-focus-list">
+      {% for gap in coverage.top_gaps %}
+      <li>
+        {% if gap.source_section %}<span class="agent-entry-gap-source">{{ gap.source_section }}</span>{% endif %}
+        {{ gap.text or gap.reason or gap.target_id }}
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endif %}
+  {% if continuation.next_focus and not continuation.focus_blocking and not continuation.focus_unproven and not continuation.focus_weak and not coverage.top_gaps %}
+  <ol class="agent-entry-continuation-focus">
+    {% for item in continuation.next_focus %}
+    <li>{{ item }}</li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+  <div class="agent-entry-continuation-files">
+    {% if continuation.previous_task_verdict_path %}
+    <code>{{ continuation.previous_task_verdict_path }}</code>
+    {% endif %}
+    {% if continuation.previous_evidence_coverage_path %}
+    <code>{{ continuation.previous_evidence_coverage_path }}</code>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

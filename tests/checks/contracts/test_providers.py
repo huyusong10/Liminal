@@ -49,7 +49,11 @@ def test_executor_mode_normalizes() -> None:
 
 
 def test_reasoning_setting_is_provider_specific() -> None:
+    assert normalize_reasoning_setting("", executor_kind="codex") == ""
+    assert normalize_reasoning_setting("default", executor_kind="codex") == ""
     assert normalize_reasoning_setting("minimal", executor_kind="codex") == "low"
+    assert normalize_reasoning_setting("", executor_kind="claude") == ""
+    assert normalize_reasoning_setting("default", executor_kind="claude") == ""
     assert normalize_reasoning_setting("xhigh", executor_kind="claude") == "max"
     assert normalize_reasoning_setting("", executor_kind="opencode") == ""
     assert normalize_reasoning_setting("default", executor_kind="opencode") == ""
@@ -74,19 +78,21 @@ def test_codex_preset_defaults_to_cli_model() -> None:
     profile = executor_profile("codex")
 
     assert profile.default_model == ""
+    assert profile.effort_default == ""
     assert "--model" not in profile.command_args_template
     assert "{model}" not in profile.command_args_template
+    assert 'model_reasoning_effort="medium"' not in profile.command_args_template
 
 
-def test_codex_exec_args_omit_model_when_blank(tmp_path: Path) -> None:
-    request = _request(tmp_path, executor_kind="codex", model="", reasoning_effort="medium")
+def test_codex_exec_args_omit_model_and_reasoning_when_blank(tmp_path: Path) -> None:
+    request = _request(tmp_path, executor_kind="codex", model="", reasoning_effort="")
     args = build_codex_exec_args(request, request.run_dir / "schema.json")
 
     assert args[:3] == ["codex", "exec", "--json"]
     assert "--output-schema" in args
     assert "--output-last-message" in args
     assert "--model" not in args
-    assert 'model_reasoning_effort="medium"' in args
+    assert not any("model_reasoning_effort" in arg for arg in args)
 
 
 def test_codex_exec_args_start_fresh_session_when_resume_id_is_missing(tmp_path: Path) -> None:
@@ -147,22 +153,25 @@ def test_claude_exec_args_resume_session_and_drop_no_persistence(tmp_path: Path)
     assert "--verbose" in args
 
 
-def test_claude_preset_defaults_to_loopora_plan_model() -> None:
+def test_claude_preset_defaults_to_cli_model() -> None:
     profile = executor_profile("claude")
 
     assert profile.default_model == CLAUDE_DEFAULT_MODEL
-    assert "--model" in profile.command_args_template
-    assert "{model}" in profile.command_args_template
+    assert profile.default_model == ""
+    assert profile.effort_default == ""
+    assert "--model" not in profile.command_args_template
+    assert "{model}" not in profile.command_args_template
+    assert "--effort" not in profile.command_args_template
 
 
-def test_claude_exec_args_omit_model_when_blank(tmp_path: Path) -> None:
-    request = _request(tmp_path, executor_kind="claude", model="", reasoning_effort="medium")
+def test_claude_exec_args_omit_model_and_effort_when_blank(tmp_path: Path) -> None:
+    request = _request(tmp_path, executor_kind="claude", model="", reasoning_effort="")
     args = build_claude_exec_args(request)
 
     assert args[:6] == ["claude", "--setting-sources", "user,project,local", "-p", "--output-format", "stream-json"]
     assert "--json-schema" in args
     assert "--model" not in args
-    assert "--effort" in args
+    assert "--effort" not in args
 
 
 def test_opencode_exec_args_use_variant_only_when_present(tmp_path: Path) -> None:
@@ -175,20 +184,21 @@ def test_opencode_exec_args_use_variant_only_when_present(tmp_path: Path) -> Non
     assert "--variant" not in args
 
 
-def test_opencode_preset_defaults_to_loopora_plan_model() -> None:
+def test_opencode_preset_defaults_to_cli_model() -> None:
     profile = executor_profile("opencode")
 
     assert profile.default_model == OPENCODE_DEFAULT_MODEL
-    assert "--model" in profile.command_args_template
-    assert "{model}" in profile.command_args_template
+    assert profile.default_model == ""
+    assert "--model" not in profile.command_args_template
+    assert "{model}" not in profile.command_args_template
 
 
 def test_opencode_exec_args_include_model_when_pinned(tmp_path: Path) -> None:
-    request = _request(tmp_path, executor_kind="opencode", model=OPENCODE_DEFAULT_MODEL, reasoning_effort="")
+    request = _request(tmp_path, executor_kind="opencode", model="provider/model", reasoning_effort="")
     args = build_opencode_exec_args(request)
 
     assert "--model" in args
-    assert args[args.index("--model") + 1] == OPENCODE_DEFAULT_MODEL
+    assert args[args.index("--model") + 1] == "provider/model"
     assert "--variant" not in args
 
 

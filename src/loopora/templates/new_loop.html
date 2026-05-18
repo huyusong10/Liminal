@@ -1122,7 +1122,19 @@
       return;
     }
     const localeText = (zh, en) => window.LooporaUI?.pickText ? window.LooporaUI.pickText({zh, en}) : zh;
-    const statusLabel = (status) => {
+    const statusLabel = (status, stage = "") => {
+      if (status === "waiting_user" && stage) {
+        const stageLabels = {
+          clarifying: localeText("判断不足，需要补充", "Judgment incomplete"),
+          agreement_ready: localeText("等待确认协议", "Waiting for agreement"),
+          confirmed: localeText("已确认协议", "Agreement confirmed"),
+          compiling: localeText("正在编译方案", "Compiling plan"),
+          ready_review: localeText("等待复核", "Waiting for review"),
+        };
+        if (stageLabels[stage]) {
+          return stageLabels[stage];
+        }
+      }
       const labels = {
         idle: localeText("未开始", "Idle"),
         running: localeText("编排中", "Composing"),
@@ -1155,6 +1167,7 @@
         const item = document.createElement("article");
         const activeStatuses = new Set(["running", "validating", "repairing"]);
         const status = String(session.status || "");
+        const stage = String(session.alignment_stage || "");
         item.className = `alignment-history-item${activeStatuses.has(status) ? " is-running" : ""}`;
         item.dataset.testid = "alignment-history-item";
         item.dataset.sessionStatus = status;
@@ -1163,7 +1176,7 @@
             <strong>${escapeHtml(session.title || session.id)}</strong>
             <span class="alignment-history-status">
               <span class="alignment-history-status-dot" aria-hidden="true"></span>
-              <span>${escapeHtml(statusLabel(session.status))} · ${escapeHtml(session.executor_kind || "")}</span>
+              <span>${escapeHtml(statusLabel(session.status, stage))} · ${escapeHtml(session.executor_kind || "")}</span>
             </span>
           </a>
         `;

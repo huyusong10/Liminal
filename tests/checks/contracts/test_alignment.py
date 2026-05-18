@@ -727,6 +727,20 @@ def test_alignment_visible_decision_options_require_choice_set_and_recommendatio
     assert [option["id"] for option in valid_options] == ["evidence_path", "speed_path"]
 
 
+def test_alignment_missing_items_are_stable_ids_only() -> None:
+    missing = alignment_module.ServiceAlignmentMixin._normalize_alignment_missing_items(
+        [
+            "success_surface",
+            "success_surface",
+            "role_posture",
+            "raw model prose should not become a chip",
+            {"bad": "shape"},
+        ]
+    )
+
+    assert missing == ["success_surface", "role_posture"]
+
+
 def test_alignment_clarifying_question_rewrite_requires_boolean_need() -> None:
     non_boolean_issues = alignment_module.ServiceAlignmentMixin._alignment_clarifying_question_issues(
         {

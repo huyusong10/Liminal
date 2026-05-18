@@ -60,7 +60,7 @@ The GitHub manual Real Probe workflow is only a wrapper around this runner. Its 
 
 Real probes may skip on ordinary developer machines, but the skip reason must name the missing environment switch or command template. Phase reports are written under `.loopora/real-probes/` so a failing run exposes process, model, artifact, state, and command evidence without forcing the operator to infer progress from quiet stdout.
 
-Claude Code and OpenCode model defaults are part of the ordinary release profile: Claude Code uses `Kimi-K2.6`, and OpenCode uses `minimax-token-plan/MiniMax-M2.7`. A real probe fails the default release profile if those models are not visible in the real Agent command template or real CLI command events. Set `LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE=1` only when the release deliberately validates a different model.
+Real probes use the current model and reasoning configuration in the real host CLI by default. They should not pass `--model`, `--effort`, `--variant`, or provider model env vars on the ordinary release path. Set `LOOPORA_REAL_PROBE_ALLOW_MODEL_OVERRIDE=1` only when the release deliberately validates an explicit external configuration override.
 
 ## Review Cases
 

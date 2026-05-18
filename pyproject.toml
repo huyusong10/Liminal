@@ -42,6 +42,7 @@ include = ["loopora*"]
 [tool.setuptools.package-data]
 loopora = [
   "templates/*.html",
+  "templates/partials/*.html",
   "static/*.css",
   "static/*.js",
   "static/pages/*.js",

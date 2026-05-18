@@ -47,12 +47,12 @@ def test_real_cli_phase_report_projects_model_resume_and_artifacts(tmp_path: Pat
             {
                 "id": 1,
                 "event_type": "codex_event",
-                "payload": {"type": "command", "message": "opencode run --token CLI_PHASE_SECRET_MARKER --model minimax-token-plan/MiniMax-M2.7 prompt"},
+                "payload": {"type": "command", "message": "opencode run --token CLI_PHASE_SECRET_MARKER prompt"},
             },
             {
                 "id": 2,
                 "event_type": "codex_event",
-                "payload": {"type": "command", "message": "opencode run --session sess_123 --model minimax-token-plan/MiniMax-M2.7 prompt"},
+                "payload": {"type": "command", "message": "opencode run --session sess_123 prompt"},
             },
         ],
         terminal_event={"payload": {"status": "succeeded", "reason": "rounds_completed"}},
@@ -62,7 +62,8 @@ def test_real_cli_phase_report_projects_model_resume_and_artifacts(tmp_path: Pat
         module.RealCliPhaseReportInput(
             provider="opencode",
             workdir=workdir,
-            model="minimax-token-plan/MiniMax-M2.7",
+            model="",
+            reasoning_effort="",
             run=artifacts.run,
             artifacts=artifacts,
         )
@@ -71,6 +72,7 @@ def test_real_cli_phase_report_projects_model_resume_and_artifacts(tmp_path: Pat
     assert report_path == workdir / ".loopora" / "real-probes" / "real-cli-phase-report.json"
     assert report_path.exists()
     assert report["phase_statuses"]["model_observed"]["ok"] is True
+    assert report["phase_statuses"]["default_external_config_delegated"]["ok"] is True
     assert report["phase_statuses"]["resume_session_observed"]["ok"] is True
     assert report["phase_statuses"]["resume_command_shape_observed"]["ok"] is True
     assert report["phase_statuses"]["artifacts_persisted"]["ok"] is True
@@ -79,7 +81,7 @@ def test_real_cli_phase_report_projects_model_resume_and_artifacts(tmp_path: Pat
     assert "--token <secret omitted>" in report_text
 
 
-def test_real_cli_default_model_policy_requires_explicit_override(monkeypatch) -> None:
+def test_real_cli_model_pin_requires_explicit_override(monkeypatch) -> None:
     module = _load_module(REAL_CLI_TEST, "real_cli_probe_policy")
     monkeypatch.delenv(module.REAL_PROBE_MODEL_OVERRIDE_ENV, raising=False)
 

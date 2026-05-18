@@ -271,6 +271,7 @@ def test_task_verdict_does_not_pass_with_unmanaged_residual_risk(tmp_path: Path)
         {
             "label": "Some residual risk remains.",
             "reason": "Residual risk was reported without enough management detail to accept it.",
+            "managed": False,
         }
     ]
     assert task_verdict["buckets"]["residual_risk"] == []
@@ -313,6 +314,7 @@ def test_task_verdict_treats_vague_chinese_residual_risk_acceptance_as_unmanaged
         {
             "label": "有些风险可以接受。",
             "reason": "Residual risk was reported without enough management detail to accept it.",
+            "managed": False,
         }
     ]
     assert task_verdict["buckets"]["residual_risk"] == []
@@ -350,6 +352,7 @@ def test_task_verdict_does_not_treat_manual_or_visible_words_as_residual_risk_ma
         {
             "label": "Ownerless manual billing export remains visible.",
             "reason": "Residual risk was reported without enough management detail to accept it.",
+            "managed": False,
         }
     ]
     assert task_verdict["buckets"]["residual_risk"] == []
@@ -395,6 +398,7 @@ def test_task_verdict_does_not_accept_residual_risk_when_run_contract_disallows_
         {
             "label": "Manual billing export remains visible as a follow-up owned by Support.",
             "reason": "Residual risk was reported even though the run contract disallows accepted residual risk.",
+            "residual_risk_policy": "disallowed",
         }
     ]
     assert task_verdict["buckets"]["residual_risk"] == []
@@ -437,6 +441,7 @@ def test_task_verdict_does_not_erase_negated_residual_risk_with_exception(tmp_pa
         {
             "label": "No blocking residual risk except untested billing export.",
             "reason": "Residual risk was reported without enough management detail to accept it.",
+            "managed": False,
         }
     ]
     assert task_verdict["buckets"]["residual_risk"] == []
@@ -472,6 +477,7 @@ def test_task_verdict_classifies_unmanaged_coverage_risk_signal_as_weak(tmp_path
         {
             "label": "Some residual risk remains.",
             "reason": "Residual risk was observed without enough management detail to accept it.",
+            "managed": False,
         }
     ]
     assert task_verdict["buckets"]["residual_risk"] == []

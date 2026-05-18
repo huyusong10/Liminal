@@ -88,6 +88,34 @@ document.addEventListener("DOMContentLoaded", () => {
   const workdirContextOptions = document.getElementById("alignment-workdir-context-options");
 
   const ACTIVE_STATUSES = new Set(["running", "validating", "repairing"]);
+  const MISSING_ITEM_LABELS_ZH = {
+    loop_fit: "Loopora 适配",
+    task_scope: "任务边界",
+    success_surface: "完成标准",
+    fake_done_risks: "伪完成风险",
+    evidence_preferences: "必需证据",
+    execution_strategy: "执行策略",
+    judgment_tradeoffs: "判断取舍",
+    residual_risk_policy: "残余风险",
+    local_governance: "本地治理责任",
+    role_posture: "角色姿态",
+    workflow_shape: "运行流程",
+    workdir_facts: "运行目录事实",
+  };
+  const MISSING_ITEM_LABELS_EN = {
+    loop_fit: "Loopora fit",
+    task_scope: "Task scope",
+    success_surface: "Success criteria",
+    fake_done_risks: "Fake-done risks",
+    evidence_preferences: "Evidence expectations",
+    execution_strategy: "Execution strategy",
+    judgment_tradeoffs: "Judgment tradeoffs",
+    residual_risk_policy: "Residual risk policy",
+    local_governance: "Local governance",
+    role_posture: "Role posture",
+    workflow_shape: "Workflow shape",
+    workdir_facts: "Run directory facts",
+  };
   const SESSION_STORAGE_KEY = "loopora:alignment-session:v1";
   const EVENT_TYPES = [
     "alignment_session_created",
@@ -301,7 +329,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function statusLabel(status) {
+  function statusLabel(status, stage = "") {
+    if (status === "waiting_user" && stage) {
+      const stageLabels = {
+        clarifying: localeText("判断不足，需要补充", "Judgment incomplete"),
+        agreement_ready: localeText("等待确认协议", "Waiting for agreement"),
+        confirmed: localeText("已确认协议", "Agreement confirmed"),
+        compiling: localeText("正在编译方案", "Compiling plan"),
+        ready_review: localeText("等待复核", "Waiting for review"),
+      };
+      if (stageLabels[stage]) {
+        return stageLabels[stage];
+      }
+    }
     const labels = {
       idle: localeText("未开始", "Idle"),
       running: localeText("编排中", "Composing"),
@@ -851,8 +891,9 @@ document.addEventListener("DOMContentLoaded", () => {
       liveDetails.hidden = false;
     }
     const status = String(session.status || "idle");
-    setStatus(statusLabel(status), status === "ready" ? "ready" : (status === "failed" ? "failed" : ""), status);
-    sessionMeta.textContent = `${statusLabel(status)} · ${basename(session.workdir)} · ${session.id}`;
+    const stage = String(session.alignment_stage || "");
+    setStatus(statusLabel(status, stage), status === "ready" ? "ready" : (status === "failed" ? "failed" : ""), status);
+    sessionMeta.textContent = `${statusLabel(status, stage)} · ${basename(session.workdir)} · ${session.id}`;
     setBusy(isActiveStatus(status));
     if (!isActiveStatus(status) && status !== "failed") {
       setLiveDetailsOpen(false);
@@ -1106,6 +1147,7 @@ document.addEventListener("DOMContentLoaded", () => {
       : "";
     agentReviewBridge.hidden = false;
     agentReviewBridge.dataset.reviewMode = reviewMode;
+    const reviewStage = String(session?.alignment_stage || "");
     agentReviewBridge.innerHTML = `
       <div class="alignment-agent-review-copy">
         <span class="alignment-agent-review-kicker">/loopora-gen Web review</span>
@@ -1114,7 +1156,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ${taskAnchorMarkup}
         <div class="alignment-agent-review-meta">
           <span>${escapeHtml(localeText("来源", "Source"))}: ${escapeHtml(review.adapter || executorLabel(session))}</span>
-          <span>${escapeHtml(localeText("当前状态", "Current state"))}: ${escapeHtml(statusLabel(status))}</span>
+          <span>${escapeHtml(localeText("当前状态", "Current state"))}: ${escapeHtml(statusLabel(status, reviewStage))}</span>
           <span>${escapeHtml(localeText("候选方案文件", "Candidate plan file"))}: ${escapeHtml(review.has_candidate_yaml ? localeText("已提供", "provided") : localeText("缺失", "missing"))}</span>
         </div>
       </div>
@@ -1322,8 +1364,18 @@ document.addEventListener("DOMContentLoaded", () => {
     transcript.forEach((entry, index) => {
       const bubble = document.createElement("article");
       bubble.className = `alignment-message alignment-message--${entry.role === "user" ? "user" : "assistant"}`;
+      let missingHtml = "";
+      if (entry.role === "assistant" && Array.isArray(entry.missing_items) && entry.missing_items.length) {
+        const missingLabels = entry.missing_items.map((id) => {
+          const labelZh = MISSING_ITEM_LABELS_ZH[id] || id;
+          const labelEn = MISSING_ITEM_LABELS_EN[id] || id;
+          return `<li><span aria-hidden="true">⚠</span><span>${escapeHtml(localeText(labelZh, labelEn))}</span></li>`;
+        });
+        missingHtml = `<ul class="alignment-missing-items" data-testid="alignment-missing-items">${missingLabels.join("")}</ul>`;
+      }
       bubble.innerHTML = `
         <p>${escapeHtml(entry.content || "")}</p>
+        ${missingHtml}
       `;
       if (entry.role === "assistant") {
         renderDecisionOptions(bubble, entry, {
@@ -1484,7 +1536,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <strong>${escapeHtml(session.title || session.id)}</strong>
           <span class="alignment-history-status">
             <span class="alignment-history-status-dot" aria-hidden="true"></span>
-            <span>${escapeHtml(statusLabel(session.status))} · ${escapeHtml(session.executor_kind || "")}</span>
+            <span>${escapeHtml(statusLabel(session.status, session.alignment_stage))} · ${escapeHtml(session.executor_kind || "")}</span>
           </span>
         </button>
         <button
@@ -2603,7 +2655,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (payload.session) {
         currentSession = payload.session;
         renderTranscript(currentSession.transcript || [], currentSession);
-        setStatus(statusLabel(currentSession.status), currentSession.status === "ready" ? "ready" : (currentSession.status === "failed" ? "failed" : ""), currentSession.status);
+        setStatus(statusLabel(currentSession.status, currentSession.alignment_stage), currentSession.status === "ready" ? "ready" : (currentSession.status === "failed" ? "failed" : ""), currentSession.status);
         setExecutionState(currentSession.status);
       }
       if (!payload.ok) {

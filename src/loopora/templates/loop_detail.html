@@ -41,41 +41,7 @@
         <span data-lang="zh">{{ agent_entry_start.message_zh }}</span>
         <span data-lang="en">{{ agent_entry_start.message_en }}</span>
       </p>
-      {% if agent_entry_start.continuation_summary %}
-      {% set continuation = agent_entry_start.continuation_summary %}
-      {% set verdict = continuation.previous_task_verdict %}
-      {% set coverage = continuation.coverage %}
-      <div class="agent-entry-continuation-summary" data-testid="agent-entry-continuation-summary">
-        <span class="agent-entry-continuation-kicker">
-          <span data-lang="zh">下一轮证据接力</span>
-          <span data-lang="en">Next evidence pass</span>
-        </span>
-        <strong>
-          <span data-lang="zh">任务还未证明，下一轮先补这些缺口。</span>
-          <span data-lang="en">The task is still unproven; the next run starts from these gaps.</span>
-        </strong>
-        <div class="agent-entry-continuation-metrics">
-          <span><span data-lang="zh">裁决</span><span data-lang="en">Verdict</span>: {{ verdict.status or "-" }}</span>
-          <span><span data-lang="zh">缺失检查</span><span data-lang="en">Missing checks</span>: {{ coverage.missing_check_count }}</span>
-          <span><span data-lang="zh">已覆盖</span><span data-lang="en">Covered</span>: {{ coverage.covered_check_count }}</span>
-        </div>
-        {% if continuation.next_focus %}
-        <ol class="agent-entry-continuation-focus">
-          {% for item in continuation.next_focus %}
-          <li>{{ item }}</li>
-          {% endfor %}
-        </ol>
-        {% endif %}
-        <div class="agent-entry-continuation-files">
-          {% if continuation.previous_task_verdict_path %}
-          <code>{{ continuation.previous_task_verdict_path }}</code>
-          {% endif %}
-          {% if continuation.previous_evidence_coverage_path %}
-          <code>{{ continuation.previous_evidence_coverage_path }}</code>
-          {% endif %}
-        </div>
-      </div>
-      {% endif %}
+      {% include "partials/agent_entry_continuation.html" %}
     </div>
     <div class="agent-entry-start-command">
       <span><span data-lang="zh">同一 Agent 会话中运行</span><span data-lang="en">Run in the same Agent session</span></span>

@@ -102,6 +102,18 @@ ALIGNMENT_AGENT_ENTRY_REVIEW_ITEM_IDS = [
     "residual_risk_policy",
     "local_governance",
 ]
+ALIGNMENT_MISSING_ITEM_IDS = frozenset(
+    [
+        *ALIGNMENT_READINESS_KEYS,
+        *ALIGNMENT_READINESS_EVIDENCE_KEYS,
+        *ALIGNMENT_AGREEMENT_TRACEABILITY_KEYS,
+        *ALIGNMENT_AGENT_ENTRY_REVIEW_ITEM_IDS,
+        "agreement_summary",
+        "open_questions",
+        "readiness_checklist",
+        "readiness_evidence",
+    ]
+)
 ALIGNMENT_TRACEABILITY_GENERIC_TERMS = {
     "agent",
     "agents",
@@ -1448,13 +1460,13 @@ class ServiceAlignmentMixin:
                 )
                 session = self.get_alignment_session(session_id)
                 session = self._apply_alignment_output_stage(session_id, session, output)
-                assistant_message, bundle_yaml, decision_options = self._alignment_output_message_bundle_and_options(
+                assistant_message, bundle_yaml, decision_options, missing_items = self._alignment_output_message_bundle_and_options(
                     session_id,
                     session,
                     output,
                 )
                 if assistant_message:
-                    self._record_alignment_assistant_message(session_id, session, assistant_message, decision_options=decision_options)
+                    self._record_alignment_assistant_message(session_id, session, assistant_message, decision_options=decision_options, missing_items=missing_items)
 
                 if bundle_yaml:
                     next_state = self._handle_alignment_bundle_candidate(session_id, bundle_yaml)
@@ -1508,9 +1520,10 @@ class ServiceAlignmentMixin:
         phase = str(output.get("alignment_phase", "") or "").strip().lower()
         return status == "blocked" or phase == "blocked"
 
-    def _alignment_output_message_bundle_and_options(self, session_id: str, session: dict, output: dict) -> tuple[str, str, list[dict]]:
+    def _alignment_output_message_bundle_and_options(self, session_id: str, session: dict, output: dict) -> tuple[str, str, list[dict], list[str] | None]:
         assistant_message = str(output.get("assistant_message", "") or "").strip()
         bundle_yaml = str(output.get("bundle_yaml", "") or "").strip()
+        missing_items = self._normalize_alignment_missing_items(output.get("alignment_missing_items"))
         stage_error = self._alignment_bundle_stage_error(session, output) if bundle_yaml else ""
         if not stage_error:
             if assistant_message and self._alignment_assistant_message_language_issue(session, assistant_message):
@@ -1522,7 +1535,7 @@ class ServiceAlignmentMixin:
                 assistant_message = self._fallback_alignment_assistant_message(output, has_bundle=bool(bundle_yaml))
                 output["decision_options"] = self._default_alignment_decision_options(session)
             decision_options = self._visible_alignment_decision_options(session, output, has_bundle=bool(bundle_yaml))
-            return assistant_message, bundle_yaml, decision_options
+            return assistant_message, bundle_yaml, decision_options, missing_items
         output["needs_user_input"] = True
         self.repository.append_alignment_event(
             session_id,
@@ -1530,7 +1543,7 @@ class ServiceAlignmentMixin:
             {"status": "waiting_user", "error": stage_error},
         )
         output["decision_options"] = self._default_alignment_decision_options(session)
-        return stage_error, "", self._visible_alignment_decision_options(session, output, has_bundle=False)
+        return stage_error, "", self._visible_alignment_decision_options(session, output, has_bundle=False), None
 
     @classmethod
     def _alignment_assistant_message_language_issue(cls, session: dict, assistant_message: str) -> bool:
@@ -1551,18 +1564,23 @@ class ServiceAlignmentMixin:
         assistant_message: str,
         *,
         decision_options: list[dict] | None = None,
+        missing_items: list[str] | None = None,
     ) -> None:
         transcript = list(session.get("transcript") or [])
         entry = {"role": "assistant", "content": assistant_message, "created_at": utc_now()}
         normalized_options = self._normalize_alignment_decision_options(decision_options)
         if normalized_options:
             entry["decision_options"] = normalized_options
+        if missing_items:
+            entry["missing_items"] = missing_items
         transcript.append(entry)
         self.repository.update_alignment_session(session_id, transcript=transcript)
         self._write_alignment_transcript_log(self.get_alignment_session(session_id))
         event_payload = {"role": "assistant", "content": assistant_message}
         if normalized_options:
             event_payload["decision_options"] = normalized_options
+        if missing_items:
+            event_payload["missing_items"] = missing_items
         self.repository.append_alignment_event(
             session_id,
             "alignment_message",
@@ -1858,6 +1876,7 @@ class ServiceAlignmentMixin:
         output["agreement_summary"] = ""
         output["bundle_yaml"] = ""
         output["needs_user_input"] = True
+        output["alignment_missing_items"] = missing
         output["assistant_message"] = self._alignment_block_message(
             session,
             event_type=event_type,
@@ -1921,6 +1940,22 @@ class ServiceAlignmentMixin:
         if phase == "blocked" or status == "blocked":
             return cls._not_fit_alignment_decision_options(session)
         return cls._default_alignment_decision_options(session)
+
+    @classmethod
+    def _normalize_alignment_missing_items(cls, raw_items: object) -> list[str]:
+        if not isinstance(raw_items, list):
+            return []
+        items: list[str] = []
+        seen: set[str] = set()
+        for raw_item in raw_items:
+            item = str(raw_item or "").strip()
+            if item not in ALIGNMENT_MISSING_ITEM_IDS or item in seen:
+                continue
+            seen.add(item)
+            items.append(item)
+            if len(items) >= 12:
+                break
+        return items
 
     @classmethod
     def _normalize_alignment_decision_options(cls, raw_options: object) -> list[dict]:

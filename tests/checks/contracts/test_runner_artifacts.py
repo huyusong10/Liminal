@@ -19,7 +19,7 @@ from loopora.context_flow import (
 )
 from loopora.executor import CodexExecutor, FakeCodexExecutor, build_command_event_payload
 from loopora.run_artifacts import RunArtifactLayout
-from loopora.run_takeaways import build_judgment_contract
+from loopora.run_takeaways import build_judgment_contract, normalize_run_takeaway_projection_shape
 from loopora.service import LooporaError
 from loopora.service_types import LooporaConflictError
 from loopora.service_workflow_runtime import _manifest_prompt_context
@@ -693,6 +693,20 @@ def test_judgment_contract_preserves_empty_runtime_local_governance(tmp_path: Pa
     assert judgment_contract["role_postures"] == [
         "Builder: Treat project-local rules as part of the task evidence."
     ]
+
+
+def test_takeaway_judgment_contract_preserves_inherited_run_id_after_normalization() -> None:
+    projection = normalize_run_takeaway_projection_shape(
+        {"id": "run_next", "status": "awaiting_agent"},
+        {
+            "judgment_contract": {
+                "goal": "Continue from the prior evidence gap.",
+                "inherited_from_run_id": "run_previous",
+            },
+        },
+    )
+
+    assert projection["judgment_contract"]["inherited_from_run_id"] == "run_previous"
 
 
 def test_command_events_do_not_persist_prompt_or_secret_markers(

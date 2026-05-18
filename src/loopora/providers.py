@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 EXECUTOR_KINDS = ("codex", "claude", "opencode", "custom")
-CLAUDE_DEFAULT_MODEL = "Kimi-K2.6"
-OPENCODE_DEFAULT_MODEL = "minimax-token-plan/MiniMax-M2.7"
+CLAUDE_DEFAULT_MODEL = ""
+OPENCODE_DEFAULT_MODEL = ""
 EXECUTOR_KIND_ALIASES = {
     "codex": "codex",
     "openai-codex": "codex",
@@ -60,10 +60,11 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
         model_help_en="Uses the local Codex CLI. Leaving the model blank lets Codex CLI use its current default; set a value only when you need to pin a model.",
         effort_label_zh="推理强度",
         effort_label_en="Reasoning effort",
-        effort_help_zh="Codex 支持 low、medium、high、xhigh。",
-        effort_help_en="Codex supports low, medium, high, and xhigh.",
-        effort_options=("low", "medium", "high", "xhigh"),
-        effort_default="medium",
+        effort_help_zh="留空使用 Codex CLI 当前默认推理强度；只有需要固定时再选择 low、medium、high 或 xhigh。",
+        effort_help_en="Leave blank to use the current Codex CLI default reasoning effort; set low, medium, high, or xhigh only when you need to pin it.",
+        effort_options=("", "low", "medium", "high", "xhigh"),
+        effort_default="",
+        effort_optional=True,
         command_required_placeholders=("{prompt}", "{output_path}", "{schema_path}"),
         command_args_template=(
             "exec",
@@ -77,8 +78,6 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
             "{schema_path}",
             "--output-last-message",
             "{output_path}",
-            "-c",
-            'model_reasoning_effort="medium"',
             "{prompt}",
         ),
     ),
@@ -88,16 +87,17 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
         label_zh="Claude Code",
         cli_name="claude",
         default_model=CLAUDE_DEFAULT_MODEL,
-        model_placeholder_zh="默认 Kimi-K2.6；也可以填 sonnet / opus / 完整模型名",
-        model_placeholder_en="Defaults to Kimi-K2.6; you can also enter sonnet / opus / a full model name",
-        model_help_zh="使用本机 Claude Code CLI。Loopora 默认固定到套餐模型 Kimi-K2.6；清空模型字段时才继承 Claude Code 当前默认模型。",
-        model_help_en="Uses the local Claude Code CLI. Loopora defaults to the plan model Kimi-K2.6; clear the model field only when you want Claude Code's current default.",
+        model_placeholder_zh="留空使用 Claude Code 当前默认模型，或填 sonnet / opus / 完整模型名",
+        model_placeholder_en="Leave blank to use the current Claude Code default, or enter sonnet / opus / a full model name",
+        model_help_zh="使用本机 Claude Code CLI。默认留空更稳妥，让 Claude Code 跟随当前默认模型；只有需要固定模型时再填写。",
+        model_help_en="Uses the local Claude Code CLI. Leaving the model blank lets Claude Code use its current default; set a value only when you need to pin a model.",
         effort_label_zh="推理强度",
         effort_label_en="Effort",
-        effort_help_zh="Claude Code 支持 low、medium、high、max。旧的 xhigh 会自动映射为 max。",
-        effort_help_en="Claude Code supports low, medium, high, and max. Legacy xhigh is mapped to max.",
-        effort_options=("low", "medium", "high", "max"),
-        effort_default="medium",
+        effort_help_zh="留空使用 Claude Code 当前默认推理强度；只有需要固定时再选择 low、medium、high 或 max。旧的 xhigh 会自动映射为 max。",
+        effort_help_en="Leave blank to use the current Claude Code default effort; set low, medium, high, or max only when you need to pin it. Legacy xhigh is mapped to max.",
+        effort_options=("", "low", "medium", "high", "max"),
+        effort_default="",
+        effort_optional=True,
         command_required_placeholders=("{prompt}", "{json_schema}"),
         command_args_template=(
             "--setting-sources",
@@ -111,10 +111,6 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
             "bypassPermissions",
             "--json-schema",
             "{json_schema}",
-            "--model",
-            "{model}",
-            "--effort",
-            "medium",
             "{prompt}",
         ),
     ),
@@ -124,10 +120,10 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
         label_zh="OpenCode",
         cli_name="opencode",
         default_model=OPENCODE_DEFAULT_MODEL,
-        model_placeholder_zh="默认 minimax-token-plan/MiniMax-M2.7；也可以填 provider/model",
-        model_placeholder_en="Defaults to minimax-token-plan/MiniMax-M2.7; you can also enter provider/model",
-        model_help_zh="使用本机 OpenCode CLI。Loopora 默认固定到套餐模型 minimax-token-plan/MiniMax-M2.7；清空模型字段时才继承 OpenCode 当前默认模型。",
-        model_help_en="Uses the local OpenCode CLI. Loopora defaults to the plan model minimax-token-plan/MiniMax-M2.7; clear the model field only when you want OpenCode's current default.",
+        model_placeholder_zh="留空使用 OpenCode 当前默认模型，或填 provider/model",
+        model_placeholder_en="Leave blank to use the current OpenCode default, or enter provider/model",
+        model_help_zh="使用本机 OpenCode CLI。默认留空更稳妥，让 OpenCode 跟随当前默认模型；只有需要固定模型时再填写。",
+        model_help_en="Uses the local OpenCode CLI. Leaving the model blank lets OpenCode use its current default; set a value only when you need to pin a model.",
         effort_label_zh="Variant（可选）",
         effort_label_en="Variant (optional)",
         effort_help_zh="OpenCode 走 provider-specific variant。可留空使用默认，也可以填 high、max、minimal、xhigh 等。",
@@ -143,8 +139,6 @@ EXECUTOR_PROFILES: dict[str, ExecutorProfile] = {
             "--dir",
             "{workdir}",
             "--dangerously-skip-permissions",
-            "--model",
-            "{model}",
             "{prompt}",
         ),
     ),
@@ -176,6 +170,16 @@ _CLAUDE_ALIASES = {"minimal": "low", "xhigh": "max"}
 _OPENCODE_BLANK_ALIASES = {"auto", "default"}
 
 
+def _normalize_bounded_reasoning_setting(raw: str, *, profile: ExecutorProfile, aliases: dict[str, str], label: str) -> str:
+    if not raw or raw in _OPENCODE_BLANK_ALIASES:
+        return profile.effort_default
+    normalized = aliases.get(raw, raw)
+    if normalized not in profile.effort_options:
+        supported = ", ".join(profile.effort_options)
+        raise ValueError(f"unsupported reasoning effort for {label}: {raw!r}. Expected one of: {supported}")
+    return normalized
+
+
 def normalize_executor_kind(value: str | None) -> str:
     normalized = (value or "codex").strip().lower()
     if normalized in EXECUTOR_KIND_ALIASES:
@@ -205,17 +209,9 @@ def normalize_reasoning_setting(value: str | None, *, executor_kind: str) -> str
     profile = executor_profile(executor_kind)
     raw = (value or "").strip().lower()
     if profile.key == "codex":
-        normalized = _CODEX_ALIASES.get(raw or profile.effort_default, raw or profile.effort_default)
-        if normalized not in profile.effort_options:
-            supported = ", ".join(profile.effort_options)
-            raise ValueError(f"unsupported reasoning effort for Codex: {value!r}. Expected one of: {supported}")
-        return normalized
+        return _normalize_bounded_reasoning_setting(raw, profile=profile, aliases=_CODEX_ALIASES, label="Codex")
     if profile.key == "claude":
-        normalized = _CLAUDE_ALIASES.get(raw or profile.effort_default, raw or profile.effort_default)
-        if normalized not in profile.effort_options:
-            supported = ", ".join(profile.effort_options)
-            raise ValueError(f"unsupported reasoning effort for Claude Code: {value!r}. Expected one of: {supported}")
-        return normalized
+        return _normalize_bounded_reasoning_setting(raw, profile=profile, aliases=_CLAUDE_ALIASES, label="Claude Code")
     if profile.key == "custom":
         if not raw or raw in _OPENCODE_BLANK_ALIASES:
             return ""

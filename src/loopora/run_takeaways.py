@@ -615,6 +615,7 @@ def empty_judgment_contract() -> dict[str, Any]:
         "fake_done_states": [],
         "evidence_preferences": [],
         "residual_risk": "",
+        "inherited_from_run_id": "",
     }
 
 
@@ -885,6 +886,10 @@ def _normalize_judgment_contract_payload(value: object, *, default_contract_path
     normalized["fake_done_states"] = _takeaway_text_list(raw.get("fake_done_states") or compiled_spec.get("fake_done_states"))
     normalized["evidence_preferences"] = _takeaway_text_list(raw.get("evidence_preferences") or compiled_spec.get("evidence_preferences"))
     normalized["residual_risk"] = clean_takeaway_text(raw.get("residual_risk") or compiled_spec.get("residual_risk"), max_length=600)
+    normalized["inherited_from_run_id"] = _string_value(raw.get("inherited_from_run_id"))
+    continuation_context = raw.get("continuation_context") if isinstance(raw.get("continuation_context"), Mapping) else None
+    if continuation_context:
+        normalized["inherited_from_run_id"] = _string_value(continuation_context.get("previous_run_id")) or normalized["inherited_from_run_id"]
     return normalized
 
 

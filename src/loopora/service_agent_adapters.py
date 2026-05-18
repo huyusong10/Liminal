@@ -591,6 +591,7 @@ class ServiceAgentAdapterMixin:
         continuation = self._agent_native_continuation_context_for_terminal_run(run)
         coverage = continuation.get("coverage") if isinstance(continuation.get("coverage"), dict) else {}
         verdict = continuation.get("previous_task_verdict") if isinstance(continuation.get("previous_task_verdict"), dict) else {}
+        buckets = verdict.get("buckets") if isinstance(verdict.get("buckets"), dict) else {}
         return {
             "reason": str(continuation.get("reason") or "").strip(),
             "previous_run_id": str(continuation.get("previous_run_id") or "").strip(),
@@ -600,10 +601,27 @@ class ServiceAgentAdapterMixin:
                 "status": str(coverage.get("status") or "").strip(),
                 "covered_check_count": self._non_negative_int(coverage.get("covered_check_count")),
                 "missing_check_count": self._non_negative_int(coverage.get("missing_check_count")),
+                "target_count": self._non_negative_int(coverage.get("target_count")),
+                "covered_target_count": self._non_negative_int(coverage.get("covered_target_count")),
+                "weak_target_count": self._non_negative_int(coverage.get("weak_target_count")),
+                "missing_target_count": self._non_negative_int(coverage.get("missing_target_count")),
+                "blocked_target_count": self._non_negative_int(coverage.get("blocked_target_count")),
                 "missing_check_ids": self._string_list(coverage.get("missing_check_ids"), limit=8),
                 "top_gaps": self._list_of_dicts(coverage.get("top_gaps"), limit=4),
             },
             "next_focus": self._string_list(continuation.get("next_focus"), limit=5),
+            "focus_blocking": self._string_list(
+                [self._bucket_focus_text(item) for item in self._list_of_dicts(buckets.get("blocking"), limit=4)],
+                limit=4,
+            ),
+            "focus_unproven": self._string_list(
+                [self._bucket_focus_text(item) for item in self._list_of_dicts(buckets.get("unproven"), limit=4)],
+                limit=4,
+            ),
+            "focus_weak": self._string_list(
+                [self._bucket_focus_text(item) for item in self._list_of_dicts(buckets.get("weak"), limit=4)],
+                limit=4,
+            ),
             "previous_task_verdict_path": str(continuation.get("previous_task_verdict_path") or "").strip(),
             "previous_evidence_coverage_path": str(continuation.get("previous_evidence_coverage_path") or "").strip(),
         }
@@ -690,6 +708,11 @@ class ServiceAgentAdapterMixin:
             "status": str(coverage_summary.get("status") or "pending"),
             "covered_check_count": self._non_negative_int(coverage_summary.get("covered_check_count")),
             "missing_check_count": self._non_negative_int(coverage_summary.get("missing_check_count")),
+            "target_count": self._non_negative_int(coverage_summary.get("target_count")),
+            "covered_target_count": self._non_negative_int(coverage_summary.get("covered_target_count")),
+            "weak_target_count": self._non_negative_int(coverage_summary.get("weak_target_count")),
+            "missing_target_count": self._non_negative_int(coverage_summary.get("missing_target_count")),
+            "blocked_target_count": self._non_negative_int(coverage_summary.get("blocked_target_count")),
             "covered_check_ids": self._string_list(coverage_summary.get("covered_check_ids"), limit=20),
             "missing_check_ids": self._string_list(coverage_summary.get("missing_check_ids"), limit=20),
             "top_gaps": self._list_of_dicts(coverage_summary.get("top_gaps"), limit=5),
@@ -704,7 +727,7 @@ class ServiceAgentAdapterMixin:
         buckets = task_verdict.get("buckets") if isinstance(task_verdict.get("buckets"), dict) else {}
         for bucket_name in ("blocking", "unproven", "weak"):
             for item in cls._list_of_dicts(buckets.get(bucket_name), limit=4):
-                text = str(item.get("summary") or item.get("text") or item.get("id") or "").strip()
+                text = cls._bucket_focus_text(item)
                 if text:
                     focus.append(text)
         for gap in cls._list_of_dicts(coverage.get("top_gaps"), limit=5):
@@ -713,6 +736,17 @@ class ServiceAgentAdapterMixin:
             if target_id or text:
                 focus.append(f"{target_id}: {text}".strip(": "))
         return cls._dedupe_strings(focus, limit=8)
+
+    @staticmethod
+    def _bucket_focus_text(item: dict) -> str:
+        return str(
+            item.get("summary")
+            or item.get("text")
+            or item.get("label")
+            or item.get("reason")
+            or item.get("id")
+            or ""
+        ).strip()
 
     @staticmethod
     def _read_json_object(path: Path) -> dict:

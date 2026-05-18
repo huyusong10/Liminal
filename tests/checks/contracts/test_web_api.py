@@ -2621,7 +2621,7 @@ def test_api_loop_creation_supports_provider_specific_defaults(
     codex_loop = codex_response.json()["loop"]
     assert codex_loop["executor_kind"] == "codex"
     assert codex_loop["model"] == ""
-    assert codex_loop["reasoning_effort"] == "medium"
+    assert codex_loop["reasoning_effort"] == ""
 
     opencode_response = client.post(
         "/api/loops",

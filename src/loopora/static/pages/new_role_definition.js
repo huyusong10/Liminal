@@ -258,7 +258,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (model) {
         args.push("--model", model);
       }
-      args.push("-c", `model_reasoning_effort="${reasoningEffort || profile.effort_default}"`, "<role prompt>");
+      if (reasoningEffort) {
+        args.push("-c", `model_reasoning_effort="${reasoningEffort}"`);
+      }
+      args.push("<role prompt>");
       return args;
     }
     if (profile.key === "claude") {

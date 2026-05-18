@@ -175,7 +175,7 @@ role 不表达本次 step 的写入、只读、收束或控制权限。权限随
 - 内置 archetype 的契约值保持英文原文；中文 Web UI 展示为“构建者 / 巡检者 / 守门者 / 引导者 / 自定义角色”。
 - 用户自定义 role 名称按用户输入原样展示。
 - 已保存 role definition 的 archetype 固定；更新入口不能改变它。
-- 预设执行配置中的 `model` 是可选 pin；空值表示使用所选 Agent CLI 的当前默认模型，只有用户、导入资产或 step 覆盖显式填写时才固定模型。
+- 预设执行配置中的 `model` 与 `reasoning_effort` 是可选 pin；空值表示使用所选 Agent CLI 的当前默认配置，只有用户、导入资产或 step 覆盖显式填写时才固定外部 provider 配置。
 - `custom` 执行器保存前必须处于 `command` 模式。
 - Codex / Claude Code / OpenCode 的 Agent-first 入口优先把 workflow role 映射到宿主原生 skill / command / subagent / task。只有明确 headless 自动化路径才使用上表的 CLI 执行器。
 

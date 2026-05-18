@@ -414,7 +414,7 @@ def test_gatekeeper_pass_with_residual_risk_projects_task_verdict(
 
     assert run["status"] == "succeeded"
     assert run["task_verdict"]["status"] == "passed_with_residual_risk"
-    assert run["task_verdict"]["buckets"]["residual_risk"] == [{"label": "Manual copy polish remains a visible follow-up."}]
+    assert run["task_verdict"]["buckets"]["residual_risk"] == [{"label": "Manual copy polish remains a visible follow-up.", "managed": True}]
     assert gatekeeper_entry["residual_risk"] == "Manual copy polish remains a visible follow-up."
 
 

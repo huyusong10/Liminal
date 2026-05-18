@@ -213,6 +213,10 @@
 
     function judgmentContractDetail(contract) {
       const bits = [];
+      const inheritedFromRunId = String(contract?.inherited_from_run_id || "").trim();
+      if (inheritedFromRunId) {
+        bits.push(localeText(`继承自运行 ${inheritedFromRunId}`, `Inherited from run ${inheritedFromRunId}`));
+      }
       const sourceBundle = contract?.source_bundle;
       if (sourceBundle && typeof sourceBundle === "object" && sourceBundle.id) {
         const sourceBits = [compactText(sourceBundle.name || sourceBundle.id, 52)];
@@ -247,13 +251,14 @@
       if (!bits.length && (contract?.goal || contract?.collaboration_summary)) {
         bits.push(compactText(contract.goal || contract.collaboration_summary));
       }
-      return bits.slice(0, 6).join(" · ");
+      return bits.slice(0, 8).join(" · ");
     }
 
     function evidenceCoverageHtml(snapshot, runId) {
       const coverage = snapshot?.evidence_coverage || {};
       const manifest = snapshot?.evidence_manifest || {};
       const judgmentContract = snapshot?.judgment_contract || {};
+      const inheritedFromRunId = String(judgmentContract?.inherited_from_run_id || "").trim();
       const evidenceCount = firstDisplayCount(coverage.evidence_count, snapshot?.evidence_count);
       const checkCount = displayCount(coverage.check_count);
       const coveredChecks = displayCount(coverage.covered_check_count);
@@ -316,7 +321,7 @@
         evidenceCoverageCard(
           "判断契约",
           "Judgment contract",
-          contractPath ? localeText("已冻结", "Frozen") : "-",
+          contractPath ? (inheritedFromRunId ? localeText("已冻结（继承）", "Frozen (inherited)") : localeText("已冻结", "Frozen")) : "-",
           judgmentContractDetail(judgmentContract),
           contractAction
         ),

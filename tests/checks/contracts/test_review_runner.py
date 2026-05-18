@@ -183,6 +183,8 @@ def test_default_path_language_case_keeps_hint_scope_on_default_surfaces() -> No
     assert "src/loopora/assets/alignment/system-prompt.md" in text_globs
     assert "README.md" in text_globs
     assert "README.zh-CN.md" in text_globs
+    assert "src/loopora/templates/partials/*.html" in text_globs
+    assert "src/loopora/templates/partials/*.html" in hint_globs
     assert {"workflow", "workflow controls", "orchestration"}.issubset(hint_terms)
     assert all(not glob.startswith("src/loopora/assets/alignment/") for glob in hint_globs)
     assert "README.md" in hint_globs
